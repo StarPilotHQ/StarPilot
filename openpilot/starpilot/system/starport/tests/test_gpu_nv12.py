@@ -27,7 +27,7 @@ def test_invalid_margins_leave_no_gpu_resources(margins):
 def gpu():
   if os.getenv("STARPILOT_AUTO_GL_TEST") != "1":
     raise SkipTest("STARPILOT_AUTO_GL_TEST=1 enables tests requiring a real graphics context")
-  import pyray as rl
+  from openpilot.starpilot.ui.raylib import rl
   with pytest.MonkeyPatch.context() as patch:
     if sys.platform == "darwin":
       gl = C.CDLL("/System/Library/Frameworks/OpenGL.framework/OpenGL")
@@ -49,7 +49,7 @@ def gpu():
         function = getattr(gl, name.decode(), None)
         return C.cast(function, C.c_void_p).value if function is not None else None
       loader = loader_type(address)
-      rl.rl_load_extensions(rl.ffi.cast("void *", C.cast(loader, C.c_void_p).value))
+      rl.rl_load_extensions(C.cast(loader, C.c_void_p).value)
       rl.rlgl_init(64, 64)
       rl.rl_set_framebuffer_width(64)
       rl.rl_set_framebuffer_height(64)
@@ -58,6 +58,14 @@ def gpu():
         rl.rlgl_close()
         gl.CGLSetCurrentContext(None)
         gl.CGLDestroyContext(context)
+    elif os.getenv("STARPILOT_TEST_SOFTWARE_EGL") == "1":
+      from openpilot.starpilot.system.starport.tests.software_egl import SoftwareEGLContext
+      context = SoftwareEGLContext(rl)
+      # The wheel bundles Mesa; the host's GLES library may use a separate
+      # dispatch table and cannot read framebuffers from this EGL context.
+      load_library = C.CDLL
+      patch.setattr(headless_egl.C, "CDLL", lambda name: context.gl if name == "libGLESv2.so" else load_library(name))
+      close = context.close
     else:
       context = headless_egl.HeadlessContext(64, 64)
       close = context.close
@@ -84,8 +92,8 @@ def test_composed_car_frame_converts_to_the_same_picture(gpu, width, height, mar
   rl = gpu
   logical_w, logical_h = 31, 18  # the projection's logical canvas, scaled to fit the visible area
   pixels = np.random.default_rng(11).integers(0, 256, (logical_h, logical_w, 4), dtype=np.uint8)
-  buffer = rl.ffi.from_buffer(pixels)
-  texture_id = rl.rl_load_texture(rl.ffi.cast("void *", buffer), logical_w, logical_h, 7, 1)
+  buffer = pixels.reshape(-1)
+  texture_id = rl.rl_load_texture(buffer, logical_w, logical_h, 7, 1)
   source = rl.Texture(texture_id, logical_w, logical_h, 1, 7)
   output = rl.load_render_texture(width, height)
   converter = gpu_nv12.Nv12Converter(width, height)
@@ -103,18 +111,32 @@ def test_composed_car_frame_converts_to_the_same_picture(gpu, width, height, mar
 @pytest.mark.parametrize("width,height,margin_w,margin_h", [(32, 18, 0, 0), (32, 18, 4, 2), (32, 20, 3, 5)])
 @pytest.mark.parametrize("asynchronous", [False, True])
 def test_fused_projection_conversion_matches_rgba_composition(gpu, width, height, margin_w, margin_h, asynchronous):
-  """The fast car path folds margins and vertical orientation into NV12 conversion."""
+  """Centered and asymmetric safe rectangles retain their pixels through both paths."""
+  cases = [(width, height, margin_w, margin_h, None)]
+  if (width, height, margin_w, margin_h) == (32, 20, 3, 5):
+    cases.extend([(32, 18, 4, 2, (4, 0)), (32, 20, 3, 5, (0, 0)), (32, 20, 3, 5, (3, 5)),
+                  (1280, 720, 0, 231, (0, 0)), (1280, 720, 0, 231, (0, 231))])
+  for case in cases:
+    assert_fused_frame(gpu, *case, asynchronous)
+
+
+def assert_fused_frame(gpu, width, height, margin_w, margin_h, origin, asynchronous):
+  placement = {} if origin is None else {"content_left": origin[0], "content_top": origin[1]}
   rl = gpu
   visible_w, visible_h = width - margin_w, height - margin_h
   pixels = np.random.default_rng(17).integers(0, 256, (visible_h, visible_w, 4), dtype=np.uint8)
-  buffer = rl.ffi.from_buffer(pixels)
-  texture_id = rl.rl_load_texture(rl.ffi.cast("void *", buffer), visible_w, visible_h, 7, 1)
+  buffer = pixels.reshape(-1)
+  texture_id = rl.rl_load_texture(buffer, visible_w, visible_h, 7, 1)
   source = rl.Texture(texture_id, visible_w, visible_h, 1, 7)
   output = rl.load_render_texture(width, height)
-  converter = gpu_nv12.Nv12Converter(width, height, margin_w=margin_w, margin_h=margin_h, compose=True)
+  converter = gpu_nv12.Nv12Converter(width, height, margin_w=margin_w, margin_h=margin_h, compose=True, **placement)
   try:
-    gpu_nv12.compose_rgba(source, output, margin_w, margin_h)
+    gpu_nv12.compose_rgba(source, output, margin_w, margin_h, **placement)
     rgba = read_frame(width * height * 4, [(output.id, width, height, 0)])
+    if origin is not None:
+      actual = np.frombuffer(rgba, dtype=np.uint8).reshape(height, width, 4)
+      left, top = origin
+      assert np.array_equal(actual[top:top + visible_h, left:left + visible_w, :3], pixels[::-1, :, :3])
     nv12 = read_frame(width * height * 3 // 2, converter.convert(source), asynchronous)
     assert nv12 == gpu_nv12.reference_nv12(rgba, width, height)
   finally:

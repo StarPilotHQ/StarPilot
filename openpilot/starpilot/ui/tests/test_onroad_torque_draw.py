@@ -1,12 +1,16 @@
+import numpy as np
 from contextlib import contextmanager
 from types import SimpleNamespace as NS
+from dataclasses import replace
 from unittest.mock import patch
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import pytest
 
 from openpilot.starpilot.ui import onroad_torque_draw
 from openpilot.starpilot.ui.onroad_torque_draw import TorqueBarPainter
+from openpilot.starpilot.ui.onroad_torque import TorqueBarWidget
+from openpilot.starpilot.ui.onroad_state import OnroadState, SpeedLimitObservation
 
 
 @contextmanager
@@ -17,7 +21,7 @@ def record_gpu():
   def upload(shader, location, values, kind):
     name = next(name for name, value in names.items() if value == location)
     data.uniforms[name] = tuple(values[0:4])
-    data.uploads.append((name, int(rl.ffi.cast('uintptr_t', values))))
+    data.uploads.append((name, int(np.asarray(values).ctypes.data)))
 
   def finish():
     data.frames.append(NS(uniforms=dict(data.uniforms), vertices=tuple(vertices), coordinates=tuple(coordinates)))
@@ -34,9 +38,9 @@ def record_gpu():
        patch.object(rl, 'rl_end', side_effect=finish), \
        patch.object(rl, 'unload_shader', side_effect=lambda shader: data.unloads.append(shader.id)), \
        patch.object(rl, 'is_window_ready', return_value=True), patch.object(rl, 'rl_get_shader_id_default', return_value=0):
-    native = NS(BeginShaderMode=rl.begin_shader_mode, EndShaderMode=rl.end_shader_mode,
-                SetShaderValue=rl.set_shader_value, rlSetTexture=rl.rl_set_texture,
-                rlBegin=rl.rl_begin, rlTexCoord2f=rl.rl_tex_coord2f, rlVertex2f=rl.rl_vertex2f, rlEnd=rl.rl_end)
+    native = NS(begin_shader_mode=rl.begin_shader_mode, end_shader_mode=rl.end_shader_mode,
+                set_shader_value=rl.set_shader_value, rl_set_texture=rl.rl_set_texture,
+                rl_begin=rl.rl_begin, rl_tex_coord2f=rl.rl_tex_coord2f, rl_vertex2f=rl.rl_vertex2f, rl_end=rl.rl_end)
     with patch.object(onroad_torque_draw, 'native_rl', native):
       yield data
 
@@ -132,3 +136,26 @@ def test_shader_failure_never_paints_the_bounding_rectangle(default_shader_id):
       TorqueBarPainter().render(rl.Rectangle(0, 0, 476, 240), .3, 1, 536, 7)
   assert not gpu.frames
   assert gpu.unloads == ([1] if default_shader_id == 0 else [])
+
+
+@pytest.mark.parametrize('width,rect', [
+  (536, (0, 0, 476, 240)), (2160, (30, 30, 1800, 1020)), (1860, (30, 30, 1800, 1800)),
+])
+@pytest.mark.parametrize('utilization', [-1, -.875, -.75, -.3, .3, .75, .875, 1])
+def test_demand_preserves_original_colors_geometry_and_direction(width, rect, utilization):
+  state = OnroadState(True, True, 15.0, 80.0, SpeedLimitObservation(), lateral_active=True, torque_source_available=True,
+                      torque_utilization=utilization, torque_is_demand=True)
+  frames = []
+  for demand_only in (True, False):
+    widget = TorqueBarWidget()
+    with record_gpu() as gpu:
+      for _ in range(120):
+        widget.render(rl.Rectangle(*rect), replace(state, torque_is_demand=demand_only), width)
+      frames.append(gpu.frames[-1])
+  demand, torque = frames
+  warmth = max(0.0, min(1.0, (abs(widget._torque_filter.x) - .75) * 4))
+  assert demand.uniforms['gradient'][1:] == pytest.approx((1 - warmth * 140 / 255, warmth * 85 / 255, 1 - warmth))
+  assert demand.uniforms == torque.uniforms
+  assert demand.uniforms['indicatorNormals'][0 if utilization < 0 else 2] * utilization > 0
+  assert demand.uniforms['indicatorNormals'] == torque.uniforms['indicatorNormals']
+  assert demand.vertices == torque.vertices

@@ -103,5 +103,28 @@ class TestRadarLeadProjectionCache(unittest.TestCase):
         self.assertTrue(all(type(value) is tuple and all(type(row) is tuple for row in value) for value in rows.values()))
 
 
+  def test_native_field_access_keeps_both_leads_and_rejects_invalid_values(self):
+    for reader in (False, True):
+      with self.subTest(reader=reader):
+        radar = self.radar(1)
+        radar.leadOne.dRel, radar.leadOne.yRel, radar.leadOne.vLead, radar.leadOne.aLeadK = 14.5, 1.25, 8.25, -.5
+        radar.leadTwo.present = False
+        radar.leadTwo.dRel, radar.leadTwo.yRel, radar.leadTwo.vLead, radar.leadTwo.aLeadK = 30.25, -2.5, 15.25, 1.5
+        value = radar.as_reader() if reader else radar
+        self.assertEqual(policy.leads_from_radar(value, **self.kwargs),
+                         (policy.Lead(True, 14.5, 1.25, 8.25, -.5), policy.Lead(False, 30.25, -2.5, 15.25, 1.5)))
+        radar.leadTwo.yRel = 21.
+        self.assertIsNone(policy.leads_from_radar(value, **self.kwargs))
+        radar.leadTwo.yRel = -2.5
+        radar.leadOne.dRel = float('nan')
+        self.assertIsNone(policy.leads_from_radar(value, **self.kwargs))
+        radar.leadOne.dRel = 14.5
+        invalid: ProjectionArguments = {**self.kwargs, 'valid': False}
+        stale: ProjectionArguments = {**self.kwargs, 'now_ns': 2_000_000_000}
+        self.assertIsNone(policy.leads_from_radar(value, **invalid))
+        self.assertIsNone(policy.leads_from_radar(value, **stale))
+        self.assertIsNotNone(policy.leads_from_radar(value, **self.kwargs))
+
+
 if __name__ == '__main__':
   unittest.main()

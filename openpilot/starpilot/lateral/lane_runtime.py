@@ -28,7 +28,7 @@ def read_settings(params) -> LaneCenteringSettings:
     enabled = boolean('LaneCentering', b'0')
     pause = boolean('LaneCenteringPauseOnSignal', b'1')
     offset = float(raw('LaneCenterOffset', b'0.0'))
-    authority = float(raw('LaneCenteringE2EAuthority', b'1.0'))
+    authority = float(raw('LaneCenteringE2EAuthority', b'0.5'))
     try:
       strength = float(raw('LaneCenteringStrength', str(STRENGTH_BASELINE).encode()))
     except UnknownKeyName:
@@ -59,6 +59,12 @@ class LaneCenteringHost:
     self.last_refresh_ns: int | None = None
     self.last_tick_ns: int | None = None
     self.last_refusal = 'inactive'
+
+  def inputs_need_refresh(self, sm, *, now_ns: int) -> bool:
+    """Leave time to receive queued state before checking its original age."""
+    return self.settings.enabled and any(
+      0 < int(sm.logMonoTime[name]) < now_ns - 15_000_000 for name in ('carState', 'selfdriveState')
+    )
 
   def sample(self, sm, *, now_ns: int, lateral_active: bool, longitudinal_active: bool) -> LaneCenteringRequest | None:
     self.last_refusal = 'inactive'

@@ -1,10 +1,12 @@
 import numpy as np
 from opendbc.can import CANPacker
-from opendbc.car import Bus, make_tester_present_msg, structs
+from opendbc.car import Bus, DT_CTRL, make_tester_present_msg, structs
+from opendbc.car.common.filter_simple import FirstOrderFilter
 from opendbc.car.lateral import (apply_driver_steer_torque_limits, apply_std_steer_angle_limits,
                                 apply_steer_angle_limits_vm, common_fault_avoidance)
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.subaru import subarucan
+from opendbc.car.subaru.jacobw_angle import filter_angle as jacobw_filter_angle, limit_angle as jacobw_limit_angle
 from opendbc.car.subaru.stock_aol import qualified as subaru_aol_qualified
 from opendbc.car.subaru.values import CAR, DBC, GLOBAL_ES_ADDR, CanBus, CarControllerParams, SubaruFlags
 from opendbc.car.vehicle_model import VehicleModel
@@ -13,7 +15,8 @@ from opendbc.car.vehicle_model import VehicleModel
 # involves the total steering angle change rather than rate, but these limits work well for now
 MAX_STEER_RATE = 25  # deg/s
 MAX_STEER_RATE_FRAMES = 7  # tx control frames needed before torque can be cut
-GEN2_ANGLE_PORTS = frozenset((CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_LEGACY_2025, CAR.SUBARU_ASCENT_2023, CAR.SUBARU_FORESTER_2022, CAR.SUBARU_OUTBACK_2023))
+GEN2_ANGLE_PORTS = frozenset((CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025, CAR.SUBARU_LEGACY_2025,
+                               CAR.SUBARU_ASCENT_2023, CAR.SUBARU_FORESTER_2022, CAR.SUBARU_OUTBACK_2023))
 
 
 class CarController(CarControllerBase):
@@ -24,6 +27,7 @@ class CarController(CarControllerBase):
     from opendbc.car.subaru.avh import selected as avh_selected, AvhStartup
     self.avh_startup = AvhStartup() if avh_selected(CP) else None
     self.apply_torque_last = 0
+    self.angle_filter = FirstOrderFilter(0.0, 0.3, DT_CTRL) if CP.carFingerprint in (CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025) else None
     self.apply_angle_last = 0.
     self.angle_was_active = False
     self.angle_override_frames = 0
@@ -57,7 +61,7 @@ class CarController(CarControllerBase):
       self.angle_override_frames = 0
       self.angle_handoff_active = False
       return False
-    high, low = (150, 100) if self.CP.carFingerprint == CAR.SUBARU_CROSSTREK_2025 else (200, 150)
+    high, low = (150, 100) if self.CP.carFingerprint in (CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025) else (200, 150)
     torque = abs(CS.out.steeringTorque)
     if self.angle_driver_override:
       if torque < low:
@@ -117,6 +121,9 @@ class CarController(CarControllerBase):
                                              CC.enabled or CC.latActive or CC.longActive))
 
     # *** steering ***
+    angle_target = actuators.steeringAngleDeg
+    if self.angle_filter is not None:
+      angle_target = jacobw_filter_angle(self.angle_filter, angle_target, CS.out.vEgo, CC.latActive)
     if (self.frame % self.p.STEER_STEP) == 0:
       if self.CP.carFingerprint in GEN2_ANGLE_PORTS:
         independent_lateral = subaru_aol_qualified(self.CP, marked_only=True)
@@ -131,12 +138,15 @@ class CarController(CarControllerBase):
           self.apply_angle_last = CS.out.steeringAngleDeg
           self.ascent_angle_initialized = True
           angle_active = False
-        if angle_active and not self.angle_was_active and self.CP.carFingerprint != CAR.SUBARU_ASCENT_2023:
-          self.apply_angle_last = CS.out.steeringAngleDeg
         if self.CP.carFingerprint in (CAR.SUBARU_LEGACY_2025, CAR.SUBARU_ASCENT_2023, CAR.SUBARU_OUTBACK_2023):
           apply_angle = apply_std_steer_angle_limits(actuators.steeringAngleDeg, self.apply_angle_last,
                                                      CS.out.vEgoRaw, CS.out.steeringAngleDeg, angle_active,
                                                      self.p.FIXED_ANGLE_LIMITS)
+        elif self.CP.carFingerprint in (CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025):
+          assert self.VM is not None
+          apply_angle, angle_active = jacobw_limit_angle(
+            angle_target, self.apply_angle_last, CS.out.vEgo,
+            CS.out.steeringAngleDeg, angle_active, self.p, self.VM)
         else:
           assert self.VM is not None
           apply_angle = apply_steer_angle_limits_vm(actuators.steeringAngleDeg, self.apply_angle_last,
@@ -156,7 +166,8 @@ class CarController(CarControllerBase):
           _projection.input(new_torque, self.p.STEER_MAX, self.apply_torque_last, CS.out.steeringTorque, self.p, limiter='driver')
         apply_torque = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last, CS.out.steeringTorque, self.p)
 
-        if not CC.latActive:
+        torque_active = CC.latActive and not getattr(CS, "high_angle_cut", False)
+        if not torque_active:
           apply_torque = 0
 
         if self.CP.flags & SubaruFlags.PREGLOBAL:
@@ -164,7 +175,7 @@ class CarController(CarControllerBase):
           if _projection is not None:
             _projection.emit('subaru.PREGLOBAL_ES_LKAS', apply_torque, CC.latActive, can_sends[-1])
         else:
-          apply_steer_req = CC.latActive
+          apply_steer_req = torque_active
 
           if self.CP.flags & SubaruFlags.STEER_RATE_LIMITED:
             # Steering rate fault prevention

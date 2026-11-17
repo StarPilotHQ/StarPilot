@@ -20,8 +20,17 @@ MAX_EVENTS = 512
 MAX_EVENT_BYTES = 512
 ID = re.compile(r"[0-9a-f]{32}\Z")
 FIELDS = {"version", "eventId", "sessionId", "kind", "monoTimeNs", "wallTimeNs"}
+BATTERY_FIELDS = {"voltage", "cutoff"}
 DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 FILE_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+
+
+def valid_tenths(value: object) -> bool:
+  return type(value) is int and 0 < value < 1000
+
+
+def volts(tenths: int) -> str:
+  return f"{tenths / 10:.1f} V"
 
 
 class StorageUnavailable(Exception):
@@ -46,7 +55,11 @@ def _valid(value: object, event_id: str) -> bool:
   if any(type(key) is not str for key in value):
     return False
   fields = {key: item for key, item in value.items() if type(key) is str}
-  if set(fields) not in (FIELDS, FIELDS | {"simulated"}) or ("simulated" in fields and fields["simulated"] is not True) or ID.fullmatch(event_id) is None:
+  battery = fields.get("kind") == "battery"
+  base = FIELDS | BATTERY_FIELDS if battery else FIELDS
+  if set(fields) not in (base, base | {"simulated"}) or ("simulated" in fields and fields["simulated"] is not True) or ID.fullmatch(event_id) is None:
+    return False
+  if battery and not all(valid_tenths(fields[key]) for key in BATTERY_FIELDS):
     return False
   version = fields["version"]
   session_id = fields["sessionId"]
@@ -55,7 +68,7 @@ def _valid(value: object, event_id: str) -> bool:
   return (type(version) is int and version == 1 and
           fields["eventId"] == event_id and
           type(session_id) is str and ID.fullmatch(session_id) is not None and
-          fields["kind"] in ("warning", "alarm", "selfie") and
+          fields["kind"] in ("warning", "alarm", "selfie", "battery") and
           type(mono_time) is int and 0 <= mono_time < 2**63 and
           type(wall_time) is int and 0 <= wall_time < 2**63)
 
@@ -117,10 +130,11 @@ class EventStore:
     finally:
       os.close(fd)
 
-  def record(self, kind: str, mono_time_ns: int, *, permitted: Callable[[], bool], images: dict | None = None, simulated: bool = False) -> RecordReceipt:
+  def record(self, kind: str, mono_time_ns: int, *, permitted: Callable[[], bool], images: dict | None = None, simulated: bool = False,
+             details: dict | None = None) -> RecordReceipt:
     event_id = uuid.uuid4().hex
     value = {"version": 1, "eventId": event_id, "sessionId": self.session_id, "kind": kind,
-             "monoTimeNs": mono_time_ns, "wallTimeNs": time.time_ns()}
+             "monoTimeNs": mono_time_ns, "wallTimeNs": time.time_ns(), **(details or {})}
     if simulated:
       value["simulated"] = True
     if not _valid(value, event_id):

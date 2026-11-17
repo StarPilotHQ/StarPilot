@@ -57,7 +57,7 @@ assert arch in [
   "Darwin",       # macOS arm64 (x86 not supported)
 ]
 
-pkg_names = ['acados', 'capnproto', 'ffmpeg', 'json11', 'ncurses', 'zeromq', 'zstd']
+pkg_names = ['acados', 'capnproto', 'ffmpeg', 'json11', 'ncurses', 'zstd']
 if arch != 'Darwin':
   pkg_names.append('libusb')
 pkgs = [importlib.import_module(name) for name in pkg_names]
@@ -172,7 +172,7 @@ env = Environment(
   COMPILATIONDB_USE_ABSPATH=True,
   REDNOSE_ROOT="#rednose_repo",
   tools=["default", "cython", "compilation_db", "rednose_filter"],
-  toolpath=["#msgq_repo/site_scons/site_tools", "#rednose_repo/site_scons/site_tools"],
+  toolpath=["#rednose_repo/site_scons/site_tools"],
 )
 # SCons' Darwin linker tool doesn't define the variables used to expand RPATH.
 if arch == "Darwin":
@@ -292,7 +292,7 @@ SConscript(['opendbc_repo/opendbc/can/SConscript'])
 # Build common module
 SConscript(['openpilot/common/SConscript'])
 Import('_common')
-common = [_common, 'json11', 'zmq']
+common = [_common, 'json11']
 Export('common')
 
 # Build messaging (cereal + msgq + socketmaster + their dependencies)
@@ -329,6 +329,7 @@ SConscript([
   'openpilot/selfdrive/ui/SConscript',
   'openpilot/starpilot/audio/native/SConscript',
   'openpilot/starpilot/models/runtime_bridge/SConscript',
+  'openpilot/starpilot/ui/native/SConscript',
   'openpilot/starpilot/flm/SConscript',
 ])
 
@@ -347,7 +348,7 @@ if GetOption('extras') and arch != "comma_arm64":
 env.CompilationDatabase('compile_commands.json')
 
 # progress output
-def count_scons_nodes(nodes):
+def get_scons_nodes(nodes):
   seen = set()
   stack = list(nodes)
 
@@ -356,28 +357,28 @@ def count_scons_nodes(nodes):
     if node in seen:
       continue
     seen.add(node)
-    executor = node.get_executor()
-    if executor is not None:
-      stack += executor.get_all_prerequisites() + executor.get_all_children()
+    # Only scan directories; generated sources are not ready yet.
+    stack += (node.prerequisites or []) + node.children(scan=isinstance(node, SCons.Node.FS.Dir))
 
-  return len(seen)
+  return seen
 
 progress_interval = 5
-progress_count = 0
-progress_total = max(1, count_scons_nodes(env.arg2nodes(BUILD_TARGETS or [Dir('.')], env.fs.Entry)))
+progress_nodes = get_scons_nodes(env.arg2nodes(BUILD_TARGETS or [Dir('.')], env.fs.Entry))
+progress_total = max(1, len(progress_nodes))
 
 def progress_function(node):
-  global progress_count
-  if progress_count >= progress_total:
+  if node not in progress_nodes:
     return
-  progress_count = min(progress_count + progress_interval, progress_total)
-  progress = round(100. * progress_count / progress_total, 1)
+  progress_nodes.remove(node)
+  if len(progress_nodes) % progress_interval:
+    return
+  progress = round(100. * (1 - len(progress_nodes) / progress_total), 1)
   sys.stderr.write("\rBuilding: %5.1f%%" % progress if sys.stderr.isatty() else "progress: %.1f\n" % progress)
   if progress == 100. and sys.stderr.isatty():
     sys.stderr.write("\n")
   sys.stderr.flush()
 
-Progress(progress_function, interval=progress_interval)
+Progress(progress_function)
 AddPostAction(BUILD_TARGETS or [Dir('.')], prune_cache_dir)
 
 # Release CI rebuilds tracked device outputs for the host architecture.

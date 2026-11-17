@@ -39,7 +39,7 @@ CONTEXT = ('a' * 64, 'b' * 64, 'c' * 64, 0)
 
 
 def raw_job(cp, runtime, params_store, *, native_refinements=False):
-  factory = SelectedControllerFactory(cp, 'standard')
+  factory = SelectedControllerFactory(cp, 'standard', turn_assist=runtime.descriptor.turn_assist)
   ci = interfaces[cp.carFingerprint](cp)
   ci.update([])
   assert install_observer(ci)
@@ -169,7 +169,7 @@ def raw_job(cp, runtime, params_store, *, native_refinements=False):
         source_epoch=source.source_epoch, source_receipt_ns=source.observed_ns, controller_mode='standard',
         policy=runtime.descriptor.policy, baseline_revision=runtime.baseline_revision,
         baseline_values=(baseline_values(controller) if native_refinements else runtime.initial_values),
-        controller_revision=runtime.descriptor.controller_revision,
+        controller_revision=runtime.descriptor.controller_revision, turn_assist=runtime.descriptor.turn_assist,
         replay_snapshot=checkpoint, replay_inputs=inputs, snapshot_sequence=sequence)
       applied = AppliedEvidence(stamp, stamp, stamp + 1_000_000, 'normalized_torque', float(output.torque),
                                 True, True, False, False, False, allowed, witness, ci.CC.frame, stamp + 1_000_000)

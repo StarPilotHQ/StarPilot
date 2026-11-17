@@ -402,6 +402,18 @@ class TrialState(TypedDict):
   demand: NotRequired[DemandSignature]
   published: NotRequired[bool]
   prior_accepted: NotRequired[TrialState | None]
+  source_rechecked_before: NotRequired[tuple[TrackingEpisode, ...]]
+
+
+@dataclass
+class SourceRecheck:
+  """Inert A/B numbers; never a retained application or permission."""
+  intent: TrialState
+  before: tuple[TrackingEpisode, ...]
+  future: tuple[TrackingEpisode, ...]
+  context: tuple[LiveTrialBinding, ResponseCertificate, str]
+  baseline: list[TrackingEpisode]
+  first_ack_ns: int = 0
 
 
 class DiscoveryState(TypedDict):
@@ -506,13 +518,118 @@ class LiveTrackingOptimizer:
     self.comparison: list[TrackingEpisode] = []
     self.settled_ns: int | None = None
     self.paused_intent: tuple[TrialState, tuple[TrackingEpisode, ...], tuple[TrackingEpisode, ...]] | None = None
+    self.paused_demand_context: tuple[LiveTrialBinding, ResponseCertificate, str] | None = None
+    self.paused_baseline_ns = 0
+    self.source_recheck: SourceRecheck | None = None
     self.status, self.reason = 'collecting', 'qualified_tracking_episodes_required'
     self.model_status = 'unavailable'
 
   def _hash(self, values: dict[str, float] | tuple[tuple[str, float], ...]) -> str:
     return full_profile_sha256(self.binding.baseline_revision, values)
 
+  def _drop_paused(self) -> None:
+    self.paused_intent = self.paused_demand_context = None
+    self.paused_baseline_ns = 0
+
+  def _check_source_recheck(self, now_ns: int) -> None:
+    check = self.source_recheck
+    if check is not None and (
+      type(now_ns) is not int or now_ns > check.intent['deadline_ns']
+      or check.context != (self.binding, self.certificate, self.domain)
+      or check.intent['baseline'] != self.accepted
+    ):
+      self.source_recheck = None
+      self.status, self.reason = 'collecting', 'return_baseline_recheck_expired_or_context_changed'
+
+  @staticmethod
+  def _source_batches_improved(before, future) -> bool:
+    old = [_score(row) for row in before]
+    new = [_score(row) for row in future]
+    mean_reversals = statistics.mean(row.reversal_hz for row in before)
+    reversal_limit = max(1.25 * mean_reversals, mean_reversals + 0.3)
+    return (
+      _feedback_result(old, new) > 0
+      and statistics.mean(row.reversal_hz for row in future) <= reversal_limit
+      and all(_score(row) <= 1.5 * max(statistics.mean(old), 0.03)
+        and row.reversal_hz <= max(reversal_limit, max(old_row.reversal_hz for old_row in before)) for row in future)
+    )
+
+  def _begin_source_recheck(self) -> None:
+    assert self.offer_state is not None
+    state = self.offer_state
+    self.source_recheck = SourceRecheck(state.copy(), self.before, tuple(self.future),
+      (self.binding, self.certificate, self.domain), [])
+    # This is an explicit return-to-baseline measurement, not a rejected
+    # experiment's rollback/retry. Provisional B is neither accepted nor saved.
+    baseline_offer = state.copy()
+    baseline_offer['phase'], baseline_offer['target'] = 'rollback', dict(state['baseline'])
+    self.offer_state = baseline_offer
+    self._drop_paused()
+    self._discard_selector()
+    self.before, self.future, self.settled_ns = (), [], None
+    self.status, self.reason = 'collecting', 'actual_accepted_baseline_ack_before_recheck_required'
+
+  def _observe_source_recheck(self, episode: TrackingEpisode, now_ns: int) -> bool:
+    check, state = self.source_recheck, self.offer_state
+    assert check is not None
+    if (state is None or state['phase'] != 'rollback' or not state['accepted']
+      or not check.first_ack_ns or episode.start_ns <= check.first_ack_ns + self.lag_ns
+      or self.last_ack is None
+      or self.last_ack[:4] != (state['trial_id'], state.get('target_sequence', self.sequence), 'rollback', self._hash(self.accepted))
+      or not 0 <= now_ns - self.last_ack[-1] <= 100_000_000
+      or not _matches_demand(check.intent['demand'], episode)
+      or check.baseline and episode.start_ns <= check.baseline[-1].end_ns):
+      return False
+    check.baseline.append(episode)
+    self.status, self.reason = 'collecting', 'measuring_accepted_baseline_after_trial'
+    if len(check.baseline) < check.intent['required_episodes']:
+      return True
+    self.source_recheck = None
+    if not self._source_batches_improved(check.baseline, check.future):
+      # No second chance on these outcomes. A remains the accepted map.
+      for name in check.intent['names']:
+        direction = 1 if check.intent['target'][name] > self.accepted[name] else -1
+        self.inconclusive_trials.append((name, direction, self._hash(self.accepted), check.intent['demand'], episode.end_ns))
+      self.status, self.reason = 'collecting', 'return_baseline_did_not_confirm_improvement'
+      return True
+    self.sequence += 1
+    trial = check.intent.copy()
+    trial['trial_id'] = hashlib.sha256(repr((trial['trial_id'], 'baseline-rechecked', self.sequence, now_ns)).encode()).hexdigest()
+    trial['target_sequence'], trial['published'], trial['accepted'] = self.sequence, False, False
+    trial['prior_accepted'] = state
+    trial['source_rechecked_before'] = check.before
+    # ORIGINAL start, deadline, fixed quotas and confidence allocation survive.
+    # B2 must earn a fresh full-map ACK, settling and a whole new future batch.
+    self.offer_state, self.before, self.future, self.settled_ns = trial, tuple(check.baseline), [], None
+    self.status, self.reason = 'trial_pending', 'rechecked_target_requires_new_application_and_performance'
+    return True
+
+  def _check_paused_demand(self, now_ns: int) -> None:
+    if self.paused_demand_context is not None and (
+      self.paused_intent is None
+      or self.paused_demand_context != (self.binding, self.certificate, self.domain)
+      or self.paused_intent[0]['baseline'] != self.accepted
+      or now_ns >= self.paused_intent[0]['deadline_ns']
+    ):
+      self._drop_paused()
+
+  def _resume_paused(self, control_ns: int) -> None:
+    assert self.paused_intent is not None
+    intent, before, future = self.paused_intent
+    self._drop_paused()
+    self.sequence += 1
+    resumed = intent.copy()
+    resumed['trial_id'] = hashlib.sha256(repr((intent['trial_id'], self.sequence, control_ns)).encode()).hexdigest()
+    resumed['target_sequence'] = self.sequence
+    resumed['published'] = False
+    resumed['prior_accepted'] = self.offer_state
+    self.offer_state = resumed
+    self.before, self.future = before, list(future)
+    self.settled_ns = None
+    self.status, self.reason = 'trial_pending', 'fresh_target_application_after_evidence_gap_required'
+
   def interrupt(self, reason: str, *, context_changed: bool = False) -> None:
+    self.source_recheck = None
     # Retain only inert numerical study intent on missing/stale evidence. The
     # command still rolls back; a fresh baseline ACK must precede a NEW wire
     # trial. Completed scores, alpha and original deadline are never reset.
@@ -520,12 +637,12 @@ class LiveTrackingOptimizer:
     # Wrong domains still arrive with context_changed=True and discard intent.
     transient = not context_changed and reason in (
       'acknowledged_trial_profile_withdrawn', 'expired_response_witness', 'stale_control', 'stale_applied_output',
-      'current_evidence_delayed', 'learning_evidence_delayed', 'consumed_source_mismatch',
+      'current_evidence_delayed', 'learning_evidence_delayed', 'no_current_learning_evidence', 'consumed_source_mismatch',
       'consumer_pending_trial_interrupted',
       'fresh_physical_residual_window_required',
     )
     if not transient:
-      self.paused_intent = None
+      self._drop_paused()
     elif ((reason in ('acknowledged_trial_profile_withdrawn', 'expired_response_witness') or self.rmse is None and transient) and self.offer_state is not None
         and self.offer_state['phase'] == 'trial' and not self.offer_state.get('accepted', False) and self.before):
       # Source-only transient gaps retain completed numerical study rows,
@@ -561,6 +678,7 @@ class LiveTrackingOptimizer:
         self.offer_state = state.get('prior_accepted')
       else:
         state['phase'], state['target'] = 'rollback', dict(state['baseline'])
+        state.pop('source_rechecked_before', None)
         self.offer_state = state
     self.status, self.reason = 'paused', reason
     self.settled_ns = None
@@ -735,6 +853,7 @@ class LiveTrackingOptimizer:
 
   def observe_episode(self, episode: TrackingEpisode, *, now_ns: int) -> bool:
     episode.validate()
+    self._check_source_recheck(now_ns)
     if (self.rmse is None) != (episode.normalization_accel is not None):
       return False  # Never mix legacy force episodes with direct kinematic windows.
     if (
@@ -750,27 +869,47 @@ class LiveTrackingOptimizer:
     self.last_episode_end_ns = max(self.last_episode_end_ns, episode.end_ns)
     state = self.offer_state
     if state is None or state.get('accepted', False):
+      self._check_paused_demand(now_ns)
       if episode.profile_sha256 != self._hash(self.accepted):
         return False
+      if self.source_recheck is not None:
+        return self._observe_source_recheck(episode, now_ns)
       # Planning-only evidence retains completed accepted-profile geometry,
       # including discovery and zero-error comparison episodes. It never
       # supplies the scored baseline or any future trial outcome.
       if not self.planning_history or episode.start_ns > self.planning_history[-1].end_ns:
         self.planning_history.append(episode)
+      if self.paused_demand_context is not None:
+        # A whole accepted-baseline window is an input-only resume trigger,
+        # never another scored row. Match the ORIGINAL demand, not a newer
+        # anchor. Fresh ACKs cannot move the first restored-baseline boundary.
+        assert self.paused_intent is not None
+        intent, before, _future = self.paused_intent
+        if (
+          state is not None
+          and state.get('accepted', False)
+          and self.paused_baseline_ns > 0
+          and episode.start_ns > self.paused_baseline_ns + self.lag_ns
+          and self.last_ack is not None
+          and self.last_ack[:4] == (state['trial_id'], state.get('target_sequence', self.sequence), state['phase'], self._hash(self.accepted))
+          and 0 <= now_ns - self.last_ack[-1] <= 100_000_000
+          and _matches_demand(intent.get('demand', _demand(before[0])), episode)
+        ):
+          self._resume_paused(self.last_ack[-1])
+        return False
       self._current_selector(now_ns)
       if self.selector_pending and self._revalidate_selector(episode, now_ns):
         return False
       if self.discovery is not None and self.rmse is None:
-        # A fixed-input source comparison cannot monopolize learning after
-        # that maneuver ends. Three unmatched whole windows release it by
-        # source time alone, without inspecting any tracking outcomes. No
-        # incomplete comparison can confirm or persist a target.
-        # Before launch, source-only discovery follows the current input regime.
-        # Waiting three unmatched windows also suppresses native discovery
-        # throughout a new short curve. No live trial or scored row is accepted.
+        # A short input gap keeps only completed baseline arithmetic. Release
+        # an ended regime after three window durations of original source
+        # time, so one unfinished comparison cannot monopolize discovery.
         last_match = self.comparison[-1].end_ns if self.comparison else self.discovery['selected_end_ns']
-        if (not _matches(self.discovery['anchor'], episode)
-            and (self.rmse is None or episode.end_ns - last_match >= 3 * (episode.end_ns - episode.start_ns))):
+        demand = (self.selector_hint['demand'] if self.selector_hint is not None
+                  else _demand(self.discovery['anchor']))
+        if (episode.end_ns > self.discovery['selected_end_ns']
+            and not _matches_demand(demand, episode)
+            and episode.end_ns - last_match >= 3 * (episode.end_ns - episode.start_ns)):
           self._discard_selector()
       if self.discovery is not None:
         discovery = self.discovery
@@ -778,8 +917,10 @@ class LiveTrackingOptimizer:
           self._discard_selector()
           self.status, self.reason = 'collecting', 'fresh_comparison_baseline_timeout'
           return False
+        demand = (self.selector_hint['demand'] if self.rmse is None and self.selector_hint is not None
+                  else _demand(discovery['anchor']))
         if (
-          not _matches(discovery['anchor'], episode)
+          not _matches_demand(demand, episode)
           or episode.start_ns <= discovery['selected_end_ns']
           or self.comparison
           and episode.start_ns <= self.comparison[-1].end_ns
@@ -849,10 +990,16 @@ class LiveTrackingOptimizer:
       if self.rmse is None:
         result = _feedback_result(old, new)
         if result > 0:
-          confirmed = state.copy()
-          confirmed['phase'] = 'confirmed'
-          self.offer_state = confirmed
-          self.status, self.reason = 'confirmed', 'consistent_later_tracking_improved'
+          original_before = state.get('source_rechecked_before')
+          if original_before is None:
+            self._begin_source_recheck()
+          elif not self._source_batches_improved(original_before, self.future):
+            self._rollback('original_baseline_improvement_not_repeated')
+          else:
+            confirmed = state.copy()
+            confirmed['phase'] = 'confirmed'
+            self.offer_state = confirmed
+            self.status, self.reason = 'confirmed', 'improved_against_original_and_returned_baselines'
         else:
           demand = state.get('demand', _demand(self.before[0]))
           for name in state['names']:
@@ -991,6 +1138,7 @@ class LiveTrackingOptimizer:
 
       unsupported = UNSUPPORTED
     choices: list[TrialChoice] = []
+    alternatives: list[TrialChoice] = []
     # Geometry is input-only and independent of the coordinate group. Compute
     # each cohort once per proposal call, not once for every group. This local
     # memo never survives a new observation, binding, source or profile.
@@ -1088,9 +1236,19 @@ class LiveTrackingOptimizer:
             continue
           delta = sign * step_limit
           directed = [features[id(row)][name].native_effect(delta) for row in rows]
+          alternate = False
           if any(separated / features[id(row)][name].native_endpoints < 0.09
                  for row, (separated, _) in zip(rows, directed, strict=True)):
-            continue
+            # An unfitted secant sign is only a preference. Try an actually
+            # visible opposite experiment only when no preferred choice fits.
+            if self.rmse is not None or observed_worse(-sign) or self._same_inconclusive_trial(name, -sign, rows[-1], now_ns):
+              continue
+            delta = -delta
+            directed = [features[id(row)][name].native_effect(delta) for row in rows]
+            if any(separated / features[id(row)][name].native_endpoints < 0.09
+                   for row, (separated, _) in zip(rows, directed, strict=True)):
+              continue
+            alternate = True
           predicted = min(effect for _, effect in directed)
           expected = predicted * abs(delta) / MAX_STEP / max(_score_scale(row) for row in rows)
           if expected <= 0.0001:
@@ -1108,7 +1266,9 @@ class LiveTrackingOptimizer:
           benefit = sum(abs(features[id(row)][name].error_feature_sum) for row in rows)
           allocation = self._comparison_allocation(episode, expected, target, minimum_episodes=minimum)
           if allocation is not None:
-            choices.append((confidence, group, name, target, rows, benefit, expected, allocation, episode))
+            (alternatives if alternate else choices).append((confidence, group, name, target, rows, benefit, expected, allocation, episode))
+    if not choices:
+      choices = alternatives
     if not choices:
       self.status, self.reason = 'not_identifiable', 'qualified_consistent_hook_sensitivity_required'
       return False
@@ -1222,22 +1382,34 @@ class LiveTrackingOptimizer:
     )
 
   def _rollback(self, reason: str) -> None:
-    self.paused_intent = None  # An actual scored rejection is terminal.
+    self.source_recheck = None
+    self._drop_paused()  # An actual scored rejection is terminal.
     if self.offer_state is None:
       raise ValueError('rollback requires a pending live trial')
     state = self.offer_state.copy()
     if state['phase'] == 'trial' and state.get('published', True) is False:
       self.interrupt(reason)
       return
+    if (reason == 'trial_input_regime_ended' and self.rmse is None and state['phase'] == 'trial'
+        and self.settled_ns is not None and self.before and len(self.future) < state['required_episodes']):
+      # Completed immutable episodes may wait for this same input regime.
+      # Roll back now; this saved arithmetic carries no application lease.
+      self.paused_intent = (state.copy(), self.before, tuple(self.future))
+      self.paused_demand_context = (self.binding, self.certificate, self.domain)
+      self.before, self.future = (), []
+      self.settled_ns = None
     if (
       state['phase'] == 'trial'
       and self.before
-      and reason in ('independent_future_tracking_not_improved', 'matched_tracking_not_consistently_improved', 'trial_tracking_or_oscillation_worse')
+      and reason in (
+        'independent_future_tracking_not_improved', 'matched_tracking_not_consistently_improved',
+        'trial_tracking_or_oscillation_worse', 'trial_oscillation_batch_worse')
     ):
       for name in state['names']:
         direction = 1 if state['target'][name] > state['baseline'][name] else -1
         self.rejected_directions.append((name, direction, self._hash(state['baseline']), state.get('demand', _demand(self.before[0]))))
     state['phase'], state['target'] = 'rollback', dict(state['baseline'])
+    state.pop('source_rechecked_before', None)
     self.offer_state = state
     self._discard_selector()
     self.status, self.reason = 'rollback', reason
@@ -1258,6 +1430,7 @@ class LiveTrackingOptimizer:
   ) -> bool:
     from openpilot.starpilot.flm.live_tracking_response import validate_response_witness
 
+    self._check_source_recheck(now_ns)
     try:
       validate_response_witness(self.response_witness, self.binding, now_ns)
     except (TypeError, ValueError):
@@ -1307,21 +1480,25 @@ class LiveTrackingOptimizer:
         self.offer_state = accepted
         if self.selector_pending:
           self.selector_after_ns = max(self.selector_after_ns, control_ns)
-      paused, self.paused_intent = self.paused_intent, None
+      if phase == 'rollback' and self.source_recheck is not None:
+        self.source_recheck.first_ack_ns = self.source_recheck.first_ack_ns or control_ns
+        self.status, self.reason = 'collecting', 'measuring_accepted_baseline_after_trial'
+        return True
+      self._check_paused_demand(now_ns)
+      if phase == 'rollback' and self.paused_demand_context is not None:
+        self.paused_baseline_ns = control_ns
+        self.baseline.clear()
+        self.future.clear()
+        self.settled_ns = None
+        self.status, self.reason = 'collecting', 'original_input_regime_after_baseline_ack_required'
+        return True
+      paused = self.paused_intent
       if phase == 'rollback' and paused is not None:
         intent, before, future = paused
         if now_ns < intent['deadline_ns'] and intent['baseline'] == self.accepted:
-          self.sequence += 1
-          resumed = intent.copy()
-          resumed['trial_id'] = hashlib.sha256(repr((intent['trial_id'], self.sequence, control_ns)).encode()).hexdigest()
-          resumed['target_sequence'] = self.sequence
-          resumed['published'] = False
-          resumed['prior_accepted'] = self.offer_state
-          self.offer_state = resumed
-          self.before, self.future = before, list(future)
-          self.settled_ns = None
-          self.status, self.reason = 'trial_pending', 'fresh_target_application_after_evidence_gap_required'
+          self._resume_paused(control_ns)
           return True
+      self._drop_paused()
       self.baseline.clear()
       self.future.clear()
       self.settled_ns = None
@@ -1348,6 +1525,8 @@ class LiveTrackingOptimizer:
   def offer(self, now_ns: int, *, publication=True) -> LiveTrialOffer | None:
     from openpilot.starpilot.flm.live_tracking_response import validate_response_witness
 
+    self._check_paused_demand(now_ns)
+    self._check_source_recheck(now_ns)
     try:
       validate_response_witness(self.response_witness, self.binding, now_ns)
     except (TypeError, ValueError):
@@ -1408,10 +1587,17 @@ class LiveTrackingOptimizer:
       and 0 <= now_ns - self.last_ack[-1] <= 100_000_000
     )
     status, reason = self.status, self.reason
+    paused = self.paused_intent
+    if (self.paused_demand_context != (self.binding, self.certificate, self.domain)
+        or paused is None or paused[0]['baseline'] != self.accepted or type(now_ns) is not int or now_ns >= paused[0]['deadline_ns']):
+      paused = None
+    before, future = (self.before, self.future) if paused is None else paused[1:]
     if state is not None and state.get('accepted', False):
       if acknowledged:
         status = state['phase']
         reason = 'accepted_target_currently_acknowledged' if status == 'confirmed' else 'prior_accepted_baseline_restored'
+        if status == 'rollback' and paused is not None and self.paused_baseline_ns > 0:
+          reason = 'original_input_regime_after_baseline_ack_required'
       else:
         state = None
 
@@ -1427,14 +1613,14 @@ class LiveTrackingOptimizer:
       'trialId': None if state is None else state['trial_id'],
       'phase': None if state is None else state['phase'],
       'requiredEpisodes': None if state is None else state['required_episodes'],
-      'beforeEpisodes': len(self.before),
-      'futureEpisodes': len(self.future),
+      'beforeEpisodes': len(before),
+      'futureEpisodes': len(future),
       'modelStatus': self.model_status if current else 'stale',
       'lagMs': self.lag_ns / 1e6,
-      'baselineErrorRms': mean(self.before, 'error_rms'),
-      'futureErrorRms': mean(self.future, 'error_rms'),
-      'baselineReversalHz': mean(self.before, 'reversal_hz'),
-      'futureReversalHz': mean(self.future, 'reversal_hz'),
+      'baselineErrorRms': mean(before, 'error_rms'),
+      'futureErrorRms': mean(future, 'error_rms'),
+      'baselineReversalHz': mean(before, 'reversal_hz'),
+      'futureReversalHz': mean(future, 'reversal_hz'),
       'applicationAcknowledged': acknowledged,
       'applicationSettledMonoTime': self.last_ack[-1] if acknowledged and self.last_ack is not None else self.settled_ns,
       'lastCorrectionMonoTime': self.last_correction or None,

@@ -16,7 +16,8 @@ def test_2022_filter_factory_preserves_current_tune(alpha):
   cp = factory(alpha)
   plain = CarInterface.get_params(CAR.TOYOTA_RAV4_TSS2_2022, gen_empty_fingerprint(), [], alpha, False, False)
   expected = plain.to_dict()
-  expected['flags'] = (expected['flags'] & ~int(ToyotaFlags.DISABLE_RADAR)) | int(ToyotaFlags.RADAR_CAN_FILTER)
+  expected['flags'] = (expected['flags'] & ~int(ToyotaFlags.DISABLE_RADAR)) | int(ToyotaFlags.RADAR_CAN_FILTER | ToyotaFlags.ARS510_RADAR)
+  expected['radarUnavailable'] = False
   expected['safetyConfigs'][0]['safetyParam'] = 0x1049 if alpha else 0x1249
   assert cp.to_dict() == expected
   assert radar_filter_qualified(cp)

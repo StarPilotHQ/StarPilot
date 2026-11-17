@@ -300,8 +300,7 @@ class LateralFeatureSettingsTests(unittest.TestCase):
     master = self.row("aol", "AlwaysOnLateral")
     self.assertTrue(master.available)
     self.assertIn("independently of cruise control", master.reason)
-    self.assertFalse(any(row.key == "wheel:LKASButtonControl" for row in self.owner.snapshot(
-      "wheel", parked=True, system_long=True, lateral_context=True, metric=False).rows))
+    self.assertIn("Toggle AOL", self.row("wheel", "wheel:LKASButtonControl").choices)
     nostalgia = self.row("vehicle", "NostalgiaMode")
     self.assertTrue(nostalgia.available)
     self.assertTrue(self.owner.apply(required_change(nostalgia)))
@@ -316,8 +315,7 @@ class LateralFeatureSettingsTests(unittest.TestCase):
     tagged.safetyConfigs[0].safetyParam |= 0x800
     self.cp = tagged
     self.assertTrue(self.row("aol", "AlwaysOnLateral").available)
-    self.assertFalse(any(row.key == "wheel:LKASButtonControl" for row in self.owner.snapshot(
-      "wheel", parked=True, system_long=True, lateral_context=True, metric=False).rows))
+    self.assertIn("Toggle AOL", self.row("wheel", "wheel:LKASButtonControl").choices)
 
   def test_ioniq5_left_paddle_setting_uses_existing_long_configuration(self):
     from openpilot.starpilot.tests.test_nostalgia import _ioniq5_params
@@ -429,10 +427,8 @@ class LateralFeatureSettingsTests(unittest.TestCase):
     stock, long_cp = ioniq6_candidate(False)
     self.cp = stock
     self.params.put_bool("AlwaysOnLateral", True, block=True)
-    self.assertFalse(any(row.key == "wheel:LKASButtonControl" for row in self.owner.snapshot(
-      "wheel", parked=True, system_long=True, lateral_context=True, metric=False).rows))
-    self.assertFalse(any(row.key == "wheel:MainCruiseButtonControl" for row in self.owner.snapshot(
-      "wheel", parked=True, system_long=True, lateral_context=True, metric=False).rows))
+    self.assertIn("Toggle AOL", self.row("wheel", "wheel:LKASButtonControl").choices)
+    self.assertIn("Toggle AOL", self.row("wheel", "wheel:MainCruiseButtonControl").choices)
     cases = (("DistanceButtonControl", "Pause steering", 1, (False, True), True),
              ("LongDistanceButtonControl", "Pause longitudinal", CRUISE_LONG_PRESS, (True, False), True),
              ("VeryLongDistanceButtonControl", "Pause steering", CRUISE_LONG_PRESS * 5, (False, True), True),
@@ -491,7 +487,7 @@ class LateralFeatureSettingsTests(unittest.TestCase):
   def test_ioniq_distance_canonical_repair_and_fixed_gestures(self):
     self.cp, _ = ioniq6_candidate(False)
     state = self.owner.snapshot("wheel", parked=True, system_long=True, lateral_context=True, metric=False)
-    self.assertFalse(any(row.key in ("wheel:LKASButtonControl", "wheel:MainCruiseButtonControl") for row in state.rows))
+    self.assertTrue({"wheel:LKASButtonControl", "wheel:MainCruiseButtonControl"} <= {row.key for row in state.rows})
     key = "DistanceButtonControl"
     path = Path(self.params.get_param_path(key))
     for raw in (b"03", b"99", b"bad"):

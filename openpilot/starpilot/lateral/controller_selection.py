@@ -5,9 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 import json
+import math
 from pathlib import Path
 
 from opendbc.car import structs
+from opendbc.car.values import PLATFORMS
 
 
 DOCUMENT_KEY = 'LateralControllerSelection'
@@ -62,6 +64,25 @@ KNOWN_POLICIES.update(dict.fromkeys((
   'HYUNDAI_KONA_EV_2022',
 ), 'hyundai'))
 
+KNOWN_POLICIES.update({str(identity): platform.__class__.__module__.split('.')[-2]
+                       for identity, platform in PLATFORMS.items()})
+
+
+def generic_torque_supported(cp) -> bool:
+  try:
+    platform = PLATFORMS.get(str(cp.carFingerprint))
+    if (platform is None or platform.__class__.__module__.split('.')[-2] != str(cp.brand) or
+        cp.notCar or cp.passive or cp.dashcamOnly or
+        cp.steerControlType != structs.CarParams.SteerControlType.torque or cp.lateralTuning.which() != 'torque'):
+      return False
+    tune = cp.lateralTuning.torque
+    return (math.isfinite(tune.latAccelFactor) and tune.latAccelFactor > 0 and
+            math.isfinite(tune.latAccelOffset) and math.isfinite(tune.friction) and tune.friction >= 0 and
+            math.isfinite(tune.steeringAngleDeadzoneDeg) and tune.steeringAngleDeadzoneDeg >= 0)
+  except (AttributeError, TypeError, ValueError, OverflowError):
+    return False
+
+
 class ControllerMode(StrEnum):
   STANDARD = 'standard'
   STARPILOT = 'starpilot'
@@ -75,7 +96,7 @@ class ControllerSelection:
 
 
 def policy_for(CP) -> str | None:
-  """Return only an already-implemented, exact torque policy identity."""
+  """Prefer exact vehicle policies, otherwise use the shared torque law."""
   if CP.notCar:
     return None
   from openpilot.starpilot.lateral.hkg_vehicle_policy import policy_for as hkg_vehicle_policy
@@ -115,6 +136,9 @@ def policy_for(CP) -> str | None:
     return 'bolt'
   if corolla_supported(CP):
     return 'corolla_tss2'
+  from openpilot.starpilot.lateral.prius_policy import supported_cp as prius_supported
+  if prius_supported(CP):
+    return 'prius'
   from openpilot.starpilot.lateral.rav4_tss2_policy import supported_cp as rav4_supported
   if rav4_supported(CP):
     return 'rav4_tss2'
@@ -132,7 +156,7 @@ def policy_for(CP) -> str | None:
       CP.steerControlType == structs.CarParams.SteerControlType.torque and
       CP.lateralTuning.which() == 'torque' and not CP.dashcamOnly and not CP.passive):
     return 'ioniq6'
-  return None
+  return "generic" if generic_torque_supported(CP) else None
 
 
 def turn_assist_supported(CP) -> bool:
@@ -149,9 +173,7 @@ def model_turn_assist_supported(CP) -> bool:
 
 def default_selection(CP) -> ControllerSelection:
   policy = policy_for(CP)
-  from openpilot.starpilot.lateral.hkg_vehicle_policy import PROFILES
-  forte_non_scc = policy == 'kia_forte' and str(CP.carFingerprint) in ('KIA_FORTE_2019_NON_SCC', 'KIA_FORTE_2021_NON_SCC')
-  mode = ControllerMode.STARPILOT if policy and (policy not in PROFILES or forte_non_scc) else ControllerMode.STANDARD
+  mode = ControllerMode.STARPILOT if policy and policy != 'generic' else ControllerMode.STANDARD
   return ControllerSelection(mode, policy, 'default')
 
 
@@ -239,9 +261,12 @@ def learning_allowed(params, CP, *, selection: ControllerSelection | None = None
   preference = read_preference(params, CP)
   if not preference.valid or not preference.enabled:
     return False
-  if policy_for(CP) is None:
+  policy = policy_for(CP)
+  if policy is None:
     return True
   selected = read_selection(params, CP) if selection is None else selection
+  if policy == 'generic':
+    return selected.source != 'invalid'
   from openpilot.starpilot.lateral.gm_geometry_runtime import read_geometry
   geometry = read_geometry(params, CP)
   if geometry.force_off:

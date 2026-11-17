@@ -2,7 +2,7 @@ from dataclasses import replace
 from types import SimpleNamespace as NS
 from unittest.mock import Mock, PropertyMock, patch
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import pytest
 
 from openpilot.starpilot.ui.tests.test_runtime_layouts import runtime_app

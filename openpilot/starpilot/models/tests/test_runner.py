@@ -179,6 +179,27 @@ class TestCatalogRunner(unittest.TestCase):
     np.testing.assert_array_equal(parsed["pose"], [1])
     np.testing.assert_array_equal(parsed["aux"], [4])
 
+  def test_low_speed_action_matches_modeld(self):
+    previous = log.ModelDataV2.Action(desiredCurvature=.01, desiredAcceleration=.1)
+    runner = CatalogModelState.__new__(CatalogModelState)
+    for version in ("v15", "v16"):
+      runner.behavior_version = version
+      for speed in (0., .3, .31, 1., 1.5, 2., 2.49, 2.5, 3., 20.):
+        for lateral_accel in (-.25, .25):
+          with self.subTest(version=version, speed=speed, lateral_accel=lateral_accel):
+            outputs = {"action": np.array([[lateral_accel, .5]])}
+            expected = lateral_accel / max(2.5, speed) ** 2 if speed > .3 else .01
+            action = runner.get_action_from_model(outputs, previous, .2, .2, speed)
+            self.assertAlmostEqual(action.desiredCurvature, expected)
+            self.assertAlmostEqual(action.desiredAcceleration, .1 + (1 - np.exp(-.05 / .3)) * .4)
+            self.assertFalse(action.shouldStop)
+            smoothed = action_from_outputs(outputs, version, previous, .2, .2, speed, .2, .3)
+            expected_smoothed = .01 + (1 - np.exp(-.05 / .2)) * (expected - .01) if speed > .3 else .01
+            self.assertAlmostEqual(smoothed.desiredCurvature, expected_smoothed)
+    for speed in (.31, 1., 2., 2.5, 20.):
+      action = action_from_outputs({"action": np.array([[4., .5]])}, "v14", previous, .2, .2, speed)
+      self.assertAlmostEqual(action.desiredCurvature, .04)
+
   def test_generation_action_units_and_v9_curvature(self):
     previous = log.ModelDataV2.Action(desiredCurvature=0.02)
     outputs = {"action": np.array([[4., 0.5]])}

@@ -6,7 +6,7 @@ import unittest
 from types import SimpleNamespace as NS
 from unittest import mock
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from opendbc.car.car_helpers import interfaces
 from opendbc.car.hyundai.values import CAR, HyundaiFlags
@@ -16,8 +16,8 @@ from openpilot.starpilot.conditional_mode.manual import read_button_map
 from openpilot.starpilot.conditional_mode.runtime_settings import ConditionalSettingsOwner
 from openpilot.starpilot.conditional_mode.status import settings_fingerprint
 from openpilot.starpilot.ui.onroad_compact_widgets import MiciSidebarWidgets
-from openpilot.starpilot.ui.onroad import OnroadView
-from openpilot.starpilot.ui.presentation import FontRole
+from openpilot.starpilot.ui.onroad import OnroadView, axis_status_color
+from openpilot.starpilot.ui.presentation import FontRole, Profile
 from openpilot.starpilot.ui.runtime_snapshot import RuntimeSnapshotAdapter
 from openpilot.starpilot.ui.shell import ShellMode
 from openpilot.starpilot.ui.tests.test_runtime_snapshot import ui_fake, BOOT_OFFSET_NS
@@ -74,15 +74,19 @@ class TestTrafficStatus(unittest.TestCase):
   def test_actual_wire_states_and_clearing(self):
     active = receipt(self.settings_hash, self.map_hash)
     self.assertEqual(self.project(active).state, 'active')
+    self.assertTrue(self.reader.requested)
     self.assertEqual(self.project(active).state, 'active')  # Same frame remains fresh, not a new source.
     self.assertIsNone(self.project(active, now_mono_ns=NOW + 101_000_000))
+    self.assertTrue(self.reader.requested)
     self.assertIsNone(self.project(active, now_boot_ns=BOOT + 400_000_000))
     paused = receipt(self.settings_hash, self.map_hash, sequence=2, observed=NOW + 10_000_000,
                      reason='authority_unavailable', effective=False)
     self.assertEqual(self.project(paused, now_mono_ns=NOW + 10_000_000, long_active=False).state, 'paused')
+    self.assertTrue(self.reader.requested)
     off = receipt(self.settings_hash, self.map_hash, sequence=3, observed=NOW + 20_000_000,
                   reason='off', accepted=False, effective=False)
     self.assertEqual(self.project(off, now_mono_ns=NOW + 20_000_000).state, 'off')
+    self.assertFalse(self.reader.requested)
     unavailable = receipt(self.settings_hash, self.map_hash, sequence=4, observed=NOW + 30_000_000, ready=False)
     self.assertEqual(self.project(unavailable, now_mono_ns=NOW + 30_000_000).state, 'unavailable_profile')
     self.assertIsNone(self.project(active))  # Old sequence cannot resurrect active status.
@@ -106,6 +110,55 @@ class TestTrafficStatus(unittest.TestCase):
     self.assertIsNone(self.project(first))
     self.assertIsNone(self.project(next_frame, drive_id=DRIVE + 1))
 
+  def test_snapshot_work_does_not_blink_fresh_traffic_border(self):
+    ui = ui_fake()
+    ui.params = self.params
+    ui.CP = interfaces[CAR.HYUNDAI_IONIQ_6].get_non_essential_params(CAR.HYUNDAI_IONIQ_6)
+    ui.CP.flags = int(HyundaiFlags.CANFD_LKA_STEER_MSG)
+    ui.CP.openpilotLongitudinalControl = True
+    ui.sm['deviceState'].startedMonoTime = DRIVE
+    ui.sm['carState'].canValid = True
+    ui.sm['carState'].canTimeout = False
+    ui.sm['carControl'].longActive = True
+    ui.sm['selfdriveState'].enabled = True
+    ui.sm.put('controlsState', NS(longControlState='pid'))
+    adapter = RuntimeSnapshotAdapter(ui, mono_clock=lambda: NOW, boot_clock=lambda: NOW + BOOT_OFFSET_NS)
+    clock = [NOW]
+    # A delayed settings read must not move clock acquisition away from the snapshot.
+    from openpilot.starpilot.ui import runtime_snapshot
+    read_settings = runtime_snapshot.read_traffic_settings
+
+    def delayed_settings(params):
+      clock[0] += 30_000_000
+      return read_settings(params)
+
+    with mock.patch.object(runtime_snapshot, 'paired_clocks_ns', side_effect=lambda: (clock[0], clock[0] + BOOT - NOW, 0)), \
+         mock.patch.object(runtime_snapshot, 'read_traffic_settings', side_effect=delayed_settings):
+      for frame, delay_read in enumerate((True, False, True, False, True)):
+        now = NOW + frame * 10_000_000
+        clock[0] = now
+        if delay_read:
+          adapter._traffic_context_ns = None
+        event = receipt(self.settings_hash, self.map_hash, observed=now, sequence=frame + 1)
+        ui.sm.put('slcState', event.slcState)
+        for _ in range(2):
+          clock[0] = now
+          shown = adapter.build(ShellMode.ONROAD, now_ns=now).onroad
+          self.assertTrue(shown.traffic_mode)
+          color = axis_status_color(shown)
+          self.assertEqual((color.r, color.g, color.b, color.a), (201, 34, 49, 255))
+      # Actual expiry still clears status; no cached red border or grace period.
+      clock[0] = now + 100_000_001
+      shown = adapter.build(ShellMode.ONROAD, now_ns=clock[0]).onroad
+      self.assertFalse(shown.traffic_mode)
+      self.assertIsNone(shown.traffic_display)
+      # A mismatched or unavailable clock pair must still fail closed.
+      clock[0] = now
+      self.assertTrue(adapter.build(ShellMode.ONROAD, now_ns=now).onroad.traffic_mode)
+      for pair in (None, (now + 10_000_001, BOOT, 0)):
+        with mock.patch.object(runtime_snapshot, 'paired_clocks_ns', return_value=pair):
+          self.assertFalse(adapter.build(ShellMode.ONROAD, now_ns=now).onroad.traffic_mode)
+
   def test_snapshot_and_compact_rail_use_only_live_effective_status(self):
     ui = ui_fake()
     ui.params = self.params
@@ -128,12 +181,14 @@ class TestTrafficStatus(unittest.TestCase):
       self.assertEqual(shown.traffic_display.label, 'TRAFFIC')
       self.assertEqual(shown.speed_limit.kind.value, 'stale')  # Invalid SLC does not veto independent Traffic status.
       fonts = mock.Mock()
+      fonts.profile = Profile.COMPACT
       fonts.measure.return_value = NS(width=24, height=11)
       rail = MiciSidebarWidgets(fonts)
-      with mock.patch('openpilot.starpilot.ui.onroad_compact_widgets._line'), mock.patch.object(rl, 'draw_triangle'):
+      with mock.patch.object(rail.personality, 'draw'):
         rail._personality(rl.Rectangle(476, 160, 60, 80), shown)
-      self.assertEqual(fonts.draw.call_args.args[:3], ('TRF', FontRole.SEMI_BOLD, 11))
+      fonts.draw.assert_not_called()
       large = OnroadView.__new__(OnroadView)
+      large.personality = mock.Mock()
       large.fonts = fonts
       large.projection_viewport = None
       fonts.reset_mock()
@@ -141,6 +196,7 @@ class TestTrafficStatus(unittest.TestCase):
         large._traffic_badge(replace(shown, viewport_width=width), 101)
         self.assertEqual(fonts.draw.call_args.args[:5], ('TRAFFIC', FontRole.SEMI_BOLD, 25, expected_x, 101))
       self.assertFalse(adapter.build(ShellMode.ONROAD, now_ns=NOW + 101_000_000).onroad.traffic_mode)
+      self.assertTrue(adapter.build(ShellMode.ONROAD, now_ns=NOW + 101_000_000).onroad.traffic_selected)
       self.assertIsNone(adapter.build(ShellMode.ONROAD, now_ns=NOW + 101_000_000).onroad.traffic_display)
 
 

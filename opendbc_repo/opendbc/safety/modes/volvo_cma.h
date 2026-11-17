@@ -232,35 +232,131 @@ static uint8_t volvo_cma_lca2_phase_one;
 static uint8_t volvo_cma_lca2_phase_two;
 static uint8_t volvo_cma_lca2_phase_offset;
 
+static bool volvo_cma_lca2_mod15;
+static bool volvo_cma_lca2_second_seen;
+static uint8_t volvo_cma_lca2_second_last;
+static bool volvo_cma_lca2_primary_seen;
+static uint8_t volvo_cma_lca2_primary_last;
+static uint8_t volvo_cma_lca2_primary_counter;
+static int volvo_cma_lca2_second_wrong;
 static bool volvo_cma_lca2_quality(const CANPacket_t *msg) {
   bool valid = true;
   if (msg->addr == 0x69U) {
     const uint8_t one = msg->data[1] & 0xFU;
     const uint8_t two = msg->data[5] & 0xFU;
-    const uint8_t offset = ((two >> 2U) + 4U - ((one >> 1U) & 3U)) & 3U;
     const bool checksum_valid = volvo_cma_get_checksum(msg) == volvo_cma_compute_checksum(msg);
-    if (!volvo_cma_lca2_phase_valid && (msg->bus == 0U) && checksum_valid) {
-      volvo_cma_lca2_phase_one = one & 1U;
-      volvo_cma_lca2_phase_two = two & 3U;
-      volvo_cma_lca2_phase_offset = offset;
-      volvo_cma_lca2_phase_valid = true;
+    if (volvo_cma_lca2_mod15) {
+      // Recorded Polestar counters are independent +2/+4 modulo15 clocks.
+      // Keep the shared primary watchdog and the same tolerance for the secondary.
+      const uint8_t counter = two;
+      if ((msg->bus == 0U) && checksum_valid && (one < 15U) && (two < 15U)) {
+        if (volvo_cma_lca2_second_seen) {
+          const uint8_t delta = (counter + 15U - volvo_cma_lca2_second_last) % 15U;
+          volvo_cma_lca2_second_wrong += ((delta >= 3U) && (delta <= 5U)) ? -1 : 1;
+          volvo_cma_lca2_second_wrong = SAFETY_CLAMP(volvo_cma_lca2_second_wrong, 0, MAX_WRONG_COUNTERS);
+        }
+        volvo_cma_lca2_second_last = counter;
+        volvo_cma_lca2_second_seen = true;
+      }
+      valid = checksum_valid && (one < 15U) && (two < 15U) &&
+        (volvo_cma_lca2_second_wrong < MAX_WRONG_COUNTERS);
+    } else {
+      const uint8_t offset = ((two >> 2U) + 4U - ((one >> 1U) & 3U)) & 3U;
+      if (!volvo_cma_lca2_phase_valid && (msg->bus == 0U) && checksum_valid) {
+        volvo_cma_lca2_phase_one = one & 1U;
+        volvo_cma_lca2_phase_two = two & 3U;
+        volvo_cma_lca2_phase_offset = offset;
+        volvo_cma_lca2_phase_valid = true;
+      }
+      valid = checksum_valid && volvo_cma_lca2_phase_valid &&
+        ((one & 1U) == volvo_cma_lca2_phase_one) &&
+        ((two & 3U) == volvo_cma_lca2_phase_two) &&
+        (offset == volvo_cma_lca2_phase_offset);
     }
-    valid = checksum_valid && volvo_cma_lca2_phase_valid &&
-      ((one & 1U) == volvo_cma_lca2_phase_one) &&
-      ((two & 3U) == volvo_cma_lca2_phase_two) &&
-      (offset == volvo_cma_lca2_phase_offset);
   }
   return valid;
 }
 static bool volvo_cma_receiver_quality(const CANPacket_t *msg) {
-  return volvo_cma_quality(msg) && volvo_cma_lca2_quality(msg);
+  return volvo_cma_quality(msg, volvo_cma_lca2_mod15) && volvo_cma_lca2_quality(msg);
 }
 
-// Pinned Dom describes LCA_2 COUNTER_1 as +2 modulo16. Normalizing
-// by two makes the shared +1 counter validator exact for either raw parity.
-// Counter error tolerance remains the shared upstream MAX_WRONG_COUNTERS.
+// Unchanged native status is transport evidence, never valid control evidence.
+static uint8_t volvo_cma_pscm_status_data[4][8];
+static uint32_t volvo_cma_pscm_status_ts[4];
+static bool volvo_cma_pscm_status_valid[4];
+static uint8_t volvo_cma_pscm_status_index;
+static uint8_t volvo_cma_pscm_status_nibble;
+static bool volvo_cma_pscm_status_checksum_valid;
+static bool volvo_cma_pscm_status_quality_valid;
+
+static void volvo_cma_clear_pscm_status(void) {
+  for (uint8_t i = 0U; i < 4U; i++) {
+    volvo_cma_pscm_status_valid[i] = false;
+  }
+  volvo_cma_pscm_status_index = 0U;
+}
+
+static bool volvo_cma_receiver_quality_rx(const CANPacket_t *msg) {
+  const bool quality_valid = volvo_cma_receiver_quality(msg);
+  if (volvo_cma_lca2_mod15 && msg_matches(msg, 0x17U, 2U, 8U) &&
+      !msg->returned && !msg->rejected && !msg->extended && !msg->fd) {
+    const uint8_t nibble = msg->data[2] >> 4U;
+    const bool checksum_valid = volvo_cma_get_checksum(msg) == volvo_cma_compute_checksum(msg);
+    // Retain the existing four-frame transport tolerance, but never replay an
+    // earlier status/validation class after a newly observed native transition.
+    if ((nibble != volvo_cma_pscm_status_nibble) ||
+        (checksum_valid != volvo_cma_pscm_status_checksum_valid) ||
+        (quality_valid != volvo_cma_pscm_status_quality_valid)) {
+      volvo_cma_clear_pscm_status();
+    }
+    volvo_cma_pscm_status_nibble = nibble;
+    volvo_cma_pscm_status_checksum_valid = checksum_valid;
+    volvo_cma_pscm_status_quality_valid = quality_valid;
+    const uint8_t slot = volvo_cma_pscm_status_index;
+    for (uint8_t i = 0U; i < 8U; i++) {
+      volvo_cma_pscm_status_data[slot][i] = msg->data[i];
+    }
+    volvo_cma_pscm_status_ts[slot] = microsecond_timer_get();
+    volvo_cma_pscm_status_valid[slot] = true;
+    volvo_cma_pscm_status_index = (slot + 1U) % 4U;
+  }
+  return quality_valid;
+}
+
+static bool volvo_cma_exact_pscm_status(const CANPacket_t *msg) {
+  bool matches = false;
+  if (msg_matches(msg, 0x17U, 0U, 8U) &&
+      !msg->returned && !msg->rejected && !msg->extended && !msg->fd) {
+    for (uint8_t slot = 0U; slot < 4U; slot++) {
+      bool same = volvo_cma_pscm_status_valid[slot] &&
+        (safety_get_ts_elapsed(microsecond_timer_get(), volvo_cma_pscm_status_ts[slot]) <= 100000U);
+      for (uint8_t i = 0U; i < 8U; i++) {
+        same &= msg->data[i] == volvo_cma_pscm_status_data[slot][i];
+      }
+      matches |= same;
+    }
+  }
+  return matches;
+}
+
+// The Polestar source clocks advance nominally2/4 per50Hz frame, with
+// observed sampling jitter of1..3/3..5. Frozen/jumped counters retain the shared tolerance.
 static uint8_t volvo_cma_lca2_counter(const CANPacket_t *msg) {
-  return (msg->addr == 0x69U) ? ((msg->data[1] & 0xFU) >> 1U) : 0U;
+  const uint8_t raw = msg->data[1] & 0xFU;
+  uint8_t counter = 0U;
+  if (msg->addr == 0x69U) {
+    counter = raw >> 1U;
+    if (volvo_cma_lca2_mod15) {
+      const uint8_t delta = (raw + 15U - volvo_cma_lca2_primary_last) % 15U;
+      if (!volvo_cma_lca2_primary_seen || ((delta >= 1U) && (delta <= 3U))) {
+        volvo_cma_lca2_primary_counter = (volvo_cma_lca2_primary_counter + 1U) % 15U;
+      }
+      volvo_cma_lca2_primary_last = raw;
+      volvo_cma_lca2_primary_seen = true;
+      counter = volvo_cma_lca2_primary_counter;
+    }
+  }
+  return counter;
 }
 
 // Bind every non-mutable field to the native RX which supplied this exact
@@ -346,7 +442,8 @@ static bool volvo_cma_tx_hook(const CANPacket_t *msg) {
   // policy or intent and retains the existing health deadlines/tolerances.
   bool tx;
   if (!controls_allowed || !volvo_cma_drive_current() || !aol_rx_healthy()) {
-    tx = volvo_cma_exact_stock(msg);
+    tx = (volvo_cma_lca2_mod15 && (msg->addr == 0x17U)) ?
+      volvo_cma_exact_pscm_status(msg) : volvo_cma_exact_stock(msg);
   } else {
     tx = volvo_cma_receiver_quality(msg) && volvo_cma_source_projection(msg);
     if ((msg->addr == 0x69U) || (msg->addr == 0x67U) || (msg->addr == 0x17U)) {
@@ -476,6 +573,17 @@ static RxCheck *volvo_cma_rx_checks_workspace(void) {
 
 static safety_config volvo_cma_init(uint16_t param) {
   RxCheck *const rx_workspace = volvo_cma_rx_checks_workspace();
+  volvo_cma_lca2_mod15 = param == 5U;
+  volvo_cma_clear_pscm_status();
+  volvo_cma_pscm_status_nibble = 0U;
+  volvo_cma_pscm_status_checksum_valid = false;
+  volvo_cma_pscm_status_quality_valid = false;
+  volvo_cma_lca2_second_seen = false;
+  volvo_cma_lca2_second_last = 0U;
+  volvo_cma_lca2_second_wrong = 0;
+  volvo_cma_lca2_primary_seen = false;
+  volvo_cma_lca2_primary_last = 0U;
+  volvo_cma_lca2_primary_counter = 0U;
   volvo_cma_lca2_phase_valid = false;
   volvo_cma_lca2_phase_one = 0U;
   volvo_cma_lca2_phase_two = 0U;
@@ -569,6 +677,9 @@ static safety_config volvo_cma_init(uint16_t param) {
   }
   for (uint8_t i = 0U; i < VOLVO_CMA_RX_CHECK_COUNT; i++) {
     rx_workspace[i] = selected[i];
+    if (volvo_cma_lca2_mod15 && (rx_workspace[i].msg[0].addr == (unsigned int)VOLVO_CMA_PORT_LCA_2)) {
+      rx_workspace[i].msg[0].max_counter = 14U;
+    }
   }
   const size_t tx_msgs_count = sizeof(VOLVO_CMA_PORT_TX_MSGS) / sizeof(VOLVO_CMA_PORT_TX_MSGS[0]);
   const safety_config config = {
@@ -588,6 +699,6 @@ const safety_hooks volvo_cma_hooks = {
   .get_counter = volvo_cma_lca2_counter,
   .get_checksum = volvo_cma_get_checksum,
   .compute_checksum = volvo_cma_compute_checksum,
-  .get_quality_flag_valid = volvo_cma_receiver_quality,
+  .get_quality_flag_valid = volvo_cma_receiver_quality_rx,
   // No custom fwd hook - stock LCA always blocked by .check_relay = true
 };

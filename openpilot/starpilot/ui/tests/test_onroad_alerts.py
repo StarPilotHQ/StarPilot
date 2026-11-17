@@ -1,7 +1,7 @@
 from types import SimpleNamespace as NS
 from unittest.mock import Mock, patch
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import pytest
 
 from openpilot.starpilot.ui import onroad_alerts
@@ -258,3 +258,11 @@ def test_native_guidance_pulse_matches_original_sixty_hz_waveform():
       with patch.object(native.time, 'monotonic', return_value=now):
         renderer._draw_icons(layout)
       assert abs(draw.call_args.args[-1].a - int(min(original.x, 255))) <= 1
+
+
+def test_translated_cjk_and_long_words_wrap_within_alert_width():
+  from openpilot.system.ui.lib.display_translation import DisplayText
+  for text in ['直ちに運転を引き継いでください', 'Please take control immediately']:
+    lines = onroad_alerts._wrap_display(DisplayText(text), len, 8)
+    assert all(len(line) <= 8 and isinstance(line, DisplayText) for line in lines)
+    assert ''.join(lines).replace(' ', '') == text.replace(' ', '')

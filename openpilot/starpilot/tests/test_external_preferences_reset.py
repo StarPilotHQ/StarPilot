@@ -5,6 +5,7 @@ import importlib.util
 import json
 import math
 import os
+import re
 from pathlib import Path
 import sys
 import tempfile
@@ -26,12 +27,13 @@ def load(name, path):
 migration = load('external_reset_state_helpers', ROOT / 'state_migration.py')
 owner_ast = ast.parse((ROOT / 'navigation' / 'owner.py').read_text())
 selected: list[ast.stmt] = [node for node in owner_ast.body if isinstance(node, (ast.FunctionDef, ast.ClassDef))
-                 and node.name in ('ValidationError', 'destination', 'favorite_place')]
+                 and node.name in ('ValidationError', 'destination', 'favorite_place', 'valid_google_key')]
 selected.extend(node for node in owner_ast.body if isinstance(node, ast.Assign)
-                and any(isinstance(target, ast.Name) and target.id == 'ROUTE_AVOIDANCES' for target in node.targets))
+                and any(isinstance(target, ast.Name) and target.id in ('ROUTE_AVOIDANCES', 'MAP_PROVIDERS', 'GOOGLE_KEY_CHARS', 'SAFE_ID')
+                        for target in node.targets))
 owner_class = next(node for node in owner_ast.body if isinstance(node, ast.ClassDef) and node.name == 'NavigationOwner')
 selected.append(next(node for node in owner_class.body if isinstance(node, ast.FunctionDef) and node.name == 'read'))
-namespace: dict = {'json': json, 'math': math, 'hashlib': hashlib, 'os': os, 'copy': copy, 'MAX_DOCUMENT': 256 * 1024,
+namespace: dict = {'json': json, 'math': math, 're': re, 'hashlib': hashlib, 'os': os, 'copy': copy, 'MAX_DOCUMENT': 256 * 1024,
                    'MAX_FAVORITES': 100, 'MAX_RECENTS': 10, 'FAVORITE_LABELS': ('home', 'work'),
                    'GPS_MODES': next(ast.literal_eval(node.value) for node in ast.parse((ROOT / 'gps' / 'source.py').read_text()).body
                                      if isinstance(node, ast.Assign) and any(getattr(t, 'id', '') == 'GPS_MODES' for t in node.targets))}
@@ -177,3 +179,14 @@ class TestExternalPreferencesReset(unittest.TestCase):
 
 if __name__ == '__main__':
   unittest.main()
+
+
+def test_fresh_preferences_disable_scheduled_automatic_installation(tmp_path):
+  from openpilot.starpilot.software.auto_install import InstallSettings
+  settings = InstallSettings(tmp_path / 'software' / 'auto-install')
+  value = settings.read()
+  assert value is not None
+  settings.save(True, '0 0 * * *', value['revision'], lambda: True)
+  assert reset.reset_external_preferences(tmp_path, tmp_path / 'models') == ()
+  value = settings.read()
+  assert value is not None and not value['enabled']

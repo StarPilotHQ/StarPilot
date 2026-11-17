@@ -200,7 +200,7 @@ def test_straight_raw_goal_stays_zero_with_an_explicit_numerical_score_scale():
     replace(straight, normalization_accel=0.001).validate()
 
 
-def test_source_gap_drops_partial_window_without_changing_input_clock_lattice():
+def test_source_gap_recovers_on_fixed_input_slots_without_reanchoring_origin():
   from openpilot.starpilot.flm.live_tracking_episodes import TrackingEpisodeBuilder
 
   c = context()
@@ -217,7 +217,9 @@ def test_source_gap_drops_partial_window_without_changing_input_clock_lattice():
     b._geometry(stamp, 0.3)
     b.last = stamp
   assert len(b.pending) == 2
-  assert [row[0] for row in b.pending] == [origin + 2_000_000_000, origin + 4_000_000_000]
+  assert [row[0] for row in b.pending] == [origin + 1_100_000_000, origin + 3_100_000_000]
+  assert all(end - start == 1_990_000_000 for start, end, *_ in b.pending)
+  assert b.pending[0][1] < b.pending[1][0]
   assert not b.endpoints and not b.ready
 
 
@@ -375,6 +377,26 @@ def test_feedback_confirmation_still_needs_actual_target_ack_and_new_current_wit
     )
     refresh(o, e.end_ns)
     assert o.observe_episode(e, now_ns=e.end_ns)
+  returned = o.offer(e.end_ns)
+  assert returned is not None and returned.phase == 'rollback' and not any(o.accepted.values())
+  assert source_ack(o, returned, e.end_ns + 10_000_000)
+  now = e.end_ns
+  for i in range(3):
+    e = replace(episode(o, 200 + i, 'ff_gain_left', error=0.2,
+      start=now + 1_000_000_000 + i * 1_000_000_000), normalization_accel=0.5)
+    refresh(o, e.end_ns)
+    assert source_ack(o, o.offer(e.end_ns), e.end_ns)
+    assert o.observe_episode(e, now_ns=e.end_ns)
+  reapplied = o.offer(e.end_ns)
+  assert reapplied is not None and reapplied.phase == 'trial' and reapplied.trial_id != offer.trial_id
+  assert reapplied.deadline_ns == offer.deadline_ns and not any(o.accepted.values())
+  assert source_ack(o, reapplied, e.end_ns + 10_000_000)
+  now = e.end_ns
+  for i in range(3):
+    e = replace(episode(o, 300 + i, 'ff_gain_left', error=0.15, profile=reapplied.target_sha256,
+      start=now + 1_000_000_000 + i * 1_000_000_000), normalization_accel=0.5)
+    refresh(o, e.end_ns)
+    assert o.observe_episode(e, now_ns=e.end_ns)
   confirmed = o.offer(e.end_ns)
   assert confirmed is not None and confirmed.phase == 'confirmed' and not any(o.accepted.values())
   assert source_ack(o, confirmed, e.end_ns + 10_000_000)
@@ -451,7 +473,7 @@ def test_fitted_plant_does_not_reverse_identified_direction_at_boundary():
 
 
 @pytest.mark.parametrize('source_only', [False, True])
-def test_new_input_regime_retires_only_source_discovery_before_launch(source_only):
+def test_new_input_regime_does_not_erase_inert_pretrial_baseline(source_only):
   from openpilot.starpilot.flm.tests.test_live_tracking import optimizer, refresh as fitted_refresh
 
   o = owner() if source_only else optimizer()
@@ -471,12 +493,10 @@ def test_new_input_regime_retires_only_source_discovery_before_launch(source_onl
     changed = replace(changed, normalization_accel=max(0.1, changed.goal_rms))
   update(o, changed.end_ns)
   o.observe_episode(changed, now_ns=changed.end_ns)
-  assert (o.discovery is None) is source_only
+  assert o.discovery is previous and not o.comparison
   if source_only:
-    assert o.selector_hint is None and not o.comparison
-    assert o.baseline[-1].episode_id == changed.episode_id
-  else:
-    assert o.discovery == previous
+    assert o.selector_hint is not None
+    assert o.selector_hint['expires_ns'] == previous['expires_ns']
   assert o.offer_state is None and not any(o.accepted.values())
 
 
@@ -510,3 +530,62 @@ def test_fitted_model_retains_confidence_sized_proposal():
   assert selected is not None
   # Existing fixture estimate=.05; original confidence fraction gives .005.
   assert dict(selected.target)['ff_gain_left'] == pytest.approx(.005)
+
+
+@pytest.mark.parametrize('goal', [0.0, 0.3, -0.3])
+def test_recovery_slot_depends_only_on_original_input_clock(goal):
+  from openpilot.starpilot.flm.live_tracking_episodes import TrackingEpisodeBuilder
+
+  c = context()
+  b = TrackingEpisodeBuilder(c.binding, c)
+  origin = 10_000_000_000
+  b._geometry(origin, goal)
+  b.last = origin
+  b.interrupt('genuine-source-gap')
+  # An arbitrary arrival cannot pick its own window start. Wait for the next
+  # predeclared50ms slot, regardless of the measured error or steering sign.
+  for delta in (1_107_000_000, 1_117_000_000, 1_147_000_000):
+    b._geometry(origin + delta, goal)
+    b.last = origin + delta
+    assert b.start == 0 and b.input_window_wait_until == origin + 1_150_000_000
+    assert not b.pending
+  b._geometry(origin + 1_157_000_000, goal)
+  b.last = origin + 1_157_000_000
+  assert b.start == origin + 1_157_000_000
+  assert b.input_window_boundary == origin + 3_150_000_000
+  assert b.input_window_origin == origin
+  for delta in range(1_167_000_000, 3_148_000_000, 10_000_000):
+    b._geometry(origin + delta, goal)
+    b.last = origin + delta
+    assert not b.pending
+  b._geometry(origin + 3_157_000_000, goal)
+  assert len(b.pending) == 1
+  start, end, *_ = b.pending[0]
+  assert start == origin + 1_157_000_000 and end == origin + 3_147_000_000
+  assert end < b.start and b.input_window_boundary == origin + 5_150_000_000
+  assert not b.endpoints and not b.ready and not b.probes
+
+
+@pytest.mark.parametrize('source_tracking', [False, True])
+def test_episode_closure_uses_the_same_time_axis_as_its_endpoints(monkeypatch, source_tracking):
+  from types import SimpleNamespace
+  from openpilot.starpilot.flm.live_tracking_episodes import TrackingEpisodeBuilder
+  from openpilot.starpilot.flm.tests.test_live_tracking_episodes import (
+    certificate, tick, pair, numeric_pose, numerical_join_validation_only,
+  )
+
+  c = context(certificate().binding) if source_tracking else certificate()
+  b = TrackingEpisodeBuilder(c.binding, c)
+  # Isolated join arithmetic only; these fixture witnesses prove no native or
+  # road admission. The original-packet component replay checks real admission.
+  numerical_join_validation_only(monkeypatch, b)
+  for index in range(30):
+    assert tick(b, index, 0.1)
+  control, output, _ = pair(b, 0, 0.1)
+  pose = numeric_pose(b, control)
+  witness = SimpleNamespace(certificate=c, last_control_ns=control.control_ns,
+                            last_apply_ns=output.apply_ns, last_pose_ns=pose.mono_ns)
+  assert b.observe_pose(pose, control, output, witness=witness, now_ns=pose.mono_ns, current_native=True)
+  point = b.endpoints[-1]
+  assert b.watermark == (pose.source_lower_ns if source_tracking else pose.source_lower_ns - c.lag_ns)
+  assert b.watermark == (point.reference_ns if source_tracking else point.control_ns)

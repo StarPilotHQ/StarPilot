@@ -8,8 +8,7 @@ import time
 from dataclasses import asdict
 from pathlib import Path
 
-import pyray as rl
-import raylib
+from openpilot.starpilot.ui.raylib import native_library_path, rl
 
 from openpilot.starpilot.ui.home import HomeView
 from openpilot.starpilot.ui.home_state import DailyDistance, DriveStatsData, DriveSummary, HomeMode, HomeState, PersonalRecord
@@ -69,13 +68,13 @@ def main() -> None:
               rl.image_flip_vertical(pixels)
               if not rl.export_image(pixels, str(args.output / f"{profile}.png")):
                 raise RuntimeError("Unable to export native framebuffer")
-              pixel_hash = hashlib.sha256(bytes(rl.ffi.buffer(pixels.data, width * height * 4))).hexdigest()
+              pixel_hash = hashlib.sha256(bytes(pixels.data[:width * height * 4])).hexdigest()
           finally:
             rl.unload_image(pixels)
         report = {"profile": profile, "dimensions": [width, height], "context_dimensions": list(context_size),
                   "texture_pixel_scale": list(view._pixel_scale),
                   "native_library": {"version": importlib.metadata.version("comma-deps-raylib"),
-                                     "sha256": hashlib.sha256(Path(raylib._cffi.__file__).read_bytes()).hexdigest()},
+                                     "sha256": hashlib.sha256(Path(native_library_path).read_bytes()).hexdigest()},
                   "rgba_sha256": pixel_hash, "state": asdict(state), "submission_readback_ms": timings,
                   "scope": "paired records Home on native desktop only; device performance and full UI not qualified"}
         (args.output / f"{profile}.json").write_text(json.dumps(report, indent=2) + "\n")

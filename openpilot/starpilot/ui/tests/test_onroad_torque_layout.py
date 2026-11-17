@@ -4,7 +4,7 @@ from dataclasses import replace
 from unittest.mock import patch
 
 import numpy as np
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.onroad_customization import PROFILES, default_document, validate_document, widget_size
 from openpilot.starpilot.ui.onroad_state import OnroadState, SpeedLimitObservation
@@ -30,6 +30,31 @@ def geometry(profile, state, torque=.3, alpha=1.):
 
 
 class TestTorqueLayout(unittest.TestCase):
+  def test_square_projection_uses_saved_large_placement_and_visibility(self):
+    from openpilot.starpilot.system.starport.projection_layout import default_layout_for_viewport, projection_customization, validate_layout_for_viewport
+    document = default_layout_for_viewport((1860, 1860))
+    validate_layout_for_viewport(document, (1860, 1860))
+
+    def projected_frames(layout):
+      state = scene(projection_customization(layout, default_document()))
+      widget = TorqueBarWidget()
+      with patch.object(widget._torque_filter, 'update', return_value=.3), \
+           patch.object(widget._alpha_filter, 'update', return_value=1.), record_gpu() as gpu:
+        widget.render(rl.Rectangle(30, 30, 1800, 1800), state, 1860)
+      return gpu.frames
+
+    original, = projected_frames(document)
+    moved = copy.deepcopy(document)
+    moved['widgets']['torque_bar']['x'] -= 10
+    moved['widgets']['torque_bar']['y'] += 10
+    validate_layout_for_viewport(moved, (1860, 1860))
+    translated, = projected_frames(moved)
+    for field in ('geometry', 'dotGeometry'):
+      x, y, *rest = original.uniforms[field]
+      self.assertEqual(translated.uniforms[field], (x - 10, y + 10, *rest))
+    moved['widgets']['torque_bar']['enabled'] = False
+    self.assertEqual(projected_frames(moved), [])
+
   def test_moved_arc_dot_and_sampling_quad_translate_without_resizing(self):
     for profile in PROFILES:
       with self.subTest(profile=profile):

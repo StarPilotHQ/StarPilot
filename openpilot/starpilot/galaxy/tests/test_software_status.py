@@ -228,6 +228,27 @@ class SoftwareHTTPTest(unittest.TestCase):
     self.assertEqual(self.request("/api/software/status", method="POST", body="{}",
                                   headers={"Cookie": cookie, "Origin": origin, "Content-Type": "application/json"})[0], 405)
 
+  def test_old_galaxy_gets_refresh_guidance_after_upgrade(self):
+    self.owner.configure("password123", lambda: True)
+    with mock.patch.object(self.source, "snapshot", wraps=self.source.snapshot) as read:
+      self.assertEqual(self.request("/api/update/fast/status")[0], 401)
+      read.assert_not_called()
+    self.params.put('GitBranch', 'StarPilot', block=True)
+    self.params.put('GitCommit', 'a' * 40, block=True)
+    cookie = self.login()
+    status, body, headers = self.request('/api/update/fast/status', headers={'Cookie': cookie})
+    self.assertEqual(status, 200)
+    self.assertEqual(headers['Cache-Control'], 'no-store')
+    result = json.loads(body)
+    self.assertEqual((result['branch'], result['localCommit']), ('StarPilot', 'a' * 40))
+    self.assertFalse(result['running'])
+    self.assertFalse(result['updateAvailable'])
+    self.assertEqual(result['stage'], 'updated')
+    self.assertIn('Reload this page', result['message'])
+    self.assertEqual(self.request('/api/update/fast/status', method='POST', body='{}',
+                                  headers={'Cookie': cookie, 'Origin': f'http://127.0.0.1:{self.server.server_port}',
+                                           'Content-Type': 'application/json'})[0], 405)
+
   def test_logout_and_credential_change_during_read_suppress_result(self):
     self.owner.configure("password123", lambda: True)
     cookie = self.login()

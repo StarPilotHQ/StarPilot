@@ -13,7 +13,7 @@ from opendbc.car.toyota.interface import CarInterface as ToyotaInterface
 from opendbc.car.toyota.values import CAR as TOYOTA
 from openpilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPlanner
 from openpilot.starpilot.longitudinal.cruise_ceiling import CruiseCeiling, CurveCeiling
-from openpilot.starpilot.longitudinal.encouragement import BOOST_RATE, Encouragement, MAX_BOOST, SOURCES, NudgePreferences
+from openpilot.starpilot.longitudinal.encouragement import BOOST_RATE, Encouragement, MAX_BOOST, SOURCES, NudgePreferences, SETTLE_SECONDS
 from openpilot.starpilot.longitudinal.tests.test_conditional_handoff import Frame, NOW
 from openpilot.starpilot.longitudinal.tests.test_cruise_ceiling import ACTIVE
 
@@ -61,12 +61,58 @@ def test_minor_deficit_and_short_hesitation_do_not_trigger():
   owner = Encouragement()
   for tick in range(120):
     assert step(owner, tick, target_speed=20.8) == 0.
-  for tick in range(120, 170):
+  for tick in range(120, 140):
     assert step(owner, tick) == 0.
-  assert step(owner, 170, observed_accel=.4) == 0.
+  assert step(owner, 140, observed_accel=.7) == 0.
   assert owner.clear_seconds == owner.boost == 0.
-  for tick in range(171, 221):
+  for tick in range(141, 161):
     assert step(owner, tick) == 0.
+
+
+def test_persistent_weak_recovery_gets_help_within_four_seconds():
+  owner = Encouragement()
+  values = [step(owner, tick, observed_accel=.2, model_accel=.2) for tick in range(80)]
+  assert values[:20] == [.2] * 20
+  assert values[-1] == pytest.approx(MAX_BOOST)
+  assert max(b - a for a, b in zip(values, values[1:], strict=False)) <= BOOST_RATE * .05 + 1e-9
+
+
+@pytest.mark.parametrize('factory,car', [(HondaInterface, HONDA.HONDA_CIVIC),
+                                       (HyundaiInterface, HYUNDAI.HYUNDAI_IONIQ_6),
+                                       (ToyotaInterface, TOYOTA.TOYOTA_RAV4_TSS2)])
+def test_native_planner_helps_weak_clear_road_recovery_toward_set_speed(factory, car):
+  params = factory.get_non_essential_params(car)
+  params.openpilotLongitudinalControl = True
+  planner = LongitudinalPlanner(params, init_v=20.)
+  outputs = []
+  for tick in range(80):
+    sm, now = frame(tick)
+    sm['carState'].aEgo = .2
+    sm['carState'].vCruise = 22.24 * 3.6
+    sm['modelV2'].action.desiredAcceleration = .2
+    planner.update(sm, now_ns=now)
+    assert planner.mpc.solution_status == 0
+    assert planner.output_a_target <= planner.a_cruise + 1e-6
+    assert not planner.output_should_stop
+    outputs.append(planner.output_a_target)
+  assert outputs[-1] >= .5
+  for tick in range(80, 82):
+    sm, now = frame(tick)
+    sm['carState'].aEgo = .2
+    sm['carState'].vCruise = 22.24 * 3.6
+    sm['modelV2'].action.desiredAcceleration = .2
+    planner.update(sm, now_ns=now)
+  assert planner.encouragement.boost == pytest.approx(MAX_BOOST)
+
+
+def test_started_recovery_keeps_building_assistance_past_weak_acceleration():
+  owner = Encouragement()
+  for tick in range(60):
+    step(owner, tick, model_accel=.2, observed_accel=.2)
+  assert .2 < owner.boost < MAX_BOOST
+  for tick in range(60, 100):
+    step(owner, tick, model_accel=.2, observed_accel=.4)
+  assert owner.boost == pytest.approx(MAX_BOOST)
 
 
 def test_recovery_floor_does_not_stack_on_model_acceleration():
@@ -102,7 +148,8 @@ def test_native_planner_normal_acceleration_is_unchanged(factory, car):
 def test_ramp_settling_bound_and_near_target_taper():
   owner = Encouragement()
   values = [step(owner, tick) for tick in range(250)]
-  assert values[:40] == [0.] * 40
+  settling_ticks = int(SETTLE_SECONDS / .05) - 1
+  assert values[:settling_ticks] == [0.] * settling_ticks
   assert values[-1] == pytest.approx(MAX_BOOST)
   assert all(0 <= b - a <= BOOST_RATE * .05 + 1e-9 for a, b in zip(values, values[1:], strict=False))
   assert step(owner, 250, target_speed=20.3) == pytest.approx(MAX_BOOST / 18.)

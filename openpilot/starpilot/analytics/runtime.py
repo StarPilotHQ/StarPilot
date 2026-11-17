@@ -17,6 +17,22 @@ COUNTERS = ('drives', 'meters', 'seconds', 'current_months_meters', 'total_track
             'total_lateral_seconds', 'total_longitudinal_seconds', 'total_aol_seconds')
 
 
+_PEDAL_FLAGS = {'gm': ('GMFlags', 'PEDAL_LONG'), 'honda': ('HondaFlags', 'GAS_INTERCEPTOR'),
+                'toyota': ('ToyotaFlags', 'GAS_INTERCEPTOR')}
+
+
+def pedal_metrics(cp):
+  from importlib import import_module
+  definition = _PEDAL_FLAGS.get(cp.brand)
+  if definition is None:
+    return {}
+  try:
+    flags = getattr(import_module('opendbc.car.' + cp.brand + '.values'), definition[0])
+    return {'has_pedal': bool(cp.flags & getattr(flags, definition[1]))}
+  except (AttributeError, ImportError, TypeError, ValueError):
+    return {}
+
+
 def executed_model(sm, params, now):
   from openpilot.starpilot.models.jetlink_adapter import hooks
   from openpilot.starpilot.models.runtime import snapshot
@@ -101,6 +117,7 @@ class AnalyticsWorker:
     self.last_poll = self.monotonic()
     self.last_persist = self.last_poll
     self.pending, self.initial_sent = False, False
+    self.awaiting_identity = False
     self.attempts, self.retry_at = 0, 0.0
 
   def fresh(self, service, max_age=2.0):
@@ -143,8 +160,8 @@ class AnalyticsWorker:
         self.cp = self.source['carParams'].as_builder()
         self.context.update(car_make=str(self.cp.brand), car_model=str(self.cp.carFingerprint))
         self.context.setdefault('metrics', {}).update(has_openpilot_longitudinal=bool(self.cp.openpilotLongitudinalControl),
-                                                     has_pedal=bool(self.cp.enableGasInterceptor),
-                                                     using_stock_acc=not bool(self.cp.openpilotLongitudinalControl))
+                                                     using_stock_acc=not bool(self.cp.openpilotLongitudinalControl),
+                                                     **pedal_metrics(self.cp))
       if self.fresh('modelV2', .25) and now - self.last_identity >= 1:
         identity = self.identity(self.source, self.params, int(now * 1e9))
         self.context.setdefault('metrics', {}).update(identity.pop('metrics', {}))
@@ -190,6 +207,13 @@ class AnalyticsWorker:
       self.persist()
     if not self.pending or self.attempts >= 5 or now < self.retry_at or not self.clock_valid() or not self.allowed():
       return
+    model_name = self.context.get('driving_model')
+    if not isinstance(model_name, str) or model_name.strip().lower() in ('', 'unknown'):
+      if not self.awaiting_identity:
+        self.params.put('UsageStatsStatus', {'state': 'awaiting_model_identity'})
+        self.awaiting_identity = True
+      return
+    self.awaiting_identity = False
     token = self.token_reader()
     if token is None:
       self.params.put('UsageStatsStatus', {'state': 'awaiting_credentials'})
@@ -255,10 +279,12 @@ def build_worker():
   from openpilot.cereal import messaging
   from openpilot.common.params import Params
   from openpilot.common.version import get_build_metadata
+  from openpilot.starpilot.ui.brand import DISPLAY_VERSION
   metadata = get_build_metadata()
   return AnalyticsWorker(Params(), messaging.SubMaster(list(SERVICES)),
                          metadata={'branch': metadata.channel, 'device': HARDWARE.get_device_type(),
-                                   'metrics': {'commit': metadata.openpilot.git_commit}})
+                                   'metrics': {'commit': metadata.openpilot.git_commit,
+                                               'software_major': int(DISPLAY_VERSION.split('.')[0])}})
 
 
 def main():

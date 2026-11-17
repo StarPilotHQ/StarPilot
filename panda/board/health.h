@@ -9,6 +9,7 @@
 #define HEALTH_FLAG_SOM_RESET_TRIGGERED      (1U << 6)
 #define HEALTH_FLAG_NMI_RESET                (1U << 7)
 #define HEALTH_FLAG_HARDFAULT_RESET          ((uint16_t)1U << 8)
+#define HEALTH_FLAG_HEARTBEAT_DISABLED       ((uint16_t)1U << 9)
 
 #define AOL_SAFETY_PROTOCOL_MAGIC 0x314C4F41U  // "AOL1", little endian
 #define AOL_SAFETY_PROTOCOL_VERSION 1U

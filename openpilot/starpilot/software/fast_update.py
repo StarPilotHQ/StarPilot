@@ -5,8 +5,10 @@ import subprocess
 import time
 import selectors
 import signal
+import tempfile
 
 from openpilot.starpilot.galaxy.companion import phone_uplink_active
+from openpilot.starpilot.software.history import MAX_COMMITS
 
 from openpilot.common.vendor_manifest import validate_revision
 from openpilot.common.prebuilt_manifest import revision_digest, valid_receipt
@@ -26,6 +28,15 @@ class FastUpdateIncompatible(FastUpdateError):
 def required_os_version(launch):
   versions = re.findall(r'^\s*export\s+AGNOS_VERSION=["\']([^"\'\n]+)["\']\s*$', launch, re.MULTILINE)
   return versions[0] if len(versions) == 1 else None
+
+
+def legacy_os_compatible(launch, current_os):
+  required_os = required_os_version(launch)
+  accepted = re.findall(r'^\s*export\s+AGNOS_ACCEPTED_VERSIONS=["\']([^"\'\n]+)["\']\s*$', launch, re.MULTILINE)
+  accepted_os = {required_os}
+  if len(accepted) == 1:
+    accepted_os.update(accepted[0].split())
+  return bool(required_os and current_os and current_os in accepted_os)
 
 
 def validate_legacy_return(git, revision, branch):
@@ -72,26 +83,34 @@ def _stop_process(process):
   process.wait(timeout=5)
 
 
-def run(command, cwd, progress=None, *, timeout=None):
-  downloading = 'fetch' in command or 'pull' in command or 'clone' in command
+def run(command, cwd, progress=None, *, timeout=None, download=False, cancelled=None, stdin=None):
+  downloading = download or 'fetch' in command or 'pull' in command or 'clone' in command
   if downloading and phone_uplink_active():
     raise FastUpdateError('Software downloads are disabled on the phone uplink')
   environment = dict(os.environ, GIT_LFS_SKIP_SMUDGE='1', GIT_TERMINAL_PROMPT='0', GIT_ASKPASS='/bin/false', SSH_ASKPASS='/bin/false')
   if timeout is None:
     timeout = 120 if "fetch" in command or "reset" in command or "checkout" in command else 30
   output = bytearray()
-  with subprocess.Popen(command, cwd=cwd, env=environment, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True) as process:
+  with subprocess.Popen(command, cwd=cwd, env=environment, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True) as process:
     assert process.stdout is not None
     with selectors.DefaultSelector() as selector:
       selector.register(process.stdout, selectors.EVENT_READ)
       deadline = time.monotonic() + timeout
       pending = b""
+      progress_at = float('-inf')
+      pending_progress = None
       try:
         while selector.get_map():
+          if cancelled is not None and cancelled():
+            raise FastUpdateError('Updater operation stopped')
           if downloading and phone_uplink_active():
             raise FastUpdateError('Phone uplink activated; software download stopped')
           if time.monotonic() >= deadline:
             raise subprocess.TimeoutExpired(command, timeout, output=bytes(output))
+          if progress is not None and pending_progress is not None and time.monotonic() - progress_at >= 0.25:
+            progress(pending_progress)
+            pending_progress = None
+            progress_at = time.monotonic()
           for key, _ in selector.select(min(0.1, max(0.0, deadline - time.monotonic()))):
             chunk = os.read(key.fileobj.fileno(), 4096)
             if not chunk:
@@ -105,8 +124,18 @@ def run(command, cwd, progress=None, *, timeout=None):
               detail = line.decode('utf-8', errors='replace')
               pattern = r'(?:remote: )?(?:Enumerating objects|Counting objects|Compressing objects|Receiving objects|Resolving deltas|Total|Updating files):'
               if progress is not None and re.match(pattern, detail):
-                progress(detail[-512:])
+                # Progress consumers persist Params synchronously. Git can emit
+                # hundreds of lines in a burst; keep draining its pipe instead
+                # of forcing a disk sync for each percentage point.
+                pending_progress = detail[-512:]
+                now = time.monotonic()
+                if now - progress_at >= 0.25:
+                  progress(pending_progress)
+                  pending_progress = None
+                  progress_at = now
         result = process.wait(timeout=max(0.01, deadline - time.monotonic()))
+        if progress is not None and pending_progress is not None:
+          progress(pending_progress)
         if result:
           raise subprocess.CalledProcessError(result, command, output=bytes(output))
       except BaseException:
@@ -116,6 +145,18 @@ def run(command, cwd, progress=None, *, timeout=None):
 
 
 _DEFAULT_RUN = run
+
+
+def fetch_files(git, revision):
+  missing = [line[1:] for line in git('rev-list', '--objects', '--no-object-names', '--missing=print',
+                                    '--no-walk', revision, '--').splitlines() if line.startswith('?')]
+  if missing:
+    # Match Git's partial-clone bulk fetch, with visible progress and no argv-size limit.
+    with tempfile.TemporaryFile() as requested:
+      requested.write(('\n'.join(missing) + '\n').encode())
+      requested.seek(0)
+      git('-c', 'fetch.negotiationAlgorithm=noop', 'fetch', '--progress', '--no-tags', '--no-write-fetch-head',
+          '--no-recurse-submodules', '--filter=blob:none', 'origin', '--stdin', stdin=requested)
 
 
 def fast_update(repo, branch, *, params, parked, expected_commit, current_os=None, invalidate=None, run=run, rollback=False,
@@ -132,7 +173,7 @@ def fast_update(repo, branch, *, params, parked, expected_commit, current_os=Non
 
   notify('preparing', 'Resolving active branch...')
 
-  def git(*arguments):
+  def git(*arguments, stdin=None):
     command = [
       'git',
       '-c',
@@ -152,8 +193,9 @@ def fast_update(repo, branch, *, params, parked, expected_commit, current_os=Non
       *arguments,
     ]
     if run is _DEFAULT_RUN:
-      return run(command, cwd=str(repo), progress=(lambda detail: notify('fetching', detail)) if 'fetch' in arguments else None)
-    return run(command, cwd=str(repo))
+      return run(command, cwd=str(repo), download=not rollback and any(action in arguments for action in ('show', 'checkout', 'reset')),
+                 progress=(lambda detail: notify('fetching', detail)) if 'fetch' in arguments else None, stdin=stdin)
+    return run(command, cwd=str(repo), **({'stdin': stdin} if stdin is not None else {}))
 
   def admitted():
     if not parked():
@@ -177,13 +219,16 @@ def fast_update(repo, branch, *, params, parked, expected_commit, current_os=Non
     notify('fetching', 'Previous installed version is available locally.')
   else:
     recent = versions_only or selected_commit is not None
+    history_limit = MAX_COMMITS if selected_commit is not None else RECENT_VERSION_LIMIT
     notify('fetching', f'Fetching {"recent versions" if recent else "latest shallow commit"} on {branch}...')
-    git('fetch', '--progress', f'--depth={RECENT_VERSION_LIMIT if recent else 1}', '--no-tags', '--no-recurse-submodules', 'origin', f'refs/heads/{branch}')
+    git('fetch', '--progress', f'--depth={history_limit if recent else 1}', '--filter=blob:none',
+        '--no-tags', '--no-recurse-submodules', 'origin', f'refs/heads/{branch}')
     target = git('rev-parse', 'FETCH_HEAD^{commit}').strip()
     if recent:
-      members = git('log', '--first-parent', f'-{RECENT_VERSION_LIMIT}', '--format=%H', target, '--').splitlines()
+      members = git('log', '--first-parent', f'-{history_limit}', '--format=%H', target, '--').splitlines()
       if selected_commit is not None:
-        if selected_commit not in members:
+        installed_history = git('log', '--first-parent', f'-{MAX_COMMITS}', '--format=%H', previous, '--').splitlines() if branch == initial_branch else []
+        if selected_commit not in members and selected_commit not in installed_history:
           raise FastUpdateError('Selected version is no longer in recent branch history; refresh and try again')
         target = selected_commit
       else:
@@ -201,15 +246,13 @@ def fast_update(repo, branch, *, params, parked, expected_commit, current_os=Non
     version = validate_legacy_return(git, target, branch)
     notify('validating', f'Returning to {branch} {version}; checking the legacy prebuilt release...')
   else:
+    # Validation reads the manifest directly, so guard any initial blob download.
+    if git('ls-tree', target, '--', 'upstream-sync.json').strip().split()[:1] == ['100644']:
+      git('show', f'{target}:upstream-sync.json')
     validate_revision(repo, target)
   launch = git('show', f'{target}:launch_env.sh')
   required_os = required_os_version(launch)
-  accepted_os = {required_os}
-  if legacy_return:
-    accepted = re.findall(r'^\s*export\s+AGNOS_ACCEPTED_VERSIONS=["\']([^"\'\n]+)["\']\s*$', launch, re.MULTILINE)
-    if len(accepted) == 1:
-      accepted_os.update(accepted[0].split())
-  if not required_os or not current_os or current_os not in accepted_os:
+  if not (legacy_os_compatible(launch, current_os) if legacy_return else required_os and current_os == required_os):
     raise FastUpdateIncompatible('Update requires a different or unverified operating system')
   if target == previous and branch == initial_branch and not git('status', '--porcelain', '--untracked-files=no').strip():
     notify('complete', 'Already up to date.')
@@ -237,6 +280,7 @@ def fast_update(repo, branch, *, params, parked, expected_commit, current_os=Non
   for name in untracked:
     if name in tracked or name in directories or any(str(parent) in tracked for parent in Path(name).parents):
       raise FastUpdateError('Update would overwrite untracked data')
+  fetch_files(git, target)
   admitted()
   if git('rev-parse', 'HEAD^{commit}').strip() != previous:
     raise FastUpdateError('Source changed during download')

@@ -34,7 +34,8 @@ def assert_expired(controls, proof, now):
 
 
 @pytest.mark.parametrize('accepted_before_expiry', [False, True])
-def test_new_combined_output_expiry_retains_intent_without_grant(accepted_before_expiry):
+@pytest.mark.parametrize('cancel', [False, True])
+def test_new_combined_output_expiry_retains_intent_without_grant(accepted_before_expiry, cancel):
   case = fixture.IoniqAvailabilityTests(methodName='runTest')
   with ExitStack() as clean:
     clean.callback(case.doCleanups)
@@ -47,7 +48,10 @@ def test_new_combined_output_expiry_retains_intent_without_grant(accepted_before
       feedback = card.aol_transport_feedback
       original = (feedback.lateral_source_ns, feedback.lateral_baseline_ns, feedback.lateral_native_ns,
                   feedback.healthy_feedback_ns, feedback.healthy_native_ns)
-      assert receive(NOW, axis=proof, event=event)
+      state = fixture.car_state()
+      if cancel:
+        state.buttonEvents = [fixture.car.CarState.ButtonEvent(type='cancel', pressed=True)]
+      assert receive(NOW, axis=proof, event=event, state=state)
       assert original == (feedback.lateral_source_ns, feedback.lateral_baseline_ns, feedback.lateral_native_ns,
                           feedback.healthy_feedback_ns, feedback.healthy_native_ns)
       assert not feedback.qualified and not feedback.retention_qualified and not feedback.failed
@@ -160,6 +164,8 @@ def test_new_expired_combined_never_hides_restriction(fault):
       if fault == 'permanent_eps':
         state.steerFaultPermanent = True
       if fault == 'physical_cancel':
+        # The fault requests lateral withdrawal; default CANCEL only stops cruise.
+        card.aol_card_intent.settings = replace(card.aol_card_intent.settings, cancel_actions=(9, 0, 0))
         state.buttonEvents = [fixture.car.CarState.ButtonEvent(type=fixture.car.CarState.ButtonEvent.Type.cancel, pressed=True)]
       if fault == 'settings_disabled':
         card.aol_card_intent.settings = replace(card.aol_card_intent.settings, enabled=False)

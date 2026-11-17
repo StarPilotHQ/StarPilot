@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from openpilot.system.ui.lib.multilang import tr_display as tr
+
 import math
 import random
 from functools import lru_cache
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 from openpilot.starpilot.ui.home_geometry import outside_rounded_border
 from openpilot.starpilot.ui.presentation import FontRole
 from openpilot.starpilot.ui.feature_settings_state import FEATURE_HEADER_HEIGHT, FEATURE_BACK_WIDTH
@@ -107,6 +109,7 @@ def draw_hud_background(rect: rl.Rectangle, accent: rl.Color, glow: float = 1.0,
 
 
 def elide_text(fonts, text: str, role: FontRole, size: float, width: float) -> str:
+  text = tr(text)
   if fonts.measure(text, role, size).width <= width:
     return text
   suffix = "..."

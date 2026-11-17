@@ -34,21 +34,22 @@ class Toggle:
     self.state = state
 
 
-def stock_ioniq():
+def stock_ioniq(offset=0):
   fp = gen_empty_fingerprint()
-  fp[2].update({0x50: 16, 0x2A4: 24})
-  fp[1].update({0x1CF: 8, 0x1AA: 16, 0x35: 32, 0x175: 24, 0xA0: 24, 0xEA: 24,
+  fp[offset + 2].update({0x50: 16, 0x2A4: 24})
+  fp[offset + 1].update({0x1CF: 8, 0x1AA: 16, 0x35: 32, 0x175: 24, 0xA0: 24, 0xEA: 24,
                 0x1BA: 24, 0x1E5: 16, 0x36A: 16})
-  fp[0][0x3A5] = 24
+  fp[offset][0x3A5] = 24
   return CarInterface.get_params(CAR.HYUNDAI_IONIQ_6, fp, [], False, False, False)
 
 
 @pytest.mark.parametrize('module,layout', ((large, large.DeveloperLayout), (compact, compact.DeveloperLayoutMici)))
-def test_request_survives_capability_loss_and_recovery(module, layout):
+@pytest.mark.parametrize('offset', (0, 4))
+def test_request_survives_capability_loss_and_recovery(module, layout, offset):
   with TemporaryDirectory() as directory:
     params = Params(directory)
     params.put_bool('AlphaLongitudinalEnabled', True, block=True)
-    cp = stock_ioniq()
+    cp = stock_ioniq(offset)
     assert not cp.alphaLongitudinalAvailable and not cp.openpilotLongitudinalControl
     ui = SimpleNamespace(CP=cp, params=params, is_release=False, engaged=False,
                          has_longitudinal_control=False, is_offroad=lambda: True, update_params=lambda: None)
@@ -71,12 +72,12 @@ def test_request_survives_capability_loss_and_recovery(module, layout):
       assert panel._alpha_long_toggle.visible is True
       assert params.get_bool('AlphaLongitudinalEnabled')
       fp = gen_empty_fingerprint()
-      fp[2].update({0x50: 16, 0x2A4: 24})
-      fp[1].update({0x1CF: 8, 0x1AA: 16, 0x35: 32, 0x175: 24, 0xA0: 24, 0xEA: 24,
+      fp[offset + 2].update({0x50: 16, 0x2A4: 24})
+      fp[offset + 1].update({0x1CF: 8, 0x1AA: 16, 0x35: 32, 0x175: 24, 0xA0: 24, 0xEA: 24,
                     0x1BA: 24, 0x1E5: 16, 0x36A: 16})
-      fp[0][0x3A5] = 24
+      fp[offset][0x3A5] = 24
       tagged_long = build_ioniq6_hda2_long_candidate(cp, fp)
-      assert tagged_long is not None and int(tagged_long.safetyConfigs[0].safetyParam) == 0x8015
+      assert tagged_long is not None and int(tagged_long.safetyConfigs[-1].safetyParam) == 0x8015
       ui.CP = tagged_long
       panel._update_toggles()
       assert panel._alpha_long_toggle.visible is True
@@ -104,11 +105,12 @@ def test_request_survives_capability_loss_and_recovery(module, layout):
 
 
 @pytest.mark.parametrize('module,layout', ((large, large.DeveloperLayout), (compact, compact.DeveloperLayoutMici)))
-def test_release_preserves_request_without_advertising_passive_authority(module, layout):
+@pytest.mark.parametrize('offset', (0, 4))
+def test_release_preserves_request_without_advertising_passive_authority(module, layout, offset):
   with TemporaryDirectory() as directory:
     params = Params(directory)
     params.put_bool('AlphaLongitudinalEnabled', True, block=True)
-    cp = stock_ioniq()
+    cp = stock_ioniq(offset)
     cp.passive = True
     ui = SimpleNamespace(CP=cp, params=params, is_release=True, engaged=False,
                          has_longitudinal_control=False, is_offroad=lambda: True, update_params=lambda: None)

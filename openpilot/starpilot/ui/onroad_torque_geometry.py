@@ -10,8 +10,18 @@ CAP_RADIUS = 7
 LARGE_CAP_RADIUS = 3 * CAP_RADIUS
 
 
-def maximum_footprint(x, y, width, height, screen_width):
+def arc_scale(width, height, screen_width):
+  """Bound tall projection arcs horizontally, including their rounded caps."""
   scale = height / 240 * (width / screen_width)
+  sine = math.sin(math.radians(TORQUE_ANGLE_SPAN / 2))
+  cap = LARGE_CAP_RADIUS if screen_width == 2160 else CAP_RADIUS
+  # Keep one logical pixel inside the bound before floor/ceil rounding.
+  maximum = (width / 2 - 9 - cap * (1 - sine)) / ((RADIUS + MAX_HEIGHT) * sine)
+  return min(scale, max(0, maximum))
+
+
+def maximum_footprint(x, y, width, height, screen_width):
+  scale = arc_scale(width, height, screen_width)
   cap_radius = LARGE_CAP_RADIUS if screen_width == 2160 else CAP_RADIUS
   half_angle = math.radians(TORQUE_ANGLE_SPAN / 2)
   radius = RADIUS * scale

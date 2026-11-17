@@ -7,6 +7,7 @@ import time
 import traceback
 
 from openpilot.starpilot.drive_state.owner import DriveStateOwner
+from openpilot.starpilot.bookmark_state import clear_bookmark_checkpoint
 from openpilot.cereal import log
 import openpilot.cereal.messaging as messaging
 from openpilot.common.utils import atomic_write
@@ -54,6 +55,7 @@ def manager_init() -> None:
 
   build_metadata = get_build_metadata()
 
+  clear_bookmark_checkpoint()
   params.clear_all(ParamKeyFlag.CLEAR_ON_MANAGER_START)
   params.clear_all(ParamKeyFlag.CLEAR_ON_ONROAD_TRANSITION)
   params.clear_all(ParamKeyFlag.CLEAR_ON_OFFROAD_TRANSITION)
@@ -63,6 +65,9 @@ def manager_init() -> None:
 
   if params.get_bool("RecordFrontLock"):
     params.put_bool("RecordFront", True, block=True)
+
+  if params.get_bool("AlwaysOnDMLock"):
+    params.put_bool("AlwaysOnDM", True, block=True)
 
   drive_state = DriveStateOwner(params, starpilot_storage_root() / "drive-state")
   try:
@@ -75,7 +80,7 @@ def manager_init() -> None:
   for k in params.all_keys():
     if k == b"LKASButtonControl":
       continue  # Card enrolls the vehicle-specific default after identification.
-    default_value = params.get_default_value(k)
+    default_value = not os.path.lexists(params.get_param_path("Version")) if k in (b"LaneCentering", b"ForceStops") else params.get_default_value(k)
     if default_value is not None and not os.path.lexists(params.get_param_path(k)):
       params.put(k, default_value, block=True)
 
@@ -182,6 +187,9 @@ def manager_thread() -> None:
 
     managed_processes['modeld'].observe(sm, started)
     ensure_running(managed_processes.values(), started, params=params, CP=sm['carParams'], not_run=ignore)
+    if not started:
+      # Stops can be nonblocking. Repeat the cheap unlink offroad to retire late writes.
+      clear_bookmark_checkpoint()
 
     running = ' '.join("{}{}\u001b[0m".format("\u001b[32m" if p.proc.is_alive() else "\u001b[31m", p.name)
                        for p in managed_processes.values() if p.proc)

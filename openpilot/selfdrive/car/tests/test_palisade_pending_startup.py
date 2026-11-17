@@ -94,7 +94,9 @@ def test_pending_constructor_and_six_second_host_initialization_keep_factory_out
     f.clock.ns = 1_120_000_000 + tick * 100_000_000
     f.card.sm.refresh()
     # This is the real Card initialize_only entry used while the host is warming.
+    assert not f.card.gm_startup_keepalive()
     f.card.controls_update(f.cs, f.card.sm.command, initialize_only=True)
+    assert not f.card.ci_initialized
   f.startup.owner.exchange.assert_not_called()
   f.ci.apply.assert_not_called()
   f.card.params.put_bool.assert_not_called()

@@ -257,4 +257,49 @@ console.log("Local HTTP search UUID fallback passed")
   assert.ok(NavigationPage.template.includes('<BluetoothNotice v-if="bluetooth" feature="Map preview"'))
   assert.ok(NavigationPage.template.includes('<NavigationMap v-else-if="ready"'))
 }
+
+{
+  // Shared text the comma can't pin down comes back as a 400 with the search to show; navigation turns on for it.
+  const sent = [], states = []
+  let off = true
+  const answers = { share: (body) => body.text.includes("!3d") ? response({ ...snapshot("s"), enabled: true, destination: place, shared: place }) :
+      body.text === "Atlantis" ? response({ error: "No map location found for Atlantis" }, 400) :
+      response({ error: "Open StarPilot to search for Starbucks", query: "Starbucks" }, 400),
+    configure: () => { off = false; return response({ ...snapshot("c"), enabled: true }) } }
+  const client = new NavigationClient({ publish: (state) => states.push(state), later: () => 0, cancelTimer: () => {},
+    fetcher: async (url, options) => {
+      const body = options.body ? JSON.parse(options.body) : null
+      sent.push({ url, body })
+      if (url.includes("/search")) return response({ results: [place], provider: "google" })
+      if (body?.action) return answers[body.action](body)
+      return response({ ...snapshot(), enabled: !off })
+    } })
+  await client.start()
+  const page = { client, query: "" }
+  await NavigationPage.methods.openShared.call(page, "Starbucks")
+  assert.deepEqual(sent.slice(1).map(({ url, body }) => body?.action || url), ["share", "configure", "./api/navigation/search"])
+  assert.equal(page.query, "Starbucks")
+  assert.equal(sent.at(-1).body.query, "Starbucks")
+  const shown = states.at(-1)
+  assert.deepEqual([shown.results, shown.resultsProvider, shown.error, shown.stale, shown.data.enabled], [[place], "google", "", false, true])
+  sent.length = 0
+  await NavigationPage.methods.openShared.call(page, "https://www.google.com/maps/place/Library/data=!3d41!4d-88")
+  assert.deepEqual(sent.map(({ body }) => body?.action), ["share"])
+  assert.equal(states.at(-1).data.destination.name, "Library")
+  sent.length = 0
+  page.query = ""
+  await NavigationPage.methods.openShared.call(page, "Atlantis")
+  assert.deepEqual([sent.length, page.query, states.at(-1).error], [1, "", "No map location found for Atlantis"])
+  assert.equal(client.refusal, null)
+  client.stop()
+  assert.equal(NavigationPage.computed.googlePlaces.call({ data: { routeProvider: "google", hasGoogleKey: true } }), true)
+  assert.equal(NavigationPage.computed.googlePlaces.call({ data: { routeProvider: "mapbox", hasGoogleKey: true } }), false)
+  const tests = NavigationPage.computed.googleTests.call({ googleTest: { ok: true, message: "map", routes: { ok: false, failure: "disabled", message: "off" },
+    places: { ok: false, failure: "budget", message: "used up" } } })
+  assert.deepEqual(tests.map((row) => [row.name, row.ok, row.missing, row.link?.href]), [["Map Tiles API", true, false, undefined],
+    ["Routes API", false, true, "https://console.cloud.google.com/apis/library/routes.googleapis.com"], ["Places API (New)", false, false, undefined]])
+  assert.equal(NavigationPage.computed.googleWorking.call({ googleTests: tests }), "2 of 3 APIs working")
+  assert.ok(NavigationPage.template.includes("Google isn't used until the Mapbox key above is added too."))
+  console.log("Shared places: comma lookup, 400 query search, navigation turned on, Google source and key test summary passed")
+}
 await import("./test_navigation_map.mjs")

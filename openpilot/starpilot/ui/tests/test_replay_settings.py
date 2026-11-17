@@ -7,7 +7,7 @@ import time
 from typing import Any, NoReturn, cast
 from unittest.mock import Mock
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import pytest
 
 from openpilot.starpilot.ui.replay_settings import ReplayCompactPage, ReplayController, ReplayPage, duration, route_date
@@ -721,8 +721,8 @@ def test_passive_frame_texture_upload_is_cached_and_uses_full_profile(monkeypatc
   monkeypatch.setattr(rl, 'set_texture_filter', Mock())
   def check_upload(actual_texture, pixels):
     assert actual_texture is texture
-    assert rl.ffi.typeof(pixels) == rl.ffi.typeof('void *')
-    assert bytes(rl.ffi.buffer(pixels, len(owner.frame.data))) == owner.frame.data
+    assert isinstance(pixels, (bytes, bytearray, memoryview))
+    assert bytes(pixels[:len(owner.frame.data)]) == owner.frame.data
 
   upload, draw = Mock(side_effect=check_upload), Mock()
   monkeypatch.setattr(rl, 'update_texture', upload)

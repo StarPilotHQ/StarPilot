@@ -62,14 +62,16 @@ export const GalaxySettingRow = {
   components: { GalaxySelect },
   props: {
     row: { type: Object, required: true },
+    compact: { type: Boolean, default: false },
     index: { type: Number, required: true },
     disabled: { type: Boolean, default: false },
     busy: { type: Boolean, default: false },
     feedback: { type: String, default: "saved" },
     saveValue: { type: Function, required: true },
+    testAlert: { type: Function, default: null },
   },
   emits: ["open", "review", "reset-default"],
-  data() { return { preview: undefined, interacting: false, fineScrub: null, isFineScrubbing: false, updating: false } },
+  data() { return { preview: undefined, interacting: false, fineScrub: null, isFineScrubbing: false, updating: false, testingSound: false, soundError: "" } },
   computed: {
     presentedRow() { return presentedSetting(this.row) },
     control() { return settingControl(this.row) },
@@ -90,10 +92,18 @@ export const GalaxySettingRow = {
     sliderValue() { return this.currentValue === "Auto" && this.bounds?.auto ? this.bounds.max : this.currentValue },
     displayValue() {
       return this.currentValue === "Auto" || (this.bounds?.auto && Number(this.currentValue) === this.bounds.max)
-        ? "Auto" : `${this.currentValue}${this.presentedRow.unit ? " " + this.presentedRow.unit : ""}`
+        ? "Auto" : `${this.compact && this.currentValue !== "" && Number.isFinite(Number(this.currentValue)) ? Number(this.currentValue) : this.currentValue}${this.presentedRow.unit ? (this.compact && this.presentedRow.unit === "%" ? "%" : " " + this.presentedRow.unit) : ""}`
     },
   },
   methods: {
+    async previewSound() {
+      if (this.locked || this.testingSound || !this.testAlert || !this.row.previewSound) return
+      this.testingSound = true
+      this.soundError = ""
+      try { await this.testAlert(this.row.previewSound) }
+      catch (error) { this.soundError = error?.message || "The alert could not be played." }
+      finally { this.testingSound = false }
+    },
     async commit(value) {
       if (this.locked) return
       if (String(value) === String(this.presentedRow.value)) { this.preview = undefined; return }
@@ -215,14 +225,15 @@ export const GalaxySettingRow = {
   },
   beforeUnmount() { this.clearHoldTimer() },
   template: `
-    <div class="gx-row" :class="{ disabled: dimmed, 'gx-row--stack': control === 'slider' }" :inert="busy || updating" :aria-busy="busy || updating || undefined">
+    <div class="gx-row" :class="{ disabled: dimmed, 'gx-row--stack': control === 'slider', 'gx-row--heading': row.heading }" :role="row.heading ? 'heading' : undefined" :aria-level="row.heading ? 3 : undefined" :inert="busy || updating" :aria-busy="busy || updating || undefined">
       <div class="gx-row__info">
         <span class="gx-row__label">{{ row.label }}</span>
-        <span v-if="presentedRow.reason" class="gx-row__desc">{{ ' ' + presentedRow.reason.replace('https://firestar.link/discord', '') }}</span>
+        <span v-if="presentedRow.reason && !row.heading && !compact" class="gx-row__desc">{{ ' ' + presentedRow.reason.replace('https://firestar.link/discord', '') }}</span>
+        <template v-if="compact && presentedRow.reason && !row.heading"><span class="gx-row__desc">{{ presentedRow.reason.split('. ')[0] + (presentedRow.reason.includes('. ') ? '.' : '') }}</span><details class="gx-row__help"><summary>What this changes</summary><p>{{ presentedRow.reason }}</p></details></template>
         <a v-if="presentedRow.reason?.includes('https://firestar.link/discord')" class="gx-btn gx-btn--tonal" href="https://firestar.link/discord" target="_blank" rel="noopener">StarPilot Discord</a>
         <span v-if="control === 'group' || control === 'action'" class="gx-row__desc">{{ presentedRow.value }}</span>
       </div>
-      <button v-if="control !== 'slider' && showDefault" type="button"
+      <button v-if="control !== 'slider' && showDefault && !row.heading" type="button"
           class="gx-btn gx-btn--tonal gx-setting-default" :disabled="dimmed || !row.resetAvailable"
           :aria-label="'Reset ' + row.label + ' to default'" :title="'Default: ' + presentedRow.defaultValue"
           @click="$emit('reset-default', index)">Default</button>
@@ -231,17 +242,23 @@ export const GalaxySettingRow = {
         <span class="gx-switch__track"></span><span class="gx-switch__thumb"></span>
       </label>
       <div v-else-if="control === 'slider'" class="gx-slider-row" :class="{ 'is-fine-scrubbing': isFineScrubbing }">
-        <div class="gx-slider-header"><span class="gx-row__value">{{ displayValue }}</span>
+        <div class="gx-slider-header" :class="{ 'gx-slider-header--preview': testAlert && row.previewSound }"><span class="gx-row__value">{{ displayValue }}</span>
           <span v-if="interacting" class="gx-slider-hint">{{ isFineScrubbing ? 'Fine scrubbing' : 'Hold to fine scrub' }}</span>
+          <span class="gx-slider-actions">
+          <button v-if="testAlert && row.previewSound" type="button" class="gx-btn gx-btn--tonal gx-alert-preview"
+            :disabled="locked || testingSound" :aria-label="'Test ' + row.label + ' on your comma'" :aria-busy="testingSound"
+            @click="previewSound"><i class="bi" :class="testingSound ? 'bi-soundwave' : 'bi-volume-up'" aria-hidden="true"></i>
+            {{ testingSound ? 'Playing…' : 'Test alert' }}</button>
           <button v-if="showDefault" type="button"
           class="gx-btn gx-btn--tonal gx-setting-default" :disabled="dimmed || !row.resetAvailable"
           :aria-label="'Reset ' + row.label + ' to default'" :title="'Default: ' + presentedRow.defaultValue"
-          @click="$emit('reset-default', index)">Default</button></div>
+          @click="$emit('reset-default', index)">Default</button></span></div>
         <input ref="slider" type="range" class="gx-slider" :aria-label="row.label" :aria-valuetext="displayValue"
           :min="bounds.min" :max="bounds.max" :step="bounds.step" :value="sliderValue" :disabled="dimmed"
           @input="onSliderInput" @change="onSliderCommit" @blur="onSliderBlur"
           @pointerdown="onSliderPointerDown" @pointermove="onSliderPointerMove" @pointerup="onSliderPointerEnd"
           @pointercancel="onSliderCancel" @lostpointercapture="onSliderCancel" @keydown="beginInteract">
+        <p v-if="soundError || testingSound" class="gx-alert-preview-note" role="status" aria-live="polite">{{ soundError || 'Playing on your comma…' }}</p>
         <div class="gx-slider-meta"><span>{{ bounds.min }} to {{ bounds.numericMax ?? bounds.max }} {{ presentedRow.unit }}<template v-if="bounds.auto"> · Auto at right</template></span><span>Step: {{ bounds.step }} {{ presentedRow.unit }}</span></div>
       </div>
       <GalaxySelect v-else-if="control === 'select'" class="gx-field" :aria-label="row.label" :value="currentValue" :disabled="dimmed" @change="onSelect">
@@ -249,6 +266,6 @@ export const GalaxySettingRow = {
       </GalaxySelect>
       <button v-else-if="control === 'group'" type="button" class="gx-btn gx-btn--tonal" :disabled="dimmed" @click="$emit('open', row.page)">Manage</button>
       <button v-else-if="control === 'action' && row.action" type="button" class="gx-btn gx-btn--tonal" :disabled="dimmed" @click="$emit('review', index, row.confirm ? 0 : 1)">{{ row.repairValue === 'Reset' || /reset|default/i.test(row.label) ? 'Reset' : row.repairValue ? 'Set ' + row.repairValue : row.label }}</button>
-      <span v-else class="gx-row__value gx-row__readout">{{ displayValue }}</span>
+      <span v-else-if="!row.heading" class="gx-row__value gx-row__readout">{{ displayValue }}</span>
     </div>`,
 }

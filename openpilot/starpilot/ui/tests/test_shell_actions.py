@@ -118,7 +118,7 @@ class ShellActionTests(unittest.TestCase):
           self.assertIsNone(feature_view._last_state)
 
   def test_runtime_and_shared_feature_view_forward_selected_drag(self):
-    import pyray as rl
+    from openpilot.starpilot.ui.raylib import rl
     from openpilot.starpilot.ui import runtime_app
     from openpilot.starpilot.ui.feature_settings import FeatureSettingsView
     from openpilot.starpilot.ui.feature_settings_state import FeatureSettingsState
@@ -170,7 +170,7 @@ class ShellActionTests(unittest.TestCase):
       feature_render.assert_not_called()
 
   def test_adapted_panels_draw_before_placed_navigation_and_notices(self):
-    import pyray as rl
+    from openpilot.starpilot.ui.raylib import rl
     from openpilot.starpilot.ui import clip, runtime_app
     from openpilot.starpilot.ui.settings_state import DestinationAvailability
 

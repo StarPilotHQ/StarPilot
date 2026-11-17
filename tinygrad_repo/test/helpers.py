@@ -1,6 +1,6 @@
-import os, sys, time, struct, functools, unittest
+import os, sys, gc, time, struct, functools, unittest, contextlib
 from dataclasses import replace
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 import numpy as np
 from tinygrad import Tensor, dtypes, Device
 from tinygrad.device import Buffer
@@ -22,7 +22,7 @@ from tinygrad.runtime.ops_python import PythonRenderer
 def full_rewrite(sink:UOp, ren:Renderer|None=None) -> UOp:
   if ren is None: ren = Renderer(Target())
   if sink.arg is None: sink = sink.replace(arg=KernelInfo())
-  return full_rewrite_to_sink(sink, ren, optimize=sink.tag is None)
+  return full_rewrite_to_sink(sink, ren, optimize=sink.arg is None or not sink.arg.optimized)
 
 def get_uops(sink:UOp, ren:Renderer|None=None) -> list[UOp]:
   """Extract linearized UOps from a sink. Test helper that only does linearization (no render)."""
@@ -66,6 +66,13 @@ def check_schedule(t:Tensor|list[Tensor]|UOp, allowed:int, to_prerealize:list[Te
     raise KernelCountException(allowed, kernel_cnt)
   return linear, var_vals
 
+@contextlib.contextmanager
+def measure_mem() -> Iterator[Callable[[], int]]:
+  Device.default.synchronize()
+  gc.collect()
+  base = GlobalCounters.mem_used
+  yield lambda: (gc.collect(), GlobalCounters.mem_used - base)[1]
+
 def assert_kernel_count(expected:int):
   got = GlobalCounters.kernel_count
   if got != expected: raise KernelCountException(expected, got)
@@ -82,7 +89,7 @@ def jit_cache_count(linear:UOp) -> int:
   return sum(len(call.without_after.arg.aux.kernels) if call_is_hcq(call) else 1 for call in linear.src)
 
 def assert_jit_cache_len(fxn, expected_len):
-  linear = fxn.captured.linear if fxn.captured is not None else None
+  linear = fxn.captured._linear if fxn.captured is not None else None
   if linear is None or not linear.src:
     if expected_len != 0: raise KernelCountException(expected_len, 0)
     return
@@ -149,7 +156,7 @@ def eval_uop(uop:UOp, inputs:list[tuple[DType, list[Any]]]|None=None, vals:tuple
   prg = to_program(UOp.store(g.index(UOp.const(0)), uop).sink(arg=KernelInfo()), PythonRenderer(Target("PYTHON")))
   prog = dev.runtime(prg.to_elf())
   out_buf = Buffer("PYTHON", uop.dtype.itemsize, preallocate=True)
-  prog(out_buf._buf, *[b.buf for b in bufs], vals=vals)
+  prog(out_buf._buf, *[b.buf for b in bufs], *vals)
   return out_buf.as_memoryview().cast(uop.dtype.fmt or "").tolist()[0]
 
 def to_uops_list(u:list[UOp], ren=None) -> list[UOp]:

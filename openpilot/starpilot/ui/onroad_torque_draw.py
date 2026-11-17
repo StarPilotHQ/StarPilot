@@ -1,12 +1,13 @@
 """Antialiased torque arc, painted in one bounded pass without a polygon cache."""
+import numpy as np
 
 import math
 
-import pyray as rl
-from raylib import rl as native_rl
+from openpilot.starpilot.ui.raylib import rl
+from openpilot.starpilot.ui.raylib import rl as native_rl
 
 from openpilot.system.ui.lib.application import GL_VERSION
-from openpilot.starpilot.ui.onroad_torque_geometry import MAX_HEIGHT, MAX_OFFSET, MIN_HEIGHT, MIN_OFFSET, RADIUS, TORQUE_ANGLE_SPAN
+from openpilot.starpilot.ui.onroad_torque_geometry import MAX_HEIGHT, MAX_OFFSET, MIN_HEIGHT, MIN_OFFSET, RADIUS, TORQUE_ANGLE_SPAN, arc_scale
 
 
 VERTEX_SHADER = GL_VERSION + """
@@ -76,7 +77,7 @@ class TorqueBarPainter:
       if shader.id and shader.id != rl.rl_get_shader_id_default():
         rl.unload_shader(shader)
       raise RuntimeError('Torque bar shader unavailable')
-    self._uniforms = {name: (location, rl.ffi.new('float[4]')) for name, location in locations.items()}
+    self._uniforms = {name: (location, np.zeros(4, dtype=np.float32)) for name, location in locations.items()}
     self._previous.clear()
     self._shader = shader
 
@@ -85,7 +86,7 @@ class TorqueBarPainter:
     if alpha <= 0:
       return
     self.prepare()
-    scale = rect.height / 240.0 * (rect.width / screen_width)
+    scale = arc_scale(rect.width, rect.height, screen_width)
     strength = max(0.0, min(1.0, (abs(torque) - 0.5) * 2))
     torque_offset = MIN_OFFSET * scale + (MAX_OFFSET * scale - MIN_OFFSET * scale) * strength
     thickness = MIN_HEIGHT * scale + (MAX_HEIGHT * scale - MIN_HEIGHT * scale) * strength
@@ -117,25 +118,25 @@ class TorqueBarPainter:
     extent += 4
     top = rect.y + rect.height - torque_offset - thickness + offset[1] - 4
     bottom = cy - (radius + cap) * cosine + cap + 4
-    # These arguments are already typed CFFI values; avoid per-vertex generic wrapping.
-    native_rl.BeginShaderMode(self._shader)
+    # Use the native bindings without per-vertex Python wrappers.
+    native_rl.begin_shader_mode(self._shader)
     try:
       for name, value in values.items():
         if self._previous.get(name) != value:
           location, pointer = self._uniforms[name]
           pointer[0:4] = value
-          native_rl.SetShaderValue(self._shader, location, pointer, rl.ShaderUniformDataType.SHADER_UNIFORM_VEC4)
+          native_rl.set_shader_value(self._shader, location, pointer, rl.ShaderUniformDataType.SHADER_UNIFORM_VEC4)
           self._previous[name] = value
       # rlgl may transform positions on the CPU; UVs keep distance calculations in logical pixels.
       left, right = cx - extent, cx + extent
-      native_rl.rlSetTexture(0)
-      native_rl.rlBegin(rl.RL_QUADS)
+      native_rl.rl_set_texture(0)
+      native_rl.rl_begin(rl.RL_QUADS)
       for x, y in ((left, top), (left, bottom), (right, bottom), (right, top)):
-        native_rl.rlTexCoord2f(x, y)
-        native_rl.rlVertex2f(x, y)
-      native_rl.rlEnd()
+        native_rl.rl_tex_coord2f(x, y)
+        native_rl.rl_vertex2f(x, y)
+      native_rl.rl_end()
     finally:
-      native_rl.EndShaderMode()
+      native_rl.end_shader_mode()
 
   def close(self) -> None:
     if self._shader is not None and rl.is_window_ready():

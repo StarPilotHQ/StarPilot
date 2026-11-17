@@ -33,10 +33,12 @@ def test_nominal_parent_pedal_full_callers(name, topology, rack, stock, host_hea
   run(name, topology, rack, stock, host_heartbeat_bridge)
 
 
-def run(name, topology, rack, stock, bridge, kind='nominal'):
+def run(name, topology, rack, stock, bridge, kind='nominal', *, mirror=False):
   identity = getattr(CAR, name)
   fp, fw = sources(identity, topology, rack)
   fp[0][0x201] = 6
+  if mirror:
+    fp[2][0x201] = 6
   cp = CarInterface.get_params(identity, fp, fw, True, False, False)
   assert pedal.configured(cp) and cp.openpilotLongitudinalControl
   long_word = cp.safetyConfigs[0].safetyParam
@@ -84,6 +86,8 @@ def run(name, topology, rack, stock, bridge, kind='nominal'):
     data[-1] = pedal.checksum(data)
     if not pedal_drop:
       frames.append((a, bytes(data), b))
+    if mirror:
+      frames.append((a, bytes(data), 2))
     if parent_drop and topology != '2FF8':
       frames = [frame for frame in frames if not (frame[0] == 0x262 and frame[2] == 0)]
     return frames

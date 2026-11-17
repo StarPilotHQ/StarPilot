@@ -14,7 +14,7 @@ from openpilot.starpilot.vehicle_preferences import VehicleStartupPreferences
 
 class TestVehicleStartupPreferences(unittest.TestCase):
   def test_gm_tune_startup_requires_exact_saved_selection(self):
-    for raw, expected in ((None, 0), (b"0", 0), (b"1", 1), (b"2", 2),
+    for raw, expected in ((None, 0), (b"0", 0), (b"1", 1), (b"2", 0),
                           (b"3", 0), (b"1\n", 0), (b"true", 0)):
       self.raw("GMLongitudinalTune", raw)
       self.raw("SafeMode", b"0")

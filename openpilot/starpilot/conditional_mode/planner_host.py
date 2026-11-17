@@ -11,7 +11,6 @@ from openpilot.starpilot.conditional_mode.policy import ManualIntent, ModeChoice
 from openpilot.starpilot.conditional_mode.preferences import ManualState, manual_for_drive
 from openpilot.starpilot.conditional_mode.projection import ConditionalOwnerContext, ObservedBool
 from openpilot.starpilot.conditional_mode.runtime_settings import ConditionalSettingsOwner, SettingsSnapshot
-from openpilot.starpilot.conditional_mode.slc_fallback import evaluate_runtime
 from openpilot.starpilot.conditional_mode.status import StatusPublisher, settings_fingerprint
 from openpilot.starpilot.conditional_mode.ui_action import current_authority, exact_settings, observation as ui_observation
 
@@ -34,14 +33,11 @@ def selected_follow_time(planner) -> float | None:
 
 
 class ConditionalPlannerHost:
-  def __init__(self, params, *, enabled_scene_owners: frozenset[str] = frozenset(), slc_runtime_enabled: bool | None = None):
+  def __init__(self, params, *, enabled_scene_owners: frozenset[str] = frozenset()):
     if not enabled_scene_owners <= LEGACY_SCENE_OWNERS:
       raise ValueError('unknown conditional scene owner')
     self.params = params
     self.enabled_scene_owners = enabled_scene_owners
-    if slc_runtime_enabled is not None and type(slc_runtime_enabled) is not bool:
-      raise ValueError('invalid SLC runtime capability')
-    self.slc_runtime_enabled = slc_runtime_enabled
     self.settings = ConditionalSettingsOwner(params)
     self.mode = ConditionalModeHost()
     self.status = StatusPublisher()
@@ -182,8 +178,9 @@ class ConditionalPlannerHost:
 
   def sample(self, sm, cp, planner, *, now_mono_ns: int, now_boot_ns: int, sample_skew_ns: int,
              drive_id: int, manual: ManualState | None = None,
-             owner_context: ConditionalOwnerContext | None = None, slc_runtime=None, slc_output=None,
+             owner_context: ConditionalOwnerContext | None = None,
              native_plan_valid: bool = False,
+             cruise_ceiling_mps: float | None = None,
              manual_event=None,
              ui_event=None,
              ) -> tuple[HostProposal, SettingsSnapshot | None]:
@@ -203,19 +200,12 @@ class ConditionalPlannerHost:
       gas = getattr(sm['carState'], 'gasPressed', None)
       if context.pedal_override is None and type(gas) is bool:
         context = replace(context, pedal_override=ObservedBool(gas, sm.logMonoTime['carState']))
-    slc_flag = None
-    if self.slc_runtime_enabled is False and self._fresh_service(sm, 'modelV2', drive_id, now_mono_ns):
-      slc_flag = ObservedBool(False, sm.logMonoTime['modelV2'])
-    elif self.slc_runtime_enabled is not False and slc_runtime is not None and slc_output is not None:
-      diagnostic = evaluate_runtime(slc_runtime, slc_output)
-      if type(diagnostic.proposed_experimental) is bool and type(diagnostic.frame_mono_ns) is int:
-        slc_flag = ObservedBool(diagnostic.proposed_experimental, diagnostic.frame_mono_ns)
     plan_stamp = sm.logMonoTime.get('modelV2')
     plan_owned = native_plan_valid is True and type(plan_stamp) is int and 0 < plan_stamp <= now_mono_ns
     should_stop = getattr(planner, 'output_should_stop', None)
     allow_throttle = getattr(planner, 'allow_throttle', None)
     context = replace(
-      context, slc_experimental=slc_flag,
+      context,
       plan_should_stop=ObservedBool(should_stop, plan_stamp) if plan_owned and type(should_stop) is bool else None,
       plan_allow_throttle=ObservedBool(allow_throttle, plan_stamp) if plan_owned and type(allow_throttle) is bool else None,
     )
@@ -300,6 +290,7 @@ class ConditionalPlannerHost:
       manual=self.manual_state if manual is None else manual, owner_context=context,
       selected_t_follow_s=selected_follow_time(planner),
       selected_t_follow_observed_mono_ns=sm.logMonoTime.get('modelV2'),
+      cruise_ceiling_mps=cruise_ceiling_mps,
       settings_owner=self.settings,
     )
     snapshot = self.settings.current

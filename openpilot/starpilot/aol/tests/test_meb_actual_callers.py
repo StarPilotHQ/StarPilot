@@ -114,7 +114,7 @@ def test_meb_full_engagement_brake_reverse_drive_actual_callers(identity, stock,
     # Explicit ambient producers added since the original shared caller fixture.
     # Keep production SubMaster health/frequency checks; never ignore a required service.
     from openpilot.cereal.services import SERVICE_LIST
-    ambient_services = ('alertDebug', 'lateralManeuverPlan', 'laneChangeAssistWire',
+    ambient_services = ('laneChangeAssistWire',
                         'starpilotLongitudinalPlan', 'slcState', 'gpsLocation')
     original_sd_update = sd.sm.update_msgs
     ambient_due = {}

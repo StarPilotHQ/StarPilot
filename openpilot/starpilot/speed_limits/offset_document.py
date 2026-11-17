@@ -1,12 +1,12 @@
-"""Strict SI authority for adopted SLC offsets; legacy source bytes stay untouched."""
+"""Speed-limit offset ranges and adjustments stored in fixed SI units."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 import json
-import math
 from typing import cast
 
+from openpilot.starpilot.speed_limits import acceptance as acc
 from openpilot.starpilot.speed_limits import speed_domain as sd
 
 MPH_TO_MPS = 0.44704
@@ -28,24 +28,22 @@ class OffsetDocument:
 
 @dataclass(frozen=True)
 class NeedsReview:
-  """A unit change with corrupt saved control settings must not restore control."""
+  """Saved offsets require an explicit reset before control can resume."""
 
 
 NEEDS_REVIEW = NeedsReview()
 
 
 def _finite(value: object) -> float:
-  if not isinstance(value, (int, float)) or type(value) not in (int, float) or not math.isfinite(value):
+  if not acc.finite(value):
     raise ValueError('SLC offset value must be finite')
   return float(value)
 
 
-def adopt_legacy(metric: bool, offsets: tuple[object, ...]) -> OffsetDocument:
-  if type(metric) is not bool or len(offsets) != 7:
-    raise ValueError('invalid legacy SLC offsets or units')
-  conversion = KPH_TO_MPS if metric else MPH_TO_MPS
-  bounds = METRIC_BOUNDS if metric else IMPERIAL_BOUNDS
-  return OffsetDocument(bounds, tuple(_finite(_finite(value) * conversion) for value in offsets))
+def default_document(metric: bool) -> OffsetDocument:
+  if type(metric) is not bool:
+    raise ValueError('invalid SLC offset units')
+  return OffsetDocument(METRIC_BOUNDS if metric else IMPERIAL_BOUNDS, (0.0,) * 7)
 
 
 def validate(value: object) -> OffsetDocument | NeedsReview:
@@ -53,7 +51,7 @@ def validate(value: object) -> OffsetDocument | NeedsReview:
     return NEEDS_REVIEW
   if isinstance(value, OffsetDocument):
     value = {'version': 1, 'bounds_mps': value.bounds_mps, 'offsets_mps': value.offsets_mps}
-  if not isinstance(value, dict) or type(value) is not dict:
+  if type(value) is not dict:
     raise ValueError('invalid SLC offset document version')
   data = cast(dict[str, object], value)
   if type(data.get('version')) is not int or data['version'] != 1:

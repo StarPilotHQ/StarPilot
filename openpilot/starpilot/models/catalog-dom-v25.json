@@ -1,0 +1,1830 @@
+{
+  "models": [
+    {
+      "id": "tr14223",
+      "name": "TR14 \ud83d\udc40\ud83d\udce1",
+      "version": "v8",
+      "series": "TR Series",
+      "released": "2025-06-30",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "tr14223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 70869025,
+          "artifact_sha256": "61d0703764b609819e8c8f1ca4a0ffb18c4c7b0a3d5321d536a942a20941c7f7",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "tr15223",
+      "name": "TR15 \ud83d\udc40\ud83d\udce1",
+      "version": "v8",
+      "series": "TR Series",
+      "released": "2025-07-11",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "tr15223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 70869025,
+          "artifact_sha256": "53b798e31d94e711bc08faba00ed4d42e527088048eb5696740b81909ccb0212",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "tr16223",
+      "name": "TR16 \ud83d\udc40\ud83d\udce1",
+      "version": "v8",
+      "series": "TR Series",
+      "released": "2025-07-21",
+      "community_favorite": false,
+      "uses_external_gpu": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "tr16223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 70955780,
+          "artifact_sha256": "9ad8231961dd6d0a0df4978f28cd12d52c0c7b52d49846e377f6e5b85e40ac9f",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "letr223",
+      "name": "LeTR \ud83d\udc40\ud83d\udce1",
+      "version": "v8",
+      "series": "TR Series",
+      "released": "2025-07-14",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "letr223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 70955780,
+          "artifact_sha256": "f4a93c99358520e0b7503cab9b8018f5a4779915e7f86ca3c789a5109811e2b0",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "spacelab22223",
+      "name": "Space Lab 2 \ud83d\udc40\ud83d\udce1",
+      "version": "v8",
+      "series": "SL Series",
+      "released": "2025-07-26",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "spacelab22223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 70869025,
+          "artifact_sha256": "9cca3f8b73c267242a971e48fea299c3033c3fb9aa11901cd8824f599169defc",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "vikander223",
+      "name": "Vikander \ud83d\udc40\ud83d\udce1",
+      "version": "v8",
+      "series": "Custom Series",
+      "released": "2025-05-03",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "vikander223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 70023248,
+          "artifact_sha256": "0c7f8d56fe4d0c4303af22e043a5b1917c5d1399cc5044f53cbc0550078599be",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "fof223",
+      "name": "Filet-O-Fish \ud83d\udc40\ud83d\udce1",
+      "version": "v9",
+      "series": "FoF Series",
+      "released": "2025-03-07",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "fof223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 59057224,
+          "artifact_sha256": "4e0b24f125ae07a0a5c3012615b511bbdbdd4a3e9e050959d68366b00e921390",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "vfof223",
+      "name": "Vegetarian-Filet-O-Fish \ud83d\udc40\ud83d\udce1",
+      "version": "v9",
+      "series": "FoF Series",
+      "released": "2025-06-21",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "vfof223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 59917572,
+          "artifact_sha256": "d8755ccaf240239418d421e79b264b3da73fa453d57a32e8d223fe6dff37ecd8",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "dtr223",
+      "name": "Down To Ride \ud83d\udc40\ud83d\udce1",
+      "version": "v8",
+      "series": "DTR Series",
+      "released": "2025-07-08",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "dtr223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 70869025,
+          "artifact_sha256": "b80b2898686c17fe2888c236334ad3c26414784acd8a150d6e7d8bff506d5326",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "dtr6223",
+      "name": "Down To Ride v6 \ud83d\udc40\ud83d\udce1",
+      "version": "v10",
+      "series": "DTR Series",
+      "released": "2025-08-12",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "dtr6223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 70869026,
+          "artifact_sha256": "b72d760523405da6046bb1bcc675d76483d2e013875754ec36d693b77ca39be9",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "uvdtr6223",
+      "name": "UV DTR v6 \ud83d\udc40\ud83d\udce1",
+      "version": "v10",
+      "series": "DTR Series",
+      "released": "2025-08-13",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "uvdtr6223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 69786968,
+          "artifact_sha256": "3a087117d08c8173548cbbc37d2026edd63cf0cd8f102ea98e39748a3006872c",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "sp2223",
+      "name": "Steam Powered \ud83d\udc40\ud83d\udce1",
+      "version": "v10",
+      "series": "SP Series",
+      "released": "2025-08-16",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "sp2223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 67571375,
+          "artifact_sha256": "ad647e1bebcfd7182e3ca5195d7d33bc9acfc7e60cee4d5ab1c5f9330b7b563c",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "fp223",
+      "name": "Falling Phoenix \ud83d\udc40\ud83d\udce1",
+      "version": "v10",
+      "series": "Custom Series",
+      "released": "2025-08-14",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "fp223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 70869246,
+          "artifact_sha256": "f15809e20e2517ebcee00a62c787b80a7b982c32d959c232181dbb5b41250fca",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "kv223",
+      "name": "Kumar's Vibe \ud83d\udc40\ud83d\udce1",
+      "version": "v10",
+      "series": "Custom Series",
+      "released": "2025-08-16",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "kv223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 70869245,
+          "artifact_sha256": "cad8f595e1e163be4c398d7bed2568faafb6a06d8600fcbfaa84c899f9692f4f",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "gwm3223",
+      "name": "Green Watermelon v3 \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "WM Series",
+      "released": "2025-08-22",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "gwm3223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 67571375,
+          "artifact_sha256": "1db0e4fbb9a670b8741c7ebd543f6df8e32dee30f5d9e5429a56b46999d44098",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "gwm5223",
+      "name": "Green Watermelon v5 \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "WM Series",
+      "released": "2025-09-09",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "gwm5223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 67571381,
+          "artifact_sha256": "59b6a1787d9129947463abcbe24e81a7dd251b9c1c36986e7c55eb77b33418d3",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "gwm6223",
+      "name": "Green Watermelon v6 \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "WM Series",
+      "released": "2025-09-20",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "gwm6223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 79357469,
+          "artifact_sha256": "4fea34e93eed5cebb115e5cc210639698ad27e1ca82257ed76ae490e0b5fcfd3",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "gwm8223",
+      "name": "Green Watermelon v8 \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "WM Series",
+      "released": "2025-09-28",
+      "community_favorite": true,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "gwm8223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 67571389,
+          "artifact_sha256": "5198df6889af1244f1daa9cd29388e2a3992328f91d7f44d2633e8702a4e19d1",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "gwm9223",
+      "name": "Green Watermelon v9 \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "WM Series",
+      "released": "2025-10-21",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "gwm9223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 69275897,
+          "artifact_sha256": "75691f496f61566bd6b9a235a761cc3fdc823b721814fa7d17b17026ec2befc4",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "cgwm223",
+      "name": "Cool Green Watermelon \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "WM Series",
+      "released": "2025-10-24",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "cgwm223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 69275897,
+          "artifact_sha256": "c6188ceacf898443630c778f6d4234e3b02e5b24bcb7127e43a68ccf1dd12d02",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "bd223",
+      "name": "Firehose \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "WM Series",
+      "released": "2025-08-31",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "bd223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 67571381,
+          "artifact_sha256": "20991c75dd910db4c90da4be5e4e80bcf55cf970322df7643375d79a3594acbe",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "nr223",
+      "name": "Neurips \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "NR Series",
+      "released": "2025-11-12",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "nr223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 69275897,
+          "artifact_sha256": "4411b4c2e81bfcce5884b32917da85603604b485a8a8a643d3322599f7fa288c",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "tcp2223",
+      "name": "The Cool People v2 \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "TCP Series",
+      "released": "2025-10-09",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "tcp2223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 69275897,
+          "artifact_sha256": "12d7e0213cac8f5d18fbc5fed7825298b135e5eed0c5be2a12466e7e6c4bc8e4",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "tcp3223",
+      "name": "The Cool People v3 \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "TCP Series",
+      "released": "2025-10-10",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "tcp3223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 69275897,
+          "artifact_sha256": "4411b4c2e81bfcce5884b32917da85603604b485a8a8a643d3322599f7fa288c",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "fbw223",
+      "name": "Fly By Wire \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "WM Series",
+      "released": "2025-09-04",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "fbw223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 55987967,
+          "artifact_sha256": "a6ba1b0017bb5b1807441e1a952e87a1ab8565699e5ccb9c63833b87aa4f75bc",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "nevada223",
+      "name": "Nevada \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "NV Series",
+      "released": "2025-09-07",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "nevada223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 67571377,
+          "artifact_sha256": "c1608ba0102a527fcff47e3b99092d68f395c356e50b3e490fd2ffaee2d802ff",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "wmi4223",
+      "name": "Watermelon Indigo v4 \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "WM Series",
+      "released": "2025-12-22",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "wmi4223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 69275897,
+          "artifact_sha256": "004d3a007029effbaf82163bcf77c72a101ded973b23a0c784bed4cc76159d54",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "wmi523",
+      "name": "Watermelon Indigo v5 \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "WM Series",
+      "released": "2025-12-29",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "wmi523_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 69275897,
+          "artifact_sha256": "9f1e2bd8ffbd61120d17c6ee1970ba599f6cc88a83deda6725518d06f4b2763a",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "wmi623",
+      "name": "Watermelon Indigo v6 \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "WM Series",
+      "released": "2025-12-30",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "wmi623_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 69275897,
+          "artifact_sha256": "ba88bf830059908128aeb04478c4d3a5c4c6703791e8ffa13ccd499aca45e376",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "wmi723",
+      "name": "Watermelon Indigo v7 \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "WM Series",
+      "released": "2026-01-01",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "wmi723_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 69275897,
+          "artifact_sha256": "62395ea346c9082cf6a1096cd968e7c928930b9a283c2f78a1d6a47595559823",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "wmi7223",
+      "name": "Watermelon Indigo v7 \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "WM Series",
+      "released": "2026-01-01",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "wmi7223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 67571389,
+          "artifact_sha256": "3ca97ede7df101af535c8246ddbd98862788c29a823cc6f68616dee3fbaae404",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "wmi823",
+      "name": "Watermelon Indigo v8 \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "WM Series",
+      "released": "2026-01-03",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "wmi823_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 69275897,
+          "artifact_sha256": "d29c84d8dfdd3d84ba7cd7292615979e47c74d8bf428416b98e0a1bf2622a64e",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "wmi923",
+      "name": "Watermelon Indigo v9 \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "WM Series",
+      "released": "2026-01-07",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "wmi923_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 69275897,
+          "artifact_sha256": "c1f989e4c6ee92b6195c16c86557d74fbed564610b2f4b93a6917d02fe06fe6b",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "wmi1023",
+      "name": "Watermelon Indigo v10 \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "WM Series",
+      "released": "2026-01-09",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "wmi1023_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 69275897,
+          "artifact_sha256": "9e8728d13450ed988f2f2fef85930c17919e7eeb459b33e8156a5f2283840f43",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "wmi1123",
+      "name": "Watermelon Indigo v11 \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "WM Series",
+      "released": "2026-01-13",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "wmi1123_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 69275897,
+          "artifact_sha256": "7a6a033abc4d65431d52a8b00c052cf23f48df31fdd02cabfafb5450a7e6c3ab",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "cd21023",
+      "name": "CD210 \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "WM Series",
+      "released": "2026-01-31",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "cd21023_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 69274089,
+          "artifact_sha256": "453d9dc39e568bd8ee3e24903a634743bc2b05a515fc4feb451573af60ab19c5",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "op223",
+      "name": "Off Policy v2 \ud83d\udc40\ud83d\udce1",
+      "version": "v12",
+      "series": "OP Series",
+      "released": "2026-02-20",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "op223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 56971286,
+          "artifact_sha256": "6edde60952d9c045be6e8c69501c195bd0e7b01b44327f95db3f0a2c7eebcf6a",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "op323",
+      "name": "Off Policy v3 \ud83d\udc40\ud83d\udce1",
+      "version": "v12",
+      "series": "OP Series",
+      "released": "2026-02-26",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "op323_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 47442350,
+          "artifact_sha256": "9ff5e7d5a61746019f0e39f102c7cbfab114b68af10a6df817686033bb14861c",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "op423",
+      "name": "Off Policy v4 \ud83d\udc40\ud83d\udce1",
+      "version": "v12",
+      "series": "OP Series",
+      "released": "2026-02-27",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "op423_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 52867838,
+          "artifact_sha256": "278924ceb10e9bf7ee59ee8dac79d1b72530365361bf12721d0d97958920f0f3",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "op523",
+      "name": "Off Policy v5 \ud83d\udc40\ud83d\udce1",
+      "version": "v12",
+      "series": "OP Series",
+      "released": "2026-03-14",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "op523_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 54318459,
+          "artifact_sha256": "f61a362da22235fbc7218a64bd35fd9100dc9119d44197821b282555b98f647b",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "op623",
+      "name": "Off Policy v6 \ud83d\udc40\ud83d\udce1",
+      "version": "v12",
+      "series": "OP Series",
+      "released": "2026-03-28",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "op623_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 58019615,
+          "artifact_sha256": "857bdd77f8839ee868c8b0c1c4001d1ce2b6888137dbc6e806e7f5265bb49e0e",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "opv73",
+      "name": "Off Policy v7 \ud83d\udc40\ud83d\udce1",
+      "version": "v12",
+      "series": "OP Series",
+      "released": "2026-04-01",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "opv73_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 58019615,
+          "artifact_sha256": "37cf380e18968920bee0307fd88e138ec56203f92dbd2b6acf42cfd9ebde80db",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "opv83",
+      "name": "Off Policy v8 \ud83d\udc40\ud83d\udce1",
+      "version": "v12",
+      "series": "OP Series",
+      "released": "2026-04-03",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "opv83_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 58019615,
+          "artifact_sha256": "dd41a6ce5c8c6378507ae2b1feaa23060b64505fe529f96eb2369c14cb3be6c7",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "opv93",
+      "name": "Off Policy v9 \ud83d\udc40\ud83d\udce1",
+      "version": "v12",
+      "series": "OP Series",
+      "released": "2026-04-07",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "opv93_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 58019615,
+          "artifact_sha256": "c25d15462e991a2e09ce7759b36ff10c024d6849140c2f3c7e39858dbccb7b5f",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "opv103",
+      "name": "Off Policy v10 \ud83d\udc40\ud83d\udce1",
+      "version": "v12",
+      "series": "OP Series",
+      "released": "2026-04-10",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "opv103_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 58019615,
+          "artifact_sha256": "a1a39565f0d5387ba1121cf17cef05429743cb5ae20d68cd3abbeff9b62bde22",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "opv113",
+      "name": "Off Policy v11 \ud83d\udc40\ud83d\udce1",
+      "version": "v12",
+      "series": "OP Series",
+      "released": "2026-04-18",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "opv113_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 57969509,
+          "artifact_sha256": "daa1d77b5c2f69bfb6526bf0de6720d54345e25aebcf82f436b741d2af2bb0d8",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "opv123",
+      "name": "Off Policy v12 \ud83d\udc40\ud83d\udce1",
+      "version": "v12",
+      "series": "OP Series",
+      "released": "2026-04-20",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "opv123_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 57969501,
+          "artifact_sha256": "18467cb31a54e975899d15650303d295e48407e2d70ccc3062e4a575b9b4bd84",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "opv133",
+      "name": "Off Policy v13 \ud83d\udc40\ud83d\udce1",
+      "version": "v14",
+      "series": "OP Series",
+      "released": "2026-05-05",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "opv133_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 58076885,
+          "artifact_sha256": "8d8fed9caa0bbb190056398389dfd1c4243254a4c16a34a2facc9f67ea6030d4",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "op163",
+      "name": "Off Policy v16 \ud83d\udc40\ud83d\udce1",
+      "version": "v15",
+      "series": "OP Series",
+      "released": "2026-05-19",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "op163_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 66556448,
+          "artifact_sha256": "3ce1a2e0d5d8ab465264f341e30f164841f7ad5e1f605bde91fe404d993c585c",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "op16d3",
+      "name": "Off Policy v16 Deep \ud83d\udc40\ud83d\udce1",
+      "version": "v15",
+      "series": "OP Series",
+      "released": "2026-05-20",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "op16d3_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 104636443,
+          "artifact_sha256": "77c29d50eab89ac339b27bf188b4a1c8cb74cebfbf2b9f486c5cd70ef8f7b9e3",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "op16dv23",
+      "name": "Off Policy v16 Deep V2 \ud83d\udc40\ud83d\udce1",
+      "version": "v15",
+      "series": "OP Series",
+      "released": "2026-05-26",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "op16dv23_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 104636443,
+          "artifact_sha256": "77c29d50eab89ac339b27bf188b4a1c8cb74cebfbf2b9f486c5cd70ef8f7b9e3",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "rlv1dl3",
+      "name": "RL V1 Lateral Only \ud83d\udc40\ud83d\udce1",
+      "version": "v15",
+      "series": "OP Series",
+      "released": "2026-06-03",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "rlv1dl3_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 104636443,
+          "artifact_sha256": "e1b85a6461be1f16856d668db5dc91554a2c8154d8cf0bb25699312a55c8c68b",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "deeprl33",
+      "name": "Deep RL 3 \ud83d\udc40\ud83d\udce1",
+      "version": "v15",
+      "series": "OP Series",
+      "released": "2026-06-09",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "deeprl33_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 104636443,
+          "artifact_sha256": "1a784d54dac0a7ff9e111335a2787d8d9f9fb6683fe72399174ae85d5d720385",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "deeprl333",
+      "name": "Deep RL 3 V3 \ud83d\udc40\ud83d\udce1",
+      "version": "v15",
+      "series": "OP Series",
+      "released": "2026-06-30",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "deeprl333_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 104634821,
+          "artifact_sha256": "86a417be0daff2052253c89153f359f613d4c7d377ebc1fa7da8e9359b774024",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "rl343",
+      "name": "Rebel Legion \ud83d\udc40\ud83d\udce1",
+      "version": "v15",
+      "series": "OP Series",
+      "released": "2026-07-22",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "rl343_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 104634821,
+          "artifact_sha256": "86a417be0daff2052253c89153f359f613d4c7d377ebc1fa7da8e9359b774024",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "drl3",
+      "name": "Divided RL \ud83d\udc40\ud83d\udce1",
+      "version": "v15",
+      "series": "OP Series",
+      "released": "2026-07-01",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "drl3_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 104634821,
+          "artifact_sha256": "c33d7863ab5e07c84a9490673bb19bf58ca37d6f4751e4aff7266ccf7486066a",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "nopp3",
+      "name": "No PP \ud83d\udc40\ud83d\udce1",
+      "version": "v15",
+      "series": "OP Series",
+      "released": "2026-06-26",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "nopp3_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 104634821,
+          "artifact_sha256": "5fe98e1603bf3806714740114f38377003f2f56c81ff938991ce1b0a220eb6a2",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "tobyrl3",
+      "name": "Toby RL \ud83d\udc40\ud83d\udce1",
+      "version": "v15",
+      "series": "OP Series",
+      "released": "2026-06-28",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "tobyrl3_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 104634821,
+          "artifact_sha256": "d08077e83e0ba58fa51aaf389c20dd1ec87c6ea4b6d4ea441de70de4ca677d14",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "michael-rl3",
+      "name": "Michael RL \ud83d\udc40\ud83d\udce1",
+      "version": "v15",
+      "series": "OP Series",
+      "released": "2026-07-17",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "michael-rl3_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 104634821,
+          "artifact_sha256": "7e1958e51fc56ec6623d1751981e3f355987ab9c6ee74ded17d86598477ba218",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "michael-rl23",
+      "name": "Michael RL V2 \ud83d\udc40\ud83d\udce1",
+      "version": "v15",
+      "series": "OP Series",
+      "released": "2026-07-17",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "michael-rl23_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 104634821,
+          "artifact_sha256": "27b5c0fe045d4d972062908e35f735460dd48027bea545829764151a7423b5f7",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "karnbir3",
+      "name": "Karnbir \ud83d\udc40\ud83d\udce1",
+      "version": "v15",
+      "series": "OP Series",
+      "released": "2026-07-21",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "karnbir3_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 104634821,
+          "artifact_sha256": "96e9f4d094baac598f2300218ec447565b75c4bdae4dcbb819762f2acfe7db47",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "karnbir23",
+      "name": "Karnbir V2 \ud83d\udc40\ud83d\udce1",
+      "version": "v15",
+      "series": "OP Series",
+      "released": "2026-07-22",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "karnbir23_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 104634821,
+          "artifact_sha256": "8fcc4ebfc56663d870429c610e66e40030f97bfc3ff409d427c3a1a2486ac728",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "ms23",
+      "name": "Macrostiff \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "MS Series",
+      "released": "2026-01-01",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "ms23_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 69275897,
+          "artifact_sha256": "a921e6618b24d347830f385153b44b6b87bed914bd3a128833f7a2e19cedc8a0",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "pp2223",
+      "name": "Plan Plus v2 \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "PL Series",
+      "released": "2025-12-11",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "pp2223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 83154952,
+          "artifact_sha256": "624f7ac6da81694a4465052ba51968dbe2ff0dd6d80ded496201597eb21ca665",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "ds2223",
+      "name": "Dark Souls v2 \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "DS Series",
+      "released": "2025-12-11",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "ds2223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 69275897,
+          "artifact_sha256": "866417dd5f5a19344172a76c820f912be14c1ec7c86460c23944586ea5b0cb4c",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "nn2223",
+      "name": "North Nevada v2 \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "NV Series",
+      "released": "2025-10-08",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "nn2223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 67571389,
+          "artifact_sha256": "85456d805b2014f63dcc564488e2db6f7c45f3e0bf8357a25fe4030b605497e4",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "sc23",
+      "name": "South Carolina \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "SC Series",
+      "released": "2026-01-08",
+      "community_favorite": true,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "sc23_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 69275897,
+          "artifact_sha256": "714cc125ec7a680957f0a7131c1f650bc551929631673a6b44b58bcf266891cd",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "pop23",
+      "name": "Pop Model \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "SC Series",
+      "released": "2026-03-21",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "pop23_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 69274090,
+          "artifact_sha256": "a828d1d80746cb963b30921b9692b94be7cc6fa7ba31fd9e959f6a770d7c3c3f",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "pop223",
+      "name": "Pop Model V2 \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "SC Series",
+      "released": "2026-03-24",
+      "community_favorite": true,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "pop223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 69282804,
+          "artifact_sha256": "0ab7517ba96ebe0b29f80fabc44f088fd243cecfbe82e45988007f22a772bbb7",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "nid223",
+      "name": "Nuggets in Dijon \ud83d\udc40\ud83d\udce1",
+      "version": "v11",
+      "series": "NUG Series",
+      "released": "2025-10-09",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "nid223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 67571389,
+          "artifact_sha256": "280c6b35aa1d3198cd3c4371dc830e1ce7d2fb108a0fab47777d0241a2719e53",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "kerrygold223",
+      "name": "Kerrygold \ud83d\udc40\ud83d\udce1",
+      "version": "v9",
+      "series": "FoF Series",
+      "released": "2025-06-08",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "kerrygold223_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 59083853,
+          "artifact_sha256": "9b6cbe3e3b13955bf332627656fba8d3676bfd97b75c2c5bb5f59329757ae79b",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "deeprl3v23",
+      "name": "Deep RL 3 V2 \ud83d\udc40\ud83d\udce1",
+      "version": "v15",
+      "series": "OP Series",
+      "released": "2026-06-17",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "deeprl3v23_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 104634821,
+          "artifact_sha256": "18b161f9dcba47eef0fce406eabc7794aa15d9f141b4955bde326850579dc3c7",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "rh3",
+      "name": "Rebellious Hope \ud83d\udc40\ud83d\udce1",
+      "version": "v15",
+      "series": "OP Series",
+      "released": "2026-07-27",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "rh3_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 104634821,
+          "artifact_sha256": "aea2fd96859ee98ed14b7d64991ffc9446e593ba6c8849e22f1eb5ad056c6c51",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "gyhu3",
+      "name": "GYHU \ud83d\udc40\ud83d\udce1",
+      "version": "v15",
+      "series": "OP Series",
+      "released": "2026-07-25",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "gyhu3_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 104634821,
+          "artifact_sha256": "dce37ed7a1b21330bf9ccd78526ce7277f17c0abc438bd54cc2a59a761411f6d",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "rdfv23",
+      "name": "Regret Driven Framework \ud83d\udc40\ud83d\udce1",
+      "version": "v15",
+      "series": "OP Series",
+      "released": "2026-08-05",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "rdfv23_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 104642628,
+          "artifact_sha256": "3631a5ce7325213e05110e264cf3c2152b7fd70f8f108fdc08cefa25fb2c9f3c",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "rdf23",
+      "name": "Regret Driven Framework V2 \ud83d\udc40\ud83d\udce1",
+      "version": "v15",
+      "series": "OP Series",
+      "released": "2026-08-10",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "rdf23_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 105432824,
+          "artifact_sha256": "9f691cac0186c2dc97093dae9c7678fc131c67bd33eb1ca9c46f9aa061439261",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "rdf43",
+      "name": "Regret Driven Framework V4 \ud83d\udc40\ud83d\udce1",
+      "version": "v15",
+      "series": "OP Series",
+      "released": "2026-08-10",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "rdf43_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 105432783,
+          "artifact_sha256": "dfea7dcbf275424c3f6c25139e2ffee1299f85b88580f851c6d6988d9f31a7e0",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "rdf33",
+      "name": "Regret Driven Framework V3 \ud83d\udc40\ud83d\udce1",
+      "version": "v15",
+      "series": "OP Series",
+      "released": "2026-08-10",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "rdf33_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 105432825,
+          "artifact_sha256": "75e70d7cfaa01d59b953ee0fe0c6d7a49cd6fe35a63dc6476f54e5a1fdc95964",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "rdf53",
+      "name": "Regret Driven Framework V5 \ud83d\udc40\ud83d\udce1",
+      "version": "v15",
+      "series": "OP Series",
+      "released": "2026-08-11",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "rdf53_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 105432825,
+          "artifact_sha256": "90ffa4a25052f675bdab54eb1c75b2a3ca49c46bbf93b144e1ab1c1bafddba76",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "rdf63",
+      "name": "Regret Driven Framework V6 \ud83d\udc40\ud83d\udce1",
+      "version": "v15",
+      "series": "OP Series",
+      "released": "2026-08-11",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "rdf63_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 105432825,
+          "artifact_sha256": "4e7e081decf93deed9a8f18b7fcc65debf62947108465cd1667be388f7786353",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "tsf",
+      "name": "Terrific Super Fantastic \ud83d\udc40\ud83d\udce1",
+      "version": "v15",
+      "series": "OP Series",
+      "released": "2026-08-12",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "tsf_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 105432825,
+          "artifact_sha256": "70bfb8db4341259879751340e5352ea64ce68a01a9bd3fe835042d3db80eec60",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "tsfdo",
+      "name": "Terrific Super Fantastic Do Over \ud83d\udc40\ud83d\udce1",
+      "version": "v15",
+      "series": "OP Series",
+      "released": "2026-08-15",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "tsfdo_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 105432825,
+          "artifact_sha256": "0fb267848d7e1072c03f3e600001d7d329b23425fb4522aff4e42c75fc5915bf",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "lebowski3",
+      "name": "Lebowski \ud83d\udc40\ud83d\udce1",
+      "version": "v15",
+      "series": "OP Series",
+      "released": "2026-08-15",
+      "community_favorite": false,
+      "uses_external_gpu": true
+    },
+    {
+      "id": "tt-driving",
+      "name": "TT Driving \ud83d\udc40\ud83d\udce1",
+      "version": "v15",
+      "series": "OP Series",
+      "released": "2026-08-17",
+      "community_favorite": false,
+      "uses_external_gpu": true
+    },
+    {
+      "id": "tee-time",
+      "name": "Tee Time \ud83d\udc40\ud83d\udce1",
+      "version": "v15",
+      "series": "OP Series",
+      "released": "2026-08-23",
+      "community_favorite": false,
+      "uses_external_gpu": true
+    },
+    {
+      "id": "bmrlnapv2",
+      "name": "BMRLNAP V2 \ud83d\udc40\ud83d\udce1",
+      "version": "v16",
+      "series": "OP Series",
+      "released": "2026-08-26",
+      "community_favorite": false,
+      "uses_external_gpu": true
+    },
+    {
+      "id": "happybirthday",
+      "name": "Happy Birthday \ud83d\udc40\ud83d\udce1",
+      "version": "v16",
+      "series": "OP Series",
+      "released": "2026-08-24",
+      "community_favorite": false,
+      "uses_external_gpu": true
+    },
+    {
+      "id": "berightthere",
+      "name": "Be Right Here \ud83d\udc40\ud83d\udce1",
+      "version": "v16",
+      "series": "OP Series",
+      "released": "2026-08-01",
+      "community_favorite": false,
+      "uses_external_gpu": true
+    },
+    {
+      "id": "remove-avgpoolv4",
+      "name": "Remove AvgPool V4 \ud83d\udc40\ud83d\udce1",
+      "version": "v16",
+      "series": "OP Series",
+      "released": "2026-08-26",
+      "community_favorite": false,
+      "uses_external_gpu": true
+    },
+    {
+      "id": "remove-avgpoolv3",
+      "name": "Remove AvgPool V3 \ud83d\udc40\ud83d\udce1",
+      "version": "v16",
+      "series": "OP Series",
+      "released": "2026-08-24",
+      "community_favorite": false,
+      "uses_external_gpu": true
+    },
+    {
+      "id": "remove-avgpoolv2",
+      "name": "Remove AvgPool V2 \ud83d\udc40\ud83d\udce1",
+      "version": "v16",
+      "series": "OP Series",
+      "released": "2026-08-20",
+      "community_favorite": false,
+      "uses_external_gpu": true
+    },
+    {
+      "id": "remove-avgpoolv1",
+      "name": "Remove AvgPool V1 \ud83d\udc40\ud83d\udce1",
+      "version": "v16",
+      "series": "OP Series",
+      "released": "2026-08-20",
+      "community_favorite": false,
+      "uses_external_gpu": true
+    },
+    {
+      "id": "rdf-driving",
+      "name": "RDF Driving \ud83d\udc40\ud83d\udce1",
+      "version": "v16",
+      "series": "OP Series",
+      "released": "2026-08-09",
+      "community_favorite": false,
+      "uses_external_gpu": true
+    },
+    {
+      "id": "sad",
+      "name": "Sad \ud83d\ude22",
+      "version": "v16",
+      "series": "OP Series",
+      "released": "2026-08-28",
+      "community_favorite": false,
+      "uses_external_gpu": true
+    },
+    {
+      "id": "bmrlnapv6",
+      "name": "BMRLNAP V6 \ud83d\udc40\ud83d\udce1",
+      "version": "v16",
+      "series": "OP Series",
+      "released": "2026-09-01",
+      "community_favorite": false,
+      "uses_external_gpu": true
+    },
+    {
+      "id": "deeprl3v2",
+      "name": "Deep RL 3 V2 \ud83d\udc40\ud83d\udce1",
+      "version": "v15",
+      "series": "OP Series",
+      "released": "2026-06-17",
+      "community_favorite": false,
+      "model_size": "small",
+      "model_lab_eligible": true,
+      "accelerator_artifacts": {
+        "chestnut": {
+          "artifact_format": "tinygrad_single_v1",
+          "artifact_filename": "deeprl3v2_driving_chestnut_tinygrad.pkl",
+          "artifact_size": 104634821,
+          "artifact_sha256": "18b161f9dcba47eef0fce406eabc7794aa15d9f141b4955bde326850579dc3c7",
+          "artifact_chunk_count": 0,
+          "execution_device": "AMD"
+        }
+      }
+    },
+    {
+      "id": "cinque-driving",
+      "name": "Cinque-Driving \ud83d\udc40\ud83d\udce1",
+      "version": "v16",
+      "series": "OP Series",
+      "released": "2026-09-04",
+      "community_favorite": false,
+      "uses_external_gpu": true
+    },
+    {
+      "id": "cdm",
+      "name": "Cinque Divergence Mask \ud83d\udc40\ud83d\udce1",
+      "version": "v16",
+      "series": "OP Series",
+      "released": "2026-09-08",
+      "community_favorite": false,
+      "uses_external_gpu": true,
+      "artifact_format": "tinygrad_single_v1",
+      "artifact_size": 787152087,
+      "artifact_sha256": "1af6fdae04e7aab8cdc71b89df5c01397e09b7da8ea8526e1fc52a8e164b2d03",
+      "artifact_chunk_count": 17
+    },
+    {
+      "id": "cinquev3",
+      "name": "Cinque v3 \ud83d\udc40\ud83d\udce1",
+      "version": "v16",
+      "series": "OP Series",
+      "released": "2026-09-18",
+      "community_favorite": false,
+      "artifact_format": "tinygrad_single_v1",
+      "artifact_size": 784394279,
+      "artifact_sha256": "532a6c8ed7da1ef0b798ca360cc2c4c58d6791238ea63d3ca41040ab99782ffb",
+      "artifact_chunk_count": 17,
+      "uses_external_gpu": true
+    },
+    {
+      "id": "resfit",
+      "name": "ResFit \ud83d\udc40\ud83d\udce1",
+      "version": "v16",
+      "series": "OP Series",
+      "released": "2026-10-05",
+      "community_favorite": false,
+      "artifact_format": "tinygrad_single_v1",
+      "artifact_size": 810143960,
+      "artifact_sha256": "88adb78eaba6700e4d1ffae557b8c2aef12417e4127100232db7e4447ce4e1ed",
+      "artifact_chunk_count": 18,
+      "uses_external_gpu": true
+    }
+  ]
+}

@@ -48,6 +48,9 @@ class TestManager(OpenpilotTestCase):
       if k == b"LKASButtonControl":
         assert params.get(k) is None
         assert params.get(k, return_default=True) == 0
+      elif k == b"LaneCentering":
+        assert default_value is False
+        assert params.get(k) is True
       elif default_value is not None:
         assert params.get(k) == default_value
     assert params.get("AlwaysOnLateral") is True

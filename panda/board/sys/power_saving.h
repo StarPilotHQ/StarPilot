@@ -27,44 +27,42 @@ void enable_can_transceivers(bool enabled) {
 
 void set_power_save_state(bool enable) {
   if (enable != power_save_enabled) {
-    if (enable) {
-      print("enable power savings\n");
-
-      // Disable CAN interrupts
-      if (harness.status == HARNESS_STATUS_FLIPPED) {
-        llcan_irq_disable(cans[0]);
-      } else {
-        llcan_irq_disable(cans[2]);
-      }
-      #ifndef PANDA_HKG_REMOTE_START
-      llcan_irq_disable(cans[1]);
-      #endif
-    } else {
-      print("disable power savings\n");
-
-      if (harness.status == HARNESS_STATUS_FLIPPED) {
-        llcan_irq_enable(cans[0]);
-      } else {
-        llcan_irq_enable(cans[2]);
-      }
-      llcan_irq_enable(cans[1]);
-    }
-
-    enable_can_transceivers(!enable);
-
-    // Switch off IR when in power saving
-    if(enable){
-      current_board->set_ir_power(0U);
-    }
-
-    power_save_enabled = enable;
+    print(enable ? "enable power savings\n" : "disable power savings\n");
   }
+
+  // CAN initialization re-enables IRQs without changing power_save_enabled.
+  // Reapply the hardware state even when the requested state is unchanged.
+  if (enable) {
+    if (harness.status == HARNESS_STATUS_FLIPPED) {
+      llcan_irq_disable(cans[0]);
+    } else {
+      llcan_irq_disable(cans[2]);
+    }
+    #ifndef PANDA_HKG_REMOTE_START
+    llcan_irq_disable(cans[1]);
+    #endif
+  } else {
+    if (harness.status == HARNESS_STATUS_FLIPPED) {
+      llcan_irq_enable(cans[0]);
+    } else {
+      llcan_irq_enable(cans[2]);
+    }
+    llcan_irq_enable(cans[1]);
+  }
+
+  enable_can_transceivers(!enable);
+
+  // Switch off IR when in power saving.
+  if (enable) {
+    current_board->set_ir_power(0U);
+  }
+  power_save_enabled = enable;
 }
 
 #ifdef STM32H7
 static void enter_stop_mode(void) {
   // the SPI CS interrupt shares an IRQ with the FDCAN3 RX wakeup line, and doesn't clear its pending bit
-  NVIC_DisableIRQ(EXTI15_10_IRQn);
+  nvic_disable(EXTI15_10_IRQn);
 
   // set all GPIO to analog mode to reduce power, analog mode also disables pull resistors
   register_set(&(GPIOA->MODER), 0xFFFFFFFFU, 0xFFFFFFFFU);
@@ -92,7 +90,7 @@ static void enter_stop_mode(void) {
   register_clear_bits(&(DTS->CFGR1), DTS_CFGR1_TS1_START);
   register_clear_bits(&(DTS->CFGR1), DTS_CFGR1_TS1_EN);
   register_set(&(DTS->CFGR1), 0U, (DTS_CFGR1_TS1_SMP_TIME_Msk | DTS_CFGR1_REFCLK_SEL_Msk | DTS_CFGR1_Q_MEAS_OPT_Msk | DTS_CFGR1_HSREF_CLK_DIV_Msk | DTS_CFGR1_TS1_INTRIG_SEL_Msk));
-  RCC->APB4ENR &= ~(RCC_APB4ENR_DTSEN);
+  register_clear_bits(&(RCC->APB4ENR), RCC_APB4ENR_DTSEN);
 
   // disable HSI48: 48 MHz USB clock
   register_clear_bits(&(RCC->CR), RCC_CR_HSI48ON);

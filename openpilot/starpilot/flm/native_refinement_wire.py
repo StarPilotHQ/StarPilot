@@ -11,6 +11,10 @@ FORMAT = '!BQQBd9f'
 ORDINARY_INPUTS = 32
 EXTENDED_INPUTS = 33
 
+# Only deep-immutable metadata tuples already checked in this process. Live
+# source/native permission and receiver clocks remain outside this proof.
+_INPUT_PROOFS: tuple[object, ...] = ()
+
 
 @dataclass(frozen=True)
 class NativeProof:
@@ -63,6 +67,9 @@ def decode(value):
 
 def valid_inputs(values):
   """Legacy32 ordinary inputs, plus ONLY one recognized bounded extension."""
+  global _INPUT_PROOFS
+  if any(values is previous for previous in _INPUT_PROOFS):
+    return True
   try:
     if (type(values) is not tuple or len(values) > EXTENDED_INPUTS or
         any(type(row) is not tuple or len(row) != 2 for row in values) or
@@ -73,9 +80,11 @@ def valid_inputs(values):
         not (type(value) is bool or type(value) in (int,float) and math.isfinite(value) or
              type(value) is str and len(value) <= 96) for name,value in ordinary):
       return False
-    proof = tuple(value for name,value in values if name == FIELD)
+    proof = tuple((name,value) for name,value in values if name == FIELD)
     if proof:
-      decode(proof[0])
+      decode(proof[0][1])
+    if not proof or type(proof[0][0]) is str:
+      _INPUT_PROOFS = (*_INPUT_PROOFS[-3:], values)
     return True
   except (TypeError,ValueError,OverflowError):
     return False

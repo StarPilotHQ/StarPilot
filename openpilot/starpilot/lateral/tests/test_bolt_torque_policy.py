@@ -104,13 +104,13 @@ class TestBoltTorquePolicy(unittest.TestCase):
   def test_default_kp_survives_parameter_updates_reset_and_inactive_dispatch(self):
     for identity in BOLT_GENERATIONS:
       cp, controller = self.controller(identity)
-      self.assertEqual(controller.pid._k_p, ([0], [0.6]))
+      self.assertEqual(controller.pid._k_p, [[0.0], [0.6]])
       self.assertEqual(controller.pid._k_p[1][0], 0.6)
       controller.update_torque_parameters(3.1, 0.01, 0.09)
       controller.reset()
       state = self.state()
       controller.update(False, state, VehicleModel(cp), SimpleNamespace(angleOffsetDeg=0.0, roll=0.0), False, 0.001, False, 0.2)
-      self.assertEqual(controller.pid._k_p, ([0], [0.6]))
+      self.assertEqual(controller.pid._k_p, [[0.0], [0.6]])
       standard = LatControlTorque(cp, CarInterface(cp), 0.01, controller_mode=ControllerMode.STANDARD)
       self.assertEqual(standard.pid._k_p[0], [1, 1.5, 2.0, 3.0, 5, 7.5, 10, 15, 30])
       self.assertEqual(standard.pid._k_p[1][-1], 0.8)

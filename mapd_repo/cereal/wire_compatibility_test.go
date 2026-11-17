@@ -1,7 +1,6 @@
 package cereal
 
 import (
-	"bytes"
 	"capnproto.org/go/capnp/v3"
 	"encoding/base64"
 	"encoding/json"
@@ -61,7 +60,58 @@ func TestMapdV1HostWireFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(raw, expected) {
+	actualMessage, err := capnp.Unmarshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldMessage, err := capnp.Unmarshal(expected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actualRoot, err := actualMessage.Root()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldRoot, err := oldMessage.Root()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Appended default fields can enlarge storage without changing old values.
+	equal, err := capnp.Equal(actualRoot, oldRoot)
+	if err != nil || !equal {
 		t.Fatal("provider wire differs from shared host fixture; review both schemas")
+	}
+}
+
+func TestPreviewHostWireFixture(t *testing.T) {
+	data, err := os.ReadFile("testdata/mapd_preview_wire.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		EventBase64 string `json:"event_base64"`
+	}
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := base64.StdEncoding.DecodeString(fixture.EventBase64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := capnp.Unmarshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	event, err := log.ReadRootEvent(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := event.MapdOut()
+	if err != nil {
+		t.Fatal(err)
+	}
+	boundary, err := out.PreviewBoundaryId()
+	if err != nil || !event.Valid() || out.SampleVersion() != 2 || out.SpeedLimit() != 20 || out.PreviewSpeedLimit() != 15 || out.PreviewDistance() != 60 || len(boundary) != 64 || out.PreviewWayId() != 2 {
+		t.Fatal("provider preview differs from shared host fixture")
 	}
 }

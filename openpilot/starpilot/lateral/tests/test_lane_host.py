@@ -11,6 +11,7 @@ import struct
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from openpilot.common.basedir import BASEDIR
 
@@ -21,12 +22,18 @@ def probe(output, reference_method=None):
   ):
     raise RuntimeError("Native lane-host probe requires isolated IPC without simulation flags")
   from openpilot.cereal import messaging
+  from openpilot.common.constants import ACCELERATION_DUE_TO_GRAVITY
   from openpilot.common.realtime import DT_CTRL
   from openpilot.common.params import Params
   from openpilot.selfdrive.controls.controlsd import Controls
-  from openpilot.selfdrive.controls.lib.drive_helpers import clip_curvature
+  from openpilot.selfdrive.controls.lib.drive_helpers import (MAX_CURVATURE, MAX_LATERAL_ACCEL_NO_ROLL,
+                                                            MAX_LATERAL_JERK, MIN_SPEED, clip_curvature)
+  from openpilot.starpilot.lateral.lane_clearance import current_delay, limit_tracking
+  from openpilot.starpilot.lateral.lane_tracking import SingleLineTracker
   from openpilot.selfdrive.controls.lib.latcontrol_torque import LatControlTorque
   from openpilot.selfdrive.controls.lib.longcontrol import LongControl
+  from openpilot.selfdrive.controls.lib.highway_correction_gain import HighwayCorrectionGain, read_gain
+  from openpilot.starpilot.lateral.controller_selection import turn_assist_supported
   from openpilot.starpilot.longitudinal.ioniq6_start import eligible as ioniq6_start_eligible
   from openpilot.starpilot.longitudinal.tests.extension_helpers import attach_inputs
   from openpilot.starpilot.lateral.lane_centering import ControlMode, LaneCenteringController, LaneCenteringRequest, LaneCenteringSettings
@@ -60,6 +67,9 @@ def probe(output, reference_method=None):
     control.steer_limited_by_safety = False
     control.lane_centering_controller = LaneCenteringController()
     control.params = Params()
+    control.highway_correction_gain = HighwayCorrectionGain()
+    control.highway_smoothing_supported = turn_assist_supported(control.CP)
+    control.highway_gain = read_gain(control.params) if control.highway_smoothing_supported else 1.0
     control.lane_change_preferences = LiveLaneChangePolicy(control.params, now_ns=1_000_000_000)
     control.lane_change_policy = control.lane_change_preferences.applied
     control.lane_change_smoother = LaneChangeSmoother()
@@ -83,6 +93,7 @@ def probe(output, reference_method=None):
 
   for change in changes:
     candidate, reference = host(), host()
+    tracking_reference = SingleLineTracker()
     previous_correction = 0.0
     # Each gate starts with positive acquired state; absence/disabled equivalence
     # starts disabled from the beginning to compare all controller history exactly.
@@ -109,7 +120,8 @@ def probe(output, reference_method=None):
       lp = message("vehicleParameters")
       lp.stiffnessFactor, lp.steerRatio = 1.0, candidate.CP.steerRatio
       message("longitudinalPlan").aTarget = 0.5
-      message("lateralDelay").lateralDelay = 0.1
+      if tick % 25 == 0:  # lateralDelay is a 4 Hz service, not a control-rate packet.
+        message("lateralDelay").lateralDelay = 0.1
       message("onroadEvents", 0)
       if tick % 5 == 0 and phase != "stale_model":
         event = messaging.new_message("modelV2", valid=phase != "invalid_model", logMonoTime=timestamp)
@@ -138,23 +150,62 @@ def probe(output, reference_method=None):
       elif phase == "invalid_request":
         configured = "invalid"
       prior_curvature = candidate.desired_curvature
-      command, lateral = candidate.state_control(lane_centering=configured)
-      base_command, _ = reference.state_control() if reference_method is None else reference_method(reference)
+      # Supplied packet times and the native freshness clock share one epoch.
+      with patch("openpilot.selfdrive.controls.controlsd.time.monotonic_ns", return_value=timestamp):
+        command, lateral = candidate.state_control(lane_centering=configured)
+        base_command, _ = reference.state_control() if reference_method is None else reference_method(reference)
       after = input_bytes(candidate)
       if before != after:
         raise AssertionError("Host changed its supplied messages")
       result = candidate.last_lane_centering_result
+      delay = current_delay(candidate.sm, timestamp)
+      if tick >= 25 and delay != candidate.sm["lateralDelay"].lateralDelay:
+        raise AssertionError("Fresh native delay failed qualification")
+      # Track the supplied geometry independently, including source-gap expiry
+      # and signal release, without reading or mutating the host's tracker.
+      if (isinstance(configured, LaneCenteringRequest) and configured.settings.enabled and configured.mode.lateral_authority and
+          command.latActive and candidate.sm.all_checks(["modelV2"]) and not cs.steeringPressed and
+          not configured.time_discontinuity and not cs.leftBlinker):
+        tracking_reference.target(candidate.sm["modelV2"], candidate.sm.logMonoTime["modelV2"], cs.vEgo, DT_CTRL, 0.0)
+      else:
+        tracking_reference.reset()
+      # These fixtures never request lane-change shaping: the native clip is
+      # followed only by the two-line tracking guard, which may shrink its delta.
+      if candidate.lane_change_smoother.previous_factor != 1.0:
+        raise AssertionError("Unexpected lane-change shaping in the fixture")
+      speed_squared = max(cs.vEgo, MIN_SPEED) ** 2
+      curvature = candidate.desired_curvature
+      if (not math.isfinite(curvature) or abs(curvature) > MAX_CURVATURE + 1e-12 or
+          abs(curvature - prior_curvature) > MAX_LATERAL_JERK / speed_squared * DT_CTRL + 1e-12 or
+          abs(curvature * speed_squared - lp.roll * ACCELERATION_DUE_TO_GRAVITY) > MAX_LATERAL_ACCEL_NO_ROLL + 1e-12):
+        raise AssertionError("Final curvature exceeded independent native bounds")
       if result is not None and result.candidate_curvature is not None:
-        expected, _ = clip_curvature(cs.vEgo, prior_curvature, result.candidate_curvature, lp.roll)
+        clipped, _ = clip_curvature(cs.vEgo, prior_curvature, result.candidate_curvature, lp.roll)
+        expected = clipped
+        if result.correction != 0.0:
+          current_model = candidate.sm["modelV2"]
+          baseline_input = (candidate.sm["lateralManeuverPlan"].desiredCurvature
+                            if candidate.sm.valid["lateralManeuverPlan"] else current_model.action.desiredCurvature)
+          if not command.latActive:
+            baseline_input = 0.0
+          if not math.isclose(result.candidate_curvature - result.correction, baseline_input, abs_tol=1e-12):
+            raise AssertionError("Lane correction changed its native baseline")
+          without_lane, _ = clip_curvature(cs.vEgo, prior_curvature, baseline_input, lp.roll)
+          # Apply the pure guard to independently tracked input geometry;
+          # invoking guard_applied again would mutate the acquired correction.
+          allowed = clipped - without_lane
+          if tracking_reference.path is not None:
+            allowed = (0.0 if delay is None else
+                       limit_tracking(tracking_reference.path, without_lane, allowed, 0.0, cs.vEgo, delay))
+          expected = without_lane + allowed
+          if not min(without_lane, clipped) - 1e-12 <= expected <= max(without_lane, clipped) + 1e-12:
+            raise AssertionError("Tracking guard increased or reversed the native contribution")
+          if not math.isclose(candidate.lane_centering_applied, curvature - without_lane, abs_tol=1e-12):
+            raise AssertionError("Lane feedback did not reflect the final command limiter")
         published_precision = struct.unpack("f", struct.pack("f", expected))[0]
-        if candidate.desired_curvature != expected or command.actuators.curvature != published_precision:
-          raise AssertionError("Lane candidate bypassed native curvature limiting")
-      if result is not None and result.correction != 0.0:
-        baseline_input = result.candidate_curvature - result.correction
-        without_lane, _ = clip_curvature(cs.vEgo, prior_curvature, baseline_input, lp.roll)
-        if not math.isclose(candidate.lane_centering_applied, candidate.desired_curvature - without_lane, abs_tol=1e-12):
-          raise AssertionError("Lane feedback did not reflect the final command limiter")
-      elif candidate.lane_centering_applied != 0.0:
+        if curvature != expected or command.actuators.curvature != published_precision:
+          raise AssertionError(f"Lane candidate bypassed native clipping or tracking guard: {change=} {tick=} {curvature=} {expected=}")
+      if (result is None or result.correction == 0.0) and candidate.lane_centering_applied != 0.0:
         raise AssertionError("Inactive lane contribution remained visible")
       records.append({"scenario": change, "phase": phase, "tick": tick,
                       "model_sample": candidate.sm.logMonoTime["modelV2"], "model_checks": candidate.sm.all_checks(["modelV2"]),
@@ -187,9 +238,10 @@ class TestLaneHost(unittest.TestCase):
         self.assertTrue(math.isfinite(command["actuators"]["torque"]))
         if row["scenario"] == "disabled_setting":
           self.assertEqual(command, reference)
-        elif phase == "warm" and row["tick"] >= 20:
+        elif phase == "warm" and row["tick"] >= 30:
+          # Two fresh delay packets qualify the guard; its correction may settle.
           self.assertGreater(result["correction"], 0.0)
-          self.assertGreater(result["correction"], row["previous_correction"])
+          self.assertGreater(command["actuators"]["curvature"], reference["actuators"]["curvature"])
         elif phase in ("off", "long_only", "fault", "disabled_host", "override", "invalid_model", "clock_reset", "invalid_request"):
           self.assertEqual(result["correction"], 0.0)
         elif phase == "absent_request":
@@ -206,7 +258,7 @@ class TestLaneHost(unittest.TestCase):
     stale = [row for row in records if row["phase"] == "stale_model"]
     self.assertTrue(any(row["model_checks"] for row in stale))
     self.assertTrue(any(not row["model_checks"] for row in stale))
-    held = [row for row in records if row["scenario"] == "lateral_only" and row["tick"] in (21, 22)]
+    held = [row for row in records if row["scenario"] == "lateral_only" and row["tick"] in (31, 32)]
     self.assertEqual(held[0]["model_sample"], held[1]["model_sample"])
     self.assertGreater(held[1]["result"]["correction"], held[0]["result"]["correction"])
 

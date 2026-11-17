@@ -5,6 +5,8 @@ from opendbc.can.dbc import DBC
 from opendbc.safety.tests.common import CANPackerSafety
 from opendbc.safety.tests.libsafety import libsafety_py
 
+libsafety_py.ffi.cdef("extern safety_config current_safety_config;", override=True)
+
 
 CASES = (
   ("classic-alpha", 20, 2082, 1, "honda_civic_hatchback_ex_2017_can_generated", False, "GEARBOX_AUTO", 4),
@@ -108,6 +110,49 @@ class TestHondaStockAol(unittest.TestCase):
     if not alternate:
       values.update(ACC_STATUS=1, PEDAL_GAS=0)
     self.assertTrue(self.safety.safety_rx_hook(self.packet(name, values)))
+
+  def test_cancel_preserves_only_existing_lateral_without_renewing_request(self):
+    for case in CASES:
+      with self.subTest(case=case[0]):
+        self.configure(case)
+        if not self.scoped:
+          continue
+        self.stream()
+        self.normal_engage()
+        self.safety.aol_set_host_request(3)
+        self.assertEqual(self.safety.aol_get_permission_mask(), 3)
+        self.safety.set_timer(1_010_000)
+        values = {"CRUISE_BUTTONS": 2, "CRUISE_SETTING": 0}
+        if self.alt:
+          values["MAIN_ON"] = 1
+        self.assertTrue(self.safety.safety_rx_hook(self.packet("SCM_BUTTONS", values)))
+        self.assertFalse(self.safety.get_controls_allowed())
+        self.assertEqual(self.safety.aol_get_request_mask(), 1)
+        self.assertEqual(self.safety.aol_get_permission_mask(), 1)
+        # Expire the original 1s request, not the later Cancel receipt.
+        self.safety.set_timer(1_299_999)
+        self.stream(request=False)
+        self.safety.set_timer(1_300_001)
+        self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+
+  def test_cancel_never_creates_lateral_and_main_still_withdraws_all(self):
+    for case in CASES:
+      for experience in (0, 32):
+        for request in (0, 2, 3):
+          with self.subTest(case=case[0], experience=experience, request=request):
+            self.configure(case, experience=experience)
+            self.stream()
+            self.safety.aol_set_host_request(request)
+            values = {"CRUISE_BUTTONS": 2, "CRUISE_SETTING": 0}
+            if self.alt:
+              values["MAIN_ON"] = 1
+            self.assertTrue(self.safety.safety_rx_hook(self.packet("SCM_BUTTONS", values)))
+            self.assertFalse(self.safety.get_controls_allowed())
+            self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+            if experience == 0 or request in (0, 2):
+              self.assertEqual(self.safety.aol_get_request_mask(), 0)
+            self.stream(main=False)
+            self.assertEqual(self.safety.aol_get_permission_mask(), 0)
 
   def test_normal_engagement_then_brake_without_main_or_lkas_gesture(self):
     for case in CASES:
@@ -405,3 +450,131 @@ class TestHondaStockAol(unittest.TestCase):
           self.safety.aol_set_host_request(1)
           self.assertEqual(self.safety.aol_get_permission_mask(),
                            int(self.scoped and delay <= 300_000))
+
+  def test_each_eps_status_preserves_only_documented_lateral_states(self):
+    for case in CASES:
+      for eps in range(16):
+        with self.subTest(case=case[0], eps=eps):
+          self.configure(case)
+          self.arm()
+          self.stream(eps=eps)
+          tja = case[2] in (512, 513, 1570, 1571)
+          active = self.scoped and (eps in (0, 3, 4) or tja and eps == 1)
+          self.assertEqual(self.safety.aol_get_permission_mask(), int(active))
+          self.assertFalse(self.safety.get_controls_allowed())
+
+  def test_all_gear_values_pause_and_restore_only_in_driving_gears(self):
+    for case in CASES:
+      for gear in range(16):
+        with self.subTest(case=case[0], gear=gear):
+          self.configure(case)
+          self.arm()
+          self.stream(gear=gear)
+          driving = gear in ((0, 8) if case[7] == 8 else (4, 7, 10, 11))
+          self.assertEqual(self.safety.aol_get_permission_mask(), int(self.scoped and driving))
+          self.assertFalse(self.safety.get_controls_allowed())
+          self.stream()
+          self.assertEqual(self.safety.aol_get_permission_mask(), int(self.scoped))
+
+  def test_normal_grant_checks_each_current_eps_state(self):
+    for case in CASES:
+      for eps in range(16):
+        with self.subTest(case=case[0], eps=eps):
+          self.configure(case)
+          self.stream(eps=eps)
+          self.normal_engage()
+          self.safety.aol_set_host_request(3)
+          tja = case[2] in (512, 513, 1570, 1571)
+          lateral = eps in (0, 3, 4) or tja and eps == 1
+          known = lateral or eps in (2, 6)
+          self.assertEqual(self.safety.aol_get_permission_mask(), (3 if lateral else 2 if known else 0) if self.scoped else 0)
+          self.press_brake()
+          self.assertEqual(self.safety.aol_get_permission_mask(), int(self.scoped and lateral))
+
+  def test_native_pair_accessors_reject_every_unbounded_index(self):
+    self.configure(CASES[0])
+    self.assertFalse(self.safety.safety_test_honda_aol_unconfigured_sources())
+    for index in range(256):
+      with self.subTest(index=index):
+        self.assertEqual(self.safety.safety_test_honda_aol_pair_index(index, False), index if index < 7 else -1)
+        self.assertEqual(self.safety.safety_test_honda_aol_pair_index(index, True), index + 1 if index < 7 else -1)
+
+  def test_native_source_deadlines_independently_of_outer_rx_health(self):
+    for case in CASES:
+      self.configure(case)
+      if not self.scoped:
+        continue
+      self.arm()
+      for source in range(4):
+        limit = 200_000 if source == 3 else 300_000
+        for age in (0, limit - 1, limit, limit + 1):
+          with self.subTest(case=case[0], source=source, age=age):
+            expected = age <= limit or source == 3 and not self.pedal
+            self.assertEqual(self.safety.safety_test_honda_aol_source_age(source, age, True), expected)
+        if source != 2:
+          with self.subTest(case=case[0], source=source, seen=False):
+            self.assertEqual(self.safety.safety_test_honda_aol_source_age(source, 0, False), source == 3 and not self.pedal)
+        self.assertEqual(self.safety.aol_get_permission_mask(), 1)
+
+  def test_main_alone_grants_without_lkas_gesture(self):
+    for case in CASES:
+      with self.subTest(case=case[0]):
+        self.configure(case)
+        self.stream(main=False, lkas=0)
+        self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+        self.stream(main=True, lkas=0)
+        self.assertFalse(self.safety.get_controls_allowed())
+        self.assertEqual(self.safety.aol_get_permission_mask(), int(self.scoped))
+        self.stream(main=False, lkas=0)
+        self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+        self.stream(main=True, lkas=0)
+        self.assertEqual(self.safety.aol_get_permission_mask(), int(self.scoped))
+
+  def test_each_profile_keeps_its_exact_required_rx_alternatives(self):
+    for case in CASES:
+      with self.subTest(case=case[0]):
+        self.configure(case)
+        if not self.scoped:
+          self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+          continue
+        config = self.safety.current_safety_config
+        self.assertLessEqual(config.rx_checks_len, 8)
+        self.assertGreaterEqual(config.rx_checks_len, 6)
+        model, word = case[1:3]
+        primary_eps = (model == 1 and word in (260, 804)) or (model == 20 and word in (16, 17, 80, 81, 512, 513, 1058, 1059, 1570, 1571))
+        primary_gear = model == 20 and word in (16, 17, 80, 81, 512, 513, 1058, 1059, 1570, 1571)
+        expected = [
+          [(0x18F, self.pt, 7), (0, 0, 0) if primary_eps else (0x18F, self.pt, 6),
+           (0, 0, 0) if primary_eps else (0x190, self.pt, 5)],
+          [(0x191, self.pt, 8), (0x1A3, self.pt, 8), (0, 0, 0) if primary_gear else (0x188, self.pt, 6)],
+        ]
+        for row, wanted in zip(range(config.rx_checks_len - 2, config.rx_checks_len), expected, strict=True):
+          actual = [(int(msg.addr), int(msg.bus), int(msg.len)) for msg in config.rx_checks[row].msg]
+          self.assertEqual(actual, wanted)
+        buttons = config.rx_checks[0].msg
+        self.assertEqual([(int(msg.addr), int(msg.bus), int(msg.len)) for msg in buttons],
+                         [(0x1A6 if self.alt else 0x296, self.pt, 8 if self.alt else 4), (0, 0, 0), (0, 0, 0)])
+
+  def test_legacy_longitudinal_owner_keeps_host_age_and_axis_boundaries(self):
+    for word in (34, 35, 163):
+      for request in (1, 2, 3):
+        with self.subTest(word=word, request=request):
+          self.configure(('legacy-long', 20, word, 1, 'honda_civic_hatchback_ex_2017_can_generated', False, 'GEARBOX_AUTO', 4))
+          self.stream(request=False)
+          if not self.debug:
+            self.safety.aol_set_host_request(request)
+            self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+            continue
+          for button in (3, 0):
+            self.assertTrue(self.safety.safety_rx_hook(self.packet('SCM_BUTTONS', {'CRUISE_BUTTONS': button})))
+          self.assertTrue(self.safety.get_controls_allowed())
+          self.safety.aol_set_host_request(request)
+          self.assertEqual(self.safety.aol_get_permission_mask(), request)
+          self.safety.set_timer(1_300_000)
+          self.stream(cruise=1, request=False)
+          self.assertEqual(self.safety.aol_get_request_mask(), request)
+          self.assertEqual(self.safety.aol_get_permission_mask(), request)
+          self.safety.set_timer(1_300_001)
+          self.stream(cruise=1, request=False)
+          self.assertEqual(self.safety.aol_get_request_mask(), 0)
+          self.assertEqual(self.safety.aol_get_permission_mask(), 0)

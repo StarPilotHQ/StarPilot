@@ -97,8 +97,8 @@ class TestEv6ConfiguredDesire(unittest.TestCase):
   def owner(self, *, main=0, lkas=0, enabled=True, cancel=(0, 0, 0)):
     return Ev6CardIntent(AolSettings(enabled, 0., lkas, main, (0, 0, 0), cancel))
 
-  def sample(self, owner, samples, *, available=True, active=False, events=(), valid=True, fault=False, acc_fault=False, cruise_enabled=False):
-    state = structs.CarState(canValid=valid, canTimeout=False, gearShifter='drive', buttonEvents=list(events))
+  def sample(self, owner, samples, *, available=True, active=False, events=(), valid=True, fault=False, acc_fault=False, cruise_enabled=False, brake=False):
+    state = structs.CarState(canValid=valid, canTimeout=False, gearShifter='drive', buttonEvents=list(events), brakePressed=brake)
     state.cruiseState.available = available
     state.cruiseState.enabled = cruise_enabled
     state.accFaulted = acc_fault

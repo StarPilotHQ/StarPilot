@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from opendbc.car import structs
 from opendbc.car.gm.carcontroller import CarController, bolt_pedal_fraction, bolt_pedal_slew
 from opendbc.car.gm.tests.test_bolt_pedal import params
-from opendbc.car.gm.values import DBC, PEDAL_BOLT_CAR
+from opendbc.car.gm.values import CAR, DBC, PEDAL_BOLT_CAR
 
 
 def linear(x, xs, ys):
@@ -111,6 +111,7 @@ class TestBoltPedalSlew(unittest.TestCase):
         for speed in (6., 6.0001, 8., 12., 25.):
           with self.subTest(candidate=candidate, alpha=alpha, speed=speed):
             cp = params(candidate, True, True, alpha)
+            gen2_cc_drive = candidate == CAR.CHEVROLET_BOLT_CC_2022_2023 and cp.safetyConfigs[0].safetyParam == 0x19D
             controller = CarController(DBC[candidate], cp)
             cc = structs.CarControl()
             cc.enabled = True
@@ -170,12 +171,17 @@ class TestBoltPedalSlew(unittest.TestCase):
               state.cruiseState.enabled = override == 'stock_acc'
               previous = controller.pedal_steady
               messages = update()
-              if override == 'drive' and candidate.name == 'CHEVROLET_BOLT_ACC_2022_2023_PEDAL':
+              admitted_drive = override == 'drive' and (gen2_cc_drive or candidate == CAR.CHEVROLET_BOLT_ACC_2022_2023_PEDAL)
+              if admitted_drive:
                 expected_drive = pedal_step(positive_target(cc.as_reader().actuators.accel, speed), previous,
                                            cc.as_reader().actuators.accel, speed)
                 self.assertAlmostEqual(controller.pedal_steady, expected_drive, places=10)
                 self.assertEqual(next(m[1] for m in messages if m[0] == 0x200), pedal_wire(expected_drive, tick))
-                self.assertFalse(any(m[0] in (0x1F5, 0xBD) for m in messages))
+                if gen2_cc_drive:
+                  self.assertEqual([(m[1], m[2]) for m in messages if m[0] == 0x1F5], [(bytes.fromhex('0c0c000400000100'), 0)])
+                  self.assertEqual([(m[1], m[2]) for m in messages if m[0] == 0xBD], [(bytes(7), 0)])
+                else:
+                  self.assertFalse(any(m[0] in (0x1F5, 0xBD) for m in messages))
               else:
                 self.assertEqual(controller.pedal_steady, 0., override)
                 self.assertEqual(next(m[1][:4] for m in messages if m[0] == 0x200), b'\x00' * 4)
@@ -188,8 +194,12 @@ class TestBoltPedalSlew(unittest.TestCase):
               state.brakePressed = False
               state.cruiseState.enabled = False
               cc.actuators.accel = .35
-              update()
-              self.assertAlmostEqual(controller.pedal_steady, positive_target(cc.as_reader().actuators.accel, speed), places=10)
+              target = positive_target(cc.as_reader().actuators.accel, speed)
+              expected_recovery = (pedal_step(target, controller.pedal_steady, cc.as_reader().actuators.accel, speed)
+                                   if admitted_drive else target)
+              messages = update()
+              self.assertAlmostEqual(controller.pedal_steady, expected_recovery, places=10)
+              self.assertEqual(next(m[1] for m in messages if m[0] == 0x200), pedal_wire(expected_recovery, tick))
 
 
 if __name__ == '__main__':

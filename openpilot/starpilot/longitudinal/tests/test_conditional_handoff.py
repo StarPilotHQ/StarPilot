@@ -71,7 +71,7 @@ class ConditionalHandoffTests(unittest.TestCase):
     self.save(ModeChoice.CCM)
     self.sm.logMonoTime['deviceState'] = NOW + 995_000_000
     changed = self.key(NOW + 1_000_000_000)
-    self.assertEqual(changed[3], ModeChoice.CCM.value)
+    self.assertEqual(changed[3], ModeChoice.CEM.value)
     self.assertNotEqual(changed[1], key[1])
 
   def test_stock_safe_mode_and_invalid_document_cannot_enable_restraint(self):

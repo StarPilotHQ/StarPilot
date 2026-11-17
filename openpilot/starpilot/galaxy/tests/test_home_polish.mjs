@@ -25,7 +25,7 @@ assert.ok(GalaxyPage.template.includes('<LocalAccess v-if="!ios" :mode="mode" :o
 assert.ok(!GalaxyPage.template.includes('PWA'))
 assert.ok(DriveStatePanel.template.includes('gx-card gx-force-drive'))
 const css = readFileSync(new URL('../web/css/galaxy.css', import.meta.url), 'utf8')
-assert.match(DriveStatePanel.template, /<div class="gx-section__header">.*Force Drive State/)
+assert.match(DriveStatePanel.template, /<div v-if="!offroadOnly" class="gx-section__header">.*Force Drive State/)
 assert.match(css, /\.gx-panel \{ padding: var\(--panel-padding\);/)
 for (const component of [Home, DriveStatePanel, GalaxyPage])
   compile(component.template, { decodeEntities: value => value.replaceAll('&amp;', '&') })

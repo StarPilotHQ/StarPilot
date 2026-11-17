@@ -2,10 +2,11 @@
 
 import math
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
-from openpilot.starpilot.ui.onroad_state import ObservationKind, OnroadState
+from openpilot.starpilot.ui.onroad_state import ObservationKind, OnroadState, slc_accept_available
 from openpilot.starpilot.ui.unified_speed_presentation import displayed_limit_mps
+from openpilot.starpilot.speed_limits.acceptance import CONFIRMATION_NS
 
 
 CONFIRMATION_PULSES = ((0.0, .7), (.9, .7))
@@ -28,7 +29,7 @@ class SpeedLimitPulse:
       self._started_frame = state.drive_frame
     observation = state.speed_limit
     limit = displayed_limit_mps(observation)
-    pending = (observation.kind == ObservationKind.VALID and observation.pending_speed_limit_mps is not None and
+    pending = (observation.pending_speed_limit_mps is not None and
                observation.pending_speed_limit_mps > 0)
     if not visible or limit is None:
       self.start_time = -math.inf
@@ -37,28 +38,36 @@ class SpeedLimitPulse:
         self.last_limit = limit
       return
     if not pending:
-      if (not observation.action_enabled and observation.kind == ObservationKind.VALID and
-          limit != self.last_limit):
+      live = observation.kind == ObservationKind.VALID and observation.status != 'display_hold'
+      if live and not observation.action_enabled and limit != self.last_limit:
         self.start_time = now
         self.display_pulsing = True
-      elif not self.display_pulsing or observation.action_enabled:
+      # Finish the highlight while the same sign remains displayed, including
+      # retained stale/absent observations. Freshness does not time this animation.
+      elif limit != self.last_limit or not self.display_pulsing:
         self.start_time = -math.inf
         self.display_pulsing = False
       self.manual_pending = False
       self.last_limit = limit
       return
-    self.display_pulsing = False
-    manual = not observation.automatic_adoption_pending
-    if observation.pending_since_ns > 0:
+    manual = not observation.automatic_adoption_pending and slc_accept_available(state)
+    if not manual:
+      # Start the three visible cycles when the UI first sees the new sign.
+      # The controller timestamp still governs acceptance, but may predate its
+      # first rendered frame or change while this same sign remains on screen.
+      if limit != self.last_limit or not self.display_pulsing or not math.isfinite(self.start_time):
+        self.start_time = now
+    elif observation.pending_since_ns > 0:
       self.start_time = observation.pending_since_ns / 1e9
     elif limit != self.last_limit or manual != self.manual_pending or not math.isfinite(self.start_time):
       self.start_time = now
+    self.display_pulsing = not manual
     self.manual_pending = manual
     self.last_limit = limit
 
   def confirmation_strength(self, now: float) -> float:
     elapsed = now - self.start_time
-    if not self.manual_pending or not 0 <= elapsed < 10:
+    if not self.manual_pending or not 0 <= elapsed < CONFIRMATION_NS / 1e9:
       return 0.0
     phase = elapsed % CONFIRMATION_CYCLE_SECONDS
     for start, duration in CONFIRMATION_PULSES:

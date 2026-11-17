@@ -31,6 +31,24 @@ class LargeFilePolicyTest(unittest.TestCase):
     self.assertEqual(self.check('openpilot/cereal/gen/cpp/arbitrary.h', 200000), 1)
     self.assertEqual(self.check('openpilot/starpilot/lateral/tests/fixtures/arbitrary.json', 200000), 1)
 
+  def test_generated_translation_catalogs_keep_exact_paths_and_hard_guards(self):
+    for name in (
+      'openpilot/selfdrive/ui/translations/app.pot',
+      'openpilot/selfdrive/ui/translations/app_de.po',
+      'openpilot/selfdrive/ui/translations/app_es.po',
+      'openpilot/selfdrive/ui/translations/app_fr.po',
+      'openpilot/selfdrive/ui/translations/app_ja.po',
+      'openpilot/selfdrive/ui/translations/app_ko.po',
+      'openpilot/selfdrive/ui/translations/app_vi.po',
+      'openpilot/starpilot/ui/translation_messages.json',
+    ):
+      self.assertEqual(self.check(name, 1000000), 0)
+      self.assertEqual(self.check(name, 100 * 1024 * 1024 + 1), 1)
+      self.assertEqual(self.check(name, 1000000, pointer=True), 1)
+    for name in ('openpilot/selfdrive/ui/translations/arbitrary.po',
+                 'openpilot/starpilot/ui/arbitrary.json'):
+      self.assertEqual(self.check(name, 200000), 1)
+
   def test_binary_classification_does_not_bypass_hard_guards(self):
     self.assertEqual(self.check('native.so', 500000, binary=True), 0)
     self.assertEqual(self.check('native.so', 100 * 1024 * 1024 + 1, binary=True), 1)

@@ -177,3 +177,27 @@ def test_theme_tiles_have_separate_cache_entries(tmp_path):
   with pytest.raises(ValidationError, match='Invalid map theme'):
     owner.map_tile(2, 3, 1, 'custom/style')
   assert len(provider.calls) == 2
+
+
+def test_google_map_provider_serves_google_tiles_and_falls_back_to_mapbox(tmp_path, monkeypatch):
+  google_png = PNG + b'-google'
+  calls = []
+  def fake_fetch_tile(api_key, z, x, y, theme='dark', *, http=None, root=None):
+    calls.append((api_key, z, x, y, theme))
+    if theme == 'dark':
+      raise ValueError('quota reached')
+    return google_png
+
+  monkeypatch.setattr('openpilot.starpilot.navigation.google_tiles.fetch_tile', fake_fetch_tile)
+  provider = Provider()
+  owner = tile_owner(tmp_path, provider)
+  owner.read = lambda: {'token': 'pk.fixture', 'googleKey': 'AIzaSyTestKey123456', 'mapProvider': 'google'}
+  assert owner.map_tile(4, 2, 5, 'light', provider='google') == google_png
+  assert calls == [('AIzaSyTestKey123456', 4, 2, 5, 'light')]
+  assert not provider.calls
+  assert owner.map_tile(4, 2, 5, 'light') == PNG, 'offline maps and unflagged requests always use Mapbox even when Google is selected'
+  assert len(provider.calls) == 1
+  assert owner.map_tile(4, 2, 5, 'dark', provider='google') == PNG
+  assert len(provider.calls) == 2
+  assert '/mapbox/dark-v11/tiles/512/4/2/5.png' in provider.calls[1][0]
+

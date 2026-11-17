@@ -6,6 +6,9 @@ export async function retireLegacyPhone(target = globalThis) {
       target.localStorage?.removeItem(key)
   } catch { /* Private browsing can deny storage. */ }
   try {
+    await target.caches?.delete("galaxy-offline-v1")
+  } catch { /* Keep opening Galaxy if browser cache access is unavailable. */ }
+  try {
     const workerURL = new URL("./sentry-push-worker.js", target.location.href).href
     const registration = await target.navigator?.serviceWorker?.getRegistration(workerURL)
     if (registration?.active?.scriptURL === workerURL) await registration.update()

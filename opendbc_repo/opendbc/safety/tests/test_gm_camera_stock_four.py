@@ -112,7 +112,13 @@ class TestGmCameraStockFour(unittest.TestCase):
             self.assertEqual(cp.alphaLongitudinalAvailable, car == CAR.CHEVROLET_TRAX and not release)
             self.assertFalse(cp.flags & GMFlags.PEDAL_LONG)
             self.assertEqual(cp.dashcamOnly, not promoted)
-            self.assertNotIn(car, FINGERPRINTS)
+            if car == CAR.CHEVROLET_TRAX:
+              # The recorded layout is registered, but its CAN collision still requires VIN qualification.
+              self.assertEqual(len(FINGERPRINTS[car]), 1)
+              expected_layout = {0xBE: 6, 0xD3: 2, 0x130: 3, 0x1C4: 8, 0x1E1: 7}
+              self.assertEqual({address: FINGERPRINTS[car][0].get(address) for address in expected_layout}, expected_layout)
+            else:
+              self.assertNotIn(car, FINGERPRINTS)
             self.assertNotIn(car, FW_VERSIONS)
 
   def test_incomplete_detected_interceptor_graph_does_not_grant_longitudinal(self):

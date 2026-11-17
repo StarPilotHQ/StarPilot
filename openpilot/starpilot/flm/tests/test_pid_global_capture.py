@@ -50,7 +50,7 @@ def test_actual_controls_pid_collects_own_trace_without_changing_disabled_baseli
     assert evidence.domain=='normalized_torque'
     assert evidence.effect_trace is None
     # Check the actual emitted checkpoint, not an arbitrary inter-checkpoint
-    # frame: the production wire publishes frozen state once per second.
+    # frame: the production wire publishes frozen state periodically.
     assert emitted_snapshots and runtime.snapshot_sequence>0
     assert all(any(name=='controller.ff_factor' for name,_ in snapshot) for snapshot in emitted_snapshots)
     assert all(not any(name.startswith('tune.') for name,_ in snapshot) for snapshot in emitted_snapshots)

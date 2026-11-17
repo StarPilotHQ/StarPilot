@@ -8,6 +8,8 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -38,8 +40,15 @@ def actionlint() -> Path:
   cache.mkdir(parents=True, exist_ok=True)
   if not archive.exists():
     url = f"https://github.com/rhysd/actionlint/releases/download/v{VERSION}/actionlint_{VERSION}_{target}.tar.gz"
-    with urllib.request.urlopen(url, timeout=60) as response:
-      data = response.read()
+    for attempt in range(3):
+      try:
+        with urllib.request.urlopen(url, timeout=60) as response:
+          data = response.read()
+        break
+      except (urllib.error.URLError, TimeoutError) as error:
+        if (isinstance(error, urllib.error.HTTPError) and error.code not in (429, 500, 502, 503, 504)) or attempt == 2:
+          raise
+        time.sleep(1 << attempt)
     if hashlib.sha256(data).hexdigest() != ARCHIVE_SHA256[target]:
       raise RuntimeError("actionlint release checksum mismatch")
     with tempfile.NamedTemporaryFile(dir=cache, delete=False) as temporary:

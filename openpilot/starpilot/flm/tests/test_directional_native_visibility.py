@@ -30,15 +30,16 @@ def test_directional_visibility_uses_actual_encoded_baseline(minus, plus, low, h
 def feature(name='ff_gain_right', error=-0.05):
   return HookSensitivity(name, error, 1.0, 20, 20, 0.01, True, 0, 20, 0.0, 0.02).validate()
 
-def test_selected_direction_cannot_borrow_opposite_native_visibility():
+def test_unfitted_preference_selects_the_actually_visible_opposite_experiment():
   o = owner()
   for i in range(9):
     e = episode(o, i, 'ff_gain_right', kind='large')
     e = replace(e, sensitivity=(feature(),), normalization_accel=max(0.1, e.goal_rms))
     refresh(o, e.end_ns)
     o.observe_episode(e, now_ns=e.end_ns)
-  assert o.offer_state is None and o.discovery is None
-  assert not any(o.accepted.values())
+  assert o.offer_state is not None
+  assert o.offer_state['target']['ff_gain_right'] == SOURCE_EXPERIMENT_STEP
+  assert not o.offer_state.get('accepted', False) and not any(o.accepted.values())
 
 def test_visible_direction_still_gets_a_bounded_trial():
   o = owner()
@@ -72,3 +73,48 @@ def test_recovery_requires_visibility_in_the_already_selected_direction():
 def test_partial_or_impossible_directional_support_is_rejected(changes):
   with pytest.raises(ValueError):
     replace(feature(), **changes).validate()
+
+
+@pytest.mark.parametrize('outcome', ['worse', 'inconclusive'])
+def test_visible_opposite_source_experiment_still_rejects_previous_failed_direction(outcome):
+  from openpilot.starpilot.flm.live_tracking import _demand
+  o = owner()
+  for i in range(12):
+    e = episode(o, i, 'ff_gain_right', kind='large')
+    e = replace(e, sensitivity=(feature(),), normalization_accel=max(0.1, e.goal_rms))
+    if i == 0:
+      history = o.closed_loop_worse if outcome == 'worse' else o.inconclusive_trials
+      history.append(('ff_gain_right', 1, e.profile_sha256, _demand(e), e.start_ns))
+    refresh(o, e.end_ns)
+    o.observe_episode(e, now_ns=e.end_ns)
+  assert o.offer_state is None and o.discovery is None and not any(o.accepted.values())
+
+
+def test_identified_plant_cannot_replace_quantized_direction_with_opposite_experiment():
+  from openpilot.starpilot.flm.tests.test_live_tracking import optimizer, refresh as fitted_refresh
+  o = optimizer()
+  for i in range(20):
+    e = episode(o, i, 'ff_gain_right', kind='large')
+    e = replace(e, sensitivity=(feature(),), normalization_accel=max(0.1, e.goal_rms))
+    fitted_refresh(o, e.end_ns)
+    o.observe_episode(e, now_ns=e.end_ns)
+  assert o.offer_state is None and o.discovery is None and not any(o.accepted.values())
+
+
+def test_opposite_source_experiment_requires_three_new_uncensored_baseline_windows():
+  o = owner()
+  selection_ids = set()
+  for i in range(12):
+    e = episode(o, i, 'ff_gain_right', kind='large')
+    e = replace(e, sensitivity=(feature(),), normalization_accel=max(0.1, e.goal_rms))
+    refresh(o, e.end_ns)
+    o.observe_episode(e, now_ns=e.end_ns)
+    if o.discovery is not None and not selection_ids:
+      selection_ids.update(o.selector_hint['source_episode_ids'])
+      assert o.offer_state is None and not o.before
+    if o.offer_state is not None:
+      break
+  assert o.offer_state is not None and len(o.before) == 3
+  assert selection_ids and selection_ids.isdisjoint(row.episode_id for row in o.before)
+  assert o.offer_state['target']['ff_gain_right'] == SOURCE_EXPERIMENT_STEP
+  assert not o.offer_state.get('accepted', False) and not any(o.accepted.values())

@@ -1,6 +1,7 @@
 # distutils: language = c++
 # cython: language_level=3
 import math
+import struct
 import json
 import hashlib
 import sys
@@ -320,3 +321,45 @@ cdef extern from "Python.h":
 
 def compiled_abi():
   return (PY_MAJOR_VERSION, PY_MINOR_VERSION, sizeof(void*) * 8, 'flm-exact-primitives-v1')
+
+
+# Same complete typed key as live_tracking_probe._primitive. Only bounded
+# worker contexts can load this extension; unsupported inputs use Python.
+cdef object probe_key(object value, int depth, bint materialize):
+  cdef object kind=type(value), child, key, result
+  cdef list rows=[] if materialize else None
+  if depth>40: return FALLBACK
+  if value is None: return ('none',) if materialize else True
+  if kind is bool or kind is int or kind is str or kind is bytes:
+    if kind is int and value.bit_length()>512: return FALLBACK
+    if (kind is str or kind is bytes) and len(value)>131072: return FALLBACK
+    return (kind.__name__,value) if materialize else True
+  if kind is float:
+    if not math.isfinite(value): return FALLBACK
+    return ('float64',struct.pack('!d',value)) if materialize else True
+  if kind is tuple or kind is list:
+    if len(value)>8192: return FALLBACK
+    for child in value:
+      result=probe_key(child,depth+1,materialize)
+      if result is FALLBACK: return FALLBACK
+      if materialize: rows.append(result)
+    return (kind.__name__,tuple(rows)) if materialize else True
+  if kind is dict and len(value)<=8192:
+    for key in value:
+      if type(key) is not str: return FALLBACK
+    for key in sorted(value):
+      result=probe_key(value[key],depth+1,materialize)
+      if result is FALLBACK: return FALLBACK
+      if materialize: rows.append((key,result))
+    return ('dict',tuple(rows)) if materialize else True
+  return FALLBACK
+
+
+def probe_source_key(object value):
+  if not budget(): return FALLBACK
+  return probe_key(value,0,True)
+
+
+def probe_source_valid(object value):
+  if not budget(): return FALLBACK
+  return probe_key(value,0,False)

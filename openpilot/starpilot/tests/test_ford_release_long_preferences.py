@@ -47,7 +47,7 @@ def test_release_opt_in_off_invalid_safe_mode_debug_and_disabled_stay_unchanged(
   assert prepare_release_long(cp, saved(tmp_path, alpha, safe), is_release=release, enabled=enabled) is cp
 
 
-@pytest.mark.parametrize('restriction', ['secoc', 'extra-panda', 'angle', 'foreign-brand'])
+@pytest.mark.parametrize('restriction', ['secoc', 'extra-panda', 'foreign-brand'])
 def test_release_never_promotes_unowned_configuration(restriction, tmp_path):
   fp = gen_empty_fingerprint()
   fp[0][0x5A] = 8
@@ -55,8 +55,6 @@ def test_release_never_promotes_unowned_configuration(restriction, tmp_path):
   cp = CarInterface.get_params(CAR.FORD_MUSTANG_MACH_E_MK1, fp, [], False, True, False)
   if restriction == 'extra-panda':
     cp.safetyConfigs = [cp.safetyConfigs[0], cp.safetyConfigs[0]]
-  elif restriction == 'angle':
-    cp.safetyConfigs[-1].safetyParam = 130
   elif restriction == 'foreign-brand':
     cp.brand = 'hyundai'
   assert prepare_release_long(cp, saved(tmp_path), is_release=True, enabled=True) is cp

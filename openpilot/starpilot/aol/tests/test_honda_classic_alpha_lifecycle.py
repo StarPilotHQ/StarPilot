@@ -10,4 +10,6 @@ class TestHondaClassicAlpha(CurrentCaller):
     self.run_current_caller(candidate=CAR.ACURA_RDX_3G, word=2211, alpha=True)
 
   def test_classic_2_eps_reverse_recovery(self):
-    self.run_current_caller(candidate=CAR.HONDA_CRV_5G, word=2083, alpha=True, alternate_brake=True)
+    for scenario in (None, 'cancel'):
+      with self.subTest(scenario=scenario):
+        self.run_current_caller(candidate=CAR.HONDA_CRV_5G, word=2083, alpha=True, alternate_brake=True, host_scenario=scenario)

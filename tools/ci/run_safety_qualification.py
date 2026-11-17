@@ -93,8 +93,8 @@ def source_identity():
 def prerequisite_artifact_paths(prerequisites, name):
   paths = list(prerequisites)
   if name in ("coverage", "mutation-full"):
-    if "msgq_repo/msgq/visionipc/visionipc_pyx.so" not in paths:
-      paths.append("msgq_repo/msgq/visionipc/visionipc_pyx.so")
+    if "msgq_repo/msgq/visionipc/_visionipc.so" not in paths:
+      paths.append("msgq_repo/msgq/visionipc/_visionipc.so")
   if name in ("coverage", "mutation-full"):
     generated = "openpilot/selfdrive/controls/lib/longitudinal_mpc_lib/c_generated_code/"
     extension = ".dylib" if sys.platform == "darwin" else ".so"
@@ -248,20 +248,20 @@ import opendbc, openpilot, msgq
 import opendbc.can.parser, opendbc.can.packer, opendbc.can.dbc
 from openpilot.cereal import log as cereal_log
 import openpilot.cereal.messaging
-import msgq.ipc_pyx
+import msgq._ipc
 from opendbc.safety.tests.libsafety import libsafety_py
 print(json.dumps({name: str(Path(module.__file__).resolve()) for name, module in
                   [('opendbc', opendbc), ('openpilot', openpilot),
                    ('msgq', msgq), ('libsafety_py', libsafety_py),
                    ('can_parser', opendbc.can.parser), ('can_packer', opendbc.can.packer),
                    ('can_dbc', opendbc.can.dbc), ('cereal_log', cereal_log),
-                   ('cereal_messaging', openpilot.cereal.messaging), ('msgq_ipc', msgq.ipc_pyx)]} |
+                   ('cereal_messaging', openpilot.cereal.messaging), ('msgq_ipc', msgq._ipc)]} |
                   {'panda': importlib.util.find_spec('panda').origin}))
 """
   if full_catalog:
     script += """
-import msgq.visionipc.visionipc_pyx
-print(json.dumps({'msgq_visionipc': str(Path(msgq.visionipc.visionipc_pyx.__file__).resolve())}))
+import msgq.visionipc._visionipc
+print(json.dumps({'msgq_visionipc': str(Path(msgq.visionipc._visionipc.__file__).resolve())}))
 """
   result = subprocess.run([python, "-c", script], cwd=output.parent, env=env, capture_output=True, text=True)
   output.write_text(result.stdout + result.stderr)
@@ -463,7 +463,7 @@ class Gate:
 from opendbc.safety.tests.libsafety import libsafety_py
 libsafety_py.load(sys.argv[1])
 suite = unittest.TestLoader().discover('.', pattern='test_*.py')
-suite.addTests(unittest.TestLoader().loadTestsFromName('opendbc.bluepilot_lateral.tests.test_angle_native'))
+suite.addTests(unittest.TestLoader().discover('../../bluepilot_lateral/safety/tests', pattern='test_*.py', top_level_dir='../../..'))
 """ + UNITTEST_ACCOUNTING
       code, text = self.run("unittest", [self.python, "-c", suite_script, str(native)], cwd=SAFETY_TESTS)
       summary = parse_unittest_summary(text)
@@ -578,10 +578,10 @@ def main():
     (output / "generated-before.json").write_text(json.dumps(generated_before, indent=2) + "\n")
     extension = ".dylib" if sys.platform == "darwin" else ".so"
     prerequisite = f"openpilot/common/libparams_c{extension}"
-    prerequisites = [prerequisite, "msgq_repo/msgq/ipc_pyx.so"]
+    prerequisites = [prerequisite, "msgq_repo/msgq/_ipc.so"]
     if args.gate in ("coverage", "mutation-full"):
       # The full catalog includes actual Card and SelfdriveD consumers.
-      prerequisites.append("msgq_repo/msgq/visionipc/visionipc_pyx.so")
+      prerequisites.append("msgq_repo/msgq/visionipc/_visionipc.so")
       prerequisites.append("openpilot/selfdrive/controls/lib/longitudinal_mpc_lib/c_generated_code/acados_ocp_solver_pyx.so")
     built, _ = gate.run("build-imports", ["scons", "--minimal", "-j4", *prerequisites], timeout=3600)
     if built:

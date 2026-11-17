@@ -75,7 +75,7 @@ def test_cma_spa_c1_switches_reset_identity_status_phase_and_original_stock_leas
       assert lib.safety_config_valid() and lib.get_controls_allowed()
       continue
     # Replaying another PT profile cannot fill this profile's required slots.
-    if previous_data is not None and previous_param != cp.safetyConfigs[0].safetyParam:
+    if previous_data is not None and (previous_param & 1) != (cp.safetyConfigs[0].safetyParam & 1):
       for msg in previous_data:
         lib.safety_rx_hook(packet(msg))
       assert not lib.safety_config_valid()

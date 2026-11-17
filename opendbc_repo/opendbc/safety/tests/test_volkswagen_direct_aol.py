@@ -59,8 +59,9 @@ def test_direct_reverse_temporary_brake_and_permanent_semantics(owner):
   owner.feed(engaged=True)
   assert owner.safety.aol_get_permission_mask() == 1
   owner.feed(cancel=True)
+  assert not owner.safety.get_controls_allowed()
   owner.feed()
-  assert owner.safety.aol_get_permission_mask() == 0
+  assert owner.safety.aol_get_permission_mask() == 1
 
 
 @pytest.mark.parametrize('gear,drive', ((0, False), (1, False), (2, False), (3, False), (4, False),

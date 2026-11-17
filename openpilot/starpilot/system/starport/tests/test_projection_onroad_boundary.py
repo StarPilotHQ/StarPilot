@@ -102,6 +102,106 @@ class TestProjectionOnroad(unittest.TestCase):
     owner.cancel.assert_called_once()
     self.assertEqual(owner.touch.call_count, 1)
 
+  def touch_view(self, display, size='big', track=None):
+    """The card bottom-right on the 1860x1116 canvas, with Home, Work and Bookmark enabled."""
+    from openpilot.starpilot.system.starport.projection_favorites import ProjectionFavorites
+    from openpilot.starpilot.system.starport.projection_layout import (default_layout_for_viewport, projection_customization,
+                                                                       validate_layout_for_viewport)
+    from openpilot.starpilot.ui.onroad_customization import default_document
+    native, _ = self.dependencies()
+    owner = Mock()
+    owner.read_routing.return_value = {'revision': 'r1', 'enabled': True, 'token': 't', 'destination': None,
+                               'favorites': [{'id': 'h', 'label': 'home'}, {'id': 'w', 'label': 'work'}]}
+    native.favorites = lambda authorized: ProjectionFavorites(authorized, owner)
+    track = track or {'status': 'playing', 'title': 'Song', 'artist': 'Artist', 'shuffle': False, 'repeat': 'off', 'source': 'spotify'}
+    native.now_playing_feed = lambda: Mock(snapshot=Mock(return_value=track), artwork=Mock(return_value=('', None)))
+    native.now_playing_control = Mock()
+    layout = default_layout_for_viewport((1860, 1116))
+    widgets = layout['widgets']
+    widgets['now_playing'].update(enabled=True, x=1310, y=990, size=size)
+    for key, (x, y) in {'nav_home': (1340, 100), 'nav_work': (1460, 100), 'bookmark': (270, 976)}.items():
+      widgets[key].update(enabled=True, display=display)
+      if display == 'icons':
+        widgets[key].update(x=x, y=y)
+    layout = validate_layout_for_viewport(layout, (1860, 1116))
+    view = projection.ProjectionOnroad(dependencies=native, viewport=(1860, 1116), customization=layout)
+    self.addCleanup(view.close)
+    view.favorites.bookmark = Mock(return_value=True)
+    native.ui_state.started = True
+    view._state = SimpleNamespace(customization=projection_customization(layout, default_document()), alert=SimpleNamespace(size='none'),
+                                  viewport_width=1860)
+    view.onroad.now_playing = SimpleNamespace(track=track, showing=lambda: track)
+    view.now_playing_touch.feedback = None
+    return view, native, owner
+
+  def tap(self, view, x, y):
+    view.handle_touches([SimpleNamespace(kind='down', x=x / 1860, y=y / 1116), SimpleNamespace(kind='up', x=x / 1860, y=y / 1116)])
+
+  def test_each_big_now_playing_button_responds_to_touch(self):
+    from openpilot.starpilot.ui.onroad_now_playing import CONTROLS, card_layout
+    view, native, _ = self.touch_view('icons')
+    placed = view._state.customization['layouts']['large']['now_playing']
+    card, buttons = card_layout(placed, view.onroad.now_playing.track, 1860)
+    self.assertEqual((card.width, card.height), (640, 264))
+    self.assertLessEqual(card.x + card.width, 1830)  # the saved small spot slid back so the big card stays on screen
+    for name in CONTROLS:
+      native.now_playing_control.reset_mock()
+      box = buttons[name]
+      self.tap(view, box.x + box.width / 2, box.y + box.height / 2)
+      expected = {'shuffle': ('shuffle', {'enabled': True}), 'repeat': ('repeat', {'mode': 'context'})}.get(name, (name, {}))
+      native.now_playing_control.assert_called_once_with(*expected)
+    native.now_playing_control.reset_mock()
+    self.tap(view, card.x + 300, card.y + 40)
+    native.now_playing_control.assert_not_called()
+
+  def test_play_on_starpilot_sends_activate(self):
+    from openpilot.starpilot.ui.onroad_now_playing import card_layout
+    track = {'source': 'spotify', 'status': 'elsewhere', 'title': '', 'device': 'StarPilot'}
+    for size in ('big', 'small'):
+      with self.subTest(size=size):
+        view, native, _ = self.touch_view('icons', size=size, track=track)
+        box = card_layout(view._state.customization['layouts']['large']['now_playing'], track, 1860)[1]['play_here']
+        self.tap(view, box.x + box.width / 2, box.y + box.height / 2)
+        native.now_playing_control.assert_called_once_with('activate', {})
+
+  def test_overlapping_bookmark_and_music_follow_saved_layer_order(self):
+    from openpilot.starpilot.ui.onroad_now_playing import card_layout
+    view, native, _ = self.touch_view('icons')
+    layouts = view._state.customization['layouts']['large']
+    box = card_layout(layouts['now_playing'], view.onroad.now_playing.track, 1860)[1]['play_pause']
+    x, y = box.x + box.width / 2, box.y + box.height / 2
+    layouts['bookmark'].update(x=x - 55, y=y - 55, enabled=True, display='icons')
+    order = view._state.customization['widgetOrder']['large']
+    order.remove('bookmark')
+    order.append('bookmark')
+    self.tap(view, x, y)
+    view.favorites.bookmark.assert_called_once()
+    native.now_playing_control.assert_not_called()
+    view.favorites.bookmark.reset_mock()
+    order.remove('now_playing')
+    order.append('now_playing')
+    self.tap(view, x, y)
+    native.now_playing_control.assert_called_once_with('play_pause', {})
+    view.favorites.bookmark.assert_not_called()
+
+  def test_home_work_and_bookmark_respond_to_touch_beside_the_now_playing_card(self):
+    from openpilot.starpilot.system.starport.projection_layout import FAVORITE_ICON_SIZE, FAVORITE_SIZE
+    for display in ('icons', 'words'):
+      with self.subTest(display=display):
+        view, native, owner = self.touch_view(display)
+        layouts = view._state.customization['layouts']['large']
+        width, height = (FAVORITE_ICON_SIZE,) * 2 if display == 'icons' else FAVORITE_SIZE
+        card = layouts['now_playing']
+        for key in ('nav_home', 'nav_work', 'bookmark'):
+          placed = layouts[key]
+          apart = (placed['x'] + width <= card['x'] or placed['x'] >= card['x'] + 640 or
+                   placed['y'] + height <= card['y'] or placed['y'] >= card['y'] + 264)
+          self.assertTrue(apart, f'{key} overlaps the now-playing card')
+          self.tap(view, placed['x'] + width / 2, placed['y'] + height / 2)
+        self.assertEqual([c.args[0]['label'] for c in owner.select.call_args_list], ['home', 'work'])
+        view.favorites.bookmark.assert_called_once_with()
+        native.now_playing_control.assert_not_called()
+
   def test_car_escape_control_remains_active_on_standby(self):
     from openpilot.starpilot.system.starport.projection_layout import CAR_EXIT, default_layout_for_viewport
     native, _ = self.dependencies()
@@ -236,7 +336,7 @@ class TestProjectionOnroad(unittest.TestCase):
     self.assertEqual(view.onroad.pip_layer, view._pip_layer)
 
     view._pip_layer('content', SimpleNamespace(customization={}))
-    self.assertEqual(calls, [('content', 'mask', (True, True, False, False, True),
+    self.assertEqual(calls, [('content', 'mask', (True, True, False, False, True, False, False),
                               {'enabled': True, 'on_blinker': True, 'on_bsm': True, 'invert': False,
                                'placements': {'left': (10, 20, 600, 600)}})])
     self.assertEqual(view.onroad.alert.text_only_alert_names, projection.BUBBLE_REDUNDANT_ALERTS)
@@ -253,6 +353,44 @@ class TestProjectionOnroad(unittest.TestCase):
     self.assertEqual(events[before:before + 2], ['pip_off', 'draw'])
     view.close()
     self.assertIn('pip_closed', events)
+
+  def test_side_camera_layer_passes_visual_spot_monitor_warnings(self):
+    native, _events = self.dependencies()
+    calls = []
+
+    class Renderer:
+      def __init__(self, shape): pass
+      def render(self, rect, mask, signals, **kwargs):
+        calls.append(signals)
+        return 'rendered'
+      def deactivate(self): pass
+      def close(self): pass
+
+    class FakeWarning:
+      def sample(self, **kwargs):
+        calls.append(kwargs)
+        return True, False
+      def close(self): pass
+
+    drive = object()
+    saved = SimpleNamespace(enabled=True, mask='mask', invert=False, on_blinker=False, on_bsm=True)
+    vasm = SimpleNamespace(readable=True, valid=True, fingerprint='fp', preferences=SimpleNamespace(enabled=True))
+    car = SimpleNamespace(leftBlinker=False, rightBlinker=False, leftBlindspot=False, rightBlindspot=False,
+                          canValid=True, gearShifter=drive)
+    native.ui_state.params = object()
+    native.display_message = lambda _sm, name, *_a, **_k: car if name == 'carState' else None
+    native.pip_renderer, native.pip_warning = Renderer, FakeWarning
+    native.read_pip, native.read_vasm = (lambda _p: saved), (lambda _p: vasm)
+    native.clock_pair_ns = lambda: (1, 2)
+    native.car_schema = SimpleNamespace(CarState=SimpleNamespace(GearShifter=SimpleNamespace(drive=drive)))
+    native.pip_signals = lambda *values: values
+    native.pip_rect = lambda *values: values
+    native.pip_widgets = ('pip_left', 'pip_right')
+    native.placement = lambda *_: {'enabled': False}
+    view = projection.ProjectionOnroad(dependencies=native, customization={'blindSpotCamera': True, 'widgets': {}})
+    view._pip_layer('content', SimpleNamespace(customization={}))
+    self.assertEqual(calls[0], {'enabled': True, 'settings_fingerprint': 'fp', 'now_mono_ns': 1, 'now_boot_ns': 2})
+    self.assertEqual(calls[1], (True, False, False, False, False, True, False))
 
   def test_blind_spot_camera_uses_its_own_switch_fresh_signals_and_enabled_sides(self):
     from openpilot.starpilot.ui.pip_preferences import DEFAULT_MASK
@@ -399,6 +537,40 @@ class TestProjectionOnroad(unittest.TestCase):
       projection.time = original
     notice = 'Heads Up: AA Certificate Expires in 3 Days'
     self.assertEqual(shown, [notice, notice, 'Lane Departure Detected', '', notice])
+    view.close()
+
+  def test_reconnect_notice_shows_eight_seconds_under_real_alerts_and_before_the_certificate(self):
+    native, _ = self.dependencies()
+
+    @dataclass(frozen=True)
+    class Alert:
+      size: str = 'none'
+      text1: str = ''
+      alert_type: str = ''
+
+    real = {'alert': Alert()}
+    native.alert, native.alert_size = Alert, SimpleNamespace(NONE='none', SMALL='small')
+    native.adapter = lambda *_: SimpleNamespace(build=lambda *_a, **_k: SimpleNamespace(
+      onroad=OnroadState(False, False, None, None, SpeedLimitObservation(), alert=cast(Any, real['alert']))))
+    reconnected = 'Reconnected: comma Wi-Fi Joined Home'
+    view = projection.ProjectionOnroad(dependencies=native, certificate_days=3, reconnect_notice=reconnected)
+    shown = []
+    view.onroad.render = lambda state: shown.append(state.alert.text1)
+    clock = [0]
+    original = projection.time
+    projection.time = SimpleNamespace(monotonic_ns=lambda: clock[0])
+    try:
+      native.ui_state.started = True
+      for clock[0] in (100, 7_000_000_000):
+        view.render()
+      real['alert'] = Alert('mid', 'Lane Departure Detected')
+      view.render()  # a real alert always wins
+      real['alert'] = Alert()
+      clock[0] = 8_000_000_200
+      view.render()  # past eight seconds: the certificate heads-up gets its remaining time
+    finally:
+      projection.time = original
+    self.assertEqual(shown, [reconnected, reconnected, 'Lane Departure Detected', 'Heads Up: AA Certificate Expires in 3 Days'])
     view.close()
 
   def test_no_certificate_notice_when_far_from_expiry(self):

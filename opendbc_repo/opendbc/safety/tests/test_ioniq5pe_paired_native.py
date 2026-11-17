@@ -110,10 +110,12 @@ class TestPELongDebug(PEFixture, unittest.TestCase):
     def scc(raw, value):
       return self.packet('SCC_CONTROL', 1, {'ACCMode': 1, 'aReqRaw': raw, 'aReqValue': value})
     self.ready()
-    for value in (2., -3.5):
-      self.assertTrue(self.safety.safety_tx_hook(scc(value, value)))
-    for raw, value in ((2.01, 2.01), (2.2, 2.2), (-3.51, -3.51), (2.01, 0.), (0., 2.01)):
-      self.assertFalse(self.safety.safety_tx_hook(scc(raw, value)))
+    for value in (3.5, -3.5):
+      for raw, selected in ((value, value), (value, 0.), (0., value)):
+        self.assertTrue(self.safety.safety_tx_hook(scc(raw, selected)), (raw, selected))
+    for value in (3.51, -3.51):
+      for raw, selected in ((value, value), (value, 0.), (0., value)):
+        self.assertFalse(self.safety.safety_tx_hook(scc(raw, selected)), (raw, selected))
 
   def test_pe_heartbeat_reserved_bytes_and_physical_pedal_values(self):
     self.ready()

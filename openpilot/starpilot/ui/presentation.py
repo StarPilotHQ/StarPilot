@@ -2,13 +2,17 @@
 
 from dataclasses import dataclass
 from enum import StrEnum
+from functools import lru_cache
 from pathlib import Path
 import hashlib
 import json
 
 import numpy as np
 from PIL import Image
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
+
+from openpilot.system.ui.lib.multilang import TRANSLATIONS_DIR, multilang, tr_display as tr
+from openpilot.system.ui.lib.display_translation import native_text
 
 
 class Profile(StrEnum):
@@ -43,6 +47,7 @@ class TextSize:
   height: float
 
 
+@lru_cache(maxsize=32)
 def font_filename(profile: Profile, role: FontRole) -> str:
   if role == FontRole.NORMAL:
     return "Inter-Regular.fnt" if profile == Profile.LARGE else "Inter-Medium.fnt"
@@ -108,10 +113,12 @@ class BitmapFonts:
     self.profile = Profile(profile)
     self._directory = directory
     self._fonts: dict[str, rl.Font] = {}
+    self._language_fonts: dict[str, rl.Font] = {}
     self._measurements: dict[tuple, TextSize] = {}
     self._vertical_ink: dict[tuple, tuple[float, float]] = {}
     self._horizontal_ink: dict[tuple, tuple[float, float]] = {}
     self._glyph_ink: dict[str, dict[int, tuple[int, int] | None]] = {}
+    self._codepoints: dict[str, frozenset[int]] = {}
     default_texture_id = rl.get_font_default().texture.id
     try:
       for filename in dict.fromkeys(font_filename(self.profile, role) for role in FontRole):
@@ -139,6 +146,34 @@ class BitmapFonts:
       role = FontRole.FALLBACK
     return self._fonts[font_filename(self.profile, role)]
 
+  def _text_font(self, text: str, role: FontRole, fallback: bool = False) -> rl.Font:
+    if text.isascii() or role == FontRole.BRAND:
+      return self.font(role, fallback=fallback)
+    language = multilang.language
+    fonts = self._language_fonts
+    if language not in fonts:
+      filename = {"ja": "NotoSansCJKjp-Regular.otf", "ko": "NotoSansCJKkr-Regular.otf",
+                  "zh-CHS": "NotoSansCJKsc-Regular.otf", "zh-CHT": "NotoSansCJKtc-Regular.otf",
+                  "th": "NotoSansThai-Regular.ttf"}.get(language, "Inter-Regular.ttf")
+      directory = Path(__file__).parents[2] / "selfdrive/assets/fonts"
+      chars = set(map(chr, range(32, 127))) | set(text)
+      chars.update(TRANSLATIONS_DIR.joinpath(f"app_{language}.po").read_text(encoding="utf-8"))
+      points = sorted(map(ord, chars))
+      glyphs = np.array(points, dtype=np.int32)
+      font = rl.load_font_ex(str(directory / filename), 64, glyphs, len(points))
+      if font.texture.id in (0, rl.get_font_default().texture.id) or font.glyphCount == 0:
+        raise RuntimeError(f"Unable to load language font {filename}")
+      for previous in fonts.values():
+        rl.unload_font(previous)
+      fonts.clear()
+      self._measurements.clear()
+      self._vertical_ink.clear()
+      self._horizontal_ink.clear()
+      fonts[language] = font
+      rl.gen_texture_mipmaps(font.texture)
+      rl.set_texture_filter(font.texture, rl.TextureFilter.TEXTURE_FILTER_TRILINEAR)
+    return fonts[language]
+
   def _optical_style(self, role: FontRole, fallback: bool = False) -> tuple[float, float]:
     if fallback:
       return 1., 0.
@@ -149,7 +184,8 @@ class BitmapFonts:
     return 1., 0.
 
   def measure(self, text: str, role: FontRole, size: float, *, spacing: float = 0, fallback: bool = False) -> TextSize:
-    font = self.font(role, fallback=fallback)
+    text = native_text(tr(text)) if role != FontRole.BRAND else text
+    font = self._text_font(text, role, fallback)
     spacing = round(spacing, 4)
     width_scale, weight = self._optical_style(role, fallback)
     key = font.texture.id, text, size, spacing, width_scale, weight
@@ -160,11 +196,20 @@ class BitmapFonts:
       self._measurements[key] = TextSize(measured.x * width_scale + (weight if text else 0), measured.y)
     return self._measurements[key]
 
+  def covers(self, text: str, role: FontRole) -> bool:
+    """Whether the bitmap atlas has a glyph for every character."""
+    filename = font_filename(self.profile, role)
+    if filename not in self._codepoints:
+      font = self.font(role)
+      self._codepoints[filename] = frozenset(font.glyphs[index].value for index in range(font.glyphCount))
+    return all(ord(char) in self._codepoints[filename] for char in text)
+
   def vertical_ink(self, text: str, role: FontRole, size: float) -> tuple[float, float]:
     """Visible glyph top/bottom, independent of the font's padded line box."""
+    text = native_text(tr(text)) if role != FontRole.BRAND else text
     key = (text, role, size)
     if key not in self._vertical_ink:
-      font = self.font(role)
+      font = self._text_font(text, role)
       glyphs = [rl.get_glyph_index(font, ord(char)) for char in text if not char.isspace()]
       scale = size * self.profile.font_scale / font.baseSize
       top = min((font.glyphs[index].offsetY for index in glyphs), default=0)
@@ -176,14 +221,15 @@ class BitmapFonts:
 
   def horizontal_ink(self, text: str, role: FontRole, size: float) -> tuple[float, float]:
     """Visible glyph left/right from the draw x, without the font's side bearings."""
+    text = native_text(tr(text)) if role != FontRole.BRAND else text
     key = (text, role, size)
     if key not in self._horizontal_ink:
-      font = self.font(role)
+      font = self._text_font(text, role)
       width_scale, weight = self._optical_style(role)
       scale = size * self.profile.font_scale / font.baseSize
       left = right = None
       x = 0.
-      columns = self._glyph_columns(role)
+      columns = self._glyph_columns(role) if text.isascii() or role == FontRole.BRAND else {}
       for char in text:
         index = rl.get_glyph_index(font, ord(char))
         glyph, rec = font.glyphs[index], font.recs[index]
@@ -224,30 +270,34 @@ class BitmapFonts:
 
   def draw(self, text: str, role: FontRole, size: float, x: float, y: float, color: rl.Color = rl.WHITE,
            *, spacing: float = 0, fallback: bool = False) -> None:
+    text = native_text(tr(text)) if role != FontRole.BRAND else text
+    font = self._text_font(text, role, fallback)
     draw = getattr(rl, "_orig_draw_text_ex", rl.draw_text_ex)
     width_scale, weight = self._optical_style(role, fallback)
     if width_scale == 1. and weight == 0.:
-      draw(self.font(role, fallback=fallback), text, rl.Vector2(x, y), size * self.profile.font_scale, spacing, color)
+      draw(font, text, rl.Vector2(x, y), size * self.profile.font_scale, spacing, color)
       return
     rl.rl_push_matrix()
     try:
       rl.rl_translatef(x, y, 0)
       rl.rl_scalef(width_scale, 1., 1.)
-      draw(self.font(role, fallback=fallback), text, rl.Vector2(0, 0), size * self.profile.font_scale, spacing, color)
+      draw(font, text, rl.Vector2(0, 0), size * self.profile.font_scale, spacing, color)
       if weight:
-        draw(self.font(role, fallback=fallback), text, rl.Vector2(weight / width_scale, 0),
+        draw(font, text, rl.Vector2(weight / width_scale, 0),
              size * self.profile.font_scale, spacing, color)
     finally:
       rl.rl_pop_matrix()
 
   def close(self) -> None:
     if rl.is_window_ready() or self._headless_context:
-      for font in self._fonts.values():
+      for font in (*self._fonts.values(), *self._language_fonts.values()):
         rl.unload_font(font)
     self._fonts.clear()
+    self._language_fonts.clear()
     self._vertical_ink.clear()
     self._horizontal_ink.clear()
     self._glyph_ink.clear()
+    self._codepoints.clear()
     self._measurements.clear()
 
   def __enter__(self):

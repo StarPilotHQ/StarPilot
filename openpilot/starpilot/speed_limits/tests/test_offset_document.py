@@ -1,4 +1,4 @@
-"""The adopted SI schedule, legacy zero tail and invalid-source boundaries."""
+"""Current SI schedules, zero defaults and invalid-source boundaries."""
 
 from pathlib import Path
 import tempfile
@@ -16,13 +16,13 @@ def offset_at(schedule, speed):
 
 
 class OffsetDocumentTests(unittest.TestCase):
-  def test_all_legacy_edges_and_frozen_zero_tail(self):
+  def test_all_schedule_edges_and_zero_tail(self):
     epsilon = 0.00001
     for metric, bounds, conversion in ((False, od.IMPERIAL_BOUNDS, od.MPH_TO_MPS),
                                        (True, od.METRIC_BOUNDS, od.KPH_TO_MPS)):
       with self.subTest(metric=metric):
-        values = {'SpeedLimitController': True, 'IsMetric': metric,
-                  **{f'Offset{i}': float(i) for i in range(1, 8)}}
+        document = od.OffsetDocument(bounds, tuple(index * conversion for index in range(1, 8)))
+        values = {'SpeedLimitController': True, 'SLCOffsetSchedule': document}
         schedule = parse(values).offsets
         self.assertEqual(len(schedule.bands), 8)
         for index in range(1, 8):
@@ -36,7 +36,7 @@ class OffsetDocumentTests(unittest.TestCase):
         self.assertEqual(schedule.bands[-1].offset_mps, 0.0)
 
   def test_adopted_document_is_sole_numeric_authority(self):
-    document = od.adopt_legacy(False, (0, 1, -2, 3, 4, 5, 7))
+    document = od.OffsetDocument(od.IMPERIAL_BOUNDS, tuple(value * od.MPH_TO_MPS for value in (0, 1, -2, 3, 4, 5, 7)))
     encoded = od.encode(document)
     self.assertEqual(od.decode(encoded), document)
     expected = document.schedule()
@@ -79,7 +79,7 @@ class OffsetDocumentTests(unittest.TestCase):
       params.put_bool('SpeedLimitController', True, block=True)
       legacy = Path(params.get_param_path('Offset7'))
       legacy.write_bytes(b'5.0000')
-      document = od.adopt_legacy(False, (0, 1, 2, 3, 4, 5, 5))
+      document = od.OffsetDocument(od.IMPERIAL_BOUNDS, tuple(value * od.MPH_TO_MPS for value in (0, 1, 2, 3, 4, 5, 5)))
       params.put('SLCOffsetSchedule', od.to_value(document), block=True)
       self.assertEqual(params.get('SLCOffsetSchedule'), od.to_value(document))
       self.assertEqual(read_params(params).offsets, document.schedule())
@@ -106,7 +106,7 @@ class OffsetDocumentTests(unittest.TestCase):
           params.put_bool('SpeedLimitController', True, block=True)
           Path(params.get_param_path('SLCOffsetSchedule')).write_bytes(raw)
           self.assertFalse(read_params(params).enabled)
-    valid = od.adopt_legacy(True, (0, 0, 0, 0, 0, 0, 0))
+    valid = od.default_document(True)
     for altered in ({'version': True, 'bounds_mps': valid.bounds_mps, 'offsets_mps': valid.offsets_mps},
                     {'version': 1, 'bounds_mps': (0, 1, 1, 3, 4, 5, 6, 7), 'offsets_mps': valid.offsets_mps},
                     {'version': 1, 'bounds_mps': valid.bounds_mps, 'offsets_mps': (0, 0, 0, 0, 0, 0, True)}):

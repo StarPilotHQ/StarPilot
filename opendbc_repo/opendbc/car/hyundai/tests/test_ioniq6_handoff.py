@@ -1,3 +1,5 @@
+from contextlib import ExitStack
+from opendbc.car.hyundai.hyundaicanfd import CanBus
 import threading
 import tempfile
 import time
@@ -19,13 +21,23 @@ from opendbc.car.hyundai.values import CAR
 from opendbc.car.hyundai.hyundaicanfd import hkg_can_fd_checksum
 
 
+def ioniq6_profiles(*, alternate=False, bus_offset=0):
+  fp = gen_empty_fingerprint()
+  fp[bus_offset + 2].update({0x110: 32, 0x362: 32} if alternate else {0x50: 16, 0x2A4: 24})
+  fp[bus_offset].update({0x3A5: 24, 0x100: 24})
+  fp[bus_offset + 1].update({0x1CF: 8, 0x35: 32, 0x175: 24, 0xA0: 24, 0xEA: 24,
+                            0x1BA: 24, 0x1E5: 16, 0x36A: 16})
+  stock = CarInterface.get_params(CAR.HYUNDAI_IONIQ_6, fp, [], False, False, False)
+  return fp, stock, build_ioniq6_hda2_long_candidate(stock, fp)
+
+
 def refresh_host_parser_receipts(card):
   from collections import deque
   from opendbc.can.parser import MessageState
 
   stamp = time.clock_gettime_ns(time.CLOCK_BOOTTIME)
   parsers = {}
-  for bus in (1, 2):
+  for bus in (card.CI.CC.CAN.ECAN, card.CI.CC.CAN.CAM):
     source = MessageState(address=bus, name=f"source{bus}", size=8, signals=[],
                           timeout_threshold=100_000_000, timestamps=deque([stamp]))
     parsers[bus] = SimpleNamespace(message_states={bus: source})
@@ -36,7 +48,8 @@ class FakeIoniq6Bus:
   def __init__(self, *, source=True, heartbeat_source=True, heartbeat_stays_after_disable=False,
                bsm_source=True, bsm_stays_after_disable=False, missing_status=None,
                disable_works=True, disable_ack=True, restore_works=True,
-               restore_ack=True, missing_required=None, post_missing_required=None):
+               restore_ack=True, missing_required=None, post_missing_required=None, bus_offset=0):
+    self.bus_offset = bus_offset
     self.now = 0.0
     self.source = source
     self.heartbeat_source = heartbeat_source
@@ -86,6 +99,7 @@ class FakeIoniq6Bus:
           data[3] |= 0x40
         data[:2] = hkg_can_fd_checksum(0x35, None, data).to_bytes(2, 'little')
         messages[index] = CanData(0x35, bytes(data), 1)
+    messages = [CanData(m.address, m.dat, m.src + self.bus_offset) for m in messages]
     return [TimestampedCanPacket(messages, int(self.now * 1e9))]
 
   def exchange(self, request, expected):
@@ -109,7 +123,7 @@ class FakeIoniq6Bus:
     raise AssertionError(request)
 
   def run(self):
-    return run_ioniq6_handoff(self.recv, self.exchange, lambda: self.now)
+    return run_ioniq6_handoff(self.recv, self.exchange, lambda: self.now, ecan_bus=1 + self.bus_offset)
 
 
 class TestIoniq6PrepublicationHandoff(unittest.TestCase):
@@ -244,14 +258,14 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
         cp = CarInterface.get_params(model, fp, [], False, False, False)
         ci = CarInterface(cp)
         packer = CANPacker(DBC[model][Bus.pt])
-        ci.update((1_000_000_000, []))
+        ci.update([(1_000_000_000, [])])
         sources = [(parser, state) for parser in ci.can_parsers.values()
                    for state in parser.message_states.values() if not state.ignore_alive and state.address != 0x2E0]
         for frame in range(120):
           packets = [packer.make_can_msg(state.name, parser.bus,
                                         {"COUNTER": frame % 256} if any(sig.name == "COUNTER" for sig in state.signals) else {})
                      for parser, state in sources]
-          state = ci.update((1_000_000_000 + frame * 100_000_000, packets))
+          state = ci.update([(1_000_000_000 + frame * 100_000_000, packets)])
         self.assertTrue(state.canValid)
         self.assertFalse(cp.openpilotLongitudinalControl)
         self.assertTrue(cp.pcmCruise)
@@ -261,10 +275,10 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
           packets = [packer.make_can_msg(msg.name, parser.bus,
                                         {"COUNTER": frame % 256} if any(sig.name == "COUNTER" for sig in msg.signals) else {})
                      for parser, msg in sources if msg.name != "MDPS"]
-          state = ci.update((1_000_000_000 + frame * 100_000_000, packets))
+          state = ci.update([(1_000_000_000 + frame * 100_000_000, packets)])
         self.assertFalse(state.canValid)
 
-  def test_card_tags_aol_candidate_before_cp_publication_without_disabling_ecu(self):
+  def test_card_confirms_aol_takeover_before_cp_publication(self):
     self.assert_card_prepublication_fallback({})
 
   def test_card_missing_long_prerequisites_preserves_stock_lateral(self):
@@ -273,7 +287,7 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
       with self.subTest(options=options):
         self.assert_card_prepublication_fallback(options)
 
-  def assert_card_prepublication_fallback(self, options, *, vehicle_ready=False, alternate=False, unknown=False):
+  def assert_card_prepublication_fallback(self, options, *, vehicle_ready=False, alternate=False, unknown=False, bus_offset=0):
     from openpilot.common.params import Params
     from openpilot.selfdrive.car import card as card_module
 
@@ -285,7 +299,13 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
     fp[2].update({0x110: 32, 0x362: 32} if alternate else {0x50: 16, 0x2A4: 24})
     fp[0][0x3A5] = 24
     fp[1].update({0x1CF: 8, 0x35: 32, 0x175: 24, 0xA0: 24, 0xEA: 24, 0x1BA: 24, 0x1E5: 16, 0x36A: 16})
-    bus = FakeIoniq6Bus(**options)
+    if bus_offset:
+      shifted = gen_empty_fingerprint()
+      for bus_number, frames in fp.items():
+        if frames:
+          shifted[bus_number + bus_offset].update(frames)
+      fp = shifted
+    bus = FakeIoniq6Bus(**options, bus_offset=bus_offset)
     bus.vehicle_ready = vehicle_ready
     expected_stock = bool(options) or vehicle_ready or unknown
     stock_word = 0x91 if alternate else 0x11
@@ -329,37 +349,59 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
         self.assertEqual(parser[Bus.cam].message_states[camera_source].frequency, 20)
       raise CandidateCaptured
 
-    def capture_preparation(stock_cp, long_cp, **kwargs):
+    def capture_finalization(stock_cp, long_cp, *callbacks, **kwargs):
       if expected_stock:
         self.assertIsNone(long_cp)
       else:
         self.assertEqual(long_cp.safetyConfigs[-1].safetyParam, long_word)
       self.assertTrue(kwargs["enabled"])
-      return prepare_ioniq6_long_candidate(stock_cp, long_cp, **kwargs)
+      return finalize_ioniq6_prepublication(stock_cp, long_cp, bus.recv, lambda msgs: None,
+                                            clock=lambda: bus.now, **kwargs)
 
-    with patch.dict("os.environ", {"AOL_REPLAY_RUNTIME": ""}), \
-         patch.object(card_module, "feature_requested", side_effect=lambda _params, feature: feature == 'aol'), \
-         patch.object(card_module, "prewarm_cache_contracts"), \
-         patch.object(card_module.messaging, "sub_sock", return_value=object()), \
-         patch.object(card_module.messaging, "SubMaster", return_value=sm), \
-         patch.object(card_module.messaging, "PubMaster", return_value=pm), \
-         patch.object(card_module.messaging, "recv_one_retry", return_value=SimpleNamespace(can=[1])), \
-         patch.object(card_module, "Params", return_value=params), \
-         patch.object(card_module, "startup_candidate", return_value=None), \
-         patch.object(card_module, "get_cache", return_value=None), \
-         patch.object(card_module, "can_comm_callbacks", return_value=(lambda wait_for_one=False: [], lambda msgs: None)), \
-         patch.object(card_module, "read_settings", return_value=object()), \
-         patch.object(card_module, "independent_axis_requested", return_value=True), \
-         patch("opendbc.car.hyundai.ioniq6_handoff._ioniq6_boot_ns", side_effect=lambda: 0 if unknown else int(bus.now * 1e9)), \
-         patch.object(card_module, "inspect_ioniq6_long_sources",
-                      side_effect=lambda recv: inspect_ioniq6_long_sources(bus.recv, lambda: bus.now)), \
-         patch.object(card_module, "prepare_ioniq6_long_candidate", side_effect=capture_preparation), \
-         patch.object(card_module, "confirm_ioniq6_prepared_takeover") as confirm, \
-         patch.object(card_module, "get_car", side_effect=capture_get_car):
+    with ExitStack() as patches:
+      patches.enter_context(patch.dict("os.environ", {"AOL_REPLAY_RUNTIME": ""}))
+      patches.enter_context(patch.object(card_module, "feature_requested", side_effect=lambda _params, feature: feature == 'aol'))
+      patches.enter_context(patch.object(card_module, "prewarm_cache_contracts"))
+      patches.enter_context(patch.object(card_module.messaging, "sub_sock", return_value=object()))
+      patches.enter_context(patch.object(card_module.messaging, "SubMaster", return_value=sm))
+      patches.enter_context(patch.object(card_module.messaging, "PubMaster", return_value=pm))
+      patches.enter_context(patch.object(card_module.messaging, "recv_one_retry", return_value=SimpleNamespace(can=[1])))
+      patches.enter_context(patch.object(card_module, "Params", return_value=params))
+      patches.enter_context(patch.object(card_module, "startup_candidate", return_value=None))
+      patches.enter_context(patch.object(card_module, "get_cache", return_value=None))
+      patches.enter_context(patch.object(card_module, "can_comm_callbacks", return_value=(lambda wait_for_one=False: [], lambda msgs: None)))
+      patches.enter_context(patch.object(card_module, "read_settings", return_value=object()))
+      patches.enter_context(patch.object(card_module, "independent_axis_requested", return_value=True))
+      patches.enter_context(patch("opendbc.car.hyundai.ioniq6_handoff._ioniq6_boot_ns", side_effect=lambda: 0 if unknown else int(bus.now * 1e9)))
+      patches.enter_context(patch.object(card_module, "inspect_ioniq6_long_sources",
+                      side_effect=lambda recv, **kwargs: inspect_ioniq6_long_sources(bus.recv, lambda: bus.now, **kwargs)))
+      patches.enter_context(patch.object(card_module.Car, "startup_diagnostic_admission", return_value=True))
+      patches.enter_context(patch.object(card_module, "finalize_ioniq6_prepublication", side_effect=capture_finalization, create=True))
+      patches.enter_context(patch("opendbc.car.hyundai.ioniq6_handoff.query_ioniq6_adas",
+                                 side_effect=lambda recv, send, req, resp, **kwargs: bus.exchange(req, resp)))
+      patches.enter_context(patch.object(card_module, "Ioniq6StartupKeepalive", Ioniq6StartupKeepalive, create=True))
+      keepalive_start = patches.enter_context(patch.object(Ioniq6StartupKeepalive, "start"))
+      confirm = patches.enter_context(patch.object(card_module, "confirm_ioniq6_prepared_takeover"))
+      patches.enter_context(patch.object(card_module, "get_car", side_effect=capture_get_car))
+      captured_card = card_module.Car.__new__(card_module.Car)
       with self.assertRaises(CandidateCaptured):
-        card_module.Car()
+        card_module.Car.__init__(captured_card)
+      if not expected_stock:
+        self.assertGreater(captured_card.ioniq6_handoff_source_floor_ns, 0,
+                           "prepublication handoff did not establish its CAN source floor")
       confirm.assert_not_called()
-      self.assertEqual(bus.queries, [])
+      if expected_stock:
+        self.assertEqual(bus.queries, [])
+        keepalive_start.assert_not_called()
+      else:
+        self.assertEqual(bus.queries, [(b"\x10\x03", b"\x50\x03"), (b"\x28\x01\x01", b"\x68\x01")])
+        self.assertLess(bus.now, 1.0)
+        keepalive_start.assert_called_once()
+        self.assertEqual(captured_card.ioniq6_keepalive.ecan_bus, bus_offset + 1)
+        self.assertEqual(captured_card.ioniq6_restore_bus, bus_offset + 1)
+        with patch.object(card_module, "restore_ioniq6_adas", return_value=True) as restore:
+          self.assertTrue(captured_card.ioniq6_keepalive.restore())
+          restore.assert_called_once_with(*captured_card.can_callbacks, ecan_bus=bus_offset + 1)
       self.assertTrue(params.get_bool("OpenpilotEnabledToggle"))
       self.assertTrue(params.get_bool("AlphaLongitudinalEnabled"))
 
@@ -384,11 +426,9 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
                                   ({"post_missing_required": 0xEA, "restore_works": False}, HandoffOutcome.UNAVAILABLE)):
       with self.subTest(bus_options=bus_options):
         bus = FakeIoniq6Bus(**bus_options)
-        stock = SimpleNamespace(dashcamOnly=False)
-        long = SimpleNamespace(openpilotLongitudinalControl=True,
-                               safetyConfigs=[SimpleNamespace(safetyParam=0x8015)])
+        _, stock, long = ioniq6_profiles()
         with patch("opendbc.car.hyundai.ioniq6_handoff.query_ioniq6_adas",
-                   side_effect=lambda recv, send, request, response, active_bus=bus: active_bus.exchange(request, response)):
+                   side_effect=lambda recv, send, request, response, active_bus=bus, **kwargs: active_bus.exchange(request, response)):
           selected, prearmed, result = finalize_ioniq6_prepublication(
             stock, long, bus.recv, lambda msgs: None, enabled=True, is_release=False, clock=lambda active_bus=bus: active_bus.now)
         self.assertEqual(result.outcome, expected)
@@ -397,9 +437,8 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
         self.assertEqual(stock.dashcamOnly, expected is HandoffOutcome.UNAVAILABLE)
 
   def test_preparation_selects_immutable_candidate_without_source_transaction(self):
-    stock = SimpleNamespace()
-    prepared = SimpleNamespace(openpilotLongitudinalControl=True,
-                               safetyConfigs=[SimpleNamespace(safetyParam=0x8895)])
+    _, stock, prepared = ioniq6_profiles(alternate=True)
+    prepared.safetyConfigs[-1].safetyParam |= 0x0800
     selected, pending = prepare_ioniq6_long_candidate(stock, prepared, enabled=True, is_release=False)
     self.assertIs(selected, prepared)
     self.assertTrue(pending)
@@ -410,8 +449,7 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
       prepare_ioniq6_long_candidate(stock, prepared, enabled=True, is_release=False)
 
   def test_release_and_unreviewed_raw_do_not_request_takeover(self):
-    stock = SimpleNamespace(dashcamOnly=False)
-    long = SimpleNamespace(openpilotLongitudinalControl=True, safetyConfigs=[SimpleNamespace(safetyParam=0x8015)])
+    _, stock, long = ioniq6_profiles()
     bus = FakeIoniq6Bus()
     selected, armed, result = finalize_ioniq6_prepublication(
       stock, long, bus.recv, lambda msgs: None, enabled=True, is_release=True, clock=lambda: bus.now)
@@ -576,7 +614,7 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
     card.ioniq6_long_lost = False
     card.ioniq6_keepalive = None
     card.ioniq6_handoff_source_floor_ns = 1
-    card.CI = SimpleNamespace()
+    card.CI = SimpleNamespace(CC=SimpleNamespace(CAN=CanBus(ioniq6_profiles()[2])))
     refresh_host_parser_receipts(card)
     invalid = SimpleNamespace(canValid=False)
     card.observe_ioniq6_long_authority([], invalid)
@@ -596,7 +634,7 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
     self.assertFalse(valid.canValid)
 
   @staticmethod
-  def ready_card(*, ioniq_selected: bool):
+  def ready_card(*, ioniq_selected: bool, bus_offset=0):
     from openpilot.selfdrive.car.card import Car
 
     class FakeSM:
@@ -629,10 +667,15 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
     card.ioniq6_handoff_result = None
     card.can_callbacks = (lambda wait_for_one=False: [], lambda messages: None)
     card.params = SimpleNamespace(put_bool=Mock())
-    card.CP = SimpleNamespace(brand='hyundai', safetyConfigs=[object()])
-    card.CI = SimpleNamespace(CC=SimpleNamespace(), CS=SimpleNamespace(), init=Mock(), apply=Mock(return_value=(object(), [])))
+    card.CP = (ioniq6_profiles(bus_offset=bus_offset)[2] if ioniq_selected else
+               SimpleNamespace(brand='hyundai', safetyConfigs=[object()]))
+    from opendbc.car.hyundai.hyundaicanfd import CanBus
+    card.CI = SimpleNamespace(CC=SimpleNamespace(CAN=CanBus(card.CP, lka_steering=True)), CS=SimpleNamespace(),
+                              init=Mock(), apply=Mock(return_value=(object(), [])))
     card.vehicle_startup = VehicleStartupOwner()
     card.sm = FakeSM()
+    if bus_offset:
+      card.sm.panda.append(SimpleNamespace(safetyModel=3, safetyParam=1, controlsAllowed=False))
     card.publish_sendcan = Mock()
     card.learning_send_committed_mono_ns = 0
     card.ioniq6_panda_matches = Mock(return_value=False)
@@ -659,7 +702,7 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
       takeover.assert_not_called()
       cs.canValid = True
       card.controls_update(cs, cc)
-      takeover.assert_called_once_with(*card.can_callbacks)
+      takeover.assert_called_once_with(*card.can_callbacks, ecan_bus=card.CI.CC.CAN.ECAN)
       self.assertEqual(logged.call_args.args, ('ioniq6_long_handoff',))
       self.assertEqual(logged.call_args.kwargs['outcome'], 'CONFIRMED')
       card.params.put_bool.assert_called_once_with('ControlsReady', True)
@@ -747,6 +790,93 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
         next_card.params.put_bool.assert_called_once_with('ControlsReady', True)
       self.assertEqual(takeover.call_count, 2)
 
+  def test_prepublication_diagnostics_require_fresh_exact_healthy_inventory(self):
+    from openpilot.cereal import log
+    from openpilot.selfdrive.car import card as card_module
+
+    for bus_offset in (0, 4):
+      card = self.ready_card(ioniq_selected=True, bus_offset=bus_offset)
+      flags = {'IsOffroad': False, 'ControlsReady': False}
+      card.params = SimpleNamespace(get_bool=flags.__getitem__)
+      card.sm.update = Mock()
+      card.sm.seen['pandaStates'] = True
+      card.sm.logMonoTime['pandaStates'] = 20_000_000_000
+      card.sm.recv_time['pandaStates'] = 10.0
+      for panda in card.sm.panda:
+        panda.safetyRxChecksInvalid = False
+        panda.faults = []
+        panda.ignitionLine = True
+        panda.ignitionCan = False
+        panda.pandaType = log.PandaState.PandaType.redPanda
+      if bus_offset:
+        card.sm.panda[0].safetyParam = 0
+        card.sm.panda[0].pandaType = log.PandaState.PandaType.dos
+        card.sm.panda[0].ignitionLine = False
+      with (patch.object(card_module.time, 'monotonic_ns', return_value=10_000_000_000),
+            patch.object(card_module.time, 'clock_gettime_ns', return_value=20_000_000_000)):
+        self.assertTrue(card.startup_diagnostic_admission(cp=card.CP))
+        mutations = [
+          (card.sm.valid, 'pandaStates', False),
+          (card.sm.alive, 'pandaStates', False),
+          (card.sm.seen, 'pandaStates', False),
+          (card.sm.logMonoTime, 'pandaStates', 19_699_999_999),
+          (card.sm.recv_time, 'pandaStates', 9.699999999),
+          (flags, 'ControlsReady', True),
+          (flags, 'IsOffroad', True),
+        ]
+        for target, key, value in mutations:
+          previous = target[key]
+          target[key] = value
+          self.assertFalse(card.startup_diagnostic_admission(cp=card.CP))
+          target[key] = previous
+        owner = card.sm.panda[-1]
+        for key, value in [('safetyModel', 0), ('safetyParam', 0), ('controlsAllowed', True),
+                           ('safetyRxChecksInvalid', True), ('faults', [log.PandaState.FaultType.interruptRateCan1])]:
+          previous = getattr(owner, key)
+          setattr(owner, key, value)
+          self.assertFalse(card.startup_diagnostic_admission(cp=card.CP))
+          setattr(owner, key, previous)
+        card.sm.panda.pop()
+        self.assertFalse(card.startup_diagnostic_admission(cp=card.CP))
+
+  def test_prepublication_takeover_survives_ready_before_model_with_no_second_disable(self):
+    from openpilot.selfdrive.car import card as card_module
+
+    card = self.ready_card(ioniq_selected=True)
+    card.ioniq6_long_pending = False
+    card.ioniq6_long_prearmed = True
+    clock = [3.5]
+    sent = []
+    restored = []
+    card.ioniq6_keepalive = Ioniq6StartupKeepalive(
+      sent.extend, lambda: restored.append(True) or True,
+      lambda: setattr(card, 'ioniq6_long_lost', True), lambda result: None,
+      clock=lambda: clock[0])
+    cs = SimpleNamespace(canValid=True, canTimeout=False)
+    try:
+      with patch.object(card_module, 'confirm_ioniq6_prepared_takeover') as takeover:
+        for tick in range(130):
+          clock[0] = 3.5 + tick * .05
+          card.ioniq6_keepalive.tick()
+          card.controls_update(cs, object())
+        takeover.assert_not_called()
+        card.CI.init.assert_not_called()
+        card.CI.apply.assert_not_called()
+        card.params.put_bool.assert_not_called()
+        self.assertFalse(card.ioniq6_long_lost)
+        self.assertGreaterEqual(len(sent), 12)
+        self.assertTrue(all(frame.address == 0x730 and frame.dat[:3] == b'\x02\x3e\x80' for frame in sent))
+        card.sm.valid['carControl'] = True
+        card.controls_update(cs, object())
+        card.params.put_bool.assert_called_once_with('ControlsReady', True)
+        card.CI.init.assert_not_called()
+        card.CI.apply.assert_not_called()
+        takeover.assert_not_called()
+        self.assertFalse(card.ioniq6_long_lost)
+        self.assertEqual(restored, [])
+    finally:
+      card.ioniq6_keepalive.stop()
+
   def test_preflight_miss_retries_without_uds_or_permanent_latch(self):
     from openpilot.selfdrive.car import card as card_module
 
@@ -805,6 +935,7 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
     card.ioniq6_host_warmed = True
     card.ioniq6_long_lost = False
     card.ioniq6_keepalive = None
+    card.CI = SimpleNamespace(CC=SimpleNamespace(CAN=CanBus(ioniq6_profiles()[2])))
     valid = SimpleNamespace(canValid=True)
 
     def observe(frames):
@@ -870,7 +1001,7 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
     card_owner.is_metric = True
     card_owner.experimental_mode = False
     card_owner.initial_cruise_speed = 40
-    card_owner.v_cruise_helper = SimpleNamespace(update_v_cruise=lambda *_, slc_enabled=False, slc_approved=None: None,
+    card_owner.v_cruise_helper = SimpleNamespace(update_v_cruise=lambda *_, slc_enabled=False, wheel_context=None: None,
                                                  initialize_v_cruise=lambda *_, **kwargs: None, slc_consumed_button=None, toyota=None,
                                                  slc_cruise_change=None, v_cruise_kph=60.0, v_cruise_cluster_kph=60.0)
     card_owner.RI = SimpleNamespace(update=lambda _: None)
@@ -901,7 +1032,8 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
     card_owner.sm = SM()
     sent = []
     card_owner.pm = SimpleNamespace(send=lambda service, packet: sent.append((service, packet)))
-    card_owner.CI = SimpleNamespace(CC=SimpleNamespace(), CS=SimpleNamespace(),
+    from opendbc.car.hyundai.hyundaicanfd import CanBus
+    card_owner.CI = SimpleNamespace(CP=cp, CC=SimpleNamespace(CAN=CanBus(cp, lka_steering=True)), CS=SimpleNamespace(),
                                     update=Mock(side_effect=lambda packets: car.CarState(canValid=True, canTimeout=False)),
                                     apply=Mock(return_value=(structs.CarControl.Actuators(), [CanData(0x1A0, b'\0' * 8, 1)])),
                                     init=Mock())
@@ -943,7 +1075,7 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
           patch.object(card_owner, 'card_thread', return_value=None),
           patch.object(card_module, 'restore_ioniq6_adas', return_value=True) as restore):
       card_module.main()
-    restore.assert_called_once_with(*card_owner.can_callbacks)
+    restore.assert_called_once_with(*card_owner.can_callbacks, ecan_bus=card_owner.CI.CC.CAN.ECAN)
     self.assertIs(card_module.Car, original_car)
     self.assertIs(original_car.__dict__.get("__new__"), original_new)
     self.assertIsInstance(object.__new__(original_car), original_car)
@@ -972,12 +1104,31 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
     card.sm.states[0].safetyParam = 0x11
     self.assertFalse(card.ioniq6_panda_matches())
 
+  def test_main_restores_attempted_transaction_without_constructed_interface(self):
+    from openpilot.selfdrive.car import card as card_module
+
+    callbacks = (lambda wait_for_one=False: [], lambda messages: None)
+    for confirmed in (False, True):
+      def fail_before_interface(card, confirmed=confirmed):
+        card.ioniq6_restore_callbacks = callbacks
+        card.ioniq6_restore_bus = 5
+        card.ioniq6_long_prearmed = confirmed
+        raise RuntimeError('failed before CarInterface')
+
+      with (patch.object(card_module, 'config_realtime_process'),
+            patch.object(card_module.Car, '__init__', fail_before_interface),
+            patch.object(card_module, 'restore_ioniq6_adas', return_value=True) as restore):
+        with self.assertRaisesRegex(RuntimeError, 'failed before CarInterface'):
+          card_module.main()
+        restore.assert_called_once_with(*callbacks, ecan_bus=5)
+
   def test_main_stops_diagnostic_worker_after_partial_constructor_failure(self):
     from openpilot.selfdrive.car import card as card_module
 
     stopped = []
 
     def fail_after_prearm(card):
+      card.CI = SimpleNamespace(CC=SimpleNamespace(CAN=CanBus(ioniq6_profiles()[2])))
       card.ioniq6_keepalive = SimpleNamespace(stop=lambda: stopped.append(True))
       card.ioniq6_long_lost = False
       card.ioniq6_long_prearmed = True
@@ -1002,6 +1153,7 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
 
       def prepared(card):
         cards.append(card)
+        card.CI = SimpleNamespace(CC=SimpleNamespace(CAN=CanBus(ioniq6_profiles()[2])))
         card.ioniq6_keepalive = SimpleNamespace(stop=lambda: stopped.append(True))
         card.ioniq6_long_lost = False
         card.ioniq6_long_prearmed = True
@@ -1025,7 +1177,7 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
       self.assertTrue(cards[0].ioniq6_long_lost)
       self.assertTrue(cards[0].ioniq6_restore_attempted)
       self.assertEqual(stopped, [True])
-      restore.assert_called_once_with(*callbacks)
+      restore.assert_called_once_with(*callbacks, ecan_bus=1)
       if restored:
         logged.assert_not_called()
       else:

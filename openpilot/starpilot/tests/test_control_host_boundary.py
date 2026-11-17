@@ -35,7 +35,7 @@ def probe(system_longitudinal, output):
   from openpilot.selfdrive.controls.controlsd import Controls
 
   native = {}
-  for name in ("capnp.lib.capnp", "msgq.ipc_pyx"):
+  for name in ("capnp.lib.capnp", "msgq._ipc"):
     module_file = importlib.import_module(name).__file__
     if module_file is None:
       raise RuntimeError(f"Native extension has no file: {name}")

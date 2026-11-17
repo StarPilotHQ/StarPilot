@@ -43,6 +43,8 @@ PRESENT_TIMEOUT = 5.0
 # hardware; the ceiling is only there so a server that has stopped answering
 # does not hold the caller for the rest of the day.
 BUILD_TIMEOUT = 1800.0
+# and on top of that, a server downloading the model itself: 1.75 GB at 1 MB/s
+FETCH_TIMEOUT = 1800.0
 
 
 class ModelMissing(RuntimeError):
@@ -223,15 +225,16 @@ def connect_patiently(link: Link):
 # -- making the Jetson ready ------------------------------------------------------
 
 def identity(parts, entry: dict) -> tuple[str, int]:
-  """The picked model's sha256 and byte count, from the catalog model's LFS
-  pointer, so the comma can name the model without holding or hashing the
-  ONNX. Looked up once per model ever and kept in a param: the one part of
-  provisioning that needs the internet."""
+  """The picked model's sha256 and byte count, from the model index, so the
+  comma can name the model without holding or hashing the ONNX. A row has
+  them already where the comma's copy of the index knows the model; one it
+  does not fetches the index again, the one part of provisioning that may
+  need the internet."""
   sha256, nbytes = entry.get('oid'), entry.get('size')
   if sha256 and nbytes:
     return sha256, int(nbytes)
   parts.progress.report('connect', 0.0, 'finding model', code='finding_model')
-  return parts.models.resolve_pointer(entry['ref'])
+  return parts.models.resolve(entry.get('ref'), sha256)
 
 
 # What has already been hashed in this process, keyed on the file as it was
@@ -278,21 +281,27 @@ def verified_upload(log, model_path: Path | None, sha256: str, nbytes: int) -> P
 
 
 def ensure(parts, client, sha256: str, nbytes: int, model_path: Path | None, *,
-           progress=None, should_stop=None, build_timeout: float = BUILD_TIMEOUT):
+           progress=None, should_stop=None, build_timeout: float = BUILD_TIMEOUT, ref: str | None = None,
+           fetch: bool = True):
   """Make the server ready for this model and remember what it answered.
   Asks without the file first: the server answers from the sha alone when it
-  has the model, which is every parked poll and every join. EngineMissing means
-  the Jetson has neither the plan nor the bytes, and neither has the caller."""
+  has the model, which is every parked poll and every join. Without the file
+  here either, the server is asked to download the model itself, which only
+  the Jetson needs. EngineMissing means the Jetson has neither the plan nor
+  the bytes and could not get them, and neither has the caller. `fetch` False
+  never asks for the download: a stand-in is a model the server has. `ref`,
+  the catalog's name for the model, goes with a download."""
   from jetlink.client import EngineMissing
-  ask = functools.partial(client.ensure_engine, sha256, nbytes, progress=progress,
-                          build_timeout=build_timeout, should_stop=should_stop)
+  fetch = fetch and model_path is None
+  ask = functools.partial(client.ensure_engine, sha256, nbytes, progress=progress, should_stop=should_stop)
   try:
-    spec = ask(onnx_path=None)
+    spec = ask(onnx_path=None, fetch=fetch, ref=ref if fetch else None,
+               build_timeout=build_timeout + (FETCH_TIMEOUT if fetch else 0.0))
   except EngineMissing:
     upload = verified_upload(parts.log, model_path, sha256, nbytes)
     if upload is None:
       raise
-    spec = ask(onnx_path=upload)
+    spec = ask(onnx_path=upload, build_timeout=build_timeout)
   parts.spec.store(spec)
   return spec
 
@@ -315,8 +324,7 @@ def stand_in(parts, hello: dict, pick: str, built) -> tuple[str, int] | None:
     if pick in have:
       return None
     if loaded:
-      # its size names it to the server, and only a catalog model resolved
-      # here, or the record, has one
+      # its size names it to the server: the record's, else the index's
       nbytes = built.nbytes if built is not None and built.sha256 == loaded else parts.models.size_for(loaded)
       if nbytes:
         return loaded, nbytes
@@ -346,11 +354,15 @@ def open_link(parts, link: Link, should_stop=None):
   # booting; both resolve on their own
   client = connect_patiently(link)
   try:
-    hello = client.hello(timeout=10.0)
+    sent = parts.models.hello_pick()
+    hello = parts.models.heard(client.hello(timeout=10.0, pick=sent), sent)
     parts.log.warning("jetlink: %s trt %s, engine %s, loaded %s",
                    hello.get('device'), hello.get('trt_version'),
                    hello.get('engine_state'), str(hello.get('loaded'))[:16])
     link.note_server(hello)
+    # a newer pick on the server drives, and is ours from now on
+    parts.models.adopt()
+    selected = parts.models.selected_model() or selected
     sha256, nbytes = identity(parts, selected)
     path = parts.models.shipped_model_path()
     built = parts.spec.ready_spec()
@@ -370,7 +382,7 @@ def open_link(parts, link: Link, should_stop=None):
     # server that restarted reloads from the plan cache, 13 to 25 s; one
     # that has never seen this model builds it, 102 to 294 s
     spec = ensure(parts, client, sha256, nbytes, path, progress=parts.progress.report_with_eta,
-                  should_stop=should_stop)
+                  should_stop=should_stop, ref=selected.get('ref'), fetch=standin is None)
     client.deadline = INFERENCE_TIMEOUT
     return client, spec
   except EngineMissing as e:

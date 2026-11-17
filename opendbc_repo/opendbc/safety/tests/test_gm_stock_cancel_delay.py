@@ -30,13 +30,13 @@ class TestGmStockCancelDelay(unittest.TestCase):
         cp = params(car)
         prepare_disable_longitudinal(cp, True)
         self.assertFalse(cp.openpilotLongitudinalControl)
-        self.assertEqual(cp.safetyConfigs[0].safetyParam, 0xC160)
+        self.assertEqual(cp.safetyConfigs[0].safetyParam, 16)
         ci = CarInterface(cp)
         ci.update([])  # Register production lazy reads before the first stream.
         packer = CANPacker(DBC[car][Bus.pt])
         self.safety.init_tests()
         self.safety.set_alternative_experience(0)
-        self.assertEqual(self.safety.set_safety_hooks(structs.CarParams.SafetyModel.gm, 0xC160), 0)
+        self.assertEqual(self.safety.set_safety_hooks(structs.CarParams.SafetyModel.gm, 16), 0)
         control = structs.CarControl()
         control.enabled = True
         control.longActive = True  # Caller demand cannot override stock ownership.

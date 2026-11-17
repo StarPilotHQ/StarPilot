@@ -224,12 +224,17 @@ class JetlinkClient:
 
   # -- handshake ------------------------------------------------------------
 
-  def hello(self, timeout: float = 5.0) -> dict:
+  def hello(self, timeout: float = 5.0, pick: dict | None = None) -> dict:
     """Introduce this client. The server starts its session over on a hello,
     so this is also how a new owner of the gadget takes over one the server
-    never saw end; see Session.greet in JetlinkServer."""
+    never saw end; see Session.greet in JetlinkServer. `pick` is the comma's
+    own big-model pick with its age and its date by the comma's clock, {ref,
+    sha256, nbytes, name, age_s, at}; the answer's `pick` is the newer of it
+    and the server's (PickStore)."""
     seq = self._next_seq()
     client = {'nonce': self.nonce, 'name': self.name}
+    if pick is not None:
+      client['pick'] = pick
     try:
       link = self.t.link_info()
     except Exception:
@@ -301,7 +306,8 @@ class JetlinkClient:
                     frame_skip: int = DEFAULT_FRAME_SKIP,
                     progress: ProgressFn | None = None,
                     build_timeout: float = 900.0,
-                    should_stop: StopFn | None = None) -> ModelSpec:
+                    should_stop: StopFn | None = None,
+                    fetch: bool = False, ref: str | None = None) -> ModelSpec:
     """Make the server ready to run this model, uploading and building if needed.
 
     Blocks until ready or the build fails, and returns the spec the server
@@ -309,8 +315,12 @@ class JetlinkClient:
     parser rejects an export (tinygrad and the org.tinygrad domain) still runs.
 
     `onnx_path` None means the caller cannot upload (modeld) and a missing
-    engine is EngineMissing. `progress(stage, frac, msg)` has stage in
-    upload/patch/parse/build/load. `should_stop` is polled during long waits.
+    engine is EngineMissing. `fetch` asks a server that lacks the model to
+    download it itself (state downloading, stage download) rather than answer
+    need_upload; one that cannot, or is too old to, answers need_upload as
+    before. `ref` is the catalog ref the model is known by.
+    `progress(stage, frac, msg)` has stage in
+    download/upload/patch/parse/build/load. `should_stop` is polled during long waits.
     """
     self.progress_cb = progress
     self._should_stop = should_stop or (lambda: False)
@@ -318,7 +328,12 @@ class JetlinkClient:
     self._engine_state = None
 
     seq = self._next_seq()
-    self.t.send_json(P.Msg.ENGINE_REQ, seq, {'sha256': sha256, 'nbytes': nbytes, 'frame_skip': frame_skip})
+    request = {'sha256': sha256, 'nbytes': nbytes, 'frame_skip': frame_skip}
+    if fetch:
+      request['fetch'] = True
+    if ref:
+      request['ref'] = ref
+    self.t.send_json(P.Msg.ENGINE_REQ, seq, request)
     resp = json.loads(bytes(self._expect(P.Msg.ENGINE_RESP, seq, 60.0).payload))
     self._engine_state = resp
     log.info("server engine state: %s (%s)", resp['state'], resp.get('detail', ''))

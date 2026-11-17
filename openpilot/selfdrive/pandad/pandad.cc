@@ -17,7 +17,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <bitset>
+#include "openpilot/selfdrive/pandad/panda_faults.h"
 #include <cassert>
 #include <cerrno>
 #include <cstring>
@@ -276,18 +276,7 @@ std::optional<bool> send_panda_states(PubMaster *pm, const std::vector<Panda *> 
       fill_panda_can_state(cs[j], can_health[j]);
     }
 
-    // Convert faults bitset to capnp list
-    std::bitset<sizeof(health.faults_pkt) * 8> fault_bits(health.faults_pkt);
-    auto faults = ps.initFaults(fault_bits.count());
-
-    size_t j = 0;
-    for (size_t f = size_t(cereal::PandaState::FaultType::RELAY_MALFUNCTION);
-         f <= size_t(cereal::PandaState::FaultType::HEARTBEAT_LOOP_WATCHDOG); f++) {
-      if (fault_bits.test(f)) {
-        faults.set(j, cereal::PandaState::FaultType(f));
-        j++;
-      }
-    }
+    fill_panda_faults(ps, health.faults_pkt);
   }
   if (snapshot && evt.getValid()) {
     snapshot->source_mono_time = evt.getLogMonoTime();
@@ -480,7 +469,7 @@ void pandad_run(std::vector<Panda *> &pandas) {
   Panda *previous_aol_owner = nullptr;
   bool engaged = false;
   bool is_onroad = false;
-  constexpr AolSafetyProfile aol_profiles[] = {HONDA_AOL_PROFILE, HONDA_STOCK_AOL_PROFILE, HONDA_NIDEC_AOL_PROFILE, HYUNDAI_AOL_PROFILE, HYUNDAI_CLASSIC_AOL_PROFILE, HYUNDAI_LEGACY_AOL_PROFILE, GM_AOL_PROFILE, FORD_AOL_PROFILE, MAZDA_AOL_PROFILE, RIVIAN_AOL_PROFILE, CHRYSLER_AOL_PROFILE, TESLA_PREAP_AOL_PROFILE, TESLA_SCREEN_AOL_PROFILE, TOYOTA_AOL_PROFILE, NISSAN_AOL_PROFILE, VOLKSWAGEN_STOCK_AOL_PROFILE, VOLKSWAGEN_LONG_AOL_PROFILE, VOLKSWAGEN_MEB_AOL_PROFILE, SUBARU_AOL_PROFILE};
+  constexpr AolSafetyProfile aol_profiles[] = {HONDA_AOL_PROFILE, HONDA_STOCK_AOL_PROFILE, HONDA_NIDEC_AOL_PROFILE, HYUNDAI_AOL_PROFILE, HYUNDAI_CLASSIC_AOL_PROFILE, HYUNDAI_LEGACY_AOL_PROFILE, GM_AOL_PROFILE, FORD_AOL_PROFILE, MAZDA_AOL_PROFILE, RIVIAN_AOL_PROFILE, CHRYSLER_AOL_PROFILE, TESLA_PREAP_AOL_PROFILE, TESLA_SCREEN_AOL_PROFILE, TOYOTA_AOL_PROFILE, NISSAN_AOL_PROFILE, VOLKSWAGEN_STOCK_AOL_PROFILE, VOLKSWAGEN_LONG_AOL_PROFILE, VOLKSWAGEN_MEB_AOL_PROFILE, VOLKSWAGEN_PQ_AOL_PROFILE, SUBARU_AOL_PROFILE};
   const AolProfileRegistry aol_registry{aol_profiles, std::size(aol_profiles)};
   AolAxisNegotiator aol_negotiator(aol_registry);
   // Main loop: receive CAN first, then process lower priority panda and peripheral state.

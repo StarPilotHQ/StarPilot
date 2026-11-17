@@ -42,6 +42,7 @@ def fixed_controls(*, factor=True, friction=True, legacy=False, learning=True):
                                      'AOL_REPLAY_RUNTIME': '0', 'LANE_CENTERING_REPLAY_RUNTIME': '0'}),
         mock.patch('openpilot.selfdrive.controls.controlsd.messaging.PubMaster')):
     params = Params()
+    params.put_bool('OpenpilotEnabledToggle', True, block=True)
     selected = published_cp(cp, params)
     params.put('CarParams', selected.to_bytes(), block=True)
     params.put(KEY, replace_preference(None, cp, learning), block=True)
@@ -169,9 +170,13 @@ def test_explicit_learning_off_still_blocks_the_custom_controller():
   with fixed_controls(learning=False) as (controls, _):
     for tick in range(30):
       frame(controls, BASE + tick * 10_000_000, tick)
-    assert controls.global_learning.descriptor.controller_mode == 'starpilot'
-    assert not controls.global_learning.eligible
-    assert controls.global_learning.applied_coordinates == (0.0, 0.0)
+    assert controls.global_learning is None
+    assert controls.LaC.controller_policy == 'ioniq6'
+    source = read_source(controls.CP, controls.params, now_ns=BASE + 300_000_000,
+                         calibration=(0., 0., 0.), vehicle_session='fixed-test')
+    assert not source.enabled
+    assert controls.torque_host.selected.lat_accel_factor == profile_for(controls.CP).factor.custom_value
+    assert controls.torque_host.selected.friction == profile_for(controls.CP).friction.custom_value
 
 
 @pytest.mark.parametrize('location', ('controller', 'policy'))

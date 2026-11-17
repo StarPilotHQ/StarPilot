@@ -261,8 +261,12 @@ def test_donor_phone_uses_same_lease_and_does_not_take_over_independently(tmp_pa
     def devices(self):
       return []
 
+    def adapter(self):
+      return '/org/bluez/hci0', {'Address': '39:90:21:64:07:00'}
+
   phone = FakePhone()
   wrapper = LeaseAwarePhone(shared, state['session'], lambda *a, **k: None, lambda log: phone)
+  assert wrapper.adapter()[1]['Address'] == '39:90:21:64:07:00'  # read before any lease, for the pairing request
   with pytest.raises(BluetoothAdmissionError, match='not active'):
     wrapper.register_hfp()
   wrapper.acquire_pairing()

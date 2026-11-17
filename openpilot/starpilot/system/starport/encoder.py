@@ -32,14 +32,14 @@ def nal_types(data: bytes) -> list[int]:
   return types
 
 
-def import_av():
-  """Import a PyAV whose FFmpeg includes libx264, preferring the system install."""
+def import_av(codec: str = "libx264"):
+  """Import a PyAV whose FFmpeg includes the codec, preferring the system install."""
   errors = []
   try:
     import av
-    if "libx264" in av.codecs_available:
+    if codec in av.codecs_available:
       return av
-    errors.append(f"system PyAV {av.__version__} lacks libx264")
+    errors.append(f"system PyAV {av.__version__} lacks {codec}")
   except ImportError as error:
     errors.append(f"system PyAV missing ({error})")
   if os.path.isdir(ISOLATED_DEPS):
@@ -48,15 +48,15 @@ def import_av():
     sys.path.insert(0, ISOLATED_DEPS)
     try:
       import av
-      if "libx264" in av.codecs_available:
+      if codec in av.codecs_available:
         return av
-      errors.append(f"isolated PyAV {av.__version__} lacks libx264")
+      errors.append(f"isolated PyAV {av.__version__} lacks {codec}")
     except ImportError as error:
       errors.append(f"isolated PyAV missing ({error})")
     finally:
       if sys.path and sys.path[0] == ISOLATED_DEPS:
         sys.path.pop(0)
-  raise RuntimeError("No H.264 encoder available: " + "; ".join(errors))
+  raise RuntimeError(f"No {codec} encoder available: " + "; ".join(errors))
 
 
 # ANDROID AUTO VIDEO PERFORMANCE GUARDRAIL: The software fallback uses zero-latency H.264 with no encoder-side frame queue.
@@ -66,14 +66,14 @@ class H264Encoder:
   backend = "libx264"
 
   def __init__(self, width: int, height: int, fps: int = 30, bitrate_kbps: int = 4000):
-    if not (0 < width <= 1920 and 0 < height <= 1080) or width % 2 or height % 2:
+    if not (0 < min(width, height) <= 1080 and max(width, height) <= 1920) or width % 2 or height % 2:
       raise ValueError("H.264 requires even dimensions no larger than 1920x1080")
     av = import_av()
     self.av = av
     self.width, self.height, self.fps = width, height, fps
     self.frame_index = 0
     self.last_encode_ms = 0.0
-    level = "4.0" if height > 720 else "3.1"
+    level = "4.0" if width * height > 1280 * 720 else "3.1"
     codec = av.CodecContext.create("libx264", "w")
     codec.width = width
     codec.height = height

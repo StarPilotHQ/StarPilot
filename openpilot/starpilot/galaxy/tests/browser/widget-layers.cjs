@@ -24,7 +24,7 @@ const projection = JSON.parse(execFileSync(process.env.PYTHON || 'python3', ['-c
       if (pathname === '/' && new URL(route.request().url()).searchParams.has('shell')) return route.fulfill({contentType:'text/html', body:
         readFileSync(path.join(web, 'index.html'))})
       if (pathname.startsWith('/api/')) return route.fulfill({json: pathname === '/api/starport/layout' ? projection : snapshot})
-      if (pathname === '/') return route.fulfill({contentType:'text/html', body:`<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/css/galaxy.css"><link rel="stylesheet" href="/css/settings.css"><main class="gx-content"><div id="app"></div></main><script type="module">
+      if (pathname === '/') return route.fulfill({contentType:'text/html', body:`<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/css/galaxy.css"><link rel="stylesheet" href="/css/setup.css"><link rel="stylesheet" href="/css/settings.css"><main class="gx-content"><div id="app"></div></main><script type="module">
         import {createApp} from '/vendor/vue/vue.esm-browser.js';
         import {OnroadLayoutPage} from '/js/onroad-layout.js';
         window.editor = createApp(OnroadLayoutPage, {mode:'local', projection:new URLSearchParams(location.search).has('projection'), unauthorized:()=>{}}).mount('#app');

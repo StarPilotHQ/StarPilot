@@ -9,7 +9,7 @@ import time
 import unittest
 from unittest.mock import Mock, call, patch
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.common.params import Params
 from openpilot.selfdrive.ui.layouts.settings import common
@@ -45,7 +45,7 @@ class TestC4SafeMode(unittest.TestCase):
       panel._personality_toggle.set_value.assert_called_once_with("relaxed")
 
 
-class TestC4AudioToggle(unittest.TestCase):
+class TestC4Toggles(unittest.TestCase):
   def setUp(self):
     directory = tempfile.TemporaryDirectory()
     self.addCleanup(directory.cleanup)
@@ -61,6 +61,51 @@ class TestC4AudioToggle(unittest.TestCase):
     self.enterContext(patch.object(gui_app, "texture", return_value=NS(width=64, height=64)))
     self.panel = toggles.TogglesLayoutMici()
     self.audio = next(item for key, item in self.panel._refresh_toggles if key == "RecordAudio")
+
+  def test_accelerator_toggle_saves_shared_param_without_restart(self):
+    accelerator = dict(self.panel._refresh_toggles)["DisengageOnAccelerator"]
+    self.assertIn(accelerator, self.panel._scroller.items)
+    self.assertFalse(accelerator._checked)
+    for desired in (True, False):
+      with patch.object(self.params, "put_bool", wraps=self.params.put_bool) as save:
+        accelerator._handle_mouse_release(MousePos(0, 0))
+      save.assert_called_once_with("DisengageOnAccelerator", desired, block=True)
+      self.assertEqual(self.params.get_bool("DisengageOnAccelerator"), desired)
+      self.assertEqual(accelerator._checked, desired)
+    self.assertFalse(self.params.get_bool("OnroadCycleRequested"))
+
+  def test_accelerator_toggle_loads_and_refreshes_saved_value(self):
+    self.params.put_bool("DisengageOnAccelerator", True, block=True)
+    panel = toggles.TogglesLayoutMici()
+    accelerator = dict(panel._refresh_toggles)["DisengageOnAccelerator"]
+    self.assertTrue(accelerator._checked)
+    self.params.put_bool("DisengageOnAccelerator", False, block=True)
+    panel._update_toggles()
+    self.assertFalse(accelerator._checked)
+    self.ui.engaged = True
+    self.assertTrue(accelerator.enabled)
+
+  def test_rhd_control_saves_shared_param_and_rejects_open_preview(self):
+    from openpilot.starpilot.galaxy.localization_settings import LocalizationSettingsOwner
+    self.panel._localization = LocalizationSettingsOwner(self.params, lambda: True, lambda: True)
+    for desired in (True, False):
+      self.panel._rhd_source = self.panel._localization.snapshot().rows[1].source
+      self.panel._on_rhd(desired)
+      self.assertEqual(self.params.get_bool('IsRhdDetected'), desired)
+      self.assertTrue(self.params.get_bool('OnroadCycleRequested'))
+      self.assertEqual(self.panel._rhd_toggle._checked, desired)
+    self.params.put_bool('OnroadCycleRequested', False, block=True)
+    self.params.put_bool('IsDriverViewEnabled', True, block=True)
+    self.panel._on_rhd(True)
+    self.assertFalse(self.params.get_bool('IsRhdDetected'))
+    self.assertFalse(self.params.get_bool('OnroadCycleRequested'))
+
+  def test_fleet_lock_disables_only_always_on_dm(self):
+    self.params.put_bool("AlwaysOnDMLock", True, block=True)
+    panel = toggles.TogglesLayoutMici()
+    dm = next(item for key, item in panel._refresh_toggles if key == "AlwaysOnDM")
+    self.assertFalse(dm.enabled)
+    self.assertTrue(self.audio.enabled)
 
   def test_release_queues_audio_before_restart_without_blocking_writes(self):
     with patch.object(self.params, "put_bool") as save:

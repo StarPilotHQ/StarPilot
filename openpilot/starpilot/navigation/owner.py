@@ -8,10 +8,11 @@ import hashlib
 import json
 import math
 import os
+import re
 import stat
 import sys
 import subprocess
-from urllib.parse import quote
+from urllib.parse import quote, urljoin, urlsplit
 from pathlib import Path
 from itertools import islice
 import tempfile
@@ -20,6 +21,7 @@ import time
 import uuid
 
 import requests
+import requests.adapters
 
 from openpilot.starpilot.storage import starpilot_storage_root
 from openpilot.starpilot.navigation.position import LastPositionStore
@@ -33,8 +35,8 @@ MAX_SEARCHES = 32
 TILE_CACHE_TTL = 15 * 60
 TILE_CACHE_ENTRIES = 256
 TILE_CACHE_BYTES = 32 * 1024 * 1024
-TILE_SLOTS = 6
-TILE_SLOT_WAIT_S = 3.0  # a panned-away request still holds its slot until Mapbox answers; wait instead of failing
+TILE_SLOTS = 16
+TILE_SLOT_WAIT_S = 5.0  # a panned-away request still holds its slot until Mapbox answers; wait instead of failing
 AUTOCOMPLETE_TYPES = {'poi', 'address', 'street', 'place', 'neighborhood', 'locality'}
 SUGGESTS_PER_SESSION = 50  # Mapbox starts a new billable session after this many suggestions
 MAX_FAVORITES = 100
@@ -43,14 +45,44 @@ FAVORITE_LABELS = ('home', 'work')
 ROUTE_AVOIDANCES = {'avoidTolls': 'toll', 'avoidHighways': 'motorway', 'avoidFerries': 'ferry'}
 # Fixed provider styles matching Galaxy; cache entries are separate for each theme.
 MAP_STYLES = {'light': 'mapbox/light-v11', 'dark': 'mapbox/dark-v11'}
+MAP_PROVIDERS = ('mapbox', 'google')
+SHORT_MAP_LINK = re.compile(r'https://(?:maps\.app\.goo\.gl|goo\.gl/maps)/[A-Za-z0-9_-]{1,64}')
+GOOGLE_MAP_HOST = re.compile(r'(?:maps\.app\.goo\.gl|goo\.gl|(?:[a-z0-9-]+\.)*google\.com)')
+CONFIGURABLE = {'enabled', 'token', 'gpsSource', 'mapProvider', 'routeProvider', 'googleKey'}
+KEEPS_ACTIVE = {'gpsSource', 'mapProvider', 'routeProvider', 'googleKey'}
+GOOGLE_KEY_CHARS = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-')
+SAFE_ID = re.compile(r'[a-zA-Z0-9_-]{1,64}')
+
+
+def valid_google_key(key: str) -> bool:
+  return key == '' or (20 <= len(key) <= 128 and set(key) <= GOOGLE_KEY_CHARS)
+
+
+def default_settings() -> dict:
+  return {'version': 1, 'revision': '0', 'routingRevision': '0', 'enabled': False, 'token': '', 'destination': None, 'favorites': [], 'recents': [],
+          'gpsSource': 'backup', 'mapProvider': 'mapbox', 'routeProvider': 'mapbox', 'googleKey': '', **dict.fromkeys(ROUTE_AVOIDANCES, False)}
 
 
 class ValidationError(ValueError):
   pass
 
 
+class ShareQueryError(ValidationError):
+  """A shared place the driver has to pick from search results."""
+  def __init__(self, message: str, query: str):
+    super().__init__(message)
+    self.query = query
+
+
 class ConflictError(ValueError):
   pass
+
+
+class PlaceResults(list):
+  """Search results that name the provider that found them."""
+  def __init__(self, rows, provider: str):
+    super().__init__(rows)
+    self.provider = provider
 
 
 def destination(value: dict) -> dict:
@@ -112,12 +144,22 @@ def response_json(session, url: str, params: dict) -> dict:
     raise ValidationError('The map service could not complete this request') from None
 
 
+def _pooled_session() -> requests.Session:
+  session = requests.Session()
+  adapter = requests.adapters.HTTPAdapter(pool_connections=8, pool_maxsize=24)
+  session.mount('https://', adapter)
+  session.mount('http://', adapter)
+  return session
+
+
 class NavigationOwner:
-  def __init__(self, root: Path | None = None, runtime_source=None, session=requests, transient_root: Path | None = None):
+  def __init__(self, root: Path | None = None, runtime_source=None, session=None, transient_root: Path | None = None):
     self.root = Path(root) if root is not None else starpilot_storage_root() / 'navigation'
     self.path = self.root / 'settings.json'
     self.position_store = LastPositionStore(self.root)
-    self.runtime_source, self.session = runtime_source, session
+    self.google_root = self.root / 'google-tiles'
+    self.runtime_source = runtime_source
+    self.session = _pooled_session() if session is None or session is requests else session
     self._tile_slots = threading.BoundedSemaphore(TILE_SLOTS)
     from openpilot.starpilot.navigation.mapbox_budget import MonthlyBudget
     self.search_budget = MonthlyBudget('searchSessions', self.root / 'mapbox-usage')
@@ -146,8 +188,7 @@ class NavigationOwner:
     try:
       info = os.stat(self.path)
     except FileNotFoundError:
-      return {'version': 1, 'revision': '0', 'enabled': False, 'token': '', 'destination': None, 'favorites': [], 'recents': [], 'gpsSource': 'backup',
-              **dict.fromkeys(ROUTE_AVOIDANCES, False)}
+      return default_settings()
     key = (info.st_ino, info.st_mtime_ns, info.st_size)
     cached = getattr(self, '_read_cache', None)
     if cached is not None and cached[0] == key:
@@ -156,8 +197,7 @@ class NavigationOwner:
       with self.path.open('rb') as source:
         raw = source.read(MAX_DOCUMENT + 1)
     except FileNotFoundError:
-      return {'version': 1, 'revision': '0', 'enabled': False, 'token': '', 'destination': None, 'favorites': [], 'recents': [], 'gpsSource': 'backup',
-              **dict.fromkeys(ROUTE_AVOIDANCES, False)}
+      return default_settings()
     try:
       value = json.loads(raw)
       if (len(raw) > MAX_DOCUMENT or not isinstance(value, dict) or value.get('version') != 1 or
@@ -171,12 +211,27 @@ class NavigationOwner:
         raise ValueError
       if value.get('destination') is not None:
         value['destination'] = destination(value['destination'])
+      routing_revision = value.setdefault('routingRevision', value['revision'])
+      if not isinstance(routing_revision, str) or SAFE_ID.fullmatch(routing_revision) is None:
+        raise ValueError
+      intents = value.setdefault('shareIntents', [])
+      if (not isinstance(intents, list) or len(intents) > 64 or
+          any(not isinstance(row, dict) or set(row) != {'id', 'digest'} or
+              not isinstance(row['id'], str) or SAFE_ID.fullmatch(row['id']) is None or
+              not isinstance(row['digest'], str) or re.fullmatch('[0-9a-f]{64}', row['digest']) is None for row in intents)):
+        raise ValueError
+      if len({row['id'] for row in intents}) != len(intents):
+        raise ValueError
       value['favorites'] = [favorite_place(item) for item in value['favorites']]
       value['recents'] = [destination(item) for item in value.get('recents', [])][:MAX_RECENTS]
       for setting in ROUTE_AVOIDANCES:
         if type(value.setdefault(setting, False)) is not bool:
           raise ValueError
       if value.setdefault('gpsSource', 'backup') not in GPS_MODES:
+        raise ValueError
+      if value.setdefault('mapProvider', 'mapbox') not in MAP_PROVIDERS or value.setdefault('routeProvider', 'mapbox') not in MAP_PROVIDERS:
+        raise ValueError
+      if not isinstance(value.setdefault('googleKey', ''), str) or not valid_google_key(value['googleKey']):
         raise ValueError
     except (ValueError, TypeError, KeyError):
       raise ValidationError('Saved navigation settings could not be read') from None
@@ -249,13 +304,11 @@ class NavigationOwner:
       os.close(directory)
 
   def read_routing(self):
-    with self._exclusive():
-      current = self.read()
-      self._sweep_active(current)
-      active = self._read_active(current)
-      if active is not None:
-        current['destination'] = dict(active['destination'], temporary=True)
-      return current
+    current = self.read()
+    active = self._read_active(current)
+    if active is not None:
+      current['destination'] = dict(active['destination'], temporary=True)
+    return current
 
   @contextmanager
   def _exclusive(self):
@@ -272,10 +325,14 @@ class NavigationOwner:
         raise ConflictError('Navigation changed; refresh and try again')
       self._sweep_active(current)
       active = self._read_active(current) if preserve_active else None
+      routing_fields = ('enabled', 'token', 'routeProvider', 'googleKey', *ROUTE_AVOIDANCES)
+      routing_before = tuple(current[key] for key in routing_fields)
       transform(current)
       if not (authorized() if callable(authorized) else authorized is True):
         raise PermissionError('Navigation changes are not available right now')
       current['revision'] = uuid.uuid4().hex
+      if not preserve_active or routing_before != tuple(current[key] for key in routing_fields):
+        current['routingRevision'] = current['revision']
       if active_destination is not None:
         active = {'version':1, 'destination':active_destination, 'expires':time.monotonic() + ACTIVE_TTL}
       if active is not None:
@@ -340,6 +397,21 @@ class NavigationOwner:
     result['favorites'] = sorted(document['favorites'], key=lambda row: FAVORITE_LABELS.index(row['label']) if 'label' in row else 2)
     from openpilot.starpilot.navigation.mapbox_budget import read_usage
     result['mapboxUsage'] = read_usage(self.root / 'mapbox-usage')
+    result['mapProvider'] = document['mapProvider']
+    result['hasGoogleKey'] = bool(document['googleKey'])
+    from openpilot.starpilot.navigation.google_tiles import MESSAGES, GoogleBudget, read_status
+    google_status = read_status(self.google_root)
+    failure = google_status.get('failure') if document['mapProvider'] == 'google' else None
+    copyright_text = google_status.get('copyright')
+    result['googleMap'] = {'usage': GoogleBudget(self.google_root).snapshot(), 'failure': MESSAGES.get(failure),
+                           **({'copyright': copyright_text} if isinstance(copyright_text, str) and copyright_text else {})}
+    from openpilot.starpilot.navigation.google_routes import essentials_budget, read_route_failure, route_budget
+    result['routeProvider'] = document['routeProvider']
+    google_routing = document['routeProvider'] == 'google' and bool(document['googleKey'])
+    result['googleRoutes'] = {'usage': route_budget(self.google_root).snapshot(), 'essentials': essentials_budget(self.google_root).snapshot(),
+                              'failure': read_route_failure(self.google_root) if google_routing else None}
+    from openpilot.starpilot.navigation.google_places import places_budget, suggestions_budget
+    result['googlePlaces'] = {'usage': places_budget(self.google_root).snapshot(), 'suggestions': suggestions_budget(self.google_root).snapshot()}
     result['alternatives'] = [dict(row, geometry=rounded(row['geometry'])) for row in self.route_options(document['revision'])]
     result['selectedRoute'] = document.get('routeChoice', 0)
     result.update(hasKey=bool(document['token']), status=status, instruction=None, route=[], isMetric=self._is_metric(), location=None,
@@ -415,14 +487,32 @@ class NavigationOwner:
       (self.transient_root / 'routes.cache').write_text(json.dumps(value, allow_nan=False))
     return self.snapshot()
 
-  def map_tile(self, z: int, x: int, y: int, theme: str = 'light') -> bytes:
-    if theme not in MAP_STYLES:
+  def map_tile(self, z: int, x: int, y: int, theme: str = 'light', *, provider: str = 'mapbox') -> bytes:
+    if theme not in MAP_STYLES or provider not in ('mapbox', 'google'):
       raise ValidationError('Invalid map theme')
     if any(type(v) is not int for v in (z, x, y)) or not 0 <= z <= 18 or not 0 <= x < 2 ** z or not 0 <= y < 2 ** z:
       raise ValidationError('Invalid map tile')
-    token = self.read()['token']
+    settings = self.read()
+    token = settings['token']
     if not token:
       raise ValidationError('Save a Mapbox key to view the map')
+    google_key = settings.get('googleKey', '') if provider == 'google' and settings.get('mapProvider') == 'google' else ''
+    if google_key:
+      if not self._tile_slots.acquire(timeout=TILE_SLOT_WAIT_S):
+        raise ValidationError('Map is busy; try again')
+      try:
+        from openpilot.starpilot.navigation.google_tiles import fetch_tile
+        tile = fetch_tile(google_key, z, x, y, theme, http=self.session, root=self.google_root)
+        current = self.read()
+        if current.get('googleKey', '') != google_key or current.get('mapProvider') != 'google':
+          raise ValidationError('Map key changed; try again')
+        return tile
+      except ValidationError:
+        raise
+      except (requests.RequestException, ValueError, OSError):
+        pass
+      finally:
+        self._tile_slots.release()
     key = hashlib.sha256(token.encode()).digest()
     coordinates = (theme, z, x, y)
     with self._tile_lock:
@@ -440,13 +530,13 @@ class NavigationOwner:
     try:
       started = time.monotonic()
       with self.session.get(f'https://api.mapbox.com/styles/v1/{MAP_STYLES[theme]}/tiles/512/{z}/{x}/{y}.png',
-                            params={'access_token': token}, timeout=(2, 2), stream=True, allow_redirects=False) as response:
+                            params={'access_token': token}, timeout=(3.05, 5.0), stream=True, allow_redirects=False) as response:
         if response.status_code != 200 or response.headers.get('Content-Type', '').split(';')[0] != 'image/png':
           raise ValidationError('Map tiles are unavailable')
         raw = bytearray()
         for chunk in response.iter_content(64 * 1024):
           raw.extend(chunk)
-          if len(raw) > 2 * 1024 * 1024 or time.monotonic() - started > 5:
+          if len(raw) > 2 * 1024 * 1024 or time.monotonic() - started > 7:
             raise ValidationError('Map tile exceeded the request limit')
         if bytes(raw[:8]) != b'\x89PNG\r\n\x1a\n' or bytes(raw[12:16]) != b'IHDR' or bytes(raw[16:24]) != b'\x00\x00\x02\x00' * 2:
           raise ValidationError('Invalid map tile response')
@@ -484,8 +574,14 @@ class NavigationOwner:
         self._tile_bytes -= len(tile)
 
   def configure(self, patch: dict, expected_revision: str, authorized) -> dict:
-    if not isinstance(patch, dict) or not patch or set(patch) - ({'enabled', 'token', 'gpsSource'} | ROUTE_AVOIDANCES.keys()):
+    if not isinstance(patch, dict) or not patch or set(patch) - (CONFIGURABLE | ROUTE_AVOIDANCES.keys()):
       raise ValidationError('Unknown navigation setting')
+    if 'mapProvider' in patch and patch['mapProvider'] not in MAP_PROVIDERS:
+      raise ValidationError('Choose a map style')
+    if 'routeProvider' in patch and patch['routeProvider'] not in MAP_PROVIDERS:
+      raise ValidationError('Choose a route provider')
+    if 'googleKey' in patch and (not isinstance(patch['googleKey'], str) or not valid_google_key(patch['googleKey'])):
+      raise ValidationError('Enter a valid Google Maps API key')
     if 'gpsSource' in patch and patch['gpsSource'] not in GPS_MODES:
       raise ValidationError('Choose a GPS source')
     if 'enabled' in patch and type(patch['enabled']) is not bool:
@@ -501,13 +597,129 @@ class NavigationOwner:
       if any(key in patch and patch[key] != value[key] for key in ROUTE_AVOIDANCES):
         value['routeChoice'] = 0
       value.update(patch)
-    result = self._change(update, expected_revision, authorized, preserve_active=set(patch) <= ROUTE_AVOIDANCES.keys() | {'gpsSource'})
+    result = self._change(update, expected_revision, authorized, preserve_active=set(patch) <= ROUTE_AVOIDANCES.keys() | KEEPS_ACTIVE)
     if 'token' in patch:
       with self._tile_lock:
         self._tiles.clear()
         self._tile_bytes = 0
         self._tile_key = None
     return result
+
+  def test_google_key(self, key=None) -> dict:
+    """Tries the typed key, or the saved one, on all three Google APIs: one tile, one route and one place lookup."""
+    key = self.read()['googleKey'] if key is None else key
+    if not isinstance(key, str) or not key or not valid_google_key(key):
+      raise ValidationError('Enter a valid Google Maps API key')
+    from concurrent.futures import ThreadPoolExecutor
+    from openpilot.starpilot.navigation.google_tiles import GoogleBudget, test_key
+    from openpilot.starpilot.navigation.google_routes import essentials_budget, test_routes
+    from openpilot.starpilot.navigation.google_places import places_budget, test_places
+    with ThreadPoolExecutor(max_workers=3) as pool:
+      routes = pool.submit(test_routes, key, self.session, essentials_budget(self.google_root))
+      places = pool.submit(test_places, key, self.session, places_budget(self.google_root))
+      return dict(test_key(key, self.session, GoogleBudget(self.google_root)), routes=routes.result(), places=places.result())
+
+  def resolve_share(self, text) -> str:
+    """A shared Google Maps short link followed to the full link, which carries the place's coordinates."""
+    if not isinstance(text, str) or len(text) > 8192:
+      raise ValidationError('The shared text could not be read')
+    match = SHORT_MAP_LINK.search(text)
+    if match is None:
+      return text
+    current = match.group(0)
+    for _ in range(4):
+      try:
+        with self.session.get(current, allow_redirects=False, stream=True, timeout=(2., 2.)) as response:
+          location = response.headers.get('Location') if 300 <= response.status_code < 400 else None
+      except requests.RequestException:
+        break
+      if not location:
+        break
+      following = urljoin(current, location)
+      parts = urlsplit(following)
+      if parts.scheme != 'https' or not GOOGLE_MAP_HOST.fullmatch(parts.hostname or '') or len(following) > 8192:
+        break
+      current = following
+    return text.replace(match.group(0), current) if current != match.group(0) else text
+
+  def share(self, text, expected_revision: str, authorized, intent_id=None) -> dict:
+    """A place shared from a phone: turns navigation on and starts the route."""
+    if not isinstance(text, str) or not text.strip() or len(text) > 8192:
+      raise ValidationError('The shared text could not be read')
+    if intent_id is not None and (not isinstance(intent_id, str) or SAFE_ID.fullmatch(intent_id) is None):
+      raise ValidationError('The shared destination identity could not be read')
+    if not (authorized() if callable(authorized) else authorized is True):
+      raise PermissionError('Navigation changes are not available right now')
+    digest = hashlib.sha256(text.encode()).hexdigest()
+    current = self.read()
+    if intent_id is not None:
+      previous = next((row for row in current.get('shareIntents', []) if row['id'] == intent_id), None)
+      if previous is not None:
+        if previous['digest'] != digest:
+          raise ValidationError('The shared destination identity was already used')
+        return self.snapshot()
+    if not current['token']:
+      raise ValidationError('Add your Mapbox access token first')
+    if not isinstance(expected_revision, str) or current['revision'] != expected_revision:
+      raise ConflictError('Navigation changed; refresh and try again')
+    from openpilot.starpilot.navigation.share import map_link_query, search_text, shared_coordinates
+    text = self.resolve_share(text)
+    shared = shared_coordinates(text)
+    if shared is None:
+      query = map_link_query(text)
+      if query is None:
+        query = search_text(text)
+        if not query:
+          raise ValidationError('This map link could not be opened')
+        raise ShareQueryError(f'Open StarPilot to search for {query}', query)
+      shared = self._geocode_share(query)
+    selected = destination(shared)
+    def update(doc):
+      self._reject_temporary_promotion(doc, selected)
+      doc['enabled'] = True
+      self._navigate(doc, selected)
+      if intent_id is not None:
+        doc['shareIntents'] = [*doc.get('shareIntents', [])[-63:], {'id': intent_id, 'digest': digest}]
+    result = self._change(update, expected_revision, authorized)
+    return dict(result, shared={key: selected[key] for key in ('name', 'latitude', 'longitude')})
+
+  def _geocode_share(self, query: str) -> dict:
+    from openpilot.starpilot.navigation.share import place
+    name, _, rest = query.partition(',')
+    found = self._google_text_search(self.read(), query, 1)
+    if found == []:
+      raise ShareQueryError(f'No map location found for {name.strip() or query}', query[:200])
+    if found:
+      top = found[0]
+      return place(top['name'], top['latitude'], top['longitude'], top['address'] or top['name'])
+    # Geocoding finds addresses, not names: "Name, 123 Main St, City" tries the street address first.
+    attempts = ([rest.strip()] if any(ch.isdigit() for ch in rest.split(',')[0]) else []) + [query]
+    for attempt in attempts:
+      results = self.search(attempt) if len(attempt.strip()) >= 2 else []
+      if results:
+        top = results[0]
+        return place(name.strip() or query, top['latitude'], top['longitude'], top.get('address') or top['name'])
+    raise ShareQueryError(f'No map location found for {name.strip() or query}', query[:200])
+
+  @staticmethod
+  def _google_places_key(settings) -> str:
+    """Places are found with Google when Google gives directions."""
+    return settings['googleKey'] if settings['routeProvider'] == 'google' else ''
+
+  def _proximity(self):
+    proximity = self._search_context().get('proximity')
+    return tuple(float(value) for value in proximity.split(',')) if proximity else None
+
+  def _google_text_search(self, settings, query: str, limit: int) -> list[dict] | None:
+    """Google's places for the text; None when Google is not chosen or can't answer, so Mapbox looks instead."""
+    key = self._google_places_key(settings)
+    if not key:
+      return None
+    from openpilot.starpilot.navigation.google_places import GooglePlacesFailed, places_budget, text_search
+    try:
+      return text_search(self.session, key, query.strip(), places_budget(self.google_root), self._proximity(), limit=limit)
+    except GooglePlacesFailed:
+      return None
 
   def search(self, query: str) -> list[dict]:
     if not isinstance(query, str) or not 2 <= len(query.strip()) <= 256:
@@ -580,6 +792,16 @@ class NavigationOwner:
     current = self.read()
     if not current['token']:
       raise ValidationError('Add your Mapbox access token first')
+    if not autocomplete:
+      found = self._google_text_search(current, query, 8)
+      if found is not None:
+        results = []
+        for row in found:
+          try:
+            results.append(destination(row))
+          except ValidationError:
+            continue
+        return PlaceResults(results, 'google')
     key = (caller, search_id)
     from openpilot.starpilot.navigation.mapbox_budget import BudgetExhausted
     with self._lock:
@@ -598,7 +820,7 @@ class NavigationOwner:
         entry = previous
         entry['expires'] = now + SEARCH_TTL
         entry['suggests'] = entry.get('suggests', 0) + 1
-        if entry['suggests'] % SUGGESTS_PER_SESSION == 0:
+        if entry['provider'] == 'mapbox' and entry['suggests'] % SUGGESTS_PER_SESSION == 0:
           try:
             self.search_budget.spend()
           except BudgetExhausted as error:
@@ -606,13 +828,16 @@ class NavigationOwner:
       else:
         if len(self._searches) >= MAX_SEARCHES or sum(key[0] == caller for key in self._searches) >= 8:
           raise ValidationError('Too many destination searches; try again shortly')
+        provider = 'google' if autocomplete and self._google_places_key(current) else 'mapbox'
         # The Search button keeps upstream's behavior (counted, never refused); typing suggestions stop at the cap.
         try:
-          self.search_budget.spend(enforce=autocomplete)
+          if provider == 'mapbox':
+            self.search_budget.spend(enforce=autocomplete)
         except BudgetExhausted as error:
           raise ValidationError(str(error)) from None
         entry = {'client_id':client_id, 'session':str(uuid.uuid4()), 'expires':now + SEARCH_TTL, 'revision':current['revision'],
-                 'token_digest':hashlib.sha256(current['token'].encode()).digest(), 'ids':set(), 'autocomplete':autocomplete}
+                 'token_digest':hashlib.sha256(current['token'].encode()).digest(), 'ids':set(), 'autocomplete':autocomplete,
+                 'provider':provider, 'google':{}, 'google_session':str(uuid.uuid4())}
         self._searches[key] = entry
     try:
       context = self._search_context()
@@ -620,23 +845,15 @@ class NavigationOwner:
         if (self._searches.get(key) is not entry or entry['expires'] <= time.monotonic() or
             self.read()['token'] != current['token']):
           raise ValidationError('Start a new destination search')
-      data = response_json(self.session, 'https://api.mapbox.com/search/searchbox/v1/suggest',
-                           {'q':query.strip(), 'access_token':current['token'], 'session_token':entry['session'],
-                            'types':','.join(sorted(AUTOCOMPLETE_TYPES)) if autocomplete else 'poi', 'limit':8, **context})
-      suggestions = data.get('suggestions')
-      if not isinstance(suggestions, list):
-        raise ValidationError('The map service returned invalid search results')
-      results = []
-      for item in suggestions[:8]:
-        if not isinstance(item, dict):
-          continue
-        identity, name = item.get('mapbox_id'), item.get('name')
-        kinds = AUTOCOMPLETE_TYPES if autocomplete else {'poi'}
-        if (item.get('feature_type') in kinds and isinstance(identity, str) and 1 <= len(identity) <= 256 and
-            isinstance(name, str) and 1 <= len(name.strip()) <= 256):
-          description = item.get('full_address') or item.get('place_formatted') or ''
-          description = description.strip()[:512] if isinstance(description, str) else ''
-          results.append({'id':identity, 'name':name.strip(), 'description':description, 'searchId':search_id, 'temporary':True})
+      results = self._google_suggest(entry, current, query, search_id, context) if entry['provider'] == 'google' else None
+      if results is None:
+        data = response_json(self.session, 'https://api.mapbox.com/search/searchbox/v1/suggest',
+                             {'q':query.strip(), 'access_token':current['token'], 'session_token':entry['session'],
+                              'types':','.join(sorted(AUTOCOMPLETE_TYPES)) if autocomplete else 'poi', 'limit':8, **context})
+        suggestions = data.get('suggestions')
+        if not isinstance(suggestions, list):
+          raise ValidationError('The map service returned invalid search results')
+        results = self._mapbox_suggestions(suggestions, search_id, autocomplete)
       with self._lock:
         if (self._searches.get(key) is not entry or entry['expires'] <= time.monotonic() or
             self.read()['token'] != current['token']):
@@ -644,19 +861,57 @@ class NavigationOwner:
         # Any suggestion shown during this typing session can still be chosen.
         entry['ids'] = (entry['ids'] if autocomplete else set()) | {item['id'] for item in results}
       if results or autocomplete:
-        return results
+        return PlaceResults(results, entry['provider'])
     except ValidationError:
       with self._lock:
         if (self._searches.get(key) is not entry or entry['expires'] <= time.monotonic() or
             self.read()['token'] != current['token']):
           raise ValidationError('Start a new destination search') from None
       if autocomplete:
-        return []  # suggestions are best effort; typing never spends address lookups
+        return PlaceResults([], entry['provider'])  # suggestions are best effort; typing never spends address lookups
       self.cancel_search(caller, search_id)
       # Address search remains available if place search is unavailable.
       return self.search(query)
     self.cancel_search(caller, search_id)
     return self.search(query)
+
+  def _google_suggest(self, entry, current, query, search_id, context) -> list[dict] | None:
+    """Google's typing suggestions; None after Google fails, and the session continues on Mapbox."""
+    from openpilot.starpilot.navigation.google_places import GooglePlacesFailed, autocomplete, suggestions_budget
+    from openpilot.starpilot.navigation.mapbox_budget import BudgetExhausted
+    proximity = None
+    if context.get('proximity'):
+      longitude, latitude = (float(value) for value in context['proximity'].split(','))
+      proximity = (longitude, latitude)
+    try:
+      rows = autocomplete(self.session, current['googleKey'], query.strip(), entry['google_session'], suggestions_budget(self.google_root), proximity)
+    except GooglePlacesFailed:
+      with self._lock:
+        entry['provider'] = 'mapbox'
+      try:
+        self.search_budget.spend(enforce=True)
+      except BudgetExhausted as error:
+        raise ValidationError(str(error)) from None
+      return None
+    results = [dict(row, searchId=search_id, temporary=True) for row in rows]
+    with self._lock:
+      entry['google'].update({row['id']: row for row in results})
+    return results
+
+  @staticmethod
+  def _mapbox_suggestions(suggestions, search_id, autocomplete) -> list[dict]:
+    results = []
+    for item in suggestions[:8]:
+      if not isinstance(item, dict):
+        continue
+      identity, name = item.get('mapbox_id'), item.get('name')
+      kinds = AUTOCOMPLETE_TYPES if autocomplete else {'poi'}
+      if (item.get('feature_type') in kinds and isinstance(identity, str) and 1 <= len(identity) <= 256 and
+          isinstance(name, str) and 1 <= len(name.strip()) <= 256):
+        description = item.get('full_address') or item.get('place_formatted') or ''
+        description = description.strip()[:512] if isinstance(description, str) else ''
+        results.append({'id':identity, 'name':name.strip(), 'description':description, 'searchId':search_id, 'temporary':True})
+    return results
 
   def _retrieve(self, identity, search_id, caller, expected_revision, authorized) -> dict:
     """Temporary coordinates for the selected route."""
@@ -671,6 +926,14 @@ class NavigationOwner:
       raise ValidationError('Search again before choosing this place')
     if not (authorized() if callable(authorized) else authorized is True):
       raise PermissionError('Navigation changes are not available right now')
+    suggested = entry.get('google', {}).get(identity)
+    if suggested is not None:
+      from openpilot.starpilot.navigation.google_places import GooglePlacesFailed, place_details
+      try:
+        found = place_details(self.session, current['googleKey'], identity, entry['google_session'])
+      except GooglePlacesFailed:
+        raise ValidationError('Google could not open this place; search again') from None
+      return destination(dict(found, name=suggested['name'], address=found['address'] or suggested['description']))
     data = response_json(self.session, 'https://api.mapbox.com/search/searchbox/v1/retrieve/' + quote(identity, safe=''),
                          {'access_token':current['token'], 'session_token':entry['session']})
     try:

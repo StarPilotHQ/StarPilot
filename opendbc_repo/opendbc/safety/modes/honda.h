@@ -162,7 +162,12 @@ static void honda_rx_hook(const CANPacket_t *msg) {
     // exit controls once main or cancel are pressed
     if ((button == HONDA_BTN_MAIN) || (button == HONDA_BTN_CANCEL)) {
       controls_allowed = false;
-      aol_set_host_request(0U);
+      if ((button == HONDA_BTN_CANCEL) && honda_stock_aol_flag(HONDA_STOCK_ENABLED)) {
+        // Retain only the existing lateral request without renewing its deadline.
+        aol_host_axis_mask &= 1U;
+      } else {
+        aol_set_host_request(0U);
+      }
     }
     cruise_button_prev = button;
   }
@@ -213,7 +218,7 @@ static void honda_rx_hook(const CANPacket_t *msg) {
 
 static bool honda_tx_hook(const CANPacket_t *msg) {
   const LongitudinalLimits HONDA_BOSCH_LONG_LIMITS = {
-    .max_accel = 200,   // accel is used for brakes
+    .max_accel = 350,   // accel is used for brakes
     .min_accel = -350,
 
     .max_gas = honda_rdx_high_gas ? 2200 : 2000,
@@ -351,7 +356,7 @@ static safety_config honda_nidec_init(uint16_t param) {
   // 0x1FA is dynamically forwarded based on stock AEB
   // 0xE4 is steering on all cars except CRV and RDX, 0x194 for CRV and RDX,
   // 0x1FA is brake control, 0x30C is acc hud, 0x33D is lkas hud
-  static CanMsg HONDA_N_TX_MSGS[] = {
+  static const CanMsg HONDA_N_TX_MSGS[] = {
     {0xE4, 0, 5, .check_relay = true},
     {0x194, 0, 4, .check_relay = true},
     {0x1FA, 0, 8, .check_relay = false},
@@ -426,7 +431,7 @@ static safety_config honda_bosch_init(uint16_t param) {
   honda_mvl_buttons_fresh = 0U;
   honda_interceptor_reset(false);
   // Bosch
-  static CanMsg HONDA_BOSCH_TX_MSGS[] = {
+  static const CanMsg HONDA_BOSCH_TX_MSGS[] = {
     {0xE4, 0, 5, .check_relay = true},
     {0xE5, 0, 8, .check_relay = true},
     {0x296, 1, 4, .check_relay = false},
@@ -437,7 +442,7 @@ static safety_config honda_bosch_init(uint16_t param) {
   };
 
   // Bosch w/ gas and brakes
-  static CanMsg HONDA_BOSCH_LONG_TX_MSGS[] = {
+  static const CanMsg HONDA_BOSCH_LONG_TX_MSGS[] = {
     {0xE4, 1, 5, .check_relay = true},
     {0x1DF, 1, 8, .check_relay = true},
     {0x1EF, 1, 8, .check_relay = false},
@@ -459,21 +464,21 @@ static safety_config honda_bosch_init(uint16_t param) {
   };
 
   // Bosch radarless
-  static CanMsg HONDA_RADARLESS_TX_MSGS[] = {
+  static const CanMsg HONDA_RADARLESS_TX_MSGS[] = {
     {0xE4, 0, 5, .check_relay = true},
     {0x296, 2, 4, .check_relay = false},
     {0x33D, 0, 8, .check_relay = true},
   };
 
   // Bosch radarless w/ gas and brakes
-  static CanMsg HONDA_RADARLESS_LONG_TX_MSGS[] = {
+  static const CanMsg HONDA_RADARLESS_LONG_TX_MSGS[] = {
     {0xE4, 0, 5, .check_relay = true},
     {0x33D, 0, 8, .check_relay = true},
     {0x1C8, 0, 8, .check_relay = true},
     {0x30C, 0, 8, .check_relay = true},
   };
 
-  static CanMsg HONDA_CANFD_TX_MSGS[] = {
+  static const CanMsg HONDA_CANFD_TX_MSGS[] = {
     {0xE4, 0, 5, .check_relay = true},
     {0x296, 0, 4, .check_relay = false},
     {0x33D, 0, 8, .check_relay = true},

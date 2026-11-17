@@ -84,6 +84,7 @@ class RadarInterface(RadarInterfaceBase):
 
       # Make sure msg A and B are together
       if msg_a['Index'] != msg_b['Index2']:
+        self.pts.pop(i, None)
         continue
 
       if not msg_a['Tracked']:

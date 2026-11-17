@@ -7,7 +7,7 @@ from opendbc.car import Bus, structs
 from opendbc.car.subaru import subarucan
 from opendbc.car.subaru.stock_aol import ANGLE_CARS, TORQUE_CARS
 from opendbc.car.subaru.tests.test_ascent_angle import setup_controller, step
-from opendbc.car.subaru.values import DBC, SubaruSafetyFlags
+from opendbc.car.subaru.values import CAR, DBC, SubaruSafetyFlags
 from opendbc.safety.tests import test_subaru_gen2_angle_pair as pair
 from opendbc.safety.tests.libsafety import libsafety_py
 
@@ -18,6 +18,8 @@ from opendbc.safety.tests.libsafety import libsafety_py
 def test_inactive_sensor_angle_is_bounded_and_native_accepts(car, sign, position):
   cp, controller, command, state = setup_controller(car)
   limit = 545.0 if cp.safetyConfigs[0].safetyParam & SubaruSafetyFlags.FIXED_ANGLE_LIMITS else 650.0
+  if car in (CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025):
+    limit = 190.0
   measured = sign * {'within': 100.0, 'limit': limit, 'beyond': limit + 5.0}[position]
   packer, frames = pair.TestSubaruGen2AnglePair.sources(car, cruise=False)
   measurement = packer.make_can_msg('Steering_2', 0, {'Steering_Angle': measured})

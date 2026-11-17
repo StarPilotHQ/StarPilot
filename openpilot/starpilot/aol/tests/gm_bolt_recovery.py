@@ -102,8 +102,10 @@ def exercise_bolt_cancel_recovery(self, identity, removed, *, critical=None, com
     queued_status = None
     last_status_emission_us = None
     last_paddle_feeds = {}
+    gen2_drive_scene = identity == CAR.CHEVROLET_BOLT_CC_2022_2023 and word == 0x19D and not pedal_scene
     trajectory = set()
     sent = []
+    steering_loopback = []
     cancel_start, pause_start = (40, 32) if pedal_scene else (10, 10)
     main_start, ticks = (646, 652) if pedal_scene else (26, 36)
     temporary_eps_tick, stale_axis_tick = (-1, -1) if pedal_scene else (20, 23)
@@ -234,7 +236,8 @@ def exercise_bolt_cancel_recovery(self, identity, removed, *, critical=None, com
         if communications is not None:
           packets = [packet for packet in packets if packet[0] != 0xBD]
           packets.append(packer.make_can_msg('EBCMRegenPaddle', 0, {'RegenPaddle': int(regen)}))
-        cs = ci.update([(now, packets)])
+        cs = ci.update([(now - 5_000_000, steering_loopback), (now, packets)])
+        steering_loopback = []
         if communications is not None:
           self.assertEqual(cs.regenBraking, regen, msg=ctx)
           self.assertEqual(cs.brakePressed, brake, msg=ctx)
@@ -278,7 +281,9 @@ def exercise_bolt_cancel_recovery(self, identity, removed, *, critical=None, com
             if pedal_scene and physical_regen and packet[0] == 0xBD:
               regen_boundary = safety.get_recorded_can_count()
             self.assertTrue(native('rx', packet, now // 1000), ((tick, packet), ctx))
-        if pedal_scene:
+        if pedal_scene or gen2_drive_scene:
+          if gen2_drive_scene:
+            self.assertEqual(cs.gearShifter, structs.CarState.GearShifter.drive, msg=ctx)
           if physical_regen:
             self.assertIsNotNone(regen_boundary, msg=ctx)
             # Observe driver regen before probing another stock gear opportunity.
@@ -291,6 +296,10 @@ def exercise_bolt_cancel_recovery(self, identity, removed, *, critical=None, com
               size = 7 if packet.addr == 0xBD else 8
               raw = bytes(packet.data[0:size])
               self.assertEqual(raw, last_paddle_feeds[packet.addr], msg=ctx)
+              self.assertEqual(packet.bus, 0, msg=ctx)
+              if gen2_drive_scene:
+                self.assertEqual(raw, bytes(7) if packet.addr == 0xBD else bytes.fromhex('0c0c000400000100'), msg=ctx)
+                trajectory.add('gen2_drive_release_' + hex(packet.addr))
               applied = raw[0] == 0x20 if packet.addr == 0xBD else raw[5] == 2
               if physical_regen and regen_boundary is not None and index >= regen_boundary:
                 self.assertFalse(applied, msg=ctx)
@@ -549,18 +558,25 @@ def exercise_bolt_cancel_recovery(self, identity, removed, *, critical=None, com
             self.assertEqual(len(message[1]), 8, msg=ctx)
             self.assertFalse(native('tx', message, now // 1000 + 1), ((tick, message), ctx))
             queued_status = tuple(message) if ready else None
-          elif pedal_scene and message[0] in (0xBD, 0x1F5):
+          elif (pedal_scene or gen2_drive_scene) and message[0] in (0xBD, 0x1F5):
             raw = bytes(message[1])
             pressed = ci.CC.regen_paddle_pressed
             gen2 = identity == CAR.CHEVROLET_BOLT_CC_2022_2023
+            if gen2_drive_scene:
+              self.assertFalse(pressed, msg=ctx)
+            release_gear = 4 if gen2_drive_scene else 6
             expected = (bytes((0x20 if pressed else 0,)) + bytes(6) if message[0] == 0xBD else
-                        bytes((12, 12, 0, (5 if gen2 else 7) if pressed else 6, 0, 2 if pressed else 0, 1, 0)))
+                        bytes((12, 12, 0, (5 if gen2 else 7) if pressed else release_gear, 0, 2 if pressed else 0, 1, 0)))
             self.assertEqual(raw, expected, msg=ctx)
             # This False consumes the host cache feed; stock RX records actual admission.
+            recorded_before = safety.get_recorded_can_count()
             self.assertFalse(native('tx', message, now // 1000 + 1), ((tick, message), ctx))
+            self.assertEqual(safety.get_recorded_can_count(), recorded_before, msg=ctx)
             last_paddle_feeds[message[0]] = raw
           else:
             self.assertTrue(native('tx', message, now // 1000 + 1), ((tick, message), ctx))
+            if message[0] == 0x180:
+              steering_loopback.append((message[0], bytes(message[1]), 128))
             if pedal_scene and message[0] == 0x1E1:
               self.assertEqual(message[2], 0, msg=ctx)
               self.assertEqual(bytes(message[1]), button_bytes(CruiseButtons.CANCEL, (tick + 1) % 4), msg=ctx)
@@ -582,6 +598,8 @@ def exercise_bolt_cancel_recovery(self, identity, removed, *, critical=None, com
           self.assertTrue(main, msg=ctx)
         previous = cs
       self.assertEqual(cancel_edge_ticks, [cancel_start, cancel_start + 2], msg=ctx)
+      if gen2_drive_scene:
+        self.assertTrue({'gen2_drive_release_0xbd', 'gen2_drive_release_0x1f5'} <= trajectory, (trajectory, ctx))
       if pedal_scene:
         self.assertTrue({'mode_zero_cancel_native_admitted', 'normal_deceleration_apply',
                          'native_apply_0xbd', 'native_apply_0x1f5', 'native_release_0xbd', 'native_release_0x1f5',
@@ -672,7 +690,7 @@ def exercise_bolt_cancel_recovery(self, identity, removed, *, critical=None, com
         if message[0] == 0x3D1:
           self.assertTrue(status_owner, msg=ctx)
           self.assertFalse(native('tx', message, stale_now // 1000 + 1), (message, ctx))
-        elif pedal_scene and message[0] in (0xBD, 0x1F5):
+        elif (pedal_scene or gen2_drive_scene) and message[0] in (0xBD, 0x1F5):
           self.assertFalse(native('tx', message, stale_now // 1000 + 1), (message, ctx))
         else:
           self.assertTrue(native('tx', message, stale_now // 1000 + 1), (message, ctx))
@@ -684,3 +702,4 @@ def exercise_bolt_cancel_recovery(self, identity, removed, *, critical=None, com
     finally:
       safety.set_alternative_experience(0)
       selected.vehicle_startup.close()
+

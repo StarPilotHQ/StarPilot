@@ -1,5 +1,5 @@
 import pytest
-from opendbc.car import gen_empty_fingerprint
+from opendbc.car import gen_empty_fingerprint, structs
 from opendbc.car.toyota.interface import CarInterface
 from opendbc.car.toyota.radar_filter import PROFILES, hardware_supported, configured
 from opendbc.car.toyota.values import CAR, ToyotaFlags
@@ -20,7 +20,12 @@ def test_four_byte_filter_matches_existing_canonical_owner(candidate,alpha,forwa
     observed[2][0x2FF]=4
   original=CarInterface.get_params(candidate,canonical,fw,alpha,False,False)
   cp=CarInterface.get_params(candidate,observed,fw,alpha,False,False)
-  assert cp.to_dict()==original.to_dict()
+  assert not original.flags & ToyotaFlags.FILTER_BUTTONS
+  expected_buttons = int(ToyotaFlags.FILTER_BUTTONS) if original.steerControlType == structs.CarParams.SteerControlType.torque else 0
+  assert cp.flags == original.flags | expected_buttons
+  observed_params = cp.to_dict()
+  observed_params['flags'] = original.flags
+  assert observed_params == original.to_dict()
   assert configured(cp) and qualified(cp) and hardware_supported(candidate,observed)
   assert not cp.flags & ToyotaFlags.DISABLE_RADAR
 

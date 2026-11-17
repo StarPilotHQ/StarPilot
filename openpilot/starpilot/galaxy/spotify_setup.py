@@ -90,7 +90,8 @@ class SpotifySetup:
     self._require_session(session)
     prefs = preferences.load(self.layout)
     try:
-      devices = [{'address': d['address'], 'name': d['name'], 'connected': d.get('connected') is True}
+      devices = [{'address': d['address'], 'name': d['name'], 'connected': d.get('connected') is True,
+                  'audioSink': d.get('audioSink') is True}
                  for d in self.paired_devices(session) if d.get('paired')]
     except Exception:
       devices = []
@@ -161,7 +162,7 @@ class SpotifySetup:
     current = preferences.load(self.layout)
     fields = {'deviceName': 'device_name', 'cacheMb': 'cache_mb', 'initialVolume': 'initial_volume',
               'output': 'output', 'outputAddress': 'output_address', 'source': 'source', 'phoneAddress': 'phone_address',
-              'pauseMute': 'pause_mute', 'skipMute': 'skip_mute'}
+              'pauseMute': 'pause_mute', 'skipMute': 'skip_mute', 'pullOnroad': 'pull_onroad'}
     if not isinstance(payload, dict) or not payload or set(payload) - set(fields):
       raise SetupRejected('Invalid Spotify settings')
     values = {**current.__dict__, **{fields[key]: value for key, value in payload.items()}}

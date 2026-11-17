@@ -149,8 +149,12 @@ func (w *Way) IsForwardFrom(matchNode m.Position) bool {
 		return true
 	}
 
-	lastNode := w.Nodes.At(w.Nodes.Len()-1)
-	return !lastNode.Equals(matchNode)
+	lastNode := w.Nodes.At(w.Nodes.Len() - 1)
+	if lastNode.Equals(matchNode) {
+		// A closed one-way can be entered at its repeated endpoint in stored order.
+		return w.OneWay() && matchNode.Equals(w.Nodes.At(0))
+	}
+	return true
 }
 
 func IsForward(lineStart m.Position, lineEnd m.Position, bearing float64) bool {
@@ -431,7 +435,7 @@ func (w *Way) DistanceFrom(pos m.Position) (DistanceResult, error) {
 	minIdx := 0
 	for i := 0; i < w.Nodes.Len()-1; i++ {
 		nodeStart := w.Nodes.At(i)
-		nodeEnd := w.Nodes.At(i+1)
+		nodeEnd := w.Nodes.At(i + 1)
 		line := m.Line{Start: nodeStart, End: nodeEnd}
 		linePosition := line.NearestPosition(pos)
 		distance := pos.DistanceTo(linePosition.Pos)
@@ -447,7 +451,7 @@ func (w *Way) DistanceFrom(pos m.Position) (DistanceResult, error) {
 	onWayDistance := minNodeStart.DistanceTo(minLinePosition.Pos)
 	for i := range minIdx {
 		nodeStart := w.Nodes.At(i)
-		nodeEnd := w.Nodes.At(i+1)
+		nodeEnd := w.Nodes.At(i + 1)
 		onWayDistance += nodeStart.DistanceTo(nodeEnd)
 	}
 
@@ -491,8 +495,7 @@ func (w *Way) MatchingWays(offlineMaps *Offline, matchNode m.Position) ([]Way, e
 			continue
 		}
 
-		box := way.Box()
-		if box.Equals(w.Box()) {
+		if way.Id() == w.Id() {
 			continue
 		}
 

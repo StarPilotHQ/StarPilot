@@ -8,7 +8,7 @@ from dataclasses import replace
 from types import SimpleNamespace as NS
 from unittest.mock import Mock, patch
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.cereal import messaging
 from openpilot.common.params import Params

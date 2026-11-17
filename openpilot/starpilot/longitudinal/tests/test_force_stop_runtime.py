@@ -7,11 +7,12 @@ from opendbc.car.honda.interface import CarInterface
 from opendbc.car.honda.values import CAR
 from openpilot.common.params import Params
 from openpilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPlanner
-from openpilot.selfdrive.controls.plannerd import update_curve_frame
+from openpilot.selfdrive.controls.plannerd import update_curve_frame, wheel_override_blocked
 from openpilot.starpilot.curve_speed.host import CurveHost
-from openpilot.starpilot.longitudinal.force_stop import StopPlan
-from openpilot.starpilot.longitudinal.force_stop_runtime import ForceStopRuntime
+from openpilot.starpilot.longitudinal.force_stop import StopPlan, vehicle_tune
+from openpilot.starpilot.longitudinal.force_stop_runtime import ForceStopRuntime, dashboard_stop_sign
 from openpilot.starpilot.longitudinal.tests.test_cruise_ceiling import messages, snapshot
+from openpilot.starpilot.longitudinal.tests.test_force_stop import frame as stop_frame
 from openpilot.starpilot.longitudinal.tests.test_stop_resume import event as button_event
 
 BASE = 100_000_000_000
@@ -60,6 +61,122 @@ class ForceStopRuntimeTests(unittest.TestCase):
       output = self.sample(Frame(tick))
     self.assertTrue(output.forcing)
     return output
+
+  def test_unconfirmed_stationary_forecast_tail_keeps_preview_tracking(self):
+    from unittest.mock import patch
+    from openpilot.starpilot.longitudinal.tests.test_ioniq6_start import candidate
+    _, self.cp = candidate()
+    for tail in (0., .1, .3):
+      with self.subTest(tail=tail):
+        self.owner = ForceStopRuntime(self.params)
+        self.sample(Frame(0))
+        sm = Frame(1)
+        sm['modelV2'].velocity.x = [10.] * 32 + [tail]
+        sm['modelV2'].action.shouldStop = False
+        with patch.object(self.owner.policy, 'step', wraps=self.owner.policy.step) as step:
+          self.sample(sm)
+        self.assertTrue(step.called)
+        self.assertTrue(step.call_args.args[0].moving_preview)
+
+  def test_explicit_model_stop_still_freezes_the_target(self):
+    from openpilot.starpilot.longitudinal.tests.test_ioniq6_start import candidate
+    _, self.cp = candidate()
+    for tick in range(40):
+      self.sample(Frame(tick))
+    sm = Frame(40, horizon=30.)
+    sm['modelV2'].velocity.x = [10.] * 32 + [0.]
+    sm['modelV2'].action.shouldStop = True
+    before = self.sample(sm)
+    self.assertFalse(self.owner.policy.preview_tracking)
+    after = self.sample(Frame(41, horizon=70.))
+    self.assertLess(after.tracked_distance_m, before.tracked_distance_m)
+
+  def test_invalid_forecast_still_uses_odometry_without_extending(self):
+    from openpilot.starpilot.longitudinal.tests.test_ioniq6_start import candidate
+    _, self.cp = candidate()
+    for tick in range(40):
+      before = self.sample(Frame(tick))
+    sm = Frame(40, horizon=70.)
+    sm['modelV2'].velocity.x = [10.] * 32 + [-.1]
+    after = self.sample(sm)
+    self.assertAlmostEqual(after.tracked_distance_m, before.tracked_distance_m - .5)
+
+  def test_vision_expiry_gap_preserves_confirmation_but_not_control_authority(self):
+    from unittest.mock import patch
+    from openpilot.starpilot.speed_limits.vision.tests.test_stop_observation import evidence, message
+
+    def vision_frame(tick, sample, *, published=None):
+      sm = Frame(tick)
+      event = message(sample, now=sm.stamp if published is None else published)
+      service = 'slcVisionObservation'
+      sm[service] = event.slcVisionObservation
+      sm.seen = {service: True}
+      sm.recv_frame = {service: tick}
+      sm.valid[service] = sm.alive[service] = True
+      sm.logMonoTime[service] = int(event.logMonoTime)
+      sm.recv_time[service] = sm.stamp / 1e9
+      return sm
+
+    self.sample(Frame(0))
+    first = evidence(BASE + 100_000_000, frame=3)
+    second = evidence(BASE + 1_200_000_000, frame=25)
+    with patch.object(self.owner.policy, 'step', wraps=self.owner.policy.step) as step:
+      self.sample(vision_frame(10, first))
+      self.assertFalse(step.call_args.args[0].sign)
+      self.sample(vision_frame(33, first, published=BASE + 1_200_000_000))
+      self.assertFalse(step.call_args.args[0].sign)
+      self.assertEqual(self.owner.vision_stop.previous.observed_ns, first.observed_ns)
+      self.assertIsNone(self.owner.vision_stop.distance_m)
+      self.sample(vision_frame(34, second))
+      self.assertTrue(step.call_args.args[0].sign)
+      self.assertEqual(self.owner.vision_stop.confirmed_ns, second.observed_ns)
+      self.sample(vision_frame(41, second))
+      self.assertEqual(self.owner.vision_stop.confirmed_ns, second.observed_ns)
+      self.assertFalse(step.call_args.args[0].sign)  # The unchanged 750 ms control age is stricter.
+
+  def test_wheel_priority_requires_a_stop_cap_or_possible_commit_next_frame(self):
+    tune = vehicle_tune(str(self.cp.carFingerprint))
+    sign = {'light': False, 'sign': True, 'horizon_m': 40.}
+    self.owner.plan = self.owner.policy.step(stop_frame(0, **sign), tune)
+    self.assertIsNone(self.owner.plan.speed_ceiling_mps)
+    self.assertFalse(wheel_override_blocked(self.owner, None))
+    self.owner.plan = self.owner.policy.step(stop_frame(1, light=False, resume_requested=True), tune)
+    self.assertGreater(self.owner.policy.timer, 0.)
+    self.assertEqual(self.owner.policy.override_until_ns, 0)
+    self.assertFalse(wheel_override_blocked(self.owner, None))
+
+    self.owner.reset()
+    for tick in range(4):
+      self.owner.plan = self.owner.policy.step(stop_frame(tick, **sign), tune)
+    self.assertIsNone(self.owner.plan.speed_ceiling_mps)
+    self.assertTrue(wheel_override_blocked(self.owner, None))
+    self.owner.policy.step(stop_frame(4, resume_requested=True, **sign), tune)
+    self.assertGreater(self.owner.policy.override_until_ns, 0)
+
+    self.owner.reset()
+    self.owner.plan = self.owner.policy.step(stop_frame(0), tune)
+    self.assertFalse(self.owner.policy.can_commit_next_frame)
+    self.assertIsNotNone(self.owner.plan.speed_ceiling_mps)
+    self.assertTrue(wheel_override_blocked(self.owner, None))
+  def test_distance_braking_requires_exact_ioniq_control_profile(self):
+    from unittest.mock import patch
+    from openpilot.starpilot.longitudinal.tests.test_ioniq6_start import candidate
+
+    stock, admitted = candidate()
+    from opendbc.car.hyundai.tests.test_ioniq5pe_stock import params as pe_params
+    from opendbc.car.hyundai.ioniq5pe_long_profile import candidate as pe_candidate
+    pe_stock = pe_params()
+    pe_admitted = pe_candidate(pe_stock, enabled=True, is_release=False)
+    pe_stock.openpilotLongitudinalControl = True
+    stock.openpilotLongitudinalControl = True  # An incomplete profile must still refuse the new tune.
+    for cp, expected in [(self.cp, False), (stock, False), (admitted, True), (pe_stock, False), (pe_admitted, True)]:
+      self.cp = cp
+      self.owner = ForceStopRuntime(self.params)
+      with patch.object(self.owner.policy, 'step', wraps=self.owner.policy.step) as step:
+        for tick in range(12):
+          self.sample(Frame(tick))
+        self.assertTrue(step.called)
+        self.assertEqual(step.call_args.args[1].distance_control, expected)
 
   def test_committed_stop_survives_valid_mode_settings_and_traffic_changes(self):
     import json
@@ -139,15 +256,13 @@ class ForceStopRuntimeTests(unittest.TestCase):
       plan = self.sample(sm)
       self.assertTrue(plan.should_stop)
       self.assertEqual(plan.speed_ceiling_mps, 0.)
-    for tick in range(100, 116):
-      plan = self.sample(Frame(tick, horizon=190., stopped=True))
     self.assertTrue(plan.forcing)
     self.assertTrue(plan.manual_hold)
-    now = BASE + 5_800_000_000 + 1_000_000
-    for item in (button_event(577), button_event(578, [('resumeCruise', True)]),
-                 button_event(579, [('resumeCruise', False)])):
+    now = BASE + 5_000_000_000 + 1_000_000
+    for item in (button_event(497), button_event(498, [('resumeCruise', True)]),
+                 button_event(499, [('resumeCruise', False)])):
       self.owner.resume.observe(item, now_ns=now, drive_id=DRIVE)
-    released = self.sample(Frame(116, horizon=190., stopped=True))
+    released = self.sample(Frame(100, horizon=190., stopped=True))
     self.assertFalse(released.manual_hold)
     self.assertFalse(released.forcing)
     self.assertIsNone(released.speed_ceiling_mps)
@@ -219,13 +334,14 @@ class ForceStopRuntimeTests(unittest.TestCase):
     self.assertTrue(output.forcing)
     self.assertTrue(output.should_stop)
     self.assertEqual(output.speed_ceiling_mps, 0.)
-    for tick in range(41, 101):
+    for tick in range(41, 80):
       output = self.sample(Frame(tick, stopped=True, horizon=30.))
       self.assertTrue(output.should_stop)
-    for tick in range(101, 201):
-      output = self.sample(Frame(tick, stopped=True, horizon=192.))
-    self.assertTrue(output.forcing)
-    self.assertTrue(output.manual_hold)
+      self.assertTrue(output.manual_hold)
+    for tick in range(80, 200):
+      output = self.sample(Frame(tick, stopped=True, horizon=30.))
+      self.assertFalse(output.forcing)
+      self.assertFalse(output.manual_hold)
 
   def test_manual_hold_publishes_dedicated_bit_and_release_withdraws_same_cycle(self):
     from types import SimpleNamespace
@@ -361,6 +477,97 @@ class ForceStopRuntimeTests(unittest.TestCase):
         self.assertEqual(snapshot(original), snapshot(proposed))
         np.testing.assert_array_equal(original.mpc.params, proposed.mpc.params)
 
+  def test_dashboard_stop_sign_requires_fresh_valid_companion(self):
+    from openpilot.cereal import messaging
+    message = messaging.new_message('starpilotCarState')
+    message.starpilotCarState.dashboardStopSign = 1
+    for defect, expected in ((None, True), ('stale', False), ('invalid', False), ('unseen', False), ('missing', False)):
+      with self.subTest(defect=defect):
+        sm = Frame(0)
+        if defect != 'missing':
+          sm['starpilotCarState'] = message.starpilotCarState
+          sm.logMonoTime['starpilotCarState'] = sm.stamp
+          sm.valid['starpilotCarState'] = defect != 'invalid'
+        sm.seen = {'starpilotCarState': defect not in ('unseen', 'missing')}
+        now = sm.stamp + (150_000_001 if defect == 'stale' else 1_000_000)
+        self.assertEqual(dashboard_stop_sign(sm, now_ns=now, drive_id=DRIVE), expected)
+
 
 if __name__ == '__main__':
   unittest.main()
+
+
+  def test_resume_from_aol_engages_but_does_not_override_red_light_model(self):
+    for same_tick in (False, True):
+      with self.subTest(same_tick=same_tick):
+        self.owner = ForceStopRuntime(self.params)
+        planner = LongitudinalPlanner(self.cp)
+        for tick in range(45):
+          sm = Frame(tick, stopped=True, horizon=30.)
+          sm['selfdriveState'].experimentalMode = True
+          sm['modelV2'].action.shouldStop = True
+          sm['modelV2'].action.desiredAcceleration = 0.
+          if tick < 40:
+            sm['carControl'].longActive = False
+            sm['carControl'].latActive = True
+            sm['selfdriveState'].enabled = False
+          if tick == 39:
+            self.owner.resume.observe(button_event(194), now_ns=BASE + 1_950_000_001, drive_id=DRIVE)
+            self.owner.resume.observe(button_event(195, [('accelCruise', True)]), now_ns=BASE + 1_950_000_001, drive_id=DRIVE)
+          if same_tick and tick == 40:
+            self.owner.resume.observe(button_event(199), now_ns=BASE + 2_000_000_001, drive_id=DRIVE)
+            self.owner.resume.observe(button_event(200, [('accelCruise', True)]), now_ns=BASE + 2_000_000_001, drive_id=DRIVE)
+          planner.update(sm, now_ns=sm.stamp + 1_000_000, drive_id=DRIVE,
+                         force_stop_provider=lambda follow, source=sm: self.sample(source, follow_seconds=follow))
+          self.assertFalse(getattr(planner.force_stop_plan, 'resume_override', False))
+          if tick >= 40:
+            self.assertTrue(planner.output_should_stop)
+            self.assertLessEqual(planner.output_a_target, 0.)
+
+  def test_res_releases_preexisting_force_hold_without_overriding_other_stop_candidates(self):
+    from dataclasses import replace
+    planner = LongitudinalPlanner(self.cp)
+    for tick in range(90):
+      sm = Frame(tick, stopped=True, horizon=30.)
+      sm['selfdriveState'].experimentalMode = True
+      sm['modelV2'].action.shouldStop = True
+      sm['modelV2'].action.desiredAcceleration = 0.
+      planner.update(sm, now_ns=sm.stamp + 1_000_000, drive_id=DRIVE,
+                     force_stop_provider=lambda follow, source=sm: self.sample(source, follow_seconds=follow))
+    self.assertTrue(planner.output_should_stop)
+    self.assertTrue(planner.force_stop_plan.manual_hold)
+    self.owner.resume.observe(button_event(448), now_ns=BASE + 4_490_000_001, drive_id=DRIVE)
+    self.owner.resume.observe(button_event(449, [('accelCruise', True)]), now_ns=BASE + 4_490_000_001, drive_id=DRIVE)
+    for tick in range(90, 110):
+      sm = Frame(tick, stopped=True, horizon=30.)
+      sm['carState'].vEgo = -1e-8 if tick % 2 else 0.
+      sm['selfdriveState'].experimentalMode = True
+      sm['modelV2'].action.shouldStop = True
+      sm['modelV2'].action.desiredAcceleration = 0.
+      planner.update(sm, now_ns=sm.stamp + 1_000_000, drive_id=DRIVE,
+                     force_stop_provider=lambda follow, source=sm: self.sample(source, follow_seconds=follow))
+    self.assertTrue(planner.force_stop_plan.resume_override)
+    self.assertFalse(planner.output_should_stop)
+    self.assertGreaterEqual(planner.output_a_target, .1)
+    resumed = planner.force_stop_plan
+    for defect in ('lead1', 'lead2', 'brake', 'gas', 'force', 'inactive', 'stale', 'zero_target'):
+      with self.subTest(defect=defect):
+        sm = Frame(110, stopped=True)
+        sm['selfdriveState'].experimentalMode = True
+        sm['modelV2'].action.shouldStop = True
+        sm['modelV2'].action.desiredAcceleration = 0.
+        if defect.startswith('lead'):
+          lead = sm['radarState'].leadOne if defect == 'lead1' else sm['radarState'].leadTwo
+          lead.present = True
+        elif defect in ('brake', 'gas'):
+          setattr(sm['carState'], defect + 'Pressed', True)
+        elif defect == 'force':
+          sm['controlsState'].forceDecel = True
+        elif defect == 'inactive':
+          sm['carControl'].longActive = False
+        elif defect == 'zero_target':
+          sm['carState'].vCruise = 0.
+        stamp = sm.stamp - 1 if defect == 'stale' else sm.stamp
+        planner.update(sm, now_ns=sm.stamp + 1_000_000, drive_id=DRIVE,
+                       force_stop_provider=lambda _, source=stamp: replace(resumed, model_ns=source))
+        self.assertTrue(planner.output_should_stop)

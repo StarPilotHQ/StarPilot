@@ -83,24 +83,34 @@ def parse_input_config(data: bytes) -> InputConfig:
 class TouchMapper:
   """Stateful single-pointer decoder for one projection session."""
 
-  def __init__(self, config: InputConfig, video_width: int, video_height: int, margin_width: int, margin_height: int):
+  def __init__(self, config: InputConfig, video_width: int, video_height: int, margin_width: int, margin_height: int, *,
+               content_left: int | None = None, content_top: int | None = None):
     self.touch_width = config.touch_width or video_width
     self.touch_height = config.touch_height or video_height
     self.video_width, self.video_height = video_width, video_height
-    self.left, self.top = margin_width // 2, margin_height // 2
+    self.left = margin_width // 2 if content_left is None else content_left
+    self.top = margin_height // 2 if content_top is None else content_top
     self.content_width, self.content_height = video_width - margin_width, video_height - margin_height
     self.pointer: int | None = None
+    self.content_space = bool(margin_width or margin_height) and self._same_shape(self.content_width, self.content_height) \
+      and not self._same_shape(video_width, video_height)
+
+  def _same_shape(self, width: int, height: int) -> bool:
+    return abs(self.touch_width * height / (self.touch_height * width) - 1) < 0.02
+
+  def _video_point(self, x: int, y: int) -> tuple[float, float]:
+    if self.content_space:
+      return self.left + x * self.content_width / self.touch_width, self.top + y * self.content_height / self.touch_height
+    return x * self.video_width / self.touch_width, y * self.video_height / self.touch_height
 
   def _normalize(self, x: int, y: int) -> tuple[float, float]:
-    vx = x * self.video_width / self.touch_width
-    vy = y * self.video_height / self.touch_height
+    vx, vy = self._video_point(x, y)
     nx = (vx - self.left) / self.content_width
     ny = (vy - self.top) / self.content_height
     return min(max(nx, 0.0), 1.0), min(max(ny, 0.0), 1.0)
 
   def _inside(self, x: int, y: int) -> bool:
-    vx = x * self.video_width / self.touch_width
-    vy = y * self.video_height / self.touch_height
+    vx, vy = self._video_point(x, y)
     return self.left <= vx < self.left + self.content_width and self.top <= vy < self.top + self.content_height
 
   def reset(self) -> list[TouchEvent]:

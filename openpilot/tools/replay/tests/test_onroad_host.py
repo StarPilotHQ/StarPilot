@@ -169,7 +169,7 @@ class TestOnroadHost(unittest.TestCase):
   def test_actual_private_alert_pubsub_shows_then_clears(self):
     import importlib.machinery
     import capnp.lib.capnp as native_capnp
-    import msgq.ipc_pyx as native_ipc
+    import msgq._ipc as native_ipc
     from openpilot.cereal import messaging
     from openpilot.starpilot.ui.runtime_snapshot import current_message, _alert
 
@@ -549,8 +549,10 @@ int main() {
       reads += 1
       return original_unpack(*args, **kwargs)
 
-    with patch.object(display_clock.time, 'monotonic_ns', side_effect=[10_000_000_000, 10_000_000_001]), \
+    ticks = iter((10_000_000_000, 10_000_000_001))
+    with patch.object(display_clock, 'time', SimpleNamespace(monotonic_ns=lambda: next(ticks))), \
          patch.object(display_clock.struct, 'unpack_from', side_effect=heartbeat_then_read):
+      self.assertIsNot(display_clock.time, time)
       sample = self.reader.sample()
     self.assertTrue(sample.valid)
     self.assertEqual(sample.host_ns, 10_000_000_001)

@@ -1,4 +1,5 @@
 from opendbc.car import structs
+from opendbc.car.config_cache import cached_config
 from opendbc.car.gm.values import (GMFlags, camera_acc_pedal_profile, is_volt_ascm_longitudinal,
                                    is_volt_ascm_stock, is_volt_sdgm_accepted_envelope)
 
@@ -8,6 +9,7 @@ STEERING_COMMAND_TIMEOUT_NS = 100_000_000
 ButtonType = structs.CarState.ButtonEvent.Type
 
 
+@cached_config
 def monitored_profile(CP: structs.CarParams) -> bool:
   return ((is_volt_ascm_longitudinal(CP) or is_volt_ascm_stock(CP) or is_volt_sdgm_accepted_envelope(CP)) and
           camera_acc_pedal_profile(CP) is None and

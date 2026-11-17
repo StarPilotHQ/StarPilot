@@ -28,7 +28,7 @@ def detected(candidate):
                                           CAR.CHEVROLET_VOLT_CAMERA, CAR.CHEVROLET_VOLT_CC, CAR.CHEVROLET_BOLT_EUV,
                                           CAR.CHEVROLET_BOLT_CC_2017, CAR.CHEVROLET_BOLT_CC_2018_2021,
                                           CAR.CHEVROLET_BOLT_CC_2022_2023, CAR.CHEVROLET_BOLT_ACC_2022_2023,
-                                          CAR.CHEVROLET_BOLT_ACC_2022_2023_PEDAL])
+                                          CAR.CHEVROLET_BOLT_ACC_2022_2023_PEDAL, CAR.CHEVROLET_TRAX])
 def test_explicit_registered_bus0_gm_keeps_live_vin_fw_can_and_actual_factory(candidate):
   callbacks = []
   queries = []
@@ -181,7 +181,7 @@ def test_actual_scoped_fingerprint_respects_existing_skip_and_cache_flags(skip, 
     ordered = stack.enter_context(mock.patch.object(car_helpers, 'get_fw_versions_ordered', return_value=[]))
     can = stack.enter_context(mock.patch.object(car_helpers, 'can_fingerprint', return_value=(CAR.CHEVROLET_VOLT_ASCM, layout)))
     result = car_helpers.fingerprint(receive, mock.Mock(), callback, cached, known_gm_bus0=True)
-  can.assert_called_once_with(receive)
+  can.assert_called_once_with(receive, vin=result[2], camera_cruise_messages=set())
   receive.assert_called_once_with()
   present.assert_not_called()
   ordered.assert_not_called()

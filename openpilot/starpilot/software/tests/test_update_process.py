@@ -5,8 +5,9 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
-from openpilot.starpilot.software.fast_update import run
+from openpilot.starpilot.software.fast_update import FastUpdateError, run
 
 
 class TestUpdateProcess(unittest.TestCase):
@@ -55,6 +56,39 @@ finally:
       run(command, self.directory, timeout=0.5)
     self.assertEqual(error.exception.output, b'locked\n')
     self.assertFalse((self.directory / 'shallow.lock').exists())
+
+  def test_progress_burst_is_coalesced_without_losing_output(self):
+    command = self.command("for i in range(1000): print(f'Receiving objects: {i}\\r', end='')\n")
+    progress = []
+    result = run(command, self.directory, progress.append)
+    self.assertIn('Receiving objects: 500\r', result)
+    self.assertEqual(progress[0], 'Receiving objects: 0')
+    self.assertEqual(progress[-1], 'Receiving objects: 999')
+    self.assertLess(len(progress), 20)
+
+  def test_phone_uplink_interrupts_implicit_downloads(self):
+    command = self.command("from pathlib import Path\nimport time\nPath('started').touch()\ntime.sleep(60)\n")
+    with patch('openpilot.starpilot.software.fast_update.phone_uplink_active',
+               side_effect=lambda: (self.directory / 'started').exists()):
+      with self.assertRaisesRegex(FastUpdateError, 'software download stopped'):
+        run(command, self.directory, download=True, timeout=5)
+
+  def test_pending_progress_is_delivered_while_command_is_quiet(self):
+    command = self.command("""import time
+from pathlib import Path
+print('Receiving objects: 1%\\rReceiving objects: 99%', flush=True)
+deadline = time.monotonic() + 2
+while not Path('progress_received').exists() and time.monotonic() < deadline:
+  time.sleep(0.01)
+print('received while running' if Path('progress_received').exists() else 'progress stalled')
+""")
+
+    def progress(detail):
+      if detail == 'Receiving objects: 99%':
+        (self.directory / 'progress_received').touch()
+
+    result = run(command, self.directory, progress)
+    self.assertIn('received while running', result)
 
   def test_stubborn_command_is_killed(self):
     command = self.command("""import os

@@ -105,6 +105,7 @@ def identity_for(CP, controller, params, conversion_version):
       return None, False, False
     manual = profile is not None and (profile.factor.mode == 'custom' or profile.friction.mode == 'custom' or
                                      profile.proportional_gain.mode == 'custom' or profile.flm is not None or
+                                     profile.manual_coordinates is not None and any(v for _, v in profile.manual_coordinates.values) or
                                      profile.geometry is not None and (profile.geometry.ratio.mode == 'custom' or
                                                                       profile.geometry.full_delay.mode == 'custom'))
     baseline = serialize_document({str(CP.carFingerprint): profile}).hex() if profile is not None else None

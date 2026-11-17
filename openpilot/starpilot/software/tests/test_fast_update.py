@@ -206,6 +206,7 @@ class TestFastUpdate(unittest.TestCase):
     self.assertEqual(self.params.calls, [])
     self.assertEqual(self.invalidations, [])
     self.assertIn('--depth=20', next(command for command in commands if 'fetch' in command))
+    self.assertIn('--filter=blob:none', next(command for command in commands if 'fetch' in command))
 
   def test_selected_older_version_uses_same_install_and_rollback_transaction(self):
     self.update()
@@ -225,7 +226,7 @@ class TestFastUpdate(unittest.TestCase):
       self.assertEqual(self.params.calls, [])
       self.assertEqual(self.invalidations, [])
     rejected('f' * 40)
-    for index in range(21):
+    for index in range(owner.MAX_COMMITS + 1):
       (self.remote / 'openpilot/starpilot/ui/source.py').write_text(str(index))
       self.git(self.remote, 'commit', '-am', 'recent build')
     rejected(self.target)
@@ -234,6 +235,35 @@ class TestFastUpdate(unittest.TestCase):
     (self.remote / 'openpilot/starpilot/ui/source.py').write_text('replacement branch history')
     self.git(self.remote, 'commit', '-am', 'replacement')
     rejected(abandoned)
+
+  def test_installed_parent_remains_selectable_after_leaving_recent_window(self):
+    self.git(self.repo, 'fetch', 'origin')
+    self.git(self.repo, 'reset', '--hard', self.target)
+    for index in range(owner.MAX_COMMITS + 1):
+      (self.remote / 'openpilot/starpilot/ui/source.py').write_text(str(index))
+      self.git(self.remote, 'commit', '-am', 'newer build')
+    self.assertEqual(self.update(selected_commit=self.previous), 'reboot-requested')
+    self.assertEqual(self.git(self.repo, 'rev-parse', 'HEAD'), self.previous)
+
+  def test_selected_version_fetches_only_its_artifacts(self):
+    self.git(self.remote, 'config', 'uploadpack.allowFilter', 'true')
+    self.git(self.remote, 'config', 'uploadpack.allowReachableSHA1InWant', 'true')
+    self.git(self.repo, 'remote', 'set-url', 'origin', self.remote.as_uri())
+    artifact = self.remote / 'openpilot/starpilot/galaxy/web/assets/artifact.png'
+    artifact.parent.mkdir(parents=True)
+    artifact.write_bytes(b'chosen artifact' * 10000)
+    self.git(self.remote, 'add', '.')
+    self.git(self.remote, 'commit', '-m', 'Chosen version')
+    selected = self.git(self.remote, 'rev-parse', 'HEAD')
+    selected_blob = self.git(self.remote, 'rev-parse', 'HEAD:openpilot/starpilot/galaxy/web/assets/artifact.png')
+    artifact.write_bytes(b'unselected newer artifact' * 10000)
+    self.git(self.remote, 'commit', '-am', 'Unselected version')
+    unselected_blob = self.git(self.remote, 'rev-parse', 'HEAD:openpilot/starpilot/galaxy/web/assets/artifact.png')
+    self.assertEqual(self.update(selected_commit=selected), 'reboot-requested')
+    objects = set(self.git(self.repo, 'cat-file', '--batch-all-objects', '--batch-check=%(objectname)').splitlines())
+    self.assertIn(selected_blob, objects)
+    self.assertNotIn(unselected_blob, objects)
+    self.assertEqual(self.git(self.repo, 'rev-parse', 'HEAD'), selected)
 
   def test_selected_version_rechecks_os_and_native_artifact_contracts(self):
     (self.remote / 'launch_env.sh').write_text('export AGNOS_VERSION="different"\n')

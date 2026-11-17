@@ -2,7 +2,7 @@ from opendbc.car.gm.values import gm_control_word, is_volt_one_pedal, camera_acc
 """Finalized GM speed-control choices; existing native envelopes are retained."""
 
 from opendbc.car.gm.values import (is_malibu_cc_f1_profile, MALIBU_CC_F1_STOCK_WORD, is_volt_gateway_profile, is_volt_cc_profile,
-                                  is_ordinary_cc_profile, is_ordinary_camera_profile,
+                                  is_ordinary_cc_profile, is_ordinary_cc_stock_profile, is_ordinary_camera_profile,
                                   is_conventional_cc_pedal_profile, is_silverado_cc_pedal_profile, SILVERADO_CC_PEDAL_WORDS,
                                   CONVENTIONAL_CC_PEDAL_STOCK_WORDS, GMFlags)
 from opendbc.car.gm.values import (is_volt_ascm_longitudinal, is_volt_camera_longitudinal, is_volt_sdgm_profile,
@@ -14,7 +14,8 @@ def disable_long_supported(cp) -> bool:
   if malibu_hybrid_profile(cp) is not None:
     return True
   return (volt_cc_pedal_profile(cp) is not None or camera_acc_pedal_profile(cp) is not None or is_conventional_cc_pedal_profile(cp) or
-          is_ordinary_cc_profile(cp) or is_ordinary_camera_profile(cp) or is_ordinary_camera_profile(cp, longitudinal=True) or
+          is_ordinary_cc_profile(cp) or is_ordinary_cc_stock_profile(cp) or
+          is_ordinary_camera_profile(cp) or is_ordinary_camera_profile(cp, longitudinal=True) or
           is_volt_gateway_profile(cp) or is_volt_cc_profile(cp) or
           is_volt_ascm_longitudinal(cp) or is_volt_camera_longitudinal(cp) or is_volt_sdgm_profile(cp, longitudinal=True) or
           is_volt_camera_removed(cp, longitudinal=True) or is_lacrosse_gateway_profile(cp))
@@ -40,6 +41,14 @@ def prepare_disable_longitudinal(cp, requested: bool) -> None:
     cp.pcmCruise = True
     cp.autoResumeSng = False
     cp.safetyConfigs[0].safetyParam = MALIBU_CC_F1_STOCK_WORD
+    return
+  if requested and (is_ordinary_cc_profile(cp) or is_ordinary_cc_stock_profile(cp)):
+    cp.openpilotLongitudinalControl = False
+    cp.pcmCruise = True
+    cp.autoResumeSng = False
+    cp.flags &= ~int(GMFlags.CC_LONG)
+    cp.safetyConfigs[0].safetyParam = int(GMSafetyFlags.NO_ACC)
+    cp.minEnableSpeed = -1.
     return
   cc_profile = volt_cc_pedal_profile(cp)
   if requested and cc_profile is not None:

@@ -161,7 +161,7 @@ void can_rx(uint8_t can_number) {
     can_set_checksum(&to_push);
 
     // forwarding (panda only)
-    int bus_fwd_num = safety_fwd_hook(bus_number, to_push.addr);
+    int bus_fwd_num = safety_fwd_packet_hook(&to_push);
     if (bus_fwd_num != -1) {
       CANPacket_t to_send;
 
@@ -219,6 +219,12 @@ bool can_init(uint8_t can_number) {
     CAN_TypeDef *CANx = CANIF_FROM_CAN_NUM(can_number);
     ret &= can_set_speed(can_number);
     ret &= llcan_init(CANx);
+    #ifndef PANDA_BODY
+    // Reinitialization must not leave IRQs running on powered-down transceivers.
+    if (power_save_enabled) {
+      set_power_save_state(true);
+    }
+    #endif
     // in case there are queued up messages
     process_can(can_number);
   }

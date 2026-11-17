@@ -5,6 +5,7 @@ from opendbc.can import CANParser
 from opendbc.car import Bus, structs
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.interfaces import RadarInterfaceBase
+from opendbc.car.hyundai.hyundaicanfd import CanBus
 from opendbc.car.hyundai.values import (CAR, DBC, HyundaiFlags, HYUNDAI_MRR35_RADAR_DBC, HYUNDAI_MRR30_RADAR_DBC,
                                         HYUNDAI_GV70_RADAR_DBC, HYUNDAI_G90_RADAR_DBC, is_blended)
 
@@ -132,11 +133,12 @@ def radar_dbc(CP):
 
 
 def radar_bus(CP) -> int:
+  offset = CanBus(CP).offset if CP.flags & HyundaiFlags.CANFD else 0
   # Frozen Ioniq 6 camera-SCC wiring exposes the MRR35 object bank on bus 1;
   # its LKA/HDA-II wiring and the other MRR35 cars expose it on bus 0.
   if CP.carFingerprint == CAR.HYUNDAI_IONIQ_6 and CP.flags & HyundaiFlags.CANFD_CAMERA_SCC:
-    return 1
-  return 0
+    return offset + 1
+  return offset
 
 # POC for parsing corner radars: https://github.com/commaai/openpilot/pull/24221/
 

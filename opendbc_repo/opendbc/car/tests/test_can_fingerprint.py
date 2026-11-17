@@ -22,12 +22,13 @@ class TestCanFingerprint(unittest.TestCase):
       ambiguous_bolt = (car_model in ("CHEVROLET_BOLT_EUV", "CHEVROLET_BOLT_CC_2017", "CHEVROLET_BOLT_CC_2018_2021") and
                         fingerprint.get(0xD3) == 3)
       ambiguous_hybrid = car_model == "CHEVROLET_MALIBU_HYBRID_CC"
+      ambiguous_trax = car_model == "CHEVROLET_TRAX"
       if ambiguous_hybrid:
         # This existing 33-message table is also a complete subset of the
         # conventional Malibu table: CAN-only input cannot choose between them.
         assert len(fingerprints) == 1 and len(fingerprint) == 33
         assert fingerprint.items() <= FINGERPRINTS["CHEVROLET_MALIBU_CC"][1].items()
-      assert car_fingerprint == (None if ambiguous_bolt or ambiguous_hybrid else car_model)
+      assert car_fingerprint == (None if ambiguous_bolt or ambiguous_hybrid or ambiguous_trax else car_model)
       assert finger[0] == fingerprint
       assert finger[1] == fingerprint
       assert finger[2] == {}

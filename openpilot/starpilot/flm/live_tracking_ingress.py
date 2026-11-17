@@ -125,7 +125,7 @@ class LiveTrackingIngress:
                  control.controller_revision, control.native_identity, control.native_required) != lineage
                 or control.generation != pair[0].generation):
               return None
-          self.profile(control)  # Unknown consumption still fails closed.
+            self.profile(control)  # Unknown consumption inside the original interval still fails closed.
       except (AttributeError, TypeError, ValueError):
         return None
     return pair

@@ -18,6 +18,13 @@ static inline bool hyundai_canfd_stock_torque_aol_param(uint16_t param) {
 
 #if defined(ALLOW_DEBUG) || defined(__cplusplus)
 static inline bool hyundai_canfd_torque_long_aol_param(uint16_t param) {
-  return (param == 0x0815U) || (param == 0x0895U) || (param == 0x2815U) || (param == 0x2895U);
+  const uint16_t base = param & (uint16_t)~0x0800U;
+  const uint16_t fuel = base & 3U;
+  const uint16_t topology = base & 0x00B8U;
+  const bool sportage = ((param & 0x0800U) != 0U) && ((base & 0xFF41U) == 0U) &&
+                        ((base & 4U) != 0U) && ((fuel == 0U) || (fuel == 2U)) &&
+                        ((topology == 0U) || (topology == 8U) || (topology == 16U) ||
+                         (topology == 144U) || (topology == 32U) || (topology == 40U));
+  return (param == 0x28B4U) || sportage || (param == 0x080DU) || (param == 0x0815U) || (param == 0x0895U) || (param == 0x2815U) || (param == 0x2895U);
 }
 #endif

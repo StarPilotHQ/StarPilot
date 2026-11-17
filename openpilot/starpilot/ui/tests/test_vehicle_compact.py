@@ -39,6 +39,10 @@ class TestVehicleCompact(unittest.TestCase):
                                          dashcamOnly=False, notCar=False)),
                      "hyundai ioniq 6")
 
+  def test_elantra_refresh_identity_shows_supported_years(self):
+    self.assertEqual(vehicle_identity(NS(carFingerprint="HYUNDAI_ELANTRA_HEV_2024")),
+                     "hyundai elantra hybrid 2024-2026")
+
   def test_saved_selection_never_conflates_invalid_with_auto(self):
     choices = (VehicleChoice("HYUNDAI_IONIQ_6", "Hyundai", "Hyundai Ioniq 6"),)
     self.assertEqual(selection_label(SelectionSnapshot(None, True, True, None), choices), "auto detection")

@@ -84,6 +84,7 @@ class CardManualEventTests(unittest.TestCase):
 
   def test_traffic_media_uses_only_new_packet_durations_across_empty_card_polls(self):
     self.cp.carFingerprint = HYUNDAI_CAR.HYUNDAI_IONIQ_6
+    self.cp.safetyConfigs = [{'safetyModel': 'hyundaiCanfd'}]
     self.cp.flags = int(HyundaiFlags.CANFD_LKA_STEER_MSG)
     self.params.put('ModeButtonControl', 6, block=True)
     self.params.put('LongModeButtonControl', 6, block=True)
@@ -124,6 +125,7 @@ class CardManualEventTests(unittest.TestCase):
   def test_exact_ioniq_media_assignment_requires_source_and_host_authority(self):
     self.params.put('ModeButtonControl', 5, block=True)
     self.cp.carFingerprint = HYUNDAI_CAR.HYUNDAI_IONIQ_6
+    self.cp.safetyConfigs = [{'safetyModel': 'hyundaiCanfd'}]
     self.assertIsNone(self.candidate(media=self.media((False, False, 700_000_000),
                                                    (True, False, 900_000_000),
                                                    (False, False, 1_000_000_000))))  # ECAN is 0 in this CP.
@@ -157,6 +159,7 @@ class CardManualEventTests(unittest.TestCase):
 
   def test_ordinary_buttons_do_not_depend_on_optional_media_cache(self):
     self.cp.carFingerprint = HYUNDAI_CAR.HYUNDAI_IONIQ_6
+    self.cp.safetyConfigs = [{'safetyModel': 'hyundaiCanfd'}]
     self.cp.flags = int(HyundaiFlags.CANFD_LKA_STEER_MSG)
     self.params.put('LKASButtonControl', 5, block=True)
     self.params.put('DistanceButtonControl', 5, block=True)
@@ -177,6 +180,7 @@ class CardManualEventTests(unittest.TestCase):
 
   def test_ioniq_media_hold_cannot_cross_map_or_drive_change(self):
     self.cp.carFingerprint = HYUNDAI_CAR.HYUNDAI_IONIQ_6
+    self.cp.safetyConfigs = [{'safetyModel': 'hyundaiCanfd'}]
     self.cp.flags = int(HyundaiFlags.CANFD_LKA_STEER_MSG)
     self.params.put('ModeButtonControl', 5, block=True)
     self.candidate(media=self.media((False, False, 1_000_000_000)))

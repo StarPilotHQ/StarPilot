@@ -1,5 +1,5 @@
 import numpy as np
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.selfdrive.ui.onroad.cameraview import CameraView
 from openpilot.selfdrive.ui.onroad.driver_state import DriverStateRenderer

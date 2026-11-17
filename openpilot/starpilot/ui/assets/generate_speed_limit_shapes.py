@@ -3,6 +3,8 @@
 import numpy as np
 from PIL import Image
 
+from openpilot.starpilot.ui.large_speed_geometry import (SIGN_WIDTH, SIGN_HEIGHT, CONFIRMATION_BUTTON, CONFIRMATION_HEIGHT,
+                                                        CONFIRMATION_HEADER, CONFIRMATION_PADDING)
 from openpilot.starpilot.ui.speed_limit_shapes import ATLAS_PATH, ATLAS_SIZE, SPRITES, SPRITE_DENSITIES
 
 
@@ -21,16 +23,31 @@ def generate():
     py = ((np.arange(height * SAMPLES) + .5) / SAMPLES - height / 2) / density
     xx, yy = np.meshgrid(px, py)
     rgba = np.full((height, width, 4), 255, dtype=np.uint8)
-    if name in ('disc', 'ring'):
+    if name == 'ring':
       radius = np.hypot(xx, yy)
-      # End the white backing inside the opaque rim, avoiding an outer white fringe.
-      mask = radius <= 55 if name == 'disc' else (radius <= 59) & (radius >= 51)
+      mask = (radius <= 59) & (radius >= 51)
       rgba[..., 3] = np.rint(coverage(mask, width, height) * 255).astype(np.uint8)
     elif name == 'outline':
       # Signed distance to a rounded rectangle; supersampling is offline only.
-      qx, qy = np.abs(xx) - 49, np.abs(yy) - 56
+      half_width, half_height = SIGN_WIDTH / 2 - 2, SIGN_HEIGHT / 2 - 2
+      qx, qy = np.abs(xx) - (half_width - 8), np.abs(yy) - (half_height - 8)
       distance = np.hypot(np.maximum(qx, 0), np.maximum(qy, 0)) + np.minimum(np.maximum(qx, qy), 0) - 8
       rgba[..., 3] = np.rint(coverage((distance >= -2) & (distance <= 0), width, height) * 255).astype(np.uint8)
+    elif name.startswith('button'):
+      profile = name.split('_')[1]
+      half_width = (CONFIRMATION_BUTTON[profile] - 8) / 2
+      half_height = (CONFIRMATION_HEIGHT[profile] - CONFIRMATION_HEADER - 2 * CONFIRMATION_PADDING) / 2
+      qx, qy = np.abs(xx) - (half_width - 16), np.abs(yy) - (half_height - 16)
+      distance = np.hypot(np.maximum(qx, 0), np.maximum(qy, 0)) + np.minimum(np.maximum(qx, qy), 0) - 16
+      half_stroke = 1.5 if name.endswith('_pressed') else 1.
+      fill = coverage(np.abs(distance) <= half_stroke, width, height)
+      border = coverage((np.abs(distance) > half_stroke) & (np.abs(distance) <= half_stroke + .8), width, height) * .95
+      alpha = fill + border
+      # Bake the tight contour into the same quad so curved edges never overlap or facet.
+      for channel, dark in enumerate((6, 14, 10)):
+        rgba[..., channel] = np.rint(np.divide(fill * 255 + border * dark, alpha,
+                                              out=np.full_like(alpha, dark), where=alpha > 0)).astype(np.uint8)
+      rgba[..., 3] = np.rint(alpha * 255).astype(np.uint8)
     elif name in ('wheel_plus', 'wheel_minus'):
       qx, qy = np.abs(xx) - 4, np.abs(yy) - 4
       distance = np.hypot(np.maximum(qx, 0), np.maximum(qy, 0)) + np.minimum(np.maximum(qx, qy), 0) - 5
@@ -46,30 +63,6 @@ def generate():
         rgba[..., channel] = np.rint(np.divide(border * edge + mark * ink, alpha,
                                               out=np.where(center, ink, edge).astype(float), where=alpha > 0)).astype(np.uint8)
       rgba[..., 3] = np.rint(alpha * 255).astype(np.uint8)
-    elif name.startswith('confirmation'):
-      pulse = name == 'confirmation_pulse'
-      radius = 16 if name == 'confirmation_open' else 24
-      qx = np.abs(xx) - ((width / density - 2) / 2 - radius)
-      qy = np.abs(yy + (43 if pulse else 0)) - (76 - radius)
-      distance = np.hypot(np.maximum(qx, 0), np.maximum(qy, 0)) + np.minimum(np.maximum(qx, qy), 0) - radius
-      fill = coverage(distance <= 0, width, height)
-      row = ((np.arange(height) + .5) / density - 1 + (86 if pulse else 0)) / 152
-      if pulse:
-        rgba[..., :3] = (191, 115, 253)
-        alpha = fill * np.clip((row * 152 - 86) / 66, 0, 1)[:, None] * .20
-      else:
-        stops = (0, .08, .55, .64, 1)
-        colors = np.array(((73, 69, 94), (57, 55, 77), (55, 52, 78), (65, 53, 90), (86, 55, 118)))
-        base = np.stack([np.interp(row, stops, colors[:, c]) for c in range(3)], axis=-1)[:, None, :]
-        colors = np.array(((173, 153, 205), (116, 103, 141), (94, 72, 124)))
-        edge = np.stack([np.interp(row, (0, .5, 1), colors[:, c]) for c in range(3)], axis=-1)[:, None, :]
-        rim = coverage((distance >= -1) & (distance <= 0), width, height)
-        rim = np.divide(rim, fill, out=np.zeros_like(fill), where=fill > 0) * np.interp(row, (0, .5, 1), (.68, .46, .40))[:, None]
-        alpha = rim + 230 / 255 * (1 - rim)
-        rgba[..., :3] = np.rint((rim[..., None] * edge + 230 / 255 * (1 - rim[..., None]) * base) / alpha[..., None]).astype(np.uint8)
-        alpha *= fill
-      rgba[..., 3] = np.rint(alpha * 255).astype(np.uint8)
-      rgba[rgba[..., 3] == 0] = 0
     else:
       half_height, wing, stem, head, outline = (14, 9, 3, 9, 1.4) if name == 'arrow_large' else (7, 5, 2.5, 5, 1)
       base = half_height - head
@@ -83,11 +76,11 @@ def generate():
         t = np.clip(((xx - ax) * dx + (yy - ay) * dy) / (dx*dx + dy*dy), 0, 1)
         distance_sq = np.minimum(distance_sq, (xx - ax - t*dx)**2 + (yy - ay - t*dy)**2)
       fill = coverage(inside, width, height)
-      border = np.zeros_like(fill) if name == 'arrow_confirmation' else coverage((distance_sq <= outline**2) & ~inside, width, height) * .87
+      border = coverage((distance_sq <= outline**2) & ~inside, width, height) * .87
       alpha = fill + border
       for channel, dark in enumerate((6, 14, 10)):
         rgba[..., channel] = np.rint(np.divide(fill * 255 + border * dark, alpha,
-                                              out=np.full_like(alpha, 255 if name == 'arrow_confirmation' else dark), where=alpha > 0)).astype(np.uint8)
+                                              out=np.full_like(alpha, dark), where=alpha > 0)).astype(np.uint8)
       rgba[..., 3] = np.rint(alpha * 255).astype(np.uint8)
     atlas.paste(Image.fromarray(rgba), (x, y))
   return atlas

@@ -1,6 +1,7 @@
 import subprocess
 import threading
-import pyray as rl
+import time
+from openpilot.starpilot.ui.raylib import rl
 from enum import IntEnum
 from collections.abc import Callable
 
@@ -83,6 +84,7 @@ class CheckUpdateButton(BigButton):
     self._signal_updater(self.CHECK_FOR_UPDATE)
 
   def _signal_updater(self, sig: str):
+    self._check_requested_at = time.monotonic() if sig == self.CHECK_FOR_UPDATE else None
     self.set_enabled(False)
     self._state = UpdaterState.WAITING_FOR_UPDATER
     self._hide_value_t = None
@@ -109,6 +111,22 @@ class CheckUpdateButton(BigButton):
       return
 
     updater_state = ui_state.params.get("UpdaterState") or ""
+    fast = ui_state.params.get('UpdaterFastState') or {}
+    check = fast.get('check', {}) if isinstance(fast, dict) else {}
+    requested = getattr(self, '_check_requested_at', None)
+    if requested is not None and check.get('completedAt', 0) >= requested and check.get('state') in ('complete', 'error'):
+      self._state = UpdaterState.IDLE
+      self._check_requested_at = None
+      self._hide_value_t = rl.get_time()
+    if check.get('state') == 'checking':
+      self.set_rotate_icon(True)
+      self.set_value('checking version metadata...')
+      return
+    if isinstance(fast, dict) and fast.get('background') and updater_state in ('downloading...', 'finalizing update...'):
+      self.set_rotate_icon(False)
+      self.set_enabled(True)
+      self.set_value('Background download: ' + (fast.get('detail') or updater_state))
+      return
     failed_count = ui_state.params.get("UpdateFailedCount") or 0
     failed = int(failed_count) > 0
 

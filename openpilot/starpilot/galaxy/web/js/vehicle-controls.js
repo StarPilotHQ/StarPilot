@@ -174,6 +174,7 @@ export const VehicleControlsPage = {
     return { state, feed }
   },
   computed: {
+    busy() { return this.state.busy || !!this.state.pending || !!this.$refs?.vehicleSettings?.busy },
     autoDetection() { return this.state.data?.valid && this.state.data.selected === null && !this.state.manualSelectionOpen },
     makes() { return [...new Set((this.state.data?.choices || []).map((item) => item.make))] },
     models() {
@@ -186,6 +187,16 @@ export const VehicleControlsPage = {
   mounted() { if (this.mode === "local") this.feed.start() },
   beforeUnmount() { this.feed.stop() },
   methods: {
+    requestRouteLeave(proceed) {
+      if (this.busy) return
+      if (this.$refs.vehicleSettings) this.$refs.vehicleSettings.requestRouteLeave(proceed)
+      else proceed()
+    },
+    navigateBack() {
+      if (this.state.pending) { this.feed.cancel(); return true }
+      if (this.state.busy) return true
+      return this.$refs.vehicleSettings?.navigateBack() || false
+    },
     choose(platform) { this.feed.preview(platform) },
     changeAutoDetection(event) {
       event.target.checked = this.autoDetection
@@ -228,7 +239,7 @@ export const VehicleControlsPage = {
           </template>
         </div></article>
         <ToyotaToolsPage :mode="mode" :unauthorized="unauthorized" />
-        <SettingsPage :mode="mode" :unauthorized="unauthorized" initial-page="vehicle" title="Vehicle settings" />
+        <SettingsPage ref="vehicleSettings" :mode="mode" :unauthorized="unauthorized" initial-page="vehicle" title="Vehicle settings" />
         <GxDialog v-if="state.pending" labelledby="gx-vehicle-controls-confirm-title" @close="feed.cancel()"><h3 id="gx-vehicle-controls-confirm-title">Confirm Vehicle Selection</h3><p>{{ state.pending.question }}</p>
             <p>The choice takes effect after the next start.</p>
             <div class="gx-settings__controls gx-actions"><button type="button" class="gx-btn gx-btn--tonal" @click="feed.cancel()">Cancel</button>

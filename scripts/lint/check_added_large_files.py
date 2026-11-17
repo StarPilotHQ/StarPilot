@@ -6,6 +6,14 @@ import subprocess
 
 
 LARGE_TEXT_FILES = frozenset((
+  'openpilot/selfdrive/ui/translations/app.pot',
+  'openpilot/selfdrive/ui/translations/app_de.po',
+  'openpilot/selfdrive/ui/translations/app_es.po',
+  'openpilot/selfdrive/ui/translations/app_fr.po',
+  'openpilot/selfdrive/ui/translations/app_ja.po',
+  'openpilot/selfdrive/ui/translations/app_ko.po',
+  'openpilot/selfdrive/ui/translations/app_vi.po',
+  'openpilot/starpilot/ui/translation_messages.json',
   # shortcut: these existing modules bypass 120 KiB; split when their responsibilities warrant it.
   'openpilot/selfdrive/selfdrived/selfdrived.py',
   'openpilot/starpilot/galaxy/server.py',

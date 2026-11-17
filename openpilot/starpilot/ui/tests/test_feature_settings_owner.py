@@ -95,7 +95,7 @@ class FeatureSettingsOwnerTests(unittest.TestCase):
     self.owner.configuration_vehicle = lambda: False
     self.assertTrue(self.owner.apply(required_change(self._row('aol', 'AlwaysOnLateral'))))
     self.assertFalse(self.params.get_bool('AlwaysOnLateral'))
-    self.assertFalse(self._row('aol', 'AlwaysOnLateral').available)
+    self.assertTrue(self._row('aol', 'AlwaysOnLateral').available)
     ordinary = CarInterface.get_params(CAR.TOYOTA_PRIUS, gen_empty_fingerprint(), [], False, False, False)
     self.owner.vehicle_params = lambda: ordinary
     self.fingerprint = ordinary.carFingerprint
@@ -106,7 +106,7 @@ class FeatureSettingsOwnerTests(unittest.TestCase):
     unconfigured = ordinary.as_reader().as_builder()
     unconfigured.safetyConfigs = []
     self.owner.vehicle_params = lambda: unconfigured
-    self.assertFalse(self._row('aol', 'AlwaysOnLateral').available)
+    self.assertTrue(self._row('aol', 'AlwaysOnLateral').available)
     self.assertFalse(policy_for(unconfigured).runtime_supported)
     self.assertFalse(policy_for(unconfigured).intent_supported)
     fw = [structs.CarParams.CarFw(ecu=structs.CarParams.Ecu.eps, address=0x7A1, brand='toyota', bus=0,
@@ -164,36 +164,22 @@ class FeatureSettingsOwnerTests(unittest.TestCase):
       self.assertTrue(self.owner.apply(request))
       self.params.put_bool("ToyotaAutoHold", False, block=True)
 
-  def test_gm_tune_configured_choice_preserves_intent_and_guards_commit(self):
+  def test_volt_tune_is_not_exposed_even_in_configuration(self):
     from opendbc.car.gm.tests.test_volt_transitions import volt_camera_pedal_params
     cp = volt_camera_pedal_params(release=True)
     self.fingerprint = cp.carFingerprint
     self.owner.vehicle_params = lambda: cp
-    self.owner.configuration_vehicle = lambda: True
-    row = self._row("vehicle", "GMLongitudinalTune")
-    self.assertEqual(row.choices, ("Vehicle Default", "Volt Tune"))
-    request = required_change(row)
-    self.assertEqual(request.value, "Volt Tune")
-    self.assertTrue(self.owner.apply(request))
-    self.assertFalse(self.owner.apply(request))
+    self.params.put("GMLongitudinalTune", 2, block=True)
+    for configured in (False, True):
+      self.owner.configuration_vehicle = lambda configured=configured: configured
+      self.assertNotIn("GMLongitudinalTune", [row.key for row in self.owner.snapshot(
+        "vehicle", parked=True, system_long=True, lateral_context=True, metric=False).rows])
     self.assertEqual(Path(self.params.get_param_path("GMLongitudinalTune")).read_bytes(), b"2")
-    self.owner.configuration_vehicle = lambda: False
-    self.assertNotIn("GMLongitudinalTune", [r.key for r in self.owner.snapshot(
-      "vehicle", parked=True, system_long=False, lateral_context=True, metric=False).rows])
-    self.assertEqual(Path(self.params.get_param_path("GMLongitudinalTune")).read_bytes(), b"2")
-    self.owner.configuration_vehicle = lambda: True
-    row = self._row("vehicle", "GMLongitudinalTune")
-    reset = row_default(row)
-    assert reset is not None
-    self.allowed = False
-    self.assertFalse(self.owner.apply(reset))
-    self.allowed = True
-    self.assertTrue(self.owner.apply(reset))
-    self.assertEqual(Path(self.params.get_param_path("GMLongitudinalTune")).read_bytes(), b"0")
 
   def test_gm_tune_invalid_saved_choice_repairs_only_vehicle_default(self):
-    from opendbc.car.gm.tests.test_volt_transitions import volt_camera_pedal_params
-    cp = volt_camera_pedal_params()
+    from opendbc.car.gm.tests.test_bolt_volt_configurations import ordinary_params
+    from opendbc.car.gm.values import CAR as GM_CAR
+    cp = ordinary_params(GM_CAR.CHEVROLET_SUBURBAN, radar=True)
     self.fingerprint = cp.carFingerprint
     self.owner.vehicle_params = lambda: cp
     path = Path(self.params.get_param_path("GMLongitudinalTune"))
@@ -365,7 +351,7 @@ class FeatureSettingsOwnerTests(unittest.TestCase):
     from openpilot.starpilot.lateral.controller_selection import policy_for
     from openpilot.starpilot.vehicle_preferences import VehicleStartupPreferences
     cp = interfaces[CAR.MAZDA_CX5_2022].get_non_essential_params(CAR.MAZDA_CX5_2022)
-    self.assertIsNone(policy_for(cp))
+    self.assertEqual(policy_for(cp), 'generic')
     self.owner.vehicle_params = lambda: cp
     self.owner.controller.vehicle_params = self.owner.vehicle_params
     self.fingerprint = cp.carFingerprint
@@ -382,7 +368,20 @@ class FeatureSettingsOwnerTests(unittest.TestCase):
     self.assertTrue(self.owner.apply(required_change(self._row("torque", "TurnAssist"))))
     self.assertTrue(VehicleStartupPreferences.read(self.params, enabled=True).turn_assist)
 
+  def test_lane_centering_default_and_saved_off_are_distinct(self):
+    self.assertIsNone(self.params.get("LaneCentering"))
+    row = self._row("lane", "LaneCentering")
+    self.assertEqual(row.value, "On")
+    self.assertEqual(row.default_value, "On")
+    self.assertIsNone(self.params.get("LaneCentering"))
+    self.params.put_bool("LaneCentering", False, block=True)
+    row = self._row("lane", "LaneCentering")
+    self.assertEqual(row.value, "Off")
+    self.assertEqual(row.default_value, "On")
+    self.assertFalse(self.params.get_bool("LaneCentering"))
+
   def test_live_lane_owner_maps_only_explicit_keys(self):
+    self.params.put_bool("LaneCentering", False, block=True)
     from opendbc.car.car_helpers import interfaces
     from opendbc.car.toyota.values import CAR
     cp = interfaces[CAR.TOYOTA_COROLLA_TSS2].get_non_essential_params(CAR.TOYOTA_COROLLA_TSS2)
@@ -420,6 +419,7 @@ class FeatureSettingsOwnerTests(unittest.TestCase):
     self.assertIsNone(self.params.get("QOLLongitudinal"))
 
   def test_force_stop_preserves_cruise_master_and_offset_bounds(self):
+    self.params.put_bool("ForceStops", False, block=True)
     self.assertTrue(self._row("profiles", "ForceStops").available)
     self.params.put_bool("QOLLongitudinal", True, block=True)
     force = self._row("profiles", "ForceStops")
@@ -441,8 +441,7 @@ class FeatureSettingsOwnerTests(unittest.TestCase):
 
   def test_corrupt_bytes_remain_visible_and_untouched(self):
     for key, page, raw in (("LaneCenterOffset", "lane", b"nan"),
-                           ("SpeedLimitController", "slc", b"maybe"),
-                           ("SLCFallback", "slc", b"broken")):
+                           ("SpeedLimitController", "slc", b"maybe")):
       with self.subTest(key=key):
         path = Path(self.params.get_param_path(key))
         path.write_bytes(raw)
@@ -508,6 +507,28 @@ class FeatureSettingsOwnerTests(unittest.TestCase):
     self.assertEqual(saved.read_bytes(), b"0")
     self.assertTrue(self._row("profiles", "LeadApproachBuffer").available)
 
+  def test_confirmation_is_one_guarded_choice(self):
+    from openpilot.starpilot.speed_limits.runtime_settings import read_params
+    self.assertEqual(self._row('slc', 'SLCConfirmation').value, 'Off')
+    for expected, label, lower, higher in (
+        (1, 'Both', True, True), (3, 'Higher only', False, True),
+        (4, 'Lower only', True, False), (0, 'Off', False, False),
+    ):
+      request = required_change(self._row('slc', 'SLCConfirmation'))
+      self.assertTrue(self.owner.apply(request))
+      self.assertFalse(self.owner.apply(request))
+      self.assertEqual(self.params.get('SLCConfirmation'), expected)
+      self.assertEqual(self._row('slc', 'SLCConfirmation').value, label)
+      policy = read_params(self.params).acceptance
+      self.assertEqual((policy.confirm_lower, policy.confirm_higher), (lower, higher))
+
+  def test_invalid_confirmation_can_be_repaired_to_both(self):
+    Path(self.params.get_param_path('SLCConfirmation')).write_bytes(b'2')
+    row = self._row('slc', 'SLCConfirmation')
+    self.assertEqual(row.repair_value, 'Both')
+    self.assertTrue(self.owner.apply(required_change(row)))
+    self.assertEqual(self.params.get('SLCConfirmation'), 1)
+
   def test_parent_and_units_guards(self):
     from opendbc.car.car_helpers import interfaces
     from opendbc.car.toyota.values import CAR
@@ -519,18 +540,88 @@ class FeatureSettingsOwnerTests(unittest.TestCase):
     self.assertFalse(self.owner.apply(FeatureSettingsRequest('SLCConfirmationLower', None, 'On', vehicle_fingerprint=self.fingerprint)))
     parent = self._row("slc", "SLCConfirmation")
     self.assertTrue(self.owner.apply(required_change(parent)))
-    self.assertTrue(self.params.get_bool('SLCConfirmation'))
+    self.assertTrue(self.params.get('SLCConfirmation'))
     authority = self._row("lane", "LaneCenteringE2EAuthority")
-    self.assertEqual(authority.value, "100.0")
+    self.assertEqual(authority.value, "50.0")
     self.assertTrue(self.owner.apply(required_change(authority, -1)))
-    self.assertAlmostEqual(self.params.get("LaneCenteringE2EAuthority"), 0.95)
-    offset = self._row("slc", "Offset1")
-    self.assertFalse(offset.available)
-    self.assertFalse(self.owner.apply(FeatureSettingsRequest("Offset1", offset.source, "5", vehicle_fingerprint=offset.vehicle_fingerprint)))
+    self.assertAlmostEqual(self.params.get("LaneCenteringE2EAuthority"), 0.45)
+    authority = self._row("lane", "LaneCenteringE2EAuthority")
+    self.assertEqual(authority.default_value, "50.0")
+    reset = row_default(authority)
+    assert reset is not None
+    self.assertTrue(self.owner.apply(reset))
+    self.assertEqual(self.params.get("LaneCenteringE2EAuthority"), 0.5)
+    offset = self._row("slc", "slc:offset:1")
+    self.assertTrue(offset.available)
+    self.assertFalse(self.owner.apply(FeatureSettingsRequest("slc:offset:1", offset.source, "5", vehicle_fingerprint=offset.vehicle_fingerprint)))
     Path(self.params.get_param_path("IsMetric")).write_bytes(b"bad")
-    offset = self._row("slc", "Offset1")
+    offset = self._row("slc", "slc:offset:1")
     self.assertIn("invalid saved units", offset.label)
     self.assertEqual(Path(self.params.get_param_path("IsMetric")).read_bytes(), b"bad")
+
+  def test_retired_fallback_is_hidden_and_cannot_be_written(self):
+    path = Path(self.params.get_param_path('SLCFallback'))
+    for raw in (b'0', b'1', b'2', b'broken'):
+      with self.subTest(raw=raw):
+        path.write_bytes(raw)
+        rows = self.owner.snapshot('slc', parked=True, system_long=True, lateral_context=True, metric=False).rows
+        self.assertFalse(any(row.key == 'SLCFallback' for row in rows))
+        self.assertFalse(self.owner.apply(FeatureSettingsRequest('SLCFallback', raw, 'Off',
+                                                                  vehicle_fingerprint=self.fingerprint)))
+        self.assertEqual(path.read_bytes(), raw)
+
+  def test_match_speed_limit_on_engage_uses_the_software_cruise_setting(self):
+    from opendbc.car.structs import car
+    cp = car.CarParams(carFingerprint=self.fingerprint, openpilotLongitudinalControl=True, pcmCruise=False)
+    self.owner.vehicle_params = lambda: cp
+    self.params.put_bool('SpeedLimitController', True, block=True)
+    row = self._row('slc', 'SLCOnEngage')
+    self.assertEqual((row.label, row.value, row.default_value), ('Match Speed Limit on Engage', 'Off', 'Off'))
+    request = required_change(row)
+    cp.pcmCruise = True
+    self.assertFalse(self.owner.apply(request))
+    cp.pcmCruise = False
+    self.assertTrue(self.owner.apply(request))
+    self.assertTrue(self.params.get_bool('SLCOnEngage'))
+    self.assertEqual(self._row('slc', 'SLCOnEngage').value, 'On')
+
+  def test_gas_pedal_override_uses_the_shared_slc_settings_owner(self):
+    row = self._row('slc', 'SLCOverrideMode')
+    choices = ('Resume the adjusted limit', 'Hold the speed you reached', 'Use your SET speed')
+    self.assertEqual((row.label, row.value), ('After an accelerator override', choices[1]))
+    self.assertEqual(row.choices, choices)
+    self.allowed = False
+    self.assertFalse(self.owner.apply(required_change(row)))
+    self.allowed = True
+    for mode in (2, 0, 1):
+      self.assertTrue(self.owner.apply(required_change(row)))
+      self.assertEqual(self.params.get('SLCOverrideMode'), mode)
+      row = self._row('slc', 'SLCOverrideMode')
+      self.assertEqual(row.value, choices[mode])
+
+    Path(self.params.get_param_path('SLCOverrideMode')).write_bytes(b'9')
+    repair = required_change(self._row('slc', 'SLCOverrideMode'))
+    self.assertEqual(repair.value, choices[0])
+    self.assertFalse(self.owner.apply(replace(repair, value=choices[2])))
+    self.assertTrue(self.owner.apply(repair))
+    self.assertEqual(self.params.get('SLCOverrideMode'), 0)
+
+  def test_wheel_override_is_off_and_only_configurable_for_software_set(self):
+    from opendbc.car.structs import car
+    cp = car.CarParams(carFingerprint=self.fingerprint, openpilotLongitudinalControl=True, pcmCruise=False)
+    self.owner.vehicle_params = lambda: cp
+    self.params.put_bool('SpeedLimitController', True, block=True)
+    row = self._row('slc', 'SLCWheelOverride')
+    self.assertEqual((row.label, row.value, row.default_value), ('Override speed limit with +', 'Off', 'Off'))
+    request = required_change(row)
+    cp.pcmCruise = True
+    self.assertFalse(self.owner.apply(request))
+    cp.pcmCruise = False
+    self.params.put_bool('SpeedLimitController', False, block=True)
+    self.assertFalse(self.owner.apply(request))
+    self.params.put_bool('SpeedLimitController', True, block=True)
+    self.assertTrue(self.owner.apply(request))
+    self.assertTrue(self.params.get_bool('SLCWheelOverride'))
 
   def test_limit_sign_preference_needs_parked_authority_not_long_control_or_vehicle(self):
     self.fingerprint = None
@@ -545,7 +636,7 @@ class FeatureSettingsOwnerTests(unittest.TestCase):
     sign = next(row for row in page.rows if row.key == "ShowSpeedLimits")
     self.assertTrue(sign.available)
     self.assertIsNone(sign.vehicle_fingerprint)
-    for key in ("SpeedLimitController", "SLCConfirmation", "SLCPriority1", "SLCFallback"):
+    for key in ("SpeedLimitController", "SLCConfirmation", "SLCPriority1"):
       self.assertFalse(next(row for row in page.rows if row.key == key).available)
     request = required_change(sign)
     self.allowed = False

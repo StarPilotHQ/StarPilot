@@ -1,4 +1,8 @@
-"""Selected safety slot for the exact first-generation captured CANFD owner."""
+"""Selected CANFD safety slot, retaining the exact captured-startup topology."""
+from functools import lru_cache
+
+from capnp.lib.capnp import _DynamicStructBuilder, _DynamicStructReader
+
 from opendbc.car.structs import CarParams
 from opendbc.car.hyundai.values import CAR, HyundaiFlags
 
@@ -21,8 +25,22 @@ def topology_index(cp):
   return 1
 
 
-def config_index(cp):
+def _config_index_uncached(cp):
   owner = topology_index(cp)
+  if owner is None and len(cp.safetyConfigs) == 2:
+    auxiliary, selected = cp.safetyConfigs
+    try:
+      factory = CAR(cp.carFingerprint)
+    except ValueError:
+      return None
+    if (cp.brand == 'hyundai' and factory.config.flags & HyundaiFlags.CANFD and
+        not factory.config.flags & HyundaiFlags.CANFD_ANGLE_STEERING and
+        cp.flags & HyundaiFlags.CANFD and not cp.flags & HyundaiFlags.CANFD_ANGLE_STEERING and
+        not cp.passive and not cp.dashcamOnly and not cp.notCar and
+        cp.steerControlType == CarParams.SteerControlType.torque and
+        auxiliary.safetyModel == CarParams.SafetyModel.noOutput and auxiliary.safetyParam == 0 and
+        selected.safetyModel == CarParams.SafetyModel.hyundaiCanfd):
+      return 1
   if owner != 1:
     return owner
   raw = int(cp.safetyConfigs[owner].safetyParam)
@@ -35,3 +53,25 @@ def config_index(cp):
   elif not cp.openpilotLongitudinalControl and cp.pcmCruise and cp.alternativeExperience == 0 and raw in (0x11, 0x811):
     return 1
   return None
+
+
+@lru_cache(maxsize=32)
+def _config_index_for_bytes(key):
+  with CarParams.from_bytes(key) as cp:
+    return _config_index_uncached(cp)
+
+
+def config_index(cp):
+  if type(cp) in (_DynamicStructBuilder, _DynamicStructReader):
+    configs = cp.safetyConfigs
+    if len(configs) == 1:
+      return 0 if configs[0].safetyModel == CarParams.SafetyModel.hyundaiCanfd else None
+    if cp.schema == CarParams.schema and len(configs) == 2:
+      try:
+        snapshot = cp.copy() if type(cp) is _DynamicStructBuilder else cp.as_builder()
+        key = snapshot.to_bytes()
+        if len(key) <= 65536:
+          return _config_index_for_bytes(key)
+      except Exception:
+        pass
+  return _config_index_uncached(cp)

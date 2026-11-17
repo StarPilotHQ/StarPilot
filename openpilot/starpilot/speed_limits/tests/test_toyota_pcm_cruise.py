@@ -111,7 +111,7 @@ def test_pcm_resume_edge_and_release_frame_set_speed_feed_override():
   fixture.setUp()
   sm = fixture.sm
   sm['carState'].vCruise = sm['carState'].vCruiseCluster = 90.
-  runtime = Runtime(parse({'SpeedLimitController': True, 'SLCPriority1': 'Dashboard', 'SLCConfirmation': True}),
+  runtime = Runtime(parse({'SpeedLimitController': True, 'SLCPriority1': 'Dashboard', 'SLCConfirmation': 1}),
                     session_id='pcm-drive')
   pending = runtime.step(sm, parsed.cp, now_ns=2_000_000_000)
   assert pending.message.slcState.hasPending
@@ -120,14 +120,14 @@ def test_pcm_resume_edge_and_release_frame_set_speed_feed_override():
                        request=Action(runtime.session_id, 1, pending.message.slcState.decisionId,
                                       pending.message.slcState.presentationId, 'accept'))
   assert first.result.acceptance is not None and first.result.acceptance.basis == 'driver_accept'
-  assert first.result.override.context is not None
+  assert first.result.ceiling is not None
   receipt, published = publish_change(parsed, state)
   sm.advance(parsed.now)
   sm.data['carState'] = published.carState
   result = runtime.step(sm, parsed.cp, now_ns=parsed.now,
                         cruise_event=receipt)
-  assert result.result.override.event_receipt.consumed
-  assert result.result.override.state.persistent_selected_mps == pytest.approx(change[1])
+  assert not result.message.slcState.driverOverrideActive
+  assert result.result.ceiling is not None
   assert parsed.helper.v_cruise_kph == pytest.approx(92.)
 
 

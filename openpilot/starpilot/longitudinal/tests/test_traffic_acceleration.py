@@ -60,7 +60,7 @@ class TrafficAccelerationPlannerTests(unittest.TestCase):
     self.assertLessEqual(traffic.output_a_target, 0.44 + 1e-8)
     self.assertLess(traffic.a_cruise, baseline.a_cruise)
 
-  def test_soft_saved_traffic_keeps_slc_and_force_decel_braking(self):
+  def test_slc_cap_preserves_soft_traffic_response_and_native_force_decel(self):
     target = self.tuning(acceleration=0.6, braking=0.35)
     self.assertAlmostEqual(target.acceleration_max, 0.6)
     self.assertAlmostEqual(target.cruise_brake_magnitude, 0.35)
@@ -72,14 +72,15 @@ class TrafficAccelerationPlannerTests(unittest.TestCase):
         for _ in range(60):
           sm, _ = messages(force=force)
           sm['carControl'].longActive = True
-          baseline.update(sm, cruise_ceiling=ceiling)
           traffic.update(sm, cruise_ceiling=ceiling, profile_tuning=target, traffic_mode=True)
+          sm['carState'].vCruise = 15.0 * 3.6
+          baseline.update(sm, profile_tuning=target, traffic_mode=True)
           self.assertEqual(traffic.mpc.solution_status, 0)
           self.assertLessEqual(traffic.a_cruise, baseline.a_cruise + 1e-8)
         self.assertEqual(traffic.last_cruise_ceiling_status, 'force_decel' if force else 'applied')
         self.assertIsNotNone(traffic.last_profile)
         self.assertAlmostEqual(traffic.last_profile.cruise_brake_magnitude, 0.35)
-        self.assertLessEqual(traffic.a_cruise, -0.5 + 1e-8)
+        self.assertLessEqual(traffic.a_cruise, (-0.5 if force else -0.35) + 1e-8)
 
   def test_soft_saved_traffic_preserves_lead_and_model_stop_candidates(self):
     target = self.tuning(acceleration=0.6, braking=0.5)
@@ -215,8 +216,10 @@ class TrafficAccelerationPlannerTests(unittest.TestCase):
                           cruise_ceiling=cruise_ceiling, curve_ceiling=curve_ceiling)
           self.assertEqual(planner.mpc.solution_status, 0)
         self.assertAlmostEqual(planner.output_a_target, baseline.output_a_target, places=5)
-        if case in ('slc', 'curve'):
+        if case == 'curve':
           self.assertLessEqual(planner.a_cruise, -0.5 + 1e-8)
+        elif case == 'slc':
+          self.assertLessEqual(planner.a_cruise, -0.42 + 1e-8)
         elif case == 'force_decel':
           self.assertLessEqual(planner.a_cruise, -0.5 + 1e-8)
         elif case == 'model_stop':

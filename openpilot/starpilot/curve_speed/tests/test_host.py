@@ -44,6 +44,12 @@ class TestCurveHost(unittest.TestCase):
     self.sm.logMonoTime['radarState'] = NOW - 1_000_000_000
     self.assertIsNone(self.host.sample(self.sm, self.cp, NOW + 50_000_000).ceiling_mps)
 
+  def test_curve_uses_same_cycle_slc_capped_cruise_without_mutating_set(self):
+    with patch.object(self.host.runtime, 'step', wraps=self.host.runtime.step) as step:
+      self.host.sample(self.sm, self.cp, NOW, follow_time_s=1.45, cruise_ceiling_mps=20.)
+    self.assertEqual(step.call_args.args[0].cruise_mps, 20.)
+    self.assertEqual(self.sm['carState'].vCruise, 108.)
+
   def test_stock_owner_and_malformed_field_fail_closed(self):
     self.cp.openpilotLongitudinalControl = False
     self.assertIsNone(self.host.sample(self.sm, self.cp, NOW).ceiling_mps)

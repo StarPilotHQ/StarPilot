@@ -2,6 +2,7 @@
 
 from opendbc.can import CANParser
 from opendbc.car import structs
+from opendbc.car.config_cache import cached_config
 from opendbc.car.toyota.toyotacan import toyota_checksum
 from opendbc.car.toyota import eps8_sdsu, radar_filter
 from opendbc.car.toyota.values import CAR, ToyotaFlags
@@ -56,6 +57,7 @@ def apply(cp, *, camera_twoaa=False):
   cp.alphaLongitudinalAvailable = bool(cp.flags & (ToyotaFlags.NO_DSU | ToyotaFlags.RADAR_ACC))
 
 
+@cached_config
 def configured(cp):
   from opendbc.car.toyota.pedal_composite import parent_cp
   cp = parent_cp(cp)

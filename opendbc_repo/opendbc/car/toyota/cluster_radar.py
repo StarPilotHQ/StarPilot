@@ -46,7 +46,7 @@ class ClusterRadarInterface(RadarInterfaceBase):
         self.track_id += 1
       point = self.pts[track]
       point.dRel = float(cluster['LONG_DIST'])
-      point.yRel = -float(cluster['LAT_DIST'])
+      point.yRel = float(cluster['LAT_DIST'])
       point.vRel = float(cluster['SPEED']) - ego * EGO_SPEED_SCALE
       point.deprecated.aRel = float('nan')
       point.deprecated.yvRel = float(cluster['LAT_SPEED'])

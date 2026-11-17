@@ -1,6 +1,7 @@
 """Dom global Subaru standstill timing; stock ACC retains pedal authority."""
 
 from opendbc.car import structs
+from opendbc.car.subaru.stock_aol import IMPREZA_MAIN_AOL
 from opendbc.car.subaru.values import CAR, SubaruFlags
 
 STOP_AND_GO = 8
@@ -10,6 +11,10 @@ SUPPORTED = frozenset((CAR.SUBARU_ASCENT, CAR.SUBARU_IMPREZA, CAR.SUBARU_IMPREZA
 def eligible(cp):
   try:
     word = int(cp.safetyConfigs[0].safetyParam) if len(cp.safetyConfigs) == 1 else -1
+    if word & IMPREZA_MAIN_AOL:
+      if cp.carFingerprint != CAR.SUBARU_IMPREZA_2020 or cp.alternativeExperience != 32:
+        return False
+      word &= ~IMPREZA_MAIN_AOL
     words = (0, 8, 512, 520) if cp.carFingerprint == CAR.SUBARU_IMPREZA_2020 else (0, 8)
     return bool(
       cp.brand == 'subaru'

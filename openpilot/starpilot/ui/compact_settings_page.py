@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.settings_state import SettingsState, compact_menu
 from openpilot.starpilot.ui.shell import ShellMode

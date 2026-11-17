@@ -20,6 +20,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+
+def boot_id() -> str:
+  try:
+    return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+  except OSError:
+    return ""
+
+
 def _data_dir() -> Path:
   if override := os.environ.get("STARPORT_DIR"):
     return Path(override)
@@ -141,14 +149,20 @@ DEFAULT_CONFIG = {
   "render_profile_kb": 256,    # size cap per render_profile file
   "wifi_interface": "wlan0",
   "dedicated_wifi_interface": True,   # join the car on its own aa0 station so wlan0 stays on home Wi-Fi
+  "allow_hevc": False,         # offer H.265 when the car offers no usable H.264 mode (Galaxy Developer > StarPort)
+  "tall_hevc": False,          # H.265 only: use the car's 1080x1920 mode when offered (Galaxy Developer > StarPort)
+  "keyframe_test": False,      # H.265 sessions only: every frame a keyframe, plus ack and frame logging (Galaxy Developer > StarPort)
   "device_name": "StarPilot",
   "version_status": 0,         # WifiVersionResponse status (0 = success) for receivers that negotiate a version
   "phone_class": True,         # while pairing/connecting, present as a phone: HFP gateway + smartphone Class of Device
   "auto_connect": True,        # start projection on its own when the chosen car is on (onroad, or it reaches the comma)
   "rfcomm_cache": {},          # car address -> Android Auto RFCOMM channel learned over SDP, to skip discovery next time
+  "modern_reply_cache": {},    # car address -> True when its v4+ head unit only started after the phone-style version reply
   "car_type": "",              # wireless setup shown in Galaxy: "builtin" or "adapter"; "" = work it out from the saved companion car
   "car_profile_override": "",  # "" = pick by fingerprint (a wireless adapter must choose); "default" = standard; otherwise a car_profiles id
   "car_fingerprint": {},       # what the chosen car's head unit reported last time, used to pick a profile before it connects
+  "head_unit_experiments": False,  # master switch for car and dongle fixes (Galaxy: Try experimental fixes); off = standard connection
+  "head_unit_experiment_rules": [],  # ids of the experimental fixes switched on for this comma's car
 }
 
 
@@ -188,11 +202,19 @@ def load_config(path: Path | None = None) -> dict:
   if config["usb_mode"] not in ("auto", "handshake", "direct"):
     config["usb_mode"] = "auto"
   config["bitrate_kbps"] = max(1000, min(12000, int(config["bitrate_kbps"])))
+  config["allow_hevc"] = config["allow_hevc"] is True
+  config["keyframe_test"] = config["keyframe_test"] is True
+  config["tall_hevc"] = config["tall_hevc"] is True
+  config["head_unit_experiments"] = config["head_unit_experiments"] is True
+  config["head_unit_experiment_rules"] = sorted({str(rule)[:64] for rule in config["head_unit_experiment_rules"]
+                                                 if isinstance(rule, str)})[:16]
   if config["rate_control"] not in ("cbr", "vbr"):
     config["rate_control"] = "cbr"
   config["render_profile_kb"] = max(16, min(4096, int(config["render_profile_kb"])))
   config["rfcomm_cache"] = {str(address).upper(): channel for address, channel in config["rfcomm_cache"].items()
                             if type(channel) is int and 1 <= channel <= 30}
+  config["modern_reply_cache"] = {str(address).upper(): True for address, modern in config["modern_reply_cache"].items()
+                                  if modern is True}
   return config
 
 

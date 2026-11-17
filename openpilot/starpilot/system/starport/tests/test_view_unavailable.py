@@ -172,3 +172,30 @@ def test_cold_start_timeout_still_exhausts_restart_budget(tmp_path):
     assert source.latest() is None
   finally:
     source.close()
+
+
+def drawn_rows(frame, width):
+  """Rows that differ from the card's dark background."""
+  rows = set()
+  for row in range(len(frame) // (width * 4)):
+    line = frame[row * width * 4:(row + 1) * width * 4]
+    if any(line[i] > 40 for i in range(0, len(line), 4)):
+      rows.add(row)
+  return rows
+
+
+def test_unavailable_card_stays_inside_a_top_aligned_visible_area():
+  from openpilot.starpilot.system.starport.supervisor import Supervisor
+  # The 2023 Polestar 2: 720x1280 with all 541 margin rows at the bottom, so it shows only the top 739 rows.
+  req = FrameRequest(720, 1280, 0, 541, 33333, content_left=0, content_top=0)
+  rows = drawn_rows(Supervisor._unavailable_frame(req, 'Starting StarPilot'), req.width)
+  assert rows and max(rows) < 1280 - 541
+  assert abs((min(rows) + max(rows)) / 2 - (1280 - 541) / 2) < 30  # centered in what the car shows
+
+
+@pytest.mark.parametrize('content_top', [None, 270, 271])
+def test_unavailable_card_is_unchanged_for_centered_margins(content_top):
+  from openpilot.starpilot.system.starport.supervisor import Supervisor
+  base = FrameRequest(720, 1280, 0, 541, 33333)
+  req = FrameRequest(720, 1280, 0, 541, 33333, content_left=0 if content_top is not None else None, content_top=content_top)
+  assert Supervisor._unavailable_frame(req, 'Starting StarPilot') == Supervisor._unavailable_frame(base, 'Starting StarPilot')

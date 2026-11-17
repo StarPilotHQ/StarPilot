@@ -107,7 +107,7 @@ class TestControllerCruise(unittest.TestCase):
     vars(instance)['sm'] = self.sm
     instance.CC_prev = car.CarControl(enabled=True)
     instance.CS_prev = self.cs
-    vars(instance)['CI'] = SimpleNamespace(CS=SimpleNamespace(), update=lambda packets:self.cs)
+    vars(instance)['CI'] = SimpleNamespace(CC=None, CS=SimpleNamespace(), update=lambda packets:self.cs)
     instance.car_gps_publisher = card.CarGpsPublisher()
     self.enterContext(patch.object(instance, 'pm', SimpleNamespace(send=Mock()), create=True))
     vars(instance)['RI'] = SimpleNamespace(update=lambda packets:None)
@@ -152,12 +152,13 @@ class TestControllerCruise(unittest.TestCase):
   def test_actual_settings_capability_dependency_and_runtime_refresh(self):
     with tempfile.TemporaryDirectory() as directory:
       params=Params(directory)
-      vehicle=cp(True,'toyota')
+      vehicle=car.CarParams.new_message(pcmCruise=True, brand='toyota', carFingerprint='TEST',
+                                       openpilotLongitudinalControl=True)
       owner=FeatureSettingsOwner(params,lambda group:group in ('long', 'toyota_cruise'),
                                  vehicle_fingerprint=lambda:vehicle.carFingerprint,
                                  vehicle_params=lambda:vehicle)
       def rows():
-        return {r.key:r for r in owner.snapshot(FeaturePage.PROFILES,parked=True,system_long=True,
+        return {r.key:r for r in owner.snapshot(FeaturePage.WHEEL,parked=True,system_long=True,
                                                lateral_context=False,metric=True).rows}
       self.assertNotIn('CustomCruise',rows())
       self.assertNotIn('CustomCruiseLong',rows())

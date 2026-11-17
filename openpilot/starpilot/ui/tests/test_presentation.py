@@ -86,3 +86,57 @@ class TestBitmapFonts(unittest.TestCase):
 
 if __name__ == "__main__":
   unittest.main()
+
+
+class TestLocalizedPresentation(unittest.TestCase):
+  def test_measure_and_draw_use_the_same_translated_text_and_font(self):
+    fonts = object.__new__(BitmapFonts)
+    fonts.profile = Profile.COMPACT
+    fonts._measurements = {}
+    font = SimpleNamespace(texture=SimpleNamespace(id=44))
+    with patch('openpilot.starpilot.ui.presentation.tr', side_effect=lambda text: {'Home': 'ホーム'}.get(text, text)), \
+         patch.object(fonts, '_text_font', return_value=font) as select, \
+         patch('openpilot.starpilot.ui.presentation.rl.measure_text_ex', return_value=SimpleNamespace(x=80, y=24)) as measure, \
+         patch('openpilot.starpilot.ui.presentation.rl._orig_draw_text_ex', create=True) as draw:
+      assert fonts.measure('Home', FontRole.NORMAL, 20).width == 80
+      fonts.draw('Home', FontRole.NORMAL, 20, 10, 20)
+      assert measure.call_args.args[1] == draw.call_args.args[1] == 'ホーム'
+      assert select.call_args.args[:2] == ('ホーム', FontRole.NORMAL)
+      fonts.draw('StarPilot', FontRole.BRAND, 20, 10, 20)
+      assert draw.call_args.args[1] == 'StarPilot'
+
+  def test_native_language_font_uses_bundled_noto_and_releases_previous(self):
+    fonts = object.__new__(BitmapFonts)
+    old = SimpleNamespace(texture=SimpleNamespace(id=22), glyphCount=1)
+    new = SimpleNamespace(texture=SimpleNamespace(id=23), glyphCount=100)
+    fonts._language_fonts = {'vi': old}
+    fonts._measurements = {}
+    fonts._vertical_ink = {}
+    fonts._horizontal_ink = {}
+    with patch('openpilot.starpilot.ui.presentation.multilang') as language, \
+         patch('openpilot.starpilot.ui.presentation.rl.load_font_ex', return_value=new) as load, \
+         patch('openpilot.starpilot.ui.presentation.rl.get_font_default', return_value=SimpleNamespace(texture=SimpleNamespace(id=99))), \
+         patch('openpilot.starpilot.ui.presentation.rl.unload_font') as unload, \
+         patch('openpilot.starpilot.ui.presentation.rl.gen_texture_mipmaps'), \
+         patch('openpilot.starpilot.ui.presentation.rl.set_texture_filter'):
+      language.language = 'ja'
+      assert fonts._text_font('ホーム', FontRole.NORMAL) is new
+      assert load.call_args.args[0].endswith('NotoSansCJKjp-Regular.otf')
+      unload.assert_called_once_with(old)
+      assert fonts._language_fonts == {'ja': new}
+      assert fonts._text_font('保存', FontRole.NORMAL) is new
+      load.assert_called_once()
+
+  def test_home_statistics_use_shared_localized_measurement_and_drawing(self):
+    from unittest.mock import Mock
+    from openpilot.starpilot.ui.home_stats import DriveStatsDashboard
+    from openpilot.starpilot.ui.home_state import DriveStatsData, DriveSummary
+    fonts = Mock(spec=BitmapFonts, font=Mock(side_effect=[object(), object(), object()]),
+                 measure=Mock(return_value=SimpleNamespace(width=80, height=24)), draw=Mock())
+    data = DriveStatsData(DriveSummary(), DriveSummary(), DriveSummary(), (), ())
+    dashboard = DriveStatsDashboard(fonts, data)
+    measured = dashboard._measure(dashboard._font_bold, 'PERSONAL RECORDS', 20)
+    assert (measured.x, measured.y) == (80, 24)
+    dashboard._draw_text(dashboard._font_bold, 'PERSONAL RECORDS', SimpleNamespace(x=10, y=20), 20, 0, 'color')
+    fonts.measure.assert_called_once_with('PERSONAL RECORDS', FontRole.BOLD, 20)
+    fonts.draw.assert_called_once_with('PERSONAL RECORDS', FontRole.BOLD, 20, 10, 20, 'color', spacing=0)

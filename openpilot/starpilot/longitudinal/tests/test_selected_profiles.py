@@ -108,6 +108,7 @@ class SelectedProfilesTests(unittest.TestCase):
   def test_v4_migration_preserves_dormant_custom_and_original_activation(self):
     document = self.document('dom_default', 'sport', enabled=True)
     document['schemaVersion'] = 4
+    document.pop('extraStoppedGapM')
     document['globalBrakingResponse'] = document.pop('selectedDecelerationProfile')
     document.pop('selectedAccelerationProfile')
     for profile in document['profiles'].values():

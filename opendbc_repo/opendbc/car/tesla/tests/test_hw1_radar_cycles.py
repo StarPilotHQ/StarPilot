@@ -23,7 +23,7 @@ def test_hw1_radar_detection_requires_bosch_status_length(alpha, length):
   assert cp.radarUnavailable == (length != 8)
   assert cp.safetyConfigs[0].safetyParam == 16 + int(alpha)
   assert cp.openpilotLongitudinalControl == alpha
-  assert cp.pcmCruise != alpha
+  assert cp.pcmCruise
   assert cp.mass > 2100 and cp.wheelbase == pytest.approx(2.96) and cp.steerRatio == 15
 
 

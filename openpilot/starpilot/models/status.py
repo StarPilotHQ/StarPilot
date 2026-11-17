@@ -111,3 +111,60 @@ def project_status(requested_id: str | None, process: ModelProcess | None, load:
   if output.model_v2_big != (load.variant is ModelVariant.CHESTNUT):
     return ModelStatus(common[0], common[1], common[2], ModelHealth.FAILED, *common[3:])
   return ModelStatus(common[0], common[1], common[2], ModelHealth.ACTIVE, *common[3:])
+
+
+@dataclass(frozen=True)
+class LaboratoryLoad:
+  pid: int
+  process_start_ticks: int
+  loaded_mono_ns: int
+  lateral_id: str
+  lateral_version: str
+  lateral_sha256: str
+  longitudinal_id: str
+  longitudinal_version: str
+  longitudinal_sha256: str
+  plan_sha256: str
+  lateral_source_format: str = "tinygrad_single_v1_arena"
+  lateral_source_compiler: str | None = "9d0446a4ba8a532c8b674fb6ad795af015cd9dcf"
+  lateral_source_manifest: str = ""
+  longitudinal_source_format: str = "tinygrad_single_v1_arena"
+  longitudinal_source_compiler: str | None = "9d0446a4ba8a532c8b674fb6ad795af015cd9dcf"
+  longitudinal_source_manifest: str = ""
+
+
+def project_laboratory_status(config: dict, process: ModelProcess | None, load: LaboratoryLoad | None,
+                              output: ModelOutput | None, now_mono_ns: int) -> dict:
+  result = {'schemaVersion': 2, 'requested': config['enabled'], 'active': False,
+            'lateralModel': '', 'longitudinalModel': '', 'health': 'unavailable', 'error': '',
+            'roles': {}, 'pendingNextStart': False}
+  if process is None or not process.running:
+    return result
+  result['health'] = 'loading'
+  if load is None:
+    return result
+  result['health'] = 'identity-unavailable'
+  if ((load.pid, load.process_start_ticks) != (process.pid, process.start_ticks) or
+      not 0 < load.loaded_mono_ns <= now_mono_ns):
+    return result
+  result.update(lateralModel=load.lateral_id, longitudinalModel=load.longitudinal_id,
+                planSha256=load.plan_sha256, roles={
+                  'lateral': {'id': load.lateral_id, 'version': load.lateral_version, 'sha256': load.lateral_sha256,
+                              'sourceFormat': load.lateral_source_format, 'sourceCompilerRevision': load.lateral_source_compiler,
+                              'sourceManifestSha256': load.lateral_source_manifest},
+                  'longitudinal': {'id': load.longitudinal_id, 'version': load.longitudinal_version, 'sha256': load.longitudinal_sha256,
+                                  'sourceFormat': load.longitudinal_source_format, 'sourceCompilerRevision': load.longitudinal_source_compiler,
+                                  'sourceManifestSha256': load.longitudinal_source_manifest}},
+                pendingNextStart=(not config['enabled'] or config['lateralModel'] != load.lateral_id or
+                                  config['longitudinalModel'] != load.longitudinal_id))
+  if (output is None or not output.model_v2_valid or not output.driving_data_valid or
+      any(not load.loaded_mono_ns <= stamp <= now_mono_ns or now_mono_ns - stamp > OUTPUT_MAX_AGE_NS
+          for stamp in (output.model_v2_mono_ns, output.driving_data_mono_ns))):
+    result['health'] = 'stale'
+  elif not output.model_v2_big or output.chestnut_active is False:
+    result['health'] = 'failed'
+    result['error'] = 'Pair GPU output identity unavailable'
+  else:
+    result.update(health='active', active=True)
+  return result
+

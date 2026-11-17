@@ -22,7 +22,7 @@ SSID = re.compile(r"(?i)\b(e?ssid)\b[=: ]+\S+")
 
 
 def _timestamp(value: float) -> str:
-  return datetime.fromtimestamp(value, UTC).strftime("%Y-%m-%d %H:%M:%S")
+  return datetime.fromtimestamp(value, UTC).strftime("%Y-%m-%d %H:%M:%S UTC")  # journalctl reads a bare time as local
 
 
 def commands(start: float, end: float) -> dict[str, list[str]]:
@@ -75,15 +75,15 @@ def collect(start: float, end: float, *, collector=system_snapshot.collect) -> d
   return result
 
 
-def sidecar_path(log_path: Path) -> Path:
+def sidecar_path(log_path: Path, tag: str = "") -> Path:
   match = re.fullmatch(r"session-(\d{6})-.*\.jsonl", log_path.name)
-  return log_path.with_name(f"session-{match[1] if match else log_path.stem}{SIDECAR_SUFFIX}")
+  return log_path.with_name(f"session-{match[1] if match else log_path.stem}{tag}{SIDECAR_SUFFIX}")
 
 
-def write_sidecar(log_path: Path, start: float, end: float, *, collector=system_snapshot.collect) -> None:
+def write_sidecar(log_path: Path, start: float, end: float, *, collector=system_snapshot.collect, tag: str = "") -> None:
   """Capture the window and save it beside the session log; never raises."""
   try:
-    path = sidecar_path(log_path)
+    path = sidecar_path(log_path, tag)
     text = json.dumps(collect(start, end, collector=collector))
     temporary = path.with_name(path.name + ".tmp")
     fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -94,8 +94,8 @@ def write_sidecar(log_path: Path, start: float, end: float, *, collector=system_
     pass
 
 
-def write_sidecar_async(log_path: Path, start: float, end: float) -> threading.Thread:
-  thread = threading.Thread(target=write_sidecar, args=(log_path, start, end), name="aa_system_slice", daemon=True)
+def write_sidecar_async(log_path: Path, start: float, end: float, tag: str = "") -> threading.Thread:
+  thread = threading.Thread(target=write_sidecar, args=(log_path, start, end), kwargs={"tag": tag}, name="aa_system_slice", daemon=True)
   thread.start()
   return thread
 

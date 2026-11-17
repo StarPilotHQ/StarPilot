@@ -5,7 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.presentation import BitmapFonts, FontRole, Profile
 
@@ -64,7 +64,7 @@ def main() -> None:
         image_path = args.output / f"{profile}.png"
         if not rl.export_image(pixels, str(image_path)):
           raise RuntimeError("Unable to export native framebuffer")
-        pixel_hash = hashlib.sha256(bytes(rl.ffi.buffer(pixels.data, width * height * 4))).hexdigest()
+        pixel_hash = hashlib.sha256(bytes(pixels.data[:width * height * 4])).hexdigest()
       finally:
         rl.unload_image(pixels)
       report = {"profile": profile, "dimensions": [width, height], "context_dimensions": list(context_size), "rgba_sha256": pixel_hash,

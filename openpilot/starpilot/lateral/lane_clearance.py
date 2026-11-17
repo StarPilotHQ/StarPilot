@@ -136,7 +136,7 @@ def _limit_body_envelope(edges, base, correction, measured, speed, delay, body):
   return 0.
 
 
-def limit_tracking(path, base: float, correction: float, measured: float, speed: float, delay: float) -> float:
+def limit_tracking(path, base: float, correction: float, measured: float, speed: float, delay: float, *, recovery_budget: float = 0.) -> float:
   """A line-tracking contribution must improve its predicted spacing objective."""
   if not all(math.isfinite(v) for v in (base, correction, measured, speed, delay)) or speed < 5.0 or not 0.0 <= delay <= 1.0:
     return 0.0
@@ -145,13 +145,35 @@ def limit_tracking(path, base: float, correction: float, measured: float, speed:
   if np.count_nonzero(selected) < 4:
     return 0.0
   original = float(np.mean((y[selected] - np.interp(x[selected], *path)) ** 2))
-  for factor in (1.0, 0.75, 0.5, 0.25):
+  cx, cy, _ = _center_motion(base + correction, measured, speed, delay)
+  if not np.all((cx[selected] >= path[0][0]) & (cx[selected] <= path[0][-1])):
+    return 0.0
+  error = y[selected] - np.interp(x[selected], *path)
+  delta = cy[selected] - np.interp(cx[selected], *path) - error
+  sensitivity = float(delta @ delta)
+  if sensitivity <= 1e-24:
+    return 0.0
+  # Project onto the spacing objective instead of stepping between four fixed
+  # correction fractions. Check the resulting nonlinear motion before use.
+  factor = min(1.0, max(0.0, -float(error @ delta) / sensitivity))
+  if recovery_budget > 0.:
+    near, far = float(error[0]), float(error[-1])
+    if near != 0.:
+      reserve = max(0., 1. - float(np.max(np.abs(error))) / recovery_budget)
+      recovery = min(1., max(0., far / near))
+      factor *= 1. - reserve * min(1., abs(near) / .08) * (1. - recovery)
+  if factor <= 0.0:
+    return 0.0
+  if factor == 1.0:
+    candidate = float(np.mean((error + delta) ** 2))
+    return correction if candidate <= original + 1e-12 else 0.0
+  for _ in range(3):
     cx, cy, _ = _center_motion(base + correction * factor, measured, speed, delay)
-    if not np.all((cx[selected] >= path[0][0]) & (cx[selected] <= path[0][-1])):
-      continue
-    candidate = float(np.mean((cy[selected] - np.interp(cx[selected], *path)) ** 2))
-    if candidate <= original + 1e-12:
-      return correction * factor
+    if np.all((cx[selected] >= path[0][0]) & (cx[selected] <= path[0][-1])):
+      candidate = float(np.mean((cy[selected] - np.interp(cx[selected], *path)) ** 2))
+      if candidate <= original + 1e-12:
+        return correction * factor
+    factor *= 0.5
   return 0.0
 
 

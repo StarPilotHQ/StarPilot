@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import unittest
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.galaxy_access import GALAXY_ICON
 

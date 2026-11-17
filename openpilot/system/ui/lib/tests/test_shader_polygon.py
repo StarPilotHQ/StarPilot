@@ -1,7 +1,7 @@
 from unittest.mock import Mock, patch
 
 import numpy as np
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import pytest
 
 from openpilot.system.ui.lib import shader_polygon as polygon
@@ -13,13 +13,13 @@ def geometry_fixture(count, dtype, stride):
 
 
 def pointer_vertices(pointer, count):
-  return np.array([(pointer[i].x, pointer[i].y) for i in range(count)], dtype=np.float32).reshape(count, 2)
+  return np.asarray(pointer, dtype=np.float32).reshape(-1, 2)[:count].copy()
 
 
 @pytest.mark.parametrize('dtype', ['float32', 'float64'])
 @pytest.mark.parametrize('odd', [False, True])
 @pytest.mark.parametrize('stride', [1, 2])
-def test_ribbon_geometry_and_ffi_vertices(dtype, odd, stride):
+def test_ribbon_geometry_and_native_vertices(dtype, odd, stride):
   ribbon = [[0, 0], [2, 0], [4, 1], [4, 3], [2, 2], [0, 2]]
   if odd:
     ribbon.append([99, 99])
@@ -29,7 +29,7 @@ def test_ribbon_geometry_and_ffi_vertices(dtype, odd, stride):
   actual = polygon.triangulate(points)
   expected = np.array([[0, 0], [0, 2], [2, 0], [2, 2], [4, 1], [4, 3]], dtype=np.float32)
   np.testing.assert_array_equal(actual, expected)
-  np.testing.assert_array_equal(pointer_vertices(rl.ffi.from_buffer('Vector2 *', actual), len(actual)), expected)
+  np.testing.assert_array_equal(pointer_vertices(actual, len(actual)), expected)
   np.testing.assert_array_equal(points, ribbon)
   assert actual.dtype == np.float32 and actual.flags.c_contiguous
   assert not np.shares_memory(actual, points)

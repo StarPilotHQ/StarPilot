@@ -71,12 +71,24 @@ _RADAR_LEAD_CACHE_MAX = 8
 _RADAR_LEAD_KEY_MAX_BYTES = 4096
 
 
+_RADAR_LEAD_FIELDS = tuple(log.RadarState.schema.fields[name] for name in ('leadOne', 'leadTwo'))
+_LEAD_VALUE_FIELDS = tuple(log.RadarState.LeadData.schema.fields[name] for name in ('present', 'dRel', 'yRel', 'vLead', 'aLeadK'))
+
+
 def _decode_radar_lead_rows(radar):
   try:
-    if any(type(item.present) is not bool for item in (radar.leadOne, radar.leadTwo)):
-      return None
-    leads = tuple(Lead(item.present, item.dRel, item.yRel, item.vLead, item.aLeadK)
-                  for item in (radar.leadOne, radar.leadTwo))
+    if type(radar) in (capnp._DynamicStructReader, capnp._DynamicStructBuilder) and radar.schema == log.RadarState.schema:
+      present, distance, lateral, speed, accel = _LEAD_VALUE_FIELDS
+      leads = tuple(Lead(item._get_by_field(present), item._get_by_field(distance), item._get_by_field(lateral),
+                         item._get_by_field(speed), item._get_by_field(accel))
+                    for item in (radar._get_by_field(field) for field in _RADAR_LEAD_FIELDS))
+      if any(type(lead.present) is not bool for lead in leads):
+        return None
+    else:
+      if any(type(item.present) is not bool for item in (radar.leadOne, radar.leadTwo)):
+        return None
+      leads = tuple(Lead(item.present, item.dRel, item.yRel, item.vLead, item.aLeadK)
+                    for item in (radar.leadOne, radar.leadTwo))
   except (AttributeError, TypeError, ValueError, OverflowError):
     return None
   if len(leads) != 2 or not ToyotaOutputPolicy._leads_valid(leads):

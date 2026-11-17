@@ -29,6 +29,11 @@ void can_clear_send(FDCAN_GlobalTypeDef *FDCANx, uint8_t can_number) {
     can_health[can_number].can_core_reset_cnt += 1U;
     can_health[can_number].total_tx_lost_cnt += (FDCAN_TX_FIFO_EL_CNT - (FDCANx->TXFQS & FDCAN_TXFQS_TFFL)); // TX FIFO msgs will be lost after reset
     llcan_clear_send(FDCANx);
+    #ifndef PANDA_BODY
+    if (power_save_enabled) {
+      set_power_save_state(true);
+    }
+    #endif
     last_reset = time;
   }
 }
@@ -196,7 +201,13 @@ static void can_rx(uint8_t can_number) {
     can_set_checksum(&to_push);
 
     // forwarding
-    int bus_fwd_num = safety_fwd_hook(bus_number, to_push.addr);
+    #ifdef STM32H7
+    mpu_safety_open();
+    #endif
+    int bus_fwd_num = safety_fwd_packet_hook(&to_push);
+    #ifdef STM32H7
+    mpu_safety_close();
+    #endif
     if (bus_fwd_num >= 0) {
       CANPacket_t to_send;
 
@@ -218,7 +229,15 @@ static void can_rx(uint8_t can_number) {
     body_can_rx(&to_push);
     #endif
 
+    #ifdef STM32H7
+
+    mpu_safety_open();
+
+    #endif
     safety_rx_invalid += safety_rx_hook(&to_push) ? 0U : 1U;
+    #ifdef STM32H7
+    mpu_safety_close();
+    #endif
     ignition_can_hook(&to_push);
 
     led_set(LED_BLUE, true);
@@ -265,6 +284,12 @@ bool can_init(uint8_t can_number) {
     FDCAN_GlobalTypeDef *FDCANx = CANIF_FROM_CAN_NUM(can_number);
     ret &= can_set_speed(can_number);
     ret &= llcan_init(FDCANx);
+    #ifndef PANDA_BODY
+    // Reinitialization must not leave IRQs running on powered-down transceivers.
+    if (power_save_enabled) {
+      set_power_save_state(true);
+    }
+    #endif
     // in case there are queued up messages
     process_can(can_number);
   }

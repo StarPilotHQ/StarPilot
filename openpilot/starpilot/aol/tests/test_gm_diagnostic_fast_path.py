@@ -96,3 +96,11 @@ def test_malformed_torque_tuning_does_not_borrow_exemption(field):
   cp.lateralTuning.torque.latAccelFactor = 1.
   setattr(cp.lateralTuning.torque, field, float('nan'))
   assert _diagnostic_mask(cp) == original_mask(cp) == 0
+
+
+def test_empty_fault_reports_skip_all_vehicle_diagnostic_work():
+  cp, _ = owner('bolt')
+  with patch('openpilot.starpilot.aol.panda_faults._diagnostic_mask', side_effect=AssertionError('empty fault report')):
+    assert not blocking_fault_mask(0, cp)
+    for faults in ([], (), iter(())):
+      assert not blocking_fault_list(faults, cp)

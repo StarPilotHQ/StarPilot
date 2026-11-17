@@ -1,7 +1,7 @@
 import numpy as np
 from openpilot.starpilot.ui.camera_selection import (selected_camera_stream, WIDE_CAM_MAX_SPEED as WIDE_CAM_MAX_SPEED,
                                                     ROAD_CAM_MIN_SPEED as ROAD_CAM_MIN_SPEED)
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 from openpilot.cereal import log
 from opendbc.car.structs import car
 from openpilot.cereal.visionipc import VisionStreamType
@@ -44,6 +44,10 @@ CAM_Y_OFFSET = 20
 
 class BookmarkIcon(Widget):
   PEEK_THRESHOLD = 150  # If icon peeks out this much, snap it fully visible
+  FLICK_DISTANCE = 60
+  FLICK_VELOCITY = 800
+  FLICK_DURATION = 0.15
+  FLICK_PAUSE = 0.06
   FULL_VISIBLE_OFFSET = 200  # How far onscreen when fully visible
   HIDDEN_OFFSET = -50  # How far offscreen when hidden
 
@@ -68,6 +72,9 @@ class BookmarkIcon(Widget):
     self._triggered_time: float = 0.0
     self._triggered_duration = 1.5
     self._swipe_expired = False
+    self._swipe_start_t = 0.0
+    self._last_swipe_move = (0.0, 0.0)
+    self._swipe_moves = 0
 
   def is_swiping_left(self) -> bool:
     """Check if currently swiping left (for scroller to disable)."""
@@ -154,6 +161,9 @@ class BookmarkIcon(Widget):
       self._is_swiping = True
       self._is_swiping_left = False
       self._swipe_expired = False
+      self._swipe_start_t = mouse_event.t
+      self._last_swipe_move = (mouse_event.pos.x, mouse_event.t)
+      self._swipe_moves = 0
 
     elif (mouse_event.left_down or mouse_event.left_released) and self._is_swiping:
       self._swipe_current_x = mouse_event.pos.x
@@ -162,6 +172,12 @@ class BookmarkIcon(Widget):
       if swipe_offset < -12 or (vertical > 12 and vertical > abs(swipe_offset)):
         self.cancel_gesture()
         return
+      if mouse_event.left_down and not mouse_event.left_released:
+        if mouse_event.t <= self._last_swipe_move[1]:
+          self._swipe_moves = 0
+        else:
+          self._swipe_moves += 1
+        self._last_swipe_move = (mouse_event.pos.x, mouse_event.t)
       self._is_swiping_left = swipe_offset > 12
       if self._is_swiping_left:
         self._interacting = True
@@ -174,7 +190,14 @@ class BookmarkIcon(Widget):
         swipe_distance = self._swipe_start_x - self._swipe_current_x
 
         # If peeking past threshold, transition to animating to fully visible and bookmark
-        if swipe_distance > self.PEEK_THRESHOLD:
+        move_x, move_t = self._last_swipe_move
+        elapsed = move_t - self._swipe_start_t
+        held_distance = self._swipe_start_x - move_x
+        flick = (self._swipe_moves >= 2 and 0.01 <= elapsed <= self.FLICK_DURATION and
+                 0 <= mouse_event.t - move_t <= self.FLICK_PAUSE and
+                 held_distance >= self.FLICK_DISTANCE and swipe_distance >= self.FLICK_DISTANCE and
+                 swipe_distance >= held_distance - 12 and held_distance / elapsed >= self.FLICK_VELOCITY)
+        if swipe_distance > self.PEEK_THRESHOLD or flick:
           self._state = BookmarkState.TRIGGERED
           self._triggered_time = rl.get_time()
           self._triggered_duration = 1.5
@@ -294,7 +317,7 @@ class AugmentedRoadView(CameraView):
     if not self._bookmark_icon.interacting():
       super()._handle_mouse_release(mouse_pos)
 
-  def _render(self, rect: rl.Rectangle, /, *, paint: bool = True, poll_camera: bool = True):
+  def _render(self, rect: rl.Rectangle, *, paint: bool = True, poll_camera: bool = True):
     if not paint:
       super()._render(rect, paint=False, poll_camera=poll_camera)
       return

@@ -182,3 +182,24 @@ def test_actual_observer_exception_is_reported_with_existing_refusal_intact():
     assert not collector.original_source_capture.rows
     assert collector.reason == 'initializing'
     assert (receiver_state(sm), tuple(collector.ready)) == before
+
+
+def test_stall_checkpoint_reports_current_health_without_rewriting_first_refusal():
+  from openpilot.starpilot.flm.source_stall_log import SourceStallLog, WAIT_NS
+  with fixture() as (collector, cp, sm):
+    record_refusal(collector, sm, BASE, 'receiver_health')
+    original = refusal_report(collector)['firstRefusal']
+    sm.freq_ok['driverMonitoringState'] = False
+    before = (receiver_state(sm), tuple(collector.ready), collector.reason)
+    emitted = []
+    logger = SourceStallLog(emitted.append)
+    logger.observe(collector, now_ns=BASE, bootstrap_allowed=True, sm=sm)
+    logger.observe(collector, now_ns=BASE+WAIT_NS, bootstrap_allowed=True, sm=sm)
+    logger.observe(collector, now_ns=BASE+WAIT_NS+1, bootstrap_allowed=True, sm=sm)
+    assert len(emitted) == 1
+    current = emitted[0]['receiverCurrent']
+    assert current['observedMonoTime'] == BASE+WAIT_NS
+    assert not current['receiver']['driverMonitoringState']['freqOk']
+    assert original['receiver']['driverMonitoringState']['freqOk']
+    assert emitted[0]['sourceObservation']['firstRefusal'] == original
+    assert (receiver_state(sm), tuple(collector.ready), collector.reason) == before

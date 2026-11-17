@@ -15,6 +15,7 @@ Ecu = CarParams.Ecu
 class VolvoSafetyFlags(IntFlag):
   SPA = 1
   C1 = 2
+  LCA2_MOD15 = 4
 
 
 class CarControllerParams:

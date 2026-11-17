@@ -16,7 +16,7 @@ CMA = ['VOLVO_XC40_RECHARGE', 'VOLVO_S60_RECHARGE', 'POLESTAR_2']
 EXPECTED = {'VOLVO_V40': (2, 1610, 2.647, 14.7, .2),
             'VOLVO_XC40_RECHARGE': (0, 2170, 2.702, 15.8, .3),
             'VOLVO_S60_RECHARGE': (1, 2020, 2.872, 16.2, .3),
-            'POLESTAR_2': (1, 2123, 2.735, 15.8, .3)}
+            'POLESTAR_2': (5, 2123, 2.735, 15.8, .3)}
 
 
 def interface(identity, alpha=False, release=False):
@@ -31,11 +31,12 @@ def packet(message):
 
 
 def sources(identity, cruise=True, *, frame=0):
+  modulus = 15 if identity == 'POLESTAR_2' else 16
   mid = CANPacker('volvo_mid_1')
   pt = CANPacker(DBC[CAR(identity)][Bus.pt])
   result = [mid.make_can_msg(name, bus, values) for name, bus, values in [
     ('SPEED', 0, {'SPEED': 3000}), ('SPEED_2', 0, {}), ('GEAR_POSITION', 0, {'GEAR_POSITION': 3}),
-    ('LCA', 0, {}), ('LCA_2', 0, {'COUNTER_1': ((frame // 2) * 2) % 16, 'COUNTER_2': ((frame // 2) * 4) % 16}), ('LCA_3', 0, {}), ('LCA_4', 0, {}),
+    ('LCA', 0, {}), ('LCA_2', 0, {'COUNTER_1': ((frame // 2) * 2) % modulus, 'COUNTER_2': ((frame // 2) * 4) % modulus}), ('LCA_3', 0, {}), ('LCA_4', 0, {}),
     ('LCA_5', 0, {}), ('LCA_6', 0, {}), ('LCA_7', 0, {}),
     ('PSCM', 2, {}), ('DRIVER_INPUT', 2, {}), ('EGSM', 2, {}), ('PSCM_RELATED', 2, {'NEW_SIGNAL_2': 8}), ('SAS', 2, {}),
   ]]

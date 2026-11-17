@@ -67,6 +67,7 @@ def _exercise_recovery(full_op, order, fault):
         observed = sd.CS_prev.as_builder()
         if index == len(keys) - 1:
           if fault == 'cancel':
+            card.aol_card_intent.settings = replace(card.aol_card_intent.settings, cancel_actions=(9, 0, 0))
             observed.buttonEvents = [car.CarState.ButtonEvent(type=car.CarState.ButtonEvent.Type.cancel, pressed=True)]
           elif fault in ('native_wait', 'native_denial'):
             native = decode_safety(sd.sm['aolSafetyWire'])

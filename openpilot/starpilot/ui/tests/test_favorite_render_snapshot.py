@@ -10,9 +10,8 @@ from openpilot.starpilot.favorites.actions import BOOKMARK
 from openpilot.starpilot.favorites.owner import FAVORITE_SLOTS_PARAM, FavoritesOwner, default_slots
 from openpilot.starpilot.favorites.state import FavoriteAction
 from openpilot.starpilot.ui import runtime_app
-from openpilot.starpilot.ui.appearance_preferences import CameraViewChoice
 from openpilot.starpilot.ui.onroad_favorites import FavoriteRequest, OnroadFavorites
-from openpilot.starpilot.ui.onroad_state import AlertSize
+from openpilot.starpilot.ui.onroad_state import OnroadState, SpeedLimitObservation
 from openpilot.starpilot.ui.presentation import Profile
 
 
@@ -100,8 +99,8 @@ def session_fixture(owner):
   session.favorites_owner = owner
   session._favorite_authority = Mock(return_value=True)
   session.favorites = OnroadFavorites(NS(profile=Profile.LARGE), session._favorite_request)
-  state = NS(viewport_width=2160, camera_available=True, alert=NS(size=AlertSize.NONE),
-             appearance=NS(camera_view=CameraViewChoice.NONE))
+  state = OnroadState(True, True, 15, 80, SpeedLimitObservation())
+  state.customization['reduceMotion'] = True
   return session, state
 
 
@@ -110,7 +109,7 @@ def test_picker_open_forces_catalog_before_one_second_and_closed_empty_resumes_o
   session, state = session_fixture(owner)
   session._update_favorites(state, 10.)
   assert actions.call_count == 0 and session.favorites.data['options'] == ()
-  session.favorites.mode, session.favorites.last_interaction = 'radial', 10.1
+  session.favorites.mode, session.favorites.last_interaction = 'shelf', 10.1
   session._update_favorites(state, 10.2)
   assert actions.call_count == 0
   session.favorites.mode, session.favorites.last_interaction = 'picker', 10.3
@@ -162,8 +161,8 @@ def test_favorite_tap_does_not_wait_for_the_unrelated_picker_catalog(tmp_path, p
   session.favorites = OnroadFavorites(NS(profile=profile), session._favorite_request)
   session._update_favorites(state, 10.)
   if profile == Profile.LARGE:
-    session.favorites.mode = 'radial'
-    blade, _ = session.favorites.blades()[0]
+    session.favorites.open(10.)
+    blade, _ = session.favorites.menu_buttons()[0]
     x, y = blade[0] + blade[2] / 2, blade[1] + blade[3] / 2
   else:
     x, y = 80, 80

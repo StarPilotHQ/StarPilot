@@ -36,15 +36,18 @@ class AutoConnectPolicy:
     if running:
       self.suppressed = True
 
+  def hold(self) -> None:
+    self.suppressed = True
+
   def start_refused(self, now: float) -> None:
     self._not_before = now + START_REFUSED_WAIT
 
-  def decide(self, now: float, *, enabled: bool, onroad: bool, car_link: bool, ready: bool, running: bool) -> str | None:
+  def decide(self, now: float, *, enabled: bool, onroad: bool, car_link: bool, ready: bool, running: bool, linked: bool = False) -> str | None:
     """Return "start", "stop" or None."""
     if onroad and not self._was_onroad:
       self.suppressed = False  # a new drive
     self._was_onroad = onroad
-    present = onroad or car_link
+    present = onroad or car_link or (running and linked)
 
     if running:
       if present:

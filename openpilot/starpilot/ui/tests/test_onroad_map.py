@@ -1,8 +1,10 @@
 """Map overlay geometry (CPU) and rendering (STARPILOT_AUTO_GL_TEST=1 for a real GL context)."""
 
+import json
 import math
 import os
 import time
+from collections import defaultdict
 import threading
 from types import SimpleNamespace as NS
 from unittest.mock import Mock, patch
@@ -15,8 +17,8 @@ from openpilot.starpilot.navigation.road_tiles import (
   DATA_ZOOM, EXTENT, MAJOR, MINOR, MOTORWAY, STREET, TileKey, decode_road_tile, encode_road_tile, lat_lon, world_xy,
 )
 from openpilot.starpilot.ui.onroad_map import (
-  CAR_ANCHOR, ZOOM_FAST_M_PER_PX, ZOOM_SLOW_M_PER_PX, CanvasRequest, MapFix, MapInput, MapOverlay, TileReader,
-  build_canvas, line_strip, route_guidance, split_route, zoom_for_speed,
+  CAR_ANCHOR, HEADING_DEADBAND_DEG, MAX_TURN_DEG_S, ZOOM_FAST_M_PER_PX, ZOOM_SLOW_M_PER_PX, CanvasRequest, MapFix, MapInput, MapOverlay, TileReader,
+  build_canvas, line_strip, route_guidance, snap_to_route, split_route, zoom_for_speed, zoom_target,
 )
 from openpilot.starpilot.system.starport.tests import test_gpu_nv12
 
@@ -159,6 +161,44 @@ def test_tile_reader_finishes_canvas_larger_than_cache(tmp_path):
     reader.close()
 
 
+def test_snap_to_route_keeps_the_car_on_the_line_ahead():
+  from openpilot.starpilot.navigation.road_tiles import meters_per_tile
+  meter = 1 / meters_per_tile(CENTER[0])
+  x, y = world_xy(*CENTER)
+  out_and_back = np.array([(x, y), (x + 500 * meter, y), (x + 500 * meter, y - 10 * meter), (x, y - 10 * meter)])
+  snapped = snap_to_route(out_and_back, (x + 100 * meter, y - 8 * meter), 90., 22 * meter)
+  assert snapped is not None and snapped[1] == 0 and snapped[0] == pytest.approx((x + 100 * meter, y))
+  assert snapped[2] == pytest.approx(90.)
+  assert snap_to_route(out_and_back, (x + 100 * meter, y + 40 * meter), 90., 22 * meter) is None
+  back = snap_to_route(out_and_back, (x + 100 * meter, y - 2 * meter), 270., 22 * meter)
+  assert back is not None and back[1] == 2, "heading picks the leg the car is driving"
+  resumed = snap_to_route(out_and_back, (x + 100 * meter, y - 2 * meter), None, 22 * meter, start=2)
+  assert resumed is not None and resumed[1] == 2
+
+
+def test_car_eases_onto_the_route_and_turns_with_it(tmp_path):
+  from openpilot.starpilot.navigation.road_tiles import meters_per_tile
+  overlay = MapOverlay(tmp_path)
+  try:
+    meter = 1 / meters_per_tile(CENTER[0])
+    east = tuple(lat_lon(world_xy(*CENTER)[0] + i * 50 * meter, world_xy(*CENTER)[1]) for i in range(40))
+    overlay._route(east)
+    north_of_route = lat_lon(world_xy(*CENTER)[0] + 5 * meter, world_xy(*CENTER)[1] - 12 * meter)
+    for frame in range(200):
+      now = 100. + frame / 50
+      overlay._advance(MapInput(MapFix(*north_of_route, 80., 0.2, now), east, True), now)
+    assert overlay._world is not None and abs(overlay._world[1] - world_xy(*CENTER)[1]) < 0.5 * meter
+    overlay._advance(MapInput(MapFix(*north_of_route, 80., 10., 104.), east, True), 104.)
+    for frame in range(1, 300):
+      now = 104. + frame / 50
+      overlay._advance(MapInput(MapFix(*north_of_route, 80., 10., now), east, True), now)
+    assert overlay._bearing == pytest.approx(90., abs=HEADING_DEADBAND_DEG)
+    overlay._advance(MapInput(MapFix(*north_of_route, 80., 0.2, 200.), east, False), 200.)
+    assert overlay._snap_index is None
+  finally:
+    overlay.close()
+
+
 def test_lost_gps_marks_previous_position_stale(tmp_path):
   overlay = MapOverlay(tmp_path)
   try:
@@ -239,7 +279,7 @@ def render_overlay(rl, tmp_path, bearing, width=560, height=420, opacity=1.0, ro
     rl.end_texture_mode()
     image = rl.load_image_from_texture(target.texture)
     rl.image_flip_vertical(image)
-    pixels = np.frombuffer(rl.ffi.buffer(image.data, width * height * 4), np.uint8).reshape(height, width, 4).copy()
+    pixels = np.frombuffer(image.data[:width * height * 4], np.uint8).reshape(height, width, 4).copy()
     rl.unload_image(image)
     rl.unload_render_texture(target)
     return pixels
@@ -260,7 +300,7 @@ def test_overlay_draws_heading_up_roads_route_and_soft_edges(gl, tmp_path):
   # The motorway runs north-south through the car: vertical when heading north, horizontal when heading east.
   if os.getenv("STARPILOT_MAP_PREVIEW_DIR"):
     for name, pixels in (("map_north.png", north), ("map_east.png", east)):
-      image = rl.Image(rl.ffi.from_buffer(np.ascontiguousarray(pixels)), width, height, 1, 7)
+      image = rl.Image(np.ascontiguousarray(pixels), width, height, 1, 7)
       rl.export_image(image, os.path.join(os.environ["STARPILOT_MAP_PREVIEW_DIR"], name))
   ys, xs = np.nonzero(yellow(north))
   assert len(xs) > 200 and np.ptp(ys) > height * 0.6 and np.ptp(xs) < 40
@@ -309,6 +349,7 @@ class FakeGpsMaster:
     from types import SimpleNamespace
     self.ns = SimpleNamespace
     self.messages, self.valid, self.logMonoTime = {}, {}, {}
+    self.updated = defaultdict(bool)
 
   def update(self, _timeout):
     pass
@@ -347,7 +388,7 @@ def test_map_feed_uses_navigation_gps_choice_with_car_fallback(monkeypatch):
   fix = feed.read().fix
   assert fix.latitude == 36.3 and fix.bearing is None, "a receiver wins; an unusable heading is dropped"
   nav = sm.ns(version=2, enabled=True, status="guiding", frameMonoTime=now, destinationName="Home",
-              route=[sm.ns(latitude=36.1, longitude=-115.1)])
+              instruction=sm.ns(distanceMeters=120.0), route=[sm.ns(latitude=36.1, longitude=-115.1)])
   published = {"starpilotNavigation": sm.ns(navigation=nav)}
   class NavigationMaster(dict):
     valid = {"starpilotNavigation": True}
@@ -392,14 +433,14 @@ def test_map_feed_waiting_tracks_satellites_and_keeps_navigation_requested(monke
 @pytest.mark.parametrize('satellites', [None, 1, 3])
 @pytest.mark.parametrize('size', [(280, 200), (560, 420), (900, 600)])
 def test_gps_status_card_is_inside_bottom_of_map(tmp_path, active, satellites, size):
-  import pyray as rl
+  from openpilot.starpilot.ui.raylib import rl
   fonts = Mock()
   fonts.measure.side_effect = lambda text, _role, size: NS(width=len(text) * size * .65, height=size * 1.25)
   overlay = MapOverlay(tmp_path, fonts=fonts)
   try:
     overlay._advance(MapInput(None, navigation_active=active, satellites=satellites, gps_wait_seconds=75), 100)
     rect = rl.Rectangle(100, 200, *size)
-    with patch('pyray.draw_rectangle_rounded') as backgrounds:
+    with patch('raylib_nb.draw_rectangle_rounded') as backgrounds:
       overlay._draw_gps_status(rect)
     detail = ('Searching for satellites' if satellites is None else
               f"{satellites} satellite{'s' if satellites != 1 else ''} locked")
@@ -420,7 +461,7 @@ def test_gps_status_card_is_inside_bottom_of_map(tmp_path, active, satellites, s
 
 
 def test_gps_source_chip_is_solid_and_inside_the_widget(tmp_path):
-  import pyray as rl
+  from openpilot.starpilot.ui.raylib import rl
   fonts = Mock()
   fonts.measure.side_effect = lambda text, _role, size: NS(width=len(text) * size * .65, height=size * 1.25)
   overlay = MapOverlay(tmp_path, fonts=fonts)
@@ -429,7 +470,7 @@ def test_gps_source_chip_is_solid_and_inside_the_widget(tmp_path):
     for source, label in (("comma", "Comma GPS"), ("car", "Car GPS"), ("phone", "Phone GPS")):
       overlay._input = MapInput(MapFix(*CENTER, 0, 0, 100), source=source)
       fonts.draw.reset_mock()
-      with patch('pyray.draw_rectangle_rounded') as chip, patch('pyray.draw_rectangle_rounded_lines_ex'):
+      with patch('raylib_nb.draw_rectangle_rounded') as chip, patch('raylib_nb.draw_rectangle_rounded_lines_ex'):
         overlay._draw_source_chip(rect)
       assert [call.args[0] for call in fonts.draw.call_args_list] == [label]
       assert chip.call_args.args[3].a == 255 and fonts.draw.call_args.args[5].a == 255
@@ -444,27 +485,27 @@ def test_gps_source_chip_is_solid_and_inside_the_widget(tmp_path):
 
 
 def test_starting_navigation_overlay_until_route_is_drawn(tmp_path):
-  import pyray as rl
+  from openpilot.starpilot.ui.raylib import rl
   fonts = Mock()
   fonts.measure.side_effect = lambda text, _role, size: NS(width=len(text) * size * .65, height=size * 1.25)
   overlay = MapOverlay(tmp_path, fonts=fonts)
   try:
     rect = rl.Rectangle(100, 200, 560, 420)
     overlay._input = MapInput(MapFix(*CENTER, 0, 0, 100), navigation_active=True)
-    with patch('pyray.draw_rectangle_rounded') as card:
+    with patch('raylib_nb.draw_rectangle_rounded') as card:
       overlay._draw_starting_navigation(rect)
     assert [call.args[0] for call in fonts.draw.call_args_list] == ['Starting navigation', 'Finding your route…']
     assert card.call_args.args[3].a == 255, 'solid whatever the map opacity'
     assert all(call.args[5].a == 255 for call in fonts.draw.call_args_list)
     fonts.draw.reset_mock()
     overlay._input = MapInput(MapFix(*CENTER, 0, 0, 100), navigation_active=True, destination='Work')
-    with patch('pyray.draw_rectangle_rounded'):
+    with patch('raylib_nb.draw_rectangle_rounded'):
       overlay._draw_starting_navigation(rect)
     assert [call.args[0] for call in fonts.draw.call_args_list] == ['Starting navigation', 'to Work', 'Finding your route…']
     fonts.draw.reset_mock()
     overlay._input = MapInput(MapFix(*CENTER, 0, 0, 100), navigation_active=True, destination='A' * 40)
     overlay._route_world = np.zeros((2, 2))
-    with patch('pyray.draw_rectangle_rounded'):
+    with patch('raylib_nb.draw_rectangle_rounded'):
       overlay._draw_starting_navigation(rect)
     assert [call.args[0] for call in fonts.draw.call_args_list] == ['Starting navigation', 'to ' + 'A' * 31 + '…']
   finally:
@@ -550,7 +591,8 @@ class FakeNavigationMaster(FakeGpsMaster):
     from openpilot.starpilot.navigation.wire import VERSION
     route = [ns(latitude=lat, longitude=lon) for lat, lon in points]
     self.messages["starpilotNavigation"] = ns(navigation=ns(version=VERSION, status=status, route=route,
-                                                           enabled=True, destinationName='Home', frameMonoTime=time.monotonic_ns()))
+                                                           enabled=True, destinationName='Home', frameMonoTime=time.monotonic_ns(),
+                                                           instruction=ns(distanceMeters=120.0)))
     self.valid["starpilotNavigation"], self.logMonoTime["starpilotNavigation"] = True, stamp
 
 
@@ -718,3 +760,215 @@ def test_map_feed_subscribes_to_registered_gps_carriers(monkeypatch):
   feed = MapFeed(acquisition=NS())
   assert feed.sm is not None
   assert subscriptions
+
+
+def test_zoom_closes_in_before_a_maneuver_and_never_widens():
+  assert zoom_target(25., None) == zoom_for_speed(25.)
+  assert zoom_target(25., 1000.) == zoom_for_speed(25.)
+  assert zoom_target(25., 250.) < zoom_for_speed(25.)
+  assert zoom_target(25., 20.) == pytest.approx(ZOOM_SLOW_M_PER_PX)
+  assert zoom_target(2., 60.) <= zoom_for_speed(2.)
+
+
+def test_route_zoom_ignores_speed_and_closes_in_only_for_turns():
+  from openpilot.starpilot.ui.onroad_map import ZOOM_ROUTE_M_PER_PX, MapFeed
+  assert {zoom_target(v, 2000., guided=True) for v in (5., 15., 30.)} == {ZOOM_ROUTE_M_PER_PX}
+  assert zoom_target(30., None, guided=True) == ZOOM_ROUTE_M_PER_PX
+  assert zoom_target(30., 20., guided=True) == pytest.approx(ZOOM_SLOW_M_PER_PX)
+  def nav(kind, modifier):
+    return NS(status='guiding', instruction=NS(distanceMeters=120., maneuverType=kind, maneuverModifier=modifier))
+  assert MapFeed._maneuver(nav('turn', 'left')) == 120.
+  assert MapFeed._maneuver(nav('off ramp', 'slight right')) == 120.
+  assert MapFeed._maneuver(nav('continue', 'straight')) is None, "a straight-on step is not a corner"
+  assert MapFeed._maneuver(nav('new name', 'none')) is None
+  assert MapFeed._maneuver(nav('continue', 'left')) == 120., "a 'continue' that bends still zooms"
+
+
+def test_stopped_overview_waits_then_yields_to_a_close_maneuver():
+  assert zoom_target(0., None, 29.) == ZOOM_SLOW_M_PER_PX
+  assert zoom_target(0., None, 31.) == ZOOM_FAST_M_PER_PX
+  assert zoom_target(0., 30., 60.) == ZOOM_SLOW_M_PER_PX
+
+
+def test_overview_starts_after_standing_still_and_drops_when_moving(tmp_path):
+  overlay = MapOverlay(tmp_path)
+  try:
+    still = MapInput(MapFix(*CENTER, 0., 0., 100.))
+    overlay._advance(still, 100.)
+    overlay._advance(still, 131.)
+    assert overlay._stopped_since == 100.
+    overlay._advance(MapInput(MapFix(*CENTER, 0., 8., 132.)), 132.)
+    assert overlay._stopped_since is None
+  finally:
+    overlay.close()
+
+
+def test_map_rotation_ignores_heading_wobble_and_turns_gently(tmp_path):
+  overlay = MapOverlay(tmp_path)
+  try:
+    clock = 100.
+    def step(bearing, speed=15.):
+      nonlocal clock
+      clock += .05
+      overlay._advance(MapInput(MapFix(*CENTER, bearing, speed, clock)), clock)
+    step(90.)
+    assert overlay._bearing == 90.
+    for i in range(40):
+      step(90. + (2.5 if i % 2 else -2.5))
+    assert overlay._bearing == 90., "GPS heading wobble leaves the map still"
+    for _ in range(20):
+      step(180., speed=2.)
+    assert overlay._bearing == 90., "creeping along, the map holds its rotation"
+    step(180.)
+    assert 0 < overlay._bearing - 90. <= MAX_TURN_DEG_S * .05 + 1e-9, "a real turn rotates the map, but gently"
+    for _ in range(80):
+      step(180.)
+    assert abs(overlay._bearing - 180.) < HEADING_DEADBAND_DEG + 1e-9
+  finally:
+    overlay.close()
+
+
+def test_map_stays_still_along_a_kinked_straight_route(tmp_path):
+  from openpilot.starpilot.navigation.road_tiles import meters_per_tile
+  overlay = MapOverlay(tmp_path)
+  try:
+    meter = 1 / meters_per_tile(CENTER[0])
+    x0, y0 = world_xy(*CENTER)
+    # A straight east road whose simplified line zigzags 1.5 m every 15 m: each segment is ~6 degrees off.
+    route = tuple(lat_lon(x0 + i * 15 * meter, y0 + (1.5 * meter if i % 2 else 0.)) for i in range(200))
+    overlay._route(route)
+    bearings = []
+    for frame in range(400):
+      now = 100. + frame / 20
+      car = lat_lon(x0 + (20 + 15 * now - 1500) * meter, y0 + .75 * meter)
+      overlay._advance(MapInput(MapFix(*car, 90. + (3. if frame % 7 < 3 else -3.), 15., now), route, True), now)
+      if frame > 40:
+        bearings.append(overlay._bearing)
+    assert max(bearings) - min(bearings) < 1.0, "route kinks and GPS noise do not twist the map"
+    assert min(bearings) == pytest.approx(90., abs=HEADING_DEADBAND_DEG)
+  finally:
+    overlay.close()
+
+
+def test_road_name_waits_before_replacing_and_clears_when_empty(tmp_path):
+  overlay = MapOverlay(tmp_path)
+  try:
+    overlay._track_name('Main Street', 10.)
+    overlay._track_name('Main Street', 11.6)
+    assert overlay._name == 'Main Street'
+    overlay._track_name('Side Road', 12.)
+    overlay._track_name('Side Road', 13.)
+    assert overlay._name == 'Main Street', 'a brief side road does not flicker in'
+    overlay._track_name('Main Street', 13.2)
+    overlay._track_name('Side Road', 14.)
+    overlay._track_name('Side Road', 15.6)
+    assert overlay._name == 'Side Road'
+    overlay._track_name('', 16.)
+    assert overlay._name == ''
+  finally:
+    overlay.close()
+
+
+def test_map_feed_reports_maneuver_distance_and_road_name(monkeypatch):
+  from openpilot.starpilot.ui.onroad_map import MapFeed
+  clock = [100.0]
+  monkeypatch.setattr(time, 'monotonic', lambda: clock[0])
+  monkeypatch.setattr(time, 'monotonic_ns', lambda: int(clock[0] * 1e9))
+  sm = FakeNavigationMaster()
+  acquisition = Mock(since=clock[0])
+  acquisition.satellites.return_value = None
+  feed = MapFeed(sm, acquisition=acquisition)
+  sm.put_route(1, [(36.0, -115.0), (36.1, -115.1)])
+  sm.messages["starpilotNavigation"].navigation.instruction = NS(distanceMeters=240.)
+  sm.updated["mapdOut"] = True
+  sm.valid["mapdOut"] = True
+  sm.messages["mapdOut"] = NS(roadName="", wayName="Main Street")
+  data = feed.read(sm)
+  assert (data.maneuver_distance_m, data.road_name) == (240., "Main Street")
+  clock[0] += 2.9
+  sm.updated["mapdOut"] = False
+  data = feed.read(sm)
+  assert data.road_name == "Main Street", "a brief gap in mapd does not blink the name away"
+  clock[0] += .2
+  data = feed.read(sm)
+  assert data.maneuver_distance_m is None, "no stale distance once the route lease lapses"
+  assert data.road_name == "", "road names expire when mapd stops publishing"
+  sm.updated["mapdOut"] = True
+  sm.messages["mapdOut"] = NS(roadName="", wayName="")
+  assert feed.read(sm).road_name == "", "unnamed roads do not inherit the preceding road's name"
+  sm.messages["mapdOut"] = NS(roadName="Desert Inn Road", wayName="")
+  assert feed.read(sm).road_name == "Desert Inn Road"
+  sm.valid["mapdOut"] = False
+  assert feed.read(sm).road_name == "", "an invalid road match clears its name"
+
+
+def google_overlay(tmp_path):
+  import io
+  from PIL import Image
+  from openpilot.starpilot.navigation.google_tiles import GoogleTileStore, key_digest, tiles_in_radius
+  from openpilot.starpilot.ui.onroad_google_map import GoogleRaster
+  key = "AIzaSyFixtureKey_0123456789abcdef"
+  settings = tmp_path / "settings.json"
+  settings.write_text(json.dumps({"mapProvider": "google", "googleKey": key}))
+  store = GoogleTileStore(tmp_path / "google")
+  # Each pixel carries its own position inside its tile, so any misplacement or flip shows in the colors.
+  x, y = np.meshgrid(np.arange(256), np.arange(256))
+  for tile in tiles_in_radius(*CENTER, 1500.0, 17):
+    pixels = np.stack((x, y, np.full_like(x, 60 + 120 * (tile.x % 2)), np.full_like(x, 255)), axis=-1).astype(np.uint8)
+    out = io.BytesIO()
+    Image.fromarray(pixels, "RGBA").save(out, "PNG")
+    store.write(key_digest(key), tile, out.getvalue(), 3600)
+  raster = GoogleRaster(tmp_path / "google", settings=settings, want=tmp_path / "want.json")
+  return MapOverlay(tmp_path / "roads", raster=raster)
+
+
+def test_google_tiles_line_up_with_the_car_and_heading(gl, tmp_path):
+  rl = gl
+  overlay = google_overlay(tmp_path)
+  width, height = 560, 420
+  data = MapInput(MapFix(*CENTER, 0.0, 3.0, time.monotonic() + 3600), ())
+  try:
+    for _ in range(80):
+      overlay.prepare(data, width, height)
+      if overlay._raster_drawn and overlay.raster.generation == overlay._raster_generation and not overlay.raster._decoded:
+        break
+      time.sleep(0.05)
+    overlay.prepare(data, width, height)
+    assert overlay._raster_drawn > 4 and overlay.has_roads
+    from openpilot.starpilot.ui.onroad_map import RASTER_SUPERSAMPLE, SUPERSAMPLE
+    assert overlay._canvas_request.supersample == RASTER_SUPERSAMPLE
+    side = math.ceil(MapOverlay._reach(width, height) * 2 * 1.6 * RASTER_SUPERSAMPLE / 64) * 64
+    assert overlay._canvas.texture.width == side < math.ceil(MapOverlay._reach(width, height) * 2 * 1.6 * SUPERSAMPLE / 64) * 64
+    assert len(overlay.raster._textures) <= max(16, len(overlay.raster._wanted) + 8)
+    target = rl.load_render_texture(width, height)
+    rl.begin_texture_mode(target)
+    rl.clear_background(rl.Color(0, 0, 0, 255))
+    overlay.draw(rl.Rectangle(0, 0, width, height), 1.0)
+    rl.end_texture_mode()
+    image = rl.load_image_from_texture(target.texture)
+    rl.image_flip_vertical(image)
+    pixels = np.frombuffer(image.data[:width * height * 4], np.uint8).reshape(height, width, 4).copy()
+    rl.unload_image(image)
+    rl.unload_render_texture(target)
+  finally:
+    overlay.close()
+  # Heading north, 60 screen pixels left of the car is 60 * 0.9 m west of it.
+  from openpilot.starpilot.navigation.road_tiles import meters_per_tile
+  cx, cy = world_xy(*CENTER, 17)
+  expected_x = (cx - 60 * ZOOM_SLOW_M_PER_PX / meters_per_tile(CENTER[0], 17)) % 1 * 256
+  r, g = pixels[int(height * CAR_ANCHOR), width // 2 - 60, :2].astype(int)
+  assert abs(r - expected_x) <= 4 and abs(g - cy % 1 * 256) <= 4
+  # 60 pixels above the car is north of it: the same column, a smaller row in the tile (or the tile above).
+  r2, g2 = pixels[int(height * CAR_ANCHOR) - 60, width // 2, :2].astype(int)
+  assert abs(r2 - cx % 1 * 256) <= 4 and abs(g2 - (cy - 60 * ZOOM_SLOW_M_PER_PX / meters_per_tile(CENTER[0], 17)) % 1 * 256) <= 4
+  assert json.loads((tmp_path / "want.json").read_text())["tiles"]
+
+
+def test_google_layer_is_off_unless_google_is_chosen(tmp_path):
+  from openpilot.starpilot.ui.onroad_google_map import chosen_key
+  path = tmp_path / "settings.json"
+  assert chosen_key(path) == ""
+  path.write_text(json.dumps({"mapProvider": "mapbox", "googleKey": "AIzaSyFixtureKey_0123456789abcdef"}))
+  assert chosen_key(path) == ""
+  path.write_text(json.dumps({"mapProvider": "google", "googleKey": "AIzaSyFixtureKey_0123456789abcdef"}))
+  assert chosen_key(path) == "AIzaSyFixtureKey_0123456789abcdef"

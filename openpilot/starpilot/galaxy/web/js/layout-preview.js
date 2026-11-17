@@ -1,7 +1,5 @@
 import { widgetArtMetadata } from "./widget-art.js"
 import { widgetSize } from "./onroad-layout-document.js"
-// hiddenOn: screens where the scene looks exactly like another one. The Small screen has no text for these
-// speed-limit states, so they match Engaged there.
 export const PREVIEW_SCENES = [
   { id: "general", label: "General edit" },
   { id: "engaged", label: "Engaged" },
@@ -17,11 +15,11 @@ export const PREVIEW_SCENES = [
   { id: "slc_pending", label: "Confirmation choices" },
   { id: "slc_max", label: "Using set speed" },
   { id: "slc_equal", label: "Equal speed limits" },
-  { id: "slc_pedal", label: "Using accelerator", hiddenOn: ["compact"] },
+  { id: "slc_pedal", label: "Using accelerator" },
   { id: "slc_retained", label: "Set-speed override" },
   { id: "slc_disengaged", label: "Cruise off" },
   { id: "slc_unavailable", label: "Unavailable speed limit" },
-  { id: "slc_display", label: "Display-only speed limit", hiddenOn: ["compact"] },
+  { id: "slc_display", label: "Display-only speed limit" },
 ]
 const SCENES = PREVIEW_SCENES.map(({ id }) => id)
 
@@ -36,17 +34,15 @@ export function previewScene(scene) {
     mode: off ? "Disengaged" : scene === "slc_pedal" ? "ACC - Override" : !longitudinal ? "Always On Lateral" : experimental ? "ACC - Experimental" : "ACC - Chill" }
 }
 
-export function sceneHidesWidget(scene, profile, id, layout = {}, widgets = {}) {
+export function sceneHidesWidget(scene, profile, id, layout = {}, widgets = {}, sprites = {}) {
   if (scene === "general") return false
+  if (layout?.[id]?.enabled && typeof sprites[id]?.visible === "boolean") return !sprites[id].visible
   const { lateral, longitudinal } = previewScene(scene)
   if (id === "stopped_timer") return scene !== "stopped"
   if (id === "cem_gauge") return !scene.startsWith("cem_")
   if (id === "torque_bar" || profile === "compact" && id === "steering_wheel") return !lateral
   if (profile === "compact" && id === "max_speed") return !longitudinal
-  // Native samples already use their accepted limit except for a pending decision,
-  // a lower set speed, or a driver override. Those are the remaining actionable scenes.
-  const slcActions = ["slc_pending", "slc_max", "slc_retained"].includes(scene)
-  if (id === "speed_limit_actions") return scene === "slc_pending" || !slcActions
+  if (id === "speed_limit_actions") return true
   const overlaps = (a, b) => a && b && a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
   const box = key => {
     if (!layout[key]?.enabled || !widgets[key]) return null
@@ -55,23 +51,16 @@ export function sceneHidesWidget(scene, profile, id, layout = {}, widgets = {}) 
   }
   if (profile === "compact" && id === "driver_monitor" && longitudinal) return !!overlaps(box(id), box("max_speed"))
   if (profile === "compact" && id === "speed_limit") {
-    if (scene === "slc_pending" || scene === "slc_notice") return false
-    if (scene === "slc_unavailable") return true
-    const actions = box("speed_limit_actions")
-    if (!slcActions || !actions) return false
-    const sign = box(id)
-    if (!sign) return false
-    const signTop = Math.max(0, sign.y - (sign.visualInsetTop || 0))
-    const signLeft = Math.max(0, sign.x - (sign.visualInsetLeft || 0))
-    const inset = actions.visualInsetTop || 0
-    return !!overlaps({ ...sign, x: signLeft, y: signTop, width: sign.width + sign.x - signLeft, height: sign.height + sign.y - signTop },
-      { ...actions, y: actions.y >= inset ? actions.y - inset : actions.y, height: actions.height + inset })
+    return scene === "slc_unavailable"
   }
   return false
 }
 
 // The device renders one preview at a time and answers a second request with 429.
 // Feeds sharing a queue take turns instead, widget art before the backdrop.
+// Allow for Galaxy tunnel latency.
+const PREVIEW_TIMEOUT_MS = 20000
+
 export class PreviewQueue {
   constructor() { this.running = false; this.waiting = [] }
 
@@ -169,7 +158,7 @@ export class LayoutPreviewFeed {
       if (cached) this.latestArt.set(profile, cacheKey)
       const shown = cached || this.artCache.get(this.latestArt.get(profile))
       this.currentUrl = shown?.url || null
-      this.publish({ url: this.currentUrl, sprites: shown?.sprites || null, scene: shown?.scene || null })
+      this.publish({ url: this.currentUrl, sprites: shown?.sprites || null, scene: shown?.scene || null, profile })
       if (cached?.key === renderKey) {
         this.publish({ status: "ready", error: "" })
         return
@@ -194,7 +183,8 @@ export class LayoutPreviewFeed {
     this.last = item
     const request = new AbortController()
     this.request = request
-    const timeout = this.later(() => request.abort(), 7000)
+    // Queue time does not consume the response timeout.
+    let timeout = null
     let rejectAborted
     const aborted = new Promise((_, reject) => { rejectAborted = () => reject(new Error("Preview request cancelled")) })
     request.signal.addEventListener("abort", rejectAborted, { once: true })
@@ -203,6 +193,7 @@ export class LayoutPreviewFeed {
     const work = (async () => {
       const held = !!this.queue && await this.queue.acquire(this.art ? 0 : 1, request.signal).then(() => true)
       try {
+        timeout = this.later(() => request.abort(), PREVIEW_TIMEOUT_MS)
         const response = await this.fetcher("./api/ui/layout/preview", { method: "POST", credentials: "same-origin",
           cache: "no-store", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ document: item.document, profile: item.profile, scene: item.scene, ...(this.art ? {art: true} : this.backdrop ? {art: "backdrop"} : {}) }), signal: request.signal })
@@ -215,7 +206,7 @@ export class LayoutPreviewFeed {
         const blob = await response.blob()
         if (!this.active || item.version !== this.version || request.signal.aborted) return
         if (!blob.size || blob.size > 4 * 1024 * 1024) throw new Error("Preview is unavailable. Reconnecting automatically…")
-        const sprites = this.art ? await widgetArtMetadata(blob) : null
+        const sprites = this.art ? await widgetArtMetadata(blob, response.headers.get("X-Widget-Art")) : null
         if (!this.active || item.version !== this.version || request.signal.aborted) return
         const cacheKey = item.profile + "\n" + item.scene
         const previousUrl = this.art ? this.artCache.get(cacheKey)?.url : this.currentUrl
@@ -240,13 +231,13 @@ export class LayoutPreviewFeed {
         this.inputKey = null
         this.failures = denied ? 2 : this.failures + 1
         if (this.art && denied) this.clearImage()
-        // Art retries promptly, as does any feed turned away by a busy renderer; real outages back off.
-        const recovering = (this.art || busy) && this.failures < 2
+        // Art and backdrop retry promptly, as does any feed turned away by a busy renderer; real outages back off.
+        const recovering = (this.art || this.backdrop || busy) && this.failures < 2
         this.publish({ status: recovering ? "updating" : "unavailable", error: recovering ? "" : failure })
         this.timer = this.later(() => { this.timer = null; this.retry() }, recovering ? 600 : 5000)
       }
     } finally {
-      this.cancelTimer(timeout)
+      if (timeout !== null) this.cancelTimer(timeout)
       request.signal.removeEventListener("abort", rejectAborted)
       if (this.request === request) this.request = null
       if (this.active && this.pending && this.timer === null) this.dispatch()

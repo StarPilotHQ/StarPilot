@@ -1,6 +1,9 @@
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
+from opendbc.car.structs import car
+from openpilot.common.params import Params
+from openpilot.common.prefix import OpenpilotPrefix
 from openpilot.system.manager import process
 
 
@@ -22,6 +25,9 @@ class Child:
 
 class TestProcessRecovery(unittest.TestCase):
   def setUp(self):
+    self.enterContext(OpenpilotPrefix())
+    self.params = Params()
+    self.cp = car.CarParams.new_message(brand="hyundai", carFingerprint="HYUNDAI_IONIQ_6")
     self.now = 100.0
     self.enterContext(patch.object(process, "Process", Child))
     self.enterContext(patch.object(process.time, "monotonic", lambda: self.now))
@@ -33,7 +39,7 @@ class TestProcessRecovery(unittest.TestCase):
     return process.PythonProcess("ui", "ui", lambda started, params, cp: started, restart_on_exit=restart)
 
   def step(self, p, started=True, ignored=None):
-    process.ensure_running({p.name: p}.values(), started, Mock(), None, not_run=ignored)
+    process.ensure_running({p.name: p}.values(), started, self.params, self.cp, not_run=ignored)
 
   def test_crash_restarts_after_delay_and_reaps_child(self):
     p = self.make_process()
@@ -119,7 +125,7 @@ class TestProcessRecovery(unittest.TestCase):
     self.assertIsNot(p.proc, old)
     self.assertTrue(old.joined)
 
-  def test_learner_recovers_with_backoff_only_while_onroad(self):
+  def test_learner_recovers_with_backoff_onroad_and_parked(self):
     from openpilot.system.manager.process_config import managed_processes
     configured = managed_processes["steerlearnerd"]
     self.assertTrue(configured.restart_on_exit)
@@ -142,6 +148,12 @@ class TestProcessRecovery(unittest.TestCase):
     self.step(p, started=False)
     self.now += 60
     self.step(p, started=False)
+    self.assertIsNotNone(p.proc)
+    self.step(p, started=False, ignored=[configured.name])
+    self.assertTrue(p.shutting_down)
+    assert isinstance(p.proc, Child)
+    p.proc.exitcode = 0
+    self.step(p, started=False, ignored=[configured.name])
     self.assertIsNone(p.proc)
     self.assertEqual(p.restart_at, 0)
 
@@ -173,6 +185,11 @@ class TestProcessRecovery(unittest.TestCase):
         self.assertTrue(old.joined)
       self.step(p, started=False)
       self.assertTrue(p.shutting_down)
+      stopping = p.proc
+      self.step(p, started=False)
+      self.assertIs(p.proc, stopping)
+      assert isinstance(stopping, Child)
+      stopping.exitcode = 0
       self.step(p, started=False)
       self.assertIsNone(p.proc)
       self.now += 60

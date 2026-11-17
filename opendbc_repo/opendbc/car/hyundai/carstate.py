@@ -1,3 +1,4 @@
+from opendbc.car.hyundai.canfd_lfa_status import CANFDClusterStatus, CANFDLfaStatus, CANFDLkasDamping, preserves_stock_lfa, preserves_stock_lkas_damping
 from opendbc.car.hyundai.left_paddle import has_left_paddle
 from opendbc.car.hyundai.ioniq5pe_long_profile import qualified as pe_long_qualified
 from opendbc.car.hyundai.ioniq5pe_ready import PEReadySource
@@ -62,6 +63,13 @@ def get_non_scc_cruise_signals(flags: int, car=None) -> tuple[str, str, str, str
 class CarState(CarStateBase):
   def __init__(self, CP):
     super().__init__(CP)
+    preserve_status = preserves_stock_lfa(CP)
+    self.stock_lfa_status = CANFDLfaStatus(CanBus(CP).CAM) if preserve_status else None
+    self.stock_cluster_status = CANFDClusterStatus(CanBus(CP).CAM) if preserve_status else None
+    self.stock_lkas_damping = (CANFDLkasDamping(CanBus(CP).CAM, bool(CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG_ALT))
+                               if preserves_stock_lkas_damping(CP) else None)
+    from opendbc.car.hyundai.daw import DawSource
+    self.daw = DawSource(CP)
     self.forte_lkas_sources = NonSccLkasSources() if qualified_non_scc(CP) and CP.flags & HyundaiFlags.HAS_LDA_BUTTON else None
     if (qualified_classic_scc(CP) or qualified_classic_long(CP)) and CP.flags & HyundaiFlags.HAS_LDA_BUTTON:
       self.forte_lkas_sources = ClassicSccLkasSources(CP.carFingerprint)
@@ -130,6 +138,8 @@ class CarState(CarStateBase):
     self.ccnc_162_ts_ns = 0
     self.ccnc_1b5_ts_ns = 0
     self.dashboard_limit = LimitTracker()
+    self.dashboard_stop_sign = None
+    self.drive_mode = None
     self.ioniq6_bsm_sources = (Ioniq6BlindspotSources()
                                if CP.carFingerprint == CAR.HYUNDAI_IONIQ_6 and CP.openpilotLongitudinalControl else None)
     self.ioniq6_bsm_now_ns = 0
@@ -345,9 +355,10 @@ class CarState(CarStateBase):
       self.lkas11 = copy.copy(cp_cam.vl["LKAS11"])
     self.clu11 = copy.copy(cp.vl["CLU11"])
     from opendbc.car.hyundai.classic_long_aol import independent_buttons_qualified
+    from opendbc.car.hyundai.blended_stock_aol import qualified_alpha
     self.ev6_aol_samples = ()
     self.ev6_aol_source_healthy = False
-    if independent_buttons_qualified(self.CP):
+    if independent_buttons_qualified(self.CP) or qualified_alpha(self.CP, marked_only=True):
       from opendbc.can.parser import MAX_BAD_COUNTER
       source = cp.message_states.get(cp.dbc.name_to_msg['CLU11'].address)
       self.ev6_aol_sample_stamp_ns = int(source.timestamps[-1]) if source is not None and source.timestamps else 0
@@ -421,7 +432,7 @@ class CarState(CarStateBase):
     self.is_metric = cp.vl["CRUISE_BUTTONS_ALT"]["DISTANCE_UNIT"] != 1
     speed_factor = CV.KPH_TO_MS if self.is_metric else CV.MPH_TO_MS
 
-    if self.CP.flags & (HyundaiFlags.EV | HyundaiFlags.HYBRID):
+    if self.CP.flags & (HyundaiFlags.EV.value | HyundaiFlags.HYBRID.value):
       ret.gasPressed = cp.vl[self.accelerator_msg_canfd]["ACCELERATOR_PEDAL"] > 1e-5
     else:
       ret.gasPressed = bool(cp.vl[self.accelerator_msg_canfd]["ACCELERATOR_PEDAL_PRESSED"])
@@ -450,7 +461,7 @@ class CarState(CarStateBase):
     ret.steeringTorqueEps = cp.vl["MDPS"]["MDPS_OutTqVal"]
     ret.steeringPressed = self.update_steering_pressed(abs(ret.steeringTorque) > self.params.STEER_THRESHOLD, 5)
     ret.steerFaultTemporary = cp.vl["MDPS"]["MDPS_LkaFailSta"] != 0
-    if self.CP.flags & HyundaiFlags.CANFD_ANGLE_STEERING:
+    if self.CP.flags & HyundaiFlags.CANFD_ANGLE_STEERING.value:
       angle_fault = int(cp.vl["MDPS"]["MDPS_ADAS_AciFltSig_Lv2"])
       if self.ev9_long:
         self.angle_steering_angle = cp.vl["MDPS"]["MDPS_EstStrAnglVal"]
@@ -459,7 +470,7 @@ class CarState(CarStateBase):
       else:
         ret.steerFaultTemporary |= bool(angle_fault if self.CP.carFingerprint in (CAR.HYUNDAI_IONIQ_5_PE, CAR.KIA_EV9) else angle_fault & 2)
 
-    if self.CP.flags & HyundaiFlags.CCNC and not self.CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG:
+    if self.CP.flags & HyundaiFlags.CCNC.value and not self.CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG.value:
       self.ccnc_161 = copy.copy(cp_cam.vl["CCNC_0x161"])
       self.ccnc_162 = copy.copy(cp_cam.vl["CCNC_0x162"])
       self.ccnc_1b5 = copy.copy(cp_cam.vl["FR_CMR_03_50ms"])
@@ -468,15 +479,15 @@ class CarState(CarStateBase):
       self.ccnc_1b5_ts_ns = cp_cam.ts_nanos[0x1b5]["Info_LftLnPosVal"]
 
     left_blinker_sig, right_blinker_sig = "LEFT_LAMP", "RIGHT_LAMP"
-    if (self.CP.carFingerprint == CAR.HYUNDAI_KONA_EV_2ND_GEN or self.CP.flags & HyundaiFlags.CCNC or
+    if (self.CP.carFingerprint == CAR.HYUNDAI_KONA_EV_2ND_GEN or self.CP.flags & HyundaiFlags.CCNC.value or
         cp.vl["BLINKERS"]["USE_ALT_LAMP"] == 1):
       left_blinker_sig, right_blinker_sig = "LEFT_LAMP_ALT", "RIGHT_LAMP_ALT"
     ret.leftBlinker, ret.rightBlinker = self.update_blinker_from_lamp(50, cp.vl["BLINKERS"][left_blinker_sig],
                                                                       cp.vl["BLINKERS"][right_blinker_sig])
     if self.CP.deprecated.enableBsm:
       rear = cp.vl["ADAS_CMD_50_50ms"]
-      ret.leftBlindspot = bool(rear["BCW_LtIndSta"])
-      ret.rightBlindspot = bool(rear["BCW_RtIndSta"])
+      ret.leftBlindspot = rear["BCW_LtIndSta"] in (1, 2)
+      ret.rightBlindspot = rear["BCW_RtIndSta"] in (1, 2)
       if self.CP.carFingerprint == CAR.KIA_EV9:
         corner_left, corner_right = decode_ioniq_6_corner_bsm(int(cp.vl["BLINDSPOTS_FRONT_CORNER_2"]["SIDE_DETECT_STATE"]))
         if self.ev9_long:
@@ -525,7 +536,7 @@ class CarState(CarStateBase):
       ret.cruiseState.enabled = cp.vl["TCS"]["ACC_REQ"] == 1
       ret.cruiseState.standstill = False
     else:
-      cp_cruise_info = cp_cam if self.CP.flags & HyundaiFlags.CANFD_CAMERA_SCC else cp
+      cp_cruise_info = cp_cam if self.CP.flags & HyundaiFlags.CANFD_CAMERA_SCC.value else cp
       ret.cruiseState.enabled = cp_cruise_info.vl["SCC_CONTROL"]["ACCMode"] in (1, 2)
       ret.cruiseState.standstill = cp_cruise_info.vl["SCC_CONTROL"]["CRUISE_STANDSTILL"] == 1
       ret.cruiseState.speed = cp_cruise_info.vl["SCC_CONTROL"]["VSetDis"] * speed_factor
@@ -535,7 +546,7 @@ class CarState(CarStateBase):
     # It limits the vehicle speed, overridable by pressing the accelerator past a certain point.
     # The car will brake, but does not respect positive acceleration commands in this mode
     # TODO: find this message on ICE & HYBRID cars + cruise control signals (if exists)
-    if self.CP.flags & HyundaiFlags.EV:
+    if self.CP.flags & HyundaiFlags.EV.value:
       ret.cruiseState.nonAdaptive = cp.vl["MANUAL_SPEED_LIMIT_ASSIST"]["MSLA_ENABLED"] == 1
 
     from opendbc.car.hyundai.ev6_aol import qualified as ev6_aol_qualified
@@ -573,17 +584,17 @@ class CarState(CarStateBase):
     prev_left_paddle = self.left_paddle
     self.left_paddle = cp.vl["CRUISE_BUTTONS"]["LEFT_PADDLE"] if has_left_paddle(self.CP) else 0
     self.buttons_counter = cp.vl[self.cruise_btns_msg_canfd]["COUNTER"]
-    if not self.CP.flags & HyundaiFlags.CANFD_ANGLE_STEERING and self.CP.safetyConfigs[-1].safetyParam & HyundaiSafetyFlags.CARNIVAL_ALT_RESUME:
+    if not self.CP.flags & HyundaiFlags.CANFD_ANGLE_STEERING.value and self.CP.safetyConfigs[-1].safetyParam & HyundaiSafetyFlags.CARNIVAL_ALT_RESUME:
       self.cruise_buttons_alt_ts_ns = cp.ts_nanos["CRUISE_BUTTONS_ALT"]["COUNTER"]
       if self.cruise_buttons_alt_ts_ns > 0:
         self.cruise_buttons_alt_msg = copy.copy(cp.vl["CRUISE_BUTTONS_ALT"])
     ret.accFaulted = cp.vl["TCS"]["ACCEnable"] != 0  # 0 ACC CONTROL ENABLED, 1-3 ACC CONTROL DISABLED
 
-    if self.CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG:
-      self.lfa_block_msg = copy.copy(cp_cam.vl["CAM_0x362"] if self.CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG_ALT
+    if self.CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG.value:
+      self.lfa_block_msg = copy.copy(cp_cam.vl["CAM_0x362"] if self.CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG_ALT.value
                                           else cp_cam.vl["CAM_0x2a4"])
-      if self.CP.flags & HyundaiFlags.CANFD_ANGLE_STEERING:
-        self.angle_lkas_status = copy.copy(cp_cam.vl["LKAS_ALT" if self.CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG_ALT else "LKAS"])
+      if self.CP.flags & HyundaiFlags.CANFD_ANGLE_STEERING.value:
+        self.angle_lkas_status = copy.copy(cp_cam.vl["LKAS_ALT" if self.CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG_ALT.value else "LKAS"])
 
     ret.buttonEvents = [*self.create_cruise_button_events(self.cruise_buttons[-1], prev_cruise_buttons,
                                                         cp.vl_all[self.cruise_btns_msg_canfd]["CRUISE_BUTTONS"]),
@@ -596,13 +607,20 @@ class CarState(CarStateBase):
     # The front camera's posted sign is distinct from SCC set speed and from
     # the CCNC cluster's forwarded display value. Only a received packet can
     # establish valid or absent evidence; the subscription is non-gating.
-    sign_bus = cp if self.CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG else cp_cam
+    sign_bus = cp if self.CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG.value else cp_cam
     timestamp, expiry = parser_expiry(sign_bus, "FR_CMR_02_100ms", "ISLW_SpdCluMainDis")
     if timestamp > self.dashboard_limit.observation.observed_ns:
       speed = int(sign_bus.vl["FR_CMR_02_100ms"]["ISLW_SpdCluMainDis"])
       system_status = int(sign_bus.vl["FR_CMR_02_100ms"]["ISLW_SysSta"])
       status, value_mps = hyundai_canfd_sign(speed, system_status, self.is_metric)
       self.dashboard_limit.update(timestamp, status, value_mps, valid_until_ns=expiry)
+
+    stamp = cp_cam.ts_nanos["ADAS_0x380"]["STOP_SIGN"]
+    self.dashboard_stop_sign = (bool(cp_cam.vl["ADAS_0x380"]["STOP_SIGN"]), stamp) if stamp > 0 else None
+
+    if self.CP.carFingerprint == CAR.HYUNDAI_IONIQ_6:
+      stamp = cp.ts_nanos["DRIVE_MODE_EV"]["DRIVE_MODE"]
+      self.drive_mode = (int(cp.vl["DRIVE_MODE_EV"]["DRIVE_MODE"]), stamp) if stamp > 0 else None
 
     return ret
 
@@ -618,6 +636,8 @@ class CarState(CarStateBase):
       msgs.extend((("ADAS_CMD_50_50ms", math.nan), ("BLINDSPOTS_FRONT_CORNER_2", math.nan)))
     if CP.flags & HyundaiFlags.EV:
       msgs.append(("MANUAL_SPEED_LIMIT_ASSIST", math.nan))
+    if CP.carFingerprint == CAR.HYUNDAI_IONIQ_6:
+      msgs.append(("DRIVE_MODE_EV", math.nan))
     sign_subscription = ("FR_CMR_02_100ms", math.nan)
     if CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG:
       msgs.append(sign_subscription)
@@ -663,25 +683,34 @@ class CarState(CarStateBase):
         msgs.append(("CRUISE_BUTTONS_ALT", math.nan))
       if not (ev9_long_qualified(CP) or pe_long_qualified(CP)):
         (cam_msgs if CP.flags & HyundaiFlags.CANFD_CAMERA_SCC else msgs).append(("SCC_CONTROL", 50))
+    elif CP.carFingerprint == CAR.KIA_CARNIVAL_2025 and CP.openpilotLongitudinalControl and CP.safetyConfigs[-1].safetyParam in (0x20B4, 0x28B4):
+      msgs = [(name, frequency) for name, frequency in msgs if name != "CRUISE_BUTTONS_ALT"]
+      msgs.extend((("CRUISE_BUTTONS_ALT", 50), ("ACCELERATOR_BRAKE_ALT", 100), ("TCS", 50),
+                   ("WHEEL_SPEEDS", 100), ("MDPS", 100), (self.gear_msg_canfd, 100),
+                   ("STEERING_SENSORS", 100), ("DOORS_SEATBELTS", 10), ("BLINKERS", 10), ("SCC_CONTROL", math.nan)))
+      cam_msgs.append(("CAM_0x362", 20))
     elif torque_ev_scc_eligible(CP):
-      msgs.extend((("ACCELERATOR", 100), ("TCS", 50), ("WHEEL_SPEEDS", 100), ("MDPS", 100)))
+      msgs.extend(((self.accelerator_msg_canfd, 100), ("TCS", 50), ("WHEEL_SPEEDS", 100), ("MDPS", 100)))
       msgs.extend((("CRUISE_BUTTONS_ALT", math.nan), ("DOORS_SEATBELTS", math.nan),
                    ("STEERING_SENSORS", math.nan), ("BLINKERS", math.nan)))
-      if self.gear_msg_canfd != "ACCELERATOR":
+      if self.gear_msg_canfd != self.accelerator_msg_canfd:
         msgs.append((self.gear_msg_canfd, 100))
-      cam_msgs.append(("CAM_0x362" if CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG_ALT else "CAM_0x2a4", 20))
+      if CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG:
+        cam_msgs.append(("CAM_0x362" if CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG_ALT else "CAM_0x2a4", 20))
     elif CP.carFingerprint == CAR.HYUNDAI_IONIQ_6 and CP.openpilotLongitudinalControl:
-      # The acknowledged ADAS takeover removes stock SCC from E-CAN. Require
-      # every independent native input and the matching camera source instead.
+      # Both topologies require genuine chassis inputs; only HDA-II uses
+      # the camera template after acknowledged ADAS takeover.
       msgs.extend((("ACCELERATOR", 100), ("TCS", 50), ("WHEEL_SPEEDS", 100), ("MDPS", 100)))
       msgs.extend((("CRUISE_BUTTONS_ALT", math.nan), ("DOORS_SEATBELTS", math.nan),
                    ("STEERING_SENSORS", math.nan), ("BLINKERS", math.nan)))
-      cam_msgs.append(("CAM_0x362" if CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG_ALT else "CAM_0x2a4", 20))
+      if CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG:
+        cam_msgs.append(("CAM_0x362" if CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG_ALT else "CAM_0x2a4", 20))
     elif CP.carFingerprint == CAR.HYUNDAI_IONIQ_6 and not CP.flags & HyundaiFlags.CANFD_ALT_BUTTONS:
       # Stock standard-button Ioniq 6 reads alternate DISTANCE_UNIT too, but
       # that frame may be absent. Subscribe before the lazy lookup makes it
       # required; existing native and CarState safety inputs remain required.
-      msgs.append(("CRUISE_BUTTONS_ALT", math.nan))
+      if not any(name == "CRUISE_BUTTONS_ALT" for name, _ in msgs):
+        msgs.append(("CRUISE_BUTTONS_ALT", math.nan))
     from opendbc.car.hyundai.ev6_startup import eligible as ev6_eligible
     from opendbc.car.hyundai.gv70_startup import eligible as gv70_eligible
     if ev6_eligible(CP) or gv70_eligible(CP):
@@ -698,6 +727,10 @@ class CarState(CarStateBase):
         msgs.append(("SCC_CONTROL", 50))
       if ("CAM_0x2a4", 20) not in cam_msgs:
         cam_msgs.append(("CAM_0x2a4", 20))
+    if (CP.steerControlType == structs.CarParams.SteerControlType.torque and not CP.flags & HyundaiFlags.CANFD_ALT_BUTTONS and
+        not any(name == "CRUISE_BUTTONS_ALT" for name, _ in msgs)):
+      msgs.append(("CRUISE_BUTTONS_ALT", math.nan))
+    cam_msgs.append(("ADAS_0x380", math.nan))
     return {
       Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], msgs, CanBus(CP).ECAN),
       # Native CANParser accepts NaN to subscribe without a CAN-valid frequency gate.

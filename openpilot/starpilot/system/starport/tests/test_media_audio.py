@@ -19,7 +19,7 @@ SILENCE = b'\x00' * len(TONE)
 
 class Session:
   def __init__(self):
-    self.channels = CIVIC
+    self.channels: list[dict] = CIVIC
     self.sent = []
   def send(self, channel, kind, body=b'', control=False):
     self.sent.append((channel, kind, body))
@@ -64,9 +64,96 @@ def play(stream, session, source, now):
   assert session.sent[-1] == (4, ma.AV_START_INDICATION, field(1, 1) + field(2, 0))
 
 
-def test_media_channel_picks_pcm_media_not_guidance_or_aac():
-  assert ma.media_channel(CIVIC) == (4, 0)
-  assert ma.media_channel([c for c in CIVIC if c['id'] != 4]) is None
+# A 2022 CR-V's DUDUAUTO head unit: media only as AAC-LC, guidance/system as PCM.
+DUDUAUTO = [
+  {'id': 4, 'media_type': 2, 'audio_type': 3, 'audio_configs': [{1: [48000], 2: [16], 3: [2]}]},
+  {'id': 5, 'media_type': 1, 'audio_type': 1, 'audio_configs': [{1: [16000], 2: [16], 3: [1]}]},
+  {'id': 6, 'media_type': 1, 'audio_type': 2, 'audio_configs': [{1: [16000], 2: [16], 3: [1]}]},
+  {'id': 15, 'media_type': None},
+]
+
+
+class Encoder:
+  config = b'\x11\x90'
+  def encode(self, pcm):
+    assert len(pcm) == ma.AAC_FRAME_BYTES
+    return [b'au%d' % len(pcm)]
+
+
+def test_media_channel_prefers_pcm_and_falls_back_to_aac():
+  assert ma.media_channel(CIVIC) == (4, 0, ma.CODEC_PCM)
+  assert ma.media_channel([c for c in CIVIC if c['id'] != 4]) == (18, 0, ma.CODEC_AAC_LC)
+  assert ma.media_channel(DUDUAUTO) == (4, 0, ma.CODEC_AAC_LC)
+  assert ma.media_channel([c for c in CIVIC if c['id'] not in (4, 18)]) is None
+
+
+def test_create_logs_what_the_car_offered():
+  logs, session = [], Session()
+
+  def record(name, **values):
+    logs.append((name, values))
+  assert ma.MediaAudio.create(session, record, source=Source()).codec == ma.CODEC_PCM
+  assert logs[-1][0] == 'media_audio_offered' and logs[-1][1]['chosen'] == {'channel': 4, 'config': 0, 'codec': 1}
+  assert {'id': 18, 'media_type': 2, 'audio_type': 3, 'configs': [[48000, 16, 2]]} in logs[-1][1]['channels']
+  session.channels = DUDUAUTO
+  assert ma.MediaAudio.create(session, record, source=Source()).codec == ma.CODEC_AAC_LC
+  assert logs[-1][1]['chosen']['codec'] == ma.CODEC_AAC_LC
+  session.channels = [c for c in DUDUAUTO if c['id'] != 4]
+  assert ma.MediaAudio.create(session, record, source=Source()) is None
+  assert logs[-1][1]['chosen'] is None and len(logs[-1][1]['channels']) == 2
+
+
+def aac_stream(make_encoder=Encoder, window=4):
+  session, source, now = Session(), Source(), [100.0]
+  session.channels = DUDUAUTO
+  stream = ma.MediaAudio(session, 4, 0, source, lambda *a, **k: None, clock=lambda: now[0],
+                         codec=ma.CODEC_AAC_LC, make_encoder=make_encoder)
+  stream.service()
+  stream.handle(4, ma.MSG_CHANNEL_OPEN_RESPONSE, {1: [0]})
+  assert parse_fields(session.sent[-1][2]) == {1: [ma.CODEC_AAC_LC]}
+  stream.handle(4, ma.AV_SETUP_RESPONSE, {1: [2], 2: [window], 3: [0]})
+  source.data += TONE
+  return stream, session
+
+
+def test_aac_sends_config_then_one_frame_per_message():
+  stream, session = aac_stream()
+  stream.service()
+  stream.handle(0, ma.AUDIO_FOCUS_NOTIFICATION, {1: [ma.STATE_GAIN]})
+  assert session.sent[-1] == (4, ma.AV_MEDIA_CODEC_CONFIG, b'\x11\x90')
+  stream.service()
+  media = [body for _, kind, body in session.sent if kind == ma.AV_MEDIA_WITH_TIMESTAMP]
+  assert len(media) == 4  # window of 4
+  stamps = [struct.unpack('>Q', body[:8])[0] - stream.base_us for body in media]
+  assert stamps == [0, 21333, 42666, 64000] and media[0][8:] == b'au4096'
+  stream.handle(4, ma.AV_MEDIA_ACK, {1: [1], 2: [5]})  # the car counted the codec config too
+  assert stream.unacked == 0 and stream.config_slack == 0 and stream.status()['acked'] == 4
+
+
+def test_aac_frame_acks_work_when_the_config_is_not_acknowledged():
+  stream, session = aac_stream()
+  stream.service()
+  stream.handle(0, ma.AUDIO_FOCUS_NOTIFICATION, {1: [ma.STATE_GAIN]})
+  stream.service()
+  stream.handle(4, ma.AV_MEDIA_ACK, {1: [1], 2: [4]})
+  assert stream.unacked == 0 and stream.config_slack == 1 and stream.status()['acked'] == 4
+
+
+def test_aac_encoder_failure_raises_before_asking_for_focus():
+  def broken():
+    raise RuntimeError('No aac encoder available')
+  stream, session = aac_stream(broken)
+  with pytest.raises(RuntimeError):
+    stream.service()
+  assert (0, ma.AUDIO_FOCUS_REQUEST) not in session.kinds()
+
+
+def test_real_aac_encoder_makes_raw_lc_frames():
+  pytest.importorskip('av')
+  encoder = ma.AacEncoder()
+  assert encoder.config == b'\x11\x90'  # AAC-LC, 48 kHz, stereo
+  units = [u for _ in range(4) for u in encoder.encode(TONE[:ma.AAC_FRAME_BYTES])]
+  assert units and all(u[:2] != b'\xff\xf1' for u in units)  # no ADTS header
 
 
 def test_stays_closed_until_spotify_is_routed(audio):
@@ -186,6 +273,50 @@ def test_pipe_source_reads_a_fifo_without_blocking(tmp_path):
   os.close(writer)
   source.close()
   assert not ma.PipeSource(tmp_path / 'missing', lambda: True).active(10.0)
+
+
+def test_pipe_source_counts_reads_that_find_the_pipe_full(tmp_path):
+  path = tmp_path / 'aa.pcm'
+  os.mkfifo(path)
+  source = ma.PipeSource(path, lambda: True)
+  writer = os.open(path, os.O_RDWR | os.O_NONBLOCK)
+  try:
+    assert source.active(10.0) and source.read(1024) == b''
+    assert source.capacity >= 4096 and source.overruns == 0
+    os.write(writer, TONE[:1000])
+    assert source.read(65536) == TONE[:1000] and source.overruns == 0
+    source.capacity = ma.PIPE_PAGE + 1000
+    os.write(writer, TONE[:1000])
+    assert source.read(65536) == TONE[:1000] and source.overruns == 1
+    source.close()
+    os.write(writer, TONE[:1000])
+    assert source.read(65536) == TONE[:1000] and source.overruns == 1  # backlog left while nobody read
+  finally:
+    source.close()
+    os.close(writer)
+
+
+def test_status_reports_pipe_overruns(audio):
+  stream, _, source, _, _ = audio
+  assert stream.status()['pipe_overruns'] == 0
+  source.overruns = 3
+  assert stream.status()['pipe_overruns'] == 3
+
+
+def test_longest_service_gap_while_playing_lasts_until_reset(audio):
+  stream, session, source, now, _ = audio
+  ready(stream, session)
+  now[0] += 5.0
+  play(stream, session, source, now)
+  assert stream.status()['max_service_gap_ms'] == 0
+  now[0] += 0.25
+  stream.service()
+  now[0] += 0.05
+  stream.service()
+  assert stream.status()['max_service_gap_ms'] == 250
+  assert stream.status()['max_service_gap_ms'] == 250
+  stream.reset_peaks()
+  assert stream.status()['max_service_gap_ms'] == 0
 
 
 def test_source_switch_discards_old_audio_and_releases_focus(audio):

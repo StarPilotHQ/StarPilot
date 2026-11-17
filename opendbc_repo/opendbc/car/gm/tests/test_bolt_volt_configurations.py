@@ -73,23 +73,22 @@ class TestBoltVoltConfigurations(unittest.TestCase):
             cp = pedal_params(identity, setting=True, pedal=True, alpha_long=alpha, removed=removed)
             if identity == CAR.CHEVROLET_BOLT_CC_2018_2021 and not removed:
               self.assertEqual(cp.safetyConfigs[0].safetyParam, 0x9D)
-            cs = CarState(cp)
-            parsers = cs.get_can_parsers(cp)
+            ci = CarInterface(cp)
+            controller = ci.CC
             packer = CANPacker(DBC[identity][Bus.pt])
-            controller = CarController(DBC[identity], cp)
             control = structs.CarControl()
-            for step, (received, expected) in enumerate((([3], 0), ([0, 1], 2), ([0, 0], 1),
-                                                        ([1], 2), ([], 2), ([2, 3], 0), ([0], 1))):
+            for step, (received, expected) in enumerate((([3], 0), ([0], 1), ([], None),
+                                                        ([1], 2), ([2, 2], 3), ([3], 0), ([0], 1))):
               now = 1_000_000_000 + step * 100_000_000
               packets = [packer.make_can_msg("ASCMLKASteeringCmd", 128, {"RollingCounter": value}) for value in received]
-              for parser in parsers.values():
-                parser.update([(now - 20_000_000, packets)])
-              cs.out = cs.update(parsers).as_reader()
-              self.assertEqual(cs.loopback_lka_steering_cmd_updated, bool(received))
+              ci.update([(now - 20_000_000, packets)])
+              self.assertEqual(ci.CS.loopback_lka_steering_cmd_updated, bool(received))
               controller.frame = 20 + step * 10
-              _, commands = controller.update(control.as_reader(), cs, now)
+              _, commands = ci.apply(control.as_reader(), now)
               steering = [message for message in commands if message[0] == 0x180 and message[2] == 0]
-              self.assertEqual(len(steering), 1)
+              self.assertEqual(len(steering), int(expected is not None))
+              if expected is None:
+                continue
               data = steering[0][1]
               self.assertEqual((data[0] >> 4) & 3, expected)
               self.assertFalse(data[0] & 8)

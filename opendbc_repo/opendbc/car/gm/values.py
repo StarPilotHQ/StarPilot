@@ -1,3 +1,4 @@
+from opendbc.car.config_cache import cached_config
 from dataclasses import dataclass, field, replace
 from enum import Enum, IntFlag
 from math import isfinite
@@ -155,6 +156,8 @@ VOLT_ONE_PEDAL_WORDS = {start + index: word for start in (0xD100, 0xD110)
 
 def gm_control_word(cp: CarParams) -> int:
   word = int(cp.safetyConfigs[0].safetyParam)
+  if word == 0xE900 and cp.carFingerprint == CAR.BUICK_ENVISION_SDGM:
+    return 0x1001
   if word in VOLT_ONE_PEDAL_WORDS:
     index = word - (0xD110 if word >= 0xD110 else 0xD100)
     identity = (CAR.CHEVROLET_VOLT if index < 2 else CAR.CHEVROLET_VOLT_ASCM if index < 6 else
@@ -270,9 +273,24 @@ def is_bolt_euv_longitudinal(cp: CarParams) -> bool:
     return False
 
 
+def is_volt_flashed_profile(cp: CarParams) -> bool:
+  """Manual plain-Volt OBD owner: flashed, no camera/radar, F1 brake input."""
+  try:
+    return (cp.brand == 'gm' and cp.carFingerprint == CAR.CHEVROLET_VOLT and
+            cp.networkLocation == CarParams.NetworkLocation.gateway and cp.radarUnavailable and
+            cp.alphaLongitudinalAvailable and not cp.pcmCruise and control_flags(cp) == 0 and
+            not cp.passive and not cp.dashcamOnly and not cp.notCar and len(cp.safetyConfigs) == 1 and
+            cp.safetyConfigs[0].safetyModel == CarParams.SafetyModel.gm and
+            gm_control_word(cp) == int(GMSafetyFlags.EV | GMSafetyFlags.VOLT_GATEWAY_LONG | GMSafetyFlags.VOLT_GATEWAY_ALT_BRAKE))
+  except (AttributeError, IndexError, TypeError, ValueError):
+    return False
+
+
 def is_volt_gateway_profile(cp: CarParams) -> bool:
   """Exact radar-qualified gateway owner, independently of the startup speed choice."""
   try:
+    if is_volt_flashed_profile(cp):
+      return True
     profile = camera_acc_pedal_profile(cp)
     if profile is not None and profile.topology == "gateway":
       return True
@@ -514,7 +532,7 @@ class CAR(Platforms):
     GMCarSpecs(mass=1363, wheelbase=2.662, steerRatio=15.7, centerToFrontRatio=0.4),
   )
   CHEVROLET_VOLT = GMPlatformConfig(
-    [GMCarDocs("Chevrolet Volt (OBD-II Harness) 2017-18", support_type=SupportType.COMMUNITY, support_link="#community",
+    [GMCarDocs("Chevrolet Volt (OBD-II Harness) 2017-18", "ACC or flashed bypass (alpha long)", support_type=SupportType.COMMUNITY, support_link="#community",
                min_enable_speed=0, video="https://youtu.be/QeMCN_4TFfQ")],
     GMCarSpecs(mass=1607, wheelbase=2.69, steerRatio=15.7, centerToFrontRatio=0.45, tireStiffnessFactor=1.0),
   )
@@ -544,6 +562,11 @@ class CAR(Platforms):
   )
   GMC_ACADIA_ASCM = GMPlatformConfig(
     [GMCommunityCarDocs("GMC Acadia (ASCM Harness) 2018")], GMC_ACADIA.specs,
+  )
+  BUICK_ENVISION_SDGM = GMPlatformConfig(
+    [GMCommunityCarDocs("Buick Envision (CN SDGM Retrofit) 2016", "Custom cross-flashed ADAS stack and SDGM harness")],
+    GMCarSpecs(mass=1800, wheelbase=2.75, steerRatio=15.6, centerToFrontRatio=0.41),
+    dbc_dict={Bus.pt: 'gm_global_a_powertrain_envision', Bus.radar: 'gm_global_a_object', Bus.chassis: 'gm_global_a_chassis'},
   )
   BUICK_LACROSSE = GMPlatformConfig(
     [GMCommunityCarDocs("Buick LaCrosse (OBD-II Harness) 2017-19", "Driver Confidence Package 2")],
@@ -593,7 +616,7 @@ class CAR(Platforms):
     GMCarSpecs(mass=1669, wheelbase=2.63779, steerRatio=16.8, centerToFrontRatio=0.4, tireStiffnessFactor=1.0),
   )
   CHEVROLET_BOLT_ACC_2022_2023 = GMPlatformConfig(
-    [GMCommunityCarDocs("Chevrolet Bolt (Camera Harness) 2022-23", "ACC; recognized camera layout required")],
+    [GMCommunityCarDocs("Chevrolet Bolt ACC 2022-23", "ACC; recognized camera layout required")],
     CHEVROLET_BOLT_EUV.specs,
   )
   CHEVROLET_BOLT_CC_2017 = GMPlatformConfig(
@@ -703,7 +726,8 @@ class CAR(Platforms):
                                                                   centerToFrontRatio=0.4, tireStiffnessFactor=0.997),
   )
   CHEVROLET_SILVERADO_CC = GMPlatformConfig(
-    [GMCommunityCarDocs("Chevrolet Silverado (CC)", "Cruise control; configuration-specific installation")],
+    [GMCommunityCarDocs("Chevrolet Silverado (CC)", "Cruise control; configuration-specific installation"),
+     GMCommunityCarDocs("GMC Sierra 1500 No-ACC 2020-21", "Cruise control; configuration-specific installation")],
     GMCarSpecs(mass=2994, wheelbase=3.75, steerRatio=16.3, tireStiffnessFactor=1.0),
   )
   CHEVROLET_SUBURBAN_CC = GMPlatformConfig(
@@ -829,7 +853,7 @@ SDGM_STOCK_CAR = {
   CAR.CHEVROLET_BLAZER, CAR.CHEVROLET_MALIBU_SDGM,
 }
 SDGM_CANCEL_PT_CAR = {CAR.CADILLAC_XT4, CAR.CADILLAC_XT5, CAR.CADILLAC_XT6, CAR.BUICK_BABYENCLAVE}
-SDGM_CAR = {CAR.CADILLAC_XT4, CAR.CHEVROLET_VOLT_2019, CAR.CHEVROLET_TRAVERSE} | SDGM_STOCK_CAR
+SDGM_CAR = {CAR.BUICK_ENVISION_SDGM, CAR.CADILLAC_XT4, CAR.CHEVROLET_VOLT_2019, CAR.CHEVROLET_TRAVERSE} | SDGM_STOCK_CAR
 
 CC_GATEWAY_STOCK_CAR = {
   CAR.CADILLAC_CT6_CC, CAR.CADILLAC_XT4_CC, CAR.CADILLAC_XT5_CC,
@@ -918,6 +942,13 @@ def is_bolt_pedal_removed_profile(cp, *, stock_only=False):
 
 
 def is_bolt_pedal_profile(cp, *, stock_only=False):
+  if cp.brand != 'gm' or cp.carFingerprint not in BOLT_PEDAL_WORDS:
+    return False
+  return _bolt_pedal_profile(cp, stock_only=stock_only)
+
+
+@cached_config
+def _bolt_pedal_profile(cp, *, stock_only=False):
   """Exact selected interceptor profile, including its startup authority reduction."""
   if is_bolt_pedal_removed_profile(cp, stock_only=stock_only):
     return True
@@ -961,7 +992,7 @@ def is_ordinary_ascm_profile(cp, *, longitudinal):
     word = int(configs[0].safetyParam)
     return (cp.brand == "gm" and cp.carFingerprint in ORDINARY_ASCM_CAR and
             cp.networkLocation == CarParams.NetworkLocation.fwdCamera and
-            not cp.passive and not cp.dashcamOnly and not cp.notCar and cp.flags == 0 and
+            not cp.passive and not cp.dashcamOnly and not cp.notCar and control_flags(cp) == 0 and
             cp.openpilotLongitudinalControl == longitudinal and cp.pcmCruise != longitudinal and
             (not longitudinal or cp.alphaLongitudinalAvailable) and
             len(configs) == 1 and configs[0].safetyModel == CarParams.SafetyModel.gm and
@@ -976,6 +1007,9 @@ ORDINARY_SDGM_CAR = SDGM_CAR - {CAR.CHEVROLET_VOLT_2019}
 def is_ordinary_sdgm_profile(cp, *, longitudinal):
   """Exact ordinary SDGM source and authority selection."""
   try:
+    envision = cp.carFingerprint == CAR.BUICK_ENVISION_SDGM
+    if envision and (longitudinal or cp.alphaLongitudinalAvailable or int(cp.safetyConfigs[0].safetyParam) != 0xE900):
+      return False
     required = int(GMSafetyFlags.HW_CAM | GMSafetyFlags.SDGM)
     if longitudinal:
       required |= int(GMSafetyFlags.HW_CAM_LONG)
@@ -985,11 +1019,11 @@ def is_ordinary_sdgm_profile(cp, *, longitudinal):
     configs = cp.safetyConfigs
     return (cp.brand == 'gm' and cp.carFingerprint in ORDINARY_SDGM_CAR and
             cp.networkLocation == CarParams.NetworkLocation.fwdCamera and
-            not cp.passive and not cp.dashcamOnly and not cp.notCar and cp.flags == 0 and
+            not cp.passive and not cp.dashcamOnly and not cp.notCar and control_flags(cp) == 0 and
             cp.openpilotLongitudinalControl == longitudinal and cp.pcmCruise != longitudinal and
             (not longitudinal or cp.alphaLongitudinalAvailable) and
             len(configs) == 1 and configs[0].safetyModel == CarParams.SafetyModel.gm and
-            int(configs[0].safetyParam) & ~optional == required)
+            (gm_control_word(cp) if envision else int(configs[0].safetyParam)) & ~optional == required)
   except (AttributeError, IndexError, TypeError, ValueError):
     return False
 
@@ -1018,6 +1052,20 @@ def is_silverado_cc_stock_profile(cp):
 ORDINARY_CC_CAR = CC_GATEWAY_STOCK_CAR - {CAR.CHEVROLET_SILVERADO_CC}
 ORDINARY_CC_WORD = 0xC160
 
+def is_ordinary_cc_stock_profile(cp):
+  """Conventional cruise retains the stock owner when speed control is disabled."""
+  try:
+    return (cp.brand == 'gm' and cp.carFingerprint in ORDINARY_CC_CAR and
+            cp.networkLocation == CarParams.NetworkLocation.gateway and
+            cp.transmissionType == CarParams.TransmissionType.automatic and cp.radarUnavailable and
+            cp.pcmCruise and not cp.openpilotLongitudinalControl and not cp.alphaLongitudinalAvailable and
+            not cp.passive and not cp.dashcamOnly and not cp.notCar and control_flags(cp) == 0 and
+            len(cp.safetyConfigs) == 1 and cp.safetyConfigs[0].safetyModel == CarParams.SafetyModel.gm and
+            int(cp.safetyConfigs[0].safetyParam) == int(GMSafetyFlags.NO_ACC))
+  except (AttributeError, IndexError, TypeError, ValueError):
+    return False
+
+
 MALIBU_CC_F1_WORD = 0xC161
 MALIBU_CC_F1_STOCK_WORD = 0xC162
 MALIBU_CC_F1_SOURCES = {0x184: 8, 0x34A: 5, 0x348: 5, 0x1E1: 7, 0xF1: 6, 0x1C4: 8,
@@ -1045,7 +1093,7 @@ def is_ordinary_cc_profile(cp):
     return True
   try:
     configs = cp.safetyConfigs
-    return (cp.brand == 'gm' and cp.carFingerprint in ORDINARY_CC_CAR and
+    return (cp.brand == 'gm' and cp.carFingerprint in (ORDINARY_CC_CAR | {CAR.CHEVROLET_SILVERADO_CC}) and
             cp.networkLocation == CarParams.NetworkLocation.gateway and cp.radarUnavailable and not cp.pcmCruise and
             not cp.alphaLongitudinalAvailable and not cp.passive and not cp.dashcamOnly and not cp.notCar and
             control_flags(cp) == int(GMFlags.CC_LONG) and len(configs) == 1 and

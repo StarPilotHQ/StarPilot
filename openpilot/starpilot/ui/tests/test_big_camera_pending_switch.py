@@ -29,6 +29,7 @@ def test_big_cancelled_wide_switch_never_consumes_unwanted_target_frame(experime
   pending = Mock()
   pending.recv.side_effect = AssertionError('Obsolete wide stream must not be consumed')
   sm = {'selfdriveState': NS(experimentalMode=True), 'carState': NS(vEgo=1.)}
+  view._clients = {road.NARROW_ROAD_CAM: view.client, road.WIDE_CAM: pending}
   with patch.object(cameraview, 'VisionIpcClient', return_value=pending):
     view._switch_stream_if_needed(sm)
   assert view._switching and view._target_stream_type == road.WIDE_CAM

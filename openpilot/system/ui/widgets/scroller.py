@@ -1,4 +1,4 @@
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import numpy as np
 from collections.abc import Callable, Sequence
 

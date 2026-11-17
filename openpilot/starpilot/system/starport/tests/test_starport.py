@@ -110,7 +110,7 @@ def unexpected_join(_):
   raise AssertionError("Unexpected join")
 
 
-def run_bootstrap(start_request_delay=5.0, initial_kick_delay=bs.INITIAL_KICK_SECONDS, **hu_options):
+def run_bootstrap(start_request_delay=5.0, initial_kick_delay=bs.INITIAL_KICK_SECONDS, experiment="", **hu_options):
   phone, car = socket.socketpair()
   joined = []
   result_holder = {}
@@ -125,7 +125,7 @@ def run_bootstrap(start_request_delay=5.0, initial_kick_delay=bs.INITIAL_KICK_SE
   thread.start()
   events = []
   boot = bs.WirelessBootstrap(phone, lambda name, **values: events.append((name, values)), stage_timeout=5.0,
-                              start_request_delay=start_request_delay, initial_kick_delay=initial_kick_delay)
+                              start_request_delay=start_request_delay, initial_kick_delay=initial_kick_delay, experiment=experiment)
 
   def join(credentials):
     time.sleep(0.3)  # the car pings while we join
@@ -176,7 +176,7 @@ def test_bootstrap_waits_out_a_busy_start_response():
   result, joined, _, events = run_bootstrap(start_request_delay=0.1, version_first=True, wait_for_phone_start=True,
                                             answer_start=True, busy_replies=1, busy_follow_up=True)
   assert result.endpoint.port == 5288 and joined[0].ssid == "HondaAA"
-  assert ("bootstrap_start_refused", {"status": -1, "endpoint": False}) in events
+  assert ("bootstrap_start_refused", {"status": -1, "endpoint": False, "hex": "18ffffffffffffffffff01"}) in events
 
 
 def test_bootstrap_asks_again_after_a_busy_start_response():
@@ -402,9 +402,9 @@ def test_frame_consumer_rejects_torn_write(tmp_path):
 # ------------------------------------------------------------------- session
 
 def test_choose_video_mode_prefers_720p():
-  channels = [{"id": 3, "video_configs": [parse_fields(field(1, 1)), parse_fields(field(1, 2) + field(4, 240)),
+  channels = [{"id": 3, "video_configs": [parse_fields(field(1, 1)), parse_fields(field(1, 2) + field(4, 240) + field(5, 160)),
                                           parse_fields(field(1, 3))]}]
-  assert choose_video_mode(channels) == VideoMode(3, 1, 1280, 720, 30, 0, 240)
+  assert choose_video_mode(channels) == VideoMode(3, 1, 1280, 720, 30, 0, 240, density=160)
   with pytest.raises(ValueError):
     choose_video_mode([{"id": 3, "video_configs": [parse_fields(field(1, 2) + field(10, 7))]}])  # H.265 only
 
@@ -613,6 +613,8 @@ def test_session_opens_car_data_and_bluetooth_like_a_phone(identity):
   session = connect(hu, identity)
   session.phone_services = True
   session.phone_address = "39:90:21:64:07:00"
+  events = []
+  session._log = lambda name, **values: events.append((name, values))
   session.authenticate()
   session.start("StarPilot", "comma.ai")
   pump_until(session, lambda: session.focused and session.sensor_events)
@@ -624,6 +626,9 @@ def test_session_opens_car_data_and_bluetooth_like_a_phone(identity):
   assert hu.sensor_requests == [13, 10]  # driving status and night only; never location
   assert hu.pairing_requests == [("39:90:21:64:07:00", 2)]
   assert session.stats()["sensor_events"] == 1
+  opened = next(values for name, values in events if name == "bluetooth_opened")
+  assert opened["phone_address_sent"] is True
+  assert "39:90:21:64:07:00" not in repr(opened)
 
 
 def test_session_leaves_car_data_alone_by_default(identity):
@@ -812,6 +817,10 @@ class FakeBluez:
 
   def connect_device(self, address):
     pass
+
+  def disconnect_stray_link(self):
+    self.stray_disconnects = getattr(self, "stray_disconnects", 0) + 1
+    return 7
 
 
 def test_supervisor_full_wireless_session(identity, tmp_path, monkeypatch):
@@ -1008,8 +1017,9 @@ def test_supervisor_stop_while_waiting_for_car(identity, tmp_path, monkeypatch):
 # ------------------------------------------------------------------- network
 
 class FakeNetworkManager:
-  def __init__(self, fail_with_bssid=False):
+  def __init__(self, fail_with_bssid=False, stalled_dhcp=0):
     self.fail_with_bssid = fail_with_bssid
+    self.stalled_dhcp = stalled_dhcp
     self.active_device_connection = "/active/home"
     self.states = {}
     self.added = []
@@ -1027,6 +1037,8 @@ class FakeNetworkManager:
       active = f"/active/aa{len(self.added)}"
       locked = "bssid" in settings["802-11-wireless"]
       self.states[active] = network.ACTIVE_STATE_DEACTIVATED if (locked and self.fail_with_bssid) else network.ACTIVE_STATE_ACTIVATED
+      if len(self.added) <= self.stalled_dhcp:
+        self.states[active] = 1  # activating: the access point never answers DHCP
       self.active_device_connection = active
       return [f"/settings/aa{len(self.added)}", active]
     if member == "GetSettings":
@@ -1039,6 +1051,8 @@ class FakeNetworkManager:
     values = {"WirelessEnabled": True, "DeviceType": 2, "Interface": "wlan0", "ActiveConnection": self.active_device_connection,
               "Connection": "/settings/home", "Ip4Config": "/ip4/1", "Autoconnect": self.autoconnect,
               "ActiveAccessPoint": "/ap/1", "Frequency": 5745}
+    if name == "State" and interface.endswith("Device"):
+      return 70
     if name == "State":
       return self.states.get(path, 4)
     if name == "AddressData":
@@ -1107,6 +1121,37 @@ def test_network_lease_waits_for_a_slow_honda_access_point(monkeypatch):
   with pytest.raises(network.NetworkError):
     lease.acquire(credentials())
   assert budgets == [("AA:BB:CC:DD:EE:FF", 90.0), ("", 30.0)]
+
+
+def test_network_lease_joins_aawireless_on_a_static_address_first():
+  nm = FakeNetworkManager()
+  lease = make_lease(nm)
+  lease.acquire(credentials(), timeout=10.0, dhcp_patience=0.3, endpoint_ip=lambda: "10.42.1.1", static_first=True)
+  assert len(nm.added) == 1
+  assert nm.added[0]["ipv4"]["method"] == ("s", "manual")
+
+
+def test_network_lease_falls_back_to_a_static_address_when_dhcp_never_answers():
+  nm = FakeNetworkManager(stalled_dhcp=1)
+  lease = make_lease(nm)
+  lease.acquire(credentials(), timeout=10.0, dhcp_patience=0.3, endpoint_ip=lambda: "10.42.1.1")
+  assert [settings["ipv4"]["method"][1] for settings in nm.added] == ["auto", "manual"]
+
+
+def test_network_lease_restarts_a_join_whose_dhcp_goes_unanswered():
+  nm = FakeNetworkManager(stalled_dhcp=2)
+  lease = make_lease(nm)
+  assert lease.acquire(credentials(), timeout=10.0, dhcp_patience=0.3) == "192.168.50.23"
+  assert len(nm.added) == 3
+
+
+def test_network_lease_waits_for_dhcp_without_patience():
+  from openpilot.starpilot.system.starport import network
+  nm = FakeNetworkManager(stalled_dhcp=2)
+  lease = make_lease(nm)
+  with pytest.raises(network.JoinTimeout):
+    lease.acquire(credentials(), timeout=1.0)
+  assert len(nm.added) == 2  # only the SSID-only retry, never a DHCP restart
 
 
 def test_network_lease_does_not_undo_user_network_change():

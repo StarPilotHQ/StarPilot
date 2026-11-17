@@ -49,7 +49,7 @@ class Reason(StrEnum):
   CEM_CURVE = 'cem_curve'
   CEM_LEAD = 'cem_lead'
   CEM_STOP = 'cem_stop'
-  CEM_SPEED_LIMIT = 'cem_speed_limit'
+  CEM_SPEED_LIMIT = 'cem_speed_limit'  # Historical route labels only.
   CEM_HOLD = 'cem_hold'
   CCM_SPEED = 'ccm_speed'
   CCM_LEAD = 'ccm_lead'
@@ -98,7 +98,6 @@ class SceneEvidence:
   curve_detected: bool | None = None
   slow_lead_detected: bool | None = None
   stop_light_detected: bool | None = None
-  slc_experimental: bool | None = None
   standstill: bool | None = None
   traffic_mode: bool | None = None
   stop_sign_confirmed: bool | None = None
@@ -404,12 +403,12 @@ class ConditionalModePolicy:
       return Reason.CEM_LEAD
     if settings.cem_stop and (scene.stop_light_detected is True or scene.forcing_stop is True):
       return Reason.CEM_STOP
-    if scene.slc_experimental is True:
-      return Reason.CEM_SPEED_LIMIT
     return None
 
   def _cem(self, now_s: float, authority: Authority, warm: bool, scene: SceneEvidence, settings: ModeSettings) -> Decision:
     committed = settings.cem_stop and scene.forcing_stop is True and authority.driving_enabled and authority.long_active
+    if scene.standstill is True and scene.standstill_stop_hold is None and not committed and self.cem_previous_stop_hold:
+      return self._decision(True, authority, True, warm, Reason.CEM_STOP, 8)
     if not _bool(scene.standstill) or (scene.standstill and not committed and not _bool(scene.standstill_stop_hold)):
       self._reset_cem()
       return self._decision(False, authority, True, warm, Reason.SCENE_UNAVAILABLE, 0)
@@ -478,7 +477,6 @@ class ConditionalModePolicy:
       Reason.CEM_SIGNAL: 5,
       Reason.CEM_SPEED: 6,
       Reason.CEM_OPEN_ROAD: 6,
-      Reason.CEM_SPEED_LIMIT: 7,
       Reason.CEM_STOP: 8,
     }.get(status_reason, 0)
     return self._decision(self.cem_active, authority, True, warm, reason, status)
@@ -492,7 +490,6 @@ class ConditionalModePolicy:
       scene.left_blinker,
       scene.right_blinker,
       scene.traffic_mode,
-      scene.slc_experimental,
       scene.curve_detected,
       scene.slow_lead_detected,
       scene.stop_light_detected,

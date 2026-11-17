@@ -205,6 +205,8 @@ class TestDistancePersonalityClaim(unittest.TestCase):
     drive.big_model_ready_t = 0.0
     drive.jetlink_swaps = None
     drive.enabled = False
+    drive.active = False
+    drive.aol_replay = False
     drive.nostalgia_enabled = False
     drive.CS_prev = car.CarState.new_message()
     drive.dm_lockout_set = False

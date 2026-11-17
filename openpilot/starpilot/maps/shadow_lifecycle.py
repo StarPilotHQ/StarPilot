@@ -107,7 +107,7 @@ def _selected_receipt(root: Path):
         receipt.get('tileSchema') != 'offline.capnp:0xda3a0d9284ca402f' or
         receipt.get('attribution') != '© OpenStreetMap contributors; https://www.openstreetmap.org/copyright (ODbL)' or
         receipt.get('sourceVerified') is not False or
-        receipt.get('sourceKind') not in ('local-pbf', 'provided-group-archives') or
+        receipt.get('sourceKind') not in ('local-pbf', 'provided-group-archives', 'combined-group-archives') or
         type(receipt.get('tiles')) is not list or not 0 < len(receipt['tiles']) <= 65536 or
         type(receipt.get('inputs')) is not list or not receipt['inputs']):
       return None
@@ -218,18 +218,17 @@ def enabled(started: bool, params: Params, CP: car.CarParams) -> bool:
   # Selecting Maps owns producer demand directly. Do not rewrite the separate
   # diagnostic opt-in, and do not start control inside the Go shadow provider.
   from openpilot.starpilot.saved_source import read_saved
-  from openpilot.starpilot.speed_limits.runtime_settings import LABELS, read_params
+  from openpilot.starpilot.speed_limits.runtime_settings import LABELS, SOURCE_PRIORITY_DEFAULTS, SOURCE_PRIORITY_KEYS, SOURCE_PRIORITY_MAX_BYTES, read_params
   from openpilot.starpilot.speed_limits.selection import SelectionMode, Source
-  # Default Vision/Dashboard needs no Maps producer or full settings scan.
   # These bounded reads are demand hints only; canonical parsing below owns
   # the enabled/display state and rejects malformed complete preferences.
   labels = []
-  for key in ('SLCPriority1', 'SLCPriority2'):
-    raw, readable = read_saved(params, key, 32)
+  for key, default in zip(SOURCE_PRIORITY_KEYS, SOURCE_PRIORITY_DEFAULTS, strict=True):
+    raw, readable = read_saved(params, key, SOURCE_PRIORITY_MAX_BYTES)
     if not readable:
       return False
     try:
-      labels.append(raw.decode('utf-8') if raw is not None else None)
+      labels.append(raw.decode('utf-8') if raw is not None else default)
     except UnicodeError:
       return False
   if not any(LABELS.get(label) is Source.MAP for label in labels) and labels[0] not in ('Highest', 'Lowest'):

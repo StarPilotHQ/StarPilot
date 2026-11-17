@@ -2,6 +2,7 @@
 
 import json
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 import shutil
 import subprocess
@@ -16,7 +17,7 @@ from openpilot.starpilot.ui.onroad import axis_status_color, driving_mode_descri
 from openpilot.starpilot.ui.onroad_cem_gauge import gauge_data
 from openpilot.starpilot.ui.onroad_customization import PROFILES, default_document
 from openpilot.starpilot.ui.onroad_dm import monitor_visible
-from openpilot.starpilot.ui.onroad_state import compact_sign_obscured_by_actions, slc_controls
+from openpilot.starpilot.ui.onroad_state import slc_controls
 from openpilot.starpilot.ui.presentation import Profile
 from openpilot.starpilot.ui.unified_speed_presentation import resolve_unified_speed
 
@@ -69,8 +70,10 @@ def test_every_scene_matches_native_border_mode_and_widget_visibility(target):
         else:
           expected['steering_wheel'] = not state.lateral_active
           expected['max_speed'] = not state.cruise_active
-          expected['speed_limit'] = str(state.speed_limit.kind) != 'valid' or compact_sign_obscured_by_actions(state)
-          expected['driver_monitor'] = not monitor_visible(profile, state, fresh=True, onroad=True,
+          expected['speed_limit'] = str(state.speed_limit.kind) != 'valid'
+          # Before native art arrives, scene rules cover eligibility; native pixels supply prompt occlusion.
+          eligibility = replace(state, speed_limit=replace(state.speed_limit, pending_speed_limit_mps=None))
+          expected['driver_monitor'] = not monitor_visible(profile, eligibility, fresh=True, onroad=True,
                                                          top_icons=state.cruise_active and layout['max_speed']['enabled'])
       assert scene['hidden'] == expected, (target, scene['id'], move)
 

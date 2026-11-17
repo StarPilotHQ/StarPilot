@@ -7,12 +7,16 @@ from pathlib import Path
 
 from openpilot.starpilot.audio.sound_pack import DEFAULT_PACK, PACK_ROOT, installed_packs, read_selection
 from openpilot.starpilot.saved_document import commit_exact
+from openpilot.starpilot.saved_source import read_saved
+from openpilot.starpilot.audio.blindspot_alert import KEYS as BLINDSPOT_KEYS
+from openpilot.starpilot.audio.departure_alert import KEYS as DEPARTURE_KEYS, TOGGLES as DEPARTURE_TOGGLES
 
 from openpilot.starpilot.audio.alert_volume import AUTO, MAX_RAW_BYTES, SPECS, VOLUMES, read_volume
 from openpilot.starpilot.ui.feature_settings_state import FeatureRow, FeatureSettingsRequest, FeatureSettingsState
 
 AUTO_PREFIX = "sounds:auto:"
-PACK_LABELS = {"starpilot": "StarPilot Sounds", "stock": "Stock Sounds"}
+PACK_LABELS = {"starpilot": "StarPilot Sounds", "stock": "Stock Sounds",
+               "classic_openpilot": "Classic openpilot (pre-C4)", "old_engage_sounds": "openpilot 2025"}
 
 
 def choices(key: str) -> tuple[str, ...]:
@@ -57,6 +61,17 @@ class SoundsOwner:
         rows.append(FeatureRow(AUTO_PREFIX + key, "Use Auto " + label, "Follow ambient sound", source=saved.raw,
                                available=parked and saved.readable, repair_value="Auto"))
     rows.append(pack_row)
+    for key, label, reason in (*DEPARTURE_TOGGLES,
+      (BLINDSPOT_KEYS[0], "Loud Blindspot Alert", "Uses the soft-warning sound when a lane change is blocked by a detected blind-spot vehicle."),
+      (BLINDSPOT_KEYS[1], "Blindspot Alert While Lateral Is Off",
+       "Warns when signaling toward a detected blind-spot vehicle with steering assistance off or paused. "
+       + "Independent of Loud Blindspot Alert. Hazards do not trigger it."),
+    ):
+      raw, readable = read_saved(self.params, key, 8)
+      valid = readable and raw in (None, b"0", b"1")
+      rows.append(FeatureRow(key, label, ("On" if raw == b"1" else "Off") if valid else "Invalid saved value",
+                             raw, ("Off", "On") if valid else (), available=parked and valid,
+                             reason=reason, default_value="Off"))
     defaults = dict.fromkeys(SPECS, 'Auto')
     defaults['SoundPack'] = PACK_LABELS.get(DEFAULT_PACK, DEFAULT_PACK)
     rows = tuple(replace(row, default_value=defaults[row.key]) if row.key in defaults else row for row in rows)
@@ -65,6 +80,13 @@ class SoundsOwner:
                                 rows=tuple(rows), parked=parked)
 
   def apply(self, request: FeatureSettingsRequest) -> bool:
+    if request.key in (*BLINDSPOT_KEYS, *DEPARTURE_KEYS):
+      if request.value not in ("Off", "On") or request.expected not in (None, b"0", b"1"):
+        return False
+      result = commit_exact(self.params, key=request.key, max_bytes=8,
+                            raw=b"1" if request.value == "On" else b"0", expected=request.expected,
+                            authorized=self.parked, temp_prefix=".optional-alert-")
+      return result.committed and result.verified
     if request.key.startswith(AUTO_PREFIX):
       if request.value != "Auto":
         return False

@@ -27,6 +27,7 @@ class CellularManager:
     self.on_profiles_updated: Callable[[], None] | None = None
     self.on_operation_error: Callable[[str], None] | None = None
 
+    self._last_modem_poll: float = 0.0
     self._last_profile_poll: float = 0.0
     self._polling: bool = False
 
@@ -40,9 +41,13 @@ class CellularManager:
     for cb in to_run:
       cb()
 
-    if not self._busy and not self._polling and time.monotonic() - self._last_profile_poll >= self.PROFILE_POLL_INTERVAL_S:
-      self._last_profile_poll = time.monotonic()
+    now = time.monotonic()
+    if now - self._last_modem_poll >= self.PROFILE_POLL_INTERVAL_S:
+      self._last_modem_poll = now
       self._modem_state = HARDWARE.get_modem_state()
+
+    if not self._busy and not self._polling and now - self._last_profile_poll >= self.PROFILE_POLL_INTERVAL_S:
+      self._last_profile_poll = now
       self._poll_profiles()
 
   @property

@@ -34,7 +34,7 @@ class TestG90ForecastStop(unittest.TestCase):
         self.assertEqual(forecast_should_stop(cp, speeds, times, action, False), expected)
 
   def test_stock_and_other_cars_retain_actual_fallback(self):
-    for car, owned in ((CAR.GENESIS_G90, False), (CAR.GENESIS_G80, True)):
+    for car, owned in ((CAR.GENESIS_G90, False), ('TOYOTA_RAV4', True)):
       cp = SimpleNamespace(carFingerprint=car, openpilotLongitudinalControl=owned)
       for fallback in (False, True):
         self.assertEqual(forecast_should_stop(cp, (.7, .7), (0., 2.), .5, fallback), fallback)

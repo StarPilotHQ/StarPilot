@@ -92,6 +92,7 @@ def workload_policy():
   policy = json.loads(Path(__file__).with_name('lifecycle_workloads.json').read_text())
   if policy['version'] != 1 or set(policy['function_groups']) != {
       'openpilot/starpilot/car/toyota/tests/test_legacy_advert_callers.py',
+      'openpilot/starpilot/tests/test_ford_bluepilot_library_lifecycle.py',
       'openpilot/starpilot/tests/test_ford_configuration_parity.py',
       'openpilot/starpilot/aol/tests/test_stock_location_recovery.py',
       'openpilot/starpilot/car/toyota/tests/test_camera_2aa_callers.py',

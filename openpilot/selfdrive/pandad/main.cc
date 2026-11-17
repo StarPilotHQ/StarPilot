@@ -6,7 +6,11 @@
 #include "common/hardware/hw.h"
 
 int main(int argc, char *argv[]) {
-  LOGW("starting pandad");
+#if __COMMA_HARDWARE__
+  LOGW("starting pandad (comma hardware)");
+#else
+  LOGW("starting pandad (PC)");
+#endif
 
   if (!Hardware::PC()) {
     int err;

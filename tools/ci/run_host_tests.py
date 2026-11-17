@@ -13,6 +13,8 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 RUNNER = ROOT / 'tools/test_runner.py'
 EXTRA_PYTEST_FILES = (
+  'msgq_repo/msgq/tests/test_receive_gil.py',
+  'openpilot/selfdrive/car/tests/test_ford_settings_worker.py',
   'openpilot/system/tests/test_sentry.py',
   'openpilot/system/ui/lib/tests/test_text_caches.py',
   'openpilot/system/ui/widgets/tests/test_label_cache.py',

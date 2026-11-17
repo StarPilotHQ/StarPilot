@@ -29,7 +29,7 @@ static uint32_t volvo_dispatch_compute_checksum(const CANPacket_t *msg) {
   return volvo_dispatch_c1 ? 0U : volvo_cma_compute_checksum(msg);
 }
 static bool volvo_dispatch_quality(const CANPacket_t *msg) {
-  return volvo_dispatch_c1 || volvo_cma_receiver_quality(msg);
+  return volvo_dispatch_c1 || volvo_cma_receiver_quality_rx(msg);
 }
 const safety_hooks volvo_dispatch_hooks = {.init = volvo_dispatch_init, .rx = volvo_dispatch_rx, .tx = volvo_dispatch_tx,
   .get_counter = volvo_dispatch_get_counter,

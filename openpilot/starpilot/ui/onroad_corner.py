@@ -1,9 +1,10 @@
 """Retained collapsed favorite-menu corner hint for the large onroad shell."""
+import numpy as np
 
 from functools import lru_cache
 import math
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 
 def _aether_color(t: float, alpha: int) -> rl.Color:
@@ -34,12 +35,12 @@ def _commands(x: float, y: float, width: float, height: float) -> tuple:
       if color is None:
         continue
       if index == 0:
-        commands.append((rl.rl.DrawTriangle, (origin, right[index + 1], top[index + 1], color)))
+        commands.append((rl.draw_triangle, (origin, right[index + 1], top[index + 1], color)))
       else:
         # A strip emits the same two triangles, in the same blending order,
         # while crossing the Python/native boundary only once for this band.
-        points = rl.ffi.new("Vector2[]", [top[index], right[index], top[index + 1], right[index + 1]])
-        commands.append((rl.rl.DrawTriangleStrip, (points, 4, color)))
+        points = np.array([(v.x, v.y) for v in (top[index], right[index], top[index + 1], right[index + 1])], dtype=np.float32)
+        commands.append((rl.draw_triangle_strip, (points, 4, color)))
   inset = 48.0 * scale
   center_x, center_y = rect.x + inset, rect.y + rect.height - inset
   tip = rl.Vector2(center_x + 15 * scale, center_y - 15 * scale)
@@ -54,11 +55,11 @@ def _commands(x: float, y: float, width: float, height: float) -> tuple:
             (tail, tip, wing1, wing2, line_width, rl.Color(255, 255, 255, 225)),
             (tail, tip, wing1, wing2, 2.0 * scale, rl.Color(255, 255, 255, 240)))
   for start, end, first_wing, second_wing, stroke_width, color in layers:
-    commands.append((rl.rl.DrawLineEx, (start, end, stroke_width, color)))
-    commands.append((rl.rl.DrawLineEx, (end, first_wing, stroke_width, color)))
-    commands.append((rl.rl.DrawLineEx, (end, second_wing, stroke_width, color)))
+    commands.append((rl.draw_line_ex, (start, end, stroke_width, color)))
+    commands.append((rl.draw_line_ex, (end, first_wing, stroke_width, color)))
+    commands.append((rl.draw_line_ex, (end, second_wing, stroke_width, color)))
     for point in (start, end, first_wing, second_wing):
-      commands.append((rl.rl.DrawCircleV, (point, stroke_width / 2, color)))
+      commands.append((rl.draw_circle_v, (point, stroke_width / 2, color)))
 
   return tuple(commands)
 
@@ -103,7 +104,7 @@ class CornerHintCache:
         rl.clear_background(rl.BLANK)
         # Scratch RGB is premultiplied, but alpha must accumulate coverage.
         # Raylib BLEND_ALPHA otherwise accumulates alpha squared (rlgl.h).
-        rl.rl.rlSetBlendFactorsSeparate(0x0302, 0x0303, 1, 0x0303, 0x8006, 0x8006)
+        rl.rl_set_blend_factors_separate(0x0302, 0x0303, 1, 0x0303, 0x8006, 0x8006)
         rl.begin_blend_mode(rl.BlendMode.BLEND_CUSTOM_SEPARATE)
         try:
           # Keep original scale and geometry, translating only the local origin.

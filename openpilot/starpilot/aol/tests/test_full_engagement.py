@@ -194,3 +194,49 @@ def test_auxiliary_off_after_pending_observation_cannot_be_undone_by_activation(
   assert not owner.allowed_latch
   observe(owner, cs, 3)
   assert not owner.allowed_latch
+
+
+@pytest.mark.parametrize('factory', (ClassicLongCardIntent, ClassicSccCardIntent))
+@pytest.mark.parametrize('main', (0, AOL_TOGGLE))
+@pytest.mark.parametrize('lkas', (0, AOL_TOGGLE))
+def test_classic_hkg_gas_override_defers_arming_until_release(factory, main, lkas):
+  owner, cs = factory(CP, replace(SETTINGS, main_action=main, lkas_action=lkas)), state()
+  observe(owner, cs, 1, enabled=False, active=False)
+  cs.gasPressed = True
+  observe(owner, cs, 2)
+  observe(owner, cs, 3)
+  assert not owner.allowed_latch
+  cs.gasPressed = False
+  observe(owner, cs, 4)
+  assert owner.allowed_latch and owner._last_latch_edge_ns == 4
+  cs.brakePressed = True
+  owner.update(cs, now_ns=5, fault_active=False)
+  observe(owner, cs, 5, enabled=False, active=False)
+  assert owner.allowed_latch and owner.output(cs)[0]
+
+
+@pytest.mark.parametrize('factory', (ClassicLongCardIntent, ClassicSccCardIntent))
+@pytest.mark.parametrize('veto', ('cancel', 'lkas', 'fault', 'rejection', 'invalid', 'main_off', 'gear', 'disabled', 'calibration'))
+def test_classic_hkg_pending_gas_engagement_cannot_replay_after_withdrawal(factory, veto):
+  owner, cs = factory(CP, SETTINGS), state()
+  observe(owner, cs, 1, enabled=False, active=False)
+  cs.gasPressed = True
+  observe(owner, cs, 2)
+  if veto in ('cancel', 'lkas'):
+    cs.buttonEvents = [car.CarState.ButtonEvent(type=veto, pressed=True)]
+  elif veto == 'invalid':
+    cs.canValid = False
+  elif veto == 'main_off':
+    cs.cruiseState.available = False
+  elif veto == 'gear':
+    cs.gearShifter = 'park'
+  elif veto == 'disabled':
+    owner.settings = replace(SETTINGS, enabled=False)
+  elif veto == 'calibration':
+    owner._calibration_rearm_required = True
+  observe(owner, cs, 3, fault=veto == 'fault', rejection=3 if veto == 'rejection' else 0)
+  owner.settings, owner._calibration_rearm_required = SETTINGS, False
+  cs.gasPressed, cs.canValid = False, True
+  cs.gearShifter, cs.cruiseState.available, cs.buttonEvents = 'drive', True, []
+  observe(owner, cs, 4)
+  assert not owner.allowed_latch

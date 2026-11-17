@@ -9,9 +9,10 @@ from openpilot.common.realtime import Priority, config_realtime_process, drop_re
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.selfdrive.ui.layouts.main import MainLayout
 from openpilot.selfdrive.ui.mici.layouts.main import MiciMainLayout
-from openpilot.selfdrive.ui.ui_state import ui_state
+from openpilot.selfdrive.ui.ui_state import device, ui_state
 from openpilot.starpilot.ui.presentation import Profile
 from openpilot.starpilot.ui.startup import select_ui
+from openpilot.starpilot.ui.wheel_input import poll_screen_off_wheel
 
 BIG_UI = gui_app.big_ui()
 
@@ -25,6 +26,7 @@ def update_frame(preview=None, controllers=None, star=None, game_mode=None, arab
     # or another widget covers the StarPilot page.
     star._poll_projection_bookmark(time.monotonic_ns())
     star._poll_projection_slc(time.monotonic_ns())
+    poll_screen_off_wheel(star, device.awake, time.monotonic_ns())
   if game_mode is not None:
     game_mode()
   if controllers is not None:
@@ -34,10 +36,18 @@ def update_frame(preview=None, controllers=None, star=None, game_mode=None, arab
 
 
 def main():
-  camera_core_ui = COMMA_HARDWARE and HARDWARE.get_device_type() in ("mici", "tici", "tizi")
-  cores = {6} if camera_core_ui else {5}
+  device_type = HARDWARE.get_device_type() if COMMA_HARDWARE else ""
+  camera_core_ui = device_type in ("mici", "tici", "tizi")
+  background_ui = device_type == "mici"
+  cores = {0, 1, 2, 7} if background_ui else {6} if camera_core_ui else {5}
+  display_nice = 5 if background_ui else 0
   main_thread_configured = False
-  config_realtime_process(0, Priority.UI)
+  if background_ui:
+    drop_realtime()
+    os.setpriority(os.PRIO_PROCESS, 0, display_nice)
+    set_core_affinity(list(cores))
+  else:
+    config_realtime_process(0, Priority.UI)
 
   selection = select_ui(Profile.LARGE if BIG_UI else Profile.COMPACT, os.environ)
   print(f"UI: {'StarPilot' if selection.custom else 'upstream'} selected ({selection.reason})", file=sys.stderr, flush=True)
@@ -76,11 +86,10 @@ def main():
     for should_render, frame_time, cpu_time in gui_app.render(before_frame=lambda: update_frame(preview, controllers, star, poll_game_mode, poll_arabesque)):
       if should_render:
         if camera_core_ui and not main_thread_configured:
-          # Share the camera core with normal scheduling, without FIFO display
-          # work preempting camera work or waiting on the driving core.
+          # Display work stays below real-time driving and audio playback.
           drop_realtime()
-          os.setpriority(os.PRIO_PROCESS, 0, 0)
-          if os.sched_getscheduler(0) != os.SCHED_OTHER or os.getpriority(os.PRIO_PROCESS, 0) != 0:
+          os.setpriority(os.PRIO_PROCESS, 0, display_nice)
+          if os.sched_getscheduler(0) != os.SCHED_OTHER or os.getpriority(os.PRIO_PROCESS, 0) != display_nice:
             raise RuntimeError("Could not configure display scheduling")
           main_thread_configured = True
         # reaffine after power save offlines our core

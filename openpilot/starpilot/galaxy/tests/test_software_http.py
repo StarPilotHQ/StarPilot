@@ -15,6 +15,7 @@ from openpilot.starpilot.galaxy.server import make_remote_server, make_server
 from openpilot.starpilot.galaxy.software_operations import SoftwareOperations
 from openpilot.starpilot.galaxy.software_status import SoftwareStatus
 from openpilot.starpilot.galaxy.tests.test_software_operations import FakeProcess
+from openpilot.starpilot.software.auto_install import InstallSettings
 
 
 class SoftwareHttpTest(unittest.TestCase):
@@ -37,7 +38,8 @@ class SoftwareHttpTest(unittest.TestCase):
     self.process = FakeProcess()
     self.parked = True
     self.operations = SoftwareOperations(self.params, parked=lambda: self.parked, process=self.process,
-                                         installed=installed, finalized=root / 'finalized')
+                                         installed=installed, finalized=root / 'finalized', metadata=root / 'metadata.git',
+                                         install_settings=InstallSettings(root / 'install-settings'))
     self.access = GalaxyAccessOwner(root / 'access')
     self.pairing = RemotePairing(root / 'pairing')
     self.local = make_server(port=0, owner=self.access, remote_pairing=self.pairing,
@@ -102,6 +104,24 @@ class SoftwareHttpTest(unittest.TestCase):
         self.assertIsNone(saved['operations']['request'])
         self.assertEqual(self.request('/api/software/action', payload=payload, remote=remote, cookie=cookie)[0], 409)
     self.assertEqual(self.process.sent, [])
+
+  def test_local_and_remote_auto_install_schedule_roundtrip_requires_offroad(self):
+    for remote in (False, True):
+      cookie = self.remote_cookie if remote else self.local_cookie
+      status, value, _ = self.request('/api/software/status?history=0', remote=remote, cookie=cookie)
+      self.assertEqual(status, 200)
+      payload = {'action': 'install-preferences', 'automaticInstalls': True, 'restartSchedule': '30 2 * * 1-5',
+                 'expectedRevision': value['operations']['installPreferenceRevision']}
+      self.parked = False
+      self.assertEqual(self.request('/api/software/action', payload=payload, remote=remote, cookie=cookie)[0], 409)
+      self.parked = True
+      status, saved, _ = self.request('/api/software/action', payload=payload, remote=remote, cookie=cookie)
+      self.assertEqual(status, 200)
+      self.assertTrue(saved['operations']['automaticInstalls'])
+      self.assertEqual(saved['operations']['restartSchedule'], '30 2 * * 1-5')
+      self.assertEqual(self.request('/api/software/action', payload=payload, remote=remote, cookie=cookie)[0], 409)
+    self.assertEqual(self.process.sent, [])
+    self.assertFalse(self.params.get_bool('DoReboot'))
 
   def test_remote_auth_origin_and_parked_rules_cannot_be_bypassed(self):
     payload = {'action': 'preferences', 'automaticDownloads': False, 'expectedAutomaticDownloads': True}

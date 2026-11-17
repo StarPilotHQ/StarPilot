@@ -42,6 +42,80 @@ def analyzed(root, selected, permitted):
 
 
 class DriveStatsTest(unittest.TestCase):
+  def legacy_history(self, count=2):
+    self.store.parent.mkdir(parents=True, exist_ok=True)
+    routes = {f'old-{n}': {'date': '2026-10-01T12:00:00+00:00', 'duration': 60,
+                         'distanceMeters': 1000, 'engagedSeconds': 30, 'model': f'Model {n % 2}',
+                         'segmentCount': 1, 'analysisComplete': True} for n in range(count)}
+    saved = {'GalaxyDashboardStats': {'version': 1, 'routes': routes, 'ignoredRoutes': []},
+             'ApiCache_DriveStats': {'all': {'distance': 10, 'routes': count + 4, 'minutes': count + 10}},
+             'StarPilotStats': {'StarPilotMeters': 5000, 'StarPilotDrives': 3}}
+    path = self.store.with_name('legacy-dashboard-stats.json')
+    path.write_text(json.dumps({'version': 1, 'params': saved}))
+    return path
+
+  def test_legacy_mileage_models_and_new_drives_survive_restart_once(self):
+    original = self.legacy_history()
+    raw = original.read_bytes()
+    owner = self.owner(permitted=lambda: False)
+    initial = owner.snapshot()
+    self.assertAlmostEqual(initial['totals']['distanceMeters'], 16093.44)
+    self.assertEqual(initial['totals']['drives'], 6)
+    self.assertEqual({m['name']: m['drives'] for m in initial['models']}, {'Model 0': 1, 'Model 1': 1})
+    self.assertIsNone(initial['totals']['aolSeconds'])
+    owner._records['new'] = dict(analyzed(self.root, route('new'), lambda: True),
+                                  ignored=False, sourceSignature='new-recording')
+    owner._save()
+    restored = self.owner(permitted=lambda: False).snapshot()
+    self.assertAlmostEqual(restored['totals']['distanceMeters'], 17093.44)
+    self.assertEqual(restored['totals']['drives'], 7)
+    self.assertEqual(sum(model['drives'] for model in restored['models']), 3)
+    self.assertEqual(original.read_bytes(), raw)
+
+  def test_legacy_summary_does_not_trigger_old_cereal_analysis(self):
+    self.legacy_history()
+    self.history.routes = [route('old-0')]
+    analyzer = Mock(side_effect=AssertionError('Old recording must not be decoded'))
+    owner = self.owner(analyzer=analyzer)
+    owner._run()
+    analyzer.assert_not_called()
+    self.assertEqual(len(owner._records), 2)
+
+  def test_all_five_thousand_legacy_summaries_fit_existing_byte_budget(self):
+    self.legacy_history(5000)
+    owner = self.owner(permitted=lambda: False)
+    snapshot = owner.snapshot()
+    self.assertEqual(len(owner._records), 5000)
+    self.assertEqual(sum(model['drives'] for model in snapshot['models']), 5000)
+    self.assertLess(self.store.stat().st_size, 4_000_000)
+    self.assertFalse(snapshot['coverage']['truncated'])
+
+  def test_bad_legacy_rows_do_not_block_current_statistics(self):
+    path = self.legacy_history()
+    saved = json.loads(path.read_bytes())
+    saved['params']['GalaxyDashboardStats']['routes']['old-0']['duration'] = 'invalid'
+    path.write_text(json.dumps(saved))
+    owner = self.owner(permitted=lambda: False)
+    self.assertNotIn('old-0', owner._records)
+    self.assertIn('old-1', owner._records)
+    self.assertGreater(owner.snapshot()['totals']['distanceMeters'], 0)
+
+  def test_past_week_is_seven_calendar_dates_and_excludes_old_future_ignored_and_incomplete(self):
+    self.now[0] = datetime(2026, 11, 2, 12, tzinfo=UTC).timestamp()
+    owner = self.owner(permitted=lambda: False)
+    for identifier, offset in (('today', 0), ('boundary', 6), ('old', 7), ('future', -1)):
+      value = analyzed(self.root, route(identifier), lambda: True)
+      value.update(startTime=self.now[0] - offset * 86400, endTime=self.now[0] - offset * 86400 + 60,
+                   ignored=False, sourceSignature='fixture')
+      owner._records[identifier] = value
+    owner._records['ignored'] = dict(owner._records['today'], routeId='ignored', ignored=True)
+    owner._records['incomplete'] = dict(owner._records['today'], routeId='incomplete', complete=False)
+    snapshot = owner.snapshot()
+    self.assertEqual(snapshot['pastWeek']['drives'], 2)
+    self.assertEqual(snapshot['pastWeek']['distanceMeters'], 2000.)
+    self.assertEqual(snapshot['pastWeek']['durationSeconds'], 120.)
+    self.assertEqual(snapshot['totals']['drives'], 4)
+
   def setUp(self):
     self.temp = tempfile.TemporaryDirectory()
     self.addCleanup(self.temp.cleanup)
@@ -407,6 +481,34 @@ class DriveStatsTest(unittest.TestCase):
     owner._start()
     owner.snapshot()
     self.assertEqual(self.completed(owner, scans=3)['totals']['drives'], 5)
+
+  def test_incomplete_recording_waits_for_changed_source_without_repeated_analysis(self):
+    for reason in drive_stats.SOURCE_LIMITATIONS:
+      with self.subTest(reason=reason):
+        analyzer = mock.Mock(side_effect=lambda *args, reason=reason, **kwargs: {
+          **analyzed(*args, **kwargs), 'complete': False, 'reason': reason})
+        owner = self.owner(analyzer=analyzer)
+        owner._start()
+        owner.snapshot()
+        result = self.completed(owner)
+        self.assertTrue(result['analysis']['failures'][0]['retryStopped'])
+        self.assertEqual(result['totals']['drives'], 0)
+        self.now[0] += 3600
+        owner._start()
+        owner.snapshot()
+        self.completed(owner, scans=self.history.scans)
+        self.assertEqual(analyzer.call_count, 1)
+        self.history.routes = [route('abc', number=self.history.scans)]
+        owner.analyzer = mock.Mock(wraps=analyzed)
+        self.now[0] += 61
+        owner._start()
+        owner.snapshot()
+        recovered = self.completed(owner, scans=self.history.scans)
+        owner.analyzer.assert_called_once()
+        self.assertEqual(recovered['analysis']['failed'], 0)
+        self.assertEqual(recovered['totals']['drives'], 1)
+        owner.close()
+        self.store.unlink()
 
   def test_incomplete_source_waits_for_retry_or_revision(self):
     calls = []

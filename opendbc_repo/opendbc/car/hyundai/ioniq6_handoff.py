@@ -13,7 +13,8 @@ from enum import Enum, auto
 
 from opendbc.car.can_definitions import CanData, CanRecvCallable, CanSendCallable
 from opendbc.car import make_tester_present_msg
-from opendbc.car.hyundai.hyundaicanfd import hkg_can_fd_checksum
+from opendbc.car.hyundai.hyundaicanfd import CanBus, hkg_can_fd_checksum
+from opendbc.car.hyundai.canfd_owner import config_index
 from opendbc.car.isotp_parallel_query import IsoTpParallelQuery
 
 
@@ -25,6 +26,12 @@ IONIQ6_STOCK_BSM = {0x1BA: 24, 0x1E5: 16}
 IONIQ6_REQUIRED_RX = {0x35: 32, 0x175: 24, 0xA0: 24, 0xEA: 24, 0x1CF: 8}
 IONIQ6_LONG_PREARM_ENABLED = True
 IONIQ6_DEBUG_LONG_PARAMS = frozenset((0x8015, 0x8095, 0x8815, 0x8895))
+
+
+def _ecan_bus(bus: int) -> int:
+  if type(bus) is not int or bus not in (1, 5):
+    raise ValueError("reviewed Ioniq 6 E-CAN bus required")
+  return bus
 
 
 class HandoffOutcome(Enum):
@@ -49,29 +56,35 @@ def build_ioniq6_hda2_long_candidate(stock_cp, fingerprint):
   from opendbc.car.hyundai.radar_interface import MRR35_RADAR_START_ADDR
   from opendbc.car.hyundai.values import CAR
 
-  if stock_cp.carFingerprint != CAR.HYUNDAI_IONIQ_6 or stock_cp.radarUnavailable:
+  owner = config_index(stock_cp)
+  if (stock_cp.carFingerprint != CAR.HYUNDAI_IONIQ_6 or stock_cp.radarUnavailable or owner is None or
+      stock_cp.passive or stock_cp.dashcamOnly or stock_cp.notCar or
+      stock_cp.openpilotLongitudinalControl or not stock_cp.pcmCruise):
     return None
-  camera = fingerprint[2]
+  CAN = CanBus(stock_cp)
+  if CanBus(None, fingerprint, lka_steering=True).offset != CAN.offset:
+    return None
+  camera = fingerprint[CAN.CAM]
   direct = camera.get(0x50) == 16 and 0x110 not in camera
   alternate = camera.get(0x110) == 32 and 0x50 not in camera
   if not (direct or alternate):
     return None
   camera_support = (0x362, 32) if alternate else (0x2A4, 24)
   if (camera.get(camera_support[0]) != camera_support[1] or
-      fingerprint[1].get(0x1CF) != 8 or
-      fingerprint[1].get(0x35) != 32 or fingerprint[1].get(0x175) != 24 or
-      fingerprint[1].get(0xA0) != 24 or fingerprint[1].get(0xEA) != 24 or
-      any(fingerprint[1].get(addr) != length for addr, length in {**IONIQ6_STOCK_BSM, 0x36A: 16}.items()) or
-      fingerprint[0].get(MRR35_RADAR_START_ADDR) != 24):
+      fingerprint[CAN.ECAN].get(0x1CF) != 8 or
+      fingerprint[CAN.ECAN].get(0x35) != 32 or fingerprint[CAN.ECAN].get(0x175) != 24 or
+      fingerprint[CAN.ECAN].get(0xA0) != 24 or fingerprint[CAN.ECAN].get(0xEA) != 24 or
+      any(fingerprint[CAN.ECAN].get(addr) != length for addr, length in {**IONIQ6_STOCK_BSM, 0x36A: 16}.items()) or
+      fingerprint[CAN.ACAN].get(MRR35_RADAR_START_ADDR) != 24):
     return None
-  if int(stock_cp.safetyConfigs[-1].safetyParam) not in (0x11, 0x91):
+  if int(stock_cp.safetyConfigs[owner].safetyParam) not in (0x11, 0x91):
     return None
 
   long_cp = stock_cp.as_reader().as_builder()
   long_cp.alphaLongitudinalAvailable = True
   long_cp.openpilotLongitudinalControl = True
   long_cp.pcmCruise = False
-  long_cp.safetyConfigs[-1].safetyParam = 0x8095 if alternate else 0x8015
+  long_cp.safetyConfigs[owner].safetyParam = 0x8095 if alternate else 0x8015
   return long_cp
 
 
@@ -90,7 +103,8 @@ class TimestampedCanPacket(list[CanData]):
 class ObservingCanRecv:
   """Keep SCC source evidence while ISO-TP consumes the shared CAN stream."""
 
-  def __init__(self, can_recv: CanRecvCallable, clock: Clock = time.monotonic):
+  def __init__(self, can_recv: CanRecvCallable, clock: Clock = time.monotonic, *, ecan_bus: int = IONIQ6_ECAN_BUS):
+    self.ecan_bus = _ecan_bus(ecan_bus)
     self.can_recv = can_recv
     self.clock = clock
     self.source_seen_count = 0
@@ -101,22 +115,23 @@ class ObservingCanRecv:
     packets = self.can_recv(wait_for_one=wait_for_one)
     for packet in packets:
       for msg in packet:
-        if msg.src == IONIQ6_ECAN_BUS and msg.address in (IONIQ6_STOCK_SCC_ADDR, *IONIQ6_STOCK_BSM):
+        if msg.src == self.ecan_bus and msg.address in (IONIQ6_STOCK_SCC_ADDR, *IONIQ6_STOCK_BSM):
           self.source_seen_count += 1
           self.latest_source_time = self.clock()
-        elif msg.src == 0 and msg.address == IONIQ6_STOCK_HEARTBEAT_ADDR:
+        elif msg.src == self.ecan_bus - 1 and msg.address == IONIQ6_STOCK_HEARTBEAT_ADDR:
           self.heartbeat_seen_count += 1
     return packets
 
 
-def query_ioniq6_adas(can_recv: CanRecvCallable, can_send: CanSendCallable, request: bytes, response: bytes) -> bool:
+def query_ioniq6_adas(can_recv: CanRecvCallable, can_send: CanSendCallable, request: bytes, response: bytes,
+                      *, ecan_bus: int = IONIQ6_ECAN_BUS) -> bool:
   """Validate the service-specific positive response from 0x738 on E-CAN.
 
   DiagnosticSessionControl may include four P2/P2* timing bytes after 0x50 xx;
   CommunicationControl has no corresponding response payload.
   """
   try:
-    query = IsoTpParallelQuery(can_send, can_recv, IONIQ6_ECAN_BUS, [IONIQ6_ADAS_ADDR], [request], [response])
+    query = IsoTpParallelQuery(can_send, can_recv, _ecan_bus(ecan_bus), [IONIQ6_ADAS_ADDR], [request], [response])
     payload = query.get_data(0.15, total_timeout=0.25).get((IONIQ6_ADAS_ADDR, None))
     if request in (b"\x10\x03", b"\x10\x01") and response == bytes((0x50, request[1])):
       return payload is not None and len(payload) in (0, 4)
@@ -132,8 +147,9 @@ def _valid_canfd_crc(msg: CanData) -> bool:
 
 
 def _read_window(can_recv: CanRecvCallable, clock: Clock, duration: float, *, wait_for_one: bool = True,
-                 ready_samples=None) -> tuple[list[tuple[float, int, float]], set[int], set[int], int, bool, set[int]]:
+                 ready_samples=None, ecan_bus: int = IONIQ6_ECAN_BUS) -> tuple[list[tuple[float, int, float]], set[int], set[int], int, bool, set[int]]:
   """Collect both stock ECU TX sources and required E-CAN input health."""
+  ecan_bus = _ecan_bus(ecan_bus)
   source_samples: list[tuple[float, int, float]] = []
   healthy: set[int] = set()
   source_seen: set[int] = set()
@@ -151,12 +167,12 @@ def _read_window(can_recv: CanRecvCallable, clock: Clock, duration: float, *, wa
       producer_ns = getattr(packet, "log_mono_time_ns", 0)
       sample_time = producer_ns * 1e-9 if producer_ns > 0 else received_at
       for msg in packet:
-        if msg.src == 0 and msg.address == IONIQ6_STOCK_HEARTBEAT_ADDR:
+        if msg.src == ecan_bus - 1 and msg.address == IONIQ6_STOCK_HEARTBEAT_ADDR:
           heartbeat_seen = True
           if len(msg.dat) == 24 and _valid_canfd_crc(msg):
             heartbeat_valid += 1
           continue
-        if msg.src != IONIQ6_ECAN_BUS:
+        if msg.src != ecan_bus:
           continue
         if msg.address == IONIQ6_STOCK_SCC_ADDR:
           # Even a bad CRC proves the stock ECU is still transmitting.
@@ -233,7 +249,8 @@ def _qualified_ioniq6_ready(samples, now):
   return samples[-1][3]
 
 
-def inspect_ioniq6_long_sources(can_recv: CanRecvCallable, clock: Clock = time.monotonic) -> HandoffResult:
+def inspect_ioniq6_long_sources(can_recv: CanRecvCallable, clock: Clock = time.monotonic,
+                               *, ecan_bus: int = IONIQ6_ECAN_BUS) -> HandoffResult:
   """Receive-only prerequisite check before selecting a longitudinal profile."""
   # Each attempt stands alone: never combine health or cadence across windows.
   # Drain fingerprint/retry backlog before measuring current SCC cadence.
@@ -242,7 +259,7 @@ def inspect_ioniq6_long_sources(can_recv: CanRecvCallable, clock: Clock = time.m
     can_recv(wait_for_one=False)
     ready_samples = []
     pre_times, pre_health, pre_sources, pre_heartbeat_valid, _, pre_status_valid = _read_window(
-      can_recv, clock, 0.25, wait_for_one=False, ready_samples=ready_samples)
+      can_recv, clock, 0.25, wait_for_one=False, ready_samples=ready_samples, ecan_bus=ecan_bus)
     period = _measured_period(pre_times)
     missing = []
     if period is None:
@@ -261,13 +278,14 @@ def inspect_ioniq6_long_sources(can_recv: CanRecvCallable, clock: Clock = time.m
   return HandoffResult(HandoffOutcome.NOT_READY, 'preflight_' + ','.join(missing))
 
 
-def run_ioniq6_handoff(can_recv: CanRecvCallable, exchange: DiagnosticExchange, clock: Clock = time.monotonic) -> HandoffResult:
+def run_ioniq6_handoff(can_recv: CanRecvCallable, exchange: DiagnosticExchange, clock: Clock = time.monotonic,
+                       *, ecan_bus: int = IONIQ6_ECAN_BUS) -> HandoffResult:
   """Resolve stock or long authority before constructing or publishing CarParams.
 
   The 50 Hz SCC source yields a provisional five-period silence/resumption
   window; these bounds require route calibration before feature activation.
   """
-  preflight = inspect_ioniq6_long_sources(can_recv, clock)
+  preflight = inspect_ioniq6_long_sources(can_recv, clock, ecan_bus=ecan_bus)
   period = preflight.source_period
   if period is None:
     return preflight
@@ -276,7 +294,7 @@ def run_ioniq6_handoff(can_recv: CanRecvCallable, exchange: DiagnosticExchange, 
   session_ack = exchange(b"\x10\x03", b"\x50\x03")
   disable_ack = session_ack and exchange(b"\x28\x01\x01", b"\x68\x01")
   if disable_ack:
-    _, post_health, post_source_seen, _, post_heartbeat_seen, _ = _read_window(can_recv, clock, silence_window)
+    _, post_health, post_source_seen, _, post_heartbeat_seen, _ = _read_window(can_recv, clock, silence_window, ecan_bus=ecan_bus)
     if not post_source_seen and not post_heartbeat_seen and post_health == IONIQ6_REQUIRED_RX.keys():
       return HandoffResult(HandoffOutcome.CONFIRMED, "positive UDS response and observed SCC/heartbeat/BSM silence", period, True)
 
@@ -286,7 +304,7 @@ def run_ioniq6_handoff(can_recv: CanRecvCallable, exchange: DiagnosticExchange, 
   restore_session_ack = exchange(b"\x10\x01", b"\x50\x01")
   restored = restore_tx_ack and restore_session_ack
   restored_times, restored_health, restored_sources, restored_heartbeat_valid, _, restored_status_valid = _read_window(
-    can_recv, clock, max(0.25, silence_window))
+    can_recv, clock, max(0.25, silence_window), ecan_bus=ecan_bus)
   if (restored and _measured_period(restored_times) is not None and restored_heartbeat_valid >= 4 and
       restored_health == IONIQ6_REQUIRED_RX.keys() and
       restored_sources == {IONIQ6_STOCK_SCC_ADDR, *IONIQ6_STOCK_BSM} and restored_status_valid == IONIQ6_STOCK_BSM.keys()):
@@ -294,12 +312,13 @@ def run_ioniq6_handoff(can_recv: CanRecvCallable, exchange: DiagnosticExchange, 
   return HandoffResult(HandoffOutcome.UNAVAILABLE, "ECU restore or stock SCC/heartbeat/BSM resumption unverified", period, disable_ack, restored)
 
 
-def restore_ioniq6_adas(can_recv: CanRecvCallable, can_send: CanSendCallable, clock: Clock = time.monotonic) -> bool:
+def restore_ioniq6_adas(can_recv: CanRecvCallable, can_send: CanSendCallable, clock: Clock = time.monotonic,
+                        *, ecan_bus: int = IONIQ6_ECAN_BUS) -> bool:
   """Abort a post-publication startup without ever claiming stock CP ownership."""
-  observed_recv = ObservingCanRecv(can_recv, clock)
-  restore_tx = query_ioniq6_adas(observed_recv, can_send, b"\x28\x00\x01", b"\x68\x00")
-  restore_session = query_ioniq6_adas(observed_recv, can_send, b"\x10\x01", b"\x50\x01")
-  samples, healthy, sources, heartbeat_valid, _, status_valid = _read_window(observed_recv, clock, 0.25)
+  observed_recv = ObservingCanRecv(can_recv, clock, ecan_bus=ecan_bus)
+  restore_tx = query_ioniq6_adas(observed_recv, can_send, b"\x28\x00\x01", b"\x68\x00", ecan_bus=ecan_bus)
+  restore_session = query_ioniq6_adas(observed_recv, can_send, b"\x10\x01", b"\x50\x01", ecan_bus=ecan_bus)
+  samples, healthy, sources, heartbeat_valid, _, status_valid = _read_window(observed_recv, clock, 0.25, ecan_bus=ecan_bus)
   return (restore_tx and restore_session and _measured_period(samples) is not None and heartbeat_valid >= 4 and
           healthy == IONIQ6_REQUIRED_RX.keys() and sources == {IONIQ6_STOCK_SCC_ADDR, *IONIQ6_STOCK_BSM} and
           status_valid == IONIQ6_STOCK_BSM.keys())
@@ -315,7 +334,9 @@ class Ioniq6StartupKeepalive:
   """
 
   def __init__(self, can_send: CanSendCallable, restore: Callable[[], bool], on_abort: Callable[[], None],
-               on_restore: Callable[[bool], None], clock: Clock = time.monotonic, max_startup_sec: float = 60.0):
+               on_restore: Callable[[bool], None], clock: Clock = time.monotonic, max_startup_sec: float = 60.0,
+               *, ecan_bus: int = IONIQ6_ECAN_BUS):
+    self.ecan_bus = _ecan_bus(ecan_bus)
     self.can_send = can_send
     self.restore = restore
     self.on_abort = on_abort
@@ -338,7 +359,7 @@ class Ioniq6StartupKeepalive:
         self._abort_locked()
       elif now >= self.next_tester_at:
         try:
-          self.can_send([make_tester_present_msg(IONIQ6_ADAS_ADDR, IONIQ6_ECAN_BUS, suppress_response=True)])
+          self.can_send([make_tester_present_msg(IONIQ6_ADAS_ADDR, self.ecan_bus, suppress_response=True)])
           self.next_tester_at = now + 0.5
         except Exception:
           self._abort_locked()
@@ -381,12 +402,13 @@ def finalize_ioniq6_prepublication(stock_cp, long_cp, can_recv: CanRecvCallable,
   if not enabled or is_release or long_cp is None:
     return stock_cp, False, None
   raw = int(long_cp.safetyConfigs[-1].safetyParam)
-  if not long_cp.openpilotLongitudinalControl or raw not in IONIQ6_DEBUG_LONG_PARAMS:
+  if config_index(long_cp) is None or not long_cp.openpilotLongitudinalControl or raw not in IONIQ6_DEBUG_LONG_PARAMS:
     raise ValueError("unreviewed Ioniq 6 longitudinal CarParams profile")
 
-  observed_recv = ObservingCanRecv(can_recv, clock)
+  ecan_bus = _ecan_bus(CanBus(long_cp, lka_steering=True).ECAN)
+  observed_recv = ObservingCanRecv(can_recv, clock, ecan_bus=ecan_bus)
   result = run_ioniq6_handoff(
-    observed_recv, lambda request, response: query_ioniq6_adas(observed_recv, can_send, request, response), clock)
+    observed_recv, lambda request, response: query_ioniq6_adas(observed_recv, can_send, request, response, ecan_bus=ecan_bus), clock, ecan_bus=ecan_bus)
   if result.outcome is HandoffOutcome.CONFIRMED:
     return long_cp, True, result
   if result.outcome is HandoffOutcome.UNAVAILABLE:
@@ -401,14 +423,14 @@ def prepare_ioniq6_long_candidate(stock_cp, long_cp, *, enabled: bool, is_releas
   if not enabled or is_release or long_cp is None:
     return stock_cp, False
   raw = int(long_cp.safetyConfigs[-1].safetyParam)
-  if not long_cp.openpilotLongitudinalControl or raw not in IONIQ6_DEBUG_LONG_PARAMS:
+  if config_index(long_cp) is None or not long_cp.openpilotLongitudinalControl or raw not in IONIQ6_DEBUG_LONG_PARAMS:
     raise ValueError("unreviewed Ioniq 6 longitudinal CarParams profile")
   return long_cp, True
 
 
 def confirm_ioniq6_prepared_takeover(can_recv: CanRecvCallable, can_send: CanSendCallable,
-                                     clock: Clock = time.monotonic) -> HandoffResult:
+                                     clock: Clock = time.monotonic, *, ecan_bus: int = IONIQ6_ECAN_BUS) -> HandoffResult:
   """Run the source/UDS transaction only when replacement TX can start."""
-  observed_recv = ObservingCanRecv(can_recv, clock)
+  observed_recv = ObservingCanRecv(can_recv, clock, ecan_bus=ecan_bus)
   return run_ioniq6_handoff(
-    observed_recv, lambda request, response: query_ioniq6_adas(observed_recv, can_send, request, response), clock)
+    observed_recv, lambda request, response: query_ioniq6_adas(observed_recv, can_send, request, response, ecan_bus=ecan_bus), clock, ecan_bus=ecan_bus)

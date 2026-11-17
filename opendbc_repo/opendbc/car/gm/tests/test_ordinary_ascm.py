@@ -60,7 +60,7 @@ class TestOrdinaryAscm(unittest.TestCase):
       owner = LatControlTorque(cp, ci, .01)
       self.assertEqual(owner.controller_mode, ControllerMode.STARPILOT)
       self.assertEqual(owner.controller_policy, 'ordinary_ascm')
-      self.assertEqual(owner.pid._k_p, ([0], [.6]))
+      self.assertEqual(owner.pid._k_p, [[0.0], [.6]])
       self.assertEqual(owner.pid._k_i, ([0], [.35]))
       standard = LatControlTorque(cp, ci, .01, controller_mode=ControllerMode.STANDARD)
       self.assertEqual(standard.pid._k_p, [INTERP_SPEEDS, KP_INTERP])

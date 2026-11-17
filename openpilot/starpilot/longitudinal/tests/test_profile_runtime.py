@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from openpilot.starpilot.audio.departure_alert import DepartureNotifications
 from openpilot.cereal import log
 from openpilot.common.params import Params
 from openpilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPlanner
@@ -30,6 +31,7 @@ def legacy_document(profiles, *, enabled, global_braking_response='standard'):
         profile[category]['preset'] = 'dom_default'
   document = current_profile_document(profiles, enabled=enabled, global_braking_response=global_braking_response)
   document['schemaVersion'] = 4
+  document.pop('extraStoppedGapM')
   document['globalBrakingResponse'] = document.pop('selectedDecelerationProfile')
   document.pop('selectedAccelerationProfile')
   return document
@@ -198,7 +200,7 @@ class ProfileRuntimeTests(unittest.TestCase):
     self.assertTrue(settings.valid)
     tuning = resolve(settings, log.LongitudinalPersonality.standard, 12.5, self.cp, traffic_mode=True)
     assert tuning is not None
-    self.assertAlmostEqual(required_float(tuning.acceleration_max), 2.0)  # Native ACCEL_MAX; keep other valid categories.
+    self.assertAlmostEqual(required_float(tuning.acceleration_max), 3.5)  # Keep other valid categories.
     self.assertAlmostEqual(required_float(tuning.cruise_brake_magnitude), 0.35)
     self.assertAlmostEqual(tuning.follow_seconds, 2.25)
     ordinary = ProfileTuning('standard', 1.45, 1.0, 1.0, 1.0, 1.0, 1.0,
@@ -324,7 +326,7 @@ class ProfileRuntimeTests(unittest.TestCase):
     self.params.put('LongitudinalPersonalityProfiles', document, block=True)
     migrated = read_settings(self.params)
     assert migrated is not None and migrated.document is not None
-    self.assertEqual(migrated.document['schemaVersion'], 5)
+    self.assertEqual(migrated.document['schemaVersion'], 6)
     self.params.put('LongitudinalPersonalityProfiles', document, block=True)
     Path(self.params.get_param_path('LongitudinalPersonalityProfiles')).write_text('{broken')
     self.assertIsNone(read_settings(self.params))
@@ -410,7 +412,7 @@ class ProfileRuntimeTests(unittest.TestCase):
     settings = read_settings(self.params)
     tuning = resolve(settings, log.LongitudinalPersonality.standard, 0.0, self.cp)
     assert tuning is not None
-    self.assertEqual(tuning.acceleration_max, 2.0)
+    self.assertEqual(tuning.acceleration_max, 3.5)
     self.assertEqual(tuning.follow_seconds, 2.25)
     planner = LongitudinalPlanner(self.cp, init_v=0.0)
     for _ in range(40):
@@ -505,6 +507,8 @@ class ProfileRuntimeTests(unittest.TestCase):
       publisher = Publisher()
       environment = {}  # Normal admission follows the actual saved request.
       with (mock.patch.object(plannerd, 'Params', return_value=self.params),
+            mock.patch('openpilot.starpilot.audio.departure_alert.DepartureNotifications',
+                  side_effect=lambda: DepartureNotifications(self.params)),
             mock.patch.object(plannerd, 'config_realtime_process'),
             mock.patch.object(plannerd, 'LeadApproachPreferences', return_value=None),
             mock.patch.object(plannerd.messaging, 'SubMaster', return_value=sm),

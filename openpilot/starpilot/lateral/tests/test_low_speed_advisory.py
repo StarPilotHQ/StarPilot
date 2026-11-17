@@ -56,6 +56,7 @@ class TestLowSpeedAdvisory(unittest.TestCase):
     with OpenpilotPrefix(), patch('openpilot.selfdrive.selfdrived.selfdrived.REPLAY', True):
       drive = SelfdriveD(CP=cp)
       drive.initialized = True
+      drive.active = True
       device = messaging.new_message('deviceState', valid=True, logMonoTime=1_000_000_000)
       device.deviceState.started = True
       device.deviceState.startedMonoTime = 1_000_000_000
@@ -98,3 +99,91 @@ class TestLowSpeedAdvisory(unittest.TestCase):
       self.assertNotIn(EventName.belowSteerSpeed, sample(1.))
       self.assertNotIn(EventName.belowSteerSpeed, sample(cp.minSteerSpeed))
       self.assertIn(EventName.belowSteerSpeed, sample(1.))
+
+  def test_disarmed_crossings_do_not_spend_the_advisory(self):
+    owner = LowSpeedAdvisory()
+    for speed in (4., 2., 4., 0.):
+      self.assertFalse(owner.update(speed, 3., drive_id=10, eligible=False))
+    self.assertFalse(owner.update(4., 3., drive_id=10, eligible=True))
+    self.assertTrue(owner.update(2., 3., drive_id=10, eligible=True))
+    self.assertFalse(owner.update(2., 3., drive_id=10, eligible=False))
+    self.assertFalse(owner.update(2., 3., drive_id=10, eligible=True))
+
+  def test_advisory_eligibility_keeps_gm_main_and_independent_aol_distinct(self):
+    from types import SimpleNamespace
+    from openpilot.starpilot.lateral.low_speed_advisory import advisory_eligible
+    state = SimpleNamespace(cruiseState=SimpleNamespace(available=False))
+    armed = SimpleNamespace(allowedLatch=True, lateralArmed=True, pauseLateral=False)
+    for brand in ('gm', 'hyundai', 'toyota', 'ford', 'honda'):
+      cp = SimpleNamespace(brand=brand)
+      self.assertFalse(advisory_eligible(cp, state, active=False, intent=None))
+      self.assertEqual(advisory_eligible(cp, state, active=True, intent=None), brand != 'gm')
+      self.assertEqual(advisory_eligible(cp, state, active=False, intent=armed), brand != 'gm')
+    state.cruiseState.available = True
+    for active, latched, lateral, paused, expected in (
+        (False, False, False, False, False), (False, False, True, False, False),
+        (False, True, False, False, False), (False, True, True, True, False),
+        (False, True, True, False, True), (True, False, False, False, True)):
+      intent = SimpleNamespace(allowedLatch=latched, lateralArmed=lateral, pauseLateral=paused)
+      self.assertEqual(advisory_eligible(SimpleNamespace(brand='gm'), state, active=active, intent=intent), expected)
+
+  def test_actual_sierra_events_and_alerts_stay_quiet_with_main_off(self):
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    from opendbc.car import gen_empty_fingerprint, structs
+    from opendbc.car.gm.interface import CarInterface
+    from opendbc.car.gm.values import CAR
+    from openpilot.cereal import messaging
+    from openpilot.common.prefix import OpenpilotPrefix
+    from openpilot.selfdrive.selfdrived.events import ET, EventName
+    from openpilot.selfdrive.selfdrived.selfdrived import SelfdriveD
+
+    fingerprint = gen_empty_fingerprint()
+    fingerprint[0][0xBE] = 6
+    fingerprint[2].update({0x180: 4, 0x320: 6, 0x370: 6})
+    cp = CarInterface.get_params(CAR.CHEVROLET_SILVERADO, fingerprint, [], False, False, False)
+    self.assertAlmostEqual(cp.minSteerSpeed, 10 / 3.6, delta=1e-6)
+    with OpenpilotPrefix(), patch('openpilot.selfdrive.selfdrived.selfdrived.REPLAY', True):
+      drive = SelfdriveD(CP=cp)
+      drive.initialized = True
+      drive.active = drive.enabled = False
+      drive.aol_replay = True
+      device = messaging.new_message('deviceState', valid=True, logMonoTime=1_000_000_000)
+      device.deviceState.started = True
+      device.deviceState.startedMonoTime = 1_000_000_000
+      drive.sm.update_msgs(1., [device.as_reader()])
+      state = structs.CarState.new_message(canValid=True, gearShifter='drive', vCruise=40.)
+      state.cruiseState.available = False
+      previous = state.as_reader()
+
+      def sample(speed):
+        state.vEgo = speed
+        state.lowSpeedAlert = speed < cp.minSteerSpeed
+        drive.sm.frame += 1
+        drive.events.clear()
+        drive._update_car_event_sample(state, previous)
+        # An unrelated AOL pause may request warning presentation while off.
+        drive.state_machine.current_alert_types = [ET.PERMANENT, ET.WARNING, ET.IMMEDIATE_DISABLE]
+        drive.update_alerts(state)
+
+      for speed in (4., 1., 0., 4., 1.):
+        sample(speed)
+        self.assertNotIn(EventName.belowSteerSpeed, drive.events.names)
+        self.assertNotIn('belowSteerSpeed/warning', drive.AM.alerts)
+      state.cruiseState.available = True
+      drive.aol_last_intent = SimpleNamespace(allowedLatch=True, lateralArmed=True, pauseLateral=False)
+      sample(4.)
+      sample(1.)
+      self.assertIn(EventName.belowSteerSpeed, drive.events.names)
+      self.assertEqual(drive.AM.current_alert.alert_type, 'belowSteerSpeed/warning')
+      # Main can turn off after the event sample but before alert selection.
+      state.cruiseState.available = False
+      drive.update_alerts(state)
+      self.assertNotIn(EventName.belowSteerSpeed, drive.events.names)
+      self.assertNotIn('belowSteerSpeed/warning', drive.AM.alerts)
+      for fault in (EventName.steerTempUnavailableSilent, EventName.steerUnavailable, EventName.canError):
+        drive.events.clear()
+        drive.events.add(fault)
+        drive.update_alerts(state)
+        self.assertIn(fault, drive.events.names)
+        self.assertNotEqual(drive.AM.current_alert.alert_type, 'belowSteerSpeed/warning')

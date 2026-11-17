@@ -121,7 +121,8 @@ def test_gm_traffic_planner_lifecycle_starts_factory_conditional_owner(tmp_path)
     pass
   sm = Mock()
   sm.update.side_effect = EndLoop
-  with (patch.object(plannerd, 'Params', return_value=params), patch.object(plannerd, 'config_realtime_process'),
+  with (patch.object(plannerd, 'Params', return_value=params),
+        patch('openpilot.common.params.Params', return_value=params), patch.object(plannerd, 'config_realtime_process'),
         patch.object(plannerd, 'ConditionalPlannerHost') as conditional,
         patch.object(plannerd.messaging, 'sub_sock') as sockets,
         patch.object(plannerd.messaging, 'SubMaster', return_value=sm) as subscriber,

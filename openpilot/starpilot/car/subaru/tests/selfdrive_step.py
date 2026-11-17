@@ -4,9 +4,11 @@ from unittest.mock import patch
 from openpilot.cereal import messaging
 
 
-def selfdrive_step(sd, published, native, previous_controls, cp, safety, now, *, calibration):
+def selfdrive_step(sd, published, native, previous_controls, cp, safety, now, *, calibration, source_timeout=False):
   peers = []
   for service in sd.sm.data:
+    if source_timeout and service in ('carState', 'carOutput', 'aolIntentWire'):
+      continue
     if service in ('alertDebug', 'lateralManeuverPlan', 'laneChangeAssistWire', 'starpilotLongitudinalPlan'):
       continue
     if service == 'aolIntentWire':
@@ -60,7 +62,7 @@ def selfdrive_step(sd, published, native, previous_controls, cp, safety, now, *,
     patch('openpilot.selfdrive.selfdrived.selfdrived.time.monotonic', return_value=now / 1e9),
     patch('openpilot.selfdrive.selfdrived.selfdrived.time.clock_gettime_ns', return_value=now),
     patch('openpilot.selfdrive.selfdrived.selfdrived.messaging.recv_one_or_none', return_value=None),
-    patch('openpilot.selfdrive.selfdrived.selfdrived.messaging.recv_one', return_value=published['carState']),
+    patch('openpilot.selfdrive.selfdrived.selfdrived.messaging.recv_one', return_value=None if source_timeout else published['carState']),
     patch.object(sd.sm, 'update', side_effect=lambda _: sd.sm.update_msgs(now / 1e9, peers)),
     patch.object(sd.pm, 'send', side_effect=capture),
   ):

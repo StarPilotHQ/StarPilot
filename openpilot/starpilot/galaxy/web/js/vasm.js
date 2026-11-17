@@ -4,6 +4,7 @@ import { reactive } from "../vendor/vue/vue.esm-browser.js"
 import { SettingsFeed, settingsBusy } from "./settings.js"
 import { GalaxySettingRow } from "./galaxy-setting-row.js"
 import { LiveCameraPreview } from "./cameras.js"
+import { whiteBalancePref } from "./white-balance.js"
 import { GxNotice } from "./notice.js"
 import { BluetoothNotice, bluetoothConnection } from "./bluetooth-notice.js"
 import { FORMATS, annotationDraft, displaySide, sourcePoint } from "./vasm-geometry.js"
@@ -34,9 +35,10 @@ export const VasmPage = {
           "This saved camera size cannot be edited here. Choose a supported size and redraw the regions."
       }
     } })
-    return { state, feed, FORMATS, displaySide, bluetooth: bluetoothConnection() }
+    return { state, feed, FORMATS, displaySide, bluetooth: bluetoothConnection(), pref: whiteBalancePref }
   },
   mounted() {
+    this.pref.load()
     this._dragIndex = -1
     this._dragSide = null
     this.liveCamera = new LiveCameraPreview({
@@ -49,6 +51,7 @@ export const VasmPage = {
   },
   updated() { this.$nextTick(() => this.redraw()) },
   beforeUnmount() { this.liveCamera.stop(); this.feed.stop() },
+  watch: { "pref.on"() { this.liveCamera?.refresh() } },
   computed: {
     controls() { return (this.state.data?.rows || []).map((row, index) => ({ row, index }))
       .filter(({ index }) => index !== this.state.data?.editorRow && !["Saved spot-monitor settings"].includes(this.state.data.rows[index].label)) },

@@ -2,7 +2,7 @@ from openpilot.starpilot.ui.runtime_app import StarShellSession
 from types import SimpleNamespace as NS
 from unittest.mock import Mock, PropertyMock, patch
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import pytest
 
 from openpilot.selfdrive.ui.mici.onroad import augmented_road_view as road
@@ -49,8 +49,8 @@ def navigation(monkeypatch):
     with patch.object(type(road.gui_app), 'frame', new_callable=PropertyMock, return_value=frame_number), \
          patch.object(type(road.gui_app), 'mouse_events', new_callable=PropertyMock, return_value=list(events)):
       layout.render()
-  def event(x, y=100, *, pressed=False, down=False, released=False):
-    return MouseEvent(MousePos(x, y), 0, pressed, released, down, frame_number / 60)
+  def event(x, y=100, *, pressed=False, down=False, released=False, timestamp=None):
+    return MouseEvent(MousePos(x, y), 0, pressed, released, down, frame_number / 60 if timestamp is None else timestamp)
   with patch.object(road, 'ui_state', NS(started=True)), patch.object(bookmark, '_render'), \
        patch.object(rl, 'begin_scissor_mode'), patch.object(rl, 'end_scissor_mode'), \
        patch.object(rl, 'get_frame_time', return_value=1/60):
@@ -125,3 +125,37 @@ def test_bookmark_requires_full_swipe_threshold(navigation, distance, expected):
   for event in (n.event(400, pressed=True, down=True), n.event(400-distance, released=True)):
     n.frame(event)
   assert n.callback.call_count == expected
+
+
+@pytest.mark.parametrize('batched', [False, True])
+def test_short_fast_left_swipe_bookmarks_without_dragging_page(navigation, batched):
+  n = navigation
+  events = [n.event(400, pressed=True, down=True, timestamp=10),
+            n.event(360, down=True, timestamp=10.04), n.event(310, down=True, timestamp=10.08),
+            n.event(305, released=True, timestamp=10.09)]
+  if batched:
+    n.frame(*events)
+  else:
+    for event in events:
+      n.frame(event)
+  n.callback.assert_called_once()
+  assert n.page.rect.x == 0
+  n.frame(n.event(305, released=True, timestamp=10.1))
+  n.callback.assert_called_once()
+
+
+@pytest.mark.parametrize('positions,times', [
+  ([400, 360, 310, 305], [10, 10.4, 10.8, 10.81]),
+  ([400, 380, 360, 355], [10, 10.02, 10.04, 10.05]),
+  ([400, 390, 385, 300], [10, 10.02, 10.04, 10.05]),
+  ([400, 360, 310, 305], [10, 10.04, 10.08, 10.3]),
+  ([400, 360, 310, 330], [10, 10.04, 10.08, 10.09]),
+  ([400, 360, 310, 305], [10, 10, 10, 10]),
+  ([400, 360, 310, 305], [10, 9.9, 9.8, 9.7]),
+])
+def test_short_swipe_rejects_slow_drag_jitter_release_jump_pause_reversal_and_bad_clock(navigation, positions, times):
+  n = navigation
+  for index, (x, timestamp) in enumerate(zip(positions, times, strict=True)):
+    n.frame(n.event(x, pressed=index == 0, down=index != 3, released=index == 3, timestamp=timestamp))
+  n.callback.assert_not_called()
+  assert n.page.rect.x == 0

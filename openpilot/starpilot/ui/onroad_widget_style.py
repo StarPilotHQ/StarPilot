@@ -1,6 +1,6 @@
 """Shared visual tokens for the StarPilot on-road control widgets."""
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.onroad_customization import rgba
 
@@ -19,6 +19,24 @@ CONTROL_BORDER = rl.Color(196, 205, 208, 180)
 # The layout manager has historically anchored the left controls at x + 146.
 # Keep that placement stable while making the width explicit and shared.
 WIDGET_ANCHOR_OFFSET = 146
+
+
+# The large screen's top shade: full behind the HUD, then blended out into the camera view by the horizon.
+SCRIM_ALPHA, SCRIM_HOLD, SCRIM_END, SCRIM_STEPS = 115, 100, 760, 32
+
+
+def scrim_alpha(y: float) -> int:
+  # Smootherstep has no slope or curvature jump at either end, so no line shows where the fade starts or stops.
+  t = min(1., max(0., (y - SCRIM_HOLD) / (SCRIM_END - SCRIM_HOLD)))
+  return round(SCRIM_ALPHA * (1 - t * t * t * (t * (6 * t - 15) + 10)))
+
+
+def draw_top_scrim(rect: rl.Rectangle) -> None:
+  """Darken the top of the camera view so the white HUD reads over bright skies."""
+  rows = [SCRIM_END * i // SCRIM_STEPS for i in range(SCRIM_STEPS + 1)]
+  for top, bottom in zip(rows, rows[1:], strict=False):
+    rl.draw_rectangle_gradient_v(int(rect.x), int(rect.y) + top, int(rect.width), bottom - top,
+                                 rl.Color(0, 0, 0, scrim_alpha(top)), rl.Color(0, 0, 0, scrim_alpha(bottom)))
 
 
 def roundness_for(rect: rl.Rectangle, radius: float = CONTROL_RADIUS) -> float:

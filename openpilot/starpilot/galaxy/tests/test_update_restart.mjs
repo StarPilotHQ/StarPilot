@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
-import { UpdateRestart, UPDATE_RESTART_KEY, UPDATE_RESTART_PREPARED_KEY } from "../web/js/update-restart.js"
+import { UpdateRestart, UPDATE_RESTART_KEY, UPDATE_RESTART_PREPARED_KEY, UPDATE_RESTART_TIMEOUT, UPDATE_RESTART_TIMEOUT_MESSAGE } from "../web/js/update-restart.js"
 import { SoftwareStatusFeed } from "../web/js/software-status.js"
 
 const baseline = { commit: 'a'.repeat(40), branch: 'Dom', target: 'Dom', action: 'fast' }
@@ -26,14 +26,16 @@ const flush = async () => { for (let i = 0; i < 12; i++) await Promise.resolve()
 function fixture(saved = null) {
   const values = new Map(saved ? [[UPDATE_RESTART_KEY, JSON.stringify(saved)]] : [])
   const storage = { getItem: key => values.get(key), setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) }
-  const states = [], timers = new Map(), requests = []
+  const states = [], timers = new Map(), requests = [], errors = []
   let nextTimer = 0
   let reloads = 0
-  const recovery = new UpdateRestart({ storage, publish: value => states.push(value),
+  const recovery = new UpdateRestart({ storage, publish: (value, error) => { states.push(value); errors.push(error) },
     request: () => new Promise((resolve, reject) => requests.push({ resolve, reject })),
-    later: (fn, ms) => { const id = ++nextTimer; timers.set(id, fn); return id },
+    later: (fn, ms) => { const id = ++nextTimer; timers.set(id, { fn, ms }); return id },
     cancel: id => timers.delete(id), reload: () => reloads++ })
-  return { recovery, states, requests, timers, values, tick() { const [id, fn] = timers.entries().next().value; timers.delete(id); fn() }, get reloads() { return reloads } }
+  return { recovery, states, errors, requests, timers, values, tick(ms = 2000) {
+    const [id, timer] = [...timers.entries()].find(([, timer]) => timer.ms === ms); timers.delete(id); timer.fn()
+  }, get reloads() { return reloads } }
 }
 const normal = fixture()
 assert.deepEqual(normal.states, [false])
@@ -140,3 +142,39 @@ assert.equal(restarts.length, 0)
 feed.connectionLost = true
 feed.emit('ready')
 assert.deepEqual(restarts, [baseline])
+
+// Recovery is bounded even if a transport request never settles.
+const timedOut = fixture()
+timedOut.recovery.prepare(baseline)
+timedOut.recovery.start(baseline)
+timedOut.tick(UPDATE_RESTART_TIMEOUT)
+assert.equal(timedOut.states.at(-1), false)
+assert.equal(timedOut.errors.at(-1), UPDATE_RESTART_TIMEOUT_MESSAGE)
+assert.equal(timedOut.recovery.baseline, null)
+assert.equal(timedOut.values.has(UPDATE_RESTART_KEY), false)
+assert.equal(timedOut.values.has(UPDATE_RESTART_PREPARED_KEY), false)
+assert.equal(timedOut.reloads, 0, 'timeout is not proof of a completed update')
+timedOut.recovery.start(baseline)
+assert.equal(timedOut.states.at(-1), false, 'repeated feed errors cannot reopen expired recovery')
+timedOut.requests[0].resolve(status('b'.repeat(40)))
+await flush()
+assert.equal(timedOut.reloads, 0, 'a late response cannot undo the timeout')
+assert.equal(timedOut.timers.size, 0)
+timedOut.recovery.prepare(baseline)
+timedOut.recovery.start(baseline)
+assert.equal(timedOut.states.at(-1), true, 'an explicit new action can start recovery again')
+
+const expiredOnReload = fixture({ ...baseline, createdAt: Date.now() - UPDATE_RESTART_TIMEOUT - 1000 })
+assert.equal(expiredOnReload.states.at(-1), false)
+assert.equal(expiredOnReload.errors.at(-1), UPDATE_RESTART_TIMEOUT_MESSAGE)
+assert.equal(expiredOnReload.requests.length, 0)
+assert.equal(expiredOnReload.timers.size, 0)
+
+const repeats = fixture()
+repeats.recovery.start(baseline)
+const firstDeadline = repeats.recovery.baseline.createdAt
+repeats.recovery.now = () => Date.now() + 60000
+repeats.recovery.start({ ...baseline, createdAt: Date.now() + 60000 })
+assert.equal(repeats.recovery.baseline.createdAt, firstDeadline, 'repeated losses must not extend the deadline')
+assert.equal([...repeats.timers.values()].filter(timer => timer.ms === UPDATE_RESTART_TIMEOUT).length, 1)
+console.log('Update restart recovery regressions passed')

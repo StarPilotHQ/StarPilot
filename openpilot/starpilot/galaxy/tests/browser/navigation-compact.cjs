@@ -34,9 +34,9 @@ const status = { enabled: true, hasKey: true, isMetric: true, status: 'noDestina
       if (pathname.startsWith('/api/')) return route.fulfill({ json: status })
       if (pathname === '/' && new URL(request.url()).searchParams.has('shell')) return route.fulfill({ contentType: 'text/html', body:
         `<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/vendor/bootstrap-icons/bootstrap-icons.min.css">
-        <link rel="stylesheet" href="/css/galaxy.css"><link rel="stylesheet" href="/css/settings.css"><link rel="stylesheet" href="/css/navigation.css"><div id="galaxy-app"></div><script type="module" src="/js/app.js"></script>` })
+        <link rel="stylesheet" href="/css/galaxy.css"><link rel="stylesheet" href="/css/setup.css"><link rel="stylesheet" href="/css/settings.css"><link rel="stylesheet" href="/css/navigation.css"><div id="galaxy-app"></div><script type="module" src="/js/app.js"></script>` })
       if (pathname === '/') return route.fulfill({ contentType: 'text/html', body: `<meta name="viewport" content="width=device-width,initial-scale=1">
-        <link rel="stylesheet" href="/vendor/bootstrap-icons/bootstrap-icons.min.css"><link rel="stylesheet" href="/css/galaxy.css"><link rel="stylesheet" href="/css/settings.css"><link rel="stylesheet" href="/css/navigation.css"><main class="gx-content"><div id="app"></div></main>
+        <link rel="stylesheet" href="/vendor/bootstrap-icons/bootstrap-icons.min.css"><link rel="stylesheet" href="/css/galaxy.css"><link rel="stylesheet" href="/css/setup.css"><link rel="stylesheet" href="/css/settings.css"><link rel="stylesheet" href="/css/navigation.css"><main class="gx-content"><div id="app"></div></main>
         <script type="module">import {createApp} from '/vendor/vue/vue.esm-browser.js';
         import {NavigationPage} from '/js/navigation.js';
         window.navigation = createApp(NavigationPage,{mode:'local',unauthorized:()=>{}}).mount('#app');</script>` })
@@ -87,14 +87,14 @@ const status = { enabled: true, hasKey: true, isMetric: true, status: 'noDestina
       await page.screenshot({ path: `/private/tmp/navigation-offline-${width}.png`, fullPage: true })
     }
     await offlineLink.click()
-    await page.getByText('Map Overlay Roads', { exact: true }).waitFor()
+    await page.getByText('Offline Map Management', { exact: true }).waitFor()
     assert.equal(await page.getByRole('button', { name: 'Offline Maps', exact: true }).getAttribute('aria-pressed'), 'true')
     await page.getByRole('button', { name: 'Destination', exact: true }).click()
     status.network = 'unknown'
     await page.evaluate(() => window.navigation.client.load())
     assert.equal(await offlineLink.count(), 0, 'unknown device state must not be presented as offline')
     await page.goto('http://navigation.test/?shell=1#/navigation/maps')
-    await page.getByText('Map Overlay Roads', { exact: true }).waitFor()
+    await page.getByText('Offline Map Management', { exact: true }).waitFor()
     assert.equal(await page.getByRole('button', { name: 'Offline Maps', exact: true }).getAttribute('aria-pressed'), 'true')
     await page.getByRole('button', { name: 'Destination', exact: true }).click()
     await page.waitForURL('**#/navigation')

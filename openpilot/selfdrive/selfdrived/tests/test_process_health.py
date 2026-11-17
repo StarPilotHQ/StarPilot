@@ -25,7 +25,7 @@ def process_health(processes):
   return drive
 
 
-@pytest.mark.parametrize('name', ['starportd', 'galaxy_hotspot', 'jetlinkd'])
+@pytest.mark.parametrize('name', ['starportd', 'galaxy_hotspot', 'jetlinkd', 'ui'])
 @pytest.mark.parametrize('running,requested', [(False, False), (False, True), (True, True)])
 def test_optional_lifecycle_does_not_block_engagement(name, running, requested):
   drive = process_health([(name, running, requested)])
@@ -69,3 +69,22 @@ def test_missing_starport_service_does_not_block_engagement():
   state = StateMachine()
   state.update(drive.events)
   assert state.state == log.SelfdriveState.OpenpilotState.enabled
+
+
+@pytest.mark.parametrize('critical', ['controlsd', 'selfdrived', 'pandad', 'modeld', 'card', 'camerad', 'soundd', 'unknown_service'])
+def test_ui_restart_does_not_hide_driving_failure(critical):
+  drive = process_health([('ui', False, True), (critical, False, True)])
+  assert drive.update_process_health()
+  assert drive.not_running_prev == {critical}
+  assert drive.events.contains(ET.SOFT_DISABLE)
+
+
+def test_ui_restart_preserves_enabled_state_without_warning():
+  drive = process_health([('ui', False, True), ('controlsd', True, True), ('selfdrived', True, True)])
+  assert not drive.update_process_health()
+  state = StateMachine()
+  state.state = log.SelfdriveState.OpenpilotState.enabled
+  state.update(drive.events)
+  assert state.state == log.SelfdriveState.OpenpilotState.enabled
+  assert not drive.events.contains(ET.SOFT_DISABLE)
+  assert not drive.events.contains(ET.IMMEDIATE_DISABLE)

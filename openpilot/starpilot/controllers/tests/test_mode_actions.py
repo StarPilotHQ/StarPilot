@@ -261,6 +261,7 @@ def test_actual_card_alpha_off_short_wheel_gesture_has_lateral_only_authority():
   f.setUp()
   try:
     f.cp.carFingerprint = CAR.HYUNDAI_IONIQ_6
+    f.cp.safetyConfigs = [{"safetyModel": "hyundaiCanfd"}]
     f.cp.flags = int(HyundaiFlags.CANFD_LKA_STEER_MSG)
     f.cp.openpilotLongitudinalControl = False
     f.sm['carControl'].enabled = f.sm['carControl'].longActive = False

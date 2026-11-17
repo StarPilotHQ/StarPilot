@@ -73,3 +73,45 @@ def test_actual_capture_resumes_with_original_checkpoint(vehicle, mode, missing)
     assert adapter is not None and len(adapter.replay.records) >= 30
     assert controls.CP.as_builder().to_bytes() == before
     assert runtime.applied_coordinates == (0., 0.)
+
+
+@pytest.mark.parametrize('vehicle,mode', [(HKG.HYUNDAI_IONIQ_6, 'starpilot'), (HONDA.HONDA_CIVIC, None)])
+def test_original_checkpoints_stay_inside_existing_bound_with_publication_jitter(vehicle, mode):
+  from openpilot.starpilot.flm.controller_replay import MAX_CHECKPOINT_NS
+  assert MAX_CHECKPOINT_NS == 1_000_000_000
+  cp = interfaces[vehicle].get_non_essential_params(vehicle)
+  with controls_for(cp, mode, True) as controls:
+    adapter = None
+    snapshots = 0
+    previous_publication = 0
+    for tick in range(351):
+      jitter = 8_000_000 if tick in (199, 200) else 0
+      now = BASE + tick * 10_000_000 + jitter
+      with mock.patch('openpilot.starpilot.flm.tests.test_live_calibration_paths.BASE', BASE + jitter):
+        output = live_frame(controls, tick, 'a' * 32)
+      runtime = controls.global_learning
+      # Both delays fit the unchanged30ms capture bound. A capture taken at
+      # the full1s reconstruction ceiling can expire before the next capture.
+      published = now + (1_000_000 if runtime.snapshot else 4_759_900)
+      assert published > previous_publication
+      previous_publication = published
+      controls.pm.send.reset_mock()
+      with (mock.patch('openpilot.selfdrive.controls.controlsd.time.monotonic_ns', return_value=published),
+            mock.patch('openpilot.cereal.messaging.time.monotonic', return_value=published / 1e9)):
+        controls.publish(*output)
+      event = next(call.args[1] for call in controls.pm.send.call_args_list if call.args[0] == 'starpilotLateralState')
+      event = messaging.log_from_bytes(event.to_bytes())
+      if tick < 100:
+        continue
+      assert event.starpilotLateralState.learningEvidence.version
+      evidence = read_control(event)
+      if adapter is None:
+        if not evidence.replay_snapshot:
+          continue
+        adapter = production_adapter_for_evidence(controls.CP, evidence, objective_key(evidence), source=runtime.source)
+        assert adapter is not None
+      snapshots += bool(evidence.replay_snapshot)
+      assert adapter.prepare_control(evidence) is not None, (tick, evidence.control_ns - adapter.replay.checkpoint_ns)
+      assert evidence.control_ns - adapter.replay.checkpoint_ns <= MAX_CHECKPOINT_NS
+    assert adapter is not None and len(adapter.replay.records) >= 200
+    assert 4 <= snapshots <= 7, 'Original checkpoints stay periodic rather than copying the controller at100Hz'

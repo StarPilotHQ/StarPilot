@@ -23,9 +23,9 @@ class PandaWakeFeature:
 
   def capability(self):
     cp = self.owner.vehicle_params()
-    keys = supported_keys(cp) if self.galaxy() and self.device_type() in ('tici', 'tizi') else ()
+    keys = supported_keys(cp) if self.galaxy() and self.device_type() in ('tici', 'tizi', 'mici') else ()
     selection = read_selection(self.owner.params)
-    if not keys or not selection.readable or not selection.valid or selection.platform is None:
+    if not keys or not selection.readable or not selection.valid:
       return None
     if selection.platform is not None and selection.platform != cp.carFingerprint:
       return None

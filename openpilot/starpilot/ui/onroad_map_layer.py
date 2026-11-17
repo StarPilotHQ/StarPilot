@@ -1,6 +1,6 @@
 """Lazy map resources for the native large screen; GPU preparation precedes drawing."""
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.system.starport.projection_map_lease import projection_map_active
 from openpilot.system.ui.lib.application import gui_app
@@ -29,8 +29,8 @@ class NativeMapLayer:
       self._release()
       return
     if self.map is None:
-      from openpilot.starpilot.ui.onroad_map import MapFeed, MapOverlay
-      self.map = MapOverlay(fonts=self.fonts)
+      from openpilot.starpilot.ui.onroad_map import MapFeed, live_overlay
+      self.map = live_overlay(self.fonts)
       self.feed = MapFeed()
     self.map.prepare(self.feed.read(self.ui.sm), placed["width"], placed["height"])
     self.prepared_size = (placed["width"], placed["height"])

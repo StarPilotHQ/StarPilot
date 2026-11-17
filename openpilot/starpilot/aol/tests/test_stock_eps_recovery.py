@@ -4,6 +4,8 @@ import pytest
 
 from opendbc.car import structs
 from opendbc.car.ford.values import CAR as Ford
+from opendbc.car.hyundai.values import CAR as Hyundai
+from opendbc.car.hyundai.classic_scc_aol import qualified as classic_scc_qualified
 from openpilot.cereal import log
 from openpilot.starpilot.aol.tests.test_stock_location_recovery import established_stock as established_stock
 from openpilot.starpilot.tests.test_ford_reverse_intent import NOW, PRODUCER, change, native_change, sample
@@ -46,9 +48,13 @@ def test_matched_stock_eps_recovery_preserves_only_armed_intent(established_stoc
 @pytest.mark.parametrize('fault', ('invalid_can', 'permanent_eps', 'main_off', 'cancel', 'reverse', 'brake', 'gas',
   'native_denial', 'native_invalid', 'wrong_epoch', 'wrong_producer', 'wrong_session', 'expired', 'future_source',
   'immediate', 'other_user', 'long_desired', 'long_active', 'missing_anchor', 'different_anchor'))
-def test_eps_recovery_never_bypasses_independent_vetoes(established_stock, fault):
+def test_eps_recovery_never_bypasses_independent_vetoes(established_stock, fault, *, independent_classic=False):
   cp, state, feedback = established_stock
   sm, native, now = recovered_pause(cp, state, feedback)
+  if independent_classic:
+    assert classic_scc_qualified(cp, marked_only=True)
+    state.cruiseState.available = False
+    state.gasPressed = True
   producer = PRODUCER
   if fault == 'invalid_can':
     state.canValid = False
@@ -91,9 +97,11 @@ def test_eps_recovery_never_bypasses_independent_vetoes(established_stock, fault
   before = (feedback.healthy_feedback_ns, feedback.healthy_native_ns, feedback.lateral_baseline_ns,
             feedback.lateral_source_ns, feedback.lateral_native_ns)
   rejected = feedback.observe(sm, cp, state, now, latched=True, intent_producer_session=producer)
-  if fault in ('brake', 'gas') and cp.carFingerprint in (Ford.FORD_MUSTANG_MACH_E_MK1, Ford.FORD_ESCAPE_MK4):
-    # Stock Ford's qualified EPS/pedal overlap preserves intent, never output.
+  retained = (fault in ('brake', 'gas') and cp.carFingerprint in (Ford.FORD_MUSTANG_MACH_E_MK1, Ford.FORD_ESCAPE_MK4) or
+              fault in ('main_off', 'gas') and classic_scc_qualified(cp, marked_only=True))
+  if retained:
     assert not rejected and feedback.temporary_host_qualified
+    assert not native.requestedLateral and not native.requestedLongitudinal
     assert not native.lateralAllowed and not native.longitudinalAllowed
     assert before == (feedback.healthy_feedback_ns, feedback.healthy_native_ns, feedback.lateral_baseline_ns,
                       feedback.lateral_source_ns, feedback.lateral_native_ns)
@@ -130,3 +138,11 @@ def test_unbelted_eps_recovery_keeps_exact_anchor_and_long_withdrawal(establishe
                       feedback.lateral_source_ns, feedback.lateral_native_ns)
   assert not native.requestedLateral and not native.lateralAllowed
   assert not native.requestedLongitudinal and not native.longitudinalAllowed
+
+
+@pytest.mark.parametrize('established_stock', [Hyundai.HYUNDAI_SONATA_HYBRID], indirect=True)
+@pytest.mark.parametrize('fault', ('invalid_can', 'permanent_eps', 'cancel', 'reverse', 'brake',
+  'native_denial', 'native_invalid', 'wrong_epoch', 'wrong_producer', 'wrong_session', 'expired', 'future_source',
+  'immediate', 'other_user', 'long_desired', 'long_active', 'missing_anchor', 'different_anchor'))
+def test_classic_main_off_and_gas_keep_independent_eps_recovery_vetoes(established_stock, fault):
+  test_eps_recovery_never_bypasses_independent_vetoes(established_stock, fault, independent_classic=True)

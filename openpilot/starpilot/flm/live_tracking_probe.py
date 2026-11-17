@@ -140,6 +140,11 @@ def _probe_key(value):
 
 def _primitive(value, depth=0):
   """Fresh exact bytes for source mutation detection; never invokes reducers."""
+  if depth == 0:
+    from openpilot.starpilot.flm.native_primitives import FALLBACK, try_native
+    exact = try_native('probe_source_key', value)
+    if exact is not FALLBACK:
+      return exact
   if depth > 40:
     raise ValueError('bounded probe source graph')
   kind = type(value)

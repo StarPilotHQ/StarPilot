@@ -352,15 +352,15 @@ scrub_mixed_arch_artifacts() {
     "${ROOT_DIR}/openpilot/cereal/gen/cpp/"*.capnp.h \
     "${ROOT_DIR}/openpilot/cereal/gen/cpp/"*.capnp.o \
     "${ROOT_DIR}/openpilot/cereal/messaging/"*.o \
-    "${ROOT_DIR}/openpilot/cereal/messaging/bridge" \
     "${ROOT_DIR}/msgq_repo/msgq/"*.os \
     "${ROOT_DIR}/msgq_repo/msgq/"*.o \
     "${ROOT_DIR}/msgq_repo/libmsgq.a" \
     "${ROOT_DIR}/msgq_repo/libvisionipc.a" \
-    "${ROOT_DIR}/msgq_repo/msgq/ipc_pyx.so" \
+    "${ROOT_DIR}/openpilot/starpilot/ui/native/_raylib_extra.so" \
+    "${ROOT_DIR}/msgq_repo/msgq/_ipc.so" \
     "${ROOT_DIR}/msgq_repo/msgq/visionipc/"*.os \
     "${ROOT_DIR}/msgq_repo/msgq/visionipc/"*.o \
-    "${ROOT_DIR}/msgq_repo/msgq/visionipc/visionipc_pyx.so" \
+    "${ROOT_DIR}/msgq_repo/msgq/visionipc/_visionipc.so" \
     "${ROOT_DIR}/openpilot/common/libparams_c.so" \
     "${ROOT_DIR}/openpilot/selfdrive/pandad/can_list_to_can_capnp.o" \
     "${ROOT_DIR}/openpilot/selfdrive/pandad/libcan_list_to_can_capnp.a" \

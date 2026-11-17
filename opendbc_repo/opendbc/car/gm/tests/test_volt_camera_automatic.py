@@ -105,13 +105,14 @@ def test_every_existing_gm_fingerprint_retains_its_original_result(mirror):
 
 @pytest.mark.parametrize('candidate', [CAR.CHEVROLET_VOLT, CAR.CHEVROLET_VOLT_CC,
   CAR.CHEVROLET_VOLT_ASCM, CAR.CHEVROLET_VOLT_2019, CAR.CHEVROLET_VOLT_CAMERA, CAR.HOLDEN_ASTRA])
-def test_identified_or_explicit_vehicle_is_never_reinterpreted(candidate):
+@pytest.mark.parametrize('alpha', [False, True])
+def test_identified_or_explicit_vehicle_is_never_reinterpreted(candidate, alpha):
   fp = recorded_fingerprint()
   assert automatic_volt_candidate(candidate, fp, remaining()) == candidate
   with patch.object(car_helpers, 'fingerprint', return_value=(CAR.CHEVROLET_VOLT_CAMERA, fp,
        '00000000000000000', [], structs.CarParams.FingerprintSource.can, True)):
     ci = car_helpers.get_car(lambda wait_for_one=False: [], lambda _: None, lambda _: None,
-                             False, False, forced_candidate=candidate)
+                             alpha, False, forced_candidate=candidate)
   assert ci.CP.carFingerprint == candidate
   assert ci.CP.fingerprintSource == structs.CarParams.FingerprintSource.fixed
 

@@ -13,11 +13,11 @@ PROFILES = {
 }
 
 
-def _camry_radar_bus(candidate, bus, messages):
-  # The 2018–20 Camry exposes an independent eight-byte 2FF stream alongside
+def _cluster_radar_bus(candidate, bus, messages):
+  # The 2018–20 Camry and 2017–20 C-HR expose an independent eight-byte 2FF stream alongside
   # its six cluster-radar frames on bus1 (cluster_radar.CLUSTERS). It is not
   # the four-byte filter advertisement or a bus0 smartDSU status source.
-  return (candidate == CAR.TOYOTA_CAMRY and bus == 1 and messages.get(0x2FF) == 8 and
+  return (candidate in (CAR.TOYOTA_CAMRY, CAR.TOYOTA_CHR) and bus == 1 and messages.get(0x2FF) == 8 and
           all(messages.get(address) == 8 for address in range(0x680, 0x686)))
 
 
@@ -29,12 +29,12 @@ def hardware_supported(candidate, fingerprint):
   # Panda discovery may also expose its forwarded camera-bus copy.
   if (candidate in PROFILES and fingerprint.get(0, {}).get(0x2FF) == 4 and
       not any(address in messages for messages in fingerprint.values() for address in (0x201, 0x2AA)) and
-      all((bus in (0, 2) and messages[0x2FF] == 4) or _camry_radar_bus(candidate, bus, messages)
+      all((bus in (0, 2) and messages[0x2FF] == 4) or _cluster_radar_bus(candidate, bus, messages)
           for bus, messages in fingerprint.items() if 0x2FF in messages)):
     return True
   return (candidate in PROFILES and fingerprint.get(0, {}).get(0x2AA) == 8 and
           all(bus in (0, 2) and frames[0x2AA] == 8 for bus, frames in fingerprint.items() if 0x2AA in frames) and
-          not any(0x201 in frames or 0x2FF in frames and not _camry_radar_bus(candidate, bus, frames)
+          not any(0x201 in frames or 0x2FF in frames and not _cluster_radar_bus(candidate, bus, frames)
                   for bus, frames in fingerprint.items()))
 
 

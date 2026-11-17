@@ -1,11 +1,11 @@
 """Parked exact-source edits for host-only cruise intervals."""
 
 from dataclasses import replace
-from types import SimpleNamespace
 import tempfile
 import unittest
 
 from openpilot.common.params import Params
+from opendbc.car.structs import car
 from openpilot.starpilot.galaxy.settings import AuthorityContext, SettingsChanged, SettingsGateway
 from openpilot.starpilot.longitudinal.cruise_intervals import CruiseIntervals, read_cruise_intervals
 from openpilot.starpilot.ui.feature_settings_owner import FeatureSettingsOwner
@@ -25,7 +25,7 @@ class CruiseIntervalFeatureTests(unittest.TestCase):
     temp = tempfile.TemporaryDirectory()
     self.addCleanup(temp.cleanup)
     self.params = Params(temp.name)
-    self.cp = SimpleNamespace(carFingerprint="HYUNDAI_IONIQ_6", openpilotLongitudinalControl=True,
+    self.cp = car.CarParams.new_message(carFingerprint="HYUNDAI_IONIQ_6", openpilotLongitudinalControl=True,
                               pcmCruise=False, notCar=False, passive=False, dashcamOnly=False)
     self.context = Context(self.cp)
     self.owner = FeatureSettingsOwner(self.params, lambda group: self.context.value.parked and group == "long",
@@ -34,7 +34,7 @@ class CruiseIntervalFeatureTests(unittest.TestCase):
     self.gateway = SettingsGateway(self.params, self.context, clock=lambda: 100.0)
 
   def rows(self):
-    state = self.owner.snapshot(FeaturePage.PROFILES, parked=self.context.value.parked, system_long=True,
+    state = self.owner.snapshot(FeaturePage.WHEEL, parked=self.context.value.parked, system_long=True,
                                 lateral_context=False, metric=False)
     return {row.key: row for row in state.rows if row.key in ("QOLLongitudinal", "CustomCruise", "CustomCruiseLong")}
 
@@ -47,7 +47,7 @@ class CruiseIntervalFeatureTests(unittest.TestCase):
   def test_galaxy_direct_intervals_without_retired_master(self):
     self.params.put("CustomCruise", 5.0, block=True)
     self.params.put("CustomCruiseLong", 1.0, block=True)
-    page = self.gateway.page("profiles", "session", b"generation")
+    page = self.gateway.page("wheel", "session", b"generation")
     rows = {row["label"]: (index, row) for index, row in enumerate(page["rows"])}
     self.assertNotIn("Custom cruise intervals", rows)
     self.assertTrue(rows["Short press"][1]["available"])

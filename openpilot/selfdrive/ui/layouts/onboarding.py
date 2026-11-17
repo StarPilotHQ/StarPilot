@@ -3,7 +3,7 @@ import re
 import threading
 from enum import IntEnum
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 from openpilot.common.basedir import BASEDIR
 from openpilot.system.ui.lib.application import FontWeight, gui_app, TextAlignment
 from openpilot.system.ui.lib.multilang import tr
@@ -82,16 +82,16 @@ class TrainingGuide(Widget):
     super().hide_event()
 
   def _handle_mouse_release(self, mouse_pos):
-    if rl.check_collision_point_rec(mouse_pos, STEP_RECTS[self._step]):
+    if rl.check_collision_point_rec(rl.Vector2(mouse_pos.x, mouse_pos.y), STEP_RECTS[self._step]):
       # Record DM camera?
       if self._step == DM_RECORD_STEP:
-        yes = rl.check_collision_point_rec(mouse_pos, DM_RECORD_YES_RECT)
+        yes = rl.check_collision_point_rec(rl.Vector2(mouse_pos.x, mouse_pos.y), DM_RECORD_YES_RECT)
         print(f"putting RecordFront to {yes}")
         ui_state.params.put_bool("RecordFront", yes, block=True)
 
       # Restart training?
       elif self._step == len(self._image_paths) - 1:
-        if rl.check_collision_point_rec(mouse_pos, RESTART_TRAINING_RECT):
+        if rl.check_collision_point_rec(rl.Vector2(mouse_pos.x, mouse_pos.y), RESTART_TRAINING_RECT):
           self._step = -1
 
       self._step += 1
@@ -136,12 +136,13 @@ class TermsPage(Widget):
     self._on_accept = on_accept
     self._on_decline = on_decline
 
-    self._title = Label(tr("Welcome to openpilot"), font_size=90, font_weight=FontWeight.BOLD, text_alignment=TextAlignment.LEFT)
-    self._desc = Label(tr("You must accept the Terms and Conditions to use openpilot. Read the latest terms at https://comma.ai/terms before continuing."),
+    self._title = Label(lambda: tr("Welcome to openpilot"), font_size=90, font_weight=FontWeight.BOLD, text_alignment=TextAlignment.LEFT)
+    self._desc = Label(
+      lambda: tr("You must accept the Terms and Conditions to use openpilot. Read the latest terms at https://comma.ai/terms before continuing."),
                        font_size=90, font_weight=FontWeight.MEDIUM, text_alignment=TextAlignment.LEFT)
 
-    self._decline_btn = Button(tr("Decline"), click_callback=on_decline)
-    self._accept_btn = Button(tr("Agree"), button_style=ButtonStyle.PRIMARY, click_callback=on_accept)
+    self._decline_btn = Button(lambda: tr("Decline"), click_callback=on_decline)
+    self._accept_btn = Button(lambda: tr("Agree"), button_style=ButtonStyle.PRIMARY, click_callback=on_accept)
 
   def _render(self, _):
     welcome_x = self._rect.x + 165
@@ -170,10 +171,10 @@ class TermsPage(Widget):
 class DeclinePage(Widget):
   def __init__(self, back_callback=None):
     super().__init__()
-    self._text = Label(tr("You must accept the Terms and Conditions in order to use openpilot."),
+    self._text = Label(lambda: tr("You must accept the Terms and Conditions in order to use openpilot."),
                        font_size=90, font_weight=FontWeight.MEDIUM, text_alignment=TextAlignment.LEFT)
-    self._back_btn = Button(tr("Back"), click_callback=back_callback)
-    self._uninstall_btn = Button(tr("Decline, uninstall openpilot"), button_style=ButtonStyle.DANGER,
+    self._back_btn = Button(lambda: tr("Back"), click_callback=back_callback)
+    self._uninstall_btn = Button(lambda: tr("Decline, uninstall openpilot"), button_style=ButtonStyle.DANGER,
                                  click_callback=self._on_uninstall_clicked)
 
   def _on_uninstall_clicked(self):

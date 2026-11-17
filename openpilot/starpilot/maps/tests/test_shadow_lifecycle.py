@@ -16,6 +16,7 @@ from openpilot.common.params import Params
 from openpilot.starpilot.maps.artifact import elf_arm64_static, source_digest
 from openpilot.starpilot.maps import shadow_lifecycle as shadow
 from openpilot.starpilot.maps import package_shadow
+from openpilot.starpilot.speed_limits.runtime_settings import SOURCE_PRIORITY_KEYS
 
 
 def fake_static_elf() -> bytes:
@@ -35,7 +36,7 @@ class FakeParams(Params):
     self.path = path
 
   def get_param_path(self, key: str = '') -> str:
-    assert key in (shadow.OPT_IN_KEY, 'SLCPriority1', 'SLCPriority2')
+    assert key in (shadow.OPT_IN_KEY, *SOURCE_PRIORITY_KEYS)
     return str(self.path if key == shadow.OPT_IN_KEY else self.path.parent / key)
 
 
@@ -163,6 +164,16 @@ class TestShadowLifecycle(unittest.TestCase):
     receipt.write_bytes(saved)
     self.assertTrue(self.preflight())
 
+  def test_combined_downloaded_regions_can_start_shadow(self):
+    self.receipt['sourceKind'] = 'combined-group-archives'
+    self.receipt['inputs'] = [{'name': '34/-98.tar.gz', 'size': 1, 'sha256': 'a' * 64}]
+    self.write_snapshot()
+    self.assertTrue(shadow._selected_snapshot(self.root))
+    self.assertTrue(self.preflight())
+    self.receipt['sourceKind'] = 'unrecognized'
+    self.write_snapshot()
+    self.assertFalse(shadow._selected_snapshot(self.root))
+
   def test_rejects_symlinked_package_parent(self):
     package = self.base / 'package'
     package.symlink_to(self.base, target_is_directory=True)
@@ -173,6 +184,7 @@ class TestShadowLifecycle(unittest.TestCase):
     path = self.base / 'MapdShadowEnabled'
     params = FakeParams(path)
     cp = FakeCar()
+    (self.base / 'SLCPriority2').write_bytes(b'Dashboard')
     self.assertFalse(shadow.enabled(True, params, cp))
     path.write_bytes(b'1')
     self.assertTrue(shadow.enabled(True, params, cp))
@@ -196,6 +208,7 @@ class TestShadowLifecycle(unittest.TestCase):
     with mock.patch.dict(os.environ, {'PARAMS_ROOT': str(self.base / 'params')}):
       params = Params()
       self.assertFalse(params.get_default_value(shadow.OPT_IN_KEY))
+      params.put('SLCPriority2', 'Dashboard', block=True)
       self.assertFalse(shadow.enabled(True, params, FakeCar()))
       params.put_bool(shadow.OPT_IN_KEY, True, block=True)
       self.assertTrue(shadow.enabled(True, params, FakeCar()))

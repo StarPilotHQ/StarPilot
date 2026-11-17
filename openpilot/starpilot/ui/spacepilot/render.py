@@ -3,11 +3,12 @@
 import math
 import random
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.spacepilot.state import Flight, Phase
 from openpilot.system.ui.lib.application import FontWeight, gui_app
 from openpilot.system.ui.lib.text_measure import measure_text_cached
+from openpilot.system.ui.lib.multilang import tr_display
 
 INK = rl.Color(8, 13, 30, 255)
 WHITE = rl.Color(235, 248, 255, 255)
@@ -28,7 +29,7 @@ class SpaceRenderer:
   def __init__(self):
     rng = random.Random(5683)
     self.stars = tuple((rng.uniform(0, 1072), rng.uniform(65, 435), rng.uniform(.8, 2.1), rng.uniform(4, 18)) for _ in range(64))
-    self.vector_gradient = len(rl.ffi.typeof(rl.rl.DrawCircleGradient).args) == 4
+    self.vector_gradient = True
 
   def gradient(self, x: int, y: int, radius: float, inner, outer) -> None:
     # Desktop and comma raylib expose different native gradient signatures.
@@ -39,6 +40,7 @@ class SpaceRenderer:
 
   @staticmethod
   def text(text: str, x: float, y: float, size: int, color=WHITE, *, centered: bool = False, bold: bool = False) -> None:
+    text = tr_display(text)
     font = gui_app.font(FontWeight.BOLD if bold else FontWeight.NORMAL)
     if centered:
       x -= measure_text_cached(font, text, size).x / 2

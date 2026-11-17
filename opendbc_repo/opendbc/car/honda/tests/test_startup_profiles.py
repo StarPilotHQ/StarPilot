@@ -81,7 +81,13 @@ def exercise_final_cp_publication_and_disabled_startup(identity, monkeypatch, fi
           discovery.setenv("DISABLE_FW_CACHE", "1")
           discovery.setattr(car_helpers, "get_vin", lambda *args: (-1, -1, initial.carVin))
           discovery.setattr(car_helpers, "get_present_ecus", lambda *args: set())
-          discovery.setattr(car_helpers, "can_fingerprint", lambda *args: (None, fingerprint))
+
+          def can_fingerprint(can_recv, *, vin, camera_cruise_messages):
+            assert callable(can_recv) and vin == initial.carVin
+            assert camera_cruise_messages == set()
+            return None, fingerprint
+
+          discovery.setattr(car_helpers, "can_fingerprint", can_fingerprint)
           discovery.setattr(car_helpers, "get_fw_versions_ordered", lambda *args: list(firmware))
           discovery.setattr(card_module, "obd_callback", lambda *args: lambda enabled: None)
         else:

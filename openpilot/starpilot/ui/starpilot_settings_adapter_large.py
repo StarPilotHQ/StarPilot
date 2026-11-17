@@ -2,7 +2,9 @@
 
 from collections.abc import Callable
 
-import pyray as rl
+from openpilot.system.ui.lib.display_translation import DisplayText
+
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.selfdrive.ui.layouts.settings.initial_cruise_speed import InitialCruiseSpeedControl
 from openpilot.starpilot.ui.clip import placed_at
@@ -101,7 +103,7 @@ class StarPilotSettingsAdapterLarge(Widget):
           actions = [(tr("CONNECT"), not busy and not connected and network.security_type != SecurityType.UNSUPPORTED)]
           if saved:
             actions.append((tr("Forget"), not busy))
-          rows.append(FeatureRow(key, normalize_ssid(network.ssid), f"{detail} - {security} - {network.strength}%",
+          rows.append(FeatureRow(key, DisplayText(normalize_ssid(network.ssid)), f"{detail} - {security} - {network.strength}%",
                                  available=owner._allowed(), actions=tuple(actions)))
         if not owner._networks:
           rows.append(FeatureRow("", tr("Scanning Wi-Fi networks..."), ""))

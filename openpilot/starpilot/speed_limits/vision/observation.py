@@ -13,16 +13,22 @@ MAX_FRAME_AGE_NS = 250_000_000
 # Bound sign-processing latency independently of raw camera admission.
 MAX_RESULT_AGE_NS = 2_000_000_000
 MAX_PAIR_SKEW_NS = 5_000_000
-MODEL_ID = "82408b68c79c269296f0af942130c5383cace4ee06c78e2a4690e8488720116a:07c6696e530eb940d2757d5849b4bc0f1d785cda704e5296e18c0a94959f30a5"
+MODEL_ID = '3c56192512265feb32c0e876241d700dc0fe8e85ae5a9a55bf240f86977e815f:f70477aa34a5557b69103ed65066b5a7a678f5bc35dfb4ee19914aec3c108918'
 
 
 def clock_pair_ns() -> tuple[int, int] | None:
-  """Sample MONOTONIC around BOOTTIME; reject an interrupted sample."""
-  before = time.monotonic_ns()
-  boot_clock = getattr(time, "CLOCK_BOOTTIME", time.CLOCK_MONOTONIC)
-  boot = time.clock_gettime_ns(boot_clock)
-  after = time.monotonic_ns()
-  return ((before + after) // 2, boot) if 0 <= after - before <= MAX_PAIR_SKEW_NS else None
+  """Sample MONOTONIC around BOOTTIME; retry one overlong sampling window."""
+  for _ in range(2):
+    before = time.monotonic_ns()
+    boot_clock = getattr(time, "CLOCK_BOOTTIME", time.CLOCK_MONOTONIC)
+    boot = time.clock_gettime_ns(boot_clock)
+    after = time.monotonic_ns()
+    elapsed = after - before
+    if 0 <= elapsed <= MAX_PAIR_SKEW_NS:
+      return (before + after) // 2, boot
+    if elapsed < 0:
+      return None
+  return None
 
 
 def vision_observation(event, *, receipt_mono_ns: int, now_mono_ns: int, now_boot_ns: int,

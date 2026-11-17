@@ -98,7 +98,7 @@ def startup_receipt(source_pause):
   intent.update(state(available=False), now_ns=wire.NOW - 10_000_000, fault_active=True)
   sm, native = wire.sample(cp, wire.NOW, wire.NOW + 10_000_000, 1, active=False, requested=False, allowed=False)
   def off(axis):
-    axis.nativeAcknowledged = False
+    axis.nativeAcknowledged = True
     if source_pause:
       axis.sourceCarStateMonoTime = 0
       axis.faultReason = 'availabilityPause'
@@ -125,7 +125,7 @@ def test_first_main_qualifies_only_current_off_receipt():
 STARTUP_REFUSALS = (
   'stale', 'future', 'deadline', 'producer', 'session', 'event-stamp', 'wrong-event', 'critical',
   'soft', 'can', 'timeout', 'permanent', 'temporary', 'acc', 'sensor', 'door', 'gear', 'disengage',
-  'native-rx', 'heartbeat', 'native-request', 'native-grant', 'axis-active', 'axis-ack', 'panda-missing',
+  'native-rx', 'heartbeat', 'native-request', 'native-grant', 'axis-active', 'axis-ack-no-native', 'panda-missing',
 )
 
 
@@ -165,8 +165,11 @@ def test_first_main_does_not_admit_faulted_or_unowned_receipt(source_pause, faul
     wire.change(sm, 'pandaStates', lambda pandas: setattr(pandas[0], 'safetyRxChecksInvalid' if fault == 'native-rx' else 'heartbeatLost', True))
   elif fault in ('native-request', 'native-grant'):
     native = wire.native_change(sm, native, **{'requestedLateral' if fault == 'native-request' else 'lateralAllowed': True})
-  elif fault in ('axis-active', 'axis-ack'):
-    wire.change(sm, 'aolAxisState', lambda axis: setattr(axis, 'lateralActive' if fault == 'axis-active' else 'nativeAcknowledged', True))
+  elif fault == 'axis-active':
+    wire.change(sm, 'aolAxisState', lambda axis: setattr(axis, 'lateralActive', True))
+  elif fault == 'axis-ack-no-native':
+    wire.change(sm, 'aolAxisState', lambda axis: setattr(axis, 'nativeAcknowledged', True))
+    native = None
   elif fault == 'panda-missing':
     panda_ready = False
   before = native
@@ -186,3 +189,22 @@ def test_source_zero_availability_fault_cannot_qualify_first_main():
   intent.update(cs.as_reader(), fault_active=True, now_ns=now)
   intent.update(cs.as_reader(), fault_active=False, now_ns=now + 10_000_000)
   assert not intent.allowed_latch and not intent.main_pending_ns
+
+
+@pytest.mark.parametrize('acknowledged', [False, True])
+@pytest.mark.parametrize('gas', [False, True])
+def test_acknowledged_idle_main_arms_before_cruise_brake_withdrawal(acknowledged, gas):
+  from openpilot.starpilot.tests import test_ford_reverse_intent as wire
+  intent, cp, cs, sm, native, now = startup_receipt(False)
+  cs.gasPressed = gas
+  wire.change(sm, 'aolAxisState', lambda axis: setattr(axis, 'nativeAcknowledged', acknowledged))
+  original_native = native
+  original_stamps = dict(sm.logMonoTime)
+  intent.observe_startup_readiness(sm, cs, native=native, panda_ready=True, now_ns=now, producer=wire.PRODUCER)
+  assert intent.main_idle_transition_qualified
+  assert not intent.allowed_latch and native == original_native and sm.logMonoTime == original_stamps
+  intent.update(cs.as_reader(), fault_active=True, now_ns=now, standard_enabled=True)
+  assert intent.main_pending_ns == now and not intent.allowed_latch
+  intent.update(cs.as_reader(), fault_active=False, now_ns=now + 10_000_000, standard_enabled=True)
+  assert intent.allowed_latch and not intent.pause_lateral and not intent.main_pending_ns
+  assert intent.physical_arm_ns == now + 10_000_000

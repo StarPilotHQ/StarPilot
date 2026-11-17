@@ -183,6 +183,9 @@ def actual_card_lifecycle(identity, hybrid, alternate, gear, mode, aol):
       assert {key: saved.get(key) for key in keys} == settings and not saved.get_bool("ControlsReady")
       if mode == "rejected" and aol:
         expected.safetyConfigs[0].safetyParam |= 0x800
+      elif mode == "sent" and aol and identity == CAR.KIA_SPORTAGE_5TH_GEN:
+        expected.safetyConfigs[0].safetyParam |= 0x800
+        expected.alternativeExperience = 32
       assert card.CP.to_dict() == expected.to_dict()
       if mode == "rejected":
         assert owner.restored and owner.outcome is Outcome.STOCK_RESTORED and owner.keeper is None
@@ -270,6 +273,8 @@ def actual_card_lifecycle(identity, hybrid, alternate, gear, mode, aol):
 
 CALLER_CASES = tuple((identity, hybrid, alternate, 0x130) for identity, hybrid in FUEL_CASES for alternate in (False, True))
 GEAR_SOURCE_FAMILIES = (
+  (CAR.KIA_SPORTAGE_5TH_GEN, False),
+  (CAR.KIA_SPORTAGE_5TH_GEN, True),
   (CAR.HYUNDAI_STARIA_4TH_GEN, False),
   (CAR.KIA_CARNIVAL_2025, False),
   (CAR.KIA_CARNIVAL_HEV_4TH_GEN, True),

@@ -7,7 +7,7 @@ import math
 import time
 import uuid
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.selfdrive.ui.mici.widgets.button import BigButton, GreyBigButton
 from openpilot.selfdrive.ui.ui_state import device, ui_state
@@ -802,10 +802,10 @@ class ReplayPage(Widget):
           self.last_touch = time.monotonic()
         if self.texture is None or (self.texture.width, self.texture.height) != (frame.width, frame.height):
           self._clear_frame()
-          self.texture = rl.load_texture_from_image(rl.Image(rl.ffi.NULL, frame.width, frame.height, 1,
+          self.texture = rl.load_texture_from_image(rl.Image(None, frame.width, frame.height, 1,
                                                             rl.PixelFormat.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8))
           rl.set_texture_filter(self.texture, rl.TextureFilter.TEXTURE_FILTER_BILINEAR)
-        rl.update_texture(self.texture, rl.ffi.cast('void *', rl.ffi.from_buffer(frame.data)))
+        rl.update_texture(self.texture, frame.data)
         self.frame_key = key
       rl.draw_texture_pro(self.texture, rl.Rectangle(0, 0, frame.width, frame.height), bounds, rl.Vector2(0, 0), 0, rl.WHITE)
     self.controls = ((large or frame is not None) and

@@ -8,8 +8,10 @@ import json
 import mmap
 import os
 from pathlib import Path
+from queue import Empty, Queue
 import select
 import signal
+import shutil
 import socket
 import stat
 import struct
@@ -50,7 +52,7 @@ def receive(sock, fd_count=0):
       fds.extend(values)
     if not data:
       raise EOFError('Browser connection closed')
-    if flags & (socket.MSG_TRUNC | socket.MSG_CTRUNC) or len(fds) != fd_count:
+    if flags & (socket.MSG_TRUNC | socket.MSG_CTRUNC) or (fd_count is not None and len(fds) != fd_count):
       raise ValueError('Truncated browser packet or unexpected descriptors')
     message = json.loads(data)
     if not isinstance(message, dict) or not isinstance(message.get('type'), str):
@@ -95,11 +97,52 @@ def sealed_slot(size):
     raise
 
 
-def launch_command(unit, address, width, height, fps, capture):
+# AGNOS 20.5+ applies a 128M MemoryMax drop-in to every service and limits system.slice to 512M and 512 tasks.
+BACKGROUND_LIMIT = Path('/usr/lib/systemd/system/service.d/background.conf')
+
+
+def memory_properties(unit):
+  if not BACKGROUND_LIMIT.exists():
+    return []
+  # Run outside system.slice and set MemoryMax=1G after start; the drop-in's value applies when the unit is created.
+  return ['Slice=app.slice', f'ExecStartPost=+/usr/bin/systemctl set-property --runtime {unit}.service MemoryMax=1G']
+
+
+def load_setup():
+  source = Path(__file__).resolve()
+  path = (Path('/tmp/arabesque-runtime/setup.py') if str(source).startswith('/tmp/arabesque-bridge/') else
+          source.parents[5] / 'tools/arabesque_firefox/setup.py')
+  spec = importlib.util.spec_from_file_location('firefox_setup', path)
+  if spec is None or spec.loader is None:
+    raise RuntimeError('Firefox preparation is unavailable')
+  setup = importlib.util.module_from_spec(spec)
+  spec.loader.exec_module(setup)
+  setup.ROOT = ROOT
+  return setup
+
+
+def launch_command(unit, address, width, height, fps, capture, purpose='browse', transaction=''):
   bridge = Path(__file__).resolve().parent
+  setup = bridge.parents[4] / 'tools/arabesque_firefox'
+  tx = ROOT / 'updates' / transaction
+  if purpose != 'browse':
+    load_setup().transaction_id(transaction)
+  runtime = tx / 'candidate' if purpose == 'qualify' else RUNTIME
+  state = tx / 'probe-state' if purpose == 'qualify' else STATE
   # Mask user/vehicle data, then expose only the immutable runtime, Python and the browser's own state.
-  binds = {str(RUNTIME), str(Path(sys.prefix).resolve()), str(Path(sys.base_prefix).resolve())}
-  empty, devices = RUNTIME / 'isolation/empty', RUNTIME / 'isolation/devices'
+  binds = {f'{runtime}:{RUNTIME}' if runtime != RUNTIME else str(RUNTIME),
+           str(Path(sys.prefix).resolve()), str(Path(sys.base_prefix).resolve()),
+           f'{ROOT}/.prepare.lock:/tmp/arabesque-lock', f'{setup}:/tmp/arabesque-runtime'}
+  empty, devices = runtime / 'isolation/empty', runtime / 'isolation/devices'
+  maintenance = purpose in ('copy', 'cleanup', 'restore-copy')
+  if maintenance:
+    binds.add(str(STATE))
+  writable = f'{ROOT}/updates:/tmp/arabesque-updates' if maintenance else f'{state}:{STATE}'
+  write_paths = '/tmp/arabesque-updates' if maintenance else str(STATE)
+  if purpose in ('restore-copy', 'cleanup'):
+    optional = '-' if purpose == 'cleanup' else ''
+    writable += f' {optional}{ROOT}/restore-state:/tmp/arabesque-restore-state'
+    write_paths += f' {optional}/tmp/arabesque-restore-state'
   properties = [
     'Type=notify', 'NotifyAccess=main', 'TimeoutStartSec=12', 'WatchdogSec=4', 'WatchdogSignal=SIGTERM', 'TimeoutAbortSec=3',
     'KillMode=mixed', 'TimeoutStopSec=3', 'SendSIGKILL=yes', 'Restart=no', 'LimitCORE=0',
@@ -113,11 +156,17 @@ def launch_command(unit, address, width, height, fps, capture):
     + f'{empty}:/home {empty}:/root {empty}:/run/user {devices}:/dev '
     + '/sys /proc/sys -/proc/acpi -/proc/apm -/proc/asound -/proc/bus -/proc/fs -/proc/irq '
     + '-/proc/latency_stats -/proc/mtrr -/proc/scsi -/proc/sysrq-trigger -/proc/timer_stats',
-    f'BindPaths={STATE} /dev/null /dev/zero /dev/random /dev/urandom', f'ReadWritePaths={STATE}', 'WorkingDirectory=/tmp',
+    'BindPaths=' + writable + ' /dev/null /dev/zero /dev/random /dev/urandom',
+    'ReadWritePaths=' + write_paths, 'WorkingDirectory=/tmp',
     # This kernel has no CFS bandwidth or pids controller; use fair shares and the per-UID process limit.
     'CPUAffinity=0-5', 'CPUSchedulingPolicy=other', 'Nice=10', 'CPUWeight=10', 'MemoryMax=1G', 'LimitNPROC=1024',
     'StandardOutput=null', 'StandardError=journal',
   ]
+  properties += memory_properties(unit)
+  if maintenance:
+    properties.append('RuntimeMaxSec=900')
+  elif (runtime / 'isolation/xkb').is_dir():
+    properties.append(f'ExtensionDirectories={runtime}/isolation/xkb')
   python = str(Path(sys.executable).absolute())
   # Use the real interpreter; a venv symlink may point through the masked /home tree.
   python = str(Path(python).resolve())
@@ -125,9 +174,10 @@ def launch_command(unit, address, width, height, fps, capture):
   command += [f'--property={value}' for value in properties]
   command += ['/usr/bin/setpriv', f'--reuid={BROWSER_UID}', f'--regid={BROWSER_UID}', '--clear-groups', '--no-new-privs',
               python, '-I', '-u', '-c',
-              "import sys; sys.path.insert(0, '/tmp/arabesque-bridge'); from browser_session import worker_main; worker_main()",
+              "import sys; sys.path.insert(0, '/tmp/arabesque-bridge'); from browser_session import "
+              + ('maintenance_main; maintenance_main()' if maintenance else 'worker_main; worker_main()'),
               address, str(os.getuid()), str(os.getpid()), os.readlink('/proc/self/ns/mnt'),
-              str(width), str(height), str(fps), capture]
+              str(width), str(height), str(fps), capture, purpose, transaction]
   return command
 
 
@@ -141,6 +191,7 @@ def preparation_command(unit, address):
     'NoNewPrivileges=yes', 'CapabilityBoundingSet=CAP_CHOWN', 'ProtectSystem=strict', 'ReadWritePaths=/data',
     'PrivateTmp=yes', 'ProtectKernelTunables=yes', 'ProtectControlGroups=yes', 'UMask=0022', 'WorkingDirectory=/tmp',
     'CPUAffinity=0-5', 'CPUSchedulingPolicy=other', 'Nice=10', 'MemoryMax=1G', 'StandardOutput=null', 'StandardError=journal',
+    *memory_properties(unit),
   ]
   command = ['sudo', '-n', '/usr/bin/timeout', '--kill-after=1', '15', '/usr/bin/systemd-run', '--quiet', '--collect', f'--unit={unit}']
   command += [f'--property={value}' for value in properties]
@@ -153,12 +204,19 @@ def preparation_command(unit, address):
 class BrowserSession:
   pending_stop = None
 
-  def __init__(self, width, height, fps, capture='auto'):
+  def __init__(self, width, height, fps, capture='auto', *, operation='open', transaction='', lock_fd=None, garbage=(), target=''):
     self.width, self.height, self.fps = width, height, fps
     self.size = geometry(width, height, fps)
     if capture not in ('auto', 'reference', 'shm'):
       raise ValueError('Invalid capture mode')
     self._capture = capture
+    if operation not in ('open', 'browse', 'install', 'update', 'recover', 'restore', 'qualify', 'copy', 'cleanup', 'restore-copy'):
+      raise ValueError('Invalid Firefox operation')
+    self._operation, self._transaction, self._lock_fd = operation, transaction, lock_fd
+    self._garbage, self._target = list(garbage), target
+    self._job = None
+    self._job_closing = self._finished = self._uploaded = False
+    self.generation = 0
     self.error, self.status = '', 'Checking isolated Firefox runtime…'
     self.ready = False
     self._listener = self._socket = self._launcher = None
@@ -172,24 +230,35 @@ class BrowserSession:
 
   def _start(self):
     try:
+      self.generation += 1
       if ROOT.is_symlink() or RUNTIME.is_symlink():
         raise RuntimeError('Firefox runtime path must not be a symlink')
-      self._preparing = not RUNTIME.exists()
+      if self._operation in ('open', 'browse'):
+        setup = load_setup()
+        info = setup.inspect()
+        action, repair = info['action'], info.get('repair', False)
+        if self._operation == 'browse' and (action in ('install', 'recover') or repair):
+          raise RuntimeError('Open Firefox in Arabesque to finish setup or recovery')
+        self._operation = action if action in ('install', 'recover') or repair else 'browse'
+        if repair:
+          self._target = setup.bundle_id(info['target'])
+      self._preparing = self._operation in ('install', 'update', 'recover', 'restore')
+      maintenance = self._operation in ('copy', 'cleanup', 'restore-copy')
       paths = (ROOT, RUNTIME, STATE, RUNTIME / 'firefox/firefox')
-      if self._preparing:
+      if self._operation != 'browse':
         paths = (ROOT,) if ROOT.exists() else ()
       for path in paths:
         info = path.stat()
         if info.st_uid != (BROWSER_UID if path == STATE else 0) or info.st_mode & 0o022:
           raise RuntimeError('Firefox runtime has unsafe ownership or permissions')
-      if not self._preparing and not (RUNTIME / 'ready.json').is_file():
+      if not self._preparing and not maintenance and self._operation != 'qualify' and not (RUNTIME / 'ready.json').is_file():
         raise RuntimeError('Firefox runtime is not prepared')
       self._listener = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET | socket.SOCK_CLOEXEC)
       address = 'arabesque-firefox-' + uuid.uuid4().hex
       self._listener.bind('\0' + address)
       self._listener.listen(1)
       self._listener.setblocking(False)
-      if not self._preparing:
+      if not self._preparing and not maintenance:
         for _ in range(2):
           fd = sealed_slot(self.size)
           self._fds.append(fd)
@@ -197,9 +266,12 @@ class BrowserSession:
       self._unit = 'arabesque-firefox-' + uuid.uuid4().hex
       self.stopped = Event()
       self._started = self._heartbeat = time.monotonic()
-      self.status = 'Preparing Firefox for first use…' if self._preparing else 'Starting Firefox…'
+      self.status = {'install': 'Preparing Firefox for first use...', 'update': 'Preparing the Firefox update...',
+                     'recover': 'Recovering the Firefox installation...', 'restore': 'Preparing previous Firefox...'}.get(
+                       self._operation, 'Starting Firefox...')
       command = (preparation_command(self._unit, address) if self._preparing else
-                 launch_command(self._unit, address, self.width, self.height, self.fps, self._capture))
+                 launch_command(self._unit, address, self.width, self.height, self.fps, self._capture,
+                                self._operation, self._transaction))
       self._launcher = subprocess.Popen(command,
                                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except (OSError, ValueError, RuntimeError) as e:
@@ -229,6 +301,24 @@ class BrowserSession:
       return
     try:
       now = time.monotonic()
+      maintenance = self._operation in ('copy', 'cleanup', 'restore-copy')
+      if self._job is not None:
+        job = self._job
+        if not self._job_closing:
+          job.poll()
+          self.ready = job.ready
+          if job._operation != 'qualify':
+            self.status = job.status
+          if job.error:
+            raise RuntimeError(job.error)
+          if job._finished or job._uploaded:
+            job.close()
+            self.generation += 1
+            self.ready, self._job_closing = False, True
+        if self._job_closing and job.stopped.is_set():
+          self._job = None
+          self._job_closing = False
+          packet(self._socket, {'type': 'job_done'})
       if self._socket is None:
         try:
           peer, _ = self._listener.accept()
@@ -242,28 +332,75 @@ class BrowserSession:
         self._socket = peer
         peer.setblocking(False)
         if self._preparing:
-          packet(peer, {'type': 'prepare'})
+          packet(peer, {'type': 'prepare', 'operation': self._operation, 'target': self._target})
         else:
-          packet(peer, {'type': 'init', 'width': self.width, 'height': self.height, 'fps': self.fps}, self._fds)
+          descriptors = self._fds + ([self._lock_fd] if self._lock_fd is not None else [])
+          packet(peer, {'type': 'init', 'width': self.width, 'height': self.height, 'fps': self.fps,
+                        'purpose': self._operation, 'transaction': self._transaction, 'garbage': self._garbage}, descriptors)
+          if self._lock_fd is not None:
+            os.close(self._lock_fd)
+            self._lock_fd = None
         self._listener.close()
         self._listener = None
-      if not self._preparing and not self.ready and now - self._started > 45:
+      if (not self._preparing and not maintenance and
+          (not self.ready or self._operation == 'qualify' and not self._uploaded) and now - self._started > 45):
         raise TimeoutError('Firefox startup checks timed out')
+      if (self._preparing or maintenance) and now - self._started > 900:
+        raise TimeoutError('Firefox maintenance timed out')
       if now - self._heartbeat >= 0.25:
-        if not self.send({'type': 'lease'}):
-          return
+        try:
+          packet(self._socket, {'type': 'lease'})
+        except (BrokenPipeError, ConnectionResetError):
+          pass  # A completed worker may close with its final response still queued.
         self._heartbeat = now
       for _ in range(8):
         try:
-          message, _ = receive(self._socket)
+          message, descriptors = receive(self._socket, None if self._preparing else 0)
         except BlockingIOError:
           break
-        if self._preparing and message['type'] == 'status' and set(message) == {'type', 'message'} and isinstance(message['message'], str):
+        except ConnectionResetError as reset:
+          # A peer closing with an unread lease can signal a reset before its queued final response.
+          try:
+            message, descriptors = receive(self._socket, None if self._preparing else 0)
+          except (BlockingIOError, EOFError):
+            raise reset from None
+        if self._preparing and message['type'] == 'job':
+          try:
+            if (set(message) != {'type', 'job', 'transaction', 'garbage'} or message['job'] not in ('copy', 'qualify', 'cleanup', 'restore-copy')
+                or len(descriptors) != 1 or self._job is not None):
+              raise ValueError('Invalid Firefox maintenance job')
+            setup = load_setup()
+            setup.transaction_id(message['transaction'])
+            if not isinstance(message['garbage'], list) or len(message['garbage']) > 64:
+              raise ValueError('Invalid Firefox cleanup list')
+            for identity in message['garbage']:
+              setup.transaction_id(identity)
+            descriptor = descriptors.pop()
+            self._job = BrowserSession(self.width, self.height, self.fps, self._capture, operation=message['job'],
+                                       transaction=message['transaction'], lock_fd=descriptor, garbage=message['garbage'])
+            self.generation += 1
+            self.status = 'Verifying the Firefox update...' if message['job'] == 'qualify' else 'Preparing browser data...'
+          finally:
+            for fd in descriptors:
+              os.close(fd)
+          continue
+        if descriptors:
+          for fd in descriptors:
+            os.close(fd)
+          raise ValueError('Unexpected Firefox controller descriptors')
+        if (self._preparing or maintenance) and message['type'] == 'status' and set(message) == {'type', 'message'} and isinstance(message['message'], str):
           self.status = message['message'][:512]
         elif self._preparing and message == {'type': 'prepared'}:
+          if self._job is not None:
+            raise RuntimeError('Firefox maintenance completed before its sandbox job stopped')
+          operation = 'open' if self._operation == 'recover' else 'browse'
           self.close()
+          self._operation = operation
           self._next_start = True
           self.status = 'Starting Firefox…'
+          return
+        elif maintenance and message == {'type': 'done'}:
+          self._finished = True
           return
         elif not self._preparing and message['type'] == 'ready' and set(message) == {'type', 'capture'} and message['capture'] in ('shm', 'reference'):
           self.ready = True
@@ -281,6 +418,8 @@ class BrowserSession:
       self.fail(str(e))
 
   def take_frame(self):
+    if self._job is not None:
+      return self._job.take_frame()
     if not self._frames:
       return None
     frames, self._frames = self._frames, []
@@ -289,13 +428,34 @@ class BrowserSession:
     return (frames[-1], self.buffers[frames[-1]]) if self.ready else None
 
   def release(self, slot):
-    self.send({'type': 'release', 'slot': slot})
+    if self._job is not None:
+      self._job.release(slot)
+    else:
+      self.send({'type': 'release', 'slot': slot})
+
+  def uploaded(self, slot):
+    if self._job is not None:
+      self._job.uploaded(slot)
+    elif self._operation == 'qualify' and self.ready and slot in (0, 1):
+      self._uploaded = True
+
+  @property
+  def interactive(self):
+    return self.ready and self._operation == 'browse'
 
   def reset_input(self):
     self.send({'type': 'reset'})
 
   def close(self):
     self._next_start = False
+    job_stopped = None
+    if self._job is not None:
+      self._job.close()
+      job_stopped = self._job.stopped
+      self._job = None
+    if self._lock_fd is not None:
+      os.close(self._lock_fd)
+      self._lock_fd = None
     if self._socket is not None:
       try:
         packet(self._socket, {'type': 'close'})
@@ -309,7 +469,10 @@ class BrowserSession:
     if self._unit:
       # Reap both commands away from the UI thread; PID 1 stops every grandchild before allowing a resume.
       BrowserSession.pending_stop = self.stopped
-      Thread(target=stop_unit, args=(self._unit, self._launcher, self.stopped), daemon=True, name='firefox-stop').start()
+      args: tuple = (self._unit, self._launcher, self.stopped)
+      if job_stopped is not None:
+        args += (job_stopped,)
+      Thread(target=stop_unit, args=args, daemon=True, name='firefox-stop').start()
       self._unit = ''
     if self._launcher is not None:
       self._launcher.poll()
@@ -323,7 +486,7 @@ class BrowserSession:
     self._fds = []
 
 
-def stop_unit(unit, launcher, stopped):
+def stop_unit(unit, launcher, stopped, job_stopped=None):
   try:
     subprocess.run(['sudo', '-n', '/usr/bin/timeout', '--kill-after=1', '4', '/usr/bin/systemctl', 'stop', unit],
                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=6, check=False)
@@ -336,6 +499,8 @@ def stop_unit(unit, launcher, stopped):
     except (OSError, subprocess.TimeoutExpired):
       pass
     finally:
+      if job_stopped is not None:
+        job_stopped.wait(timeout=20)
       stopped.set()
 
 
@@ -353,7 +518,7 @@ def no_new_privileges():
   return result
 
 
-def check_isolation(host_mount):
+def check_isolation(host_mount, readonly_state=False):
   current = status('self')
   if (os.getresuid() != (BROWSER_UID,) * 3 or os.getresgid() != (BROWSER_UID,) * 3 or os.getgroups() or
       any(int(current.get(key, '0').strip(), 16) for key in ('CapEff', 'CapPrm', 'CapInh', 'CapAmb')) or
@@ -389,9 +554,13 @@ def check_isolation(host_mount):
       raise RuntimeError(f'Firefox kernel interface is writable: {path}')
   if not os.statvfs(RUNTIME).f_flag & os.ST_RDONLY:
     raise RuntimeError('Firefox application is writable')
-  probe = STATE / '.write-probe'
-  probe.write_text('ok')
-  probe.unlink()
+  if readonly_state:
+    if not os.statvfs(STATE).f_flag & os.ST_RDONLY:
+      raise RuntimeError('Firefox maintenance source profile must be read-only')
+  else:
+    probe = STATE / '.write-probe'
+    probe.write_text('ok')
+    probe.unlink()
 
 
 def enough_space():
@@ -461,7 +630,9 @@ def notify(message):
 def preparation_main():
   address, owner_uid, owner_pid = sys.argv[1:]
   cancel, finished = Event(), Event()
-  progress: dict[str, str] = {'status': 'Preparing Firefox for first use…'}
+  progress: dict = {'status': 'Preparing Firefox for first use…'}
+  commands = Queue()
+  operation, target = '', ''
   thread = None
   sock = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET | socket.SOCK_CLOEXEC)
   sock.settimeout(5)
@@ -475,14 +646,25 @@ def preparation_main():
 
   def prepare():
     try:
-      path = Path(__file__).resolve().parents[5] / 'tools/arabesque_firefox/setup.py'
-      spec = importlib.util.spec_from_file_location('firefox_setup', path)
-      if spec is None or spec.loader is None:
-        raise RuntimeError('Firefox preparation is unavailable')
-      setup = importlib.util.module_from_spec(spec)
-      spec.loader.exec_module(setup)
-      setup.ROOT, setup.report = ROOT, report
-      setup.prepare()
+      setup = load_setup()
+      setup.report = report
+
+      def job(kind, identity, lock_fd, garbage):
+        report('Checking Firefox...' if kind == 'qualify' else 'Preparing browser data...')
+        progress['job'] = kind, identity, lock_fd, garbage
+        while not cancel.is_set():
+          try:
+            commands.get(timeout=0.1)
+            report('Finishing browser maintenance...')
+            return
+          except Empty:
+            pass
+        raise InterruptedError('Firefox maintenance cancelled')
+
+      if operation == 'install':
+        setup.prepare()
+      else:
+        setup.maintain(operation, target, job)
     except Exception as e:
       progress['error'] = str(e)[:512]
     finally:
@@ -493,14 +675,18 @@ def preparation_main():
     if credentials(sock)[:2] != (int(owner_pid), int(owner_uid)):
       raise RuntimeError('Firefox preparation owner identity mismatch')
     message, _ = receive(sock)
-    if message != {'type': 'prepare'}:
+    if (set(message) != {'type', 'operation', 'target'} or message['type'] != 'prepare' or
+        message['operation'] not in ('install', 'update', 'recover', 'restore') or
+        not isinstance(message['target'], str) or len(message['target']) > 64):
       raise ValueError('Invalid Firefox preparation handshake')
+    operation, target = message['operation'], message['target']
     sock.setblocking(False)
     notify('READY=1\nWATCHDOG=1')
     thread = Thread(target=prepare, daemon=True, name='firefox-prepare')
     thread.start()
     last_lease = last_watchdog = time.monotonic()
     status_sent = ''
+    waiting_job = False
     while not cancel.is_set():
       now = time.monotonic()
       if now - last_lease > LEASE_SECONDS:
@@ -518,10 +704,17 @@ def preparation_main():
         elif message == {'type': 'close'}:
           cancel.set()
           break
+        elif message == {'type': 'job_done'} and waiting_job:
+          waiting_job = False
+          commands.put(True)
         else:
           raise ValueError('Invalid Firefox preparation command')
       if cancel.is_set():
         break
+      if pending := progress.pop('job', None):
+        kind, identity, lock_fd, garbage = pending
+        packet(sock, {'type': 'job', 'job': kind, 'transaction': identity, 'garbage': garbage}, [lock_fd])
+        waiting_job = True
       if finished.is_set():
         if failure := progress.get('error'):
           raise RuntimeError(failure)
@@ -545,16 +738,200 @@ def preparation_main():
     sock.close()
 
 
+def copy_profile(source, destination, report):
+  """Copy closed profile data without following symlinks or sharing writable inodes."""
+  if source.is_symlink() or source.exists() and not source.is_dir():
+    raise RuntimeError('Firefox profile root must be a real directory')
+  destination.mkdir(mode=0o700)
+  sync_dir = load_setup().sync_dir
+  anchor = source.resolve()
+
+  def copy(directory, target):
+    for entry in directory.iterdir():
+      if directory == source and entry.name in ('parent.lock', '.parentlock', 'lock'):
+        continue
+      report('Copying Firefox profile...')
+      output, info = target / entry.name, entry.lstat()
+      if stat.S_ISLNK(info.st_mode):
+        link = os.readlink(entry)
+        resolved = (entry.parent / link).resolve()
+        if not resolved.is_relative_to(anchor) and not (os.path.isabs(link) and resolved.is_relative_to(STATE / 'profile')):
+          raise RuntimeError('Firefox profile contains a symlink outside the profile')
+        output.symlink_to(link)
+      elif stat.S_ISDIR(info.st_mode):
+        output.mkdir(mode=0o700)
+        copy(entry, output)
+      elif stat.S_ISREG(info.st_mode):
+        with entry.open('rb') as incoming, output.open('xb') as outgoing:
+          while block := incoming.read(1024 * 1024):
+            outgoing.write(block)
+            report('Copying Firefox profile...')
+          outgoing.flush()
+          shutil.copystat(entry, output, follow_symlinks=False)
+          output.chmod(0o600)
+          os.fsync(outgoing.fileno())
+      else:
+        raise RuntimeError('Firefox profile contains a special file')
+    sync_dir(target)
+
+  if source.exists():
+    copy(source, destination)
+  sync_dir(destination)
+  sync_dir(destination.parent)
+
+
+def profile_job(purpose, identity, garbage, report, *, updates=Path('/tmp/arabesque-updates'), state=STATE,
+                restore_state=Path('/tmp/arabesque-restore-state')):
+  setup = load_setup()
+  tx = updates / setup.transaction_id(identity)
+  if purpose in ('copy', 'restore-copy'):
+    def copying(message):
+      if shutil.disk_usage(updates).free < setup.FLOOR:
+        raise RuntimeError('Firefox profile copy stopped to preserve free storage')
+      report(message)
+
+    source = state / 'profile' if purpose == 'copy' else tx / 'profile-backup/profile'
+    if purpose == 'restore-copy' and not source.is_dir():
+      raise RuntimeError('The pre-update Firefox profile snapshot is missing')
+    size = 0
+    if source.exists():
+      for base, _, files in os.walk(source, followlinks=False):
+        report('Checking Firefox profile storage...')
+        size += sum((Path(base) / name).lstat().st_size for name in files)
+    if shutil.disk_usage(updates).free < setup.FLOOR + size * (2 if purpose == 'copy' else 1):
+      raise RuntimeError('Insufficient free storage for independent Firefox profile copies')
+    if purpose == 'copy':
+      copy_profile(source, tx / 'profile-backup/profile', copying)
+      copy_profile(tx / 'profile-backup/profile', tx / 'probe-state/profile', copying)
+    else:
+      copy_profile(source, restore_state / 'profile', copying)
+  elif purpose == 'cleanup':
+    directories = [restore_state]
+    for transaction in {identity, *garbage}:
+      setup.transaction_id(transaction)
+      names = ('profile-backup', 'probe-state') if transaction in garbage else ('probe-state',)
+      directories.extend(updates / transaction / name for name in names)
+    for directory in directories:
+      if not directory.exists():
+        continue
+      setup.safe(directory, BROWSER_UID, private=True)
+      for entry in directory.iterdir():
+        report('Removing temporary browser data...')
+        if entry.is_symlink() or not entry.is_dir():
+          entry.unlink()
+        else:
+          shutil.rmtree(entry)
+      setup.sync_dir(directory)
+  else:
+    raise ValueError('Invalid Firefox profile job')
+
+
+def maintenance_main():
+  address, owner_uid, owner_pid, host_mount, width, height, fps, _, purpose, identity = sys.argv[1:]
+  if purpose not in ('copy', 'cleanup', 'restore-copy'):
+    raise ValueError('Invalid Firefox maintenance purpose')
+  cancel, finished = Event(), Event()
+  progress = {'status': 'Preparing browser data...'}
+  sock = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET | socket.SOCK_CLOEXEC)
+  sock.settimeout(5)
+  lock = thread = None
+  signal.signal(signal.SIGTERM, lambda *_: cancel.set())
+  signal.signal(signal.SIGINT, lambda *_: cancel.set())
+
+  def report(text):
+    if cancel.is_set():
+      raise InterruptedError('Firefox profile job cancelled')
+    progress['status'] = text
+
+  def run(garbage):
+    try:
+      profile_job(purpose, identity, garbage, report)
+    except Exception as error:
+      progress['error'] = str(error)[:512]
+    finally:
+      finished.set()
+
+  try:
+    sock.connect('\0' + address)
+    if credentials(sock)[:2] != (int(owner_pid), int(owner_uid)):
+      raise RuntimeError('Firefox maintenance owner identity mismatch')
+    message, fds = receive(sock, 1)
+    lock = os.fdopen(fds[0], 'rb')
+    if (set(message) != {'type', 'width', 'height', 'fps', 'purpose', 'transaction', 'garbage'} or
+        message['type'] != 'init' or message['purpose'] != purpose or message['transaction'] != identity or
+        (message['width'], message['height'], message['fps']) != (int(width), int(height), int(fps)) or
+        not isinstance(message['garbage'], list) or len(message['garbage']) > 64):
+      raise ValueError('Invalid Firefox profile job handshake')
+    if not os.path.samestat(os.fstat(lock.fileno()), Path('/tmp/arabesque-lock').stat()):
+      raise RuntimeError('Unexpected Firefox maintenance lock')
+    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    check_isolation(host_mount, readonly_state=True)
+    notify('READY=1\nWATCHDOG=1')
+    sock.setblocking(False)
+    thread = Thread(target=run, args=(message['garbage'],), daemon=True, name='firefox-profile')
+    thread.start()
+    last_lease = last_watchdog = time.monotonic()
+    status_sent = ''
+    while not cancel.is_set():
+      now = time.monotonic()
+      if now - last_lease > LEASE_SECONDS:
+        raise TimeoutError('Firefox profile job owner stopped responding')
+      if now - last_watchdog >= 1:
+        notify('WATCHDOG=1')
+        last_watchdog = now
+      for _ in range(32):
+        try:
+          message, _ = receive(sock)
+        except BlockingIOError:
+          break
+        if message == {'type': 'lease'}:
+          last_lease = now
+        elif message == {'type': 'close'}:
+          cancel.set()
+          break
+        else:
+          raise ValueError('Invalid Firefox profile job command')
+      if cancel.is_set():
+        break
+      if finished.is_set():
+        if error := progress.get('error'):
+          raise RuntimeError(error)
+        packet(sock, {'type': 'done'})
+        break
+      if progress['status'] != status_sent:
+        status_sent = progress['status']
+        packet(sock, {'type': 'status', 'message': status_sent})
+      select.select([sock], [], [], 0.1)
+  except (OSError, ValueError, RuntimeError, EOFError) as error:
+    try:
+      packet(sock, {'type': 'error', 'message': str(error)[:512]})
+    except OSError:
+      pass
+  finally:
+    cancel.set()
+    if thread is not None:
+      thread.join(timeout=1)
+    if lock is not None:
+      lock.close()
+    sock.close()
+
+
 def worker_main():
   # This is the first Python code executed after systemd's mount sandbox and setpriv.
-  from browser_x11 import X11
-  address, owner_uid, owner_pid, host_mount, width, height, fps, mode = sys.argv[1:]
+  from browser_x11 import X11, VERIFY_COLORS, verification_frame
+  address, owner_uid, owner_pid, host_mount, width, height, fps, mode, purpose, transaction = sys.argv[1:]
+  if purpose not in ('browse', 'qualify'):
+    raise ValueError('Invalid Firefox worker purpose')
+  qualifying = purpose == 'qualify'
+  if qualifying:
+    load_setup().transaction_id(transaction)
   width, height, fps = int(width), int(height), int(fps)
   size = geometry(width, height, fps)
   sock = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET | socket.SOCK_CLOEXEC)
   sock.settimeout(5)
   xvfb = firefox = x = None
   buffers, fds = [], []
+  lock = None
   stopping = False
 
   def terminate(*_):
@@ -567,9 +944,18 @@ def worker_main():
     sock.connect('\0' + address)
     if credentials(sock)[:2] != (int(owner_pid), int(owner_uid)):
       raise RuntimeError('Firefox owner identity mismatch')
-    message, fds = receive(sock, 2)
-    if message != {'type': 'init', 'width': width, 'height': height, 'fps': fps}:
+    message, fds = receive(sock, 3 if qualifying else 2)
+    if message != {'type': 'init', 'width': width, 'height': height, 'fps': fps,
+                   'purpose': purpose, 'transaction': transaction, 'garbage': []}:
       raise ValueError('Firefox geometry handshake failed')
+    if qualifying:
+      lock_fd = fds.pop()
+      lock = os.fdopen(lock_fd, 'rb')
+    else:
+      lock = Path('/tmp/arabesque-lock').open('rb')
+    if not os.path.samestat(os.fstat(lock.fileno()), Path('/tmp/arabesque-lock').stat()):
+      raise RuntimeError('Unexpected Firefox installation lock')
+    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     check_isolation(host_mount)
     if not enough_space():
       raise RuntimeError('Insufficient free storage for Firefox')
@@ -592,12 +978,20 @@ def worker_main():
     cookie = os.urandom(16).hex()
     # PrivateTmp makes this fixed display name private to this one transient service.
     display = ':77'
-    subprocess.run(['/usr/bin/xauth', '-f', str(auth), 'add', display, '.', cookie], env=env, check=True, timeout=2,
+    private_x = RUNTIME / 'display/usr'
+    bundled = private_x.is_dir()
+    x_bin = private_x / 'bin' if bundled else Path('/usr/bin')
+    x_env = dict(env, LD_LIBRARY_PATH=f'{private_x}/lib/aarch64-linux-gnu:{env["LD_LIBRARY_PATH"]}') if bundled else env
+    xkb = ['-xkbdir', str(private_x / 'share/X11/xkb')] if bundled else []
+    subprocess.run([str(x_bin / 'xauth'), '-f', str(auth), 'add', display, '.', cookie], env=x_env, check=True, timeout=2,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     env.update(DISPLAY=display, XAUTHORITY=str(auth))
+    fonts = RUNTIME / 'etc/fonts/fonts.conf'
+    if fonts.is_file():
+      env['FONTCONFIG_FILE'] = str(fonts)
     os.environ['XAUTHORITY'] = str(auth)
-    xvfb = subprocess.Popen(['/usr/bin/Xvfb', display, '-screen', '0', f'{width}x{height}x24', '-nolisten', 'tcp',
-                             '-nolisten', 'local', '-auth', str(auth), '-noreset', '-extension', 'GLX'], env=env,
+    xvfb = subprocess.Popen([str(x_bin / 'Xvfb'), display, '-screen', '0', f'{width}x{height}x24', '-nolisten', 'tcp',
+                             '-nolisten', 'local', '-auth', str(auth), '-noreset', '-extension', 'GLX', *xkb], env=x_env,
                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
     # -nolisten local disables the shared abstract socket; the filesystem socket stays in PrivateTmp.
     for _ in range(100):
@@ -631,10 +1025,16 @@ def worker_main():
     preferences = {'browser.shell.checkDefaultBrowser': False, 'browser.startup.homepage_override.mstone': 'ignore',
                    'browser.warnOnQuitShortcut': False,
                    'browser.startup.page': 3,
+                   'browser.link.open_newwindow': 3, 'browser.link.open_newwindow.restriction': 0,
+                   'browser.tabs.loadDivertedInBackground': False,
                    'browser.cache.disk.capacity': 65536, 'browser.cache.disk.smart_size.enabled': False,
                    'browser.download.dir': str(STATE / 'downloads'), 'browser.download.folderList': 2,
                    'gfx.webrender.software': True, 'layers.acceleration.disabled': True,
                    'media.hardware-video-decoding.enabled': False, 'dom.ipc.processCount': 2}
+    if qualifying:
+      preferences['browser.startup.page'] = 0
+      preferences['browser.sessionstore.resume_session_once'] = False
+      preferences['browser.sessionstore.resume_from_crash'] = False
     (STATE / 'downloads').mkdir(mode=0o700, exist_ok=True)
     (profile / 'user.js').write_text('\n'.join(f'user_pref({json.dumps(key)}, {json.dumps(value)});' for key, value in preferences.items()))
     page = Path('/tmp/firefox-start.html')
@@ -643,9 +1043,15 @@ def worker_main():
 <h1>Firefox in Arabesque</h1><p>Use the Firefox address bar to browse.</p>
 <p>Scroll mode moves pages; Pointer mode drags and selects. Touch Keyboard to type.</p>
 <p>Desktop closes Firefox completely.</p><input placeholder="Test typing here">''')
+    marker = 'Arabesque verification ' + transaction
+    if qualifying:
+      page.write_text('<!doctype html><meta charset="utf-8"><title>' + marker + '</title>'
+                      + '<style>html,body{margin:0;overflow:hidden;background:#191327}'
+                      + 'main{position:fixed;bottom:0;left:0;right:0;height:96px;display:flex}div{flex:1}</style><main>'
+                      + ''.join(f'<div style="background:#{color:06x}"></div>' for color in VERIFY_COLORS) + '</main>')
     command = [str(RUNTIME / 'firefox/firefox'), '--no-remote', '--new-instance', '--profile', str(profile),
                '--width', str(width), '--height', str(height)]
-    firefox = subprocess.Popen(command + ([page.as_uri()] if first_run else []), env=env,
+    firefox = subprocess.Popen(command + (['--offline', page.as_uri()] if qualifying else [page.as_uri()] if first_run else []), env=env,
                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
     sock.setblocking(False)
     free, leased, pending = [0, 1], set(), None
@@ -682,14 +1088,14 @@ def worker_main():
             x.button(button, False)
           down.clear()
           stopping |= kind == 'close'
-        elif kind == 'input' and ready:
+        elif kind == 'input' and ready and not qualifying:
           inject(x, message, down, width, height)
         else:
           raise ValueError('Invalid Firefox owner command')
       dirty |= x.damaged()
       if not ready and now - last_capture >= 0.25:
         last_capture = now
-        if content_sandboxed(firefox.pid) and x.focus_browser():
+        if content_sandboxed(firefox.pid) and (x.focus_browser(marker) if qualifying else x.focus_browser()):
           ready = True
           packet(sock, {'type': 'ready', 'capture': 'shm' if segments else 'reference'})
         elif now - started > 30:
@@ -698,6 +1104,13 @@ def worker_main():
         slot, request, deadline = pending
         if reply := x.poll(request):
           x.finish(reply, buffers[slot], bool(segments))
+          if qualifying and (marker not in x.window_title(x.browser_window) or not verification_frame(buffers[slot], width, height)):
+            free.append(slot)
+            pending = None
+            dirty = True
+            if now - started > 40:
+              raise RuntimeError('Firefox verification page did not paint; keeping the installed browser')
+            continue
           packet(sock, {'type': 'frame', 'slot': slot})
           leased.add(slot)
           pending = None
@@ -724,6 +1137,8 @@ def worker_main():
       buffer.close()
     for fd in fds:
       os.close(fd)
+    if lock is not None:
+      lock.close()
     sock.close()
 
 
@@ -761,7 +1176,7 @@ if __name__ == '__main__':
     if not authority.offroad():
       raise SystemExit('Firefox checks require fresh off-road authority')
     authority.evidence_wait_ms = 0
-    session = BrowserSession(1440, 650, 20, args.capture)
+    session = BrowserSession(1440, 650, 20, args.capture, operation='browse')
     deadline, frames = time.monotonic() + max(1, min(args.seconds, 120)), 0
     while not session.error and time.monotonic() < deadline:
       if not authority.offroad():

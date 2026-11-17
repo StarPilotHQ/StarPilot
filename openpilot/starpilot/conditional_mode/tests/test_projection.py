@@ -114,6 +114,20 @@ def owner_context(stamp: int, *, stop_time=8.0, slower=True, stopped=False):
 
 
 class TestSceneProjector(unittest.TestCase):
+  def test_conditional_speed_comparisons_use_the_slc_cap_without_mutating_set(self):
+    for cap, expected in ((None, 20.), (15., 15.), (25., 20.), (float('nan'), None)):
+      with self.subTest(cap=cap):
+        projector = SceneProjector()
+        sm = FakeSubMaster(serialized_scene(), MONO-5_000_000)
+        projector.project(sm, CP, now_mono_ns=MONO, now_boot_ns=BOOT, sample_skew_ns=1000)
+        now = MONO+50_000_000
+        sm.stamp(now)
+        sm.payloads.update(serialized_scene(stamp=BOOT+50_000_000))
+        result = projector.project(sm, CP, now_mono_ns=now, now_boot_ns=BOOT+50_000_000,
+          sample_skew_ns=1000, safe_mode=False, owner_context=owner_context(now), cruise_ceiling_mps=cap)
+        self.assertEqual(result.scene.set_speed_mps, expected)
+        self.assertEqual(sm['carState'].vCruise, 72.)
+
   def test_standstill_filter_undershoot_requires_fresh_physical_zero_speed(self):
     cases = ((-1.401298464324817e-45, True, 0., True),
              (-0.0008391447481699288, True, 0., True),
@@ -518,6 +532,19 @@ class TestSceneProjector(unittest.TestCase):
     self.assertIsNone(repeated.lead_observation.tracked)
     self.assertIsNone(repeated.scene.lead)
     self.assertEqual(projector.lead_detector.filter_value, previous_filter)
+
+  def test_bend_does_not_shorten_the_stop_horizon(self):
+    from openpilot.starpilot.conditional_mode.projection import _horizon
+    model = messaging.new_message('modelV2').modelV2
+    angles = [1.25 * index / 32 for index in range(33)]
+    model.position.x = [200. * math.sin(angle) for angle in angles]
+    model.position.y = [200. * (1. - math.cos(angle)) for angle in angles]
+    self.assertLess(model.position.x[-1], 190.)
+    horizon = _horizon(model)
+    assert horizon is not None
+    self.assertAlmostEqual(horizon, 250., delta=.5)
+    model.position.y = [0.] * 33
+    self.assertEqual(_horizon(model), model.position.x[-1])
 
   def test_stationary_clear_endpoint_does_not_relax_spatial_path_validation(self):
     from openpilot.starpilot.conditional_mode.projection import _horizon, _standstill_clear_horizon

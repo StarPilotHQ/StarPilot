@@ -183,3 +183,19 @@ def test_local_force_offroad_with_ignition_on_keeps_park_authority_separate(fixt
   assert f.source.allowed() is (not moving and not engaged)
   if moving or engaged:
     assert not f.source.update_ready(True)
+
+
+def test_galaxy_force_offroad_preserves_exact_rejection_reason_and_auto_recovery(tmp_path):
+  params = Params()
+  owner = DriveStateOwner(params, tmp_path / 'reason', alive=lambda _: True)
+  owner.initialize(pid=1, birth=2, boot=BOOT)
+  physical = NS(status=Mock(return_value={'allowed': False, 'reason': 'Current speed and gear are unavailable'}))
+  control = DriveStateControl(owner, physical, effective=lambda: False)
+  revision = owner.snapshot().revision
+  before = list(params.writes)
+  with pytest.raises(Rejected, match='Current speed and gear are unavailable'):
+    control.change_galaxy('offroad', revision, lambda: True)
+  assert params.writes == before
+  assert owner.snapshot().mode == Mode.AUTO
+  control.change_galaxy('auto', revision, lambda: True)
+  assert owner.snapshot().mode == Mode.AUTO

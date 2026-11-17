@@ -1,7 +1,7 @@
 #pragma once
 
 // The existing axis transport owns host request/heartbeat leases. This owner
-// grants lateral only after ordinary engagement, with current Subaru sources.
+// grants lateral after physical intent, with current Subaru sources.
 static bool subaru_aol_enabled = false;
 static uint8_t subaru_aol_gear_bus = 0U;
 static bool subaru_aol_armed = false;
@@ -21,8 +21,13 @@ static uint8_t subaru_aol_gear_counter = 0U;
 static uint32_t subaru_aol_gear_ts = 0U;
 static uint32_t subaru_aol_main_ts = 0U;
 static bool subaru_aol_main_seen = false;
+static bool subaru_aol_main_arm = false;
+static bool subaru_aol_main_epoch = false;
+static bool subaru_aol_main_low_seen = false;
+static bool subaru_aol_acc_fault = false;
 
 static void subaru_aol_clear(void) {
+  subaru_aol_main_epoch = false;
   subaru_aol_armed = false;
   subaru_aol_token = false;
   subaru_aol_pending = false;
@@ -43,6 +48,9 @@ static void subaru_aol_reset(void) {
   subaru_aol_gear_seen = false;
   subaru_aol_gear_qualified = false;
   subaru_aol_main_seen = false;
+  subaru_aol_main_arm = false;
+  subaru_aol_main_low_seen = false;
+  subaru_aol_acc_fault = false;
   subaru_aol_gear_counter = 0U;
   subaru_aol_gear_ts = 0U;
   subaru_aol_main_ts = 0U;
@@ -55,6 +63,7 @@ static void subaru_aol_grant(bool cruise) {
   if (subaru_aol_enabled && cruise && !subaru_aol_cruise && controls_allowed &&
       subaru_aol_main && subaru_aol_gear_qualified && subaru_aol_drive &&
       (safety_get_ts_elapsed(microsecond_timer_get(), subaru_aol_gear_ts) <= 100000U) &&
+      (!subaru_aol_main_arm || !subaru_aol_acc_fault) &&
       !subaru_aol_permanent && !subaru_aol_temporary && !brake_pressed &&
       !relay_malfunction && !safety_rx_checks_invalid && aol_rx_healthy()) {
     subaru_aol_token = true;
@@ -65,7 +74,37 @@ static void subaru_aol_grant(bool cruise) {
   subaru_aol_cruise = cruise;
 }
 
+// MAIN authorizes intent, never output. Joining still needs a new bounded host
+// request, heartbeat, healthy physical ACC/steering sources and moving Drive.
+static void subaru_aol_observe_main(bool main_on) {
+  if (!main_on) {
+    subaru_aol_clear();
+    subaru_aol_main_low_seen = true;
+  } else if (subaru_aol_main_arm && subaru_aol_main_low_seen && !subaru_aol_main &&
+             subaru_aol_gear_qualified && subaru_aol_drive &&
+             (safety_get_ts_elapsed(microsecond_timer_get(), subaru_aol_gear_ts) <= 100000U) &&
+             !subaru_aol_permanent && !subaru_aol_temporary && !subaru_aol_acc_fault &&
+             !relay_malfunction && !safety_rx_checks_invalid && aol_rx_healthy()) {
+    subaru_aol_main_epoch = true;
+  } else {
+    // No qualified MAIN edge; retain epoch.
+  }
+  subaru_aol_main = main_on;
+  subaru_aol_main_seen = true;
+  subaru_aol_main_ts = microsecond_timer_get();
+}
+
 static void subaru_aol_host_request(uint8_t mask) {
+  if (subaru_aol_main_arm && subaru_aol_main_epoch && !subaru_aol_token && (mask != 0U) &&
+      subaru_aol_main && subaru_aol_gear_qualified && subaru_aol_drive && vehicle_moving &&
+      (safety_get_ts_elapsed(microsecond_timer_get(), subaru_aol_gear_ts) <= 100000U) &&
+      !subaru_aol_acc_fault && !subaru_aol_permanent && !subaru_aol_temporary && !brake_pressed &&
+      !relay_malfunction && !safety_rx_checks_invalid && aol_rx_healthy()) {
+    subaru_aol_token = true;
+    subaru_aol_pending = !heartbeat_engaged;
+    subaru_aol_session = heartbeat_engaged;
+    subaru_aol_grant_ts = microsecond_timer_get();
+  }
   subaru_aol_requested |= mask != 0U;
 }
 
@@ -106,8 +145,10 @@ static uint8_t subaru_aol_permission(void) {
   }
   uint8_t permission = 0U;
   if (current && subaru_aol_main && subaru_aol_drive && vehicle_moving &&
+      (!subaru_aol_main_arm || !subaru_aol_acc_fault) &&
       !subaru_aol_permanent && !subaru_aol_temporary) {
-    if ((request != 0U) && controls_allowed && subaru_aol_cruise && subaru_aol_token) {
+    if ((request != 0U) && subaru_aol_token &&
+        ((controls_allowed && subaru_aol_cruise) || subaru_aol_main_epoch)) {
       subaru_aol_armed = true;
     }
     if (subaru_aol_armed) {

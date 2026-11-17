@@ -92,7 +92,7 @@ def test_generic_partial_manual_tune_honors_scoped_learning_preference(enabled):
   from openpilot.starpilot.lateral.tests.test_torque_family import learner
   from openpilot.starpilot.lateral.torque_runtime import TorqueHost, read_settings
   cp = interfaces['HONDA_FIT_4G'].get_non_essential_params('HONDA_FIT_4G')
-  assert cp.lateralTuning.which() == 'torque' and policy_for(cp) is None
+  assert cp.lateralTuning.which() == 'torque' and policy_for(cp) == 'generic'
   with OpenpilotPrefix():
     params = Params()
     params.put(KEY, replace_preference(None, cp, enabled), block=True)

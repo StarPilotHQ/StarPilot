@@ -125,3 +125,202 @@ def test_unknown_fit_window_counts_are_not_reported_as_zero(tmp_path):
 def test_invalid_namespace_only_disables_report(monkeypatch):
   monkeypatch.setenv('OPENPILOT_PREFIX', '../not-a-report-namespace')
   assert FlmTrainingResults(clock=lambda: NOW).snapshot() == {'version': 1, 'current': None, 'history': []}
+
+
+class ChoiceParams:
+  def __init__(self, root):
+    self.root = root
+
+  def get_param_path(self, key):
+    return str(self.root / key)
+
+  def put(self, key, value, **_kwargs):
+    (self.root / key).write_bytes(value)
+
+
+def choice_fixture(tmp_path, *, parked=True, enabled=True):
+  from opendbc.car.structs import car
+  from openpilot.starpilot.schema_cache import put_cache
+  from openpilot.starpilot.lateral.learning_preferences import KEY, replace_preference
+  params = ChoiceParams(tmp_path)
+  cp = car.CarParams.new_message(brand='hyundai', carFingerprint='HYUNDAI_IONIQ_6')
+  params.put('IsOffroad', b'1' if parked else b'0')
+  params.put(KEY, replace_preference(None, cp, enabled))
+  if parked:
+    put_cache(params, 'CarParamsPersistent', cp)
+  else:
+    params.put('CarParams', cp.to_bytes())
+  return params, cp
+
+
+@pytest.mark.parametrize('parked', (True, False))
+@pytest.mark.parametrize('enabled', (True, False))
+def test_choice_is_independent_of_a_missing_or_stopped_learner(tmp_path, parked, enabled):
+  params, _cp = choice_fixture(tmp_path, parked=parked, enabled=enabled)
+  before = {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in tmp_path.iterdir()}
+  snapshot = FlmTrainingResults(tmp_path / 'missing-report', params=params).snapshot()
+  assert snapshot['current'] is None
+  assert snapshot['preference'] == {'version': 1, 'valid': True, 'enabled': enabled, 'parked': parked,
+                                    'vehicle': 'HYUNDAI_IONIQ_6'}
+  assert before == {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in tmp_path.iterdir()}
+
+
+def test_scoped_on_is_not_overridden_by_legacy_off(tmp_path):
+  params, _cp = choice_fixture(tmp_path)
+  params.put('ForceAutoTuneOff', b'1')
+  assert FlmTrainingResults(tmp_path / 'missing', params=params).snapshot()['preference']['enabled'] is True
+
+
+def saved_route(cp, *, revision='earlier-controller'):
+  from openpilot.starpilot.flm.offroad_store import RouteScope, remember
+  from openpilot.starpilot.flm.offroad_surface import ROUTE_NAMES
+  from openpilot.starpilot.flm.runtime_adapter_registry import car_params_digest
+
+  scope = RouteScope(car_params_digest(cp), revision, 'a' * 64, 'b' * 64, '0', 'starpilot', 'torque')
+  zero = dict.fromkeys(ROUTE_NAMES, 0.0)
+  row = {'scope': scope.document(), 'values': dict(zero, friction_threshold_mid=.0036,
+    friction_threshold_fast=.0048, friction_threshold_highway=.0048), 'previous': zero,
+    'route_sha256s': ['c' * 64, 'd' * 64], 'source_start_ns': 1, 'source_end_ns': 2,
+    'analysis_sha256': 'e' * 64, 'completed_wall_ns': 1_794_777_785_171_179_957, 'sequence': 1, 'state': 'ready_for_next_drive'}
+  return remember(None, row)
+
+
+@pytest.mark.parametrize('parked', (True, False))
+def test_earlier_saved_settings_survive_missing_report_without_becoming_current(tmp_path, parked):
+  params, cp = choice_fixture(tmp_path, parked=parked)
+  params.put('AutomaticSteeringProfiles', saved_route(cp))
+  before = {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in tmp_path.iterdir()}
+  actual = FlmTrainingResults(tmp_path / 'missing', params=params).snapshot()
+  assert actual['current'] is None
+  assert actual['savedHistory']['status'] == 'readable' and actual['savedHistory']['historicalOnly'] is True
+  assert len(actual['savedHistory']['profiles']) == 1
+  assert dict(actual['savedHistory']['profiles'][0]['values']) == {
+    'friction_threshold_mid': .0036, 'friction_threshold_fast': .0048, 'friction_threshold_highway': .0048}
+  assert 'scope' not in str(actual['savedHistory']) and 'currentApplication' not in actual
+  assert before == {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in tmp_path.iterdir()}
+
+
+def test_old_setup_is_history_even_when_latest_review_reports_zero_saved(tmp_path):
+  params, cp = choice_fixture(tmp_path)
+  params.put('AutomaticSteeringProfiles', saved_route(cp))
+  path = tmp_path / 'training.json'
+  value = report()
+  value['vehicle'] = str(cp.carFingerprint)
+  value['current']['application']['applied'] = False
+  value['current']['details'] = {'Saved route adjustment count': 0}
+  write(path, value)
+  actual = FlmTrainingResults(path, clock=lambda: NOW, params=params).snapshot()
+  assert actual['current']['details']['Saved route adjustment count'] == 0
+  assert actual['current']['application']['applied'] is False
+  assert len(actual['savedHistory']['profiles'][0]['values']) == 3
+
+
+def test_other_vehicle_saved_values_are_not_shown(tmp_path):
+  params, cp = choice_fixture(tmp_path)
+  cp.carFingerprint = 'OTHER_RECORDED_CAR'
+  params.put('AutomaticSteeringProfiles', saved_route(cp))
+  actual = FlmTrainingResults(tmp_path / 'missing', params=params).snapshot()['savedHistory']
+  assert actual == {'status': 'readable', 'historicalOnly': True, 'profiles': []}
+
+
+@pytest.mark.parametrize('raw', (b'{', b'', b'x' * 32769))
+def test_damaged_saved_history_is_unavailable_not_empty(tmp_path, raw):
+  params, _ = choice_fixture(tmp_path)
+  params.put('AutomaticSteeringProfiles', raw)
+  actual = FlmTrainingResults(tmp_path / 'missing', params=params).snapshot()['savedHistory']
+  assert actual == {'status': 'unavailable', 'historicalOnly': True, 'profiles': []}
+  assert (tmp_path / 'AutomaticSteeringProfiles').read_bytes() == raw
+
+
+def test_saved_history_changed_during_read_is_not_published(tmp_path, monkeypatch):
+  from openpilot.starpilot.galaxy import flm_saved_settings
+
+  params, cp = choice_fixture(tmp_path)
+  params.put('AutomaticSteeringProfiles', saved_route(cp))
+  original, calls = flm_saved_settings.read_saved, []
+
+  def changed(owner, key, limit):
+    if key == 'AutomaticSteeringProfiles':
+      calls.append(key)
+      if len(calls) == 2:
+        return b'changed', True
+    return original(owner, key, limit)
+
+  monkeypatch.setattr(flm_saved_settings, 'read_saved', changed)
+  actual = FlmTrainingResults(tmp_path / 'missing', params=params).snapshot()['savedHistory']
+  assert actual == {'status': 'unavailable', 'historicalOnly': True, 'profiles': []}
+
+
+@pytest.mark.parametrize('key,raw', (('IsOffroad', b'wat'), ('CarParamsPersistent', b'bad'),
+  ('SteeringLearningPreferences', b'{'), ('CarParamsPersistent', b'x' * (1024 * 1024 + 1))))
+def test_unreadable_choice_is_unknown_not_off(tmp_path, key, raw):
+  params, _cp = choice_fixture(tmp_path)
+  params.put(key, raw)
+  actual = FlmTrainingResults(tmp_path / 'missing', params=params).snapshot()['preference']
+  assert actual['valid'] is False and actual['enabled'] is None
+
+
+def test_driving_without_current_vehicle_does_not_borrow_parked_identity(tmp_path):
+  params, _cp = choice_fixture(tmp_path)
+  params.put('IsOffroad', b'0')
+  actual = FlmTrainingResults(tmp_path / 'missing', params=params).snapshot()['preference']
+  assert actual['valid'] is False and actual['enabled'] is None and actual['parked'] is False
+
+
+@pytest.mark.parametrize('key', ('IsOffroad', 'SteeringLearningPreferences', 'CarParamsPersistent'))
+def test_mode_or_choice_change_during_read_is_unknown(tmp_path, monkeypatch, key):
+  from openpilot.starpilot import saved_source
+  params, _cp = choice_fixture(tmp_path)
+  original = saved_source.read_saved
+  calls = 0
+
+  def changed(owner, name, limit):
+    nonlocal calls
+    if name == key:
+      calls += 1
+      if calls == 2:
+        return b'changed-during-read', True
+    return original(owner, name, limit)
+
+  monkeypatch.setattr(saved_source, 'read_saved', changed)
+  actual = FlmTrainingResults(tmp_path / 'missing', params=params).snapshot()['preference']
+  assert actual['valid'] is False and actual['enabled'] is None
+
+
+def tracking_report(status='trial_pending', trial='a' * 64):
+  return {'version': 1, 'status': status, 'reason': 'awaiting_current_application', 'group': 'center',
+          'names': ['center_taper_max'], 'trialId': trial, 'phase': 'trial', 'requiredEpisodes': 3,
+          'beforeEpisodes': 3, 'futureEpisodes': 0, 'modelStatus': 'valid', 'lagMs': 170.,
+          'baselineErrorRms': .1, 'futureErrorRms': None, 'baselineReversalHz': .2, 'futureReversalHz': None,
+          'applicationAcknowledged': False, 'bindingCurrent': True,
+          'applicationSettledMonoTime': None, 'lastCorrectionMonoTime': None}
+
+
+def test_live_trial_history_does_not_use_legacy_fitter_state(tmp_path):
+  from types import SimpleNamespace as NS
+  from openpilot.starpilot.flm.training_report import TrainingReporter
+  path = tmp_path / 'live.json'
+  state = tracking_report()
+  live = NS(latest_offer=None, report=lambda _now: {'tracking': dict(state)})
+  collector = NS(adapter=NS(raw_collection=False, event_collection=False), blocks=(), points=(), sealed=False,
+                 ready=(None,) * 128, live_tracking=live, original_source_capture=NS(rows=(None,) * 1731),
+                 session='live-unit', training_interruptions={}, dropped=0, reason='no_current_learning_evidence')
+  message = NS(autoSteeringLearning=NS(learning=NS(status='collecting', reason='legacy')))
+  source = NS(enabled=True, calibration_generation='', observed_ns=NOW)
+  reporter = TrainingReporter('HYUNDAI_IONIQ_6', path=path)
+  def publish(now):
+    reporter.publish(now_ns=now, message=message, collector=collector, source=source, objective=None,
+                     pending=False, native_current=False)
+    return FlmTrainingResults(path, clock=lambda: now).snapshot()
+
+  first = publish(NOW)
+  assert first['current']['progress']['samples'] == 0  # Original legacy contract is preserved.
+  assert first['history'][-1]['status'] == 'trial_pending'
+  assert not first['current']['application']['applied']  # Telemetry never creates an acknowledgement.
+  state['trialId'] = 'b' * 64
+  second = publish(NOW + 1_000_000_000)
+  assert len(second['history']) == 2  # Same status, distinct original trial.
+  state.update(status='rollback', phase='rollback', reason='trial_future_support_timeout')
+  final = publish(NOW + 2_000_000_000)
+  assert final['history'][-1]['status'] == 'rollback'
+  assert final['current']['details']['Fit attempts'] == 0

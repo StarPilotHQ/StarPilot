@@ -15,9 +15,9 @@ class GmTuneFeature:
       if cp is None or cp.brand != "gm" or cp.notCar:
         return None
       configured = bool(owner.configuration_vehicle())
-      if configured and cp.carFingerprint in VOLT_TUNE_CARS:
-        options = (0, 2)
-      elif configured and cp.carFingerprint in CONFIGURABLE_ACC_TUNE_CARS:
+      if cp.carFingerprint in VOLT_TUNE_CARS:
+        return None
+      if configured and cp.carFingerprint in CONFIGURABLE_ACC_TUNE_CARS:
         options = (0, 1)
       else:
         options = tune_options(cp)
@@ -36,14 +36,12 @@ class GmTuneFeature:
     value, raw, readable, valid = read_choice(self.owner.params)
     options = capability[-1]
     applicable = valid and value in options
-    reason = ("Vehicle Default preserves the vehicle's normal tune. ACC Tune softens low-speed acceleration and adjusts the braking handoff."
-              if 1 in options else
-              "Vehicle Default preserves the vehicle's normal tune. Volt Tune changes speed response and assistance when moving away from a stop.")
+    reason = "Vehicle Default preserves the vehicle's normal tune. ACC Tune softens low-speed acceleration and adjusts the braking handoff."
     if valid and not applicable:
       reason = "The saved tune belongs to a different vehicle. Vehicle Default is used until you choose an applicable tune."
     if not valid:
       reason = "Restore Vehicle Default to repair this saved choice." if readable else "Saved choice cannot be read."
-    timing = " Updates within half a second." if 1 in options else " Applies after the next startup."
+    timing = " Updates within half a second."
     return (FeatureRow(KEY, "Speed Control Tune", CHOICES[value] if valid else "Invalid saved choice", raw,
                        choices=tuple(CHOICES[v] for v in options), available=parked and self.owner.authority("parked_preferences") and readable,
                        capability=capability, repair_value="" if applicable else CHOICES[0], default_value=CHOICES[0],

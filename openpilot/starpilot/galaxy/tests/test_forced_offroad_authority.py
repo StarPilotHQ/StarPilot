@@ -99,7 +99,7 @@ def test_all_settings_match_ignition_off_in_forced_offroad(powered, vehicle, req
     assert rows(page) == ordinary, page
   assert next(row for row in rows('aol') if row[0] == 'Enable Always On Lateral')[1]
   page = gateway.page('slc', 'session', b'generation')
-  index = next(i for i, row in enumerate(page['rows']) if row['label'] == 'Adopt fixed offsets')
-  intent = gateway.preview(page['view'], index, 0, 'session', b'generation')
+  index = next(i for i, row in enumerate(page['rows']) if row['label'].endswith('offset'))
+  intent = gateway.preview(page['view'], index, 0, 'session', b'generation', value=3)
   assert gateway.confirm(intent['intent'], 'session', b'generation')
   assert next(row for row in rows('slc') if row[0] == 'Speed Limit Controller')[1]

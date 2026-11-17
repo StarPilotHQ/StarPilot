@@ -11,7 +11,7 @@ from opendbc.safety.tests.libsafety import libsafety_py
 from opendbc.safety.tests.test_ford_full_engagement import ford_native as ford_native, select
 from opendbc.safety.tests.test_ford_alpha_aol import tx
 
-WORDS = (8, 9, 10, 11, 12, 13, 18, 19, 32, 33, 66, 67)
+WORDS = (0, 1, 2, 3, 8, 9, 10, 11, 12, 13)
 
 
 @pytest.mark.parametrize('base', WORDS)
@@ -133,7 +133,8 @@ def ford_release_native(tmp_path, record_property):
     native.tearDown()
 
 
-def test_release_keeps_unregistered_legacy_canfd_long_parameter_denied(ford_release_native):
+@pytest.mark.parametrize('word', (19, 67))
+def test_release_keeps_retired_extended_canfd_long_words_denied(ford_release_native, word):
   from opendbc.safety.tests.ford_release_contract import assert_release_denial
-  select(ford_release_native, 3)
-  assert_release_denial(ford_release_native, 3)
+  select(ford_release_native, word)
+  assert_release_denial(ford_release_native, word)

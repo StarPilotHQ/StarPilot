@@ -291,6 +291,11 @@ struct MapdOut @0xa4f1eb3323f5f582 {
   computedMonoTime @31 :UInt64; # Computation boot-time nanoseconds, not send time.
   sourceGeneration @32 :UInt64;
   producerSession @33 :UInt64;  # Random nonzero process session.
+  # Data-only preview from the same qualified GPS fix; no controller smoothing.
+  previewSpeedLimit @34 :Float32;
+  previewDistance @35 :Float32;
+  previewBoundaryId @36 :Text;
+  previewWayId @37 :Int64;
 
   enum SampleStatus {
     unknown @0;

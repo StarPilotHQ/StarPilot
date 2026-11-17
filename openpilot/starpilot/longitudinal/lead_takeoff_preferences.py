@@ -1,7 +1,9 @@
 """Persistent, default-off lead takeoff preference; invalid bytes never activate it."""
+from opendbc.car import ACCEL_MAX_TAKEOFF
 from openpilot.starpilot.saved_source import read_saved
 
 KEY = 'FasterLeadTakeoff'
+MAX_ACCEL = ACCEL_MAX_TAKEOFF
 
 
 class TakeoffPreferences:

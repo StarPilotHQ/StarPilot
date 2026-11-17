@@ -45,6 +45,6 @@ def test_constructor_scope_preserves_saved_button_mappings_and_release(lda, lkas
   before = cp.to_dict()
   settings = AolSettings(True, 0., lkas, main, (0, 0, 0), (0, 0, 0))
   owner = ClassicLongCardIntent(cp, settings)
-  assert owner.independent_cruise_buttons == (lda and not release and lkas == 9 and main == 0)
+  assert owner.independent_cruise_buttons == (lda and not release)
   assert cp.to_dict() == before and owner.settings == settings
   assert not independent_buttons_qualified(cp)

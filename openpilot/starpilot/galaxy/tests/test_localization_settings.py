@@ -23,7 +23,7 @@ def test_real_gateway_units_and_wheel_side_without_a_vehicle(tmp_path):
   def preview(index, value):
     page = gateway.page("localization", token, generation)
     assert page["title"] == "Localization" and not page["vehicleIdentified"]
-    assert [row["label"] for row in page["rows"]] == ["Use Kilometers (km/h)", "Right-Hand Drive"]
+    assert [row["label"] for row in page["rows"]] == ["Use Metric", "Right-Hand Drive", "Language"]
     return gateway.preview(page["view"], index, 0, token, generation, value=value)["intent"]
 
   assert gateway.confirm(preview(0, "On"), token, generation)
@@ -38,16 +38,15 @@ def test_real_gateway_units_and_wheel_side_without_a_vehicle(tmp_path):
   assert params.get_bool("IsRhdDetected")
 
 
-def test_localization_preserves_offsets_and_legacy_values(tmp_path):
+def test_localization_preserves_current_offsets(tmp_path):
   params = Params(str(tmp_path))
   params.put_bool("IsMetric", False, block=True)
-  params.put("Offset1", 5.0, block=True)
+  document = od.OffsetDocument(od.IMPERIAL_BOUNDS, (5 * od.MPH_TO_MPS, 0, 0, 0, 0, 0, 0))
+  params.put(DOCUMENT_KEY, od.to_value(document), block=True)
   params.put_bool("SpeedLimitController", False, block=True)
   owner = LocalizationSettingsOwner(params, lambda: True, lambda: True)
   assert owner.apply(FeatureSettingsRequest("IsMetric", b"0", "On"))
-  document = od.decode(Path(params.get_param_path(DOCUMENT_KEY)).read_bytes())
-  assert document == od.adopt_legacy(False, (5.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0))
-  assert Path(params.get_param_path("Offset1")).read_bytes() == b"5.0"
+  assert od.decode(Path(params.get_param_path(DOCUMENT_KEY)).read_bytes()) == document
   assert owner.apply(FeatureSettingsRequest("IsMetric", b"1", "Off"))
   assert od.decode(Path(params.get_param_path(DOCUMENT_KEY)).read_bytes()) == document
 
@@ -86,11 +85,53 @@ def test_units_without_offsets_work_onroad_but_wheel_side_waits(tmp_path):
   assert not Path(params.get_param_path(DOCUMENT_KEY)).exists()
 
 
-def test_legacy_offsets_explain_the_one_time_park_requirement(tmp_path):
+def test_retired_offsets_do_not_require_parking_or_migration_to_change_units(tmp_path):
   params = Params(str(tmp_path))
-  params.put("Offset1", 5.0, block=True)
+  Path(params.get_param_path("Offset1")).write_bytes(b"5.0")
   owner = LocalizationSettingsOwner(params, lambda: True, lambda: False)
   row = owner.snapshot().rows[0]
-  assert not row.available and "Park once" in row.reason
-  assert not owner.apply(FeatureSettingsRequest("IsMetric", None, "On"))
-  assert not params.get_bool("IsMetric")
+  assert row.available
+  assert owner.apply(FeatureSettingsRequest("IsMetric", None, "On"))
+  assert params.get_bool("IsMetric")
+  assert not Path(params.get_param_path(DOCUMENT_KEY)).exists()
+  assert Path(params.get_param_path("Offset1")).read_bytes() == b"5.0"
+
+
+@pytest.mark.parametrize("name,code", [("English", "en"), ("日本語", "ja"), ("한국어", "ko"),
+                                       ("Español", "es"), ("Français", "fr"), ("Deutsch", "de"), ("Tiếng Việt", "vi")])
+def test_language_uses_existing_persistent_setting(tmp_path, name, code):
+  params = Params(str(tmp_path))
+  owner = LocalizationSettingsOwner(params, lambda: True, lambda: True)
+  row = owner.snapshot().rows[2]
+  assert row.value == "English" and name in row.choices
+  assert owner.apply(FeatureSettingsRequest(row.key, row.source, name))
+  assert params.get("LanguageSetting") == code
+  assert owner.snapshot().rows[2].value == name
+  assert not owner.apply(FeatureSettingsRequest(row.key, b"stale", "English"))
+  assert params.get("LanguageSetting") == code
+
+
+@pytest.mark.parametrize("authorized,parked,value", [(False, True, "日本語"), (True, False, "日本語"),
+                                                      (True, True, "unsupported")])
+def test_language_rechecks_authority_and_parking(tmp_path, authorized, parked, value):
+  params = Params(str(tmp_path))
+  owner = LocalizationSettingsOwner(params, lambda: authorized, lambda: parked)
+  assert not owner.apply(FeatureSettingsRequest("LanguageSetting", None, value))
+  assert not Path(params.get_param_path("LanguageSetting")).exists()
+
+
+def test_language_dropdown_through_gateway_rechecks_session(tmp_path):
+  params = Params(str(tmp_path))
+  context = SimpleNamespace(sample=lambda: AuthorityContext(True, None, None))
+  gateway = SettingsGateway(params, cast(ContextSource, context))
+  token, generation = "language-session", b"generation"
+  page = gateway.page("localization", token, generation)
+  assert page["rows"][2]["choices"] == list(LocalizationSettingsOwner(params, lambda: True, lambda: True).snapshot().rows[2].choices)
+  pending = gateway.preview(page["view"], 2, 0, token, generation, value="日本語")["intent"]
+  with pytest.raises(SettingsChanged):
+    gateway.confirm(pending, token, generation, session_valid=lambda: False)
+  assert not Path(params.get_param_path("LanguageSetting")).exists()
+  page = gateway.page("localization", token, generation)
+  pending = gateway.preview(page["view"], 2, 0, token, generation, value="日本語")["intent"]
+  assert gateway.confirm(pending, token, generation)
+  assert params.get("LanguageSetting") == "ja"

@@ -148,6 +148,29 @@ class TestFavoritesOwner(unittest.TestCase):
     self.assertEqual((slot.key, slot.available, slot.request), ("RainbowPath", False, None))
     self.assertEqual(slot.reason, "This saved control is not available in this build")
 
+  def test_retired_slc_fallback_shortcut_preserves_saved_assignment_without_acting(self):
+    slots = default_slots()
+    slots[0].update(enabled=True, show_onroad=True, key='SLCFallback', label='Previous limit')
+    raw = json.dumps(slots).encode()
+    self.path.write_bytes(raw)
+    legacy = Path(self.params.get_param_path('SLCFallback'))
+    legacy.write_bytes(b'1')
+    row = FeatureRow('SLCFallback', 'Previous accepted limit', 'On', choices=('Off', 'On'), available=True)
+    owner = FavoritesOwner(self.params,
+      lambda: mapped_actions(lambda _page: FeatureSettingsState(rows=(row,)),
+                             lambda _request: self.fail('Retired action must not run'),
+                             lambda: self.fail('No appearance read expected'), lambda _request: None,
+                             requested_keys=frozenset({'SLCFallback'})), lambda: True)
+    snapshot = owner.snapshot()
+    self.assertFalse(any(action.key == 'SLCFallback' for action in snapshot.options))
+    slot = snapshot.slots[0]
+    self.assertEqual(slot.key, 'SLCFallback')
+    self.assertFalse(slot.available)
+    self.assertIsNone(slot.request)
+    self.assertFalse(owner.invoke(FavoriteRequest(0, 'SLCFallback', snapshot.revision, '')).success)
+    self.assertEqual(self.path.read_bytes(), raw)
+    self.assertEqual(legacy.read_bytes(), b'1')
+
   def test_registry_excludes_arbitrary_repairs_and_reset_operations(self):
     rows = (FeatureRow("ArbitraryParam", "Other", "Off", choices=("Off", "On"), available=True),
             FeatureRow("LaneCentering", "Lane centering", "Invalid", choices=("Off", "On"), available=True, repair_value="Off"),

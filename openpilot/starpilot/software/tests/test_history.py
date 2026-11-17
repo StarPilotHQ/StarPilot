@@ -1,8 +1,9 @@
 from pathlib import Path
 from types import SimpleNamespace
 import subprocess
+import shutil
 
-from openpilot.starpilot.software.history import commit_history, release_notes, recent_versions
+from openpilot.starpilot.software.history import MAX_COMMITS, commit_history, downloaded_versions, release_notes, recent_versions, previous_version
 
 
 def test_history_is_bounded_and_pinned_to_the_requested_commit(tmp_path):
@@ -11,12 +12,12 @@ def test_history_is_bounded_and_pinned_to_the_requested_commit(tmp_path):
                            '-c', 'user.name=Test', '-c', 'user.email=test@example.com', *args],
                           check=True, capture_output=True, text=True).stdout.strip()
   git('init', '-q')
-  for index in range(23):
+  for index in range(MAX_COMMITS + 3):
     git('commit', '--allow-empty', '-qm', f'Change {index:02d}')
   commit = git('rev-parse', 'HEAD~1')
   rows = commit_history(tmp_path, commit)
-  assert len(rows) == 20
-  assert rows[0]['hash'] == commit and rows[0]['subject'] == 'Change 21'
+  assert len(rows) == MAX_COMMITS
+  assert rows[0]['hash'] == commit and rows[0]['subject'] == f'Change {MAX_COMMITS + 1}'
   assert rows[-1]['subject'] == 'Change 02'
   assert all(row['date'] for row in rows)
   assert commit_history(tmp_path, '--all') == []
@@ -27,6 +28,44 @@ def test_history_is_bounded_and_pinned_to_the_requested_commit(tmp_path):
   assert recent['head'] == commit and recent['branch'] == 'Dom' and recent['entries'] == rows
   assert recent_versions(tmp_path, '../escape')['entries'] == []
   assert recent_versions(tmp_path, 'Dom')['entries'][0]['hash'] == commit
+  assert previous_version(tmp_path) is None
+  git('update-ref', 'refs/starpilot/previous', commit)
+  assert previous_version(tmp_path) == rows[0]
+  git('config', '--local', 'starpilot.previousVersion', f'{commit} old-branch')
+  previous = previous_version(tmp_path)
+  assert previous is not None
+  assert previous['branch'] == 'old-branch'
+  git('update-ref', '-d', 'refs/starpilot/previous')
+  assert previous_version(tmp_path) is None
+
+
+def test_downloaded_versions_require_all_files_and_accept_a_staging_cache(tmp_path):
+  repo = tmp_path / 'repo'
+  repo.mkdir()
+  def git(*args):
+    return subprocess.check_output(['git', '-C', str(repo), '-c', 'user.name=Test',
+                                    '-c', 'user.email=test@example.com', *args], text=True).strip()
+  git('init', '-q')
+  (repo / 'file').write_text('old')
+  (repo / 'nested').mkdir()
+  (repo / 'nested/shared').write_text('shared subtree')
+  git('add', '.')
+  git('commit', '-qm', 'Old')
+  old = git('rev-parse', 'HEAD')
+  (repo / 'file').write_text('new')
+  git('commit', '-qam', 'New')
+  new = git('rev-parse', 'HEAD')
+  cache = tmp_path / 'cache'
+  shutil.copytree(repo, cache)
+  assert downloaded_versions((repo,), [old, new, '--all']) == [old, new]
+  blob = git('rev-parse', 'HEAD:file')
+  (repo / '.git/objects' / blob[:2] / blob[2:]).unlink()
+  assert downloaded_versions((repo,), [old, new]) == [old]
+  assert downloaded_versions((repo, cache), [old, new]) == [old, new]
+  (repo / '.git/objects' / blob[:2] / blob[2:]).write_bytes((cache / '.git/objects' / blob[:2] / blob[2:]).read_bytes())
+  tree = git('rev-parse', 'HEAD^{tree}')
+  (repo / '.git/objects' / tree[:2] / tree[2:]).unlink()
+  assert downloaded_versions((repo,), [old, new]) == [old]
 
 
 def test_release_notes_are_bounded_plain_text(tmp_path):
@@ -39,3 +78,8 @@ def test_release_notes_are_bounded_plain_text(tmp_path):
   assert release_notes(params, path.name) is None
   path.write_bytes(b'\xff')
   assert release_notes(params, path.name) is None
+  for empty in ('', ' \n\t', '# StarPilot 7.0 — Domathon development\n', '<h1>StarPilot 7.0</h1>', '<h2>Version</h2><p> </p>'):
+    path.write_text(empty)
+    assert release_notes(params, path.name) is None
+  path.write_text('# Version\n\n* Fixed updates')
+  assert release_notes(params, path.name) == '# Version\n\n* Fixed updates'

@@ -29,7 +29,7 @@ class Source:
 
 
 def worker():
-  values = {'IsOffroad': True}
+  values = {'IsOffroad': True, 'UsageStatsState': {'version': 1, 'context': {'driving_model': 'executed'}}}
   params = Mock()
   params.get.side_effect = values.get
   params.get_bool.side_effect = lambda key: values.get(key, False)
@@ -291,3 +291,87 @@ def test_executed_model_unverified_receipt_never_reports_requested_identity():
     with patch('openpilot.starpilot.models.jetlink_adapter.hooks', return_value=jetlink(None)), \
          patch('openpilot.starpilot.models.runtime.snapshot', return_value=status):
       assert executed_model(source, Mock(), 1_000_000_000) == {}
+
+
+def test_fresh_install_waits_for_verified_drive_instead_of_sending_unknown():
+  obj, values, source, clock, client = worker()
+  obj.context = {}
+  obj.poll_once()
+  client.send.assert_not_called()
+  assert values['UsageStatsStatus'] == {'state': 'awaiting_model_identity'}
+  writes = obj.params.put.call_count
+  obj.poll_once()
+  assert obj.params.put.call_count == writes
+  source.data['deviceState'].started = True
+  values['IsOffroad'] = False
+  clock[0] = 1.1
+  obj.poll_once()
+  client.send.assert_not_called()
+  source.data['deviceState'].started = False
+  values['IsOffroad'] = True
+  clock[0] = 1.2
+  obj.poll_once()
+  assert client.send.call_count == 1
+  assert b'driving_model=executed' in client.send.call_args.args[0]
+  assert b'driving_model=unknown' not in client.send.call_args.args[0]
+
+
+def test_real_current_carparams_does_not_interrupt_model_collection():
+  from openpilot.cereal import messaging
+  obj, values, source, clock, client = worker()
+  cp = messaging.new_message('carParams')
+  cp.carParams.brand = 'hyundai'
+  cp.carParams.carFingerprint = 'HYUNDAI_IONIQ_6'
+  cp.carParams.openpilotLongitudinalControl = True
+  source.data['carParams'] = cp.as_reader().carParams
+  source.valid['carParams'] = source.alive['carParams'] = True
+  source.logMonoTime['carParams'] = 1_000_000_000
+  source.data['deviceState'].started = True
+  values['IsOffroad'] = False
+  obj.poll_once()
+  assert obj.previous_started is True
+  assert obj.context['driving_model'] == 'executed'
+  assert obj.context['car_model'] == 'HYUNDAI_IONIQ_6'
+  assert obj.context['metrics']['has_openpilot_longitudinal'] is True
+  assert 'has_pedal' not in obj.context['metrics']
+  source.data['deviceState'].started = False
+  values['IsOffroad'] = True
+  clock[0] = 1.1
+  obj.poll_once()
+  assert b'driving_model=executed' in client.send.call_args.args[0]
+
+
+def test_current_pedal_flags_report_present_and_absent_without_deprecated_field():
+  from importlib import import_module
+  from openpilot.starpilot.analytics.runtime import pedal_metrics
+  from opendbc.car.structs import CarParams
+  for brand, enum, name in [('gm', 'GMFlags', 'PEDAL_LONG'), ('honda', 'HondaFlags', 'GAS_INTERCEPTOR'),
+                            ('toyota', 'ToyotaFlags', 'GAS_INTERCEPTOR')]:
+    mask = getattr(getattr(import_module('opendbc.car.' + brand + '.values'), enum), name)
+    cp = CarParams.new_message(brand=brand)
+    assert pedal_metrics(cp.as_reader()) == {'has_pedal': False}
+    cp.flags = int(mask)
+    assert pedal_metrics(cp.as_reader()) == {'has_pedal': True}
+
+
+def test_unknown_saved_identity_does_not_get_guessed_from_selection():
+  obj, values, _source, _clock, client = worker()
+  obj.context = {'driving_model': 'unknown'}
+  values['DrivingModelName'] = 'a requested model that never ran'
+  obj.poll_once()
+  client.send.assert_not_called()
+  assert values['UsageStatsStatus']['state'] == 'awaiting_model_identity'
+
+
+
+def test_real_worker_metadata_reports_product_major_independently_of_branch():
+  from unittest.mock import patch
+  from openpilot.starpilot.analytics import runtime
+  from openpilot.starpilot.ui.brand import DISPLAY_VERSION
+  metadata = SimpleNamespace(channel='StarPilot', openpilot=SimpleNamespace(git_commit='a' * 40))
+  with patch('openpilot.common.hardware.COMMA_HARDWARE', True), \
+       patch('openpilot.common.version.get_build_metadata', return_value=metadata), \
+       patch('openpilot.cereal.messaging.SubMaster'), patch.object(runtime, 'AnalyticsWorker') as factory:
+    runtime.build_worker()
+  assert factory.call_args.kwargs['metadata']['branch'] == 'StarPilot'
+  assert factory.call_args.kwargs['metadata']['metrics'] == {'commit': 'a' * 40, 'software_major': int(DISPLAY_VERSION.split('.')[0])}

@@ -1,5 +1,5 @@
 """Mode colors shared by the large banner and compact status atom."""
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.home_state import HomeMode
 

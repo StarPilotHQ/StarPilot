@@ -20,7 +20,7 @@ export const DRIVING_GROUPS = Object.freeze([
     { page: "torque", title: "Torque tuning", detail: "Saved steering tune and vehicle-source selection" },
   ] },
   { title: "Speed and longitudinal", items: [
-    { page: "conditional", title: "Conditional driving modes", detail: "Experimental and Chill conditions" },
+    { page: "conditional", title: "Driving Modes", detail: "Automatic, Chill and Experimental" },
     { page: "curve", title: "Curve Speed Controller", detail: "Saved curve-speed choices" },
     { page: "slc", title: "Speed Limit Controller", detail: "Dashboard and qualified vision source choices" },
     { page: "profiles", title: "Longitudinal profiles", detail: "Saved acceleration, braking, and following profiles" },
@@ -51,7 +51,7 @@ export const DrivingPage = {
         </section>
         <div class="gx-driving__extras gx-actions"><button type="button" class="gx-btn gx-btn--tonal" @click="go('/driving/longitudinal-curves')">Edit longitudinal curves</button>
           <button type="button" class="gx-btn gx-btn--tonal" @click="go('/tuning/plots')">Live plots</button>
-          <button type="button" class="gx-btn gx-btn--tonal" @click="go('/tuning/plots')">Auto Learn results</button></div>
+          <button type="button" class="gx-btn gx-btn--tonal" @click="go('/tuning')">Tuning and Analysis</button></div>
       </template>
     </section>`,
 }

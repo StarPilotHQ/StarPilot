@@ -38,7 +38,7 @@ class Sender:
     self.opener = opener or urllib.request.build_opener(NoRedirect())
     self.active = active
     self.logger, self.client = logger, client
-    self.schema_tags = {"aa.schema": "2"} if schema_tags is None else schema_tags
+    self.schema_tags = {"aa.schema": "3"} if schema_tags is None else schema_tags
 
   def __call__(self, **event) -> bool:
     if not self.active():

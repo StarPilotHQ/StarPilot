@@ -45,15 +45,24 @@ class Keys:
   offroad: str                   # BOOL: is the car parked (manager's IsOffroad)
   progress: str                  # JSON {stage, frac, msg, drops}: provisioning and join progress
   spec: str                      # JSON: the built model's spec and whether its engine is built
-  pointers: str                  # JSON: catalog ref -> {oid, size}
   # sunnypilot's model manager: the big-model pick, JSON {ref, displayName},
   # and the big-model catalog, JSON {bundles}. Without one both are None, and
-  # jetlink runs its own default big model
+  # jetlink runs its own default big model, or the one picked on the server.
+  # A fork with a picker of its own and no catalog (StarPilot) declares only
+  # big_model, and may name its pick by the ONNX's hash, {sha256,
+  # displayName}; a newer pick made on the server is written into it
   big_model: str | None = None
   catalog: str | None = None
   # BOOL: an iPhone on a direct cable is asked to charge from the comma
   # (comma.port). Off when unset, and without the key
   charge_phone: str | None = None
+  # STRING: where the model manager takes a pick by its ref and stores it in
+  # big_model (sunnypilot's ModelManager_DownloadRef). A newer pick made on
+  # the server is written there, so the comma's own list shows it; without
+  # the key it drives all the same
+  select: str | None = None
+  # API 3's kept pointers, unread since the model index: until the next minor release
+  pointers: str | None = None
 
 
 @dataclass(frozen=True)
@@ -89,7 +98,6 @@ class StatusSide(Protocol):
   """Every reader: manager, the UI, hardwared, the model manager."""
   keys: Keys
   log: Any                  # logging.Logger-like (cloudlog): debug, info, warning, error, exception
-  catalog_selector: int     # the model manager's REQUIRED_JSON_VERSION; 0 without a model manager
 
   def params_dir(self) -> Path:
     """The params store's directory, by params.cc's rule, worked out on every

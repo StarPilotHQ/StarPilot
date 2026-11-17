@@ -1,0 +1,14 @@
+Japanese and Korean subsets expanded for the shared StarPilot UI catalogs.
+Generated with fontTools.subset, retaining the union of each original font cmap
+and all characters in app_ja.po/app_ko.po. Original subset: Dom 1f1b1d5db9.
+The official upstream source fonts are licensed under Noto-OFL.txt.
+
+NotoSansCJKjp-Regular.otf
+Source: https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf
+Source SHA-256: 68a3fc98800b2a27b371f2fb79991daf3633bd89309d4ffaa6946fd587f375b5
+Subset SHA-256: 55eecf7ef2e0805e18476213adfc362c5c2a2205f0742e0e96e3ddc6d4665d32
+
+NotoSansCJKkr-Regular.otf
+Source: https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Korean/NotoSansCJKkr-Regular.otf
+Source SHA-256: 6bcb2a0703aa137e874fc2dffa85f6c21ba9a67fa329e81b8c801663af7e992a
+Subset SHA-256: 846e22c2bf1afffc11718ee95e4acc258538cc528b20aab3aa122476e64533b8

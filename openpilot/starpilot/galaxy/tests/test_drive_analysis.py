@@ -81,6 +81,17 @@ class DriveAnalysisTest(unittest.TestCase):
     self.assertIsNone(result['aolSeconds'])
     self.assertIsNone(result['aolPercent'])
 
+  def test_missing_qlog_end_marker_recovers_from_complete_rlog(self):
+    samples = [*self.sample(BASE, 5, True), *self.sample(BASE + 500_000_000, 5, True)]
+    segment = write(self.root, 0, samples, kind='qlog')
+    full = [*samples, event('sentinel', BASE + 500_000_000, type='endOfRoute')]
+    (self.root / segment['segmentName'] / 'rlog.zst').write_bytes(
+      zstd.compress(b''.join(item.as_reader().as_builder().to_bytes() for item in full)))
+    segment['files']['rlog'] = True
+    result = analyze_route(self.root, selection(segment), permitted=lambda: True)
+    self.assertTrue(result['complete'], result)
+    self.assertEqual(result['distanceMeters'], 2.5)
+
   def test_complete_contiguous_route_uses_observed_values_and_event_edges(self):
     first = [event('clocks', BASE, wallTimeNanos=1_790_334_400_000_000_000),
              *self.sample(BASE, 0, True),

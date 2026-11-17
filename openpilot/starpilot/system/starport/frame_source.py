@@ -35,9 +35,15 @@ MAGIC = 0x53464141  # "AAFS"
 VERSION = 1
 HEADER_SIZE = 4096
 MAX_WIDTH, MAX_HEIGHT = 1920, 1080
+
+
+def supported_size(width: int, height: int) -> bool:
+  """Landscape up to 1920x1080, or the same bounds turned portrait."""
+  return 0 < min(width, height) <= MAX_HEIGHT and 0 < max(width, height) <= MAX_WIDTH
 FILE_SIZE = HEADER_SIZE + MAX_WIDTH * MAX_HEIGHT * 4
 
 FORMAT_RGBA, FORMAT_NV12 = 0, 1
+FLAG_CONTENT_ORIGIN = 4   # explicit content origin packed in the reserved header word
 FLAG_NV12 = 1             # consumer: send NV12 if you can
 FLAG_ASYNC_READBACK = 2   # consumer: read frames back without stalling on the GPU (one step later)
 
@@ -66,9 +72,23 @@ class FrameRequest:
   margin_h: int
   interval_us: int
   flags: int = 0
+  content_left: int | None = None
+  content_top: int | None = None
+
+  @property
+  def left(self) -> int:
+    return self.margin_w // 2 if self.content_left is None else self.content_left
+
+  @property
+  def top(self) -> int:
+    return self.margin_h - self.margin_h // 2 if self.content_top is None else self.content_top
 
   def content(self, source_w: int, source_h: int) -> tuple[int, int, int, int]:
-    return fit_content(source_w, source_h, self.width, self.height, self.margin_w, self.margin_h)
+    x, y, w, h = fit_content(source_w, source_h, self.width, self.height, self.margin_w, self.margin_h)
+    if self.content_left is not None:
+      x = (self.left + (self.width - self.margin_w - w) // 2) & ~1
+      y = (self.top + (self.height - self.margin_h - h) // 2) & ~1
+    return x, y, w, h
 
 
 @dataclass(frozen=True)
@@ -114,15 +134,21 @@ class FrameConsumer:
   def _write_header(self, demand_until_ns: int) -> None:
     r = self.request or FrameRequest(0, 0, 0, 0, 0)
     seq = _SEQ.unpack_from(self.mm, _SEQ_OFFSET)[0] if self.mm[:4] == struct.pack("<I", MAGIC) else 0
+    explicit = r.content_left is not None and r.content_top is not None
+    flags = r.flags | FLAG_CONTENT_ORIGIN if explicit else r.flags & ~FLAG_CONTENT_ORIGIN
+    origin = r.left | (r.top << 16) if explicit else 0
     _HEADER.pack_into(self.mm, 0, MAGIC, VERSION, seq & ~1, 0, 0, 0, 0, demand_until_ns,
-                      r.width, r.height, r.margin_w, r.margin_h, r.flags, 0, r.interval_us, 0)
+                      r.width, r.height, r.margin_w, r.margin_h, flags, 0, r.interval_us, origin)
     _SENT.pack_into(self.mm, _SENT_OFFSET, 0)
 
   def configure(self, request: FrameRequest) -> None:
-    if not (0 < request.width <= MAX_WIDTH and 0 < request.height <= MAX_HEIGHT) or request.width % 2 or request.height % 2:
+    if not supported_size(request.width, request.height) or request.width % 2 or request.height % 2:
       raise ValueError("Unsupported frame size")
     if not (0 <= request.margin_w < request.width and 0 <= request.margin_h < request.height) or request.interval_us <= 0:
       raise ValueError("Unsupported frame geometry")
+    if ((request.content_left is None) != (request.content_top is None) or
+        not 0 <= request.left <= request.margin_w or not 0 <= request.top <= request.margin_h):
+      raise ValueError("Unsupported content origin")
     self.request = request
     self._write_header(0)
 
@@ -230,9 +256,12 @@ class FrameProducer:
     fields = _HEADER.unpack_from(mm, 0)
     if fields[0] != MAGIC or fields[1] != VERSION or (require_demand and fields[7] <= int(now * 1e9)):
       return None
-    request = FrameRequest(fields[8], fields[9], fields[10], fields[11], fields[14], fields[12])
-    if not (0 < request.width <= MAX_WIDTH and 0 < request.height <= MAX_HEIGHT) or request.interval_us <= 0 or \
-       request.margin_w >= request.width or request.margin_h >= request.height:
+    explicit = bool(fields[12] & FLAG_CONTENT_ORIGIN)
+    request = FrameRequest(fields[8], fields[9], fields[10], fields[11], fields[14], fields[12] & ~FLAG_CONTENT_ORIGIN,
+                           fields[15] & 0xffff if explicit else None, fields[15] >> 16 if explicit else None)
+    if not supported_size(request.width, request.height) or request.interval_us <= 0 or \
+       request.margin_w >= request.width or request.margin_h >= request.height or \
+       not 0 <= request.left <= request.margin_w or not 0 <= request.top <= request.margin_h:
       return None
     return request
 

@@ -1,7 +1,7 @@
 """Home statistics drawing with supplied data and native presentation resources."""
 from __future__ import annotations
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.home_state import DriveStatsData, DriveSummary
 from openpilot.starpilot.ui.home_geometry import outside_rounded_border
@@ -34,12 +34,15 @@ class DriveStatsDashboard:
     self._font_semi_bold = fonts.font(FontRole.SEMI_BOLD)
     self._font_medium = fonts.font(FontRole.MEDIUM)
 
+  def _role(self, font):
+    return FontRole.BOLD if font is self._font_bold else FontRole.SEMI_BOLD if font is self._font_semi_bold else FontRole.MEDIUM
+
   def _measure(self, font, text, size):
-    return rl.measure_text_ex(font, text, size * self._fonts.profile.font_scale, 0)  # noqa: TID251
+    measured = self._fonts.measure(text, self._role(font), size)
+    return rl.Vector2(measured.width, measured.height)
 
   def _draw_text(self, font, text, position, size, spacing, color):
-    draw = getattr(rl, "_orig_draw_text_ex", rl.draw_text_ex)
-    draw(font, text, position, size * self._fonts.profile.font_scale, spacing, color)
+    self._fonts.draw(text, self._role(font), size, position.x, position.y, color, spacing=spacing)
 
   @staticmethod
   def _draw_card(rect: rl.Rectangle, accent: rl.Color | None = None) -> None:

@@ -8,6 +8,7 @@ from pathlib import Path
 from enum import IntEnum, IntFlag
 
 from openpilot.common.swaglog import cloudlog
+from openpilot.common.params_paths import params_path
 
 
 class ParamKeyFlag(IntFlag):
@@ -114,7 +115,7 @@ class UnknownKeyName(Exception):
 
 class Params:
   def __init__(self, d=""):
-    path = ensure_bytes(d)
+    path = ensure_bytes(params_path(d))
     self.p = params_create(path, len(path))
     self._finalizer = weakref.finalize(self, params_destroy, self.p)
     self._finalizer.atexit = False  # daemon threads can still be using live Params handles during interpreter shutdown

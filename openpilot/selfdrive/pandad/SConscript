@@ -7,6 +7,7 @@ if GetOption('extras') or any(target.startswith('openpilot/selfdrive/pandad/test
     env.Program('tests/test_panda_usb', ['tests/test_panda_usb.cc', usb_test], LIBS=[common, 'pthread'])
   env.Program('tests/test_aol_protocol', ['tests/test_aol_protocol.cc'])
   env.Program('tests/test_aol_wire', ['tests/test_aol_wire.cc'], LIBS=[messaging, 'capnp', 'kj'])
+  env.Program('tests/test_panda_faults', ['tests/test_panda_faults.cc'], LIBS=[messaging, 'capnp', 'kj'])
   # Compose producer freshness, session negotiation and native ACK wire contracts.
   env.Program('tests/test_producer_timing', ['tests/test_producer_timing.cc'], LIBS=[messaging, 'capnp', 'kj'])
   env.Program('tests/test_producer_sink', ['tests/test_producer_sink.cc'], LIBS=[messaging, 'capnp', 'kj'])

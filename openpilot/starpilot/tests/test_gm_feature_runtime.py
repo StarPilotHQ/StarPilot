@@ -8,8 +8,10 @@ from opendbc.car.gm.feature_capabilities import display_supported, longitudinal_
 from opendbc.car.gm.interface import CarInterface
 from opendbc.car.gm.values import CAR
 from opendbc.car.gm.tests.test_camera_acc_pedal import CAMERA_IDS, fingerprint as camera_pedal_fingerprint
+from openpilot.starpilot.audio.departure_alert import DepartureNotifications
 from openpilot.common.params import Params
 from openpilot.common.prefix import OpenpilotPrefix
+from openpilot.starpilot.speed_limits import planner_host as slc_host
 from openpilot.starpilot.feature_runtime import enabled, slc_runtime_settings, vision_control_enabled
 from openpilot.starpilot.longitudinal.profile_document import default_personality_profiles, profile_document
 from openpilot.starpilot.vehicle_preferences import VehicleStartupPreferences
@@ -175,7 +177,7 @@ class TestGmFeatureRuntime(unittest.TestCase):
       finally:
         preferences.close()
 
-  def test_actual_gm_unknown_sign_source_never_creates_speed_command(self):
+  def test_actual_gm_unknown_sign_source_never_creates_speed_cap(self):
     from openpilot.cereal import messaging
     from opendbc.car.gm.carstate import CarState
     from openpilot.starpilot.longitudinal.tests.test_cruise_ceiling import messages
@@ -200,7 +202,6 @@ class TestGmFeatureRuntime(unittest.TestCase):
         self.assertFalse(output.message.slcState.hasAccepted)
         self.assertFalse(output.message.slcState.hasPending)
         self.assertFalse(output.message.slcState.hasCeiling)
-        self.assertIsNone(output.command)
         self.assertIsNone(output.result.ceiling)
 
   def test_actual_planner_startup_constructs_long_hosts_and_display_only_stock_host(self):
@@ -217,11 +218,13 @@ class TestGmFeatureRuntime(unittest.TestCase):
         sm = Mock()
         sm.update.side_effect = EndLoop
         with (patch.object(plannerd, 'Params', return_value=params),
+              patch('openpilot.starpilot.audio.departure_alert.DepartureNotifications',
+                    side_effect=lambda: DepartureNotifications(params)),
               patch.object(plannerd, 'config_realtime_process'),
               patch.object(plannerd, 'ConditionalPlannerHost', wraps=plannerd.ConditionalPlannerHost) as conditional,
               patch.object(plannerd, 'CurvePreferenceHost', wraps=plannerd.CurvePreferenceHost) as curve,
               patch.object(plannerd, 'ProfileHost', wraps=plannerd.ProfileHost) as profile,
-              patch.object(plannerd, 'SlcRuntime', wraps=plannerd.SlcRuntime) as slc,
+              patch.object(slc_host, 'SlcRuntime', wraps=slc_host.SlcRuntime) as slc,
               patch.object(plannerd.messaging, 'sub_sock'),
               patch.object(plannerd.messaging, 'SubMaster', return_value=sm),
               patch.object(plannerd.messaging, 'PubMaster'),

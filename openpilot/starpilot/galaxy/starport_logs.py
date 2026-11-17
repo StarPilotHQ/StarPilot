@@ -71,9 +71,9 @@ class StarPortLogs:
     except OSError:
       raise LogsUnavailable from None
 
-  def bundle(self, now: datetime | None = None) -> tuple[str, bytes]:
+  def bundle(self, now: datetime | None = None, *, system_snapshot: bool = True) -> tuple[str, bytes]:
     try:
-      data = compat_report.bundle(self.directory, self.config_path)
+      data = compat_report.bundle(self.directory, self.config_path, **({} if system_snapshot else {"snapshot": None}))
     except OSError:
       raise LogsUnavailable from None
     stamp = (now or datetime.now()).strftime("%Y%m%d-%H%M%S")

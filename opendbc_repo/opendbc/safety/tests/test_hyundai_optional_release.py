@@ -68,9 +68,9 @@ class TestHyundaiOptionalRelease(unittest.TestCase):
     self.buttons(button)
     self.buttons()
 
-  def claimed(self):
+  def claimed(self, button=2):
     self.safety.aol_set_host_request(5)
-    self.release_gesture()
+    self.release_gesture(button)
     self.assert_rx_profile()
     self.safety.aol_set_host_request(7)
     self.buttons(4)
@@ -200,3 +200,35 @@ class TestHyundaiOptionalRelease(unittest.TestCase):
     self.assertEqual(self.safety.aol_get_request_mask(), 0, self.context)
     self.assertEqual(self.safety.aol_get_permission_mask(), 0, self.context)
     self.assertFalse(self.tx(1, 1), self.context)
+
+  def test_claimed_lateral_survives_timely_button_counter_interruption(self):
+    for raw in (0x815, 0x895):
+      for button in (1, 2):
+        for defect in ("replay", "gap"):
+          with self.subTest(raw=raw, button=button, defect=defect):
+            self.mode(raw)
+            self.claimed(button)
+            self.now += 20_000
+            self.safety.set_timer(self.now)
+            self.healthy()
+            counter = self.counters["CRUISE_BUTTONS"] % 16
+            self.buttons(counter=counter if defect == "replay" else (counter + 2) % 16)
+            self.assert_rx_profile()
+            self.assertEqual(self.safety.aol_get_permission_mask(), 0 if self.release else 1, self.context)
+            self.assertEqual(bool(self.tx(1, 1)), not self.release, self.context)
+            self.buttons(counter=(counter + 2) % 16)
+            self.safety.aol_set_host_request(5)
+            self.assertFalse(self.safety.get_controls_allowed(), self.context)
+            self.assertEqual(self.safety.aol_get_permission_mask(), 0 if self.release else 1, self.context)
+            self.safety.aol_set_host_request(0)
+            self.safety.aol_set_host_request(5)
+            self.assert_denied()
+
+  def test_claimed_lateral_still_requires_bounded_button_source_time(self):
+    for raw in (0x815, 0x895):
+      for elapsed in (0, 100_001):
+        with self.subTest(raw=raw, elapsed=elapsed):
+          self.mode(raw)
+          self.claimed()
+          self.buttons(counter=self.counters["CRUISE_BUTTONS"] % 16, advance=elapsed)
+          self.assert_denied()

@@ -11,6 +11,7 @@ import (
 	"os"
 	"reflect"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -162,7 +163,6 @@ func GenerateOffline(s OfflineSettings) error {
 				MaxSpeedBackward: ParseMaxSpeed(tags["maxspeed:backward"]),
 				MaxSpeedAdvisory: ParseMaxSpeed(tags["maxspeed:advisory"]),
 				Lanes:            uint8(lanes),
-				OneWay:           tags["oneway"] == "yes",
 				Id:               int64(way.ID),
 				HighwayClass:     HighwayClassFromTag(tags["highway"]),
 
@@ -190,6 +190,17 @@ func GenerateOffline(s OfflineSettings) error {
 				}
 				tmpWay.Nodes[i].Latitude = n.Lat
 				tmpWay.Nodes[i].Longitude = n.Lon
+			}
+			switch tags["oneway"] {
+			case "yes", "1":
+				tmpWay.OneWay = true
+			case "-1":
+				tmpWay.OneWay = true
+				slices.Reverse(tmpWay.Nodes)
+				tmpWay.MaxSpeedForward, tmpWay.MaxSpeedBackward = tmpWay.MaxSpeedBackward, tmpWay.MaxSpeedForward
+				tmpWay.MaxSpeedForwardConditional, tmpWay.MaxSpeedBackwardConditional = tmpWay.MaxSpeedBackwardConditional, tmpWay.MaxSpeedForwardConditional
+			case "":
+				tmpWay.OneWay = tags["junction"] == "roundabout" || tags["highway"] == "motorway"
 			}
 			tmpWay.Box.MinPos = m.NewPosition(minLat, minLon)
 			tmpWay.Box.MaxPos = m.NewPosition(maxLat, maxLon)

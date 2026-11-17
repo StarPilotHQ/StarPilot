@@ -2,19 +2,23 @@
 
 import ast
 from dataclasses import replace
+from datetime import datetime
 from enum import IntEnum
 import gc
 from pathlib import Path
+import subprocess
+from threading import Event
 from types import SimpleNamespace as NS
 from unittest.mock import Mock
 import weakref
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import pytest
 
 from openpilot.selfdrive.ui.layouts.arabesque import ArabesqueLayout
 from openpilot.selfdrive.ui.layouts.arabesque import desktop
 from openpilot.selfdrive.ui.layouts.arabesque.theme import DEFAULT_THEME
+from openpilot.selfdrive.ui.layouts.arabesque.tools import clock
 from openpilot.selfdrive.ui.layouts.arabesque.tools import terminal
 from openpilot.system.ui.lib.application import gui_app, FontWeight, MouseEvent, MousePos
 from openpilot.system.ui.widgets import Widget
@@ -35,6 +39,7 @@ def layout_classes(path, names, namespace):
 @pytest.fixture
 def shell(monkeypatch):
   import openpilot.system.ui.widgets as widgets
+  monkeypatch.setattr(desktop, 'PC', True)
   monkeypatch.setattr(widgets, 'device', NS(awake=True))
   monkeypatch.setattr(gui_app, '_mouse_events', [])
   monkeypatch.setattr(gui_app, '_show_touches', False)
@@ -128,6 +133,15 @@ def test_layout_anchors_and_touch_targets(shell, bounds):
   assert shell._exit_button.y > shell._bar.y + shell._bar.height
   assert min(shell._menu_button.width, shell._menu_button.height) >= 44
   assert min(shell._back_button.width, shell._back_button.height) >= 44
+  assert shell._back_button.x + shell._back_button.width < shell._clock_button.x
+  assert shell._clock_button.x + shell._clock_button.width <= rect.x + rect.width
+  assert min(shell._clock_button.width, shell._clock_button.height) >= 44
+  assert shell._clock_label.x + shell._clock_label.width == pytest.approx(rect.x + rect.width - 40 * shell._scale)
+  assert shell._clock_label.y + shell._clock_label.height / 2 == pytest.approx(shell._bar.y + shell._bar.height / 2)
+  for target, _ in shell._clock_buttons:
+    assert min(target.width, target.height) >= 44
+    assert target.x >= shell._clock_menu.x
+    assert target.x + target.width <= shell._clock_menu.x + shell._clock_menu.width
   assert shell._tool_rect.y == shell._bar.y + shell._bar.height
   assert shell._tool_rect.x == rect.x
   assert shell._tool_rect.width == rect.width
@@ -425,6 +439,7 @@ def test_authority_revocation_closes_tool_without_rendering(main, probe):
   main.layout.poll_arabesque()
   assert main.layout._current_mode == main.state.ONROAD
   assert view._active_tool is None
+  assert view._time_sync_cancelled.is_set()
   probe.hide_event.assert_called_once()
 
 
@@ -492,3 +507,291 @@ def test_star_large_routes_shell_and_uses_confirmed_offroad(main, probe):
   assert view._active_tool is None
   layout.star.close.assert_called_once()
   layout._native_onroad.close.assert_called_once()
+
+
+def test_time_sync_startup_cancellation_and_reentry(shell, monkeypatch):
+  thread, run = Mock(), Mock(return_value=NS(stdout='204||Mon, 02 Nov 2026 18:00:00 GMT'))
+  monkeypatch.setattr(desktop, 'Thread', thread)
+  monkeypatch.setattr(desktop.subprocess, 'run', run)
+  shell.show_event()
+  thread.assert_not_called()
+  monkeypatch.setattr(desktop, 'PC', False)
+  shell._permitted = Mock(return_value=False)
+  shell.show_event()
+  thread.assert_not_called()
+  shell._permitted.return_value = True
+  shell.show_event()
+  run.assert_not_called()
+  assert thread.call_args.kwargs['daemon']
+  thread.return_value.start.assert_called_once()
+  shell.show_event()
+  thread.assert_called_once()
+  shell.hide_event()
+  shell.show_event()
+  shell.poll_runtime(True)
+  thread.assert_called_once()
+  thread.call_args.kwargs['target'](*thread.call_args.kwargs['args'])
+  assert run.call_count == 1  # Closing cancels the correction after the request returns.
+  thread.return_value.is_alive.return_value = False
+  shell._clock_prompted = True
+  shell._permitted.return_value = False
+  shell.poll_runtime(True)
+  thread.assert_called_once()
+  shell._permitted.return_value = True
+  shell.poll_runtime(True)
+  assert thread.call_count == 2
+  assert shell._clock_prompted
+  thread.call_args.kwargs['target'](*thread.call_args.kwargs['args'])
+  assert run.call_count == 3
+  fetch, apply = run.call_args_list[-2:]
+  assert fetch.args[0] == ['curl', '-q', '-fsI', '-m', '10', '-H', 'Cache-Control: no-cache', '-o', '/dev/null',
+                          '-w', '%{response_code}|%header{age}|%header{date}', 'https://www.google.com/generate_204']
+  assert fetch.kwargs['timeout'] == 11
+  assert apply.args[0] == ['sudo', '-n', 'date', '-u', '-s', '2026-11-02T18:00:00+00:00']
+  assert apply.kwargs['timeout'] == 2
+  assert apply.kwargs['stdout'] == apply.kwargs['stderr'] == subprocess.DEVNULL
+  shell.poll_runtime(True)
+  assert thread.call_count == 2
+
+
+@pytest.mark.parametrize('response', [
+  '', '204||', '204||invalid', '204||Sat, 01 Jan 2000 00:00:00 GMT', '204||Tue, 01 Jan 2036 00:00:00 GMT',
+  '204||Mon, 02 Nov 2026 18:00:00', '200||Fri, 02 Oct 2026 18:00:00 GMT', '302||Fri, 02 Oct 2026 18:00:00 GMT',
+  '204|2678400|Fri, 02 Oct 2026 18:00:00 GMT',
+  subprocess.CalledProcessError(22, ['curl'], output='204||Mon, 02 Nov 2026 18:00:00 GMT'),
+  subprocess.CalledProcessError(28, ['curl'], output='204||Mon, 02 Nov 2026 18:00:00 GMT'),
+  subprocess.CalledProcessError(60, ['curl']),
+  subprocess.TimeoutExpired(['curl'], 11), FileNotFoundError('curl'),
+])
+def test_failed_or_invalid_time_sync_never_sets_clock(shell, monkeypatch, response):
+  run = Mock(side_effect=response) if isinstance(response, Exception) else Mock(return_value=NS(stdout=response))
+  monkeypatch.setattr(desktop.subprocess, 'run', run)
+  shell._sync_time(Event())
+  assert run.call_count == 1
+
+
+@pytest.mark.parametrize('error', [subprocess.CalledProcessError(1, ['sudo']), subprocess.TimeoutExpired(['sudo'], 2), FileNotFoundError('sudo')])
+def test_time_sync_permission_or_command_failures_stay_quiet(shell, monkeypatch, error):
+  run = Mock(side_effect=[NS(stdout='204|0|Mon, 02 Nov 2026 18:00:00 GMT'), error])
+  monkeypatch.setattr(desktop.subprocess, 'run', run)
+  shell._sync_time(Event())
+  assert run.call_count == 2
+
+
+@pytest.mark.parametrize('now', [datetime(1970, 1, 1), datetime(2026, 7, 28, 16, 43)])
+@pytest.mark.parametrize('success', [False, True])
+def test_clock_prompts_only_after_sync_fails(shell, monkeypatch, now, success):
+  current = Mock(now=Mock(return_value=now))
+  monkeypatch.setattr(desktop, 'datetime', current)
+  monkeypatch.setattr(desktop, 'PC', False)
+  shell._time_sync_thread = Mock(is_alive=Mock(return_value=True))
+  shell.set_rect(rl.Rectangle(0, 0, 2160, 1080))
+  shell.poll_runtime(True)
+  assert not shell._clock_open
+  shell._time_sync_thread.is_alive.return_value = False
+  shell._time_sync_success = success
+  if success:
+    current.now.return_value = datetime(2026, 11, 2, 16, 11)
+  shell.poll_runtime(False)
+  assert not shell._clock_open
+  shell.poll_runtime(True)
+  assert shell._clock_open is not success
+  frame(shell)
+  label = next(call for call in desktop.gui_label.call_args_list if call.args[0] is shell._clock_label)
+  assert label.args[1] == ('Mon Nov 2  4:11 PM' if success else 'Set Date & Time')
+  assert label.kwargs['alignment'] == desktop.TextAlignment.RIGHT
+  if not success:
+    tap(shell, shell._clock_buttons[2][0])
+    shell.poll_runtime(True)
+    assert not shell._clock_open
+
+
+def test_clock_menu_blocks_tool_input(shell, probe):
+  shell.set_rect(rl.Rectangle(0, 0, 2160, 1080))
+  shell._open_tool('Probe', probe)
+  tap(shell, shell._clock_button)
+  assert shell._clock_open and not shell._menu_open
+  frame(shell, event(1000, 600, pressed=True), event(1000, 600, released=True))
+  probe._handle_mouse_press.assert_not_called()
+  probe._handle_mouse_release.assert_not_called()
+  assert not shell._clock_open
+
+
+@pytest.fixture
+def clock_editor(shell, monkeypatch):
+  monkeypatch.setattr(desktop, 'PC', False)
+  monkeypatch.setattr(desktop, 'Thread', Mock())
+  monkeypatch.setattr(desktop.subprocess, 'run', Mock())
+  monkeypatch.setattr(clock, 'gui_label', Mock())
+  monkeypatch.setattr(rl, 'get_key_pressed', lambda: 0)
+  monkeypatch.setattr(rl, 'get_char_pressed', lambda: 0)
+  monkeypatch.setattr(rl, 'get_mouse_wheel_move', lambda: 0)
+  monkeypatch.setattr(rl, 'get_frame_time', lambda: 1 / 60)
+  shell.set_rect(rl.Rectangle(0, 0, 2160, 1080))
+  tap(shell, shell._clock_button)
+  tap(shell, shell._clock_buttons[1][0])
+  assert isinstance(shell._active_tool, desktop.ClockEditor)
+  return shell._active_tool
+
+
+def swipe_clock_wheel(shell, editor, index, amount):
+  wheel = editor._wheels[index]
+  x, y = wheel.x + wheel.width / 2, wheel.y + wheel.height / 2
+  frame(shell, event(x, y, pressed=True))
+  frame(shell, event(x, y - amount * editor._row_height))
+  frame(shell, event(x, y - amount * editor._row_height, released=True))
+
+
+def test_manual_save_validates_and_sets_clock_without_network(shell, clock_editor):
+  for text in ('invalid', '1970-01-01 00:00', '2026-02-30 12:00', '2036-01-01 00:00'):
+    shell._set_clock(text)
+  desktop.Thread.assert_not_called()
+  clock_editor._values[:6] = [11, 2, 2026, 1, 5, 1]
+  tap(shell, clock_editor._save_button)
+  assert clock_editor.saving
+  shell._set_clock('2026-11-02 13:05')
+  desktop.Thread.assert_called_once()
+  desktop.subprocess.run.assert_not_called()
+  desktop.Thread.call_args.kwargs['target'](*desktop.Thread.call_args.kwargs['args'])
+  desktop.subprocess.run.assert_called_once()
+  assert desktop.subprocess.run.call_args.args[0] == ['sudo', '-n', 'date', '-u', '-s', '2026-11-02T13:05:00-06:00']
+  desktop.Thread.return_value.is_alive.return_value = False
+  shell.poll_runtime(True)
+  assert shell._active_tool is None and shell._time_sync_success
+
+
+@pytest.mark.parametrize('failure', ['permission', 'command', 'closed'])
+def test_manual_save_failure_and_cancellation(shell, clock_editor, failure):
+  if failure == 'permission':
+    shell._permitted = lambda: False
+  elif failure == 'command':
+    desktop.subprocess.run.side_effect = subprocess.CalledProcessError(1, ['sudo'])
+  shell._set_clock('2026-11-02 13:05')
+  if failure == 'permission':
+    desktop.Thread.assert_not_called()
+  else:
+    if failure == 'closed':
+      shell.hide_event()
+    desktop.Thread.call_args.kwargs['target'](*desktop.Thread.call_args.kwargs['args'])
+    if failure == 'closed':
+      desktop.subprocess.run.assert_not_called()
+      assert shell._active_tool is None
+    else:
+      desktop.Thread.return_value.is_alive.return_value = False
+      shell.poll_runtime(True)
+      assert shell._active_tool is clock_editor and not clock_editor.saving
+      assert 'Could not set' in clock_editor.error
+      shell.poll_runtime(True)
+      assert not shell._clock_open
+
+
+def test_manual_time_remains_known_when_reentering_offline(shell, clock_editor, monkeypatch):
+  monkeypatch.setattr(desktop, 'datetime', Mock(now=Mock(return_value=datetime(2026, 11, 2, 12))))
+  shell._time_sync_success = True
+  shell.hide_event()
+  shell.show_event()
+  desktop.subprocess.run.side_effect = subprocess.CalledProcessError(28, ['curl'])
+  desktop.Thread.call_args.kwargs['target'](*desktop.Thread.call_args.kwargs['args'])
+  desktop.Thread.return_value.is_alive.return_value = False
+  shell.poll_runtime(True)
+  assert shell._time_sync_success and not shell._clock_open
+
+
+@pytest.mark.parametrize('year,expected_day', [(2027, 28), (2028, 29)])
+def test_date_wheels_keep_end_of_month_valid(shell, clock_editor, year, expected_day):
+  clock_editor._values[:6] = [1, 31, year, 1, 5, 1]
+  swipe_clock_wheel(shell, clock_editor, 0, 1)
+  assert clock_editor._values[:3] == [2, expected_day, year]
+  if year == 2028:
+    swipe_clock_wheel(shell, clock_editor, 2, -1)
+    assert clock_editor._values[:3] == [2, 28, 2027]
+
+
+@pytest.mark.parametrize('hour,ampm,expected', [(12, 0, '00:05'), (12, 1, '12:05'), (1, 1, '13:05')])
+def test_wheel_save_converts_am_and_pm_correctly(shell, clock_editor, hour, ampm, expected):
+  clock_editor._values[:6] = [11, 2, 2026, hour, 5, ampm]
+  clock_editor._submit = Mock()
+  tap(shell, clock_editor._save_button)
+  clock_editor._submit.assert_called_once_with(f'2026-11-02 {expected}')
+
+
+def test_wheel_flick_slows_and_stops_at_a_selection(shell, clock_editor):
+  clock_editor._values[:6] = [1, 15, 2026, 1, 5, 1]
+  wheel = clock_editor._wheels[0]
+  x, y = wheel.x + wheel.width / 2, wheel.y + wheel.height / 2
+  frame(shell, MouseEvent(MousePos(x, y), 0, True, False, True, 1.0))
+  frame(shell, MouseEvent(MousePos(x, y - clock_editor._row_height), 0, False, False, True, 1.04))
+  frame(shell, MouseEvent(MousePos(x, y - clock_editor._row_height), 0, False, True, False, 1.05))
+  assert clock_editor._values[0] == 2 and clock_editor._moving == 0
+  for _ in range(60):
+    frame(shell)
+  assert clock_editor._values[0] != 2
+  assert clock_editor._moving is None and clock_editor._offset == 0
+
+
+def test_wheels_and_repeated_hour_support_keyboard(shell, clock_editor, monkeypatch):
+  clock_editor._values[:6] = [11, 2, 2026, 1, 5, 1]
+  clock_editor._submit = Mock()
+  keys = iter((rl.KEY_TAB, rl.KEY_DOWN, rl.KEY_ENTER, 0))
+  monkeypatch.setattr(rl, 'get_key_pressed', lambda: next(keys, 0))
+  monkeypatch.setattr(rl, 'is_key_down', lambda _: False)
+  frame(shell)
+  clock_editor._submit.assert_called_once_with('2026-11-03 13:05')
+  clock_editor._values[:6] = [11, 1, 2026, 1, 30, 0]
+  clock_editor.fold, clock_editor._focus = 0, 6
+  keys = iter((rl.KEY_TAB, rl.KEY_ENTER, 0))
+  frame(shell)
+  assert clock_editor.fold == 1 and clock_editor.time_edited
+
+
+@pytest.mark.parametrize('edited', [False, True])
+def test_changing_timezone_preserves_the_right_time(shell, clock_editor, edited):
+  shell._time_sync_success = True
+  clock_editor._values[:6] = [1, 15, 2027, 1, 5, 1]
+  if edited:
+    swipe_clock_wheel(shell, clock_editor, 4, 1)
+  swipe_clock_wheel(shell, clock_editor, 6, 1)
+  assert clock_editor.timezone == 'America/New_York'
+  assert clock_editor._values[3:6] == ([1, 6, 1] if edited else [2, 5, 1])
+  tap(shell, clock_editor._save_button)
+  if edited:
+    assert desktop.Thread.call_args.kwargs['args'][1].isoformat() == '2027-01-15T13:06:00-05:00'
+  else:
+    desktop.Thread.assert_not_called()
+    assert shell._timezone.key == 'America/New_York' and shell._active_tool is None
+    tap(shell, shell._clock_button)
+    tap(shell, shell._clock_buttons[1][0])
+    assert shell._active_tool.timezone == 'America/New_York'
+    assert ArabesqueLayout(Mock())._timezone.key == 'America/Chicago'
+
+
+def test_timezone_change_preserves_the_second_occurrence(shell, clock_editor):
+  clock_editor._values[:6] = [11, 1, 2026, 1, 30, 0]
+  clock_editor.fold = 0
+  swipe_clock_wheel(shell, clock_editor, 6, 1)
+  assert clock_editor.timezone == 'America/New_York'
+  assert clock_editor._values[:6] == [11, 1, 2026, 1, 30, 0] and clock_editor.fold == 1
+
+
+@pytest.mark.parametrize('date,offset', [
+  ('2026-01-15 13:05', '-06:00'), ('2026-07-15 13:05', '-05:00'), ('2027-03-14 02:30', None),
+])
+def test_local_time_uses_daylight_saving_rules(shell, clock_editor, date, offset):
+  shell._set_clock(date)
+  if offset is None:
+    desktop.Thread.assert_not_called()
+    assert 'does not exist' in clock_editor.error
+  else:
+    assert desktop.Thread.call_args.kwargs['args'][1].isoformat().endswith(offset)
+
+
+@pytest.mark.parametrize('second,offset', [(False, '-05:00'), (True, '-06:00')])
+def test_repeated_hour_can_set_either_occurrence(shell, clock_editor, second, offset):
+  clock_editor._values[:6] = [11, 1, 2026, 1, 30, 0]
+  clock_editor.fold = 0
+  if second:
+    tap(shell, clock_editor._fold_button)
+    swipe_clock_wheel(shell, clock_editor, 4, 1)
+    assert clock_editor.fold == 1
+  tap(shell, clock_editor._save_button)
+  assert desktop.Thread.call_args.kwargs['args'][1].isoformat().endswith(offset)

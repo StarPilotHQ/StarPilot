@@ -1,5 +1,10 @@
 from dataclasses import replace
 
+import pytest
+from openpilot.selfdrive.controls.lib.highway_correction_gain import KEY, read_gain
+from openpilot.starpilot.lateral.tests.test_lane_runtime import ioniq_candidate
+from openpilot.starpilot.saved_source import read_saved
+
 from openpilot.starpilot.audio.alert_volume import AUTO, SPECS
 from openpilot.starpilot.ui.appearance_preferences import CameraViewChoice
 from unittest import TestCase
@@ -38,6 +43,48 @@ class TestSettingsDefaults(TestCase):
 
   def confirm(self, intent):
     return self.gateway.confirm(intent['intent'], self.session, self.generation)
+
+  def test_torque_sliders_keep_defaults_without_duplicate_reset_rows(self):
+    _, cp = ioniq_candidate()
+    self.context.value = AuthorityContext(True, cp, cp.as_reader().as_builder().to_bytes())
+    for label in ('Lat Accel', 'Friction'):
+      page = self.page('torque')
+      self.assertFalse(any('Reset to Default' in row['label'] for row in page['rows']))
+      index = next(i for i, row in enumerate(page['rows']) if row['label'] == label)
+      row = page['rows'][index]
+      previous = float(row['value'])
+      direction = -1 if previous >= row['maximum'] else 1
+      intent = self.gateway.preview(page['view'], index, direction, self.session, self.generation)
+      self.assertTrue(self.confirm(intent))
+      row, intent = self.reset('torque', label)
+      self.assertEqual(row['defaultValue'], 'Vehicle/learned')
+      self.assertTrue(self.confirm(intent))
+      restored = next(row for row in self.page('torque')['rows'] if row['label'] == label)
+      self.assertAlmostEqual(float(restored['value']), previous)
+
+  def test_tuning_preparation_switch_saves_state_and_restores_preferences(self):
+    from openpilot.starpilot.lateral.tests.test_lane_runtime import ioniq_candidate
+    _, cp = ioniq_candidate()
+    self.context.value = AuthorityContext(True, cp, cp.as_reader().as_builder().to_bytes())
+    self.params.put_bool('TurnAssist', True, block=True)
+    for desired in ('On', 'Off'):
+      page = self.page('torque')
+      index = next(i for i, row in enumerate(page['rows']) if row['label'] == 'Prep My Vehicle for Tuning')
+      row = page['rows'][index]
+      self.assertEqual(row['choices'], ['Off', 'On'])
+      self.assertFalse(row['confirm'])
+      self.assertEqual(row['value'], 'Off' if desired == 'On' else 'On')
+      intent = self.gateway.preview(page['view'], index, 0, self.session, self.generation, value=desired)
+      self.assertTrue(self.confirm(intent))
+      current = next(row for row in self.page('torque')['rows'] if row['label'] == 'Prep My Vehicle for Tuning')
+      self.assertEqual(current['value'], desired)
+      self.assertEqual(self.params.get_bool('TurnAssist'), desired == 'Off')
+    self.context.value = replace(self.context.value, parked=False)
+    page = self.page('torque')
+    index = next(i for i, row in enumerate(page['rows']) if row['label'] == 'Prep My Vehicle for Tuning')
+    self.assertFalse(page['rows'][index]['available'])
+    with self.assertRaises(SettingsChanged):
+      self.gateway.preview(page['view'], index, 0, self.session, self.generation, value='On')
 
   def test_boolean_and_numeric_defaults_are_owner_values(self):
     self.params.put_bool('LaneCentering', True, block=True)
@@ -152,3 +199,91 @@ class TestSettingsDefaultHttp(TestCase):
     self.assertEqual(self.request('/api/settings/confirm', cookie=cookie, payload=body)[:2], (200, {'saved': True}))
     self.assertFalse(self.params.get_bool('ShowBrakeStatus'))
     self.assertEqual(self.request('/api/settings/confirm', cookie=cookie, payload=body)[0], 409)
+
+
+
+
+
+
+@pytest.fixture
+def gateway():
+  fixture = fixtures.SettingsGatewayTest()
+  fixture.setUp()
+  _, cp = ioniq_candidate()
+  fixture.context.value = AuthorityContext(True, cp, cp.as_reader().as_builder().to_bytes())
+  try:
+    yield fixture
+  finally:
+    fixture.doCleanups()
+
+
+def slider(fixture):
+  page = fixture.page('torque')
+  index = next(i for i, row in enumerate(page['rows']) if row['label'] == 'Highway Smoothing')
+  return page, index, page['rows'][index]
+
+
+def test_default_is_zero_percent_with_off_still_at_left(gateway):
+  _, _, row = slider(gateway)
+  assert (row['value'], row['defaultValue'], row['minimum'], row['maximum'], row['unit']) == ('0', '0', 0, 100, '%')
+  assert row['step'] == 1 and row['resetAvailable']
+  assert '0% is off' in row['reason'] and 'higher values add more smoothing' in row['reason']
+  assert read_gain(gateway.params) == 1
+  assert read_saved(gateway.params, KEY, 16)[0] is None
+
+
+@pytest.mark.parametrize(('saved', 'shown'), [(1., '100'), (3., '78'), (7., '33'), (10., '0')])
+def test_saved_effect_is_preserved_without_migration(gateway, saved, shown):
+  gateway.params.put(KEY, saved, block=True)
+  before = read_saved(gateway.params, KEY, 16)[0]
+  assert slider(gateway)[2]['value'] == shown
+  assert read_gain(gateway.params) == saved / 10
+  assert read_saved(gateway.params, KEY, 16)[0] == before
+
+
+@pytest.mark.parametrize(('strength', 'gain'), [(0, 1.), (50, .55), (100, .1)])
+def test_higher_strength_saves_more_smoothing_and_default_restores_zero(gateway, strength, gain):
+  page, index, _ = slider(gateway)
+  intent = gateway.gateway.preview(page['view'], index, 0, gateway.session, gateway.generation, value=strength)
+  assert gateway.gateway.confirm(intent['intent'], gateway.session, gateway.generation)
+  assert read_gain(gateway.params) == pytest.approx(gain)
+  assert slider(gateway)[2]['value'] == str(strength)
+  page, index, _ = slider(gateway)
+  intent = gateway.gateway.preview(page['view'], index, 0, gateway.session, gateway.generation, reset_default=True)
+  assert gateway.gateway.confirm(intent['intent'], gateway.session, gateway.generation)
+  assert read_gain(gateway.params) == pytest.approx(1.)
+  assert slider(gateway)[2]['value'] == '0'
+
+
+@pytest.mark.parametrize('value', [-1, 101, float('nan'), float('inf')])
+def test_invalid_strength_is_refused(gateway, value):
+  page, index, _ = slider(gateway)
+  with pytest.raises(SettingsChanged):
+    gateway.gateway.preview(page['view'], index, 0, gateway.session, gateway.generation, value=value)
+  assert read_saved(gateway.params, KEY, 16)[0] is None
+
+
+def test_stale_source_cannot_overwrite_a_newer_setting(gateway):
+  page, index, _ = slider(gateway)
+  intent = gateway.gateway.preview(page['view'], index, 0, gateway.session, gateway.generation, value=50)
+  gateway.params.put(KEY, 3., block=True)
+  try:
+    assert not gateway.gateway.confirm(intent['intent'], gateway.session, gateway.generation)
+  except SettingsChanged:
+    pass
+  assert read_gain(gateway.params) == .3
+
+
+def test_enrollment_then_galaxy_custom_strength_persists_across_startups(gateway):
+  from openpilot.starpilot.settings_retirement import retire_settings
+  assert gateway.params.get_default_value(KEY) == pytest.approx(10.)
+  retire_settings(gateway.params)
+  assert slider(gateway)[2]['value'] == '0'
+  assert read_gain(gateway.params) == pytest.approx(1.)
+  page, index, _ = slider(gateway)
+  intent = gateway.gateway.preview(page['view'], index, 0, gateway.session, gateway.generation, value=70)
+  assert gateway.gateway.confirm(intent['intent'], gateway.session, gateway.generation)
+  for _ in range(3):
+    retire_settings(gateway.params)
+    assert slider(gateway)[2]['value'] == '70'
+    assert read_gain(gateway.params) == pytest.approx(.37)

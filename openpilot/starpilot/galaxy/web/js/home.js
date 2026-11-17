@@ -1,3 +1,4 @@
+import { displayLocale } from "./localization.js"
 import { GxState } from "./state.js"
 import { GxNotice } from "./notice.js"
 import { LocalAccess } from "./local-access.js"
@@ -5,6 +6,7 @@ import { MonitorFeed } from "./monitor-feed.js"
 import { SoftwareStatusFeed } from "./software-status.js"
 import { ModelStatusFeed } from "./models.js"
 import { DriveStatsFeed } from "./drive-stats.js"
+import { WeatherVitals } from "./weather.js"
 
 // The six lightweight motifs follow the original Galaxy Personal Records row.
 const RECORD_ART = {
@@ -34,38 +36,49 @@ const driveDate = (start, end = null) => {
   if (start === null) return "Date unavailable"
   const date = new Date(start * 1000)
   if (!Number.isFinite(date.getTime())) return "Date unavailable"
-  const calendar = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" })
-  const clock = (value) => new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(value * 1000))
+  const calendar = new Intl.DateTimeFormat(displayLocale(), { month: "short", day: "numeric", year: "numeric" })
+  const clock = (value) => new Intl.DateTimeFormat(displayLocale(), { hour: "2-digit", minute: "2-digit" }).format(new Date(value * 1000))
   const day = calendar.format(date)
   const endDay = end !== null ? calendar.format(new Date(end * 1000)) : null
   return `${day} · ${clock(start)}${end !== null ? `–${endDay === day ? "" : endDay + " · "}${clock(end)}` : ""}`
 }
-const dayLabel = (date) => new Intl.DateTimeFormat(undefined, { timeZone: "UTC", weekday: "short" }).format(new Date(`${date}T00:00:00Z`))
+const dayLabel = (date) => new Intl.DateTimeFormat(displayLocale(), { timeZone: "UTC", weekday: "short" }).format(new Date(`${date}T00:00:00Z`))
 const recordDisplay = (record, isMetric) => record.value === null ? "Unavailable" :
   record.unit === "m" ? distance(record.value, isMetric) : record.unit === "s" ? duration(record.value) :
     record.unit === "days" || record.unit === "drives" ? counted(record.value, record.unit.slice(0, -1)) :
       `${record.value}${record.unit === "%" ? "%" : record.unit ? ` ${record.unit}` : ""}`
+
+
+export function modelArc(start, share) {
+  if (!(share > 0)) return ""
+  const point = (radius, percent) => {
+    const angle = percent * Math.PI / 50 - Math.PI / 2
+    return `${50 + radius * Math.cos(angle)},${50 + radius * Math.sin(angle)}`
+  }
+  const middle = start + share / 2, end = start + share
+  return `M${point(48, start)} A48,48 0 0 1 ${point(48, middle)} A48,48 0 0 1 ${point(48, end)} ` +
+    `L${point(32, end)} A32,32 0 0 0 ${point(32, middle)} A32,32 0 0 0 ${point(32, start)} Z`
+}
+const modelLabel = (value) => shown(value).replaceAll("Chestnut big", "Big")
 
 export function driveSummary(feed) {
   const data = feed.status === "ready" ? feed.data : null
   if (!data) return null
   const isMetric = data.isMetric
   const last = data.lastDrive
-  const analysisStatus = (drive) => {
-    const failure = data.analysis.failures?.find((item) => item.routeId === drive.routeId)
-    return { analysisLabel: failure?.retryStopped ? "Analysis paused" : failure ? "Retry scheduled" : "Analysis pending",
-      analysisError: failure?.reason || drive.reason || "" }
-  }
+  const analysisStatus = () => ({ analysisLabel: "Incomplete recording" })
   const maximum = Math.max(1, ...data.week.days.map((day) => day.distanceMeters ?? 0))
-  const models = data.models.slice(0, 3)
+  const models = data.models
   const modelTotal = models.reduce((sum, model) => sum + (model.distanceMeters ?? 0), 0)
   const colors = ["#5ec8c8", "#8b6cc5", "#d4a060"]
+  const modelColor = (index) => colors[index] || `hsl(${(index * 137.508) % 360} 55% 65%)`
   let offset = 0
-  const stops = models.map((model, index) => {
-    const next = offset + (modelTotal > 0 ? (model.distanceMeters ?? 0) / modelTotal * 100 : 0)
-    const stop = `${colors[index]} ${offset}% ${next}%`
-    offset = next
-    return stop
+  const recordedModels = models.map((model, index) => {
+    const share = modelTotal > 0 ? (model.distanceMeters ?? 0) / modelTotal * 100 : 0
+    const arc = modelArc(offset, share)
+    offset += share
+    return { index, name: modelLabel(model.name), distance: distance(model.distanceMeters, isMetric),
+      drives: model.drives, color: modelColor(index), share, shareLabel: `${share.toFixed(1)}%`, arc }
   })
   return {
     analysis: data.analysis,
@@ -73,7 +86,7 @@ export function driveSummary(feed) {
       distance: distance(last.distanceMeters, isMetric), duration: duration(last.durationSeconds), engaged: percent(last.engagedPercent),
       aol: percent(last.aolPercent), aolDuration: duration(last.aolSeconds),
       average: measure(last.distanceMeters === null || !(last.durationSeconds > 0) ? null : last.distanceMeters / last.durationSeconds * (isMetric ? 3.6 : 2.236936), isMetric ? " km/h" : " mph"),
-      model: shown(last.model), distracted: last.distractedMoments === null ? "Unavailable" : String(last.distractedMoments),
+      model: modelLabel(last.model), distracted: last.distractedMoments === null ? "Unavailable" : String(last.distractedMoments),
       unresponsive: last.unresponsiveMoments === null ? "Unavailable" : String(last.unresponsiveMoments) },
     totals: { distance: distance(data.totals.distanceMeters, isMetric), duration: hours(data.totals.durationSeconds),
       engaged: duration(data.totals.engagedSeconds), drives: data.totals.drives,
@@ -85,11 +98,9 @@ export function driveSummary(feed) {
         distance: distance(day.distanceMeters, isMetric), height: day.distanceMeters === null ? 0 : day.distanceMeters / maximum * 100 })) },
     recent: data.recentDrives.slice(0, 5).map((drive) => ({ ...analysisStatus(drive), routeId: drive.routeId, date: driveDate(drive.startTime, drive.endTime),
       complete: drive.complete, ignored: drive.ignored, distance: distance(drive.distanceMeters, isMetric),
-      duration: duration(drive.durationSeconds), engaged: percent(drive.engagedPercent), aol: percent(drive.aolPercent), model: shown(drive.model) })),
+      duration: duration(drive.durationSeconds), engaged: percent(drive.engagedPercent), aol: percent(drive.aolPercent), model: modelLabel(drive.model) })),
     records: data.records.map((record) => ({ id: record.id, label: record.label, display: recordDisplay(record, isMetric) })),
-    models: models.map((model, index) => ({ name: model.name, distance: distance(model.distanceMeters, isMetric),
-      drives: model.drives, color: colors[index] })),
-    modelStyle: modelTotal > 0 ? `background:conic-gradient(${stops.join(",")})` : "",
+    models: recordedModels,
   }
 }
 
@@ -103,14 +114,22 @@ export function homeSummary(monitor, model, software) {
       available: !!live,
       cpu: measure(live?.cpuPercent, "%"),
       memory: measure(live?.memory?.percent, "%"),
+      battery: measure(live?.batteryVoltage, " V", 1),
+      storageLabel: live?.deviceType === "tici" ? "Internal storage" : "Storage",
+      storageFree: live?.deviceType === "tici" ? measure(live?.storage?.freeGiB, " GiB", 1) : null,
       storage: live?.storage?.usedGiB != null && live?.storage?.totalGiB != null
         ? `${measure(live.storage.usedGiB, " GiB", 1)} / ${measure(live.storage.totalGiB, " GiB", 1)}` : "Unavailable",
-      observed: live ? new Date(live.sampledAt * 1000).toLocaleString() : "Unavailable",
+      recordingStorage: live?.deviceType === "tici" && live?.recordingStorage ? {
+        usage: live.recordingStorage.usedGiB != null && live.recordingStorage.totalGiB != null
+          ? `${measure(live.recordingStorage.usedGiB, " GiB", 1)} / ${measure(live.recordingStorage.totalGiB, " GiB", 1)}` : "Unavailable",
+        free: measure(live.recordingStorage.freeGiB, " GiB", 1),
+      } : null,
+      observed: live ? new Date(live.sampledAt * 1000).toLocaleString(displayLocale()) : "Unavailable",
     },
     model: {
       available: !!loaded,
       health: loaded ? shown(loaded.health).replaceAll("-", " ") : "Unavailable",
-      variant: loaded?.loadedId ? loaded.variant === "chestnut" ? "Chestnut big" : "Small" : "Identity unavailable",
+      variant: loaded?.loadedId ? loaded.variant === "chestnut" ? "Big" : "Small" : "Identity unavailable",
       fallback: loaded?.fallbackReason === "chestnut-run-stalled" ? "Chestnut output stopped; Small restarted for this drive" :
         loaded?.fallbackReason === "chestnut-load-failed" ? "Small model after Chestnut load failure" : null,
     },
@@ -126,10 +145,11 @@ export function homeSummary(monitor, model, software) {
 
 export const Home = {
   name: "Home",
-  components: { GxState, GxNotice, LocalAccess },
+  components: { GxState, GxNotice, LocalAccess, WeatherVitals },
   props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
     go: { type: Function, required: true } },
   data: () => ({
+    showAllModels: false, activeModel: 0,
     monitor: { snapshot: null, status: "idle", error: "" },
     model: { data: null, status: "idle", error: "" },
     software: { data: null, status: "idle", error: "" },
@@ -138,6 +158,8 @@ export const Home = {
   computed: {
     summary() { return homeSummary(this.monitor, this.model, this.software) },
     driving() { return driveSummary(this.drives) },
+    visibleModels() { return this.showAllModels ? this.driving?.models || [] : (this.driving?.models || []).slice(0, 6) },
+    selectedModel() { return this.driving?.models[this.activeModel] || this.driving?.models[0] || null },
   },
   created() {
     const revoked = () => { this.stopFeeds(); this.unauthorized() }
@@ -189,7 +211,7 @@ export const Home = {
           <p v-else-if="!driving.last">No saved drives yet.</p>
           <template v-else>
             <p class="gx-home__date">{{ driving.last.date }}</p>
-            <p v-if="!driving.last.complete" class="gx-home__subtle">{{ driving.last.analysisLabel }}{{ driving.last.analysisError ? ": " + driving.last.analysisError : "" }}</p>
+            <p v-if="!driving.last.complete" class="gx-home__subtle">{{ driving.last.analysisLabel }}</p>
             <div class="gx-home__four"><div><strong>{{ driving.last.distance }}</strong><span>distance</span></div>
               <div><strong>{{ driving.last.duration }}</strong><span>duration</span></div>
               <div><strong>{{ driving.last.engaged }}</strong><span>engaged</span></div>
@@ -224,15 +246,12 @@ export const Home = {
               <div v-for="record in driving.records" :key="record.id" class="gx-home__record"><span class="gx-home__record-art" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path v-for="(path, index) in recordArt(record.id)" :key="index" :d="path" /></svg></span><span class="gx-home__record-label">{{ record.label }}</span><strong>{{ record.display }}</strong></div>
             </section>
           </div>
-          <GxNotice tone="danger" v-if="driving.analysis.failed">{{ driving.analysis.failed }} drive analysis failure{{ driving.analysis.failed === 1 ? '' : 's' }}{{ driving.analysis.quarantined ? ' · automatic retries paused for ' + driving.analysis.quarantined : '' }}.
-            <div v-for="failure in driving.analysis.failures" :key="failure.routeId">{{ failure.routeId }}: {{ failure.reason }}</div>
-          </GxNotice>
           <section class="gx-card gx-home__recent"><div class="gx-section__header"><i class="bi bi-clock-history"></i><h2 class="gx-section__title">Recent Drives</h2></div>
             <p v-if="!driving.recent.length" class="gx-home__subtle">No saved drives yet.</p>
             <div v-for="drive in driving.recent" :key="drive.routeId" class="gx-home__drive" :class="{ 'is-ignored': drive.ignored }">
               <div><strong>{{ drive.date }}</strong><small>{{ drive.model }}</small></div>
               <div><strong>{{ drive.complete ? drive.distance : drive.analysisLabel }}</strong><small>{{ drive.duration }} · {{ drive.engaged }} engaged</small><small>{{ drive.aol }} AOL steering only</small></div>
-              <div><small>{{ drive.ignored ? 'Excluded from totals' : drive.complete ? 'Included in totals' : drive.analysisError || drive.analysisLabel }}</small>
+              <div><small>{{ drive.ignored ? 'Excluded from totals' : drive.complete ? 'Included in totals' : drive.analysisLabel }}</small>
                 <button type="button" class="gx-home__link" :inert="drives.busy" :aria-busy="drives.busy || undefined" @click="ignoreDrive(drive)">
                   {{ drive.ignored ? 'Include in stats' : 'Ignore drive stats' }}</button></div>
             </div>
@@ -240,10 +259,41 @@ export const Home = {
           </section>
           <section class="gx-card gx-home__models"><div class="gx-section__header"><i class="bi bi-cpu"></i><h2 class="gx-section__title">Recorded Models</h2></div>
             <p v-if="!driving.models.length" class="gx-home__subtle">Recorded models will appear as drives are saved.</p>
-            <div v-else class="gx-home__model-layout"><div class="gx-home__model-donut" :style="driving.modelStyle"></div>
-              <div><div v-for="model in driving.models" :key="model.name" class="gx-home__model-row">
-                <span class="gx-home__swatch" :style="{ background: model.color }"></span>
-                <div><strong>{{ model.name }}</strong><small>{{ counted(model.drives, "drive") }} · {{ model.distance }}</small></div></div></div></div>
+            <div v-else class="gx-home__model-layout">
+              <div class="gx-home__model-chart">
+                <div class="gx-home__model-ring">
+                  <svg viewBox="0 0 100 100" role="group" aria-label="Recorded model distance. Hover, tap or focus a segment for details.">
+                    <circle cx="50" cy="50" r="40" fill="none" stroke="var(--outline)" stroke-width="16" />
+                    <template v-for="model in driving.models" :key="model.index">
+                      <path v-if="model.share > 0" :d="model.arc" :fill="model.color" tabindex="0" role="button"
+                        :aria-label="model.name + ': ' + model.shareLabel + ', ' + model.distance + ', ' + counted(model.drives, 'drive')"
+                        :aria-pressed="selectedModel?.index === model.index" :class="{ 'is-selected': selectedModel?.index === model.index }"
+                        @pointerenter="activeModel = model.index" @focus="activeModel = model.index" @click="activeModel = model.index"
+                        @keydown.enter.prevent="activeModel = model.index" @keydown.space.prevent="activeModel = model.index">
+                        <title>{{ model.name }} · {{ model.shareLabel }} · {{ model.distance }}</title>
+                      </path>
+                    </template>
+                  </svg>
+                  <div class="gx-home__model-center" aria-hidden="true"><strong>{{ selectedModel?.shareLabel }}</strong><small>of distance</small></div>
+                </div>
+                <div class="gx-home__model-detail" aria-live="polite"><strong>{{ selectedModel?.name }}</strong>
+                  <small>{{ counted(selectedModel?.drives, "drive") }} · {{ selectedModel?.distance }}</small></div>
+                <small class="gx-home__subtle">Hover or tap a segment</small>
+              </div>
+              <div class="gx-home__model-legend">
+                <div class="gx-home__model-list" :class="{ 'is-expanded': showAllModels }">
+                  <button v-for="model in visibleModels" :key="model.index" type="button" class="gx-home__model-row"
+                    :aria-pressed="selectedModel?.index === model.index" @pointerenter="activeModel = model.index"
+                    @focus="activeModel = model.index" @click="activeModel = model.index">
+                    <span class="gx-home__swatch" :style="{ background: model.color }"></span>
+                    <span><strong>{{ model.name }}</strong><small>{{ counted(model.drives, "drive") }} · {{ model.distance }}</small></span>
+                    <small class="gx-home__model-share">{{ model.shareLabel }}</small>
+                  </button>
+                </div>
+                <button v-if="driving.models.length > 6" type="button" class="gx-home__link" :aria-expanded="showAllModels"
+                  @click="showAllModels = !showAllModels">{{ showAllModels ? 'Show top 6' : 'Show all ' + driving.models.length + ' models' }}</button>
+              </div>
+            </div>
           </section>
         </template>
         <div class="gx-home__section-title"><span></span>Your device</div>
@@ -254,7 +304,10 @@ export const Home = {
             <p v-if="!summary.system.available" role="status">Live system status unavailable.</p>
             <template v-else><div class="gx-home__metrics"><div><strong>{{ summary.system.cpu }}</strong><span>CPU</span></div>
               <div><strong>{{ summary.system.memory }}</strong><span>Memory</span></div></div>
-              <p>Storage: {{ summary.system.storage }}</p><small>Sampled {{ summary.system.observed }}</small></template>
+              <p>12 V battery: <strong>{{ summary.system.battery }}</strong></p>
+              <p>{{ summary.system.storageLabel }}: {{ summary.system.storage }}<span v-if="summary.system.storageFree !== null"> · {{ summary.system.storageFree }} free</span></p>
+              <p v-if="summary.system.recordingStorage">Recording drive: {{ summary.system.recordingStorage.usage }} · {{ summary.system.recordingStorage.free }} free</p><small>Sampled {{ summary.system.observed }}</small></template>
+            <WeatherVitals :metric="drives.data?.isMetric === true" :mode="mode" :unauthorized="unauthorized" />
             <button type="button" class="gx-home__link" @click="go('/logs/monitor')">Open System Monitor <i class="bi bi-arrow-right"></i></button>
           </section>
           <section class="gx-card gx-home__card">

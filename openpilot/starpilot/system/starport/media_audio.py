@@ -5,7 +5,7 @@ by messages the session loop already reads, so nothing here waits on the car and
 keeps its timing: open → setup (PCM) → audio focus → start → timestamped PCM with ACK credit.
 
 PCM comes from the Spotify supervisor's real-time pipe (48 kHz, 16-bit, stereo), which runs on the
-system clock and carries silence while paused. Focus is requested when sound starts and released
+system clock and carries silence while paused; cars that only take AAC-LC get it encoded here. Focus is requested when sound starts and released
 after a stretch of silence, the way a phone treats a paused player. If the car takes focus for good
 (the driver picks the radio), the selected source is paused instead of fighting for the speakers.
 """
@@ -13,12 +13,15 @@ from __future__ import annotations
 
 import array
 import errno
+import fcntl
 import os
 import stat
 import struct
+import termios
 import threading
 import time
 from collections.abc import Callable
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +32,7 @@ MSG_CHANNEL_OPEN_RESPONSE = 0x08
 AUDIO_FOCUS_REQUEST = 0x12
 AUDIO_FOCUS_NOTIFICATION = 0x13
 AV_MEDIA_WITH_TIMESTAMP = 0x0000
+AV_MEDIA_CODEC_CONFIG = 0x0001
 AV_SETUP_REQUEST = 0x8000
 AV_START_INDICATION = 0x8001
 AV_STOP_INDICATION = 0x8002
@@ -36,6 +40,7 @@ AV_SETUP_RESPONSE = 0x8003
 AV_MEDIA_ACK = 0x8004
 
 CODEC_PCM = 1
+CODEC_AAC_LC = 2
 AUDIO_TYPE_MEDIA = 3
 SETUP_STATUS_READY = 2
 FOCUS_GAIN, FOCUS_RELEASE = 1, 4
@@ -49,23 +54,67 @@ MIN_CHUNK = BYTES_PER_SECOND // 50          # 20 ms
 MAX_CHUNK = 32768                           # ~170 ms, so a one-packet ACK window still keeps up
 BUFFER_PLAYING = BYTES_PER_SECOND           # cap while streaming; older audio is dropped, never delayed further
 BUFFER_IDLE = BYTES_PER_SECOND // 2         # pre-roll kept while asking for focus
+PIPE_SIZE = 1048576                         # ~5.5 s, so a late read does not make the audio server drop sound
+PIPE_PAGE = 4096
 MAX_WINDOW = 16
 SILENCE_LEVEL = 16                          # peak sample magnitude treated as silence
 RELEASE_AFTER = 8.0                         # seconds of silence before giving the speakers back
 STEP_TIMEOUT = 3.0
 ACK_STALL = 3.0
 RETRY_AFTER = 10.0
+AAC_FRAME_BYTES = 1024 * FRAME_BYTES
+AAC_PER_PASS = 8
+AAC_BITRATE = 192000
 
 
-def media_channel(channels: list[dict]) -> tuple[int, int] | None:
-  """(channel id, configuration index) of the head unit's PCM media channel at 48 kHz/16-bit/stereo."""
-  for channel in channels:
-    if channel.get('media_type') != CODEC_PCM or channel.get('audio_type') != AUDIO_TYPE_MEDIA:
-      continue
-    for index, config in enumerate(channel.get('audio_configs', [])):
-      if (one(config, 1), one(config, 2), one(config, 3)) == (RATE, BITS, CHANNELS):
-        return int(channel['id']), index
+def audio_format(config: dict) -> tuple:
+  return one(config, 1), one(config, 2), one(config, 3)
+
+
+def media_channel(channels: list[dict]) -> tuple[int, int, int] | None:
+  """(channel id, configuration index, codec) of the head unit's 48 kHz/16-bit/stereo media channel, PCM first."""
+  for codec in (CODEC_PCM, CODEC_AAC_LC):
+    for channel in channels:
+      if channel.get('media_type') != codec or channel.get('audio_type') != AUDIO_TYPE_MEDIA:
+        continue
+      for index, config in enumerate(channel.get('audio_configs', [])):
+        if audio_format(config) == (RATE, BITS, CHANNELS):
+          return int(channel['id']), index, codec
   return None
+
+
+def offered_audio(channels: list[dict]) -> list[dict]:
+  return [{'id': c.get('id'), 'media_type': c.get('media_type'), 'audio_type': c.get('audio_type'),
+           'configs': [list(audio_format(config)) for config in c.get('audio_configs', [])]}
+          for c in channels if 'audio_type' in c]
+
+
+class AacEncoder:
+  """48 kHz stereo s16 PCM to raw AAC-LC access units (no ADTS)."""
+
+  def __init__(self):
+    from openpilot.starpilot.system.starport.encoder import import_av
+    import numpy as np
+    av = import_av('aac')
+    self.av, self.np = av, np
+    codec = av.CodecContext.create('aac', 'w')
+    codec.sample_rate = RATE
+    codec.layout = 'stereo'
+    codec.format = 'fltp'
+    codec.bit_rate = AAC_BITRATE
+    codec.time_base = Fraction(1, RATE)
+    codec.open()
+    self.codec = codec
+    self.pts = 0
+    self.config = bytes(codec.extradata or b'')[:2]  # AudioSpecificConfig
+
+  def encode(self, pcm: bytes) -> list[bytes]:
+    np = self.np
+    samples = np.frombuffer(pcm, dtype='<i2').reshape(-1, CHANNELS).T.astype(np.float32) / 32768.0
+    frame = self.av.AudioFrame.from_ndarray(np.ascontiguousarray(samples), format='fltp', layout='stereo')
+    frame.sample_rate, frame.pts = RATE, self.pts
+    self.pts += samples.shape[1]
+    return [bytes(packet) for packet in self.codec.encode(frame)]
 
 
 class PipeSource:
@@ -77,6 +126,8 @@ class PipeSource:
     self.checked = 0.0
     self.active_value = False
     self.generation = None
+    self.capacity = 65536
+    self.overruns = 0
 
   def active(self, now: float) -> bool:
     if now - self.checked >= 1.0:
@@ -100,6 +151,9 @@ class PipeSource:
         self.fd = os.open(self.path, os.O_RDONLY | os.O_NONBLOCK)
       except OSError:
         return b''
+      self.capacity = self._grow(self.fd)
+    elif self._queued(self.fd) >= self.capacity - PIPE_PAGE:
+      self.overruns += 1  # full between reads: the audio server was discarding sound
     chunks, total = [], 0
     while total < limit:
       try:
@@ -115,6 +169,24 @@ class PipeSource:
       total += len(data)
     return b''.join(chunks)
 
+  @staticmethod
+  def _grow(fd: int) -> int:
+    try:
+      fcntl.fcntl(fd, fcntl.F_SETPIPE_SZ, PIPE_SIZE)
+    except (AttributeError, OSError):
+      pass
+    try:
+      return fcntl.fcntl(fd, fcntl.F_GETPIPE_SZ)
+    except (AttributeError, OSError):
+      return 65536
+
+  @staticmethod
+  def _queued(fd: int) -> int:
+    try:
+      return struct.unpack('i', fcntl.ioctl(fd, termios.FIONREAD, b'\0\0\0\0'))[0]
+    except OSError:
+      return 0
+
   def close(self) -> None:
     if self.fd is not None:
       os.close(self.fd)
@@ -126,11 +198,11 @@ def music_routed() -> bool:
   return paths.enabled() and preferences.load().output == 'starport'
 
 
-def music_control(action: str) -> None:
+def music_control(action: str, args: dict | None = None) -> None:
   def worker():
     try:
       from openpilot.starpilot.galaxy.spotify_setup import SpotifyClient
-      SpotifyClient().call('control', action=action, args={})
+      SpotifyClient().call('control', action=action, args=args or {})
     except Exception:
       pass
   threading.Thread(target=worker, name=f'aa_music_{action}', daemon=True).start()
@@ -142,8 +214,12 @@ def pause_music() -> None:
 
 class MediaAudio:
   def __init__(self, session, channel: int, config_index: int, source, log: Callable[..., None],
-               pause: Callable[[], None] = pause_music, clock: Callable[[], float] = time.monotonic):
+               pause: Callable[[], None] = pause_music, clock: Callable[[], float] = time.monotonic,
+               codec: int = CODEC_PCM, make_encoder: Callable[[], Any] = AacEncoder):
     self.session, self.channel, self.config_index = session, channel, config_index
+    self.codec, self.make_encoder = codec, make_encoder
+    self.encoder: Any = None
+    self.config_slack = 0
     self.source, self.log, self.pause, self.clock = source, log, pause, clock
     self.state = 'closed'  # closed, opening, setup, ready, focus_wait, playing, suspended, unavailable
     self.deadline = 0.0
@@ -157,6 +233,8 @@ class MediaAudio:
     self.base_us = 0
     self.last_sound = -1e9
     self.car_paused = False
+    self.last_service: float | None = None
+    self.max_gap = 0.0
     self.source_generation = getattr(source, 'generation', None)
     self.stats: dict[str, Any] = {'chunks_sent': 0, 'acked': 0, 'dropped_ms': 0, 'focus': None}
     self.track_info = None  # MediaStatus for the car's own displays, when the head unit offers it
@@ -164,12 +242,15 @@ class MediaAudio:
   @classmethod
   def create(cls, session, log, *, source=None, routed: Callable[[], bool] = music_routed, **kwargs):
     found = media_channel(session.channels)
+    log('media_audio_offered', channels=offered_audio(session.channels),
+        chosen=None if found is None else {'channel': found[0], 'config': found[1], 'codec': found[2]})
     if found is None:
       return None
     if source is None:
       from openpilot.starpilot.soloist.backend import starport_pipe
       source = PipeSource(starport_pipe(), routed)
-    return cls(session, *found, source, log, **kwargs)
+    channel, index, codec = found
+    return cls(session, channel, index, source, log, codec=codec, **kwargs)
 
   def _event(self, name: str, **values) -> None:
     self.log(f'media_audio_{name}', channel=self.channel, **values)
@@ -185,6 +266,9 @@ class MediaAudio:
     if self.track_info is not None:
       self.track_info.service()
     now = self.clock()
+    if self.state == 'playing' and self.last_service is not None:
+      self.max_gap = max(self.max_gap, now - self.last_service)
+    self.last_service = now
     active = self.source.active(now)
     if not active:
       self.buffer.clear()
@@ -210,6 +294,8 @@ class MediaAudio:
       self.session.send(self.channel, MSG_CHANNEL_OPEN_REQUEST, field(1, 0) + field(2, self.channel), control=True)
       self._set('opening', STEP_TIMEOUT)
     elif self.state == 'ready' and sounding and not self.car_paused and now >= self.retry_at:
+      if self.codec == CODEC_AAC_LC:
+        self.encoder = self.make_encoder()
       self.session.send(0, AUDIO_FOCUS_REQUEST, field(1, FOCUS_GAIN))
       self._set('focus_wait', STEP_TIMEOUT)
     elif self.state == 'playing':
@@ -238,19 +324,34 @@ class MediaAudio:
       self._event('ack_stall', pending=self.unacked)
       self._give_back('ack_stall')
       return
+    if self.codec == CODEC_AAC_LC:
+      self._send_aac(now)
+      return
     sent = 0
     while self.unacked < self.window and len(self.buffer) >= MIN_CHUNK and sent < 2:
       size = min(len(self.buffer), MAX_CHUNK)
       size -= size % FRAME_BYTES
       chunk = bytes(self.buffer[:size])
       del self.buffer[:size]
-      timestamp = self.base_us + self.frames_sent * 1_000_000 // RATE
-      self.session.send(self.channel, AV_MEDIA_WITH_TIMESTAMP, struct.pack('>Q', timestamp) + chunk)
-      self.frames_sent += size // FRAME_BYTES
-      self.unacked += 1
-      self.pending.append(now)
-      self.stats['chunks_sent'] += 1
+      self._emit(now, chunk, size // FRAME_BYTES)
       sent += 1
+
+  def _send_aac(self, now: float) -> None:
+    sent = 0
+    while self.unacked < self.window and len(self.buffer) >= AAC_FRAME_BYTES and sent < AAC_PER_PASS:
+      pcm = bytes(self.buffer[:AAC_FRAME_BYTES])
+      del self.buffer[:AAC_FRAME_BYTES]
+      for unit in self.encoder.encode(pcm):
+        self._emit(now, unit, AAC_FRAME_BYTES // FRAME_BYTES)
+        sent += 1
+
+  def _emit(self, now: float, payload: bytes, frames: int) -> None:
+    timestamp = self.base_us + self.frames_sent * 1_000_000 // RATE
+    self.session.send(self.channel, AV_MEDIA_WITH_TIMESTAMP, struct.pack('>Q', timestamp) + payload)
+    self.frames_sent += frames
+    self.unacked += 1
+    self.pending.append(now)
+    self.stats['chunks_sent'] += 1
 
   def _timeout(self, now: float) -> None:
     state = self.state
@@ -285,7 +386,7 @@ class MediaAudio:
         self._event('open_rejected', status=signed(one(fields, 1)))
         self._set('unavailable')
       else:
-        self.session.send(self.channel, AV_SETUP_REQUEST, field(1, CODEC_PCM))
+        self.session.send(self.channel, AV_SETUP_REQUEST, field(1, self.codec))
         self._set('setup', STEP_TIMEOUT)
     elif kind == AV_SETUP_RESPONSE and self.state == 'setup':
       window, configs = int(one(fields, 2, 0) or 0), fields.get(3, [])
@@ -298,6 +399,10 @@ class MediaAudio:
         self._set('ready')
     elif kind == AV_MEDIA_ACK:
       count = int(one(fields, 2, 0) or 0)
+      excess = count - self.unacked
+      if one(fields, 1) == self.session_id and 0 < excess <= self.config_slack:
+        self.config_slack -= excess  # the codec config was acknowledged like a frame
+        count -= excess
       if one(fields, 1) == self.session_id and 0 < count <= self.unacked:
         self.unacked -= count
         del self.pending[:count]
@@ -309,9 +414,12 @@ class MediaAudio:
     self._event('focus', focus=focus, unsolicited=unsolicited)
     if focus in GAINED and self.state in ('focus_wait', 'suspended'):
       self.session_id += 1
-      self.unacked, self.pending, self.frames_sent = 0, [], 0
+      self.unacked, self.pending, self.frames_sent, self.config_slack = 0, [], 0, 0
       self.base_us = time.monotonic_ns() // 1000
       self.session.send(self.channel, AV_START_INDICATION, field(1, self.session_id) + field(2, self.config_index))
+      if self.encoder is not None and self.encoder.config:
+        self.session.send(self.channel, AV_MEDIA_CODEC_CONFIG, self.encoder.config)
+        self.config_slack = 1
       self._set('playing')
     elif focus == STATE_LOSS_TRANSIENT and self.state == 'playing':
       self.session.send(self.channel, AV_STOP_INDICATION)
@@ -325,7 +433,11 @@ class MediaAudio:
       self.pause()
 
   def status(self) -> dict:
-    return {'state': self.state, 'window': self.window, 'pending': self.unacked, **self.stats}
+    return {'state': self.state, 'window': self.window, 'pending': self.unacked, **self.stats,
+            'pipe_overruns': getattr(self.source, 'overruns', 0), 'max_service_gap_ms': round(self.max_gap * 1000)}
+
+  def reset_peaks(self) -> None:
+    self.max_gap = 0.0
 
   def close(self) -> None:
     self.source.close()

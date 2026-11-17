@@ -4,18 +4,31 @@ Rows and their availability still come from the canonical feature owners.
 This presentation catalog supplies the purpose before any genuine prerequisite.
 """
 from openpilot.starpilot.ui.long_profile_feature import CATEGORY_HELP, VALUE_HELP
+from openpilot.starpilot.ui.feature_settings_state import SLC_OFFSET_KEYS
 
 DESCRIPTIONS = {
+  'GreenLightAlert': 'Chimes once when the model’s traffic-light stop prediction clears while you remain stopped.',
+  'LeadDepartingAlert': 'Chimes once when the tracked vehicle ahead starts moving while you remain stopped.',
+  'DriveModeProfiles': 'Matches acceleration and deceleration profiles to the vehicle’s Eco, Normal or Sport drive mode.',
+  'DriveModeAcceleration': 'Matches the acceleration profile to the vehicle’s drive mode.',
+  'DriveModeDeceleration': 'Matches the deceleration profile to the vehicle’s drive mode.',
+  'AggressiveCoolingEnabled': 'Uses a stronger fan curve on supported devices to reduce temperature at the cost of fan noise.',
+  'HighwaySmoothingLevel': 'Reduces small steering corrections on highways above about 40 mph. 0% is off; higher values add more smoothing.',
+  'FordRearFogIndicator': 'Shows a movable amber telltale while the Ford rear fog light is on, using read-only vehicle status.',
+  'DisengageOnAccelerator': 'When enabled, pressing the accelerator pedal will disengage openpilot.',
+  'ReduceMotion': 'Reduces interface animations for a steadier display.',
   'IsMetric': 'On displays speed and distance in kilometers; Off uses miles. Saved speed-limit offsets keep their physical values.',
   'IsRhdDetected': 'Sets the initial steering-wheel side used by driver monitoring. Applies next drive; automatic side detection continues.',
-  'FordPrefSteerAngleCurvature': 'Uses steering pinion angle instead of yaw rate to estimate Ford steering curvature. Applies at the next vehicle startup.',
   'lane_change:turn_signal_guidance': 'Uses your turn signal to help the model choose a turning path at intersections.',
-  'AlphaLongitudinalEnabled': ('Requests StarPilot speed control instead of factory ACC. May disable Automatic Emergency Braking. ' +
-                              'Applies after the next startup; exact vehicle takeover checks remain required.'),
+  'AlphaLongitudinalEnabled': ('Let StarPilot control acceleration and braking instead of factory ACC. ' +
+                              'Takes effect next drive. May disable factory Automatic Emergency Braking.'),
   'lane_change:enabled': 'Enables lane-change assistance after you signal. With Automatic Lane Changes off, give the wheel a nudge to begin.',
   'lane_change:pace': 'Sets how quickly steering moves into the adjacent lane. Higher values change lanes more quickly; lower values make steering gentler.',
   'lane_change:speed': 'Sets the lowest speed at which lane-change assistance can begin.',
   'lane_change:one': 'Allows one assisted lane change until you release the turn signal.',
+  'lane_change:require_cruise': ('Limits nudgeless lane changes to when factory cruise or openpilot speed control is engaged. ' +
+    'With cruise off, use a wheel nudge. If cruise engages after signaling, release and reapply the signal. ' +
+    'Off also allows automatic changes during lateral-only driving; lane and blindspot checks still apply.'),
   'lane_change:auto': 'Starts a lane change after the signal delay without a steering nudge, when the adjacent lane and blind spot are clear.',
   'lane_change:delay': 'Sets the waiting time after signaling before an automatic lane change can begin.',
   'lane_change:width': 'Sets the minimum detected width of the adjacent lane for an automatic lane change.',
@@ -35,7 +48,8 @@ DESCRIPTIONS = {
   'NostalgiaMode': 'Lets the Ioniq 5 or Ioniq 6 left paddle pause acceleration and braking while Always On Lateral keeps steering.',
   'TurnAssist': 'Uses steering-angle feedback to assist rolling low-speed turns above the vehicle minimum steering speed.',
   'LateralControllerSelection': 'Chooses the stock steering controller or the vehicle-specific StarPilot controller.',
-  'ForceAutoTuneOff': 'StarPilot’s FLM tuning will attempt to automatically correct torque profiles as you drive.',
+  'ForceAutoTuneOff': ('StarPilot’s FLM tuning will attempt to automatically correct torque profiles as you drive. ' +
+                       'On allows automatic learning; Off disables it. Nonzero manual FLM overrides pause Auto Learn.'),
   'torque_prepare_firestar': 'Prepares steering settings for a tuning-request recording. Turning it off restores the previous settings.',
   'SteerLatAccel': 'Sets the legacy lateral-acceleration-to-torque conversion. Review the vehicle-specific tuning profile before applying it.',
   'SteerFriction': 'Sets legacy steering friction compensation. Review the vehicle-specific tuning profile before applying it.',
@@ -43,7 +57,7 @@ DESCRIPTIONS = {
   'CustomCruise': 'Sets how much a short cruise-button press changes the set speed.',
   'CustomCruiseLong': 'Sets how much holding a cruise button changes the set speed.',
   'ReverseCruise': 'Swaps the Toyota short-press and held-press cruise-speed increments.',
-  'ForceStops': 'Commits to stops detected by the driving model. Press the accelerator to continue.',
+  'ForceStops': 'Improves stopping behavior at traffic lights and enables automatic stopping at detected stop signs. Press the accelerator to continue.',
   'ForceStopDistanceOffset': 'Moves the planned stopping point. Positive values stop farther forward; negative values stop earlier.',
   'LeadApproachBuffer': 'Gradually adds following distance when approaching a slower or braking lead vehicle.',
   'ExperimentalSpeedNudge': ('Gently recovers toward set speed when Experimental mode hesitates on a clear road. ' +
@@ -51,6 +65,7 @@ DESCRIPTIONS = {
   'FasterLeadTakeoff': ('Improves launches from a stop and responds sooner when a lead starts moving. ' +
                         'Selected acceleration profiles, stop detection and vehicle limits still apply.'),
   'CustomPersonalities': 'Uses your following-time and jerk settings for the selected driving personality.',
+  'profile:stopped_gap': 'Adds this distance to the following gap behind a stopped lead vehicle.',
   'profile:global_acceleration': 'Chooses the acceleration curve used by personalities set to Selected Profile.',
   'profile:global_braking': 'Chooses the braking response used by personalities set to Selected Profile.',
   'reset_profiles': 'Restores the default acceleration, braking and following curves and presets.',
@@ -58,19 +73,29 @@ DESCRIPTIONS = {
   'CurveSpeedControllerNoLead': 'Pauses curve-speed adjustments while following a lead vehicle.',
   'ShowCSCStatus': 'Shows when Curve Speed Controller is adjusting speed on the driving screen.',
   'curve_reset': 'Deletes saved cornering learning so Curve Speed Controller can learn your preferences again.',
-  'SpeedLimitController': 'Adjusts the set speed to accepted speed limits using your source priority and offsets.',
+  'SpeedLimitController': 'Follows accepted limits plus offsets up to SET speed. Missing data uses the previous accepted limit.',
+  'SLCOnEngage': ('Starts software cruise SET at the SLC limit plus offset. ' +
+                  'A limit accepted this session remains available during data gaps. Previous-drive history does not initialize SET. ' +
+                  'RES restores the previous SET.'),
+  'SLCOverrideMode': ('Cruise uses this target when you lift off the accelerator. ' +
+                      'Holding your speed uses the highest speed you reached, up to SET.'),
+  'SLCWheelOverride': 'Press + to raise SET past the adjusted limit and use your new SET speed.',
   'ShowSpeedLimits': 'Shows recognized speed-limit signs on the driving screen.',
-  'SLCConfirmation': 'Auto adopts new limits immediately. With Automatic adoption off, + accepts and − declines within 10 seconds.',
+  'SLCConfirmation': ('Off adopts new limits automatically. Both, Higher only, and Lower only prompt relative to the last accepted limit. ' +
+                      '+ accepts and − declines within 30 seconds.'),
+  'SLCAdvanceHigherSeconds': ('Offers higher mapped limits early using road distance and current speed. ' +
+                             'Existing adoption and confirmation settings still apply.'),
+  'SLCAdvanceLowerSeconds': ('Offers lower mapped limits early using road distance and current speed. ' +
+                            'Existing adoption and confirmation settings still apply.'),
   'SLCPriority1': 'Chooses the first source checked for a fresh speed limit.',
   'SLCPriority2': 'Chooses the source used when the primary source has no fresh speed limit.',
-  'SLCFallback': 'Keeps the previously accepted speed limit when sources are unavailable, until another limit is accepted.',
-  'slc_adopt': 'Keeps the current speed-limit offset schedule fixed when display units change.',
+  'SLCPriority3': 'Chooses an optional third source when neither earlier source has a fresh speed limit.',
   'slc_reset': 'Resets saved speed-limit offsets while retaining valid configured speed ranges.',
+  'reset_calibration': 'Clears saved camera and steering calibration. The device recalibrates on the next drive.',
   'reset_driver_monitoring': 'Clear saved wheel-side detection. Automatic detection restarts on the next drive.',
   'AlwaysAllowUploads': 'Allows queued full logs and videos to upload over metered networks. This uses mobile data.',
   'UseVOACC': ('Use vision-only adaptive cruise control instead of radar-assisted lead detection. ' +
                'Requires StarPilot longitudinal control. Applies next drive; radar faults and safety checks remain active.'),
-  'ToyotaRadarMode': 'Chooses the supported Toyota front radar configuration, including the optional ARS510 retrofit.',
   'ToyotaAutoHold': ('Holds the brakes after you press the brake for over one second at a complete stop ' +
     'with cruise main on and cruise disengaged. Press the accelerator to release.'),
   'GMPedalLongitudinal': 'Uses a detected compatible pedal interceptor for StarPilot acceleration control.',
@@ -82,19 +107,25 @@ DESCRIPTIONS = {
   'GMLongitudinalTune': 'Selects the supported vehicle speed-control response tune.',
   'TruckTuning': 'Softens small acceleration requests, reduces grade correction and smooths light braking on supported GM trucks.',
   'EVTuning': 'Selects EV acceleration curves for inherited acceleration presets.',
-  'FordLateralMode': 'Chooses the native Ford steering controller or the supported BluePilot angle controller.',
   'TeslaAOLScreenTap': 'Lets a three-finger tap on a supported Tesla screen toggle Always On Lateral.',
-  'TeslaAOLDisengageOnBrake': 'Disarms screen-tap Always On Lateral when you press the brake.',
+  'TeslaAOLDisengageOnBrake': 'Disarms Tesla Always On Lateral when you press the brake, with either harness.',
   'RemoteStartBootsComma': 'Wakes comma during GM remote start.',
   'HKGRemoteStartBootsComma': 'Wakes comma during Hyundai, Kia or Genesis remote climate operation.',
   'IgnoreIgnitionLine': 'Uses GM CAN ignition instead of the harness ignition signal.',
+  'heading:starport': 'Settings for connecting Android Auto to the car through StarPort.',
+  'StarPortNewSetup': 'Shows the guided StarPort setup with a live checklist instead of the classic setup screens.',
+  'StarPortAllowHevc': 'Lets a car that offers only H.265 video receive H.265; a car with an H.264 mode keeps H.264.',
+  'StarPortKeyframeTest': 'Sends every H.265 frame as a keyframe and logs the car\'s acknowledgments, to diagnose H.265-only cars.',
+  'StarPortTallHevc': 'Uses the car\'s 1080x1920 H.265 screen mode instead of 720x1280, to diagnose H.265-only cars. Needs Allow H.265 video on.',
+  'StarPortHeadUnitExperiments': 'Shows experimental fixes for specific cars and dongles, each with its own switch. Off is the standard connection.',
+  'StarPortDedicatedWifi': "Joins the car's Wi-Fi on a second interface so the comma stays on its home Wi-Fi or phone hotspot.",
   'TeslaWakeOnCAN': 'Wakes comma when the Tesla wakes up, before you press the brake.',
   'RadarRecoveryAlert': 'Play a chime and show a brief message when a radar fault clears. You must re-engage manually.',
   'CameraView': 'Chooses the camera view shown on the driving screen.',
   'DeveloperSidebar': 'Shows live developer metrics on the right of the Big driving screen. Off gives that space back to the road view.',
   'DriverCamera': 'Shows the driver camera while reversing.',
   'StockConfidenceBallWidget': 'Uses StarPilot driving widgets in place of the stock confidence ball.',
-  'HidePersonalityAlerts': 'Hides the alert shown when the driving personality changes.',
+  'HidePersonalityAlerts': 'Hides the alert shown when the driving personality changes on the comma and Android Auto.',
   'ShowBrakeStatus': 'Colors the steering wheel to show braking and acceleration.',
   'HideLeadMarker': 'Shows the lead-vehicle indicator on the driving screen.',
   'LeadInfo': 'Shows the lead vehicle distance or speed beside its indicator.',
@@ -107,6 +138,9 @@ DESCRIPTIONS = {
   'ScreenTimeoutOnroad': 'Sets the wait after interaction before returning to the driving view or turning off the screen if configured.',
   'KeepScreenOnGpuLoading': 'Keeps the driving screen visible while an eGPU model loads. Manual Screen Off still works.',
   'TurnOffCommaScreen': 'Pauses comma UI rendering to reduce CPU and GPU use. Tap once to wake the screen.',
+  'LoudBlindspotAlert': 'Uses the soft-warning sound when a lane change is blocked by a detected blind-spot vehicle.',
+  'LoudBlindspotAlertWhenDisengaged': ('Warns when signaling toward a detected blind-spot vehicle with steering assistance off or paused. ' +
+                                      'Independent of Loud Blindspot Alert. Hazards do not trigger it.'),
   'SoundPack': 'Chooses the sounds used for driving alerts and chimes.',
   'WarningImmediateVolume': 'Sets the starting volume of immediate warnings. These warnings still ramp to full volume.',
   'WarningSoftVolume': 'Sets the starting volume of soft warnings. Warning volume keeps its required minimum.',
@@ -134,29 +168,49 @@ DESCRIPTIONS = {
   'conditional:mode': 'Chooses Chill, Experimental or automatic switching based on the configured driving conditions.',
   'conditional:reset': 'Restores the default conditional driving-mode settings.',
   'conditional:manual_reset': 'Returns both remembered manual driving-mode choices to Automatic.',
+  'FordPrefLateralControl': ('Chooses BluePilot Curvature, BluePilot Angle or StarPilot Controller. Mach-E and classic Explorer' +
+    ' default to StarPilot; other supported Fords default to BluePilot Curvature. Lane centering and offset use the global' +
+    ' StarPilot settings. Change while parked.'),
+  'FordPrefSteerAngleCurvature': ('Measures curvature from the steering pinion angle instead of the yaw-rate sensor, in control and' +
+    ' Panda safety. For Fords with a faulty yaw sensor.'),
+  'enable_human_turn_detection_curv': 'Eases off steering while you turn the wheel through a turn yourself.',
+  'lane_change_factor_high_curv': 'Scales steering during a lane change. Values under 1.0 soften it.',
+  'custom_profile_curv': 'Uses the two predicted-curvature blend settings below instead of the built-in profile.',
+  'pc_blend_ratio_low_C_UI_curv': 'Mixes predicted curvature into gentle curves: 0 follows the plan, 1 follows the prediction.',
+  'pc_blend_ratio_high_C_UI_curv': 'Mixes predicted curvature into sharp curves: 0 follows the plan, 1 follows the prediction.',
+  'FordLowSpeedFactor_ang': 'Scales the low-speed steering response in angle mode. 1.0 is the default feel.',
+  'FordHighSpeedFactor_ang': 'Scales the high-speed steering response in angle mode. 1.0 is the default feel.',
+  'FordHighSpeedDampening_ang': ('Tunes the straight-road response at highway speed in angle mode: lower it if the car oversteers,' +
+    ' raise it if it understeers.'),
+  'lane_change_factor_high_ang': 'Scales steering during a lane change in angle mode. Values over 1.0 strengthen it.',
 }
 
 # These are initialization explanations, not a second defaults table.
 INITIALIZATION = {
+  'StarPortNewSetup': 'Applies the next time the setup screen opens.',
+  'StarPortAllowHevc': 'Applies from the next StarPort connection.',
+  'StarPortKeyframeTest': 'Applies from the next StarPort connection.',
+  'StarPortTallHevc': 'Applies from the next StarPort connection.',
+  'StarPortHeadUnitExperiments': 'Applies from the next StarPort connection.',
+  'StarPortDedicatedWifi': 'Applies from the next StarPort connection.',
   'LateralControllerSelection': ('Applies when driving processes next start: the controller class, vehicle policy and ' +
     'PID/filter state are constructed together.'),
   'UseStarPilotLongitudinalPlanner': 'Applies when the planner next starts: each choice runs a different planner process with its own subscriptions and state.',
   'TurnAssist': ('Applies when driving processes next start: the selected torque controller creates its ' +
     'low-speed feedback controller and filter state at initialization.'),
-  'ToyotaRadarMode': 'Chooses the supported Toyota front radar configuration, including the optional ARS510 retrofit.',
   'ToyotaAutoHold': 'Requires the next vehicle startup to configure the brake-hold permission in CarParams and Panda safety.',
   'DisableOpenpilotLongitudinal': 'Requires the next vehicle startup to rebuild cruise ownership and Panda safety configuration.',
   'GMAutoHold': 'First enable requires the next vehicle startup to configure the brake-hold safety permission. An already admitted hold can be disabled live.',
   'VoltOnePedalMode': ('First enable requires the next vehicle startup to configure the braking safety ' +
     'permission. An already admitted mode can be disabled live.'),
   'VoltSNG': 'Applies when the vehicle controller next starts: its fresh resume-plan input is created for the selected stop-and-go mode.',
-  'FordLateralMode': 'Requires the next vehicle startup to select the steering controller, admitted CAN mode and Panda safety word.',
   'TeslaAOLScreenTap': 'Requires the next vehicle startup to configure the screen-button CAN source and matching safety permission.',
-  'TeslaAOLDisengageOnBrake': 'Requires the next vehicle startup to configure the screen-button brake/disarm safety permission.',
+  'TeslaAOLDisengageOnBrake': 'Requires the next vehicle startup to configure the Tesla brake/disarm safety permission.',
   'RemoteStartBootsComma': 'Requires a device restart to load the matching Panda ignition firmware.',
   'HKGRemoteStartBootsComma': 'Requires a device restart to load the matching Panda ignition firmware.',
   'IgnoreIgnitionLine': 'Requires a device restart to load the matching Panda ignition firmware.',
   'TeslaWakeOnCAN': 'Requires a device restart to load the matching Panda ignition firmware.',
+  'FordPrefSteerAngleCurvature': 'Requires the next vehicle startup to configure the pinion measurement in Panda safety.',
 }
 
 CONDITIONS = {
@@ -177,6 +231,117 @@ CONDITIONS = {
   'set_speed_margin_mps': 'Sets the margin below cruise speed required before Conditional Chill selects Chill.',
   'launch_assist': 'Temporarily selects Chill when a tracked lead moves away from a stop and the launch conditions are met.',
   'persist_manual': 'Remembers your manual driving-mode choice across drives. Changing this setting resets that choice to Automatic.',
+}
+
+
+FLM_DESCRIPTIONS = {
+  'center_taper_max': (
+    'Softens planned steering near straight ahead. Higher reduces small steering corrections more; lower keeps a ' +
+    'firmer response. This can calm weaving, but too much can make centering less precise.'),
+  'highway_center_taper_max': (
+    'Adds straight-ahead softening at highway speeds. Higher softens small corrections more; lower keeps more ' +
+    'steering response. This changes steering feel, not your target position in the lane.'),
+  'low_speed_angle_assist_max_torque': (
+    'Adds low-speed steering help when the wheels have not reached the requested turn angle. Higher allows more ' +
+    'extra help; lower limits it. This is an extra-assistance limit, not the car’s overall steering limit.'),
+  'curvy_speed_min': (
+    'Sets the lower end of the curve-exit smoothing speed range. Higher starts the effect at faster speeds; lower ' +
+    'extends it to slower speeds. This changes where steering smoothing applies, not cruise speed.'),
+  'curvy_speed_max': (
+    'Sets the upper end of the curve-exit smoothing speed range. Higher extends the effect to faster speeds; ' +
+    'lower ends it at slower speeds. This changes where steering smoothing applies, not cruise speed.'),
+  'curvy_turn_in_trim_speed_min': (
+    'Sets the lower end of the curve-entry softening speed range. Higher starts the effect at faster speeds; ' +
+    'lower extends it to slower speeds. This changes where Turn-in trim applies, not cruise speed.'),
+  'curvy_turn_in_trim_speed_max': (
+    'Sets the upper end of the curve-entry softening speed range. Higher extends the effect to faster speeds; ' +
+    'lower ends it at slower speeds. This changes where Turn-in trim applies, not cruise speed.'),
+  'center_deadband_crawl_deg': (
+    'Ignores very small steering tracking errors at crawling speeds. Higher tolerates a larger error before ' +
+    'correcting; lower reacts to smaller errors. This can reduce constant tiny corrections, but too much allows ' +
+    'more tracking error. Blends with the neighboring speed settings.'),
+  'center_deadband_low_deg': (
+    'Ignores very small steering tracking errors at low speeds. Higher tolerates a larger error before ' +
+    'correcting; lower reacts to smaller errors. This can reduce constant tiny corrections, but too much allows ' +
+    'more tracking error. Blends with the neighboring speed settings.'),
+  'center_deadband_mid_deg': (
+    'Ignores very small steering tracking errors at medium speeds. Higher tolerates a larger error before ' +
+    'correcting; lower reacts to smaller errors. This can reduce constant tiny corrections, but too much allows ' +
+    'more tracking error. Blends with the neighboring speed settings.'),
+  'center_deadband_fast_deg': (
+    'Ignores very small steering tracking errors at higher speeds. Higher tolerates a larger error before ' +
+    'correcting; lower reacts to smaller errors. This can reduce constant tiny corrections, but too much allows ' +
+    'more tracking error. Blends with the neighboring speed settings.'),
+  'center_deadband_highway_deg': (
+    'Ignores very small steering tracking errors at highway speeds. Higher tolerates a larger error before ' +
+    'correcting; lower reacts to smaller errors. This can reduce constant tiny corrections, but too much allows ' +
+    'more tracking error. Blends with the neighboring speed settings.'),
+  'ff_gain_left': (
+    'Sets the extra planned steering effort in left curves, before tracking-error corrections. Higher adds more ' +
+    'effort; lower adds less. Negative values reduce the baseline effort. This is the FF gain used by the ' +
+    'entry-boost and unwind settings.'),
+  'turn_in_boost_left': (
+    'Strengthens the FF-gain adjustment while entering a left curve, mainly at lower speeds. Higher strengthens ' +
+    'that adjustment; lower weakens it. A positive FF gain adds effort; a negative gain reduces it. No effect ' +
+    'with FF gain at zero.'),
+  'unwind_taper_left': (
+    'Fades the FF-gain adjustment as a left turn straightens out. Higher fades it more; lower keeps more of it ' +
+    'during the exit. No effect with FF gain at zero.'),
+  'turn_in_threshold_reduction_left': (
+    'Makes friction compensation respond sooner to small tracking errors when entering a left curve. Higher makes ' +
+    'that response sharper; lower makes it more gradual. Changes the response ramp, not maximum friction ' +
+    'compensation. Torque controllers only; no PID friction effect.'),
+  'unwind_threshold_increase_left': (
+    'Softens friction compensation while straightening out of a left curve, mainly at higher speeds. Higher ' +
+    'builds compensation more gradually; lower responds more sharply. Changes the response ramp, not maximum ' +
+    'friction compensation. Torque controllers only; no PID friction effect.'),
+  'crawl_turn_in_ff_boost_left': (
+    'Adds planned steering effort while starting a left turn at very low speeds. Higher adds more help; lower ' +
+    'adds less. Unlike Turn-in boost, this can act with FF gain at zero.'),
+  'curvy_turn_in_trim_left': (
+    'Softens planned steering while entering a left curve within the Turn-in trim speed range. Higher softens the ' +
+    'entry more; lower keeps more steering effort. Too much can make turn-in feel weak.'),
+  'curvy_unwind_floor_relief_left': (
+    'Allows the FF-gain adjustment to fade further when exiting a left curve within the curve-exit speed range. ' +
+    'Higher allows more fading; lower retains a higher minimum. Works with Unwind taper or Curvy unwind extra ' +
+    'reduction; no effect with FF gain at zero.'),
+  'curvy_unwind_extra_reduction_left': (
+    'Adds more fading of the FF-gain adjustment when exiting a left curve within the curve-exit speed range. ' +
+    'Higher fades it more; lower keeps more. The fade can be limited by Curvy unwind floor relief. No effect with ' +
+    'FF gain at zero.'),
+  'ff_gain_right': (
+    'Sets the extra planned steering effort in right curves, before tracking-error corrections. Higher adds more ' +
+    'effort; lower adds less. Negative values reduce the baseline effort. This is the FF gain used by the ' +
+    'entry-boost and unwind settings.'),
+  'turn_in_boost_right': (
+    'Strengthens the FF-gain adjustment while entering a right curve, mainly at lower speeds. Higher strengthens ' +
+    'that adjustment; lower weakens it. A positive FF gain adds effort; a negative gain reduces it. No effect ' +
+    'with FF gain at zero.'),
+  'unwind_taper_right': (
+    'Fades the FF-gain adjustment as a right turn straightens out. Higher fades it more; lower keeps more of it ' +
+    'during the exit. No effect with FF gain at zero.'),
+  'turn_in_threshold_reduction_right': (
+    'Makes friction compensation respond sooner to small tracking errors when entering a right curve. Higher ' +
+    'makes that response sharper; lower makes it more gradual. Changes the response ramp, not maximum friction ' +
+    'compensation. Torque controllers only; no PID friction effect.'),
+  'unwind_threshold_increase_right': (
+    'Softens friction compensation while straightening out of a right curve, mainly at higher speeds. Higher ' +
+    'builds compensation more gradually; lower responds more sharply. Changes the response ramp, not maximum ' +
+    'friction compensation. Torque controllers only; no PID friction effect.'),
+  'crawl_turn_in_ff_boost_right': (
+    'Adds planned steering effort while starting a right turn at very low speeds. Higher adds more help; lower ' +
+    'adds less. Unlike Turn-in boost, this can act with FF gain at zero.'),
+  'curvy_turn_in_trim_right': (
+    'Softens planned steering while entering a right curve within the Turn-in trim speed range. Higher softens ' +
+    'the entry more; lower keeps more steering effort. Too much can make turn-in feel weak.'),
+  'curvy_unwind_floor_relief_right': (
+    'Allows the FF-gain adjustment to fade further when exiting a right curve within the curve-exit speed range. ' +
+    'Higher allows more fading; lower retains a higher minimum. Works with Unwind taper or Curvy unwind extra ' +
+    'reduction; no effect with FF gain at zero.'),
+  'curvy_unwind_extra_reduction_right': (
+    'Adds more fading of the FF-gain adjustment when exiting a right curve within the curve-exit speed range. ' +
+    'Higher fades it more; lower keeps more. The fade can be limited by Curvy unwind floor relief. No effect with ' +
+    'FF gain at zero.'),
 }
 
 
@@ -211,7 +376,7 @@ def purpose(row):
     suffix = next((name for name in VALUE_HELP if key.endswith(name)), None)
     value = VALUE_HELP.get(suffix)
     return value + ' Blends toward Relaxed as speed rises in Traffic mode.' if value and key.startswith('Traffic') else value
-  if key in tuple('Offset'+str(index) for index in range(1, 8)):
+  if key in SLC_OFFSET_KEYS:
     return 'Adds or subtracts this offset from the accepted speed limit within the displayed speed range.'
   if key.startswith('long_repair:'):
     return 'Restores the default value of this invalid longitudinal setting.'
@@ -225,6 +390,10 @@ def purpose(row):
     return 'Selects camera crop dimensions matching the source camera image.'
   if key.startswith('pip:mask:'):
     return 'Moves the camera-image crop center along the indicated axis.'
+  if key.startswith('torque:surface:'):
+    return ('Removes the thirty manual steering overrides while keeping saved Auto Learn history.'
+            if key == 'torque:surface:reset' else
+            FLM_DESCRIPTIONS.get(key.removeprefix('torque:surface:')))
   if key.startswith('torque:'):
     field = key.split(':')[1]
     return {'factor': 'Sets the lateral-acceleration-to-torque conversion for compatible steering controllers.',
@@ -252,6 +421,11 @@ def description(row):
   suffix = INITIALIZATION.get(row.key, '')
   if row.key.startswith('lane_change:') and row.key not in ('lane_change:close_gap', 'lane_change:close_gap_seconds', 'lane_change:reset'):
     suffix = 'Changes apply when the current signal and maneuver end; turning assistance off cancels it after the preference refresh.'
+  if row.key.startswith('torque:surface:'):
+    suffix = row.reason.strip()
+    if row.key != 'torque:surface:reset':
+      suffix = ('Zero keeps this stage’s original baseline. The % is an adjustment to this stage, ' +
+                'not a percentage of overall steering strength. ' + suffix).strip()
   if row.key.startswith('torque:') and row.key.split(':')[1] in ('factor', 'friction', 'gain'):
     suffix = ('First activation of a manual tuning owner requires a driving-process restart. An ' +
       'already active owner refreshes saved adjustments during the drive.')
@@ -265,7 +439,7 @@ def description(row):
     suffix = ('Axis-pause and AOL assignments require the next vehicle startup to configure the ' +
       'native button permissions. Other actions refresh during the drive.')
   if row.key == 'GMLongitudinalTune':
-    suffix = 'ACC Tune refreshes during the drive. Volt Tune initializes its stop/start response when driving processes start.'
+    suffix = 'ACC Tune refreshes during the drive.'
   warning = row.reason.strip().removeprefix('Saved for this vehicle. ')
   related = any(word in warning.lower() for word in
     ('temporarily ignored', 'temporarily ignores', 'fixed torque conversion', 'inactive while', 'custom display is off',

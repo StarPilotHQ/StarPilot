@@ -17,7 +17,7 @@ def checksum(address, _sig, data):
 
 
 SOURCE = Path(__file__).resolve().parents[1] / 'ioniq6_handoff.py'
-NAMES = {'_ioniq6_boot_ns', '_qualified_ioniq6_ready', 'HandoffOutcome', 'HandoffResult', '_valid_canfd_crc',
+NAMES = {'_ecan_bus', '_ioniq6_boot_ns', '_qualified_ioniq6_ready', 'HandoffOutcome', 'HandoffResult', '_valid_canfd_crc',
          '_read_window', '_measured_period', 'inspect_ioniq6_long_sources', 'run_ioniq6_handoff'}
 tree = ast.parse(SOURCE.read_text())
 body = [n for n in tree.body if (isinstance(n, (ast.FunctionDef, ast.ClassDef)) and n.name in NAMES) or

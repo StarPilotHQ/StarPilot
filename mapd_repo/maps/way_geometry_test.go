@@ -55,3 +55,48 @@ func TestBearingAlignmentIsAnUndirectedNonnegativePenalty(t *testing.T) {
 		}
 	}
 }
+
+func TestWayEntryDirectionForOpenAndClosedWays(t *testing.T) {
+	start, end := m.NewPosition(35.15, -97.9), m.NewPosition(35.151, -97.9)
+	for _, tc := range []struct {
+		name                                 string
+		closed, oneWay, fromEnd, wantForward bool
+	}{
+		{"open start", false, true, false, true},
+		{"open end", false, true, true, false},
+		{"closed one-way", true, true, false, true},
+		{"closed two-way", true, false, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := offline.NewRootWay(seg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw.SetOneWay(tc.oneWay)
+			positions := []m.Position{start, end}
+			if tc.closed {
+				positions = append(positions, start)
+			}
+			nodes, err := raw.NewNodes(int32(len(positions)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for i, p := range positions {
+				nodes.At(i).SetLatitude(p.Lat())
+				nodes.At(i).SetLongitude(p.Lon())
+			}
+			from := start
+			if tc.fromEnd {
+				from = end
+			}
+			way := NewWay(raw)
+			if got := way.IsForwardFrom(from); got != tc.wantForward {
+				t.Fatalf("entry direction: got %v want %v", got, tc.wantForward)
+			}
+		})
+	}
+}

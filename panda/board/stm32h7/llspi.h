@@ -21,6 +21,10 @@ void llspi_queue(const uint8_t *tx, uint16_t tx_len) {
     (void)dat;
   }
   SPI4->IFCR = (0x1FFU << 3U);
+  // DMA_SM_4: a transfer error of the last transfer, checked before the clear
+  if ((DMA2->LISR & (DMA_LISR_TEIF2 | DMA_LISR_TEIF3)) != 0U) {
+    fault_occurred_value(FAULT_DMA, DMA2->LISR);
+  }
   DMA2->LIFCR = (0x3DUL << 16U) | (0x3DUL << 22U);  // streams 2 + 3
 
   // setup buffers
@@ -44,15 +48,23 @@ uint16_t llspi_rx_count(void) {
   return SPI_BUF_SIZE - DMA2_Stream2->NDTR;
 }
 
+#define EXTI15_10_LINES 0xFC00U
+
 // CS rising edge, the end of a transfer
 static void EXTI15_10_IRQ_Handler(void) {
   if ((EXTI->PR1 & (1UL << SPI_CS_PIN)) != 0U) {
-    // clear first, so an edge during processing fires again
+    // clear first, so an edge during processing fires again, read back so the clear lands before the return
     EXTI->PR1 = (1UL << SPI_CS_PIN);
+    (void)EXTI->PR1;
     // if we're late and the next transfer already started, its own rising edge handles it
     if ((GPIOE->IDR & (1UL << SPI_CS_PIN)) != 0U) {
       spi_cs_rising();
     }
+  }
+  // no other line on this vector has a trigger enabled
+  if ((EXTI->PR1 & (EXTI15_10_LINES & ~(1UL << SPI_CS_PIN))) != 0U) {
+    EXTI->PR1 = EXTI15_10_LINES & ~(1UL << SPI_CS_PIN);
+    fault_occurred_value(FAULT_UNUSED_INTERRUPT_HANDLED, __get_IPSR());
   }
 }
 
@@ -81,5 +93,5 @@ void llspi_init(void) {
   register_set_bits(&(EXTI->RTSR1), (1UL << SPI_CS_PIN));
   register_set_bits(&(EXTI->IMR1), (1UL << SPI_CS_PIN));
   EXTI->PR1 = (1UL << SPI_CS_PIN);
-  NVIC_EnableIRQ(EXTI15_10_IRQn);
+  nvic_enable(EXTI15_10_IRQn);
 }

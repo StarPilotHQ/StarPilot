@@ -18,7 +18,7 @@ class EvidenceSnapshot(SimpleNamespace):
 
 
 class EvidenceSource:
-  SERVICES = ('deviceState', 'pandaStates', 'carState', 'selfdriveState', 'carParams')
+  SERVICES = ('deviceState', 'pandaStates', 'carState', 'selfdriveState', 'carParams', 'peripheralState')
 
   def __init__(self, messages=None, *, mono=time.monotonic_ns,
                boot=lambda: time.clock_gettime_ns(getattr(time, 'CLOCK_BOOTTIME', time.CLOCK_MONOTONIC))):

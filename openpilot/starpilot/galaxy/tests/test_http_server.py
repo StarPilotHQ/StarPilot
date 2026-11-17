@@ -5,6 +5,7 @@ from contextlib import closing
 import os
 import socket
 import threading
+import time
 from types import SimpleNamespace
 from typing import Any
 from urllib.parse import urlsplit
@@ -182,15 +183,33 @@ def test_full_browser_pool_still_serves_comma_services(server):
       connection.close()
 
 
-def test_drain_turns_away_requests_still_waiting_for_capacity(server):
+def test_drain_turns_away_requests_still_waiting_for_capacity(server, monkeypatch):
   running, state, _ = server
-  held = [socket.create_connection(('127.0.0.1', running.server_port), timeout=2) for _ in range(running.MAX_CONNECTIONS)]
+  held = []
   try:
+    # A completed response proves each keepalive socket owns a pool slot.
+    for _ in range(running.MAX_CONNECTIONS):
+      connection = http.client.HTTPConnection('127.0.0.1', running.server_port, timeout=2)
+      held.append(connection)
+      connection.request('GET', '/held')
+      assert connection.getresponse().read() == b'ok'
+    waiting_for_capacity = threading.Event()
+    original_admit = running._admit
+    def admit(request):
+      waiting_for_capacity.set()
+      return original_admit(request)
+    monkeypatch.setattr(running, '_admit', admit)
     with closing(socket.create_connection(('127.0.0.1', running.server_port), timeout=2)) as waiting:
       waiting.sendall(b'GET /late HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n')
+      assert waiting_for_capacity.wait(1)
       drained: list[bool] = []
       drain = threading.Thread(target=lambda: drained.append(running.drain_requests(2)))
       drain.start()
+      # Starting a thread does not guarantee it runs before capacity is released.
+      deadline = time.monotonic() + 1
+      while not running._draining and time.monotonic() < deadline:
+        time.sleep(.001)
+      assert running._draining
       for connection in held:
         connection.close()
       held.clear()

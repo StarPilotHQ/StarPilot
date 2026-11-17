@@ -8,6 +8,7 @@ Weak or unknown evidence keeps the ordinary longitudinal PID path.
 import math
 from dataclasses import dataclass
 
+from opendbc.car.hyundai.canfd_owner import config_index
 from opendbc.car.hyundai.ioniq6_handoff import IONIQ6_DEBUG_LONG_PARAMS
 from opendbc.car.hyundai.values import CAR, HyundaiFlags
 from opendbc.car.structs import car
@@ -35,6 +36,9 @@ class StartEvidence:
 def eligible(cp) -> bool:
   """A stock Ioniq CP never receives the optional starting state."""
   try:
+    owner = config_index(cp)
+    if owner is None:
+      return False
     flags = int(cp.flags)
     required = int(HyundaiFlags.CANFD | HyundaiFlags.EV | HyundaiFlags.CANFD_LKA_STEER_MSG)
     forbidden = int(HyundaiFlags.CANFD_ALT_BUTTONS | HyundaiFlags.CANFD_ANGLE_STEERING | HyundaiFlags.CANFD_CAMERA_SCC)
@@ -44,9 +48,8 @@ def eligible(cp) -> bool:
             not cp.pcmCruise and not cp.radarUnavailable and
             not cp.passive and not cp.dashcamOnly and not cp.notCar and
             flags & required == required and not flags & forbidden and
-            len(cp.safetyConfigs) == 1 and cp.safetyConfigs[0].safetyModel == car.CarParams.SafetyModel.hyundaiCanfd and
-            int(cp.safetyConfigs[0].safetyParam) in expected_raw and
-            int(cp.safetyConfigs[0].safetyParam) in IONIQ6_DEBUG_LONG_PARAMS)
+            int(cp.safetyConfigs[owner].safetyParam) in expected_raw and
+            int(cp.safetyConfigs[owner].safetyParam) in IONIQ6_DEBUG_LONG_PARAMS)
   except (AttributeError, IndexError, TypeError, ValueError):
     return False
 

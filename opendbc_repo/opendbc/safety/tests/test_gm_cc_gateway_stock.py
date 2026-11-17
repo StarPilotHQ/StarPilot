@@ -36,10 +36,10 @@ class TestGmCcGatewayStock(unittest.TestCase):
     self.assertTrue(self.safety.safety_config_valid())
 
   def joined(self, car, *, cruise=True, main=True, brake=False, gas=False, cancel=True, active=True, acc_cruise=0,
-             now_nanos=1_050_000_000):
+             now_nanos=1_050_000_000, disabled=False):
     cp = params(car)
-    prepare_disable_longitudinal(cp, True)
-    self.assertFalse(cp.openpilotLongitudinalControl)
+    prepare_disable_longitudinal(cp, disabled)
+    self.assertEqual(cp.openpilotLongitudinalControl, is_ordinary_cc_profile(cp))
     packer = CANPacker(DBC[car][Bus.pt])
     interface = CarInterface(cp)
     interface.update([])
@@ -66,6 +66,9 @@ class TestGmCcGatewayStock(unittest.TestCase):
     controller.cancel_counter = 11
     control = structs.CarControl()
     control.enabled = True
+    if is_ordinary_cc_profile(cp) and cancel and cruise and main and not brake and not gas:
+      controller.volt_cc_prev_enabled = True
+      control.enabled = False
     control.latActive = active
     control.longActive = True  # A caller request must never change stock ownership.
     control.cruiseControl.cancel = cancel
@@ -105,6 +108,18 @@ class TestGmCcGatewayStock(unittest.TestCase):
             self.assertFalse(self.safety.safety_tx_hook(self.packet((addr, bytes(length), 2))))
           else:
             self.assertFalse(self.safety.safety_tx_hook(self.packet((addr, bytes(length), bus))), hex(addr))
+
+  def test_disabled_speed_control_uses_stock_native_owner(self):
+    for car in sorted(CC_GATEWAY_STOCK_CAR):
+      with self.subTest(car=car):
+        _, _, commands = self.joined(car, disabled=True)
+        self.assertFalse(self.joined_cp.openpilotLongitudinalControl)
+        self.assertTrue(self.joined_cp.pcmCruise)
+        self.assertEqual(self.joined_cp.safetyConfigs[0].safetyParam, 16)
+        for command in commands:
+          self.assertTrue(self.safety.safety_tx_hook(self.packet(command)))
+        for address, length in ((0x409, 7), (0x40A, 7), (0x200, 6), (0x2CB, 8)):
+          self.assertFalse(self.safety.safety_tx_hook(self.packet((address, bytes(length), 0))))
 
   def test_cruise_brake_gas_main_and_host_neutrality(self):
     for car in sorted(CC_GATEWAY_STOCK_CAR):

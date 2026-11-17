@@ -44,8 +44,9 @@ class CombinedFixture(Ev9LongFixture, unittest.TestCase):
     self.safety.aol_set_host_request(3)
     self.assertTrue(self.safety.get_controls_allowed())
 
-  def scc(self, accel):
-    return self.packet('SCC_CONTROL', 1, {'ACCMode': 1, 'aReqRaw': accel, 'aReqValue': accel})
+  def scc(self, accel, selected=None):
+    return self.packet('SCC_CONTROL', 1, {'ACCMode': 1, 'aReqRaw': accel,
+                                         'aReqValue': accel if selected is None else selected})
 
 
 class TestEV9CombinedDebug(CombinedFixture, unittest.TestCase):
@@ -73,10 +74,12 @@ class TestEV9CombinedDebug(CombinedFixture, unittest.TestCase):
     self.engage()
     self.assertEqual(self.safety.aol_get_permission_mask(), 3)
     self.assertTrue(self.safety.safety_tx_hook(self.angle(value=self.NONZERO_ANGLE)))
-    for value in (2.2, -3.5):
-      self.assertTrue(self.safety.safety_tx_hook(self.scc(value)), value)
-    for value in (2.21, -3.51):
-      self.assertFalse(self.safety.safety_tx_hook(self.scc(value)), value)
+    for value in (3.5, -3.5):
+      for raw, selected in ((value, value), (value, 0.), (0., value)):
+        self.assertTrue(self.safety.safety_tx_hook(self.scc(raw, selected)), (raw, selected))
+    for value in (3.51, -3.51):
+      for raw, selected in ((value, value), (value, 0.), (0., value)):
+        self.assertFalse(self.safety.safety_tx_hook(self.scc(raw, selected)), (raw, selected))
     self.tick(button=4)
     self.assertFalse(self.safety.get_controls_allowed())
     self.assertEqual(self.safety.aol_get_permission_mask(), 1)

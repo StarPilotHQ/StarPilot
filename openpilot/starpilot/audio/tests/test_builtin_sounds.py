@@ -61,7 +61,9 @@ def test_builtin_labels_keep_persisted_sound_selection_stable(tmp_path):
   from openpilot.starpilot.ui.feature_settings_state import FeatureSettingsRequest
   params = Params(str(tmp_path / 'params'))
   owner = SoundsOwner(params, lambda: True, tmp_path / 'packs')
-  row = owner.snapshot().rows[-1]
+  rows = [row for row in owner.snapshot().rows if row.key == 'SoundPack']
+  assert len(rows) == 1
+  row = rows[0]
   assert row.value == 'StarPilot Sounds'
   assert row.choices == ('StarPilot Sounds', 'Stock Sounds')
   assert owner.apply(FeatureSettingsRequest(key='SoundPack', expected=None, value='Stock Sounds'))

@@ -352,6 +352,23 @@ def import_artifact(package: Path, root: Path, target: Path, command: str) -> No
       temporary.unlink(missing_ok=True)
 
 
+def preserve_stock_artifact(target: Path) -> None:
+  from openpilot.common.file_chunker import materialize_file_chunked
+  from openpilot.starpilot.models.runtime_bridge.runtime import _stock_bytes
+  data = _stock_bytes(materialize_file_chunked(target))
+  if target.exists():
+    return
+  fd, temporary = tempfile.mkstemp(prefix=f'.{target.name}.', dir=target.parent)
+  try:
+    with os.fdopen(fd, 'wb') as output:
+      output.write(data)
+      output.flush()
+      os.fsync(output.fileno())
+    os.replace(temporary, target)
+  finally:
+    Path(temporary).unlink(missing_ok=True)
+
+
 def main() -> None:
   parser = argparse.ArgumentParser(description=__doc__)
   parser.add_argument("command", choices=("source-signature", "record"))

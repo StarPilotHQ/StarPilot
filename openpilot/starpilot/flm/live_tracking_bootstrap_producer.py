@@ -321,6 +321,7 @@ class ResponseSnapshotProcess:
         if ctypes.CDLL(None).prctl(1, signal.SIGKILL, 0, 0, 0) != 0 or os.getppid() != parent:
           os._exit(1)
         os.sched_setscheduler(0, os.SCHED_OTHER, os.sched_param(0))
+        os.nice(10)
         soft, hard = resource.getrlimit(resource.RLIMIT_CPU)
         limit = min([30] + [x for x in (soft, hard) if x >= 0])
         resource.setrlimit(resource.RLIMIT_CPU, (limit, hard))

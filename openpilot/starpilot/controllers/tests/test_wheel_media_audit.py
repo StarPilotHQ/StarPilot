@@ -22,8 +22,8 @@ def test_neutral_media_packets_do_not_scan_fourteen_params_each_time(context):
     for frame in range(200):
       commands = observe(owner, source, params, cp, NOW + frame * 10_000_000, media_packet=frame % 20 == 0)
       assert not any(action for _, action in commands)
-  # The one-second audit remains; the ten 5 Hz neutral packets are not edges.
-  assert reads.call_count == 2 * len(wheel_actions.KEYS)
+  # Idle heartbeats and neutral media packets must not add blocking file reads.
+  assert reads.call_count == len(wheel_actions.KEYS)
 
 
 @pytest.mark.parametrize('custom,key', [(False, 'ModeButtonControl'), (True, 'StarButtonControl')])
@@ -116,7 +116,7 @@ def test_off_to_on_mapping_during_hold_cannot_authorize_that_gesture(context):
   assert not any(action for _, action in observe(owner, source, params, cp, pressed + MEDIA_LONG_NS + 20_000_000))
 
 
-def test_one_second_audit_detects_map_change_without_edge(context):
+def test_idle_mapping_change_is_checked_before_a_new_media_gesture(context):
   params, cp = context
   owner, source = wheel_actions.WheelPublisher(params), Ioniq6MediaButtons(1)
   observe(owner, source, params, cp, NOW)
@@ -125,8 +125,15 @@ def test_one_second_audit_detects_map_change_without_edge(context):
     assert not any(action for _, action in observe(owner, source, params, cp, NOW + frame * 10_000_000,
                                                   media_packet=frame % 20 == 0))
   assert owner.mapping is not None
+  assert owner.mapping['ModeButtonControl'] == 0
+  assert owner.checked_ns == NOW
+  # A changed assignment cannot authorize the gesture that first observes it.
+  assert not any(action for _, action in observe(owner, source, params, cp, NOW + 1_100_000_000, mode=True))
   assert owner.mapping['ModeButtonControl'] == 8
-  assert owner.checked_ns == NOW + 1_000_000_000
+  assert owner.checked_ns == NOW + 1_100_000_000
+  assert not any(action for _, action in observe(owner, source, params, cp, NOW + 1_200_000_000))
+  observe(owner, source, params, cp, NOW + 1_300_000_000, mode=True)
+  assert observe(owner, source, params, cp, NOW + 1_400_000_000) == (('ModeButtonControl', 8),)
 
 
 def test_new_drive_while_held_cannot_release_previous_gesture(context):
@@ -180,5 +187,5 @@ def test_valid_empty_media_never_turns_into_a_per_frame_audit(context):
       now = NOW + frame * 10_000_000
       media = MediaObservation((), now, frame // 20, True)
       assert not any(action for _, action in owner.observe(params, cp, state(), now_ns=now, drive_id=DRIVE, media=media))
-    assert capture.call_count == 2
+    assert capture.call_count == 1
   assert owner.media_sample_state is None

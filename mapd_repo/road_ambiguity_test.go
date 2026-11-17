@@ -24,7 +24,7 @@ type syntheticWay struct {
 
 // The actual offline Capnp representation is packed, decoded, and passed to
 // State; tests do not mock GetCurrentWay or BuildMessage.
-func packedRoadTile(tb testing.TB, specs []syntheticWay) maps.Offline {
+func packedRoadTileBytes(tb testing.TB, specs []syntheticWay) []byte {
 	tb.Helper()
 	msg, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
 	if err != nil {
@@ -65,6 +65,12 @@ func packedRoadTile(tb testing.TB, specs []syntheticWay) maps.Offline {
 	if err != nil {
 		tb.Fatal(err)
 	}
+	return data
+}
+
+func packedRoadTile(tb testing.TB, specs []syntheticWay) maps.Offline {
+	tb.Helper()
+	data := packedRoadTileBytes(tb, specs)
 	parsed := maps.ReadOffline(data)
 	if !parsed.Loaded {
 		tb.Fatal("packed tile rejected")

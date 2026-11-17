@@ -30,6 +30,9 @@ class CarState(CarStateBase):
     self.software_buttons_msg = {}
     self.es_lkas_alert_dat = b""
     self.angle_rate_calulator = CanSignalRateCalculator(50)
+    from opendbc.car.subaru.high_angle_guard import HighAngleGuard, selected
+    self.high_angle_guard = HighAngleGuard() if selected(CP) else None
+    self.high_angle_cut = False
 
   def update(self, can_parsers) -> structs.CarState:
     cp = can_parsers[Bus.pt]
@@ -100,7 +103,8 @@ class CarState(CarStateBase):
     cp_cruise = cp_alt if self.CP.flags & SubaruFlags.GLOBAL_GEN2 else cp
     cp_es_brake = cp_alt if self.CP.flags & SubaruFlags.GLOBAL_GEN2 else cp_cam
 
-    if self.CP.carFingerprint in (CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_LEGACY_2025, CAR.SUBARU_ASCENT_2023, CAR.SUBARU_FORESTER_2022, CAR.SUBARU_OUTBACK_2023):
+    if self.CP.carFingerprint in (CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025, CAR.SUBARU_LEGACY_2025,
+                                  CAR.SUBARU_ASCENT_2023, CAR.SUBARU_FORESTER_2022, CAR.SUBARU_OUTBACK_2023):
       ret.cruiseState.enabled = cp_es_brake.vl["ES_Status"]["Cruise_Activated"] != 0
       ret.cruiseState.available = cp_cam.vl["ES_DashStatus"]["Cruise_On"] != 0
     elif self.CP.flags & (SubaruFlags.HYBRID | SubaruFlags.LKAS_ANGLE):
@@ -132,7 +136,10 @@ class CarState(CarStateBase):
       self.cruise_button = cp_cam.vl["ES_Distance"]["Cruise_Button"]
       self.ready = not cp_cam.vl["ES_DashStatus"]["Not_Ready_Startup"]
     else:
-      ret.steerFaultTemporary = cp_angle.vl["Steering_Torque"]["Steer_Warning"] == 1
+      if self.high_angle_guard is not None:
+        self.high_angle_cut = self.high_angle_guard.update(
+          cp.vl["Brake_Pressure_L_R"]["Steering_Angle"], cp.vl["Brake_Pedal"]["Speed"], ret.steeringTorque)
+      ret.steerFaultTemporary = cp_angle.vl["Steering_Torque"]["Steer_Warning"] == 1 or self.high_angle_cut
       ret.cruiseState.nonAdaptive = cp_cam.vl["ES_DashStatus"]["Conventional_Cruise"] == 1
       ret.cruiseState.standstill = cp_cam.vl["ES_DashStatus"]["Cruise_State"] == 3
       ret.stockFcw = (cp_cam.vl["ES_LKAS_State"]["LKAS_Alert"] == 1) or \
@@ -192,8 +199,10 @@ class CarState(CarStateBase):
 
   @staticmethod
   def get_can_parsers(CP):
+    from opendbc.car.subaru.high_angle_guard import selected
+    guard_checks = [("Brake_Pressure_L_R", 50), ("Brake_Pedal", 50)] if selected(CP) else []
     parsers = {
-      Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], [], CanBus.alt if CP.flags & SubaruFlags.D_PLATFORM else CanBus.main),
+      Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], guard_checks, CanBus.alt if CP.flags & SubaruFlags.D_PLATFORM else CanBus.main),
       Bus.cam: CANParser(DBC[CP.carFingerprint][Bus.pt], [("ES_LKAS_Alert", 0)] if CP.flags & SubaruFlags.ASCENT_LKAS_ALERT else [], CanBus.camera),
       Bus.alt: CANParser(DBC[CP.carFingerprint][Bus.pt], [], CanBus.alt)
     }

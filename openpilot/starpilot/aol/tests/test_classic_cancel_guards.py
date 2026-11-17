@@ -24,7 +24,7 @@ def marked():
   return cp
 
 
-@pytest.mark.parametrize('case', ['retain', 'settings_off', 'unmapped', 'configured_cancel', 'pause', 'not_latched',
+@pytest.mark.parametrize('case', ['retain', 'settings_off', 'default_buttons', 'configured_cancel', 'pause', 'not_latched',
   'no_raw_source', 'expired_original', 'old_native', 'native_lat_denied', 'native_long_allowed', 'no_long_request',
   'wrong_session', 'wrong_inventory', 'panda_rx', 'panda_fault', 'failed_feedback', 'changed_cp', 'producer',
   'wrong_epoch', 'nonfull', 'hard_fault', 'reverse', 'steer_fault', 'invalid_can', 'no_physical_cancel'])
@@ -97,17 +97,25 @@ def test_sonata_cancel_source_requires_current_real_parser_batch(role):
 
 
 @pytest.mark.parametrize('lkas,main', [(9, 0), (0, 9), (0, 0)])
-def test_only_actual_qualified_saved_mapping_opts_in(lkas, main):
+def test_qualified_buttons_preserve_saved_mapping_and_cancel_behavior(lkas, main):
   owner = create_intent(marked(), AolSettings(True, 0., lkas, main, (0, 0, 0), (0, 0, 0)))
-  assert owner.independent_cruise_buttons == (lkas == 9 and main == 0)
+  assert owner.independent_cruise_buttons
   state = structs.CarState(canValid=True, gearShifter='drive')
   state.cruiseState.available = True
   owner.update(state, now_ns=1)
   state.buttonEvents = [structs.CarState.ButtonEvent(type='lkas', pressed=True)]
   owner.update(state, now_ns=2)
-  assert owner.allowed_latch
+  assert owner.allowed_latch == (main != 9)
   state.buttonEvents = [structs.CarState.ButtonEvent(type='lkas', pressed=False)]
   owner.update(state, now_ns=3)
+  if main == 9:
+    state.buttonEvents = [structs.CarState.ButtonEvent(type='mainCruise', pressed=True)]
+    owner.update(state, now_ns=4)
+    assert owner.allowed_latch
+    state.buttonEvents = [structs.CarState.ButtonEvent(type='mainCruise', pressed=False)]
+    owner.update(state, now_ns=5)
+  original_edge = owner._last_latch_edge_ns
   state.buttonEvents = [structs.CarState.ButtonEvent(type='cancel', pressed=True)]
-  owner.update(state, now_ns=4)
-  assert owner.allowed_latch == (lkas == 9 and main == 0)
+  owner.update(state, now_ns=6)
+  assert owner.allowed_latch
+  assert owner._last_latch_edge_ns == original_edge

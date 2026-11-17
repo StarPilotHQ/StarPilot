@@ -162,7 +162,6 @@ class TestStopCommitTransport(unittest.TestCase):
       stop_sign_confirmed=ObservedBool(stop_sign, now-2_000_000),
       forcing_stop=ObservedBool(forcing, now-2_000_000),
       dashboard_stop_sign=ObservedBool(False, now-2_000_000),
-      slc_experimental=ObservedBool(False, now-2_000_000),
       previous_experimental=ObservedBool(False, now-2_000_000),
       red_light=ObservedBool(False, now-2_000_000),
       plan_forcing_stop=ObservedBool(forcing, now-2_000_000),
@@ -298,7 +297,7 @@ class TestStopCommitTransport(unittest.TestCase):
       for _ in range(25):
         proposal, result = self.sample(manual=ManualIntent.FORCE_CHILL)
         self.assertTrue(result.accepted and result.experimental)
-      self.assertEqual(proposal.choice, choice)
+      self.assertEqual(proposal.choice, ModeChoice.CEM if choice is ModeChoice.CCM else choice)
     for _ in range(30):
       proposal, result = self.sample(horizon=192., model_should_stop=False)
     self.assertFalse(result.experimental)
@@ -415,7 +414,7 @@ def test_recorded_ford_stopped_geometry_does_not_release_native_stop(request):
   endpoint = TestFordAolDriverIntent(methodName='runTest')
   endpoint.setUp()
   request.addfinalizer(endpoint.tearDown)
-  endpoint.reset(19)
+  endpoint.reset(3)
   endpoint.pump(40, main=0)
   endpoint.pump(10, main=3)
   endpoint.pump(10, main=5, mask=3)

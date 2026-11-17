@@ -2,7 +2,7 @@ import math
 from enum import IntEnum
 from collections.abc import Callable
 from typing import Union
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.system.ui.lib.application import (
   gui_app, FontWeight, DEFAULT_TEXT_SIZE, DEFAULT_TEXT_COLOR, FONT_SCALE, TextAlignment, TextAlignmentVertical, font_fallback,
@@ -10,6 +10,8 @@ from openpilot.system.ui.lib.application import (
 from openpilot.system.ui.widgets import Widget
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.lib.wrap_text import wrap_text
+from openpilot.system.ui.lib.multilang import tr_display
+from openpilot.system.ui.lib.display_translation import native_text
 
 ICON_PADDING = 15
 
@@ -37,6 +39,7 @@ def gui_label(
   alignment_vertical: int = TextAlignmentVertical.MIDDLE,
   elide_right: bool = True
 ):
+  text = native_text(tr_display(text))
   font = gui_app.font(font_weight)
   text_size = measure_text_cached(font, text, font_size)
   display_text = text
@@ -118,7 +121,7 @@ class Label(Widget):
     self._update_text(self._text)
 
   def _update_text(self, text):
-    text = _resolve_value(text)
+    text = native_text(tr_display(_resolve_value(text)))
     key = (text, font_fallback(self._font).texture.id, self._rect.width, self._font_size, self._text_padding,
            self._elide_right, self._icon.width if self._icon is not None else None)
     if key == self._cached_text_key:
@@ -267,6 +270,7 @@ class UnifiedLabel(Widget):
     self._cached_wrapped_lines: list[str] = []
     self._cached_line_sizes: list[rl.Vector2] = []
     self._cached_total_height: float | None = None
+    self._cached_font_id = None
     self._cached_width: int = -1
 
     # If max_width is set, initialize rect size for Scroller support
@@ -282,7 +286,8 @@ class UnifiedLabel(Widget):
   @property
   def text(self) -> str:
     """Get the current text content."""
-    return str(_resolve_value(self._text))
+    value = _resolve_value(self._text)
+    return native_text(tr_display(value if isinstance(value, str) else str(value)))
 
   @property
   def font_size(self) -> int:
@@ -305,13 +310,6 @@ class UnifiedLabel(Widget):
     if self._font_size != size:
       self._font_size = size
       self._spacing_pixels = size * self._letter_spacing  # Recalculate spacing
-      self._cached_text = None  # Invalidate cache
-
-  def set_letter_spacing(self, letter_spacing: float):
-    """Update letter spacing (as percentage, e.g., 0.1 = 10%)."""
-    if self._letter_spacing != letter_spacing:
-      self._letter_spacing = letter_spacing
-      self._spacing_pixels = self._font_size * letter_spacing
       self._cached_text = None  # Invalidate cache
 
   def set_line_height(self, line_height: float):
@@ -364,14 +362,16 @@ class UnifiedLabel(Widget):
   def _update_text_cache(self, available_width: int):
     """Update cached text processing data."""
     text = self.text
+    font_id = font_fallback(self._font).texture.id
 
     # Check if cache is still valid
-    if (self._cached_text == text and
+    if (self._cached_text == text and self._cached_font_id == font_id and
         self._cached_width == available_width and
         self._cached_wrapped_lines):
       return
 
     self._cached_text = text
+    self._cached_font_id = font_id
     self._cached_width = available_width
 
     # Determine wrapping width

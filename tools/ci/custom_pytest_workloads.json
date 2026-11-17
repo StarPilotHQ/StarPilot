@@ -13,120 +13,120 @@
       "source_blob": "b642d677dcabd4d51f8379dd05d9c72cdcf35f37"
     },
     "openpilot/starpilot/system/starport/tests/test_gpu_nv12.py::test_composed_car_frame_converts_to_the_same_picture[False-32-18-0-0]": {
-      "basis": "Existing exact capability guard, preserved from8b9338a0; skipped remains unavailable, never passed",
+      "basis": "Re-audited software EGL setup through ff5342ca; exact GPU environment guard unchanged; skipped remains unavailable, never passed",
       "guard": "gpu_env",
       "reason": "Skipped: STARPILOT_AUTO_GL_TEST=1 enables tests requiring a real graphics context",
-      "source_blob": "d9d6f940a5c752a14e861c954c765f450a2953d6"
+      "source_blob": "6890e34c1e01be80495c1dc1089529c362de68f3"
     },
     "openpilot/starpilot/system/starport/tests/test_gpu_nv12.py::test_composed_car_frame_converts_to_the_same_picture[False-32-18-4-2]": {
-      "basis": "Existing exact capability guard, preserved from8b9338a0; skipped remains unavailable, never passed",
+      "basis": "Re-audited software EGL setup through ff5342ca; exact GPU environment guard unchanged; skipped remains unavailable, never passed",
       "guard": "gpu_env",
       "reason": "Skipped: STARPILOT_AUTO_GL_TEST=1 enables tests requiring a real graphics context",
-      "source_blob": "d9d6f940a5c752a14e861c954c765f450a2953d6"
+      "source_blob": "6890e34c1e01be80495c1dc1089529c362de68f3"
     },
     "openpilot/starpilot/system/starport/tests/test_gpu_nv12.py::test_composed_car_frame_converts_to_the_same_picture[False-32-20-3-5]": {
-      "basis": "Existing exact capability guard, preserved from8b9338a0; skipped remains unavailable, never passed",
+      "basis": "Re-audited software EGL setup through ff5342ca; exact GPU environment guard unchanged; skipped remains unavailable, never passed",
       "guard": "gpu_env",
       "reason": "Skipped: STARPILOT_AUTO_GL_TEST=1 enables tests requiring a real graphics context",
-      "source_blob": "d9d6f940a5c752a14e861c954c765f450a2953d6"
+      "source_blob": "6890e34c1e01be80495c1dc1089529c362de68f3"
     },
     "openpilot/starpilot/system/starport/tests/test_gpu_nv12.py::test_composed_car_frame_converts_to_the_same_picture[False-40-18-0-6]": {
-      "basis": "Existing exact capability guard, preserved from8b9338a0; skipped remains unavailable, never passed",
+      "basis": "Re-audited software EGL setup through ff5342ca; exact GPU environment guard unchanged; skipped remains unavailable, never passed",
       "guard": "gpu_env",
       "reason": "Skipped: STARPILOT_AUTO_GL_TEST=1 enables tests requiring a real graphics context",
-      "source_blob": "d9d6f940a5c752a14e861c954c765f450a2953d6"
+      "source_blob": "6890e34c1e01be80495c1dc1089529c362de68f3"
     },
     "openpilot/starpilot/system/starport/tests/test_gpu_nv12.py::test_composed_car_frame_converts_to_the_same_picture[True-32-18-0-0]": {
-      "basis": "Existing exact capability guard, preserved from8b9338a0; skipped remains unavailable, never passed",
+      "basis": "Re-audited software EGL setup through ff5342ca; exact GPU environment guard unchanged; skipped remains unavailable, never passed",
       "guard": "gpu_env",
       "reason": "Skipped: STARPILOT_AUTO_GL_TEST=1 enables tests requiring a real graphics context",
-      "source_blob": "d9d6f940a5c752a14e861c954c765f450a2953d6"
+      "source_blob": "6890e34c1e01be80495c1dc1089529c362de68f3"
     },
     "openpilot/starpilot/system/starport/tests/test_gpu_nv12.py::test_composed_car_frame_converts_to_the_same_picture[True-32-18-4-2]": {
-      "basis": "Existing exact capability guard, preserved from8b9338a0; skipped remains unavailable, never passed",
+      "basis": "Re-audited software EGL setup through ff5342ca; exact GPU environment guard unchanged; skipped remains unavailable, never passed",
       "guard": "gpu_env",
       "reason": "Skipped: STARPILOT_AUTO_GL_TEST=1 enables tests requiring a real graphics context",
-      "source_blob": "d9d6f940a5c752a14e861c954c765f450a2953d6"
+      "source_blob": "6890e34c1e01be80495c1dc1089529c362de68f3"
     },
     "openpilot/starpilot/system/starport/tests/test_gpu_nv12.py::test_composed_car_frame_converts_to_the_same_picture[True-32-20-3-5]": {
-      "basis": "Existing exact capability guard, preserved from8b9338a0; skipped remains unavailable, never passed",
+      "basis": "Re-audited software EGL setup through ff5342ca; exact GPU environment guard unchanged; skipped remains unavailable, never passed",
       "guard": "gpu_env",
       "reason": "Skipped: STARPILOT_AUTO_GL_TEST=1 enables tests requiring a real graphics context",
-      "source_blob": "d9d6f940a5c752a14e861c954c765f450a2953d6"
+      "source_blob": "6890e34c1e01be80495c1dc1089529c362de68f3"
     },
     "openpilot/starpilot/system/starport/tests/test_gpu_nv12.py::test_composed_car_frame_converts_to_the_same_picture[True-40-18-0-6]": {
-      "basis": "Existing exact capability guard, preserved from8b9338a0; skipped remains unavailable, never passed",
+      "basis": "Re-audited software EGL setup through ff5342ca; exact GPU environment guard unchanged; skipped remains unavailable, never passed",
       "guard": "gpu_env",
       "reason": "Skipped: STARPILOT_AUTO_GL_TEST=1 enables tests requiring a real graphics context",
-      "source_blob": "d9d6f940a5c752a14e861c954c765f450a2953d6"
+      "source_blob": "6890e34c1e01be80495c1dc1089529c362de68f3"
     },
     "openpilot/starpilot/system/starport/tests/test_gpu_nv12.py::test_fused_projection_conversion_matches_rgba_composition[False-32-18-0-0]": {
-      "basis": "Existing exact capability guard, preserved from8b9338a0; skipped remains unavailable, never passed",
+      "basis": "Re-audited software EGL setup through ff5342ca; exact GPU environment guard unchanged; skipped remains unavailable, never passed",
       "guard": "gpu_env",
       "reason": "Skipped: STARPILOT_AUTO_GL_TEST=1 enables tests requiring a real graphics context",
-      "source_blob": "d9d6f940a5c752a14e861c954c765f450a2953d6"
+      "source_blob": "6890e34c1e01be80495c1dc1089529c362de68f3"
     },
     "openpilot/starpilot/system/starport/tests/test_gpu_nv12.py::test_fused_projection_conversion_matches_rgba_composition[False-32-18-4-2]": {
-      "basis": "Existing exact capability guard, preserved from8b9338a0; skipped remains unavailable, never passed",
+      "basis": "Re-audited software EGL setup through ff5342ca; exact GPU environment guard unchanged; skipped remains unavailable, never passed",
       "guard": "gpu_env",
       "reason": "Skipped: STARPILOT_AUTO_GL_TEST=1 enables tests requiring a real graphics context",
-      "source_blob": "d9d6f940a5c752a14e861c954c765f450a2953d6"
+      "source_blob": "6890e34c1e01be80495c1dc1089529c362de68f3"
     },
     "openpilot/starpilot/system/starport/tests/test_gpu_nv12.py::test_fused_projection_conversion_matches_rgba_composition[False-32-20-3-5]": {
-      "basis": "Existing exact capability guard, preserved from8b9338a0; skipped remains unavailable, never passed",
+      "basis": "Re-audited software EGL setup through ff5342ca; exact GPU environment guard unchanged; skipped remains unavailable, never passed",
       "guard": "gpu_env",
       "reason": "Skipped: STARPILOT_AUTO_GL_TEST=1 enables tests requiring a real graphics context",
-      "source_blob": "d9d6f940a5c752a14e861c954c765f450a2953d6"
+      "source_blob": "6890e34c1e01be80495c1dc1089529c362de68f3"
     },
     "openpilot/starpilot/system/starport/tests/test_gpu_nv12.py::test_fused_projection_conversion_matches_rgba_composition[True-32-18-0-0]": {
-      "basis": "Existing exact capability guard, preserved from8b9338a0; skipped remains unavailable, never passed",
+      "basis": "Re-audited software EGL setup through ff5342ca; exact GPU environment guard unchanged; skipped remains unavailable, never passed",
       "guard": "gpu_env",
       "reason": "Skipped: STARPILOT_AUTO_GL_TEST=1 enables tests requiring a real graphics context",
-      "source_blob": "d9d6f940a5c752a14e861c954c765f450a2953d6"
+      "source_blob": "6890e34c1e01be80495c1dc1089529c362de68f3"
     },
     "openpilot/starpilot/system/starport/tests/test_gpu_nv12.py::test_fused_projection_conversion_matches_rgba_composition[True-32-18-4-2]": {
-      "basis": "Existing exact capability guard, preserved from8b9338a0; skipped remains unavailable, never passed",
+      "basis": "Re-audited software EGL setup through ff5342ca; exact GPU environment guard unchanged; skipped remains unavailable, never passed",
       "guard": "gpu_env",
       "reason": "Skipped: STARPILOT_AUTO_GL_TEST=1 enables tests requiring a real graphics context",
-      "source_blob": "d9d6f940a5c752a14e861c954c765f450a2953d6"
+      "source_blob": "6890e34c1e01be80495c1dc1089529c362de68f3"
     },
     "openpilot/starpilot/system/starport/tests/test_gpu_nv12.py::test_fused_projection_conversion_matches_rgba_composition[True-32-20-3-5]": {
-      "basis": "Existing exact capability guard, preserved from8b9338a0; skipped remains unavailable, never passed",
+      "basis": "Re-audited software EGL setup through ff5342ca; exact GPU environment guard unchanged; skipped remains unavailable, never passed",
       "guard": "gpu_env",
       "reason": "Skipped: STARPILOT_AUTO_GL_TEST=1 enables tests requiring a real graphics context",
-      "source_blob": "d9d6f940a5c752a14e861c954c765f450a2953d6"
+      "source_blob": "6890e34c1e01be80495c1dc1089529c362de68f3"
     },
     "openpilot/starpilot/ui/tests/test_onroad_map.py::test_overlay_draws_heading_up_roads_route_and_soft_edges": {
-      "basis": "Existing map fixture alias gl=test_gpu_nv12.gpu; both consumer and shared guard definition pinned; unavailable remains SKIPPED, never passed",
+      "basis": "Re-audited unchanged map GPU test bodies and shared fixture alias; software EGL setup through ff5342ca; exact environment guard unchanged; skipped remains unavailable, never passed",
       "guard": "gpu_env",
-      "guard_source_blob": "d9d6f940a5c752a14e861c954c765f450a2953d6",
+      "guard_source_blob": "6890e34c1e01be80495c1dc1089529c362de68f3",
       "guard_source_path": "openpilot/starpilot/system/starport/tests/test_gpu_nv12.py",
       "reason": "Skipped: STARPILOT_AUTO_GL_TEST=1 enables tests requiring a real graphics context",
-      "source_blob": "606859b459240ea1e73a4542ab901a782a9b001e"
+      "source_blob": "df1f777daf295f4997e0659ad0dec4e4efcf38ee"
     },
     "openpilot/starpilot/ui/tests/test_onroad_map.py::test_overlay_opacity_fades_map_background": {
-      "basis": "Existing map fixture alias gl=test_gpu_nv12.gpu; both consumer and shared guard definition pinned; unavailable remains SKIPPED, never passed",
+      "basis": "Re-audited unchanged map GPU test bodies and shared fixture alias; software EGL setup through ff5342ca; exact environment guard unchanged; skipped remains unavailable, never passed",
       "guard": "gpu_env",
-      "guard_source_blob": "d9d6f940a5c752a14e861c954c765f450a2953d6",
+      "guard_source_blob": "6890e34c1e01be80495c1dc1089529c362de68f3",
       "guard_source_path": "openpilot/starpilot/system/starport/tests/test_gpu_nv12.py",
       "reason": "Skipped: STARPILOT_AUTO_GL_TEST=1 enables tests requiring a real graphics context",
-      "source_blob": "606859b459240ea1e73a4542ab901a782a9b001e"
+      "source_blob": "df1f777daf295f4997e0659ad0dec4e4efcf38ee"
     },
     "openpilot/starpilot/ui/tests/test_onroad_map.py::test_overlay_without_gps_waits_without_drawing_roads": {
-      "basis": "Existing map fixture alias gl=test_gpu_nv12.gpu; both consumer and shared guard definition pinned; unavailable remains SKIPPED, never passed",
+      "basis": "Re-audited unchanged map GPU test bodies and shared fixture alias; software EGL setup through ff5342ca; exact environment guard unchanged; skipped remains unavailable, never passed",
       "guard": "gpu_env",
-      "guard_source_blob": "d9d6f940a5c752a14e861c954c765f450a2953d6",
+      "guard_source_blob": "6890e34c1e01be80495c1dc1089529c362de68f3",
       "guard_source_path": "openpilot/starpilot/system/starport/tests/test_gpu_nv12.py",
       "reason": "Skipped: STARPILOT_AUTO_GL_TEST=1 enables tests requiring a real graphics context",
-      "source_blob": "606859b459240ea1e73a4542ab901a782a9b001e"
+      "source_blob": "df1f777daf295f4997e0659ad0dec4e4efcf38ee"
     },
     "openpilot/starpilot/ui/tests/test_onroad_map.py::test_route_stays_bright_at_minimum_map_opacity": {
-      "basis": "Existing map fixture alias gl=test_gpu_nv12.gpu; both consumer and shared guard definition pinned; unavailable remains SKIPPED, never passed",
+      "basis": "Re-audited unchanged map GPU test bodies and shared fixture alias; software EGL setup through ff5342ca; exact environment guard unchanged; skipped remains unavailable, never passed",
       "guard": "gpu_env",
-      "guard_source_blob": "d9d6f940a5c752a14e861c954c765f450a2953d6",
+      "guard_source_blob": "6890e34c1e01be80495c1dc1089529c362de68f3",
       "guard_source_path": "openpilot/starpilot/system/starport/tests/test_gpu_nv12.py",
       "reason": "Skipped: STARPILOT_AUTO_GL_TEST=1 enables tests requiring a real graphics context",
-      "source_blob": "606859b459240ea1e73a4542ab901a782a9b001e"
+      "source_blob": "df1f777daf295f4997e0659ad0dec4e4efcf38ee"
     }
   },
   "independent_functions": {
@@ -165,6 +165,10 @@
     "openpilot/starpilot/car/toyota/tests/test_prius_sdsu_callers.py": {
       "basis": "90 actual DEBUG/RELEASE caller cases passed in four bounded phases (186.885s combined wall time including startup). Scheduling estimate 3s/case; fresh per-case Params, raw CAN, native configuration and C++ host reset; no shared outcome dependence.",
       "seconds_per_case": 3.0
+    },
+    "openpilot/starpilot/tests/test_ford_bluepilot_library_lifecycle.py": {
+      "basis": "736580721a hosted shard7: 248 completed Ford lifecycle cases used573.067107459 phase seconds; slowest case4.394150353s. Round up to5s. Function-scoped library_settings and ford_joined create fresh Params, host/native safety per case and tear down each case; full in-case timelines remain unchanged.",
+      "seconds_per_case": 5.0
     }
   },
   "independent_max_cases": 60,
@@ -1982,12 +1986,6 @@
       "cases": 936,
       "seconds": 1.740757
     },
-    "openpilot/starpilot/system/starport/tests/test_starport.py": {
-      "basis": "Exact 65660a4 hosted main40623875380: all 72 nodes passed, 22.037476s setup/call/teardown; 25% estimate margin, retaining any higher same-source prior estimate. Scheduling only; no test deadline change.",
-      "blob": "c4c3d21bea7d749438afeb20886652bca06208bb",
-      "cases": 72,
-      "seconds": 27.546846
-    },
     "openpilot/starpilot/system/starport/tests/test_bugsink_report.py": {
       "basis": "Exact 65660a4 hosted main40623875380: all 33 nodes passed, 0.737380s setup/call/teardown; 25% estimate margin, retaining any higher same-source prior estimate. Scheduling only; no test deadline change.",
       "blob": "b759b5e8dc1c52623809ff957bc282ca31c7e539",
@@ -2006,17 +2004,17 @@
       "cases": 30,
       "seconds": 0.161266
     },
+    "openpilot/starpilot/system/starport/tests/test_starport.py": {
+      "basis": "Exact 65660a4 hosted main40623875380: all 72 nodes passed, 22.037476s setup/call/teardown; 25% estimate margin, retaining any higher same-source prior estimate. Scheduling only; no test deadline change.",
+      "blob": "c4c3d21bea7d749438afeb20886652bca06208bb",
+      "cases": 72,
+      "seconds": 27.546846
+    },
     "openpilot/starpilot/tests/test_captured_adrv_diagnostic_startup.py": {
       "basis": "Exact 65660a4 hosted main40623875380: all 64 nodes passed, 12.454431s setup/call/teardown; 25% estimate margin, retaining any higher same-source prior estimate. Scheduling only; no test deadline change.",
       "blob": "7849a690cd1ac2f3064f60d72622ea7150015cb8",
       "cases": 64,
       "seconds": 15.568039
-    },
-    "openpilot/starpilot/tests/test_ford_bluepilot_aol.py": {
-      "basis": "Exact 65660a4 hosted main40623875380: all 149 nodes passed, 264.354436s setup/call/teardown; 25% estimate margin, retaining any higher same-source prior estimate. Scheduling only; no test deadline change.",
-      "blob": "0c39bf229eb908d3ba63abd9f57e3c0e68a48c0b",
-      "cases": 149,
-      "seconds": 330.443045
     },
     "openpilot/starpilot/tests/test_ford_ci_registration.py": {
       "basis": "Separate complete AOL reference from same6eb source; not custom wall-time measurement",

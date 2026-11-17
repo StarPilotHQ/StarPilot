@@ -6,7 +6,7 @@ from types import SimpleNamespace as NS
 import unittest
 from unittest.mock import Mock, patch
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.developer_preview import OnroadVisualPreview
 from openpilot.starpilot.ui.onroad import CornerHintCache, OnroadView
@@ -72,6 +72,8 @@ class DeveloperPreviewRenderTests(unittest.TestCase):
     for profile in (Profile.LARGE, Profile.COMPACT):
       with self.subTest(profile=profile):
         view = OnroadView.__new__(OnroadView)
+        view._fade = Mock()
+        view.personality = Mock()
         fonts = Mock()
         fonts.profile = profile
         fonts.measure.return_value = NS(width=100, height=20)
@@ -91,7 +93,6 @@ class DeveloperPreviewRenderTests(unittest.TestCase):
         view.compact_hud = Mock()
         view.compact_sidebar = Mock()
         view.torque_bar = Mock()
-        view._fade = Mock()
         view._fade_path = Path('/unused')
         with patch('openpilot.starpilot.ui.onroad.clip.begin_scissor_mode'), \
              patch('openpilot.starpilot.ui.onroad.clip.end_scissor_mode'), \
@@ -103,7 +104,7 @@ class DeveloperPreviewRenderTests(unittest.TestCase):
              patch('openpilot.starpilot.ui.onroad.rl.draw_rectangle_rounded'), \
              patch('openpilot.starpilot.ui.onroad.rl.draw_rectangle_rounded_lines_ex'), \
              patch('openpilot.starpilot.ui.onroad.render_corner_hint'), \
-             patch.object(view, '_prepare_compact_fade'), patch.object(view, '_slc_actions'):
+             patch.object(view, '_slc_actions'):
           view.render(state(full_alert=True))
         drawn = [call.args[0] for call in fonts.draw.call_args_list]
         self.assertTrue(any('SYNTHETIC REPLAY PREVIEW' in text for text in drawn))
@@ -111,6 +112,8 @@ class DeveloperPreviewRenderTests(unittest.TestCase):
 
   def test_large_nonalert_draws_canonical_gauge_and_preview_labels_without_real_curve(self):
     view = OnroadView.__new__(OnroadView)
+    view._fade = Mock()
+    view.personality = Mock()
     fonts = Mock()
     fonts.profile = Profile.LARGE
     view.fonts = fonts

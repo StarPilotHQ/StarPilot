@@ -10,21 +10,49 @@ function chunk(kind, bytes) {
   return Buffer.concat([size,body,sum])
 }
 const meta={version:1,width:2,height:1,sprites:{conditional_mode:{x:0,y:0,width:2,height:1}}}
-function image(metadata=meta){
+function image(metadata=meta,text=true){
   const header=Buffer.alloc(13);header.writeUInt32BE(2);header.writeUInt32BE(1,4);header[8]=8;header[9]=6
   return new Blob([Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),chunk('IHDR',header),
-    chunk('tEXt',Buffer.from('starpilot-widget-art\0'+JSON.stringify(metadata))),
+    ...(text?[chunk('tEXt',Buffer.from('starpilot-widget-art\0'+JSON.stringify(metadata)))]:[]),
     chunk('IDAT',deflateSync(Buffer.from([0,255,255,255,255,0,0,0,0]))),chunk('IEND',Buffer.alloc(0))])],{type:'image/png'})
 }
 assert.deepEqual(await widgetArtMetadata(image()),meta)
+// A proxy that re-encodes the PNG drops the tEXt chunk; the header still carries the sheet.
+const stripped=image(meta,false),header=Buffer.from(JSON.stringify(meta)).toString('base64')
+assert.deepEqual(await widgetArtMetadata(stripped,header),meta,'Sprite sheet survives a proxy that strips PNG text')
+await assert.rejects(widgetArtMetadata(stripped,null),/metadata/)
+assert.deepEqual(await widgetArtMetadata(image(),'image/png'),meta,'A malformed header falls back to the PNG chunk')
+await assert.rejects(widgetArtMetadata(stripped,Buffer.from(JSON.stringify({...meta,width:3})).toString('base64')))
 const withHeader={...meta,sprites:{speed_limit_actions:{x:0,y:0,width:2,height:1,offsetY:-32.5}}}
 assert.deepEqual(await widgetArtMetadata(image(withHeader)),withHeader,'Native action sprites include the heading above the buttons')
 for(const bad of [{...meta,width:3},{...meta,sprites:{conditional_mode:{x:1,y:0,width:2,height:1}}},
  {...meta,sprites:{conditional_mode:{x:0,y:0,width:NaN,height:1}}},
- {...meta,sprites:{speed_limit_actions:{x:0,y:0,width:2,height:1,offsetY:-33}}},
+ {...meta,sprites:{speed_limit_actions:{x:0,y:0,width:2,height:1,offsetY:-34}}},
  {...meta,sprites:{conditional_mode:{x:0,y:0,width:2,height:1,offsetY:-32}}},
  {...meta,sprites:{conditional_mode:{x:0,y:0,width:2,height:1,offsetX:1}}}])await assert.rejects(widgetArtMetadata(image(bad)))
 await assert.rejects(widgetArtMetadata(new Blob(['not PNG'])))
+for (const [id, offsetX, offsetY] of [['speed_limit', -182.5, -12.5], ['speed_limit', -2, 0], ['cruise_limits', 0, -12.5]]) {
+  const native = {...meta, sprites: {[id]: {x:0,y:0,width:2,height:1,offsetX,offsetY,visible:false}}}
+  assert.deepEqual(await widgetArtMetadata(image(native)), native)
+}
+for (const rect of [{offsetX:-193}, {offsetY:-14}, {visible:'false'}]) {
+  await assert.rejects(widgetArtMetadata(image({...meta,sprites:{speed_limit:{x:0,y:0,width:2,height:1,...rect}}})))
+}
+for (const offsetY of [-19, -19.5, -20]) {
+  const native = {...meta, sprites: {cruise_limits: {x:0,y:0,width:2,height:1,offsetY}}}
+  assert.deepEqual(await widgetArtMetadata(image(native)), native)
+}
+for (const rect of [{offsetY:-20.01}, {offsetX:-2.01}, {x:1}, {width:3}]) {
+  await assert.rejects(widgetArtMetadata(image({...meta,sprites:{cruise_limits:{x:0,y:0,width:2,height:1,...rect}}})))
+}
+const compactIds=['weather','max_speed','speed_limit','steering_wheel','conditional_mode','following_distance','model_confidence',
+  'driver_monitor','speed_limit_actions','rear_fog','driving_mode_descriptions','clock']
+const complete={...meta,sprites:Object.fromEntries(compactIds.map(id=>[id,{x:0,y:0,width:2,height:1,visible:true}]))}
+assert.deepEqual(await widgetArtMetadata(image(complete)),complete)
+const atCapacity={...complete,sprites:{...complete.sprites,...Object.fromEntries(
+  Array.from({length:12},(_,i)=>[`extra_${String.fromCharCode(97+i)}`,{x:0,y:0,width:2,height:1,visible:true}]))}}
+assert.deepEqual(await widgetArtMetadata(image(atCapacity)),atCapacity)
+await assert.rejects(widgetArtMetadata(image({...atCapacity,sprites:{...atCapacity.sprites,extra:{x:0,y:0,width:2,height:1}}})))
 const flush=async()=>{for(let i=0;i<20;i++)await Promise.resolve()}
 function fixture() {
   const updates=[],requests=[],timers=new Map(),revoked=[];let next=0,url=0,unauthorized=0
@@ -53,6 +81,7 @@ tick();await answer(1);assert.equal(requests.length,3);await answer(2);assert.eq
 feed.update(document,'compact','engaged')
 assert.equal(feed.currentUrl,'blob:1','Returning to a profile restores its artwork immediately')
 assert.equal(updates.at(-1).status,'ready');assert.equal(timers.size,0,'Unchanged cached artwork needs no request')
+assert.equal(updates.findLast(update=>'profile' in update).profile,'compact','Cached artwork retains its screen identity')
 assert.deepEqual(revoked,[],'Switching profiles keeps both mounted sheets alive')
 feed.update(document,'large','braking');tick();await answer(3,503)
 assert.equal(feed.currentUrl,'blob:2','A transient failure retains visible artwork')
@@ -125,6 +154,7 @@ stalled.feed.stop()
   run()
   await flush();assert.equal(requests.length,1,'The second feed waits instead of being turned away as busy')
   assert.equal(JSON.parse(requests[0].options.body).art,'backdrop')
+  assert.equal([...timers.values()].filter(t=>t.delay>=7000).length,1,'Only the feed holding the renderer runs a response clock; waiting its turn costs no budget')
   backdrop.update(document,'compact','aol');run()
   await flush();assert.equal(requests.length,1,'Cancelling a request does not release the renderer before it answers')
   requests[0].resolve({status:200,ok:true,headers:{get:()=>'image/png'},blob:async()=>image()});await flush()

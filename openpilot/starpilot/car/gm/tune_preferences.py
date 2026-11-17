@@ -2,7 +2,7 @@ from opendbc.car.gm.long_tune import tune_options
 from openpilot.starpilot.saved_source import read_saved
 
 KEY = "GMLongitudinalTune"
-CHOICES = {0: "Vehicle Default", 1: "ACC Tune", 2: "Volt Tune"}
+CHOICES = {0: "Vehicle Default", 1: "ACC Tune"}
 
 
 def read_choice(params):
@@ -10,7 +10,7 @@ def read_choice(params):
     raw, readable = read_saved(params, KEY, 8)
   except (OSError, RuntimeError, TypeError, ValueError):
     return 0, None, False, False
-  values = {None: 0, b"0": 0, b"1": 1, b"2": 2}
+  values = {None: 0, b"0": 0, b"1": 1}
   return values.get(raw, 0), raw, readable, readable and raw in values
 
 

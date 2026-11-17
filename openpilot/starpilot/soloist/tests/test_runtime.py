@@ -61,6 +61,10 @@ def test_launch_commands_isolate_the_server_and_player(layout):
   prefs = preferences.Preferences(output_address='AA:BB:CC:DD:EE:FF', initial_volume=60)
   server = backend.server_launch(layout, prefs, alsa_base=Path('/usr/share/alsa/alsa.conf'))
   assert '-n' in server.argv and '--system=no' in server.argv
+  assert '--realtime=no' in server.argv and '--high-priority=yes' in server.argv
+  assert '--resample-method=speex-float-3' in server.argv
+  assert (layout.runtime / 'daemon.conf').read_text() == 'nice-level = -5\n'
+  assert server.env['PULSE_CONFIG'] == str(layout.runtime / 'daemon.conf')
   assert any(arg.startswith('module-alsa-sink device=starpilot_spotify') for arg in server.argv)
   assert server.env['ALSA_CONFIG_PATH'].startswith(str(layout.runtime))
   assert (layout.runtime / 'alsa.conf').stat().st_mode & 0o777 == 0o600
@@ -74,6 +78,7 @@ def test_launch_commands_isolate_the_server_and_player(layout):
   assert player.argv[player.argv.index('--cache-size') + 1] == '256'
   assert player.argv[player.argv.index('--initial-volume') + 1] == '60'
   assert player.env['PULSE_SERVER'] == f'unix:{layout.runtime}/pulse/native'
+  assert player.env['LD_LIBRARY_PATH'] == str(backend.SERVER_ROOT / 'lib')
 
 
 def test_vendored_server_matches_its_checksums():
@@ -84,8 +89,11 @@ def test_vendored_server_matches_its_checksums():
   assert {name for _, name in sums} >= {'bin/pulseaudio', 'lib/libpulsecore-16.1.so', 'modules/module-pipe-sink.so'}
   for digest, name in sums:
     assert hashlib.sha256((root / name).read_bytes()).hexdigest() == digest, name
-  for name in ('pulseaudio', 'libltdl7', 'liborc-0.4-0t64', 'libsoxr0', 'libspeexdsp1', 'libtdb1'):
+  for name in ('pulseaudio', 'libpulse0', 'libsndfile1', 'libltdl7', 'liborc-0.4-0t64', 'libsoxr0', 'libspeexdsp1', 'libtdb1'):
     assert (root / 'licenses' / f'{name}.copyright').is_file()
+  # AGNOS 20 dropped libpulse0 and libsndfile1; Soloist and the phone relay load them from the bundle.
+  for name in ('libpulse.so.0', 'libpulse-simple.so.0', 'libpulsecommon-16.1.so', 'libsndfile.so.1'):
+    assert any(path == f'lib/{name}' for _, path in sums), name
 
 
 def test_starport_output_is_a_real_time_pipe(layout):
@@ -388,12 +396,12 @@ def test_status_publishes_the_spotify_track_for_the_car_screen(layout):
 
 def test_status_publishes_the_phone_track_only_while_phone_audio_runs(layout):
   sup, _ = make_supervisor(layout, [])
-  sup.phone_prefs = object()
+  sup.phone_prefs = preferences.Preferences(source='phone', phone_name='Pixel 9')
   sup.phone_track = {'Status': 'playing', 'Track': {'Title': 'Phone Song', 'Artist': 'Band'}}
   assert sup.status()['nowPlaying'] is None
   sup.player = object()
   found = sup.status()['nowPlaying']
-  assert found['source'] == 'phone' and found['title'] == 'Phone Song'
+  assert found['source'] == 'phone' and found['title'] == 'Phone Song' and found['device'] == 'Pixel 9'
 
 
 def test_supervisor_waits_for_network_before_starting(layout, monkeypatch):
@@ -462,3 +470,28 @@ def test_network_ready_accepts_either_address_family(monkeypatch, ipv4, ipv6, ex
   from io import StringIO
   monkeypatch.setattr('builtins.open', lambda path: StringIO(ipv4 if path.endswith('/route') else ipv6))
   assert supervisor.network_ready() is expected
+
+
+def test_pull_onroad_takes_spotify_over_only_while_driving(layout, monkeypatch):
+  ready_layout(layout, monkeypatch)
+  state = {'parked': True}
+  monkeypatch.setattr(supervisor, 'parked', lambda: state['parked'])
+  sup, now = make_supervisor(layout, [])
+  sup.tick()
+  now[0] += 1
+  sup.tick()
+  assert sup.client.sent == []
+  from dataclasses import replace
+  preferences.save(replace(preferences.load(layout), pull_onroad=True), layout)
+  now[0] += 1
+  sup.tick()
+  assert sup.client.sent == []
+  state['parked'] = False
+  now[0] += 1
+  sup.tick()
+  now[0] += 1
+  sup.tick()
+  assert sup.client.sent == [('activate', {})]
+  now[0] += supervisor.PULL_RETRY_SECONDS
+  sup.tick()
+  assert sup.client.sent == [('activate', {})] * 2

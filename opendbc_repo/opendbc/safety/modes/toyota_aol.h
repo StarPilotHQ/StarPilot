@@ -95,11 +95,17 @@ static bool toyota_composite_pcm_gas = false;
 static bool toyota_composite_pedal_gas = false;
 
 static bool toyota_pedal_composite_param(uint16_t param) {
-  return (param == 0x3049U) || (param == 0x3249U) || (param == 0x3449U) || (param == 0x3649U) || (param == 0xA042U) || (param == 0xA049U) || (param == 0xA242U) || (param == 0xA249U) || (param == 0xA449U) || (param == 0xA649U) || (param == 0xA849U) || (param == 0xA949U) || (param == 0xA958U) || (param == 0xA964U) || (param == 0xAA49U) || (param == 0xAB49U) || (param == 0xAB58U) || (param == 0xAB64U) || (param == 0xB049U) || (param == 0xB149U) || (param == 0xB158U) || (param == 0xB164U) || (param == 0xB249U) || (param == 0xB349U) || (param == 0xB358U) || (param == 0xB364U) || (param == 0xB449U) || (param == 0xB549U) || (param == 0xB558U) || (param == 0xB564U) || (param == 0xB649U) || (param == 0xB749U) || (param == 0xB758U) || (param == 0xB764U) || (param == 0xB842U) || (param == 0xB849U) || (param == 0xBA42U) || (param == 0xBA49U) || (param == 0xE042U) || (param == 0xE049U) || (param == 0xE242U) || (param == 0xE249U) || (param == 0xE84DU) || (param == 0xE949U) || (param == 0xEA4DU) || (param == 0xEB49U) || (param == 0xF049U) || (param == 0xF04DU) || (param == 0xF149U) || (param == 0xF249U) || (param == 0xF24DU) || (param == 0xF349U) || (param == 0xF44DU) || (param == 0xF549U) || (param == 0xF64DU) || (param == 0xF749U);
+  return (param == 0xE449U) || (param == 0xE649U) || (param == 0x3049U) || (param == 0x3249U) || (param == 0x3449U) || (param == 0x3649U) || (param == 0xA042U) || (param == 0xA049U) || (param == 0xA242U) || (param == 0xA249U) || (param == 0xA449U) || (param == 0xA649U) || (param == 0xA849U) || (param == 0xA949U) || (param == 0xA958U) || (param == 0xA964U) || (param == 0xAA49U) || (param == 0xAB49U) || (param == 0xAB58U) || (param == 0xAB64U) || (param == 0xB049U) || (param == 0xB149U) || (param == 0xB158U) || (param == 0xB164U) || (param == 0xB249U) || (param == 0xB349U) || (param == 0xB358U) || (param == 0xB364U) || (param == 0xB449U) || (param == 0xB549U) || (param == 0xB558U) || (param == 0xB564U) || (param == 0xB649U) || (param == 0xB749U) || (param == 0xB758U) || (param == 0xB764U) || (param == 0xB842U) || (param == 0xB849U) || (param == 0xBA42U) || (param == 0xBA49U) || (param == 0xE042U) || (param == 0xE049U) || (param == 0xE242U) || (param == 0xE249U) || (param == 0xE84DU) || (param == 0xE949U) || (param == 0xEA4DU) || (param == 0xEB49U) || (param == 0xF049U) || (param == 0xF04DU) || (param == 0xF149U) || (param == 0xF249U) || (param == 0xF24DU) || (param == 0xF349U) || (param == 0xF44DU) || (param == 0xF549U) || (param == 0xF64DU) || (param == 0xF749U);
 }
 
 static uint16_t toyota_pedal_parent_param(uint16_t param) {
-  return toyota_pedal_composite_param(param) ? (uint16_t)(param & ~0x2000U) : param;
+  uint16_t parent;
+  if ((param == 0xE449U) || (param == 0xE649U)) {
+    parent = (param == 0xE449U) ? 0x9849U : 0x9A49U;
+  } else {
+    parent = toyota_pedal_composite_param(param) ? (uint16_t)(param & ~0x2000U) : param;
+  }
+  return parent;
 }
 
 static bool toyota_alt_cruise = false;

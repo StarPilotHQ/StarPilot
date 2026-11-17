@@ -1,4 +1,6 @@
+import hashlib
 import json
+import os
 import stat
 import struct
 from pathlib import Path
@@ -7,6 +9,7 @@ from unittest.mock import Mock
 import pytest
 
 from openpilot.starpilot.galaxy.hotspot import DEFAULT, HotspotSettings, atomic_json, hotspot_name, validate_config
+from openpilot.starpilot.galaxy import hotspot_worker
 from openpilot.starpilot.galaxy.hotspot_netlink import WirelessInterfaces, attribute, attributes
 from openpilot.starpilot.galaxy.hotspot_worker import (HOLD, STANDALONE_SETTLE_S, HotspotBackend, HotspotController, choose_channel,
                                                        hostapd_config, nm_activating, overlapping_routes, radio_channel)
@@ -300,7 +303,8 @@ def test_controller_readiness_and_failed_child():
 def test_backend_failure_rolls_back_only_owned_interface(tmp_path):
   run = Mock(return_value=Mock(stdout='[]'))
   interfaces = Mock()
-  backend = HotspotBackend(tmp_path, run=run, interfaces=interfaces)
+  backend = HotspotBackend(tmp_path, run=run, interfaces=interfaces, udev_rule=tmp_path / 'udev/85.rules',
+                           supplicant_dir=tmp_path / 'wpa')
   backend.firewall = '/sbin/iptables-legacy'
   def command(args, **kwargs):
     if args[:3] == ['ip', 'address', 'add']:
@@ -315,6 +319,106 @@ def test_backend_failure_rolls_back_only_owned_interface(tmp_path):
   assert ['nmcli', 'device', 'set', 'galaxy0', 'managed', 'no'] in commands
   assert all('wlan0' not in command and 'p2p0' not in command for command in commands)
   assert not backend.owned
+
+
+def test_missing_hostapd_never_creates_the_interface(tmp_path, monkeypatch):
+  monkeypatch.setattr(hotspot_worker, 'HOSTAPD', tmp_path / 'missing')
+  interfaces = Mock()
+  backend = HotspotBackend(tmp_path, run=Mock(return_value=Mock(stdout='[]')), interfaces=interfaces)
+  backend.firewall = '/sbin/iptables-legacy'
+  with pytest.raises(RuntimeError, match='hostapd'):
+    backend.start(CONFIG, ('a', 149))
+  interfaces.assert_not_called()
+
+
+def test_bundled_hostapd_matches_its_checksum():
+  bundled = Path(hotspot_worker.__file__).parent / 'bin'
+  for line in (bundled / 'hostapd.sha256').read_text().splitlines():
+    digest, name = line.split()
+    path = bundled / name
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == digest and os.access(path, os.X_OK)
+  assert {hotspot_worker.HOSTAPD.name, hotspot_worker.HOSTAPD_CLI.name} <= {line.split()[1] for line in
+                                                                         (bundled / 'hostapd.sha256').read_text().splitlines()}
+
+
+def test_repeated_failures_back_off_and_success_resets():
+  backend = backend_mock()
+  backend.channel.return_value = ('a', 149)
+  backend.start.side_effect = RuntimeError('hostapd is missing')
+  now = [0.]
+  controller = HotspotController(backend, clock=lambda: now[0])
+  starts = []
+  for _ in range(400):
+    calls = backend.start.call_count
+    controller.tick(CONFIG)
+    if backend.start.call_count > calls:
+      starts.append(now[0])
+    now[0] += 2
+  gaps = [later - earlier for earlier, later in zip(starts, starts[1:], strict=False)]
+  assert gaps[:5] == [30, 60, 120, 240, 300] and max(gaps) == 300
+  backend.start.side_effect = None
+  now[0] += 300
+  assert controller.tick(CONFIG)['state'] == 'starting'
+  assert controller.tick(CONFIG)['active'] and controller.failures == 0 and controller.backoff() == 15
+  controller.failures = 10000
+  assert controller.backoff() == hotspot_worker.MAX_RETRY_S
+
+
+def test_ap_that_keeps_exiting_backs_off():
+  backend = backend_mock()
+  backend.channel.return_value = ('a', 149)
+  backend.alive.return_value = False  # hostapd exits right after each start
+  now = [0.]
+  controller = HotspotController(backend, clock=lambda: now[0])
+  starts = []
+  for _ in range(200):
+    calls = backend.start.call_count
+    controller.tick(CONFIG)
+    if backend.start.call_count > calls:
+      starts.append(now[0])
+    now[0] += 2
+  gaps = [later - earlier for earlier, later in zip(starts, starts[1:], strict=False)]
+  assert gaps[0] >= 30 and gaps[0] < gaps[1] < gaps[2] <= 300 and controller.failures >= 3
+
+
+def test_networkmanager_is_kept_off_galaxy0_before_it_exists(tmp_path):
+  rule = tmp_path / 'udev/85-starpilot-galaxy-hotspot.rules'
+  run = Mock(return_value=Mock(stdout='[]', returncode=0))
+  interfaces = Mock()
+  order = []
+  interfaces.return_value.create.side_effect = lambda name: order.append(('create', rule.exists()))
+  backend = HotspotBackend(tmp_path, run=run, interfaces=interfaces, popen=Mock(), udev_rule=rule,
+                           supplicant_dir=tmp_path / 'wpa')
+  backend.firewall = '/sbin/iptables-legacy'
+  backend.start(CONFIG, ('a', 149))
+  assert order == [('create', True)]
+  assert rule.read_text() == 'SUBSYSTEM=="net", ENV{INTERFACE}=="galaxy0", ENV{NM_UNMANAGED}="1"\n'
+  assert ['udevadm', 'control', '--reload'] in [call.args[0] for call in run.call_args_list]
+  run.reset_mock()
+  backend.keep_unmanaged()
+  run.assert_not_called()  # unchanged rule: no reload
+
+
+def test_hostapd_waits_for_wpa_supplicant_to_let_go(tmp_path):
+  supplicant = tmp_path / 'wpa'
+  supplicant.mkdir()
+  (supplicant / 'galaxy0').touch()
+  now = [0.]
+  def sleep(seconds):
+    now[0] += seconds
+    if now[0] >= 1:
+      (supplicant / 'galaxy0').unlink(missing_ok=True)
+  backend = HotspotBackend(tmp_path, run=Mock(), interfaces=Mock(), supplicant_dir=supplicant, clock=lambda: now[0], sleep=sleep)
+  backend.wait_supplicant_released()
+  assert 1 <= now[0] < 1.2
+  (supplicant / 'galaxy0').touch()
+  def sleep_forever(seconds):
+    now[0] += seconds
+
+  backend = HotspotBackend(tmp_path, run=Mock(), interfaces=Mock(), supplicant_dir=supplicant, clock=lambda: now[0],
+                           sleep=sleep_forever)
+  with pytest.raises(RuntimeError, match='wpa_supplicant'):
+    backend.wait_supplicant_released()
 
 
 def test_backend_conflict_does_not_create(tmp_path):

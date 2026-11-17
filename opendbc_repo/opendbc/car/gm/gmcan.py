@@ -46,9 +46,9 @@ def create_bolt_regen_paddle(packer, pressed):
   return packer.make_can_msg("EBCMRegenPaddle", 0, {"RegenPaddle": 2 if pressed else 0})
 
 
-def create_bolt_regen_gear(packer, pressed, gen2):
+def create_bolt_regen_gear(packer, pressed, gen2, *, drive=False):
   packed = packer.make_can_msg("ECMPRDNL2", 0, {
-    "PRNDL2": (5 if gen2 else 7) if pressed else 6,
+    "PRNDL2": (5 if gen2 else 7) if pressed else (4 if gen2 and drive else 6),
     "ManualMode": int(pressed), "TransmissionState": 1,
   })
   return CanData(0x1F5, b"\x0c\x0c" + packed[1][2:], 0)

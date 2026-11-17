@@ -11,10 +11,11 @@ from openpilot.starpilot.aol.runtime import current_native
 from openpilot.starpilot.aol.tests import test_ioniq_availability as fixture
 
 
+@pytest.mark.parametrize('engaged', [pytest.param(False, id='aol_only'), pytest.param(True, id='stock_cruise_engaged')])
 @pytest.mark.parametrize('identity', sorted(MODELS))
 @pytest.mark.parametrize('signal', [False, True])
 @pytest.mark.parametrize('brake', [False, True])
-def test_native_stop_restriction_withdraws_steering_without_disarming_driver_intent(identity, signal, brake):
+def test_native_stop_restriction_withdraws_steering_without_disarming_driver_intent(identity, signal, brake, engaged):
   case = fixture.IoniqAvailabilityTests(methodName='runTest')
   with ExitStack() as cleanup:
     cleanup.callback(case.doCleanups)
@@ -35,7 +36,8 @@ def test_native_stop_restriction_withdraws_steering_without_disarming_driver_int
       assert sd.aol_settings.pause_brake_mps == 0.0
       rolling = fixture.car_state()
       rolling.vEgo = rolling.vEgoRaw = 1.0
-      axis, _, command = step(2, observed_state=rolling, panda_controls_allowed=False)
+      rolling.cruiseState.enabled = engaged
+      axis, _, command = step(2, observed_state=rolling, panda_controls_allowed=engaged)
       assert axis.lateralActive and command.latActive
       assert receive(10_020_000_000, state=rolling, axis=sd.pm.messages['aolAxisState'],
                      event=sd.pm.messages['onroadEvents'])
@@ -44,9 +46,10 @@ def test_native_stop_restriction_withdraws_steering_without_disarming_driver_int
         stopped.vEgo = stopped.vEgoRaw = 0.0
         stopped.standstill = True
         stopped.leftBlinker = signal
+        stopped.cruiseState.enabled = engaged
         assert temporary_restriction(card.CP, stopped)
         axis, _, command = step(tick, observed_state=stopped, allowed=False, native_request_lat=True,
-                                native_request_long=False, panda_controls_allowed=False)
+                                native_request_long=False, panda_controls_allowed=engaged and not brake)
         now = 10_000_000_000 + tick * 10_000_000
         native = current_native(sd.sm, sd.CP, now_ns=now, axis_session_id=sd.aol_session_id)
         assert native is not None and native.requestedLateral and not native.lateralAllowed
@@ -57,7 +60,7 @@ def test_native_stop_restriction_withdraws_steering_without_disarming_driver_int
                        event=sd.pm.messages['onroadEvents']), card.aol_card_intent.latch_clear_reason
         assert card.aol_card_intent.allowed_latch and not sd.aol_authority_lost
       axis, _, command = step(37, observed_state=rolling, allowed=True, native_request_lat=True,
-                              native_request_long=False, panda_controls_allowed=False)
+                              native_request_long=False, panda_controls_allowed=engaged)
       assert axis.lateralActive and command.latActive
       assert not axis.longitudinalActive and not command.longActive
       assert receive(10_370_000_000, state=rolling, axis=sd.pm.messages['aolAxisState'],

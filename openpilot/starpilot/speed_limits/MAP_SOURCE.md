@@ -1,36 +1,9 @@
-# Live Maps source boundary
+# Map source boundary (disabled)
 
-`plannerd` subscribes to `mapdOut` when SLC transport is available.
-`runtime.py` samples the Maps adapter when Maps is configured or a highest/lowest
-selection policy considers it. The [controller contract](README.md) owns adoption,
-confirmation and car-control behavior.
+`map_source.py` decodes v2 `mapdOut` events and checks source ordering, boot-time freshness, and structural consistency. V1 remains decodable but cannot produce a candidate because it treated Python GPS Event MONOTONIC timestamps as BOOTTIME. It is not subscribed from plannerd and does not create a valid or absent SLC observation. A matched road can therefore be inspected in isolated tests without becoming a cruise ceiling, accepted-history fallback, or geographic identity claim.
 
-`map_source.MapTracker` validates v2 wire structure, source ordering and freshness.
-It exposes diagnostics, not a valid SLC candidate. `map_observation.MapSource`
-projects a fresh `matchedLimit` diagnostic into a valid observation only when its
-way-selection type is `current`. Possible, predicted and extended ways, missing
-speed metadata, GPS/coverage loss and `matchedNoLimit` remain unknown or stale;
-they do not mean regulatory absence. The map provider rejects multiple plausible
-loaded-tile road IDs before selecting a current way and applies direction and
-one-way checks. Provider and offline-package admission remain with the Maps
-lifecycle and storage owners.
+The boundary keeps the GPS observation time separate from computation and output times. V2 converts a Python GPS Event's MONOTONIC timestamp to BOOTTIME only after a post-start/resume fence and clock-pair check; an offset step invalidates queued fixes and advances source generation. External fixes expire after 500 ms, internal fixes after 2 s; computation and output expire after 250 ms. These are transport/input deadlines, not proof that the selected road is correct. Linux callers must provide `CLOCK_BOOTTIME` nanoseconds, matching cereal and mapd output; Apple uses monotonic as the host fallback. The current plannerd live `time.monotonic_ns()` is not interchangeable with boot time after Linux suspend, so no runtime subscription is wired here.
 
-Map output uses BOOTTIME nanoseconds on Linux. The runtime samples a paired
-MONOTONIC/BOOTTIME clock and passes BOOTTIME to the tracker; the clocks must not
-be interchanged after suspend. Apple uses monotonic as the host fallback.
-GPS observation, computation and output timestamps stay separate. External GPS
-fixes expire after 500 ms, internal fixes after 2 s and car fixes after 2.5 s;
-computation and output expire after 250 ms. V1 records remain decodable but cannot
-create a live candidate because their GPS clock domain was ambiguous.
+`matchedNoLimit` means a geographically matched sample with no posted numeric limit. It is not malformed and is never turned into SLC `ABSENT` by this disabled boundary. Old pre-v1 records, unknown versions, conflicting status/limit fields, stale evidence, and reordering cannot authorize a map candidate. Source-generation changes clear held evidence. A source change without a generation change, generation regression, boot-clock regression, or excessive restarts fails closed until an explicit tracker reset; late packets from retired producer sessions cannot restore a limit. No state is persisted.
 
-Unknown versions, conflicting status/limit fields, stale evidence and reordering
-cannot authorize a candidate. Source-generation changes clear held evidence.
-A source change without a generation change, generation regression, clock
-regression or excessive restarts fails closed until an explicit tracker reset;
-late packets from retired producers cannot restore a limit.
-
-The observation identity binds the current drive, vehicle, producer, source
-generation, GPS source and OSM way ID. It is not a durable identity for restoring
-a limit in a later drive. Freshness and a unique loaded-tile match do not establish
-real-road accuracy or current map metadata. Synthetic host tests verify these
-software gates; they do not qualify Maps on the vehicle.
+`wayId`, way-selection type, and distance from center do not establish correct-road confidence. The provider can choose a parallel road, ramp, junction branch or wrong direction despite a fresh GPS fix and loaded tile. Real map provenance, tile integrity/freshness, matched-road alternatives, direction and segment applicability, route faults, and restart recovery need separate evidence before this boundary can ever yield a `VALID` or `ABSENT` map observation. Bare `wayId` is not a durable geographic identity.

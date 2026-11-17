@@ -6,6 +6,7 @@ from opendbc.car import Bus, structs
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.lateral import apply_std_steer_angle_limits
 from opendbc.car.volvo.helpers import LCA3CounterSync
+from opendbc.car.volvo.values import VolvoSafetyFlags
 from opendbc.car.volvo.cma_can import (create_lca_message,
                                         create_pscm_message, create_lca_3_message, create_lca_2_message, create_lca_4_message, create_lca_5_message,
                                         create_lca_6_message, create_lca_7_message, create_pscm_related_message)
@@ -17,6 +18,7 @@ class CarControllerCMA(CarControllerBase):
     super().__init__(dbc_names, CP)
     self.packer = CANPacker(dbc_names[Bus.party])
     self.apply_angle_last = 0.0  # Track last applied steering angle
+    self.lca_2_modulus = 15 if CP.safetyConfigs[0].safetyParam & VolvoSafetyFlags.LCA2_MOD15 else 16
 
     self.gear_acc = 60
     self.lca_4_acc = 0  # Bresenham accumulator for 29 Hz
@@ -33,8 +35,11 @@ class CarControllerCMA(CarControllerBase):
 
     # Counter management for LCA_5 (formerly SPEED_1)
     self.lca_5_counter = None  # Will grab initial value from CarState
+    self.lca_5_primed = False
+    self.lca_5_angle_last = 0.0
 
     self.last_lat_active = False  # Track state
+    self.lat_active = False
 
     self.lca_7_acc = 0  # Bresenham accumulator for 29 Hz
     self.lca_7_last_steer = 0 # used to calculate change in steer from last update
@@ -74,9 +79,17 @@ class CarControllerCMA(CarControllerBase):
 
     # A current command cannot authorize steering against actual gear/source
     # state. B is decoded as drive by this family; no guessed transmission mode.
+    if self.lca_2_modulus == 15 and not CC.latActive and CS.pscm_status_supported:
+      CS.pscm_rearm_required = False
+    pscm_ready = (self.lca_2_modulus != 15 or
+                  (CS.pscm_status_supported and not CS.pscm_rearm_required))
     lat_active = bool(CC.latActive and CS.out.canValid and not CS.out.canTimeout and
                       CS.out.gearShifter == structs.CarState.GearShifter.drive and
-                      not CS.out.steerFaultTemporary and not CS.out.steerFaultPermanent)
+                      not CS.out.steerFaultTemporary and not CS.out.steerFaultPermanent and pscm_ready)
+    self.lat_active = lat_active
+    if not lat_active:
+      self.lca_5_primed = False
+      self.lca_5_angle_last = CS.out.steeringAngleDeg
 
     # lateral control - angle-based steering
     # NOTE: LCA message is sent every frame (even when inactive) to replace stock LCA
@@ -235,9 +248,9 @@ class CarControllerCMA(CarControllerBase):
         self.lca_2_counter_1 = CS.msg_lca_2['COUNTER_1']
         self.lca_2_counter_2 = CS.msg_lca_2['COUNTER_2']
 
-      # Increment counters (COUNTER_1 by +2, COUNTER_2 by +4, both modulo 16)
-      self.lca_2_counter_1 = (self.lca_2_counter_1 + 2) % 16
-      self.lca_2_counter_2 = (self.lca_2_counter_2 + 4) % 16
+      # Polestar source counters wrap at15; preserve the other profiles' existing domain.
+      self.lca_2_counter_1 = (self.lca_2_counter_1 + 2) % self.lca_2_modulus
+      self.lca_2_counter_2 = (self.lca_2_counter_2 + 4) % self.lca_2_modulus
 
       can_sends.append(create_lca_2_message(self.packer, lat_active, CS.msg_lca_2,
                                             self.lca_2_counter_1, self.lca_2_counter_2))
@@ -245,14 +258,27 @@ class CarControllerCMA(CarControllerBase):
     # LCA_5 (formerly SPEED_1) - 0x67 - 50 Hz
     # Contains wheel speeds + LCA signals (LCA_TURN_BITS, LCA_5_STEER)
     if self.frame % 2 == 0: # 50 Hz
-      if not lat_active or self.lca_5_counter is None:
+      lca_5_active = lat_active
+      lca_5_angle = apply_angle
+      if self.lca_2_modulus == 15 and lat_active:
+        if not self.lca_5_primed:
+          # Stock transport seeds the native angle history before a new request.
+          lca_5_active = False
+          self.lca_5_primed = True
+          self.lca_5_angle_last = CS.out.steeringAngleDeg
+        else:
+          lca_5_angle = apply_std_steer_angle_limits(
+            apply_angle, self.lca_5_angle_last, CS.out.vEgoRaw, CS.out.steeringAngleDeg,
+            True, CarControllerParams.LCA_5_ANGLE_LIMITS)
+          self.lca_5_angle_last = lca_5_angle
+      if not lca_5_active or self.lca_5_counter is None:
         self.lca_5_counter = CS.msg_lca_5['COUNTER']
 
       # Increment counter by +4, wrap at 15 (0xF never used)
-      if lat_active:
+      if lca_5_active:
         self.lca_5_counter = (self.lca_5_counter + 4) % 15
 
-      can_sends.append(create_lca_5_message(self.packer, lat_active, apply_angle,
+      can_sends.append(create_lca_5_message(self.packer, lca_5_active, lca_5_angle,
                                             CS.msg_lca_5, self.lca_5_counter))
 
     # LCA_4 - 0x90 - 29 Hz
@@ -285,7 +311,8 @@ class CarControllerCMA(CarControllerBase):
       pass
 
     new_actuators = actuators.as_builder()
-    new_actuators.steeringAngleDeg = self.apply_angle_last
+    new_actuators.steeringAngleDeg = (self.lca_5_angle_last if self.lca_2_modulus == 15 and lat_active
+                                    else self.apply_angle_last)
     self.frame += 1
     self.last_lat_active = CC.latActive
     return new_actuators, can_sends

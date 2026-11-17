@@ -212,9 +212,17 @@ def test_verified_eps_marker_cannot_cross_owner_reset(reset):
       card.CP = cp.as_reader()
     else:
       from opendbc.car.structs import car
+      release = fixture.car_state()
+      release.buttonEvents = [car.CarState.ButtonEvent(type=car.CarState.ButtonEvent.Type.lkas, pressed=False)]
+      card.aol_card_intent.update(release, now_ns=11_520_010_000)
       cancel = fixture.car_state()
       cancel.buttonEvents = [car.CarState.ButtonEvent(type=car.CarState.ButtonEvent.Type.cancel, pressed=True)]
-      card.aol_card_intent.update(cancel, now_ns=11_520_050_000)
+      card.aol_card_intent.update(cancel, now_ns=11_520_025_000)
+      assert card.aol_card_intent.allowed_latch
+      assert card.aol_transport_feedback.temporary_eps_event_ns
+      off = fixture.car_state()
+      off.buttonEvents = [car.CarState.ButtonEvent(type=car.CarState.ButtonEvent.Type.lkas, pressed=True)]
+      card.aol_card_intent.update(off, now_ns=11_520_050_000)
       assert not card.aol_card_intent.allowed_latch
     receive(11_520_100_000, axis=proof.as_reader(), event=event, state=temporary)
     assert card.aol_transport_feedback.temporary_eps_event_ns == 0

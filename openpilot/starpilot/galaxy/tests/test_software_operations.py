@@ -10,6 +10,7 @@ from openpilot.starpilot.galaxy.software_operations import (
   SoftwareOperations, SoftwareOperationError, UpdaterProcess, PROCESS_TITLE,
 )
 from openpilot.starpilot.software.update_control import UpdaterControlError
+from openpilot.starpilot.software.auto_install import InstallSettings
 
 
 class FakeProcess:
@@ -34,6 +35,12 @@ class FakeProcess:
 
 class SoftwareOperationsTest(unittest.TestCase):
   def setUp(self):
+    hardware = mock.patch('openpilot.starpilot.galaxy.software_operations.COMMA_HARDWARE', False)
+    hardware.start()
+    self.addCleanup(hardware.stop)
+    downloads = mock.patch('openpilot.starpilot.galaxy.software_operations.downloaded_versions', return_value=[])
+    downloads.start()
+    self.addCleanup(downloads.stop)
     self.temp = tempfile.TemporaryDirectory()
     self.addCleanup(self.temp.cleanup)
     root = Path(self.temp.name)
@@ -51,13 +58,15 @@ class SoftwareOperationsTest(unittest.TestCase):
     self.process = FakeProcess()
     self.parked = True
     self.authorized = True
+    self.metadata = root / "metadata.git"
     self.finalized = root / "finalized"
     self.finalized.mkdir()
     self.installed = root / "installed"
     self.installed.mkdir()
-    self.git = {self.installed: ("main", "a" * 40), self.finalized: ("release", "b" * 40)}
+    self.git: dict[Path, tuple[str, str] | None] = {self.installed: ("main", "a" * 40), self.finalized: ("release", "b" * 40)}
     self.owner = SoftwareOperations(self.params, parked=lambda: self.parked, process=self.process,
-                                    finalized=self.finalized, installed=self.installed,
+                                    finalized=self.finalized, metadata=self.metadata, installed=self.installed,
+                                    install_settings=InstallSettings(root / 'install-settings'),
                                     git_identity=lambda path: self.git.get(path))
     self.addCleanup(self.owner.close)
 
@@ -86,7 +95,7 @@ class SoftwareOperationsTest(unittest.TestCase):
 
     self.parked = False
     self.owner = SoftwareOperations(self.params, parked=parked, process=self.process, refresh=refresh,
-                                    finalized=self.finalized, installed=self.installed, git_identity=lambda path: self.git.get(path))
+                                    finalized=self.finalized, metadata=self.metadata, installed=self.installed, git_identity=lambda path: self.git.get(path))
     self.addCleanup(self.owner.close)
     for expected in (True, False):
       order.clear()
@@ -105,7 +114,7 @@ class SoftwareOperationsTest(unittest.TestCase):
         refresh = mock.Mock(side_effect=outcome) if isinstance(outcome, Exception) else mock.Mock(return_value=outcome)
         parked = mock.Mock(return_value=True)
         owner = SoftwareOperations(self.params, parked=parked, process=self.process, refresh=refresh,
-                                   finalized=self.finalized, installed=self.installed, git_identity=lambda path: self.git.get(path))
+                                   finalized=self.finalized, metadata=self.metadata, installed=self.installed, git_identity=lambda path: self.git.get(path))
         self.addCleanup(owner.close)
         view = owner.snapshot(include_history=False)
         refresh.assert_called_once_with()
@@ -174,7 +183,7 @@ class SoftwareOperationsTest(unittest.TestCase):
                                       "detail": "Request timed out; the updater may still be running", "percent": None})
     self.assertTrue(view["updaterAvailable"])
     self.assertEqual(view["request"]["state"], "failed")
-    self.assertFalse(view["canCheck"])
+    self.assertTrue(view["canCheck"])
     self.assertEqual(self.params.get("UpdaterState"), "finalizing update...")
 
   def test_recent_version_admission_pins_installed_snapshot_and_listed_target(self):
@@ -196,6 +205,47 @@ class SoftwareOperationsTest(unittest.TestCase):
       self.assertIsNotNone(self.owner.request)
       assert self.owner.request is not None
       self.assertEqual(self.owner.request['selectedCommit'], selected)
+
+  def test_branch_browsing_fetches_metadata_without_changing_updater_target(self):
+    result = self.act('versions', 'release')
+    self.assertEqual(self.params.get('UpdaterTargetBranch'), 'main')
+    self.assertEqual(result['selectedTarget'], 'release')
+    self.assertEqual(self.process.sent, ['versions'])
+    self.assertFalse(self.params.get_bool('DoReboot'))
+
+  def test_download_selected_commit_pins_request_and_does_not_reboot(self):
+    selected = 'c' * 40
+    recent = {'branch': 'main', 'head': selected, 'entries': [{'hash': selected, 'date': '', 'subject': 'Selected'}]}
+    payload = {'action': 'download-version', 'branch': 'main', 'expectedCommit': 'a' * 40, 'selectedCommit': selected}
+    with mock.patch('openpilot.starpilot.galaxy.software_operations.recent_versions', return_value=recent), \
+         mock.patch.object(self.process, 'send') as send:
+      self.owner.action('download-version', payload, authorized=lambda: True)
+      send.assert_called_once_with('download-version', branch='main', commit='a' * 40, selected_commit=selected)
+    request = self.owner.request
+    assert request is not None
+    self.assertEqual(request['selectedCommit'], selected)
+    self.assertFalse(self.params.get_bool('DoReboot'))
+    self.git[self.finalized] = ('main', selected)
+    (self.finalized / '.overlay_consistent').touch()
+    self.params.put('UpdaterNewDescription', 'test / main / ccccccc / Oct 30', block=True)
+    self.params.put_bool('UpdateAvailable', True, block=True)
+    self.params.put('LastUpdateTime', datetime(2026, 10, 30), block=True)
+    self.params.put('UpdaterLastFetchTime', datetime(2026, 10, 30), block=True)
+    with mock.patch('openpilot.starpilot.galaxy.software_operations.validate_revision', return_value={}):
+      self.assertEqual(self.owner.snapshot()['request']['state'], 'complete')
+    self.assertFalse(self.params.get_bool('DoReboot'))
+
+  def test_download_completion_handles_finalized_identity_disappearing(self):
+    request = {'action': 'download-version', 'state': 'pending', 'target': 'main', 'selectedCommit': 'c' * 40}
+    self.owner.request = request
+    self.owner._baseline = (None, None, 0)
+    self.params.put('LastUpdateTime', datetime(2026, 10, 30), block=True)
+    self.params.put('UpdaterLastFetchTime', datetime(2026, 10, 30), block=True)
+    with mock.patch.object(self.owner, '_ready', return_value=True), \
+         mock.patch.object(self.owner, 'git_identity', return_value=None):
+      self.owner._refresh_request(self.owner.status.snapshot())
+    self.assertEqual(request['state'], 'failed')
+    self.assertEqual(request['error'], 'Selected version was not prepared; refresh and try again')
 
   def test_version_installed_snapshot_cannot_change_at_final_dispatch(self):
     selected = 'c' * 40
@@ -308,6 +358,25 @@ class SoftwareOperationsTest(unittest.TestCase):
       self.denied("install", 409, "release")
       self.assertEqual(self.process.sent, [])
 
+  def test_metadata_check_is_fast_and_completes_during_background_finalization(self):
+    self.params.put('UpdaterState', 'finalizing update...', block=True)
+    fast = {'version': 1, 'stage': 'finalizing', 'detail': 'Copying files: 44%', 'percent': 44, 'background': True}
+    self.params.put('UpdaterFastState', fast, block=True)
+    with mock.patch.object(self.owner, '_history_snapshot') as history:
+      view = self.owner.snapshot(include_history=False)
+      self.assertTrue(view['canCheck'])
+      self.assertFalse(view['canFastUpdate'])
+      result = self.act('check')
+      history.assert_not_called()
+    self.assertEqual(result['request']['state'], 'pending')
+    fast['check'] = {'state': 'complete', 'branch': 'main', 'detail': 'Metadata ready', 'completedAt': self.owner._started + 1}
+    self.params.put('UpdaterFastState', fast, block=True)
+    result = self.owner.snapshot(include_history=False)
+    self.assertEqual(result['request']['state'], 'complete')
+    self.assertEqual(result['progress']['percent'], 44)
+    self.assertTrue(result['progress']['background'])
+    self.assertEqual(self.params.get('UpdaterState'), 'finalizing update...')
+
   def test_target_change_or_failure_is_reported(self):
     self.act("select", "release")
     self.act("download", "release")
@@ -317,6 +386,39 @@ class SoftwareOperationsTest(unittest.TestCase):
     self.act("check")
     self.params.put("UpdateFailedCount", 1, block=True)
     self.assertEqual(self.owner.snapshot()["request"]["state"], "failed")
+
+  def test_selected_install_rejects_a_different_downloaded_commit(self):
+    self.act('select', 'release')
+    self.params.put_bool('UpdateAvailable', True, block=True)
+    self.params.put('UpdaterNewDescription', 'test / release / bbbbbbb / Sep 27', block=True)
+    (self.finalized / '.overlay_consistent').touch()
+    payload = {'action': 'install', 'branch': 'release', 'expectedCommit': 'a' * 40, 'selectedCommit': 'c' * 40}
+    with mock.patch('openpilot.starpilot.galaxy.software_operations.validate_revision', return_value={}):
+      with self.assertRaisesRegex(SoftwareOperationError, 'Selected version changed'):
+        self.owner.action('install', payload, authorized=lambda: True)
+      self.assertFalse(self.params.get_bool('DoReboot'))
+      payload['selectedCommit'] = 'b' * 40
+      result = self.owner.action('install', payload, authorized=lambda: True)
+      self.assertEqual(result['request']['selectedCommit'], 'b' * 40)
+      self.assertTrue(self.params.get_bool('DoReboot'))
+
+  def test_selected_install_rechecks_commit_after_authorization(self):
+    self.act('select', 'release')
+    self.params.put_bool('UpdateAvailable', True, block=True)
+    self.params.put('UpdaterNewDescription', 'test / release / bbbbbbb / Sep 27', block=True)
+    (self.finalized / '.overlay_consistent').touch()
+    payload = {'action': 'install', 'branch': 'release', 'expectedCommit': 'a' * 40, 'selectedCommit': 'b' * 40}
+    calls = 0
+    def authorized():
+      nonlocal calls
+      calls += 1
+      if calls == 3:
+        self.git[self.finalized] = ('release', 'c' * 40)
+      return True
+    with mock.patch('openpilot.starpilot.galaxy.software_operations.validate_revision', return_value={}):
+      with self.assertRaisesRegex(SoftwareOperationError, 'Selected version changed'):
+        self.owner.action('install', payload, authorized=authorized)
+    self.assertFalse(self.params.get_bool('DoReboot'))
 
   def test_counter_reset_does_not_claim_a_completed_check(self):
     self.params.put("UpdateFailedCount", 2, block=True)
@@ -417,11 +519,56 @@ class SoftwareOperationsTest(unittest.TestCase):
       history.assert_called_once()
       self.assertEqual(light, {key: value for key, value in full.items() if key != 'history'})
 
+  def test_install_preferences_default_off_and_validate_cron_and_revision(self):
+    initial = self.owner.snapshot(include_history=False)
+    self.assertFalse(initial['automaticInstalls'])
+    self.assertEqual(initial['restartSchedule'], '0 0 * * *')
+    body = {'action': 'install-preferences', 'automaticInstalls': True, 'restartSchedule': '0 0 * * *',
+            'expectedRevision': initial['installPreferenceRevision'], 'restartTimezone': 'America/Los_Angeles'}
+    result = self.owner.action('install-preferences', body, authorized=lambda: True)
+    self.assertTrue(result['automaticInstalls'])
+    self.assertEqual(result['restartTimezone'], 'America/Los_Angeles')
+    self.assertFalse(self.params.get_bool('DoReboot'))
+    self.assertEqual(self.process.sent, [])
+    with self.assertRaises(SoftwareOperationError) as caught:
+      self.owner.action('install-preferences', body, authorized=lambda: True)
+    self.assertEqual(caught.exception.status, 409)
+    body['expectedRevision'] = result['installPreferenceRevision']
+    body['restartTimezone'] = 'Invalid/Timezone'
+    with self.assertRaises(SoftwareOperationError) as caught:
+      self.owner.action('install-preferences', body, authorized=lambda: True)
+    self.assertEqual(caught.exception.status, 400)
+    body['restartTimezone'] = 'America/Los_Angeles'
+    body['restartSchedule'] = '0 24 * * *'
+    with self.assertRaises(SoftwareOperationError) as caught:
+      self.owner.action('install-preferences', body, authorized=lambda: True)
+    self.assertEqual(caught.exception.status, 400)
+    saved = self.owner.install_settings.read()
+    assert saved is not None
+    self.assertEqual(saved['cron'], '0 0 * * *')
+
+  def test_install_preferences_recheck_offroad_before_saving(self):
+    body = {'action': 'install-preferences', 'automaticInstalls': True, 'restartSchedule': '0 0 * * *', 'expectedRevision': '0' * 32}
+    with self.assertRaises(SoftwareOperationError) as caught:
+      self.owner.action('install-preferences', body, authorized=lambda: False)
+    self.assertEqual(caught.exception.status, 403)
+    checks = iter((True, False))
+    with mock.patch.object(self.owner, '_parked', side_effect=lambda: next(checks)), self.assertRaises(SoftwareOperationError) as caught:
+      self.owner.action('install-preferences', body, authorized=lambda: True)
+    self.assertEqual(caught.exception.status, 403)
+    self.assertFalse(self.owner.install_settings.path.exists())
+    self.assertFalse(self.params.get_bool('DoReboot'))
+
+  def test_history_includes_previous_installed_version(self):
+    previous = {'hash': 'd' * 40, 'date': '2026-09-28T12:00:00+00:00', 'subject': 'Previous installed build'}
+    with mock.patch('openpilot.starpilot.galaxy.software_operations.previous_version', return_value=previous):
+      self.assertEqual(self.owner.snapshot()['history']['previous'], previous)
+
   def test_history_caches_local_reads_and_refreshes_when_download_identity_changes(self):
-    reader = mock.Mock(side_effect=lambda path, sha: [{'hash': sha, 'date': '2026-09-29T12:00:00+00:00', 'subject': path.name}])
+    reader = mock.Mock(side_effect=lambda path, sha, **kwargs: [{'hash': sha, 'date': '2026-09-29T12:00:00+00:00', 'subject': path.name}])
     self.owner.history_reader = reader
-    self.params.put('UpdaterCurrentReleaseNotes', b'<h1>Current</h1>', block=True)
-    self.params.put('UpdaterNewReleaseNotes', b'<h1>Next</h1>', block=True)
+    self.params.put('UpdaterCurrentReleaseNotes', b'<p>Current</p>', block=True)
+    self.params.put('UpdaterNewReleaseNotes', b'<p>Next</p>', block=True)
     with mock.patch('openpilot.starpilot.galaxy.software_operations.recent_versions',
                     return_value={'branch': 'main', 'head': 'c' * 40, 'entries': []}) as recent:
       first = self.owner.snapshot()['history']
@@ -432,15 +579,18 @@ class SoftwareOperationsTest(unittest.TestCase):
       self.assertEqual(reader.call_count, 2)
       self.assertEqual(self.owner.snapshot()['history'], first)
       self.assertEqual(reader.call_count, 2)
-      self.assertEqual(recent.call_count, 1)
+      self.assertEqual(recent.call_count, 3)
       self.params.put('UpdaterNewDescription', 'new description', block=True)
       self.owner.snapshot()
       self.assertEqual(reader.call_count, 4)
-      self.assertEqual(recent.call_count, 2)
+      self.assertEqual(recent.call_count, 6)
       self.params.put('UpdaterLastFetchTime', datetime(2026, 10, 4, 12), block=True)
       self.owner.snapshot()
-      self.assertEqual(recent.call_count, 3)
+      self.assertEqual(recent.call_count, 9)
       self.assertEqual(reader.call_count, 6)
+      self.params.put('UpdaterLastCheckTime', datetime(2026, 10, 4, 13), block=True)
+      self.owner.snapshot()
+      self.assertEqual(recent.call_count, 12)
 
   def test_unified_update_pins_source_and_tracks_completion(self):
     result = self.act("update", "release")
@@ -454,6 +604,26 @@ class SoftwareOperationsTest(unittest.TestCase):
     result = self.owner.snapshot()["request"]
     self.assertEqual(result["state"], "complete")
     self.assertEqual(result["outcome"], "restarting")
+
+  def test_version_list_uses_checked_history_before_download_finishes(self):
+    old = {'branch': 'main', 'head': 'b' * 40, 'entries': []}
+    latest = {'branch': 'main', 'head': 'c' * 40,
+              'entries': [{'hash': 'c' * 40, 'date': '2026-10-29T12:00:00+00:00', 'subject': 'Not downloaded yet'}]}
+    with mock.patch('openpilot.starpilot.galaxy.software_operations.recent_versions',
+                    side_effect=lambda path, branch: latest if path == self.metadata else old):
+      result = self.owner.snapshot()['history']
+    self.assertEqual(result['recent'], latest)
+    self.assertEqual(result['downloaded'], [])
+
+  def test_older_installed_history_is_selectable_without_being_in_recent_list(self):
+    older = {'hash': 'b' * 40, 'date': '2026-10-01T12:00:00+00:00', 'subject': 'Older installed history'}
+    self.owner.history_reader = lambda path, sha, **kwargs: [older] if path == self.installed else []
+    recent = {'branch': 'main', 'head': 'c' * 40, 'entries': []}
+    with mock.patch('openpilot.starpilot.galaxy.software_operations.recent_versions', return_value=recent):
+      result = self.owner.action('version', {'action': 'version', 'branch': 'main',
+                                'expectedCommit': 'a' * 40, 'selectedCommit': older['hash']}, authorized=lambda: True)
+    self.assertEqual(result['request']['selectedCommit'], older['hash'])
+    self.assertEqual(self.process.sent, ['version'])
 
   def test_fast_current_branch_without_branch_list_or_selected_target(self):
     self.params.remove("UpdaterAvailableBranches")
@@ -481,13 +651,59 @@ class SoftwareOperationsTest(unittest.TestCase):
     self.act("fast", "main")
     self.assertEqual(self.process.sent, ["fast"])
 
-  def test_fast_rejects_stale_installed_identity(self):
+  def test_fast_refreshes_stale_cached_identity_without_rewriting_running_metadata(self):
     self.git[self.installed] = ("main", "b" * 40)
-    self.denied("fast", 409, "main")
-    self.git[self.installed] = ("release", "a" * 40)
-    self.denied("fast", 409, "main")
-    self.assertEqual(self.process.sent, [])
+    self.act("fast", "main")
+    self.assertEqual(self.process.fast_requests, [{"branch": "main", "commit": "b" * 40}])
+    self.assertEqual(self.params.get("GitCommit"), "a" * 40)
+    self.assertEqual(self.owner._fast_commit, "b" * 40)
+    self.params.put("LastUpdateTime", datetime(2026, 10, 30, 12), block=True)
+    self.params.put("UpdaterLastFetchTime", datetime(2026, 10, 30, 12), block=True)
+    self.assertEqual(self.owner.snapshot()["request"]["outcome"], "up_to_date")
     self.assertFalse(self.params.get_bool("DoReboot"))
+
+  def test_changed_cached_branch_does_not_block_requested_live_branch(self):
+    self.git[self.installed] = ("release", "b" * 40)
+    self.params.remove("UpdaterAvailableBranches")
+    self.act("update", "release")
+    self.assertEqual(self.process.fast_requests, [{"branch": "release", "commit": "b" * 40}])
+    self.assertEqual(self.params.get("GitBranch"), "main")
+
+  def test_real_git_commit_after_manager_start_can_update(self):
+    import subprocess
+    from openpilot.starpilot.galaxy.software_operations import _git_identity
+    def git(*args):
+      return subprocess.check_output(["git", "-c", "user.name=Updater Test", "-c", "user.email=test@example.invalid",
+                                      "-c", "core.hooksPath=/dev/null", "-C", str(self.installed), *args], text=True).strip()
+    git("init", "-b", "main")
+    git("commit", "--allow-empty", "-m", "First")
+    previous = git("rev-parse", "HEAD")
+    self.params.put("GitCommit", previous, block=True)
+    git("commit", "--allow-empty", "-m", "Hotfix")
+    current = git("rev-parse", "HEAD")
+    self.owner.git_identity = _git_identity
+    self.act("fast", "main")
+    self.assertEqual(self.process.fast_requests, [{"branch": "main", "commit": current}])
+    self.assertEqual(self.params.get("GitCommit"), previous)
+
+  def test_actual_checkout_race_still_prevents_dispatch(self):
+    calls = 0
+    def authorized():
+      nonlocal calls
+      calls += 1
+      if calls == 3:
+        self.git[self.installed] = ("main", "b" * 40)
+      return True
+    with self.assertRaises(SoftwareOperationError):
+      self.owner.action("fast", {"action": "fast", "branch": "main"}, authorized=authorized)
+    self.assertEqual(self.process.sent, [])
+
+  def test_missing_live_checkout_and_unknown_target_still_reject(self):
+    self.git[self.installed] = None
+    self.denied("fast", 409, "main")
+    self.git[self.installed] = ("main", "b" * 40)
+    self.denied("fast", 409, "unknown-branch")
+    self.assertEqual(self.process.sent, [])
 
   def test_fast_keeps_existing_admission_and_observes_failure(self):
     for key in ("DisableUpdates", "DoReboot"):

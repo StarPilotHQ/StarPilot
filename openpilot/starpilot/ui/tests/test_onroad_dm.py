@@ -86,8 +86,8 @@ class TestDriverMonitor(unittest.TestCase):
     document = default_document()
     left = monitor_bounds(document, Profile.LARGE, False)
     right = monitor_bounds(document, Profile.LARGE, True)
-    self.assertEqual((left.x, left.y, left.width, left.height), (120, 840, 128, 128))
-    self.assertEqual((right.x, right.y), (1612, 840))
+    self.assertEqual((left.x, left.y, left.width, left.height), (270, 840, 128, 128))
+    self.assertEqual((right.x, right.y), (1462, 840))
     document['layouts']['large']['driver_monitor'].update(x=700.5, y=600.25)
     custom = monitor_bounds(validate_document(document), Profile.LARGE, True)
     self.assertEqual((custom.x, custom.y), (700.5, 600.25))
@@ -175,8 +175,8 @@ class TestDriverMonitor(unittest.TestCase):
     layer.renderer._render.assert_called_once()
     self.assertFalse(layer.renderer._is_active)
     layer.renderer._fade_filter.update.assert_called_once_with(0.35)
-    self.assertEqual(matrix.mock_calls, [call.push(), call.translate(120, 840, 0), call.scale(1, 1, 1),
-                                        call.translate(-120, -840, 0), call.render(layer.renderer._rect), call.pop()])
+    self.assertEqual(matrix.mock_calls, [call.push(), call.translate(270, 840, 0), call.scale(1, 1, 1),
+                                        call.translate(-270, -840, 0), call.render(layer.renderer._rect), call.pop()])
 
   def test_visible_face_keeps_person_solid_even_when_vision_policy_is_inactive(self):
     from openpilot.selfdrive.ui.mici.onroad.driver_state import DriverStateRenderer
@@ -222,6 +222,7 @@ class TestDriverMonitor(unittest.TestCase):
     from openpilot.starpilot.ui import onroad
 
     view = onroad.OnroadView(Mock(spec=BitmapFonts, **vars(NS(profile=Profile.LARGE))), Path('/unused'))
+    view.personality = Mock()
     order = []
     view.driver_monitor_layer = lambda rect, state: order.append('dm')
     self.enterContext(patch.object(view.alert, 'render', lambda rect, alert: order.append('alert'), create=True))

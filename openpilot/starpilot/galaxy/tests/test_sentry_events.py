@@ -23,6 +23,17 @@ class SentryEventsTest(unittest.TestCase):
       self.assertEqual(result["events"][0]["kind"], "warning")
       self.assertEqual(result["events"][0]["images"], [])
 
+  def test_battery_event_projects_voltage_and_rejects_missing_reading(self):
+    with tempfile.TemporaryDirectory() as directory:
+      store = EventStore(Path(directory).resolve() / "events")
+      store.record("battery", 1, permitted=lambda: True, details={"voltage": 120, "cutoff": 118})
+      event = SentryEvents(store).snapshot()["events"][0]
+      self.assertEqual((event["kind"], event["voltage"], event["cutoff"]), ("battery", 120, 118))
+      with self.assertRaises(ValueError):
+        store.record("battery", 2, permitted=lambda: True)
+      with self.assertRaises(ValueError):
+        store.record("warning", 3, permitted=lambda: True, details={"voltage": 120, "cutoff": 118})
+
   def test_published_images_project_after_restart_and_use_same_event_id(self):
     with tempfile.TemporaryDirectory() as directory:
       root = Path(directory).resolve() / "events"

@@ -41,6 +41,10 @@ class MapFrame:
   tile_loaded: bool
   way_id: int
   way_selection: str
+  preview_speed_mps: float = 0.0
+  preview_distance_m: float = 0.0
+  preview_boundary_id: str = ''
+  preview_way_id: int = 0
 
 
 @dataclass(frozen=True)
@@ -58,6 +62,19 @@ class MapDiagnostic:
   source_switches: int
 
 
+def copy_frame(road, *, event_valid: bool, event_boot_ns: int) -> MapFrame:
+  """Copy scalar wire evidence without retaining a mutable cereal reader."""
+  try:
+    return MapFrame(event_valid, event_boot_ns, int(road.sampleVersion), str(road.roadStatus),
+      str(road.gpsSource), int(road.gpsMonoTime), int(road.computedMonoTime),
+      int(road.sourceGeneration), int(road.producerSession), float(road.speedLimit),
+      bool(road.tileLoaded), int(road.wayId), str(road.waySelectionType),
+      float(road.previewSpeedLimit), float(road.previewDistance),
+      str(road.previewBoundaryId), int(road.previewWayId))
+  except Exception as error:  # pycapnp lazy reads may raise KjException, not ValueError
+    raise ValueError('invalid mapdOut reader') from error
+
+
 def decode_event(raw: bytes) -> MapFrame:
   """Copy scalar evidence from an actual serialized host cereal Event."""
   if type(raw) is not bytes or not 0 < len(raw) <= MAX_EVENT_BYTES:
@@ -66,11 +83,7 @@ def decode_event(raw: bytes) -> MapFrame:
     with log.Event.from_bytes(raw) as event:
       if event.which() != 'mapdOut':
         raise ValueError('wrong Event variant')
-      road = event.mapdOut
-      return MapFrame(bool(event.valid), int(event.logMonoTime), int(road.sampleVersion), str(road.roadStatus),
-                      str(road.gpsSource), int(road.gpsMonoTime), int(road.computedMonoTime),
-                      int(road.sourceGeneration), int(road.producerSession), float(road.speedLimit),
-                      bool(road.tileLoaded), int(road.wayId), str(road.waySelectionType))
+      return copy_frame(event.mapdOut, event_valid=bool(event.valid), event_boot_ns=int(event.logMonoTime))
   except (ValueError, TypeError) as error:
     raise ValueError('invalid mapdOut event') from error
   except Exception as error:  # pycapnp reports malformed segment/pointer errors as KjException
@@ -78,7 +91,7 @@ def decode_event(raw: bytes) -> MapFrame:
 
 
 def _uint(value: object, *, positive: bool = False, maximum: int = MAX_UINT64) -> bool:
-  return type(value) is int and (value > 0 if positive else value >= 0) and value <= maximum
+  return acc.integer(value, 1 if positive else 0) and value <= maximum
 
 
 def _ordering_fields(frame: object) -> bool:

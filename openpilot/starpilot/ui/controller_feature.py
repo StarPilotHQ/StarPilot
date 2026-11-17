@@ -27,7 +27,7 @@ TUNING_GUIDANCE = ("StarPilot's torque controller can provide higher low-speed s
 SETUP_ACTION = 'torque_prepare_firestar'
 SETUP_QUESTION = 'Change tuning preparation? Turning it off restores your previous steering preferences.'
 SETUP_DEFAULTS = {'TurnAssist': b'0', LEARNING_OFF_KEY: b'1', 'LaneCentering': b'0',
-                  'LaneCenterOffset': b'0.0', 'LaneCenteringE2EAuthority': b'1.0', 'LaneCenteringPauseOnSignal': b'1'}
+                  'LaneCenterOffset': b'0.0', 'LaneCenteringE2EAuthority': b'0.5', 'LaneCenteringPauseOnSignal': b'1'}
 SETUP_LIMITS = {**dict.fromkeys(SETUP_DEFAULTS, 128), LEARNING_PREFERENCES_KEY: LEARNING_PREFERENCES_LIMIT,
                 LANE_CHANGE_KEY: LANE_CHANGE_LIMIT, DOCUMENT_KEY: MAX_DOCUMENT_BYTES}
 

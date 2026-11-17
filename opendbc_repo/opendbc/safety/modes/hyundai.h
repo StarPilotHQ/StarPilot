@@ -2,6 +2,7 @@
 
 #include "opendbc/safety/declarations.h"
 #include "opendbc/safety/modes/hyundai_common.h"
+#include "opendbc/safety/modes/hyundai_daw.h"
 #include "opendbc/safety/modes/hyundai_classic_non_scc_aol.h"
 #include "opendbc/safety/modes/hyundai_blended_stock_aol.h"
 
@@ -23,7 +24,7 @@
 
 extern const LongitudinalLimits HYUNDAI_LONG_LIMITS;
 const LongitudinalLimits HYUNDAI_LONG_LIMITS = {
-  .max_accel = 200,   // 1/100 m/s2
+  .max_accel = 350,   // 1/100 m/s2
   .min_accel = -350,  // 1/100 m/s2
 };
 
@@ -350,7 +351,7 @@ static bool hyundai_tx_hook(const CANPacket_t *msg) {
   const TorqueSteeringLimits HYUNDAI_STEERING_LIMITS_ALT = HYUNDAI_LIMITS(270, 2, 3);
   const TorqueSteeringLimits HYUNDAI_STEERING_LIMITS_ALT_2 = HYUNDAI_LIMITS(170, 2, 3);
 
-  bool tx = true;
+  bool tx = (msg->addr != 0x53EU) || hyundai_daw_tx(msg);
 
   if (hyundai_ray_pedal && (msg->addr == 0x200U)) {
     const uint16_t track1 = ((uint16_t)msg->data[0] << 8U) | msg->data[1];
@@ -360,7 +361,7 @@ static bool hyundai_tx_hook(const CANPacket_t *msg) {
     bool rx_valid = hyundai_ray_pedal_healthy && !safety_rx_checks_invalid &&
                     (safety_get_ts_elapsed(microsecond_timer_get(), hyundai_ray_pedal_ts) <= 1000000U);
     for (int i = 0; i < current_safety_config.rx_checks_len; i++) {
-      const RxStatus *status = &current_safety_config.rx_checks[i].status;
+      const RxStatus *status = &rx_status[i];
       rx_valid &= status->msg_seen && status->valid_checksum && status->valid_quality_flag &&
                   (status->wrong_counters < MAX_WRONG_COUNTERS) && !status->lagging &&
                   (safety_get_ts_elapsed(microsecond_timer_get(), status->last_timestamp) <= 1000000U);
@@ -638,6 +639,7 @@ static safety_config hyundai_init(uint16_t param) {
   };
 
   hyundai_common_init(param);
+  hyundai_daw_init(false, false);
   if ((param == 0x800EU) && (alternative_experience == 0)) {
     hyundai_long_main_policy = HYUNDAI_MAIN_TRACK;
   }
@@ -656,9 +658,6 @@ static safety_config hyundai_init(uint16_t param) {
   hyundai_blended_hda2 |= (param == 0x2014U);
 #endif
   hyundai_blended_stock |= hyundai_blended_alpha;
-  if (hyundai_blended_hda2) {
-    gen_crc_lookup_table_16(0x1021U, hyundai_canfd_crc_lut);
-  }
   hyundai_ray_pedal = param == 0x9805U;
   hyundai_ray_pedal_healthy = false;
   hyundai_ray_pedal_ts = 0U;
@@ -760,7 +759,7 @@ static safety_config hyundai_init(uint16_t param) {
   } else if (hyundai_longitudinal) {
     // Use CLU11 (buttons) to manage controls allowed instead of SCC cruise state
 
-    static RxCheck hyundai_fcev_long_rx_checks[] = {
+    static const RxCheck hyundai_fcev_long_rx_checks[] = {
       HYUNDAI_COMMON_RX_CHECKS(false)
       HYUNDAI_FCEV_GAS_ADDR_CHECK
     };
@@ -784,7 +783,7 @@ static safety_config hyundai_init(uint16_t param) {
       }
     }
   } else if (hyundai_camera_scc) {
-    static RxCheck hyundai_cam_scc_rx_checks[] = {
+    static const RxCheck hyundai_cam_scc_rx_checks[] = {
       HYUNDAI_COMMON_RX_CHECKS(false)
       HYUNDAI_SCC12_ADDR_CHECK(2)
     };
@@ -796,12 +795,12 @@ static safety_config hyundai_init(uint16_t param) {
       ret = BUILD_SAFETY_CFG(hyundai_cam_scc_rx_checks, HYUNDAI_CAMERA_SCC_TX_MSGS);
     }
   } else {
-    static RxCheck hyundai_rx_checks[] = {
+    static const RxCheck hyundai_rx_checks[] = {
        HYUNDAI_COMMON_RX_CHECKS(false)
        HYUNDAI_SCC12_ADDR_CHECK(0)
     };
 
-    static RxCheck hyundai_fcev_rx_checks[] = {
+    static const RxCheck hyundai_fcev_rx_checks[] = {
       HYUNDAI_COMMON_RX_CHECKS(false)
       HYUNDAI_SCC12_ADDR_CHECK(0)
       HYUNDAI_FCEV_GAS_ADDR_CHECK
@@ -903,12 +902,12 @@ static safety_config hyundai_init(uint16_t param) {
     const safety_config denied = {0};
     ret = denied;
   }
-  return ret;
+  return hyundai_daw_configure(ret, false, !hyundai_blended_stock && !hyundai_blended_alpha);
 }
 
 static safety_config hyundai_legacy_init(uint16_t param) {
   // older hyundai models have less checks due to missing counters and checksums
-  static RxCheck hyundai_legacy_rx_checks[] = {
+  static const RxCheck hyundai_legacy_rx_checks[] = {
     HYUNDAI_COMMON_RX_CHECKS(true)
     HYUNDAI_SCC12_ADDR_CHECK(0)
   };
@@ -925,6 +924,7 @@ static safety_config hyundai_legacy_init(uint16_t param) {
     }
   }
   hyundai_common_init(normalized);
+  hyundai_daw_init(false, false);
   classic_non_scc_aol_configure(normalized, !legacy_long);
   hyundai_legacy = true;
   hyundai_blended_stock = false;
@@ -953,10 +953,11 @@ static safety_config hyundai_legacy_init(uint16_t param) {
 #endif
   }
   hyundai_classic_scc_aol_rx_config(&ret, true);
-  return ret;
+  return hyundai_daw_configure(ret, false, true);
 }
 
 static void hyundai_optional_rx_hook(const CANPacket_t *msg) {
+  hyundai_daw_rx(msg);
   if ((msg->addr == 0x391U) || (msg->addr == 0x50CU)) {
     blended_aol_rx(msg);
   }
@@ -969,6 +970,7 @@ static void hyundai_optional_rx_hook(const CANPacket_t *msg) {
 }
 
 const safety_hooks hyundai_hooks = {
+  .fwd_packet = hyundai_daw_fwd,
   .fwd = blended_aol_fwd,
   .init = hyundai_init,
   .optional_rx = hyundai_optional_rx_hook,
@@ -980,6 +982,7 @@ const safety_hooks hyundai_hooks = {
 };
 
 const safety_hooks hyundai_legacy_hooks = {
+  .fwd_packet = hyundai_daw_fwd,
   .init = hyundai_legacy_init,
   .optional_rx = hyundai_optional_rx_hook,
   .rx = hyundai_rx_hook,

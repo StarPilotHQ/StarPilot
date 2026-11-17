@@ -27,12 +27,25 @@ def _fast_state(raw):
   try:
     value = json.loads(raw) if raw is not None else None
     if not isinstance(value, dict) or value.get("version") != 1 or value.get("stage") not in (
-        "preparing", "fetching", "validating", "applying", "submodules", "rebooting", "complete", "error"):
+        "preparing", "fetching", "validating", "applying", "submodules", "rebooting", "complete", "error", "finalizing"):
       return None
     detail = value.get("detail")
     if not isinstance(detail, str) or len(detail) > 512:
       return None
-    return {"stage": value["stage"], "detail": detail}
+    result = {"stage": value["stage"], "detail": detail}
+    if type(value.get('background')) is bool:
+      result['background'] = value['background']
+    percent = value.get('percent')
+    if type(percent) in (int, float) and 0 <= percent <= 100:
+      result['percent'] = percent
+    check = value.get('check')
+    if (isinstance(check, dict) and check.get('state') in ('checking', 'complete', 'error') and
+        isinstance(check.get('branch'), str) and len(check['branch']) <= 128 and
+        isinstance(check.get('detail'), str) and len(check['detail']) <= 512):
+      completed = check.get('completedAt')
+      if completed is None or type(completed) in (int, float) and 0 <= completed < float('inf'):
+        result['check'] = {key: check[key] for key in ('state', 'branch', 'detail', 'completedAt') if key in check}
+    return result
   except (TypeError, ValueError):
     return None
 

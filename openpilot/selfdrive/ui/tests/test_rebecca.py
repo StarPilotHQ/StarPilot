@@ -5,7 +5,7 @@ from types import SimpleNamespace as NS
 from unittest.mock import Mock
 import wave
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import pytest
 
 from openpilot.selfdrive.ui.layouts.arabesque.tools import rebecca

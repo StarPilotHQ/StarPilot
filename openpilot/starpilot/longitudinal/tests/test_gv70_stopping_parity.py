@@ -66,7 +66,7 @@ class TestGV70StoppingParity(unittest.TestCase):
         with self.subTest(speeds=speeds, times=times, fallback=fallback):
           self.assertEqual(forecast_should_stop(cp, speeds, times, .5, fallback), fallback)
 
-  def test_stock_other_models_and_ineligible_profiles_preserve_fallback(self):
+  def test_stock_ineligible_keep_fallback_and_other_hkg_gain_forecast(self):
     base = self.cp()
     candidates = [self.cp(False), params(car=CAR.KIA_EV6)]
     for car in (CAR.GENESIS_GV70_ELECTRIFIED_2ND_GEN, CAR.GENESIS_GV70_1ST_GEN):
@@ -79,8 +79,10 @@ class TestGV70StoppingParity(unittest.TestCase):
       candidates.append(cp)
     for cp in candidates:
       self.assertEqual(stopping_decel_rate(cp, None), 1.)
+      eligible = cp.openpilotLongitudinalControl and not any(
+        getattr(cp, key) for key in ('pcmCruise', 'passive', 'dashcamOnly', 'notCar'))
       for fallback in (False, True):
-        self.assertEqual(forecast_should_stop(cp, (.2, .2), (0., 2.), .5, fallback), fallback)
+        self.assertEqual(forecast_should_stop(cp, (.2, .2), (0., 2.), .5, fallback), True if eligible else fallback)
 
   def test_actual_planner_forecast_changes_only_stop_intent(self):
     sm, _ = messages()

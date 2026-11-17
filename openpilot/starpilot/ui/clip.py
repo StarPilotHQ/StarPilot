@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from collections.abc import Iterator
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 
 _placement: ContextVar[tuple[float, float, rl.Rectangle, rl.Rectangle | None] | None] = ContextVar("shell_placement", default=None)

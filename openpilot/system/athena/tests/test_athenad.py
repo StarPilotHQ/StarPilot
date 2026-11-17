@@ -122,15 +122,13 @@ class TestAthenadMethods(OpenpilotTestCase):
 
     # out of range and non-finite coordinates are rejected without touching the destination
     for latitude, longitude in [(91, 0), (0, -181), (float('nan'), 0), (0, float('inf'))]:
-      assert set_destination(latitude, longitude)["success"] == 0, (latitude, longitude)
+      with self.assertRaises(TypeError):
+        set_destination(latitude, longitude)
       assert self.params.get("NavDestination") == destination
 
     assert dispatcher["clearNavDestination"]() == {"success": 1}
     assert dispatcher["clearNavDestination"]() == {"success": 1}
     assert self.params.get("NavDestination") is None
-
-  def test_echo(self):
-    assert dispatcher["echo"]("bob") == "bob"
 
   def test_get_message(self):
     with self.assertRaises(TimeoutError) as _:
@@ -280,6 +278,37 @@ class TestAthenadMethods(OpenpilotTestCase):
     assert resp['items'][0].get('id') is not None
     assert athenad.upload_queue.qsize() == 1
 
+  @parameterized.expand([None, {}, {"Content-Type": "application/octet-stream"}], names=("headers",))
+  def test_upload_files_optional_headers(self, headers):
+    files = []
+    for name in ("rlog.zst", "fcamera.hevc"):
+      self._create_file(name)
+      item = {"fn": f"2026-10-04--00-00-00--0/{name}", "url": f"https://upload.example/{name}?signature=signed"}
+      if headers is not None:
+        item["headers"] = headers
+      files.append(item)
+    response = dispatcher["uploadFilesToUrls"](files)
+    assert response["enqueued"] == 2 and "failed" not in response
+    assert athenad.upload_queue.qsize() == 2
+    for requested, queued in zip(files, response["items"], strict=True):
+      assert queued["url"] == requested["url"]
+      assert queued["headers"] == (headers if headers is not None else {})
+      assert queued["allow_cellular"] is False
+      assert queued["priority"] == athenad.DEFAULT_UPLOAD_PRIORITY
+
+  @parameterized.expand([
+    {"headers": None}, {"headers": []}, {"headers": {"bad header": "value"}},
+    {"headers": {"X-Test": "value\r\nInjected: bad"}}, {"headers": {"X-Test": 1}},
+    {"fn": "../rlog.zst"}, {"fn": "/rlog.zst"}, {"url": "file:///tmp/rlog.zst"},
+    {"allow_cellular": 1}, {"priority": -1}, {"priority": True}, {"extra": True},
+  ], names=("invalid",))
+  def test_upload_files_invalid_batch_is_not_partially_queued(self, invalid):
+    self._create_file("rlog.zst")
+    valid = {"fn": "2026-10-04--00-00-00--0/rlog.zst", "url": "https://upload.example/rlog.zst?signature=signed"}
+    with self.assertRaisesRegex(TypeError, "invalid param: files_data"):
+      dispatcher["uploadFilesToUrls"]([valid, valid | invalid])
+    assert athenad.upload_queue.empty()
+
   def test_upload_file_to_url_duplicate(self, host):
     self._create_file('qlog.zst')
 
@@ -350,7 +379,7 @@ class TestAthenadMethods(OpenpilotTestCase):
   @with_upload_handler
   def test_cancel_upload(self):
     item = athenad.UploadItem(path="qlog.zst", url="http://localhost:44444/qlog.zst", headers={},
-                              created_at=int(time.time()*1000), id='id', allow_cellular=True)  # noqa: TID251
+                              created_at=int(time.time()*1000), id='0' * 40, allow_cellular=True)  # noqa: TID251
     athenad.upload_queue.put_nowait(item)
     dispatcher["cancelUpload"](item.id)
 
@@ -490,16 +519,19 @@ class TestAthenadMethods(OpenpilotTestCase):
       assert isinstance(resp[k], str), f"{k} is not a string"
       assert len(resp[k]) > 0, f"{k} has no value"
 
-  def test_jsonrpc_handler(self):
+  def test_jsonrpc_handler(self, mocker):
+    # private queues, so the shutdown wakeup below can't leak into other tests
+    for q in ('recv_queue', 'send_queue', 'log_recv_queue'):
+      mocker.patch.object(athenad, q, type(getattr(athenad, q))())
     end_event = threading.Event()
     thread = threading.Thread(target=athenad.jsonrpc_handler, args=(end_event,))
     thread.daemon = True
     thread.start()
     try:
       # with params
-      athenad.recv_queue.put_nowait(json.dumps({"method": "echo", "params": ["hello"], "jsonrpc": "2.0", "id": 0}))
+      athenad.recv_queue.put_nowait(json.dumps({"method": "cancelUpload", "params": ["0" * 40], "jsonrpc": "2.0", "id": 0}))
       _, _, resp = athenad.send_queue.get(timeout=3)
-      assert json.loads(resp) == {'result': 'hello', 'id': 0, 'jsonrpc': '2.0'}
+      assert json.loads(resp) == {'result': {'success': 0, 'error': 'not found'}, 'id': 0, 'jsonrpc': '2.0'}
       # without params
       athenad.recv_queue.put_nowait(json.dumps({"method": "getNetworkType", "jsonrpc": "2.0", "id": 0}))
       _, _, resp = athenad.send_queue.get(timeout=3)
@@ -510,6 +542,8 @@ class TestAthenadMethods(OpenpilotTestCase):
       assert json.loads(resp) == {'result': {'success': 1}, 'id': 0, 'jsonrpc': '2.0'}
     finally:
       end_event.set()
+      # wake the handler from its blocking queue get
+      athenad.recv_queue.put_nowait(json.dumps({'result': None, 'id': 0, 'jsonrpc': '2.0'}))
       thread.join()
 
   def test_get_logs_to_send_sorted(self):

@@ -11,7 +11,7 @@ from openpilot.common.prefix import OpenpilotPrefix
 from openpilot.starpilot.aol.tests import test_ioniq_availability as fixture
 
 
-@pytest.mark.parametrize('pedal', ['none', 'brake', 'low_gas', 'drive_gas'])
+@pytest.mark.parametrize('pedal', ['none', 'brake', 'low_gas', 'drive_gas', 'door'])
 @pytest.mark.parametrize('timer', [0, 120])
 def test_lag_notifies_actual_lat_withdrawal_without_changing_timer(pedal, timer):
   with OpenpilotPrefix(), ExitStack() as cleanup:
@@ -24,6 +24,7 @@ def test_lag_notifies_actual_lat_withdrawal_without_changing_timer(pedal, timer)
     assert axis.lateralActive and axis.nativeAcknowledged and command.latActive
     sd.state_machine.soft_disable_timer = timer
     cs = fixture.car_state(brake=pedal == 'brake')
+    cs.doorOpen = pedal == 'door'
     cs.gearShifter = car.CarState.GearShifter.low if pedal == 'low_gas' else car.CarState.GearShifter.drive
     with mock.patch.object(sd.rk.avg_dt, 'get_average', return_value=.02):
       axis, state, command = drive(1, observed_state=cs, gas=pedal.endswith('gas'), native_request_long=False)
@@ -41,7 +42,7 @@ def test_lag_notifies_actual_lat_withdrawal_without_changing_timer(pedal, timer)
 
 
 @pytest.mark.parametrize('bad', ['never_active', 'unarmed', 'native_invalid', 'native_denied', 'pause',
-                                'cancel', 'reverse', 'temporary_eps', 'main_off', 'brake_pause', 'door'])
+                                'cancel', 'reverse', 'temporary_eps', 'main_off', 'brake_pause'])
 def test_no_lag_takeover_without_counterfactual_authority(bad):
   with OpenpilotPrefix(), ExitStack() as cleanup:
     case = fixture.IoniqAvailabilityTests(methodName='runTest')
@@ -58,7 +59,6 @@ def test_no_lag_takeover_without_counterfactual_authority(bad):
     if bad == 'reverse':
       cs.gearShifter = car.CarState.GearShifter.reverse
     cs.steerFaultTemporary = bad == 'temporary_eps'
-    cs.doorOpen = bad == 'door'
     if bad == 'brake_pause':
       from openpilot.starpilot.aol.intent import read_settings
       sd.aol_settings = replace(read_settings(sd.params), pause_brake_mps=100.)

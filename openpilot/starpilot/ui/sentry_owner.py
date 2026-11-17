@@ -5,7 +5,7 @@ from dataclasses import replace
 
 from openpilot.starpilot.sentry_mode.actions import WriteResult, commit
 from openpilot.starpilot.sentry_mode.policy import Settings
-from openpilot.starpilot.sentry_mode.status import RuntimeStatus
+from openpilot.starpilot.sentry_mode.status import STATES, RuntimeStatus
 from openpilot.starpilot.sentry_mode.preferences import Preferences, encode, read_preferences
 from openpilot.starpilot.ui.feature_settings_state import FeatureRow, FeatureSettingsRequest, FeatureSettingsState
 
@@ -29,7 +29,10 @@ class SentryOwner:
     label, reason = self.status.runtime_snapshot(saved)
     if not parked and (label == "Monitoring motion" or label.startswith("Arming")):
       label, reason = "Not armed", "Waiting for confirmation that the car is parked"
-    monitor = f"{label}: {reason}. Motion events can include camera snapshots. Notification settings are in Cameras & Monitoring."
+    elif not parked and label == "Waiting for monitor":
+      label, reason = STATES["disabled_onroad"]
+    status = f"{label}: {reason}."
+    monitor = f"{status} Motion events can include camera snapshots. Notification settings are in Cameras & Monitoring."
     rows: list[FeatureRow] = []
     if not saved.readable:
       rows.append(FeatureRow("", "Saved motion settings", "Unavailable",
@@ -54,7 +57,8 @@ class SentryOwner:
     defaults = {ENABLED: 'Off', SENSITIVITY: f'{initial.settings.sensitivity:.3f}', WARNING: f'{initial.settings.warning_time_seconds:.1f}'}
     rows = [replace(row, default_value=defaults[row.key]) if row.key in defaults else row for row in rows]
     return FeatureSettingsState(page="sentry", title="Sentry motion settings",
-                                subtitle=monitor,
+                                subtitle=monitor, subtitle_accent=status,
+                                subtitle_tone="ok" if label == "Monitoring motion" else "warn",
                                 rows=tuple(rows), parked=parked)
 
   def apply(self, request: FeatureSettingsRequest) -> bool:

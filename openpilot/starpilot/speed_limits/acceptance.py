@@ -1,13 +1,13 @@
 """Immutable acceptance decisions with explicit authority and no runtime I/O."""
-from typing import cast
+from typing import TypeGuard
 
 
 import math
+import struct
 from dataclasses import dataclass, replace
 from enum import Enum
 
-CONFIRMATION_NS = 10_000_000_000
-MAX_REJECTIONS = 256
+CONFIRMATION_NS = 30_000_000_000
 
 
 class ObservationKind(Enum):
@@ -68,7 +68,7 @@ class Authority:
 
   @property
   def can_control(self) -> bool:
-    """Permission to adopt a software set speed, including accelerator override."""
+    """Permission to adopt an SLC limit during a system-longitudinal engagement."""
     return (self.mode in (Mode.LONGITUDINAL_ONLY, Mode.COMBINED) and
             self.owner is LongitudinalOwner.SYSTEM and (self.longitudinal_active or self.accelerator_override))
 
@@ -77,7 +77,6 @@ class Authority:
 class Policy:
   confirm_lower: bool = True
   confirm_higher: bool = True
-  fallback_previous: bool = False
   display_only: bool = False
 
 
@@ -92,6 +91,7 @@ class DriverAction:
   sequence_id: int
   decision_id: int
   kind: ActionKind
+  observed_ns: int | None = None
 
 
 @dataclass(frozen=True)
@@ -132,28 +132,17 @@ class Presentation:
 
 
 @dataclass(frozen=True)
-class AdoptionProposal:
-  session_id: str
-  action_sequence_id: int
-  presentation_id: int
-  accepted: AcceptedLimit
-  reconciliation_speed_mps: float
-  clear_override: bool = True
-
-
-@dataclass(frozen=True)
 class State:
   session_id: str
   observation: Observation = Observation(ObservationKind.ABSENT)
   # A historical adoption may match a returned proposal the driver now declines.
   accepted: AcceptedLimit | None = None
   pending: PendingDecision | None = None
-  rejected: frozenset[Candidate] = frozenset()
+  rejected: Candidate | None = None
   last_timestamp_ns: int | None = None
   timer_running: bool = False
   last_action_sequence: int = -1
   next_decision_id: int = 1
-  rejection_capacity_exhausted: bool = False
   presentation: Presentation | None = None
   next_presentation_id: int = 1
   received_speed_mps: float | None = None
@@ -169,51 +158,61 @@ class Decision:
   action_receipt: ActionReceipt | None = None
   errors: tuple[str, ...] = ()
   adoption_receipt: ActionReceipt | None = None
-  adoption: AdoptionProposal | None = None
   authority: Authority | None = None
   policy: Policy | None = None
 
 
-def previous_limit_is_qualified(decision: Decision) -> bool:
-  """Recognize retained control after the caller validates the decision structure."""
-  accepted = decision.state.accepted
-  return (not decision.errors and decision.basis == "previous_accepted" and
-          decision.policy is not None and decision.policy.fallback_previous is True and not decision.policy.display_only and
-          decision.authority is not None and decision.authority.can_control and
-          decision.state.observation.kind is not ObservationKind.VALID and accepted is not None and
-          decision.control_target_mps is not None and decision.control_target_mps == accepted.candidate.speed_mps)
+# Shared input predicates for every SLC module: one definition per question.
+def token(value: object) -> bool:
+  # min() is the C-level equivalent of all(ord(c) >= 32): no control characters.
+  return type(value) is str and 0 < len(value) <= 256 and min(value) >= ' ' and bool(value.strip())
 
 
-def _token(value: object) -> bool:
-  return type(value) is str and 0 < len(value) <= 256 and bool(value.strip()) and not any(ord(c) < 32 for c in value)
-
-
-def _integer(value: object, minimum: int = 0) -> bool:
+def integer(value: object, minimum: int = 0) -> TypeGuard[int]:
   return type(value) is int and value >= minimum
+
+
+def float32(value: float) -> float:
+  # Readings and targets cross the wire as Float32; compare in that precision.
+  return struct.unpack('f', struct.pack('f', value))[0]
+
+
+def number(value: object, *, positive: bool = False) -> TypeGuard[int | float]:
+  if type(value) not in (int, float):
+    return False
+  try:
+    # A saved or decoded value can be an int too large for math.isfinite.
+    return math.isfinite(value) and (value > 0 if positive else value >= 0)
+  except OverflowError:
+    return False
+
+
+# The only predicate that admits a negative, since offsets may be below zero. Not
+# built on number(), whose own guard must stay a single call on the per-frame path.
+def finite(value: object) -> TypeGuard[int | float]:
+  if type(value) not in (int, float):
+    return False
+  try:
+    return math.isfinite(value)
+  except OverflowError:
+    return False
 
 
 def _identity_valid(identity: object) -> bool:
   if not isinstance(identity, ObservationIdentity) or not isinstance(identity.kind, IdentityKind):
     return False
   if identity.kind is IdentityKind.SESSION_VALUE:
-    return identity.value is None and _token(identity.session_id)
-  return _token(identity.value) and identity.session_id is None
-
-
-def _speed_valid(value: object) -> bool:
-  try:
-    return type(value) in (int, float) and math.isfinite(cast(float, value)) and cast(float, value) > 0
-  except OverflowError:
-    return False
+    return identity.value is None and token(identity.session_id)
+  return token(identity.value) and identity.session_id is None
 
 
 def _candidate_valid(candidate: object, session_id: str | None = None) -> bool:
-  if not isinstance(candidate, Candidate) or not _token(candidate.source) or not _identity_valid(candidate.observation_identity):
+  if not isinstance(candidate, Candidate) or not token(candidate.source) or not _identity_valid(candidate.observation_identity):
     return False
   identity = candidate.observation_identity
   if session_id is not None and identity.kind is IdentityKind.SESSION_VALUE and identity.session_id != session_id:
     return False
-  return _speed_valid(candidate.speed_mps)
+  return number(candidate.speed_mps, positive=True)
 
 
 def observation_is_valid(observation: object, *, session_id: str | None = None) -> bool:
@@ -224,7 +223,7 @@ def observation_is_valid(observation: object, *, session_id: str | None = None) 
 
 def _accepted_valid(accepted: object) -> bool:
   return (isinstance(accepted, AcceptedLimit) and _candidate_valid(accepted.candidate, accepted.session_id) and
-          _token(accepted.session_id) and _integer(accepted.accepted_at_ns))
+          token(accepted.session_id) and integer(accepted.accepted_at_ns))
 
 
 def _authority_errors(authority: object) -> list[str]:
@@ -259,39 +258,42 @@ def _state_errors(state: State) -> list[str]:
   errors = []
   if not isinstance(state, State):
     return ["invalid state type"]
-  if not _token(state.session_id) or not observation_is_valid(state.observation, session_id=state.session_id):
+  if not token(state.session_id) or not observation_is_valid(state.observation, session_id=state.session_id):
     errors.append("invalid state identity or observation")
   if state.accepted is not None and (not _accepted_valid(state.accepted) or not _candidate_valid(state.accepted.candidate, state.session_id)):
     errors.append("invalid accepted history")
-  if state.last_timestamp_ns is not None and not _integer(state.last_timestamp_ns):
+  if state.last_timestamp_ns is not None and not integer(state.last_timestamp_ns):
     errors.append("invalid state clock")
-  if state.received_speed_mps is not None and not _speed_valid(state.received_speed_mps):
+  if state.received_speed_mps is not None and not number(state.received_speed_mps, positive=True):
     errors.append("invalid received speed")
-  if not _integer(state.last_action_sequence, -1) or not _integer(state.next_decision_id, 1) or not _integer(state.next_presentation_id, 1):
+  if not integer(state.last_action_sequence, -1) or not integer(state.next_decision_id, 1) or not integer(state.next_presentation_id, 1):
     errors.append("invalid state sequence")
-  if type(state.timer_running) is not bool or type(state.rejection_capacity_exhausted) is not bool:
+  if type(state.timer_running) is not bool:
     errors.append("invalid state flags")
-  rejections_valid = (type(state.rejected) is frozenset and len(state.rejected) <= MAX_REJECTIONS and
-                      all(_candidate_valid(c, state.session_id) for c in state.rejected))
-  if not rejections_valid:
+  rejection_valid = state.rejected is None or _candidate_valid(state.rejected, state.session_id)
+  if not rejection_valid:
     errors.append("invalid rejection history")
   if state.pending is not None:
     pending = state.pending
-    if (not isinstance(pending, PendingDecision) or not _candidate_valid(pending.candidate) or
-        not _integer(pending.decision_id, 1) or not _integer(pending.active_elapsed_ns) or type(pending.automatic) is not bool or
-        not _integer(state.next_decision_id, 1) or pending.decision_id >= state.next_decision_id or
-        state.observation != Observation(ObservationKind.VALID, pending.candidate)):
+    if (not isinstance(pending, PendingDecision) or not _candidate_valid(pending.candidate, state.session_id) or
+        not integer(pending.decision_id, 1) or not integer(pending.active_elapsed_ns) or type(pending.automatic) is not bool or
+        not integer(state.next_decision_id, 1) or pending.decision_id >= state.next_decision_id or
+        pending.candidate.speed_mps != state.received_speed_mps or
+        pending.automatic and state.observation != Observation(ObservationKind.VALID, pending.candidate)):
       errors.append("invalid pending decision")
-    elif rejections_valid and pending.candidate in state.rejected:
+    elif rejection_valid and state.rejected is not None and pending.candidate.speed_mps == state.rejected.speed_mps:
       errors.append("pending candidate is already rejected")
   if state.timer_running and (state.pending is None or state.last_timestamp_ns is None):
     errors.append("timer lacks pending decision or clock")
   if state.presentation is not None:
     shown = state.presentation
-    if (not isinstance(shown, Presentation) or not _integer(shown.presentation_id, 1) or
-        not _integer(state.next_presentation_id, 1) or shown.presentation_id >= state.next_presentation_id or
+    if (not isinstance(shown, Presentation) or not integer(shown.presentation_id, 1) or
+        not integer(state.next_presentation_id, 1) or shown.presentation_id >= state.next_presentation_id or
         not _candidate_valid(shown.candidate, state.session_id) or state.last_timestamp_ns is None or
-        state.observation != Observation(ObservationKind.VALID, shown.candidate)):
+        state.observation != Observation(ObservationKind.VALID, shown.candidate) and not (
+          isinstance(state.pending, PendingDecision) and not state.pending.automatic and
+          state.pending.candidate == shown.candidate and isinstance(state.observation, Observation) and
+          state.observation.kind is not ObservationKind.VALID)):
       errors.append("invalid presentation context")
   elif isinstance(state.observation, Observation) and state.observation.kind is ObservationKind.VALID:
     errors.append("valid observation lacks presentation context")
@@ -308,13 +310,19 @@ def new_session(session_id: str, accepted: AcceptedLimit | None = None) -> State
 
 
 def _action_valid(action: object) -> bool:
-  return (isinstance(action, DriverAction) and _token(action.session_id) and _integer(action.sequence_id) and
-          _integer(action.decision_id, 1) and isinstance(action.kind, ActionKind))
+  return (isinstance(action, DriverAction) and token(action.session_id) and integer(action.sequence_id) and
+          integer(action.decision_id, 1) and isinstance(action.kind, ActionKind) and
+          (action.observed_ns is None or integer(action.observed_ns, 1)))
+
+
+def _timely(action: DriverAction, pending: PendingDecision, now_ns: int) -> bool:
+  observed_ns = now_ns if action.observed_ns is None else action.observed_ns
+  return 0 <= pending.active_elapsed_ns - (now_ns - observed_ns) <= CONFIRMATION_NS
 
 
 def _adopt_valid(adopt: object) -> bool:
-  return (isinstance(adopt, AdoptRequest) and _token(adopt.session_id) and _integer(adopt.sequence_id) and
-          _integer(adopt.presentation_id, 1) and _candidate_valid(adopt.candidate, adopt.session_id))
+  return (isinstance(adopt, AdoptRequest) and token(adopt.session_id) and integer(adopt.sequence_id) and
+          integer(adopt.presentation_id, 1) and _candidate_valid(adopt.candidate, adopt.session_id))
 
 
 def _acknowledge(state: State, action: DriverAction | AdoptRequest | None) -> tuple[State, ActionReceipt | None]:
@@ -328,6 +336,9 @@ def _acknowledge(state: State, action: DriverAction | AdoptRequest | None) -> tu
 
 
 def _accept(state: State, candidate: Candidate, now_ns: int) -> tuple[State, AcceptedLimit | None]:
+  if state.rejected is not None and (state.accepted is None or state.accepted.candidate.speed_mps != candidate.speed_mps or
+                                     state.rejected.speed_mps == candidate.speed_mps):
+    state = replace(state, rejected=None)
   if state.accepted is not None and state.accepted.candidate == candidate and state.pending is None:
     return replace(state, pending=None, timer_running=False), None
   accepted = AcceptedLimit(candidate, state.session_id, now_ns)
@@ -335,13 +346,12 @@ def _accept(state: State, candidate: Candidate, now_ns: int) -> tuple[State, Acc
 
 
 def _reject(state: State, candidate: Candidate) -> State:
-  if candidate not in state.rejected and len(state.rejected) == MAX_REJECTIONS:
-    return replace(state, pending=None, timer_running=False, rejection_capacity_exhausted=True)
-  return replace(state, rejected=state.rejected | {candidate}, pending=None, timer_running=False)
+  return replace(state, rejected=candidate, pending=None, timer_running=False)
 
 
 def step(state: State, observation: Observation, authority: Authority, policy: Policy, *, now_ns: int,
-         action: DriverAction | None = None, adopt: AdoptRequest | None = None, set_speed_matches: bool = False) -> Decision:
+         action: DriverAction | None = None, adopt: AdoptRequest | None = None, set_speed_matches: bool = False,
+         confirmation_started_ns: int | None = None, confirmation_grace_ns: int = 0) -> Decision:
   """Return a decision, never a cruise command. Invalid input produces no control target."""
   state_errors = _state_errors(state)
   if state_errors:
@@ -350,11 +360,11 @@ def step(state: State, observation: Observation, authority: Authority, policy: P
   if not observation_is_valid(observation, session_id=state.session_id):
     errors.append("invalid observation")
   if not isinstance(policy, Policy) or any(type(v) is not bool for v in (
-      policy.confirm_lower, policy.confirm_higher, policy.fallback_previous, policy.display_only)):
+      policy.confirm_lower, policy.confirm_higher, policy.display_only)):
     errors.append("invalid policy")
-  if not _integer(now_ns) or (state.last_timestamp_ns is not None and now_ns < state.last_timestamp_ns):
+  if not integer(now_ns) or (state.last_timestamp_ns is not None and now_ns < state.last_timestamp_ns):
     errors.append("invalid or reversed monotonic clock")
-  if action is not None and not _action_valid(action):
+  if action is not None and (not _action_valid(action) or action.observed_ns is not None and action.observed_ns > now_ns):
     errors.append("invalid driver action")
   if adopt is not None and not _adopt_valid(adopt):
     errors.append("invalid adopt request")
@@ -362,6 +372,10 @@ def step(state: State, observation: Observation, authority: Authority, policy: P
     errors.append("ambiguous action and adopt request")
   if type(set_speed_matches) is not bool:
     errors.append("invalid SET alignment")
+  if not integer(confirmation_grace_ns):
+    errors.append("invalid confirmation grace")
+  if confirmation_started_ns is not None and (not integer(confirmation_started_ns) or not integer(now_ns) or confirmation_started_ns > now_ns):
+    errors.append('invalid confirmation start')
   if errors:
     # Do not defer a stale prompt or credit the invalid interval on recovery.
     invalid = replace(state, observation=Observation(ObservationKind.UNKNOWN), pending=None, timer_running=False, presentation=None)
@@ -377,70 +391,100 @@ def step(state: State, observation: Observation, authority: Authority, policy: P
   old = state
   state, receipt = _acknowledge(replace(state, observation=observation, last_timestamp_ns=now_ns), action)
   state, adopt_receipt = _acknowledge(state, adopt)
+  if old.pending is not None and old.timer_running:
+    assert old.last_timestamp_ns is not None
+    state = replace(state, pending=replace(old.pending,
+      active_elapsed_ns=old.pending.active_elapsed_ns + now_ns - old.last_timestamp_ns))
   candidate = observation.candidate
-  if candidate is None:
+  if candidate is None and (state.pending is None or state.pending.automatic):
     state = replace(state, presentation=None)
-  elif old.presentation is None or old.presentation.candidate != candidate:
+  elif candidate is not None and (old.presentation is None or old.presentation.candidate != candidate):
     state = replace(state, presentation=Presentation(state.next_presentation_id, candidate), next_presentation_id=state.next_presentation_id + 1)
 
-  def finish(basis: str, *, target: float | None = None, history: AcceptedLimit | None = None,
-             adoption: AdoptionProposal | None = None) -> Decision:
+  def finish(basis: str, *, target: float | None = None, history: AcceptedLimit | None = None) -> Decision:
+    nonlocal state
+    if observation.kind is not ObservationKind.VALID and state.pending is None:
+      state = replace(state, presentation=None)
     final_receipt = replace(receipt, status=basis) if receipt is not None and receipt.status == "seen" else receipt
     final_adopt_receipt = replace(adopt_receipt, status=basis) if adopt_receipt is not None and adopt_receipt.status == "seen" else adopt_receipt
     return Decision(state, candidate, target, basis, history, final_receipt, adoption_receipt=final_adopt_receipt,
-                    adoption=adoption, authority=authority, policy=policy)
+                    authority=authority, policy=policy)
 
   def previous_target() -> float | None:
     return state.accepted.candidate.speed_mps if state.accepted is not None and authority.can_control else None
 
-  if state.rejection_capacity_exhausted:
-    state = replace(state, pending=None, timer_running=False)
-    return finish("session_reset_required")
+  def unavailable(basis: str) -> Decision:
+    nonlocal state, receipt, candidate
+    pending = state.pending
+    if (pending is None or pending.automatic or not authority.can_control or
+        not (policy.confirm_lower or policy.confirm_higher)):
+      state = replace(state, pending=None, timer_running=False)
+      return finish(basis, target=previous_target())
+    candidate = pending.candidate
+    # A presented manual choice stays actionable until its original deadline.
+    if (receipt is not None and receipt.status == 'seen' and action is not None and
+        action.decision_id == pending.decision_id and old.presentation is not None and
+        old.presentation.candidate == pending.candidate and
+        _timely(action, pending, now_ns)):
+      receipt = replace(receipt, consumed=True, status=action.kind.value)
+      if action.kind is ActionKind.ACCEPT:
+        state, history = _accept(state, pending.candidate, now_ns)
+        return finish('driver_accept', target=pending.candidate.speed_mps, history=history)
+      state = _reject(state, pending.candidate)
+      return finish('driver_reject', target=previous_target())
+    if pending.active_elapsed_ns >= CONFIRMATION_NS + confirmation_grace_ns:
+      state = _reject(state, pending.candidate)
+      return finish('timeout_reject', target=previous_target())
+    return finish(basis, target=previous_target())
+
   if policy.display_only:
     state = replace(state, pending=None, timer_running=False)
     return finish("display_only")
   if observation.kind is not ObservationKind.VALID:
-    state = replace(state, pending=None, timer_running=False)
-    target = previous_target() if policy.fallback_previous else None
-    return finish("previous_accepted" if target is not None else observation.kind.value, target=target)
+    return unavailable(observation.kind.value)
 
   assert candidate is not None
   new_limit = state.received_speed_mps != candidate.speed_mps
+  explicit_adopt = (adopt is not None and adopt_receipt is not None and adopt_receipt.status == 'seen' and
+                    old.presentation is not None and old.presentation.presentation_id == adopt.presentation_id and
+                    old.presentation.candidate == candidate == adopt.candidate)
   if new_limit:
-    state = replace(state, received_speed_mps=candidate.speed_mps, pending=None, rejected=frozenset(), timer_running=False)
+    state = replace(state, received_speed_mps=candidate.speed_mps, pending=None, timer_running=False)
   if adopt_receipt is not None and adopt_receipt.status == "seen":
     assert adopt is not None
-    if (old.presentation is None or old.presentation.presentation_id != adopt.presentation_id or
-        old.presentation.candidate != candidate or adopt.candidate != candidate):
+    if not explicit_adopt:
       adopt_receipt = replace(adopt_receipt, status="different_presentation")
     else:
-      # Recorded for any authority; only an owner of longitudinal control commands a target.
-      state, history = _accept(replace(state, rejected=frozenset(c for c in state.rejected if c.speed_mps != candidate.speed_mps)), candidate, now_ns)
+      # Remember explicit adoption even when longitudinal control is inactive.
+      state, history = _accept(state, candidate, now_ns)
       assert state.accepted is not None
       adopt_receipt = replace(adopt_receipt, consumed=True, status="adopt")
       if not authority.can_control:
         return finish("driver_adopt", history=history)
-      proposal = AdoptionProposal(state.session_id, adopt.sequence_id, adopt.presentation_id, state.accepted, candidate.speed_mps)
-      return finish("driver_adopt", target=candidate.speed_mps, history=history, adoption=proposal)
+      return finish("driver_adopt", target=candidate.speed_mps, history=history)
 
-  if any(rejected.speed_mps == candidate.speed_mps for rejected in state.rejected):
+  if state.rejected is not None and state.rejected.speed_mps == candidate.speed_mps:
     state = replace(state, pending=None, timer_running=False)
     return finish("rejected", target=previous_target())
 
   previous_speed = state.accepted.candidate.speed_mps if state.accepted is not None else None
-  if not new_limit and old.pending is None and candidate.speed_mps == previous_speed:
+  if candidate.speed_mps == previous_speed:
     state = replace(state, pending=None, timer_running=False)
     return finish("accepted", target=previous_target())
-  confirmation = policy.confirm_higher if previous_speed is None or candidate.speed_mps > previous_speed else (
-    policy.confirm_lower if candidate.speed_mps < previous_speed else policy.confirm_lower or policy.confirm_higher)
+  confirmation = policy.confirm_lower or policy.confirm_higher
+  if previous_speed is not None:
+    confirmation = policy.confirm_higher if candidate.speed_mps > previous_speed else policy.confirm_lower
+  if confirmation and not authority.can_control:
+    state = replace(state, pending=None, timer_running=False)
+    return finish("inactive")
   if not new_limit and old.pending is not None and old.pending.automatic == (not confirmation):
-    pending = replace(old.pending, candidate=candidate)
-    if old.timer_running:
-      assert old.last_timestamp_ns is not None
-      pending = replace(pending, active_elapsed_ns=pending.active_elapsed_ns + now_ns - old.last_timestamp_ns)
+    assert state.pending is not None
+    pending = replace(state.pending, candidate=candidate)
   else:
     pending = PendingDecision(candidate, state.next_decision_id, automatic=not confirmation)
     state = replace(state, next_decision_id=state.next_decision_id + 1)
+  if confirmation_started_ns is not None:
+    pending = replace(pending, active_elapsed_ns=max(pending.active_elapsed_ns, now_ns - confirmation_started_ns))
   state = replace(state, pending=pending, timer_running=True)
 
   if pending.automatic:
@@ -450,31 +494,29 @@ def step(state: State, observation: Observation, authority: Authority, policy: P
                     target=candidate.speed_mps if authority.can_control else None, history=history)
     return finish("automatic_pending", target=previous_target())
 
-  if receipt is not None and receipt.status == "seen" and pending.active_elapsed_ns <= CONFIRMATION_NS:
-    assert action is not None
+  if receipt is not None and receipt.status == "seen" and action is not None and _timely(action, pending, now_ns):
     if action.decision_id != pending.decision_id:
       receipt = replace(receipt, status="different_decision")
     elif old.pending is None or old.pending.decision_id != pending.decision_id:
       receipt = replace(receipt, status="not_presented")
-    elif old.presentation is None or old.presentation.candidate != candidate:
+    elif ((old.presentation is None or old.presentation.candidate != candidate) and
+          not (action.kind is ActionKind.REJECT and old.presentation is None and
+               old.pending.candidate.speed_mps == candidate.speed_mps)):
       receipt = replace(receipt, status="different_presentation")
     else:
-      # The driver is always asked, even with only lateral or stock ACC active; the
-      # choice is recorded as accepted history and only commands a target when
-      # this system owns longitudinal control.
       receipt = replace(receipt, consumed=True, status=action.kind.value)
       if action.kind is ActionKind.ACCEPT:
         state, history = _accept(state, candidate, now_ns)
         return finish("driver_accept", target=candidate.speed_mps if authority.can_control else None, history=history)
       state = _reject(state, candidate)
-      return finish("driver_reject", target=None if state.rejection_capacity_exhausted else previous_target())
+      return finish("driver_reject", target=previous_target())
 
-  if pending.active_elapsed_ns >= CONFIRMATION_NS:
+  if pending.active_elapsed_ns >= CONFIRMATION_NS + confirmation_grace_ns:
     state = _reject(state, candidate)
-    return finish("timeout_reject", target=None if state.rejection_capacity_exhausted else previous_target())
+    return finish("timeout_reject", target=previous_target())
 
   # An explicit choice above wins; alignment is approval only while we own speed control.
-  if set_speed_matches and authority.can_control:
+  if set_speed_matches and authority.can_control and pending.active_elapsed_ns < CONFIRMATION_NS:
     state, history = _accept(state, candidate, now_ns)
     return finish("accepted", target=candidate.speed_mps, history=history)
 

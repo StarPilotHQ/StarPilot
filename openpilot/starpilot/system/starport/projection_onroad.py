@@ -14,6 +14,7 @@ from openpilot.starpilot.system.starport.projection_map_lease import MapLeaseWri
 CERTIFICATE_NOTICE_NS = 10_000_000_000  # how long the expiry heads-up stays at the start of a drive
 BOOKMARK_NOTICE_NS = 2_000_000_000  # how long "Bookmark Saved" stays after the drive is bookmarked
 MODE_NOTICE_NS = 2_000_000_000  # how long the driving-mode banner stays after the mode changes
+RECONNECT_NOTICE_NS = 8_000_000_000  # how long "why it reconnected" stays once the car screen is back
 DRIVER_MONITOR_HOLD_NS = 350_000_000
 STANDBY_LOGO = Path(__file__).parents[3] / 'selfdrive/assets/images/starpilot_logo.png'
 BUBBLE_REDUNDANT_ALERTS = frozenset(('preLaneChangeLeft', 'preLaneChangeRight', 'laneChange',
@@ -66,7 +67,7 @@ def apply_plain_camera_look(camera, rl):
 
 
 def native_dependencies():
-  import pyray as rl
+  from openpilot.starpilot.ui.raylib import rl
   from openpilot.cereal.visionipc import VisionStreamType
   from openpilot.common.transformations.camera import view_frame_from_device_frame
   from openpilot.selfdrive.ui.onroad.augmented_road_view import AugmentedRoadView, BORDER_COLORS
@@ -76,16 +77,21 @@ def native_dependencies():
   from openpilot.starpilot.ui.onroad import OnroadView
   from openpilot.starpilot.ui.onroad_customization import CAMERA_WIDGETS, placement, widget_size
   from openpilot.starpilot.ui.onroad_dm import DriverMonitorLayer
-  from openpilot.starpilot.ui.onroad_map import MapFeed, MapOverlay
+  from openpilot.starpilot.ui.onroad_map import MapFeed, live_overlay
   from openpilot.starpilot.ui.onroad_state import AlertSize, OnroadAlert
   from openpilot.starpilot.ui.pip_preferences import read_pip
   from openpilot.starpilot.ui.pip_render import PiPRenderer
   from openpilot.starpilot.ui.pip_sidecam import Rect, Signals
+  from openpilot.starpilot.ui.pip_warning import PiPWarningSource
+  from openpilot.starpilot.spot_monitor.preferences import read_preferences as read_vasm_preferences
+  from openpilot.starpilot.speed_limits.vision.observation import clock_pair_ns
+  from opendbc.car.structs import car as car_schema
   from openpilot.starpilot.ui.presentation import BitmapFonts, FontRole, Profile, default_font_directory
   from openpilot.starpilot.ui.runtime_snapshot import RuntimeSnapshotAdapter, current_message, display_message
   from openpilot.starpilot.ui.shell import ShellMode
   from openpilot.starpilot.system.starport.projection_favorites import ProjectionFavorites
   from openpilot.starpilot.system.starport.projection_now_playing import ProjectionNowPlayingFeed
+  from openpilot.starpilot.system.starport.media_audio import music_control
   from openpilot.starpilot.models.jetlink_status import JetlinkStatusFeed
 
   class ProjectionRoadCamera(AugmentedRoadView):
@@ -122,13 +128,13 @@ def native_dependencies():
     """The StarPilot crescent, shrunk once on the CPU to its standby size; None if it cannot be loaded."""
     image = rl.load_image(str(STANDBY_LOGO))
     try:
-      if image.data == rl.ffi.NULL or image.width <= 0 or image.height <= 0:
+      if image.data is None or image.width <= 0 or image.height <= 0:
         return None
       if image.height > height:
         rl.image_resize(image, round(image.width * height / image.height), height)
       texture = rl.load_texture_from_image(image)
     finally:
-      if image.data != rl.ffi.NULL:
+      if image.data is not None:
         rl.unload_image(image)
     if texture.id == 0:
       return None
@@ -140,22 +146,26 @@ def native_dependencies():
                          font_role=FontRole, profile=Profile, font_directory=default_font_directory,
                          adapter=RuntimeSnapshotAdapter, current_message=current_message, display_message=display_message,
                          shell_mode=ShellMode, pip_renderer=PiPRenderer, read_pip=read_pip, pip_signals=Signals,
+                         pip_warning=PiPWarningSource, read_vasm=read_vasm_preferences, clock_pair_ns=clock_pair_ns,
+                         car_schema=car_schema,
                          pip_rect=Rect, pip_widgets=CAMERA_WIDGETS, placement=placement, widget_size=widget_size,
-                         alert=OnroadAlert, alert_size=AlertSize, map_overlay=MapOverlay, map_feed=MapFeed,
+                         alert=OnroadAlert, alert_size=AlertSize, map_overlay=live_overlay, map_feed=MapFeed,
                          favorites=ProjectionFavorites, standby_logo=standby_logo, now_playing_feed=ProjectionNowPlayingFeed,
-                         jetlink_feed=JetlinkStatusFeed)
+                         now_playing_control=music_control, jetlink_feed=JetlinkStatusFeed)
 
 
 class ProjectionOnroad:
   """Separate renderer with projected actions; native UIState stays read-only."""
 
   def __init__(self, *, dependencies=None, viewport=None, customization=None, certificate_days=None, native_focus=None,
-               layout_watcher=None):
+               layout_watcher=None, reconnect_notice=""):
     viewport = FALLBACK_VIEWPORT if viewport is None else viewport
     self.width, self.height = viewport
     self.customization = customization
     self._certificate_notice = certificate_notice(certificate_days)
     self._certificate_notice_until_ns: int | None = None
+    self._reconnect_notice = reconnect_notice
+    self._reconnect_notice_until_ns: int | None = None
     self._bookmark_notice_until_ns: int | None = None
     self._mode_label: str | None = None  # the drive's last known driving mode
     self._mode_engaged: bool | None = None
@@ -190,6 +200,10 @@ class ProjectionOnroad:
       if getattr(native, 'now_playing_feed', None) is not None:
         self.now_playing_feed = native.now_playing_feed()
         self._resources.callback(self.now_playing_feed.close)
+      self.now_playing_touch = None
+      if self.now_playing_feed is not None and getattr(native, 'now_playing_control', None) is not None:
+        from openpilot.starpilot.ui.onroad_now_playing import NowPlayingTouch
+        self.now_playing_touch = NowPlayingTouch(native.now_playing_control, getattr(self.onroad, 'now_playing', None))
       self.jetlink_feed = None
       if getattr(native, 'jetlink_feed', None) is not None:
         self.jetlink_feed = native.jetlink_feed()
@@ -208,9 +222,14 @@ class ProjectionOnroad:
       self.pip = None
       self._pip_saved = None
       self._pip_read_ns = None
+      self._vasm_saved = None
+      self.pip_warning = None
       if getattr(native, 'pip_renderer', None) is not None:
         self.pip = native.pip_renderer("bubble")
         self._resources.callback(self.pip.close)
+        if getattr(native, 'pip_warning', None) is not None:
+          self.pip_warning = native.pip_warning()
+          self._resources.callback(self.pip_warning.close)
         self.onroad.pip_layer = self._pip_layer
       self.map = None
       self.map_feed = None
@@ -226,6 +245,7 @@ class ProjectionOnroad:
         self.favorites = native.favorites(lambda: native.ui_state.started)
         self.favorites.bookmark = lambda: self.bookmark()
         self.favorites.card_bounds = getattr(getattr(self.onroad, 'navigation', None), 'bounds', None)
+        self.favorites.map_rect = lambda: self._map_placement() if self.map is not None else None
         self._resources.callback(self.favorites.close)
     except BaseException:
       self._resources.close()
@@ -285,14 +305,9 @@ class ProjectionOnroad:
     else:
       self._monitor_pair = None
       self._monitor_pair_ns = None
-    self.native.rl.rl_push_matrix()
-    self.native.rl.rl_translatef(0, self.height - 1080, 0)
-    try:
-      self.monitor.render(state, monitor=monitor, driver=driver,
-                          fresh=monitor is not None and driver is not None,
-                          onroad=ui.is_onroad())
-    finally:
-      self.native.rl.rl_pop_matrix()
+    self.monitor.render(state, monitor=monitor, driver=driver,
+                        fresh=monitor is not None and driver is not None,
+                        onroad=ui.is_onroad(), y_offset=self.height - 1080)
 
   def _ensure_map(self):
     """Build the map overlay the first time a layout turns it on; it stays for the connection."""
@@ -346,6 +361,7 @@ class ProjectionOnroad:
       placed = (self.customization or {}).get('widgets', {}).get('now_playing', {})
       self.now_playing_feed.set_enabled(bool(placed.get('enabled')))
       self.onroad.now_playing.track = self.now_playing_feed.snapshot()
+      self.onroad.now_playing.artwork = self.now_playing_feed.artwork()
     if self.jetlink_feed is not None:
       placed = (self.customization or {}).get('widgets', {}).get('jetlink_status', {})
       self.jetlink_feed.set_enabled(bool(placed.get('enabled') and self.native.ui_state.started))
@@ -372,6 +388,9 @@ class ProjectionOnroad:
     if placed is not None and self.map is not None:
       self.map.draw(self.native.rl.Rectangle(placed['x'], placed['y'], placed['width'], placed['height']),
                     placed['opacity'] / 100.0)
+      if state is not None and self.favorites is not None:
+        self.onroad.navigation_favorites.render_map_end(placed['x'], placed['y'], placed['width'], placed['height'],
+                                                        state.customization['layouts']['large'])
 
   def _pip_layer(self, rect, state, *, submit=None):
     """Shared camera crops, with Android Auto's own blind-spot trigger and placements."""
@@ -379,6 +398,7 @@ class ProjectionOnroad:
     now_ns = time.monotonic_ns()
     if self._pip_read_ns is None or not 0 <= now_ns - self._pip_read_ns < 1_000_000_000:
       self._pip_saved = native.read_pip(native.ui_state.params)
+      self._vasm_saved = native.read_vasm(native.ui_state.params) if self.pip_warning is not None else None
       self._pip_read_ns = now_ns
     saved = self._pip_saved
     # AA can show warnings with the comma preview off; only crops and mirroring are shared.
@@ -391,11 +411,22 @@ class ProjectionOnroad:
     ui = native.ui_state
     # Display freshness: carState is 100 Hz, so the 20 ms control window often lapses within one drawn frame.
     car = native.display_message(ui.sm, 'carState', now_ns, after_frame=ui.started_frame)
+    vasm = self._vasm_saved
+    pair = native.clock_pair_ns() if car is not None and self.pip_warning is not None else None
+    vasm_enabled = (self.pip_warning is not None and car is not None and car.canValid and
+                    car.gearShifter == native.car_schema.CarState.GearShifter.drive and
+                    pair is not None and vasm is not None and vasm.readable and vasm.valid and vasm.preferences.enabled)
+    left_warning, right_warning = (False, False)
+    if self.pip_warning is not None:
+      left_warning, right_warning = self.pip_warning.sample(
+        enabled=vasm_enabled, settings_fingerprint=vasm.fingerprint if vasm_enabled else "",
+        now_mono_ns=pair[0] if pair is not None else 0, now_boot_ns=pair[1] if pair is not None else 0)
     signals = native.pip_signals(car is not None,
                                  bool(car.leftBlinker) if car is not None else False,
                                  bool(car.rightBlinker) if car is not None else False,
                                  bool(car.leftBlindspot) if car is not None else False,
-                                 bool(car.rightBlindspot) if car is not None else False)
+                                 bool(car.rightBlindspot) if car is not None else False,
+                                 left_warning, right_warning)
     placements = {}
     for side, key in zip(('left', 'right'), native.pip_widgets, strict=True):
       position = native.placement(state.customization, 'large', key)
@@ -423,6 +454,18 @@ class ProjectionOnroad:
       return state
     return replace(state, alert=self.native.alert(size=sizes.SMALL, text1=self._certificate_notice,
                                                   alert_type='androidAutoCertificate/warning'))
+
+  def _with_reconnect_notice(self, state, now_ns):
+    """Say why the car screen just came back (the comma's Wi-Fi switched networks); a real alert always wins."""
+    if not self._reconnect_notice:
+      return state
+    if self._reconnect_notice_until_ns is None:
+      self._reconnect_notice_until_ns = now_ns + RECONNECT_NOTICE_NS
+    sizes = self.native.alert_size
+    if now_ns >= self._reconnect_notice_until_ns or state.alert.size != sizes.NONE:
+      return state
+    return replace(state, alert=self.native.alert(size=sizes.SMALL, text1=self._reconnect_notice,
+                                                  alert_type='androidAutoReconnected/info'))
 
   def bookmark_saved(self, now_ns=None):
     """A bookmark was published for this drive (from any button): confirm it on the car screen."""
@@ -516,7 +559,8 @@ class ProjectionOnroad:
       # Touch hit-tests read viewport_width; the view draws at the car canvas width (1920 for a 1280x720 head unit).
       if state.viewport_width != self.width:
         state = replace(state, viewport_width=self.width)
-      state = self._with_bookmark_notice(self._with_certificate_notice(state, now_ns), now_ns)
+      state = self._with_certificate_notice(self._with_reconnect_notice(state, now_ns), now_ns)
+      state = self._with_bookmark_notice(state, now_ns)
       self._state = self._with_mode_notice(state, now_ns)
       if self._slc_input is not None:
         self._state = self._slc_input.present(self._state)
@@ -548,6 +592,10 @@ class ProjectionOnroad:
         if self.favorites is not None:
           self.favorites.cancel()
         continue
+      if self._now_playing_touch(event.kind, x, y):
+        if self.favorites is not None:
+          self.favorites.cancel()
+        continue
       if self.favorites is None:
         continue
       if self._state is None or not self.native.ui_state.started:
@@ -555,8 +603,23 @@ class ProjectionOnroad:
         continue
       self.favorites.touch(event.kind, x, y, self._state, self.native.ui_state.started_frame)
 
+  def _now_playing_touch(self, kind, x, y) -> bool:
+    touch = self.now_playing_touch
+    if touch is None:
+      return False
+    state = self._state if self.native.ui_state.started else None
+    placed = state.customization['layouts']['large'].get('now_playing') if state is not None else None
+    track = self.onroad.now_playing.showing()
+    if state is not None and self.favorites is not None:
+      from openpilot.starpilot.ui.onroad_now_playing import card_layout
+      shape = card_layout(placed, track, state.viewport_width)
+      if shape is not None and self.favorites.hit(x, y, state, overlay=('now_playing', shape[0])) != 'now_playing':
+        touch.cancel()
+        return False
+    return touch.touch(kind, x, y, state, placed, track)
+
   def _slc_touch(self, kind, x, y) -> bool:
-    """Speed-limit Apply/Keep/Use-limit taps; True while one owns the touch."""
+    """Speed-limit confirmation taps; True while one owns the touch."""
     gesture = self._slc_input
     if gesture is None:
       return False
@@ -577,6 +640,8 @@ class ProjectionOnroad:
 
   def cancel_touch(self):
     self.exit.cancel()
+    if self.now_playing_touch is not None:
+      self.now_playing_touch.cancel()
     if self._slc_input is not None:
       self._slc_input.cancel()
     if self.favorites is not None:

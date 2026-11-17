@@ -1,0 +1,470 @@
+{
+  "Dom_revision": "823a5d5674ec6635b51dd989884dfbd661f90dc4",
+  "old_source_sha256": "d27c7c210e2b049e031102d3c434c8753471817760cabd185083aadc3e5ba2d4",
+  "target9d_source_sha256": "85b5a90005f7886c04c49836a59780defb99f03f21d662850a06335dfdcb5a0b",
+  "values": "Ops is firstFastEnum subclass; each auto is source-order1based. No target runtime/Enum classes imported.",
+  "rows": [
+    {
+      "Dom_value": 1,
+      "Dom_name": "SPECIAL",
+      "target9d_value": 1,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 2,
+      "Dom_name": "BUFFER",
+      "target9d_value": 2,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 3,
+      "Dom_name": "NOOP",
+      "target9d_value": 3,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 4,
+      "Dom_name": "REWRITE_ERROR",
+      "target9d_value": 4,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 5,
+      "Dom_name": "PARAM",
+      "target9d_value": 5,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 6,
+      "Dom_name": "CALL",
+      "target9d_value": 6,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 7,
+      "Dom_name": "PROGRAM",
+      "target9d_value": 7,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 8,
+      "Dom_name": "LINEAR",
+      "target9d_value": 8,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 9,
+      "Dom_name": "SOURCE",
+      "target9d_value": 9,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 10,
+      "Dom_name": "BINARY",
+      "target9d_value": 10,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 11,
+      "Dom_name": "SINK",
+      "target9d_value": 11,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 12,
+      "Dom_name": "AFTER",
+      "target9d_value": 12,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 13,
+      "Dom_name": "GROUP",
+      "target9d_value": 13,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 14,
+      "Dom_name": "STACK",
+      "target9d_value": 14,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 15,
+      "Dom_name": "RETURNED",
+      "target9d_value": null,
+      "disposition": "REFUSE_NO_SEMANTIC_ALIAS"
+    },
+    {
+      "Dom_value": 16,
+      "Dom_name": "GETADDR",
+      "target9d_value": 15,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 17,
+      "Dom_name": "INDEX",
+      "target9d_value": 16,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 18,
+      "Dom_name": "SHRINK",
+      "target9d_value": 17,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 19,
+      "Dom_name": "LOAD",
+      "target9d_value": 18,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 20,
+      "Dom_name": "STORE",
+      "target9d_value": 19,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 21,
+      "Dom_name": "WMMA",
+      "target9d_value": 20,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 22,
+      "Dom_name": "CAST",
+      "target9d_value": 21,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 23,
+      "Dom_name": "BITCAST",
+      "target9d_value": 22,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 24,
+      "Dom_name": "EXP2",
+      "target9d_value": 23,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 25,
+      "Dom_name": "LOG2",
+      "target9d_value": 24,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 26,
+      "Dom_name": "SIN",
+      "target9d_value": 25,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 27,
+      "Dom_name": "SQRT",
+      "target9d_value": 26,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 28,
+      "Dom_name": "RECIPROCAL",
+      "target9d_value": 27,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 29,
+      "Dom_name": "NEG",
+      "target9d_value": 28,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 30,
+      "Dom_name": "TRUNC",
+      "target9d_value": 29,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 31,
+      "Dom_name": "ADD",
+      "target9d_value": 30,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 32,
+      "Dom_name": "MUL",
+      "target9d_value": 31,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 33,
+      "Dom_name": "SHL",
+      "target9d_value": 32,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 34,
+      "Dom_name": "SHR",
+      "target9d_value": 33,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 35,
+      "Dom_name": "CDIV",
+      "target9d_value": 34,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 36,
+      "Dom_name": "MAX",
+      "target9d_value": 35,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 37,
+      "Dom_name": "CMOD",
+      "target9d_value": 36,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 38,
+      "Dom_name": "CMPLT",
+      "target9d_value": 37,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 39,
+      "Dom_name": "CMPNE",
+      "target9d_value": 38,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 40,
+      "Dom_name": "CMPEQ",
+      "target9d_value": 39,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 41,
+      "Dom_name": "XOR",
+      "target9d_value": 40,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 42,
+      "Dom_name": "OR",
+      "target9d_value": 41,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 43,
+      "Dom_name": "AND",
+      "target9d_value": 42,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 44,
+      "Dom_name": "THREEFRY",
+      "target9d_value": 43,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 45,
+      "Dom_name": "SUB",
+      "target9d_value": 44,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 46,
+      "Dom_name": "FDIV",
+      "target9d_value": 45,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 47,
+      "Dom_name": "POW",
+      "target9d_value": 46,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 48,
+      "Dom_name": "FLOORDIV",
+      "target9d_value": 47,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 49,
+      "Dom_name": "FLOORMOD",
+      "target9d_value": 48,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 50,
+      "Dom_name": "WHERE",
+      "target9d_value": 49,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 51,
+      "Dom_name": "MULACC",
+      "target9d_value": 50,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 52,
+      "Dom_name": "BARRIER",
+      "target9d_value": 51,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 53,
+      "Dom_name": "RANGE",
+      "target9d_value": 52,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 54,
+      "Dom_name": "IF",
+      "target9d_value": 53,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 55,
+      "Dom_name": "END",
+      "target9d_value": 54,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 56,
+      "Dom_name": "ENDIF",
+      "target9d_value": 55,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 57,
+      "Dom_name": "CONST",
+      "target9d_value": 56,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 58,
+      "Dom_name": "CUSTOM",
+      "target9d_value": 57,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 59,
+      "Dom_name": "CUSTOMI",
+      "target9d_value": 58,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 60,
+      "Dom_name": "INS",
+      "target9d_value": 59,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 61,
+      "Dom_name": "CONTIGUOUS",
+      "target9d_value": null,
+      "disposition": "REFUSE_NO_SEMANTIC_ALIAS"
+    },
+    {
+      "Dom_value": 62,
+      "Dom_name": "CONTIGUOUS_BACKWARD",
+      "target9d_value": 60,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 63,
+      "Dom_name": "DETACH",
+      "target9d_value": 61,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 64,
+      "Dom_name": "STAGE",
+      "target9d_value": 62,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 65,
+      "Dom_name": "COPY",
+      "target9d_value": 63,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 66,
+      "Dom_name": "MSELECT",
+      "target9d_value": 64,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 67,
+      "Dom_name": "MSTACK",
+      "target9d_value": 65,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 68,
+      "Dom_name": "CUSTOM_FUNCTION",
+      "target9d_value": 66,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 69,
+      "Dom_name": "RESHAPE",
+      "target9d_value": 67,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 70,
+      "Dom_name": "PERMUTE",
+      "target9d_value": 68,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 71,
+      "Dom_name": "EXPAND",
+      "target9d_value": 69,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 72,
+      "Dom_name": "PAD",
+      "target9d_value": 70,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 73,
+      "Dom_name": "FLIP",
+      "target9d_value": 71,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 74,
+      "Dom_name": "UNSHARD",
+      "target9d_value": 72,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 75,
+      "Dom_name": "REDUCE",
+      "target9d_value": 73,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 76,
+      "Dom_name": "ALLREDUCE",
+      "target9d_value": 74,
+      "disposition": "MAP_BY_NAME_ONLY"
+    },
+    {
+      "Dom_value": 77,
+      "Dom_name": "PYLITERAL",
+      "target9d_value": 75,
+      "disposition": "MAP_BY_NAME_ONLY"
+    }
+  ]
+}

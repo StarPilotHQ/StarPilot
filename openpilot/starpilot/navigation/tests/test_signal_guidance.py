@@ -106,6 +106,7 @@ def test_old_preferences_remain_default_on():
   old = to_value(LaneChangePolicy())
   old['version'] = 4
   del old['turnSignalGuidance']
+  del old['autoRequiresCruise']
   assert decode(json.dumps(old).encode()) == LaneChangePolicy()
 
 
@@ -161,6 +162,7 @@ def test_legacy_preferences_enable_guidance_without_writes(case, version):
   value = to_value(LaneChangePolicy())
   value['version'] = version
   del value['turnSignalGuidance']
+  del value['autoRequiresCruise']
   if version < 4:
     del value['durationS']
   if version < 3:

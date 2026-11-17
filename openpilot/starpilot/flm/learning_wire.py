@@ -3,10 +3,11 @@
 from typing import TypedDict, cast
 
 
+from types import SimpleNamespace
 from functools import lru_cache
 import struct
 
-from capnp.lib.capnp import _DynamicStructReader
+from capnp.lib.capnp import _DynamicListReader, _DynamicStructReader
 from openpilot.cereal import custom, messaging
 from openpilot.starpilot.flm.adaptive_profile import Parameter, Profile, ReplayValidation, replay_accepts
 from openpilot.starpilot.flm.fullrate_collector import ControlEvidence, AppliedEvidence, identity, finite
@@ -50,6 +51,10 @@ def _named_values(values):
   return [{'name': _string(name, 96), 'boolean' if type(value) is bool else 'text' if type(value) is str else 'number': value} for name, value in values]
 
 
+def _named_pairs(values, limit=96):
+  return [(_string(name, limit), value) for name, value in values]
+
+
 @lru_cache(maxsize=2048)
 def _evidence_field_name(name):
   # Receiver-only immutable key sharing. Ten minutes of100Hz actual replay
@@ -58,15 +63,42 @@ def _evidence_field_name(name):
   return name
 
 
+@lru_cache(maxsize=4096)
+def _scalar_pair(name, kind, value):
+  return name, struct.unpack('!d', value)[0] if kind is float else value
+
+
+def _shared_scalar_pair(name, value):
+  # Share exact immutable content, including IEEE signed zero; never a verdict.
+  if not name or len(name.encode()) > 96 or type(value) is str and len(value.encode()) > 96:
+    return name, value
+  return _scalar_pair(name, type(value), struct.pack('!d', value) if type(value) is float else value)
+
+
 def _read_named_values(values, bound):
   if len(values) > bound:
     raise ValueError('replay scalar bounds')
   result = []
+  if (
+    type(values) is _DynamicListReader
+    and len(values)
+    and type(values[0]) is _DynamicStructReader
+    and values[0].schema == custom.LearningControlEvidence.NamedValue.schema
+  ):
+    fields = custom.LearningControlEvidence.NamedValue.schema.fields
+    name_field = fields['name']
+    for row in values:
+      name = _evidence_field_name(_string(str(row._get_by_field(name_field)), 96))
+      kind = row._which_str()
+      value = row._get_by_field(fields[kind])
+      value = bool(value) if kind == 'boolean' else _string(str(value), 96) if kind == 'text' else float(value)
+      result.append(_shared_scalar_pair(name, value))
+    return tuple(result)
   for row in values:
     name = _evidence_field_name(_string(str(row.name), 96))
     kind = row.which()
     value = bool(row.boolean) if kind == 'boolean' else _string(str(row.text), 96) if kind == 'text' else float(row.number)
-    result.append((name, value))
+    result.append(_shared_scalar_pair(name, value))
   return tuple(result)
 
 
@@ -79,19 +111,29 @@ def _read_original_inputs(values):
 
 def _write_effect_trace(trace):
   from openpilot.starpilot.flm.effect_trace import FullEffectTrace
+
   if not isinstance(trace, FullEffectTrace):
     raise ValueError('typed full effect trace')
   trace.validate()
   full = trace.envelope
-  envelope = {'version':full.version, **{wire:getattr(full,field) for wire,field in _FULL_FIELDS},
-    'priorCoordinates':[{'name':n,'value':v} for n,v in full.prior_coordinates],
-    'coordinates':[{'name':n,'value':v} for n,v in full.coordinates], 'trialNames':full.trial_names}
-  return {'version':1, 'envelope':envelope, 'controlMonoTime':trace.control_ns,
-    'previousMonoTime':trace.previous_ns, 'qualified':trace.qualified,
-    'before':[{'name':n,'value':v} for n,v in trace.before],
-    'target':[{'name':n,'value':v} for n,v in trace.target],
-    'applied':[{'name':n,'value':v} for n,v in trace.applied],
-    'appliedFullProfileSha256':trace.applied_full_profile_sha256}
+  envelope = {
+    'version': full.version,
+    **{wire: getattr(full, field) for wire, field in _FULL_FIELDS},
+    'priorCoordinates': [{'name': n, 'value': v} for n, v in full.prior_coordinates],
+    'coordinates': [{'name': n, 'value': v} for n, v in full.coordinates],
+    'trialNames': full.trial_names,
+  }
+  return {
+    'version': 1,
+    'envelope': envelope,
+    'controlMonoTime': trace.control_ns,
+    'previousMonoTime': trace.previous_ns,
+    'qualified': trace.qualified,
+    'before': [{'name': n, 'value': v} for n, v in trace.before],
+    'target': [{'name': n, 'value': v} for n, v in trace.target],
+    'applied': [{'name': n, 'value': v} for n, v in trace.applied],
+    'appliedFullProfileSha256': trace.applied_full_profile_sha256,
+  }
 
 
 # Receiver histories retain up to 60,000 frames. Share exact immutable map
@@ -100,11 +142,13 @@ def _write_effect_trace(trace):
 @lru_cache(maxsize=128)
 def _effect_coordinate_rows(packed):
   from openpilot.starpilot.flm.canonical_surface_adapter import NAMES
+
   return tuple(zip(NAMES, struct.unpack('!30d', packed), strict=True))
 
 
 def _shared_effect_rows(rows):
   from openpilot.starpilot.flm.canonical_surface_adapter import NAMES
+
   if tuple(name for name, _ in rows) != NAMES:
     return rows  # Preserve the original validator's rejection of foreign names.
   return _effect_coordinate_rows(struct.pack('!30d', *(value for _, value in rows)))
@@ -112,21 +156,32 @@ def _shared_effect_rows(rows):
 
 def _read_effect_trace(row):
   from openpilot.starpilot.flm.effect_trace import FullEffectTrace
+
   if row.version == 0:
     return None
-  if row.version != 1 or any(len(getattr(row,n)) != 30 for n in ('before','target','applied')):
+  if row.version != 1 or any(len(getattr(row, n)) != 30 for n in ('before', 'target', 'applied')):
     raise ValueError('full effect trace version/bounds')
-  envelope=_read_full_surface(row.envelope)
+  envelope = _read_full_surface(row.envelope)
   if envelope is None:
     raise ValueError('effect trace original envelope')
-  values=[_shared_effect_rows(tuple((str(v.name),float(v.value)) for v in getattr(row,n)))
-          for n in ('before','target','applied')]
-  return FullEffectTrace(1,envelope,int(row.controlMonoTime),int(row.previousMonoTime),bool(row.qualified),
+  values = [_shared_effect_rows(tuple((str(v.name), float(v.value)) for v in getattr(row, n))) for n in ('before', 'target', 'applied')]
+  return FullEffectTrace(
+    1,
+    envelope,
+    int(row.controlMonoTime),
+    int(row.previousMonoTime),
+    bool(row.qualified),
     *cast(tuple[tuple[tuple[str, float], ...], tuple[tuple[str, float], ...], tuple[tuple[str, float], ...]], values),
-    str(row.appliedFullProfileSha256)).validate()
+    str(row.appliedFullProfileSha256),
+  ).validate()
 
 
 def write_control(parent, evidence):
+  from openpilot.starpilot.flm.route_recording import encode, MAX_ROUTE_STAGE_VALUES
+
+  if not isinstance(evidence, ControlEvidence):
+    raise ValueError('control evidence')
+  stage_values = encode(evidence)
   if (
     not isinstance(evidence, ControlEvidence)
     or not identity(evidence.identity)
@@ -152,7 +207,7 @@ def write_control(parent, evidence):
     'features': evidence.features,
     'baselinePrediction': evidence.baseline_prediction,
     'stageSchemaRevision': _string(evidence.stage_schema_revision),
-    'stageValues': [{'name': _string(name, 64), 'value': v} for name, v in evidence.stage_values],
+    'stageValues': _named_pairs(stage_values, MAX_ROUTE_STAGE_VALUES if evidence.route_effect_revision else 64),
     'appliedCoordinates': evidence.applied_coordinates,
     'sourceEpoch': evidence.source_epoch,
     'sourceReceiptMonoTime': evidence.source_receipt_ns,
@@ -161,8 +216,8 @@ def write_control(parent, evidence):
     'baselineRevision': evidence.baseline_revision,
     'baselineValues': evidence.baseline_values,
     'controllerRevision': _string(evidence.controller_revision),
-    'replaySnapshot': _named_values(evidence.replay_snapshot),
-    'replayInputs': _named_values(evidence.replay_inputs),
+    'replaySnapshot': _named_pairs(evidence.replay_snapshot),
+    'replayInputs': _named_pairs(evidence.replay_inputs),
     'snapshotSequence': evidence.snapshot_sequence,
     'vehicleModelAnchor': evidence.vehicle_model_anchor,
     'liveAppliedCoordinates': evidence.live_applied_coordinates,
@@ -200,11 +255,12 @@ def write_control(parent, evidence):
   wire = parent.init('learningEvidence')
   for name, value in payload.items():
     if name in ('replaySnapshot', 'replayInputs', 'stageValues'):
-      nested_values = cast(list[dict[str, object]], value)
+      nested_values = cast(list[tuple[str, object]], value)
       rows = wire.init(name, len(nested_values))
-      for row, fields in zip(rows, nested_values, strict=True):
-        for field, item in fields.items():
-          setattr(row, field, item)
+      for row, (field, item) in zip(rows, nested_values, strict=True):
+        row.name = field
+        kind = 'value' if name == 'stageValues' else 'boolean' if type(item) is bool else 'text' if type(item) is str else 'number'
+        setattr(row, kind, item)
     else:
       setattr(wire, name, value)
 
@@ -212,7 +268,18 @@ def write_control(parent, evidence):
     wire.effectTrace = _write_effect_trace(evidence.effect_trace)
 
 
+def _read_fields(row, schema):
+  if type(row) is _DynamicStructReader and row.schema == schema:
+    values = {name: row._get_by_field(field) for name, field in schema.fields.items()}
+    return SimpleNamespace(
+      **{name: _evidence_field_name(value) if type(value) is str and 0 < len(value.encode()) <= 96 else value for name, value in values.items()}
+    )
+  return row
+
+
 def read_control(event):
+  from openpilot.starpilot.flm.route_recording import decode_configuration, configuration_values, SCHEMAS, MAX_ROUTE_STAGE_VALUES
+
   if not event.valid:
     raise ValueError('invalid envelope')
   row = event.starpilotLateralState.learningEvidence
@@ -220,7 +287,7 @@ def read_control(event):
     row.version != VERSION
     or len(row.features) > MAX_FIELDS
     or len(row.appliedCoordinates) > MAX_FIELDS
-    or len(row.stageValues) > 40
+    or len(row.stageValues) > (MAX_ROUTE_STAGE_VALUES if str(row.stageSchemaRevision) in SCHEMAS else 40)
     or len(row.baselineValues) > 32
     or len(row.appliedParameterNames) > 8
     or len(row.liveAppliedCoordinates) not in (0, 30)
@@ -229,7 +296,13 @@ def read_control(event):
     or not all(finite(float(v)) and float(v) != 0.0 for v in row.vehicleModelAnchor)
   ):
     raise ValueError('control version or bound')
-  return ControlEvidence(
+  row = _read_fields(row, custom.LearningControlEvidence.schema)
+  stages, route_values, route_revision, route_scope, configured = decode_configuration(
+    str(row.stageSchemaRevision), tuple(_shared_scalar_pair(str(v.name), float(v.value)) for v in row.stageValues)
+  )
+  if route_revision and (len(row.liveAppliedCoordinates) or row.effectTrace.version):
+    raise ValueError('Distinct route and live-trial metadata required')
+  evidence = ControlEvidence(
     str(row.identity),
     int(row.generation),
     int(row.controlMonoTime),
@@ -251,7 +324,7 @@ def read_control(event):
     bool(row.modelWobble),
     bool(row.controllerChatter),
     str(row.stageSchemaRevision),
-    tuple((str(v.name), float(v.value)) for v in row.stageValues),
+    stages,
     tuple(float(v) for v in row.appliedCoordinates),
     str(row.sourceEpoch),
     int(row.sourceReceiptMonoTime),
@@ -277,7 +350,13 @@ def read_control(event):
     int(row.effectPrepareMonoTime),
     tuple(float(v) for v in row.vehicleModelAnchor),
     tuple(float(v) for v in row.liveAppliedCoordinates),
+    route_values,
+    route_revision,
+    route_scope,
+    configured,
   )
+  configuration_values(route_values, configured, evidence.replay_inputs)
+  return evidence
 
 
 def write_applied(parent, evidence):
@@ -315,6 +394,7 @@ def read_applied(event):
   row = event.starpilotCarState.appliedEvidence
   if row.version != VERSION:
     raise ValueError('applied version')
+  row = _read_fields(row, custom.LearningAppliedEvidence.schema)
   return AppliedEvidence(
     int(row.controlMonoTime),
     int(row.sourceStateMonoTime),
@@ -334,13 +414,20 @@ def read_applied(event):
 
 
 _FULL_FIELDS = (
-  ('manifestSha256', 'manifest_sha256'), ('fullOriginalAnchor', 'full_original_anchor'),
-  ('trialAnchor', 'trial_anchor'), ('contextKey', 'context_key'), ('cpSha256', 'cp_sha256'),
-  ('controllerRevision', 'controller_revision'), ('sourceEpoch', 'source_epoch'),
-  ('resetGeneration', 'reset_generation'), ('selectedBaselineRevision', 'selected_baseline_revision'),
-  ('priorFullProfileSha256', 'prior_full_profile_sha256'), ('fullProfileSha256', 'full_profile_sha256'),
+  ('manifestSha256', 'manifest_sha256'),
+  ('fullOriginalAnchor', 'full_original_anchor'),
+  ('trialAnchor', 'trial_anchor'),
+  ('contextKey', 'context_key'),
+  ('cpSha256', 'cp_sha256'),
+  ('controllerRevision', 'controller_revision'),
+  ('sourceEpoch', 'source_epoch'),
+  ('resetGeneration', 'reset_generation'),
+  ('selectedBaselineRevision', 'selected_baseline_revision'),
+  ('priorFullProfileSha256', 'prior_full_profile_sha256'),
+  ('fullProfileSha256', 'full_profile_sha256'),
   ('persistentSourceEpoch', 'persistent_source_epoch'),
-  ('operation', 'operation'), ('historyFullProfileSha256', 'history_full_profile_sha256'),
+  ('operation', 'operation'),
+  ('historyFullProfileSha256', 'history_full_profile_sha256'),
   ('restoreTransactionSha256', 'restore_transaction_sha256'),
 )
 
@@ -348,22 +435,29 @@ _FULL_FIELDS = (
 def _write_full_surface(profile):
   full = profile.effect_envelope
   full.validate(profile)
-  return {'version': full.version, **{wire: getattr(full, field) for wire, field in _FULL_FIELDS},
-          'priorCoordinates': [{'name': name, 'value': value} for name, value in full.prior_coordinates],
-          'coordinates': [{'name': name, 'value': value} for name, value in full.coordinates],
-          'trialNames': full.trial_names}
+  return {
+    'version': full.version,
+    **{wire: getattr(full, field) for wire, field in _FULL_FIELDS},
+    'priorCoordinates': [{'name': name, 'value': value} for name, value in full.prior_coordinates],
+    'coordinates': [{'name': name, 'value': value} for name, value in full.coordinates],
+    'trialNames': full.trial_names,
+  }
 
 
 def _read_full_surface(row):
   from openpilot.starpilot.flm.full_surface_profile import FullSurfaceEnvelope
   from openpilot.starpilot.flm.effect_admission_cache import validated_envelope
+
   try:
     if row.version not in (1, 2) or len(row.priorCoordinates) != 30 or len(row.coordinates) != 30 or not 1 <= len(row.trialNames) <= 4:
       return None
     values: dict[str, object] = {field: str(getattr(row, wire)) for wire, field in _FULL_FIELDS}
-    values.update(version=int(row.version), prior_coordinates=tuple((str(point.name), float(point.value)) for point in row.priorCoordinates),
-                  coordinates=tuple((str(point.name), float(point.value)) for point in row.coordinates),
-                  trial_names=tuple(str(name) for name in row.trialNames))
+    values.update(
+      version=int(row.version),
+      prior_coordinates=tuple((str(point.name), float(point.value)) for point in row.priorCoordinates),
+      coordinates=tuple((str(point.name), float(point.value)) for point in row.coordinates),
+      trial_names=tuple(str(name) for name in row.trialNames),
+    )
     return validated_envelope(FullSurfaceEnvelope(**cast(_FullSurfaceFields, values)))
   except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
     return None
@@ -386,10 +480,15 @@ def result_message(result, session, sequence, now_ns, *, replay_validation=None)
       raise ValueError('profile bound')
     if any(not finite(p.excitation_floor) or p.excitation_floor <= 0 for p in profile.parameters):
       raise ValueError('profile excitation floor')
-    if any(not all(finite(v) for v in (p.low, p.high, p.max_step, p.slew_per_s, coefficient))
-           or p.low > p.high or p.max_step <= 0 or p.slew_per_s <= 0
-           or not p.low <= coefficient <= p.high or abs(coefficient) > p.max_step
-           for p, coefficient in zip(profile.parameters, profile.coefficients, strict=True)):
+    if any(
+      not all(finite(v) for v in (p.low, p.high, p.max_step, p.slew_per_s, coefficient))
+      or p.low > p.high
+      or p.max_step <= 0
+      or p.slew_per_s <= 0
+      or not p.low <= coefficient <= p.high
+      or abs(coefficient) > p.max_step
+      for p, coefficient in zip(profile.parameters, profile.coefficients, strict=True)
+    ):
       raise ValueError('profile parameter bound')
     if not replay_accepts(replay_validation, profile):
       raise ValueError('actual replay validation required')
@@ -470,8 +569,13 @@ def read_profile(event):
   if any(not finite(p.excitation_floor) or p.excitation_floor <= 0 for p in parameters):
     return None
   effect = _read_full_surface(row.fullSurface) if row.version == 2 else None
-  if ((row.version == 2) != (str(row.policy) in ('event_effect_coordinate_v2', 'event_effect_restore_v1')) or
-      row.version == 2 and effect is None or row.version == VERSION and row.fullSurface.version != 0):
+  if (
+    (row.version == 2) != (str(row.policy) in ('event_effect_coordinate_v2', 'event_effect_restore_v1'))
+    or row.version == 2
+    and effect is None
+    or row.version == VERSION
+    and row.fullSurface.version != 0
+  ):
     return None
   profile = Profile(
     str(row.identity),
@@ -582,8 +686,16 @@ def _read_native_source_receipt(row, now_ns, cp_sha256, source_type):
   if version == 3 and not identity(persistent_epoch):
     return None
   return source_type(
-    enabled, manual, reset, epoch, observed, expires, cp, calibration=tuple(calibration),
-    calibration_generation=generation, persistent_source_epoch=persistent_epoch,
+    enabled,
+    manual,
+    reset,
+    epoch,
+    observed,
+    expires,
+    cp,
+    calibration=tuple(calibration),
+    calibration_generation=generation,
+    persistent_source_epoch=persistent_epoch,
   )
 
 
@@ -597,8 +709,7 @@ def read_source_receipt(event, *, now_ns, cp_sha256):
   if not event.valid:
     return None
   row = event.autoSteeringLearning.learning.sourceReceipt
-  if (type(row) is _DynamicStructReader and row.schema == custom.AutomaticLearningSourceReceipt.schema
-      and type(now_ns) is int and type(cp_sha256) is str):
+  if type(row) is _DynamicStructReader and row.schema == custom.AutomaticLearningSourceReceipt.schema and type(now_ns) is int and type(cp_sha256) is str:
     return _read_native_source_receipt(row, now_ns, cp_sha256, SourceState)
   version = row.version
   if version in (2, 3):

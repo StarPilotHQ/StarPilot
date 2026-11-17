@@ -1,4 +1,4 @@
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 from enum import IntEnum
 from abc import ABC, abstractmethod
 from collections.abc import Callable

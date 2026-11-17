@@ -68,8 +68,8 @@ def test_actual_same_frame_threshold_error_output_and_override(monkeypatch, vehi
 
 def test_niro_saved_standard_and_other_factory_have_no_new_profile():
   cp = interfaces[CAR.KIA_NIRO_EV].get_non_essential_params(CAR.KIA_NIRO_EV)
-  assert default_selection(cp).mode == ControllerMode.STANDARD
-  standard = LatControlTorque(cp.as_reader(), interfaces[cp.carFingerprint](cp), 0.01)
+  assert default_selection(cp).mode == ControllerMode.STARPILOT
+  standard = LatControlTorque(cp.as_reader(), interfaces[cp.carFingerprint](cp), 0.01, controller_mode=ControllerMode.STANDARD)
   assert standard.starpilot_extension is None
   for field in ('passive', 'dashcamOnly', 'notCar'):
     other = cp.as_reader().as_builder()

@@ -1,4 +1,4 @@
-"""Overloaded FIFO recovery: original events survive, authority never does."""
+"""Lossless batch yielding preserves valid rows; faults and real gaps still clear."""
 from dataclasses import replace
 
 import pytest
@@ -31,7 +31,7 @@ def test_overrun_does_not_erase_lookahead_or_the_other_fifo_head(side):
   rows[1 - side] = [small_event(BASE + MAX_DRAIN + 2)]
   collector, consume, seen, _, sockets, reads = setup(rows)
   assert not consume()
-  assert collector.reason == 'fullrate_overrun' and collector.dropped == 1
+  assert collector.reason == 'initializing' and collector.dropped == 0
   assert len(seen) == MAX_DRAIN and reads[sockets[side]] == MAX_DRAIN + 1
   assert reads[sockets[1 - side]] == 1
   assert not collector.ready and not collector.controls and not collector.applied
@@ -54,7 +54,7 @@ def test_repeated_overload_stays_bounded_without_frame_sequence_gaps():
       assert len(state.heads) == 2 and sum(h is not None for h in state.heads) <= 2
     if done:
       break
-  assert done and collector.dropped > 0
+  assert done and collector.dropped == 0
   assert [event.logMonoTime for _, event, _ in seen] == list(range(BASE, BASE + 2 * len(rows[0])))
   assert not collector.ready
 
@@ -118,3 +118,74 @@ def test_carry_cannot_cross_socket_replacement():
   assert not module.drain_pair(object(), lambda *args: received.append(args), sockets[1], lambda *args: received.append(args),
                                lambda _socket: None, collector, BASE + 1_000_000, state)
   assert not received and state.heads == (None, None) and collector.reason == 'malformed_evidence'
+
+
+def test_lossless_bounded_yield_keeps_only_original_fresh_joined_pairs():
+  pairs = [snapshots(BASE + index * 10_000_000)[:2] for index in range(MAX_DRAIN + 3)]
+  seen = []
+
+  def control(event, collector, now):
+    row = read_control(event)
+    seen.append(('control', row.control_ns, collector.control(row, now)))
+
+  def output(event, collector, now):
+    row = read_applied(event)
+    seen.append(('output', row.control_ns, collector.output(row, now)))
+
+  collector, consume, _, state, _, _ = setup(
+    [[serialized_control(c) for c, _ in pairs], [serialized_output(o) for _, o in pairs]], (control, output))
+  assert not consume(BASE + 341_000_000)
+  assert list(collector.ready) == pairs[25:MAX_DRAIN - 1]
+  assert collector.training_interruptions['stale_control'] == 25
+  assert collector.dropped == 0 and collector.training_interruptions['fullrate_overrun'] == 0
+  assert sum(head is not None for head in state.heads) == 2
+  assert consume(BASE + 342_000_000)
+  assert list(collector.ready) == pairs[25:]
+  assert len(seen) == 2 * len(pairs) and len({row[:2] for row in seen}) == len(seen)
+  assert all(not accepted for kind, stamp, accepted in seen if kind == 'control' and stamp < BASE + 250_000_000)
+  assert not collector.training_interruptions['fullrate_overrun']
+
+
+@pytest.mark.parametrize('reason', ('stale_control', 'native_refusal', 'source_change', 'malformed', 'permanent_fault', 'reordered_control'))
+def test_yielded_tail_cannot_preserve_prior_ready_after_real_refusal(reason):
+  control, output, _ = snapshots(BASE)
+  rows = [[small_event(BASE - 100 + index) for index in range(MAX_DRAIN)] + [serialized_control(control)],
+          [serialized_output(output)]]
+  calls = []
+
+  def consume_control(event, collector, now):
+    if event.which() != 'starpilotLateralState':
+      return
+    row = read_control(event)
+    if reason == 'source_change':
+      raise ValueError('actual source change')
+    if reason == 'malformed':
+      raise TypeError('malformed evidence')
+    if reason == 'permanent_fault':
+      row = replace(row, fault=True)
+    elif reason == 'reordered_control':
+      row = replace(row, control_ns=BASE - 20_000_000, state_ns=BASE - 21_000_000, source_receipt_ns=BASE - 20_000_000)
+    calls.append(collector.control(row, now))
+
+  def consume_output(event, collector, now):
+    row = read_applied(event)
+    if reason == 'native_refusal':
+      row = replace(row, native_allowed=False)
+    calls.append(collector.output(row, now))
+
+  collector, consume, _, state, _, _ = setup(rows, (consume_control, consume_output))
+  prior_control, prior_output, _ = snapshots(BASE - 10_000_000)
+  assert collector.control(prior_control, BASE)
+  assert collector.output(prior_output, BASE) and collector.ready
+  assert not consume(BASE)
+  assert collector.ready and collector.dropped == 0
+  done = consume(BASE + (200_000_000 if reason == 'stale_control' else 10_000_000))
+  assert not collector.ready
+  if reason in ('source_change', 'malformed'):
+    assert not done and collector.reason == 'malformed_evidence' and state.heads == (None, None)
+  else:
+    assert done
+    if reason == 'stale_control':
+      assert collector.training_interruptions['stale_control'] == 1
+    else:
+      assert not collector.points

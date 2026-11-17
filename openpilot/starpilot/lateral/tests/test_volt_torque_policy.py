@@ -79,7 +79,7 @@ class TestVoltTorquePolicy(unittest.TestCase):
     cp = params(CAR.CHEVROLET_VOLT_CAMERA)
     control = LatControlTorque(cp.as_reader(), CarInterface(cp), .01)
     policy = selected_policy(control)
-    self.assertEqual(control.pid._k_p, ([0], [.6]))
+    self.assertEqual(control.pid._k_p, [[0.0], [.6]])
     self.assertEqual(control.pid._k_i[1], [.35])
     limits = (control.pid.pos_limit, control.pid.neg_limit)
     conversion = [control.torque_from_lateral_accel(x, control.torque_params) for x in (-2., 0., 2.)]
@@ -95,7 +95,7 @@ class TestVoltTorquePolicy(unittest.TestCase):
     control.reset()
     self.assertEqual(control.pid.i, 0.)
     control.update(False, state, vm, live, False, 0., False, .2)
-    self.assertEqual(control.pid._k_p, ([0], [.6]))
+    self.assertEqual(control.pid._k_p, [[0.0], [.6]])
     self.assertEqual(policy.previous_measurement, 0.)
     self.assertEqual(control.pid.i, 0.)
 

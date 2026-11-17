@@ -14,6 +14,7 @@ class TestSettingsRetirement(unittest.TestCase):
     self.directory = tempfile.TemporaryDirectory()
     self.addCleanup(self.directory.cleanup)
     self.params = SavedParams(self.directory.name)
+
   def test_inactive_cruise_features_do_not_become_enabled(self):
     self.params.put_bool('QOLLongitudinal', False)
     self.params.put_bool('ForceStops', True)
@@ -169,3 +170,53 @@ class TestSettingsRetirement(unittest.TestCase):
 
 if __name__ == '__main__':
   unittest.main()
+
+
+class TestHighwaySmoothingEnrollment(unittest.TestCase):
+  def setUp(self):
+    self.directory = tempfile.TemporaryDirectory()
+    self.addCleanup(self.directory.cleanup)
+    self.params = SavedParams(self.directory.name)
+
+  def test_new_and_existing_off_or_custom_strength_migrate_once(self):
+    for saved in (None, 10., 1., 5.5, 3.7):
+      with self.subTest(saved=saved), tempfile.TemporaryDirectory() as root:
+        params = SavedParams(root)
+        params.put("SteerFriction", .123)
+        params.put_bool("HighwaySmoothingDefaultApplied", True)
+        if saved is not None:
+          params.put("HighwaySmoothingLevel", saved)
+        retire_settings(params)
+        self.assertEqual(params.get("HighwaySmoothingLevel"), b"10.0")
+        self.assertEqual(params.get("HighwaySmoothingZeroDefaultApplied"), b"1")
+        self.assertEqual(params.get("SteerFriction"), b"0.123")
+        self.assertEqual(params.get("HighwaySmoothingDefaultApplied"), b"1")
+        retire_settings(SavedParams(root))
+        self.assertEqual(params.get("HighwaySmoothingLevel"), b"10.0")
+        for chosen in (10., 6., 3.7, 1.):
+          params.put("HighwaySmoothingLevel", chosen)
+          retire_settings(SavedParams(root))
+          self.assertEqual(params.get("HighwaySmoothingLevel"), str(chosen).encode())
+
+  def test_invalid_enrollment_marker_does_not_reenable_smoothing(self):
+    for marker in (b"0", b"invalid"):
+      self.params.put("HighwaySmoothingLevel", 10.)
+      Path(self.params.get_param_path("HighwaySmoothingZeroDefaultApplied")).write_bytes(marker)
+      issues = retire_settings(self.params)
+      self.assertTrue(any("smoothing enrollment" in issue for issue in issues))
+      self.assertEqual(self.params.get("HighwaySmoothingLevel"), b"10.0")
+      self.assertEqual(self.params.get("HighwaySmoothingZeroDefaultApplied"), marker)
+
+  def test_failed_strength_write_is_not_marked_complete(self):
+    from unittest.mock import patch
+    original_put = self.params.put
+    def put(key, value, block=True):
+      if key == "HighwaySmoothingLevel":
+        raise OSError("disk full")
+      original_put(key, value, block=block)
+    with patch.object(self.params, "put", side_effect=put), self.assertRaises(OSError):
+      retire_settings(self.params)
+    self.assertIsNone(self.params.get("HighwaySmoothingZeroDefaultApplied"))
+    retire_settings(self.params)
+    self.assertEqual(self.params.get("HighwaySmoothingLevel"), b"10.0")
+    self.assertEqual(self.params.get("HighwaySmoothingZeroDefaultApplied"), b"1")

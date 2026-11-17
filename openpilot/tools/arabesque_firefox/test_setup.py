@@ -28,6 +28,42 @@ def test_corrupt_cached_package_is_rejected(tmp_path):
     setup.verify(path, package)
 
 
+def test_shipped_offline_payload_matches_the_pinned_bundle():
+  setup_file = setup.__file__
+  assert setup_file is not None
+  offline = Path(setup_file).with_name('offline')
+  expected = set()
+  for package in setup.approved()['packages']:
+    digest = package.get('sha512', package.get('sha256'))
+    path = offline / f'{digest}-{package["name"]}'
+    setup.verify(path, package)
+    expected.add(path)
+  assert set(offline.iterdir()) == expected
+
+
+@pytest.mark.parametrize('corrupt', [False, True])
+def test_bundled_package_is_verified_in_the_private_cache_without_network(tmp_path, monkeypatch, corrupt):
+  data = b'good'
+  package = {'name': 'test.deb', 'url': 'https://example.invalid/test.deb',
+             'size': len(data), 'sha256': hashlib.sha256(data).hexdigest()}
+  monkeypatch.setattr(setup, '__file__', str(tmp_path / 'setup.py'))
+  offline = tmp_path / 'offline'
+  cache = tmp_path / 'cache'
+  offline.mkdir()
+  cache.mkdir()
+  name = f'{package["sha256"]}-{package["name"]}'
+  (offline / name).write_bytes(b'evil' if corrupt else data)
+  fetch = Mock(side_effect=AssertionError('network during offline installation'))
+  monkeypatch.setattr(setup.urllib.request, 'urlopen', fetch)
+  if corrupt:
+    with pytest.raises(ValueError, match='checksum'):
+      setup.download(package, cache)
+    assert not list(cache.iterdir())
+  else:
+    assert setup.download(package, cache).read_bytes() == data
+  fetch.assert_not_called()
+
+
 def test_download_reports_progress_and_reuses_verified_package(tmp_path, monkeypatch):
   data = b'verified browser'
   package = {'name': 'firefox-test.tar.xz', 'url': 'https://example.invalid/browser',
@@ -37,11 +73,22 @@ def test_download_reports_progress_and_reuses_verified_package(tmp_path, monkeyp
   fetch, progress = Mock(return_value=response), Mock()
   monkeypatch.setattr(setup.urllib.request, 'urlopen', fetch)
   monkeypatch.setattr(setup, 'report', progress)
+  monkeypatch.setattr(setup, 'safe', Mock())
   path = setup.download(package, tmp_path)
   assert path.read_bytes() == data
   progress.assert_called_once_with('Downloading Firefox… 100%')
   assert setup.download(package, tmp_path) == path
   fetch.assert_called_once()
+
+
+def test_offline_only_missing_archive_fails_without_fetching(tmp_path, monkeypatch):
+  package = {'name': 'missing.deb', 'url': 'https://example.invalid/missing.deb', 'size': 4, 'sha256': '0' * 64}
+  fetch = Mock(side_effect=AssertionError('network during offline verification'))
+  monkeypatch.setattr(setup.urllib.request, 'urlopen', fetch)
+  with pytest.raises(FileNotFoundError, match='Missing offline Firefox archive: .*missing.deb'):
+    setup.download(package, tmp_path, offline_only=True)
+  fetch.assert_not_called()
+  assert not list(tmp_path.iterdir())
 
 
 def test_cancelled_download_never_publishes_partial_package(tmp_path, monkeypatch):
@@ -76,6 +123,21 @@ def test_preparation_refuses_unprivileged_host_without_writing(tmp_path, monkeyp
   with pytest.raises(RuntimeError, match='ARM64 AGNOS'):
     setup.prepare()
   assert not (tmp_path / 'browser').exists()
+
+
+@pytest.mark.parametrize('version', ['19.8.1', '20.2-starpilot.1', '20.2.1', '20.2.2', '20.5.1', '20.5.2'])
+def test_private_display_bundle_has_an_explicit_agnos_allowlist(tmp_path, monkeypatch, version):
+  target = setup.approved()
+  version_file = tmp_path / 'VERSION'
+  version_file.write_text(version)
+  monkeypatch.setattr(setup.os, 'geteuid', lambda: 0)
+  monkeypatch.setattr(setup.platform, 'machine', lambda: 'aarch64')
+  monkeypatch.setattr(setup, 'Path', lambda path: version_file if path == '/VERSION' else Path(path))
+  if version == '20.2.2':
+    with pytest.raises(RuntimeError, match='ARM64 AGNOS'):
+      setup.check_host(target)
+  else:
+    setup.check_host(target)
 
 
 @pytest.mark.parametrize('existing', ['missing', 'directory', 'symlink', 'unsafe'])
@@ -153,3 +215,66 @@ os.execvp('setpriv', ['setpriv', '--no-new-privs', '--bounding-set=-all,' + sys.
     assert len(list(target.iterdir())) == 1
   finally:
     data.chmod(0o755)
+
+
+def test_restore_needs_no_access_to_private_state_contents(tmp_path):
+  if not shutil.which('unshare') or not shutil.which('setpriv'):
+    raise pytest.skip.Exception('Linux user namespaces and setpriv are required')
+  if subprocess.run(['unshare', '-Ur', 'true'], capture_output=True, check=False).returncode:
+    raise pytest.skip.Exception('Linux user namespaces are unavailable')
+  script = '''
+import importlib.util, json, os, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location('setup', sys.argv[1])
+setup = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(setup)
+root = Path(sys.argv[2])
+root.mkdir(mode=0o755)
+setup.ROOT, setup.BROWSER_UID = root, 0
+setup.quiescent = lambda: None
+assert os.geteuid() == 0
+assert int(next(line.split(':')[1] for line in Path('/proc/self/status').read_text().splitlines() if line.startswith('CapEff:')), 16) == 1
+previous = setup.approved()
+target = dict(previous, version='153.7.0esr', bundle_revision=previous['bundle_revision'] + 1)
+identity = 'a' * 32
+tx = root / 'updates' / identity
+(root / 'updates').mkdir(mode=0o755)
+tx.mkdir(mode=0o755)
+for path, value in ((root / 'runtime', target), (tx / 'previous', previous)):
+  (path / 'firefox').mkdir(parents=True)
+  path.chmod(0o755)
+  (path / 'firefox').chmod(0o755)
+  (path / 'firefox/firefox').write_text('test browser')
+  (path / 'firefox/firefox').chmod(0o755)
+  (path / 'ready.json').write_text(json.dumps(value))
+  (path / 'ready.json').chmod(0o644)
+for name, data in (('state', 'newer data'), ('restore-state', 'pre-update data')):
+  directory = root / name
+  directory.mkdir(mode=0o700)
+  (directory / 'data').write_text(data)
+  # An unmapped second UID is unavailable here; mode 000 models the controller's lack of directory access.
+  directory.chmod(0)
+record = {'format': 1, 'id': identity, 'phase': 'restore', 'target': target, 'previous': previous}
+try:
+  setup.restore(record)
+  assert setup.journal()['phase'] == 'restored'
+  assert setup.receipt(root / 'runtime') == previous
+  assert (root / 'state').stat().st_mode & 0o777 == 0
+  assert (root / 'recovery-state').stat().st_mode & 0o777 == 0
+  (root / 'state').chmod(0o700)
+  (root / 'recovery-state').chmod(0o700)
+  assert (root / 'state/data').read_text() == 'pre-update data'
+  assert (root / 'recovery-state/data').read_text() == 'newer data'
+  (root / 'state/data').write_text('recent browsing after interruption')
+  setup.restore(record)
+  assert (root / 'state/data').read_text() == 'recent browsing after interruption'
+  assert (root / 'recovery-state/data').read_text() == 'newer data'
+finally:
+  for name in ('state', 'restore-state', 'recovery-state'):
+    if (root / name).exists():
+      (root / name).chmod(0o700)
+'''
+  result = subprocess.run(['unshare', '-Ur', 'setpriv', '--bounding-set=-all,+chown', '--no-new-privs', sys.executable, '-c', script,
+                           str(Path(__file__).with_name('setup.py')), str(tmp_path / 'browser')],
+                          capture_output=True, text=True, timeout=10, check=False)
+  assert result.returncode == 0, result.stderr

@@ -187,7 +187,7 @@ class TorqueHost:
     # existing live manual preference for other optional replay-host vehicles.
     if allow_learning is None:
       from openpilot.starpilot.lateral.controller_selection import policy_for
-      if policy_for(CP) is None:
+      if policy_for(CP) in (None, 'generic'):
         from openpilot.starpilot.lateral.learning_preferences import read_preference
         preference = read_preference(params, CP)
         allow_learning = preference.valid and preference.enabled

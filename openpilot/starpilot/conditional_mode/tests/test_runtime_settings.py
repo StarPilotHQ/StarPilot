@@ -141,7 +141,7 @@ class ConditionalRuntimeSettingsTest(unittest.TestCase):
     recovered = self.owner.refresh(2_000_000_000)
     self.assertEqual(recovered.revision, 2)
     self.assertEqual(self.owner.verdict(recovered, now_mono_ns=2_050_000_000, drive_id=1).selection.choice,
-                     ModeChoice.CCM)
+                     ModeChoice.CEM)
     self.assertEqual(self.path(DOCUMENT_KEY).read_bytes(), encode_preferences(self.saved(ModeChoice.CCM)))
 
   def test_read_error_is_distinct_from_absence_and_stops_old_affirmation(self):

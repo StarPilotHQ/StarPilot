@@ -29,13 +29,38 @@ class WheelFeature:
       return base + (self.owner.longitudinal_available(), "configuration")
     return base + (True,) if self.owner.configuration_longitudinal() else base
 
+  def _policy(self, cp):
+    policy = policy_for(cp)
+    if self.owner.configuration_vehicle():
+      from openpilot.starpilot.car.hyundai.settings import configuration_wheel_policy
+      policy = configuration_wheel_policy(cp) or policy
+    return policy
+
+  def fixed_role(self, cp, key, policy):
+    if key not in KEYS[:2] or not policy.settings_supported:
+      return None
+    if key == KEYS[0] and (not button_reported(cp, key) or
+                          not (policy.lkas_button_supported or policy.auxiliary_lkas_supported)):
+      return None
+    if policy.fixed_cruise_buttons and not (key == KEYS[0] and policy.auxiliary_lkas_supported):
+      return "Toggle AOL" if cp.brand == 'hyundai' else "Factory cruise / AOL"
+    if (key == KEYS[1] and policy.runtime_supported and cp.brand in ('chrysler', 'mazda', 'nissan', 'volkswagen') and
+        not button_reported(cp, key)):
+      return "Factory cruise / AOL"
+    if cp.brand == 'ford' and policy.explicit_latch and policy.runtime_supported and key == KEYS[1]:
+      sources = [read_saved(self.owner.params, name, 8) for name in KEYS[:2]]
+      return "Factory cruise / AOL" if all(ok and value != b'9' for value, ok in sources) else "Factory cruise"
+    return None
+
   def choices(self, key):
     cp = self.owner.vehicle_params()
     if self.capability() is None:
       return ()
     if key == PADDLE_KEY:
       return ("Off", "Bookmark") if paddle_bookmark_available(self.owner.params, cp) else ()
-    policy = policy_for(cp)
+    policy = self._policy(cp)
+    if self.fixed_role(cp, key, policy) is not None:
+      return ()
     media = ioniq6_media_eligible(cp)
     if self.owner.configuration_vehicle():
       from openpilot.starpilot.car.hyundai.settings import configuration_wheel_policy, configuration_media_supported
@@ -76,18 +101,38 @@ class WheelFeature:
     if capability is None:
       return []
     rows = []
+    cp = self.owner.vehicle_params()
+    policy = self._policy(cp)
     for key, label in zip(KEYS, LABELS, strict=True):
+      fixed = self.fixed_role(cp, key, policy)
+      if fixed is not None:
+        raw, _ = read_saved(self.owner.params, key, 8)
+        rows.append(FeatureRow(PREFIX + key, label, fixed, raw, (), available=False,
+                               reason="Vehicle-controlled AOL role; this button cannot be reassigned. Saved preferences are unchanged.",
+                               capability=capability))
+        continue
       choices = self.choices(key)
       if not choices:
         continue
       raw, readable = read_saved(self.owner.params, key, 8)
       number = DEFAULTS.get(key, 0) if raw is None else int(raw) if raw in tuple(str(i).encode() for i in range(15)) else -1
       selected = next((name for name, code in ACTIONS.items() if code == number), None)
-      default = next(label for label, code in ACTIONS.items() if code == DEFAULTS.get(key, 0))
+      implicit_toggle = False
+      if cp.brand == 'hyundai' and policy.explicit_latch and key in KEYS[:2]:
+        from openpilot.starpilot.car.hyundai.aol import independent_cruise_buttons_supported
+        sources = [read_saved(self.owner.params, name, 8) for name in KEYS[:2]]
+        ordinary_actions = (None, *(str(code).encode() for code in ACTIONS.values() if code != 9))
+        implicit_toggle = independent_cruise_buttons_supported(cp) and all(ok and value in ordinary_actions
+                                                                          for value, ok in sources)
+      ford_role = cp.brand == 'ford' and policy.explicit_latch and policy.runtime_supported and key == KEYS[0]
+      if (implicit_toggle or ford_role) and selected == "Off":
+        selected = "Toggle AOL"
       rows.append(FeatureRow(PREFIX + key, label, selected or "Invalid saved action", raw, choices,
-                             default_value=default if default in choices else None,
                              available=readable and self.owner.authority("preferences"),
-                             reason=("Bookmark on release. Available while Left Paddle Longitudinal Pause is Off." if key == PADDLE_KEY else
+                             reason=("LKAS also toggles AOL independently of its saved extra action." if ford_role else
+                                     "Neither LKAS nor MAIN is assigned Toggle AOL, so both retain the default AOL toggle." if implicit_toggle else
+                                     "Bookmark on release. Available while Left Paddle Longitudinal Pause is Off." if key == PADDLE_KEY else
+                                     "Off adds no action to the vehicle's existing button behavior. " +
                                      "Axis pause and AOL assignments apply after restarting. Other actions can apply this drive. " +
                                      "Long actions fire while held."),
                              capability=capability, repair_value="Off" if selected is None else ""))

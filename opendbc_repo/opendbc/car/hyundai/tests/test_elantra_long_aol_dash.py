@@ -11,16 +11,18 @@ from opendbc.safety.tests import test_hyundai_classic_long_aol as native_fixture
 from opendbc.safety.tests.libsafety.libsafety_py import make_CANPacket
 
 
-def controller(*, marked=True, experience=32):
+def controller(*, marked=True, experience=32, identity=CAR.HYUNDAI_ELANTRA_2021, lda=True):
   fp = gen_empty_fingerprint()
-  fp[0][0x391] = 8
+  if lda:
+    fp[0][0x391] = 8
   fp[0][0x38d] = 8
   fp[2][0x485] = 4
-  cp = CarInterface.get_params(CAR.HYUNDAI_ELANTRA_2021, fp, [], True, False, False)
+  cp = CarInterface.get_params(identity, fp, [], True, False, False)
   if marked:
     cp.safetyConfigs[0].safetyParam = aol_word(cp)
   cp.alternativeExperience = experience
-  assert cp.flags == 16843136  # Recorded Elantra alpha-long profile, including FCA and LDA.
+  if identity == CAR.HYUNDAI_ELANTRA_2021 and lda:
+    assert cp.flags == 16843136  # Recorded Elantra alpha-long profile, including FCA and LDA.
   ci = CarInterface(cp)
   ci.update([])
   return ci

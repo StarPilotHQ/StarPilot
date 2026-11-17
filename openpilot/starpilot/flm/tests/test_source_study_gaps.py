@@ -22,7 +22,7 @@ def active_study():
 
 class SourceStudyGaps(unittest.TestCase):
   def test_each_transient_keeps_completed_scores_and_original_deadline_only(self):
-    for reason in ('current_evidence_delayed', 'learning_evidence_delayed', 'fresh_physical_residual_window_required',
+    for reason in ('current_evidence_delayed', 'learning_evidence_delayed', 'no_current_learning_evidence', 'fresh_physical_residual_window_required',
                    'consumed_source_mismatch'):
       with self.subTest(reason=reason):
         o, now = active_study()
@@ -134,7 +134,8 @@ class SourceActiveRegime(unittest.TestCase):
     assert not o.observe_episode(e, now_ns=e.end_ns)
     assert o.offer_state['phase'] == 'rollback' and o.reason == 'trial_input_regime_ended'
     assert not any(o.accepted.values()) and o.offer_state['target'] == state['baseline']
-    assert o.selector_hint is None and o.paused_intent is None
+    assert o.selector_hint is None and o.paused_intent is not None
+    assert len(o.paused_intent[2]) == 2 and not o.before and not o.future
 
 
 class SourceRampFreshness(unittest.TestCase):
@@ -230,3 +231,37 @@ def test_wrong_or_stale_pending_rejection_does_not_withdraw_current_trial():
       refusal = replace(refusal, version=0)
     assert not ingress.observe_application(refusal, now_ns=now), kind
     assert ingress.optimizer.offer_state == original and ingress.optimizer.paused_intent is None, kind
+
+
+def test_missing_control_evidence_before_target_ack_keeps_only_inert_original_study():
+  ingress, _refusal, now = pending_refusal()
+  o = ingress.optimizer
+  original = o.offer_state.copy()
+  before = tuple(o.before)
+  o.interrupt('no_current_learning_evidence')
+  assert o.offer_state['phase'] == 'rollback' and o.settled_ns is None
+  assert not o.before and not o.future and not any(o.accepted.values())
+  assert o.paused_intent is not None and o.paused_intent[1] == before
+  assert o.offer(now + 100_000_001) is None
+  refresh(o, now + 200_000_000)
+  rollback = o.offer(now + 200_000_000)
+  assert rollback.phase == 'rollback' and not any(value for _, value in rollback.target)
+  assert source_ack(o, rollback, now + 210_000_000)
+  assert o.offer_state['phase'] == 'trial' and o.offer_state['trial_id'] != original['trial_id']
+  assert o.offer_state['deadline_ns'] == original['deadline_ns'] and o.settled_ns is None
+  assert tuple(o.before) == before and not any(o.accepted.values())
+
+
+def test_missing_control_evidence_cannot_resume_an_expired_or_changed_study():
+  for changed in (False, True):
+    ingress, _refusal, now = pending_refusal()
+    o = ingress.optimizer
+    deadline = o.offer_state['deadline_ns']
+    o.interrupt('no_current_learning_evidence', context_changed=changed)
+    if changed:
+      assert o.paused_intent is None
+    refresh(o, deadline + 10_000_000)
+    rollback = o.offer(deadline + 10_000_000)
+    assert source_ack(o, rollback, deadline + 20_000_000)
+    assert o.offer_state['phase'] == 'rollback' and o.paused_intent is None
+    assert o.settled_ns is None and not any(o.accepted.values())

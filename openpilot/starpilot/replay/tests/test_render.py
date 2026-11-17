@@ -242,7 +242,7 @@ def test_camera_poll_precedes_message_snapshot():
 def test_camera_paint_does_not_receive_or_switch_selected_frame(monkeypatch, profile):
   import importlib
   import numpy as np
-  import pyray as rl
+  from openpilot.starpilot.ui.raylib import rl
   from openpilot.cereal.visionipc import VisionStreamType
   module = importlib.import_module(f'openpilot.selfdrive.ui.{profile}.cameraview')
   monkeypatch.setattr(module, 'COMMA_HARDWARE', True)
@@ -574,11 +574,11 @@ def test_published_readiness_survives_buffering_but_rejects_seeks_and_old_epochs
 
 
 @pytest.mark.parametrize('matching_frame', (False, True))
-def test_epoch_reset_preserves_native_camera_stream_and_eligible_paused_frame(monkeypatch, matching_frame):
+@pytest.mark.parametrize('streams,expected_streams', (({0, 2}, [0, 2]), ([2, 0], [2, 0])))
+def test_epoch_reset_preserves_native_camera_stream_and_eligible_paused_frame(monkeypatch, matching_frame, streams, expected_streams):
   monkeypatch.setattr('openpilot.starpilot.ui.runtime_snapshot.RuntimeSnapshotAdapter', Mock())
   monkeypatch.setattr('openpilot.starpilot.ui.pip_render.PiPRenderer', Mock())
   core: Any = object.__new__(Compositor)
-  streams = {0, 2}
   client = Mock(frame_id=5 if matching_frame else 4, timestamp_sof=9_000_000_000, timestamp_eof=9_010_000_000)
   client.is_connected.return_value = True
   frame = SimpleNamespace(frame_id=5)
@@ -610,7 +610,7 @@ def test_epoch_reset_preserves_native_camera_stream_and_eligible_paused_frame(mo
     callback()
   assert core.render_receipts == {}
   assert core.camera.client is client
-  assert core.camera.available_streams == streams
+  assert core.camera.available_streams == expected_streams
   assert core.camera.available_streams is not streams
   core.camera._initialize_textures.assert_called_once()
   assert core.camera.frame is (frame if matching_frame else None)
@@ -840,7 +840,7 @@ def test_seek_waits_for_delivery_and_respects_new_commands(tmp_path, monkeypatch
 def test_replay_draw_retains_updates_until_stock_consumers_read_them(monkeypatch, profile):
   import importlib
   import numpy as np
-  import pyray as rl
+  from openpilot.starpilot.ui.raylib import rl
   from openpilot.cereal import messaging
   from openpilot.cereal.visionipc import VisionStreamType
   from openpilot.selfdrive.ui.ui_state import UIStatus

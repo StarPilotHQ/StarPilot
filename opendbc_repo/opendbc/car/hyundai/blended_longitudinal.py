@@ -5,6 +5,9 @@ Shared Ioniq and generic Hyundai initialization are intentionally independent.
 """
 from dataclasses import dataclass
 from enum import Enum
+from functools import lru_cache
+
+from capnp.lib.capnp import _DynamicStructBuilder, _DynamicStructReader
 
 from opendbc.car.hyundai.values import CAR, is_blended, HyundaiFlags, HyundaiSafetyFlags
 
@@ -194,7 +197,7 @@ class BlendedLongitudinalController:
     return messages
 
 
-def mixed_startup_qualified(cp, *, is_release=False, allow_marked=False):
+def _mixed_startup_qualified_uncached(cp, *, is_release=False, allow_marked=False):
   """Exact prepared mixed owner; stock topology remains immutable."""
   from opendbc.car import structs
   from opendbc.car.hyundai.hyundaicanfd import CanBus
@@ -538,3 +541,23 @@ def startup_owner(cp, callbacks, *, requested):
   candidate = candidate_from_stock(cp, alpha_requested=requested,
                                    native_qualified=cp.alphaLongitudinalAvailable and mixed_startup_qualified(cp))
   return None if candidate is None else BlendedStartup(cp, candidate, callbacks)
+
+
+@lru_cache(maxsize=32)
+def _mixed_startup_for_bytes(key, is_release, allow_marked):
+  from opendbc.car import structs
+  with structs.CarParams.from_bytes(key) as cp:
+    return _mixed_startup_qualified_uncached(cp, is_release=is_release, allow_marked=allow_marked)
+
+
+def mixed_startup_qualified(cp, *, is_release=False, allow_marked=False):
+  from opendbc.car import structs
+  if type(cp) in (_DynamicStructBuilder, _DynamicStructReader) and cp.schema == structs.CarParams.schema:
+    try:
+      snapshot = cp.copy() if type(cp) is _DynamicStructBuilder else cp.as_builder()
+      key = snapshot.to_bytes()
+      if len(key) <= 65536:
+        return _mixed_startup_for_bytes(key, is_release, allow_marked)
+    except Exception:
+      pass
+  return _mixed_startup_qualified_uncached(cp, is_release=is_release, allow_marked=allow_marked)

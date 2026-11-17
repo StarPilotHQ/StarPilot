@@ -54,10 +54,11 @@ class Inputs:
   device_fresh: bool
   ignition_off: bool
   sample: MotionSample | None = None
+  sample_pending: bool = False
 
   def __post_init__(self) -> None:
     if any(type(value) is not bool for value in (self.enabled, self.offroad, self.voltage_ok,
-                                                self.device_fresh, self.ignition_off)) or \
+                                                self.device_fresh, self.ignition_off, self.sample_pending)) or \
        (self.sample is not None and not isinstance(self.sample, MotionSample)):
       raise ValueError("Sentry authority inputs must be explicit booleans and a validated motion sample")
 
@@ -123,6 +124,11 @@ class SentryPolicy:
       return Decision("unavailable")
 
     sample = inputs.sample
+    # A poll with no new message keeps arming while the last sample is fresh.
+    if sample is None and inputs.sample_pending and self.arm_started is not None and \
+       self.last_sample_time is not None and 0 <= now - self.last_sample_time <= MAX_SAMPLE_AGE_SECONDS:
+      remaining = ARM_DELAY_SECONDS - (now - self.arm_started)
+      return Decision("arming", seconds_remaining=max(0, math.ceil(remaining))) if remaining > 0 else Decision("armed")
     if sample is None or sample.mono_time > now or now - sample.mono_time > MAX_SAMPLE_AGE_SECONDS or \
        (self.last_sample_time is not None and sample.mono_time <= self.last_sample_time):
       last_sample_time = self.last_sample_time

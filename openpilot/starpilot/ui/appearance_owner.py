@@ -2,8 +2,11 @@
 
 from collections.abc import Callable
 from dataclasses import replace
+import json
 
 from openpilot.starpilot.saved_document import commit_exact
+from openpilot.starpilot.saved_source import read_saved
+from openpilot.starpilot.ui.onroad_customization import MAX_BYTES, PARAM_KEY, decode_document, default_document
 from openpilot.starpilot.ui.appearance_preferences import (CAMERA_LABELS, DEFAULTS, LEAD_INFO_LABELS, MAX_RAW_BYTES,
                                                           RETIRED_DISPLAY_KEYS, read_camera_view, read_lead_info, read_visibility)
 from openpilot.starpilot.ui.feature_settings_state import FeatureRow, FeatureSettingsRequest, FeatureSettingsState
@@ -84,11 +87,26 @@ class AppearanceOwner:
                 for key, value in DEFAULTS.items()}
     defaults.update(CameraView='Standard', LeadInfo='Off')
     rows = tuple(replace(row, default_value=defaults[row.key]) if row.key in defaults else row for row in rows)
+    if profile == Profile.LARGE:
+      raw, document = self._motion_source()
+      rows += (FeatureRow('ReduceMotion', 'Reduce Quick Select motion',
+                          ('On' if document.get('reduceMotion') else 'Off') if document is not None else 'Unavailable', source=raw,
+                          choices=('Off', 'On'), available=parked and document is not None, default_value='Off',
+                          reason='Show Quick Select without transitions' if document is not None else 'Repair the saved layout in Colors & Layout'),)
     return FeatureSettingsState(page="appearance", title="Onroad HUD" if profile == Profile.LARGE else "Visuals",
                                 subtitle="Display preferences; border highlights apply to C4 only.",
                                 rows=tuple(rows), parked=parked)
 
   def apply(self, request: FeatureSettingsRequest) -> bool:
+    if request.key == 'ReduceMotion':
+      raw, document = self._motion_source()
+      if document is None or request.expected != raw or request.value not in ('Off', 'On'):
+        return False
+      document['reduceMotion'] = request.value == 'On'
+      result = commit_exact(self.params, key=PARAM_KEY, max_bytes=MAX_BYTES,
+                            raw=json.dumps(document, separators=(',', ':')).encode(), expected=raw,
+                            authorized=self.parked, temp_prefix='.appearance-')
+      return result.committed and result.verified
     if request.key == "ShowBrakeStatus":
       return self._save_wheel_feedback(request)
     if request.key == "LeadInfo":
@@ -105,6 +123,15 @@ class AppearanceOwner:
     result = commit_exact(self.params, key=request.key, max_bytes=max_bytes, raw=raw, expected=request.expected,
                           authorized=self.parked, temp_prefix=".appearance-")
     return result.committed and result.verified
+
+  def _motion_source(self):
+    raw, readable = read_saved(self.params, PARAM_KEY, MAX_BYTES)
+    if not readable:
+      return raw, None
+    try:
+      return raw, default_document() if raw is None else decode_document(raw)
+    except (ValueError, TypeError, UnicodeError, RecursionError):
+      return raw, None
 
   def _save_wheel_feedback(self, request: FeatureSettingsRequest) -> bool:
     saved = {key: read_visibility(self.params, key) for key in ("ShowBrakeStatus", "PedalsOnUI")}

@@ -203,7 +203,7 @@ def message_lines(view, bridge=READY):
 
 
 def PairPhone(allowed):
-  import pyray as rl
+  from openpilot.starpilot.ui.raylib import rl
   from openpilot.common.hardware import HARDWARE
   from openpilot.selfdrive.ui.ui_state import device
   from openpilot.system.ui.lib.text_measure import measure_text_cached

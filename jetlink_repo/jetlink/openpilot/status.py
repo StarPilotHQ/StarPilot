@@ -31,14 +31,17 @@ PROGRESS_MIN_INTERVAL = 0.25
 
 # what a progress record's `code` may be, for a fork that words the line
 # itself; `msg` stays the English one. `args`, where a code has them:
-# downloading and upload {got_mb, total_mb}, download_stalled {retry_s},
-# reconnecting {why: lost, behind, load_failed or bad_output}, build {eta_s}.
-# From upload on they are stage names, and the server's stages are its own:
+# downloading, download and upload {got_mb, total_mb}, download_stalled
+# {retry_s}, reconnecting {why: lost, behind, load_failed or bad_output},
+# build {eta_s}. downloading is the comma fetching the model, download the
+# server fetching it itself. From download on they are stage names, and the
+# server's stages are its own:
 # a server can add one, so a fork falls back to `msg` for a code it does not
 # know. A server message with no stage has no code
 PROGRESS_CODES = ('waiting_for_host', 'finding_model', 'model_missing', 'ready_waiting_window', 'reconnecting',
                   'connecting', 'downloading', 'download_stalled', 'download_failed', 'downloaded_waiting_host',
-                  'engine_ready', 'failed', 'upload', 'patch', 'parse', 'convert', 'compile', 'build', 'load', 'warm')
+                  'engine_ready', 'failed', 'download', 'upload', 'patch', 'parse', 'convert', 'compile', 'build',
+                  'load', 'warm')
 
 
 def estimated_build_seconds(size: int) -> int:
@@ -104,12 +107,15 @@ class Progress:
     size. Only the build: the upload reports MB of MB and a connect has nothing
     to predict."""
     args = None
-    size = self._size() if self._size is not None and stage in ('build', 'upload') else None
+    size = self._size() if self._size is not None and stage in ('build', 'upload', 'download') else None
     if size and stage == 'build':
       left = estimated_build_seconds(size) * max(0.0, 1.0 - frac)
       msg, args = _eta(left), {'eta_s': round(left)}
     elif size:
       args = {'got_mb': int(frac * size) >> 20, 'total_mb': size >> 20}
+    if stage == 'download' and args:
+      # the server downloading the model itself: not the comma's own 'downloading'
+      msg = f"jetson downloading {args['got_mb']} of {args['total_mb']} MB"
     self.report(stage, frac, msg, code=stage or None, args=args)
 
 
@@ -427,11 +433,11 @@ def read(parts, mode: str) -> Status:
 
 
 def model_state(parts, ref: str) -> str | None:
-  """One catalog model, for the picker's list: 'ready' when the Jetson has
+  """One listed model, for the picker's list: 'ready' when the Jetson has
   built it (the spec record), 'downloaded' when the comma has its file, else
-  None. Records and one stat; a model never resolved has neither."""
+  None. Records and one stat."""
   model = next((m for m in parts.models.model_index() if m['ref'] == ref), None)
-  if model is None or not model.get('oid'):
+  if model is None:
     return None
   if parts.spec.engine_ready_for(model['oid']):
     return 'ready'

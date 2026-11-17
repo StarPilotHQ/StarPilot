@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui import runtime_app
 from openpilot.starpilot.ui.tests.test_runtime_snapshot import RuntimeSnapshotAdapter, ui_fake

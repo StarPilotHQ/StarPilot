@@ -9,6 +9,7 @@ from opendbc.car.rivian.values import RivianSafetyFlags
 class TestRivianSafetyBase(common.CarSafetyTest, common.DriverTorqueSteeringSafetyTest, common.LongitudinalAccelSafetyTest,
                            common.VehicleSpeedSafetyTest):
 
+  MAX_ACCEL = 3.5
   DBC = "rivian_primary_actuator"
   SAFETY_MODEL = CarParams.SafetyModel.rivian
 

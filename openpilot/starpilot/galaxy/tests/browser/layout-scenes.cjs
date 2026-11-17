@@ -37,7 +37,7 @@ print(json.dumps(dict(native=native,projection=projection)))
       }
       if (pathname.startsWith('/api/')) return route.fulfill({ json: pathname === '/api/starport/layout' ? fixtures.projection : fixtures.native })
       if (pathname === '/') return route.fulfill({ contentType: 'text/html', body: `
-        <meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/css/galaxy.css"><link rel="stylesheet" href="/css/settings.css">
+        <meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/css/galaxy.css"><link rel="stylesheet" href="/css/setup.css"><link rel="stylesheet" href="/css/settings.css">
         <main class="gx-content"><div id="app"></div></main><script type="module">
         import {createApp} from '/vendor/vue/vue.esm-browser.js'; import {OnroadLayoutPage} from '/js/onroad-layout.js';
         window.editor=createApp(OnroadLayoutPage,{mode:'local',projection:location.search.includes('projection'),unauthorized(){}}).mount('#app');</script>` })
@@ -71,11 +71,7 @@ print(json.dumps(dict(native=native,projection=projection)))
           assert.equal(await page.getByRole('button', { name: `${name} is hidden in this scene. Choose General edit to arrange it.`, exact: true }).isDisabled(), true)
         }
         if (target !== 'large') assert.equal(state.visible.includes('stopped_timer'), ['general', 'stopped'].includes(scene.id))
-        if (['slc_max', 'slc_retained'].includes(scene.id)) {
-          assert.equal(state.visible.includes('speed_limit_actions'), true)
-          const actions = page.locator('.gx-layout__widget[aria-label^="Speed limit actions"]')
-          assert.equal(await actions.locator(`[data-preview-source="${nativeArt ? 'runtime' : 'placeholder'}"]`).count(), 1)
-        } else if (scene.id !== 'general') {
+        if (scene.id !== 'general') {
           assert.equal(state.visible.includes('speed_limit_actions'), false)
         }
         if (output) await page.locator('svg.gx-layout__preview').screenshot({ path: path.join(output, `${target}-${scene.id}.png`) })

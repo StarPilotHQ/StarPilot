@@ -1,3 +1,4 @@
+from openpilot.starpilot.car.hyundai.aol import ioniq6_alpha_long_available
 from openpilot.starpilot.car.ford.longitudinal_preferences import release_long_available as ford_release_long_available
 from openpilot.cereal import log
 from openpilot.common.params import Params, UnknownKeyName
@@ -8,6 +9,8 @@ from openpilot.system.ui.lib.multilang import tr, tr_noop
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.selfdrive.ui.layouts.settings.initial_cruise_speed import InitialCruiseSpeedControl
 from openpilot.starpilot.ui.slc_offset_feature import SlcOffsetOwner, native_parked
+from openpilot.starpilot.galaxy.localization_settings import LocalizationSettingsOwner
+from openpilot.starpilot.ui.feature_settings_state import FeatureSettingsRequest
 
 PERSONALITY_TO_INT = log.LongitudinalPersonality.schema.enumerants
 
@@ -38,6 +41,7 @@ class TogglesLayout(Widget):
   def __init__(self):
     super().__init__()
     self._params = Params()
+    self._localization = LocalizationSettingsOwner(self._params, lambda: True, lambda: native_parked(ui_state))
     self._slc_offsets = SlcOffsetOwner(self._params, lambda: native_parked(ui_state), lambda: ui_state.CP)
     self._metric_source = self._slc_offsets._raw("IsMetric")
     self._is_release = self._params.get_bool("IsReleaseBranch")
@@ -71,6 +75,13 @@ class TogglesLayout(Widget):
       "AlwaysOnDM": (
         lambda: tr("Always-On Driver Monitoring"),
         DESCRIPTIONS["AlwaysOnDM"],
+        "monitoring.png",
+        False,
+      ),
+      "IsRhdDetected": (
+        lambda: tr("Right Hand Driving"),
+        ("Select the right-hand driver-monitoring side for the next drive. Off selects left-hand. Automatic side detection continues. " +
+        "Park and close driver camera preview before changing."),
         "monitoring.png",
         False,
       ),
@@ -179,16 +190,14 @@ class TogglesLayout(Widget):
         self._toggles["ExperimentalMode"].set_description(e2e_description)
         self._long_personality_setting.action_item.set_enabled(True)
       else:
-        # no long for now
+        # Unavailable now, but retain the saved choice for a qualified drive.
         self._toggles["ExperimentalMode"].action_item.set_enabled(False)
-        self._toggles["ExperimentalMode"].action_item.set_state(False)
         self._long_personality_setting.action_item.set_enabled(False)
-        self._params.remove("ExperimentalMode")
 
         unavailable = tr("Experimental mode is currently unavailable on this car since the car's stock ACC is used for longitudinal control.")
 
         long_desc = unavailable + " " + tr("openpilot longitudinal control may come in a future update.")
-        if ui_state.CP.alphaLongitudinalAvailable:
+        if ui_state.CP.alphaLongitudinalAvailable or ioniq6_alpha_long_available(ui_state.CP):
           if self._is_release and not ford_release_long_available(ui_state.CP):
             long_desc = unavailable + " " + tr("An alpha version of openpilot longitudinal control can be tested, along with " +
                                                "Experimental mode, on non-release branches.")
@@ -211,6 +220,9 @@ class TogglesLayout(Widget):
     for toggle_def in self._toggle_defs:
       if self._toggle_defs[toggle_def][3] and toggle_def not in self._locked_toggles:
         self._toggles[toggle_def].action_item.set_enabled(not ui_state.engaged)
+    row = self._localization.snapshot().rows[1]
+    self._rhd_source = row.source
+    self._toggles["IsRhdDetected"].action_item.set_enabled(row.available and "IsRhdDetected" not in self._locked_toggles)
 
   def _render(self, rect):
     self._scroller.render(rect)
@@ -221,6 +233,10 @@ class TogglesLayout(Widget):
 
 
   def _toggle_callback(self, state: bool, param: str):
+    if param == "IsRhdDetected":
+      ok = self._localization.apply(FeatureSettingsRequest(param, self._rhd_source, "On" if state else "Off"))
+      self._update_toggles()
+      return ok
     if param == "IsMetric":
       ok = self._slc_offsets.change_units(state, self._metric_source)
       self._toggles[param].action_item.set_state(self._params.get_bool(param))

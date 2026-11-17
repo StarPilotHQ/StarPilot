@@ -86,7 +86,7 @@ def computed_registered_fit(cp, runtime, observed_ns, *, mode="standard", baseli
   model = fit_physical(runtime.identity, 'normalized_torque', context_id, tuple(rows), lag_ns=0,
                        min_excitation=0.05, max_rmse=1e-9, now_ns=observed_ns)
   assert model is not None
-  factory = SelectedControllerFactory(cp, mode)
+  factory = SelectedControllerFactory(cp, mode, turn_assist=runtime.descriptor.turn_assist)
   engine = ControllerReplay(factory, objective, identity=runtime.identity,
                             baseline_revision=runtime.baseline_revision, model_revision='known-plant-v1')
   ci = interfaces[cp.carFingerprint](cp)

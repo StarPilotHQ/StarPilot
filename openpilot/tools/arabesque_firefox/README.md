@@ -2,11 +2,11 @@
 
 A fully local Firefox browser for the large StarPilot UI on comma 3/3X. Firefox keeps its own tabs, address bar, menus and browser dialogs; Arabesque supplies the pane, touch controls and on-screen keyboard.
 
-**Normal use requires no terminal commands or manual runtime installation.** Open **Settings → Developer → Arabesque → Firefox** while off-road. First use prepares the private browser bundle automatically and shows progress. Later opens reuse it.
+**Normal use requires no terminal commands or manual runtime installation.** Open **Settings → Developer → Arabesque → Firefox** while off-road. First use prepares the private browser bundle automatically and shows progress. Later opens reuse it; a newer bundle approved in StarPilot produces an **Update Firefox / Later** offer before Firefox starts.
 
 | Property | Implementation |
 | --- | --- |
-| Target platform | ARM64 AGNOS `19.8.1`; physical comma 3 tested; comma 3X qualification remains open |
+| Target platform | ARM64 AGNOS `19.8.1`, `20.2-starpilot.1`, `20.2.1`, `20.5.1`, `20.5.2`; physical-device results below cover `19.8.1` |
 | Pinned browser | Official Mozilla Firefox ESR `153.6.0esr`; exact artifacts in [runtime.json](runtime.json) |
 | Browser execution | Firefox and Xvfb run on the comma itself |
 | Display | Private Xvfb framebuffer → XCB capture → shared memory → Raylib texture |
@@ -23,6 +23,7 @@ A fully local Firefox browser for the large StarPilot UI on comma 3/3X. Firefox 
 - [Source map](#source-map)
 - [How the implementation was developed](#how-the-implementation-was-developed)
 - [Automatic first-use preparation](#automatic-first-use-preparation)
+- [On-demand browser updates](#on-demand-browser-updates)
 - [The browser runtime](#the-browser-runtime)
 - [Capturing and displaying frames](#capturing-and-displaying-frames)
 - [Touch and keyboard input](#touch-and-keyboard-input)
@@ -37,11 +38,11 @@ A fully local Firefox browser for the large StarPilot UI on comma 3/3X. Firefox 
 ## Using Firefox
 
 1. While parked and off-road, open **Settings → Developer → Arabesque → Firefox**.
-2. On first use, allow the browser download and preparation to finish. The pane displays download percentages and preparation progress. Internet access and at least **6 GiB free on `/data`** are required for preparation.
+2. On first use, allow preparation to finish. The pane displays progress. Device releases include the packages for offline setup. Preparation requires at least **6 GiB free on `/data`**.
 3. Handle Firefox's normal welcome and terms/privacy prompt, then browse using its own interface.
 4. Use **Desktop** to close Firefox and return to the Arabesque dock. Reopening restores the saved profile and requests session restoration.
 
-The first-use download runs only after opening the tool. Closing the tool, sleeping the display, covering Arabesque with another active widget, losing off-road permission or exiting the UI stops the active session, including preparation. Verified package downloads are retained for a later attempt; an interrupted archive must download again. Preparation does not resume in the background.
+Preparation runs only after opening the tool. It reuses the verified cache, then checks the bundled archives, then downloads packages missing from both. Closing the tool, sleeping the display, covering Arabesque with another active widget, losing off-road permission or exiting the UI stops the active session, including preparation. Verified archives are retained for a later attempt.
 
 | Control | Behavior |
 | --- | --- |
@@ -49,7 +50,7 @@ The first-use download runs only after opening the tool. Closing the tool, sleep
 | **Address** | Focus Firefox's address bar with Ctrl+L and show the keyboard |
 | **Scroll** | Tap to click; drag vertically to scroll; long-press to right-click |
 | **Pointer** | Send ordinary press/move/release events for dragging and selection |
-| **View ↑ / View ↓** | Pan the visible browser area while the keyboard is open |
+| **Up / Down** | Pan the visible browser area while the keyboard is open |
 | **Desktop** | Close the browser session and return to the dock |
 
 The keyboard crops the visible browser area rather than shrinking the page. A page therefore retains the same readable scale while typing.
@@ -82,18 +83,18 @@ Firefox renders in software in this configuration. Raylib uses its existing GPU 
 
 | File | Responsibility |
 | --- | --- |
-| [setup.py](setup.py) | Verify, extract and publish the private ARM64 runtime; report first-use progress |
-| [runtime.json](runtime.json) | Browser version, AGNOS target, archive URLs, exact sizes and pinned digests |
-| [browser.py](../../selfdrive/ui/layouts/arabesque/tools/browser.py) | Arabesque widget, keyboard, gestures, texture upload and color shader |
-| [browser_session.py](../../selfdrive/ui/layouts/arabesque/tools/browser_session.py) | Session ownership, automatic preparation, local protocol, transient services, isolation and capture loop |
-| [browser_x11.py](../../selfdrive/ui/layouts/arabesque/tools/browser_x11.py) | Small native XCB binding for pixel checks, capture, damage, window focus and input |
+| [setup.py](setup.py) | Shared bundle validation/building, first installation, durable update/restore journal and application activation |
+| [runtime.json](runtime.json) | Bundle format/revision, Firefox version, AGNOS target, archive URLs, exact sizes and pinned digests |
+| [browser.py](../../selfdrive/ui/layouts/arabesque/tools/browser.py) | Arabesque widget, update/restore choices, keyboard, gestures, texture upload and color shader |
+| [browser_session.py](../../selfdrive/ui/layouts/arabesque/tools/browser_session.py) | Session ownership, preparation/update controller, independent profile/qualification jobs, isolation and capture |
+| [browser_x11.py](../../selfdrive/ui/layouts/arabesque/tools/browser_x11.py) | Small native XCB binding for pixel/paint/title checks, capture, damage, focus and input |
 | [desktop.py](../../selfdrive/ui/layouts/arabesque/desktop.py) | Firefox dock entry and active-tool lifecycle |
 | [layouts/main.py](../../selfdrive/ui/layouts/main.py) | Permission checks and pause/revocation handling for Arabesque |
 | [ui.py](../../selfdrive/ui/ui.py) | Poll the Arabesque runtime after fresh UI state, including frames where drawing is skipped |
-| [test_setup.py](test_setup.py), [test_capture.py](test_capture.py) | Installer integrity/cancellation checks and opt-in native Xvfb tests |
+| [test_setup.py](test_setup.py), [test_update.py](test_update.py), [test_capture.py](test_capture.py) | Installer integrity, filesystem transactions/profile preservation, interruption and opt-in native Xvfb tests |
 | [test_arabesque_browser.py](../../selfdrive/ui/tests/test_arabesque_browser.py) | Protocol, preparation, lifecycle, input, shared-buffer and GPU regressions |
 
-Both helper processes use the Python standard library. Native XCB calls use `ctypes`; the implementation adds no Python browser automation or embedding dependency.
+All helper processes use the Python standard library. Native XCB calls use `ctypes`; the implementation adds no Python browser automation or embedding dependency.
 
 ## How the implementation was developed
 
@@ -111,7 +112,7 @@ The physical trials mattered. Several Linux/systemd options behaved differently 
 
 ## Automatic first-use preparation
 
-`BrowserSession` checks whether the runtime directory exists when the tool opens. An absent runtime starts preparation; an existing runtime goes through ownership/readiness checks and launches directly. An invalid existing bundle produces an error rather than being silently overwritten.
+The tool inspects small local metadata files when opened. An absent runtime starts preparation; a current runtime goes through ownership/readiness checks and launches directly. A newer approved bundle offers an update, and an interrupted transaction starts recovery. An invalid existing bundle produces an error rather than being silently overwritten.
 
 Preparation and browsing use **separate transient systemd services**:
 
@@ -154,6 +155,63 @@ Closing or losing the owner cancels preparation. PID 1 bounds teardown of the co
 
 The browser's two frame buffers are not allocated during preparation. After a successful preparation message, the client stops/reaps that service before starting the separate unprivileged Firefox service. Canceling during this handoff prevents a hidden browser launch.
 
+## On-demand browser updates
+
+### What the user sees
+
+1. Open Firefox in Arabesque. If StarPilot includes a newer approved bundle, choose **Update Firefox** or **Later** before the browser starts.
+2. **Later** opens the installed version. The decision survives sleep/wake within that tool opening; leaving for Desktop and opening a new Firefox widget allows a new offer.
+3. **Update Firefox** stages the approved files, copies and checks browser data, verifies local rendering, activates the application and opens the updated browser with the real profile.
+4. Subsequent opens launch the updated installation. A failed candidate retains the installed browser; **Retry** reconciles the interrupted attempt before browsing.
+
+Checking for an offer reads the local approved manifest, installed receipt and, if present, a small journal. First setup and a display repair start automatically when Firefox opens off-road. The repair is limited to a same-engine bundle that adds the private display packages when the installed bundle depends on missing AGNOS tools. Other updates require choosing Update.
+
+`bundle_revision` is a monotonically increasing integer for the **whole approved bundle**, including private libraries and policy changes. `bundle_format` identifies the supported receipt format. The initial updater release uses revision `0`, so an existing valid receipt without these fields normalizes to the same bundle and needs no reinstall. Future bundle changes must increment the revision; changing content at the same revision is a release error. Firefox versions are compared numerically and an older engine is never silently installed over a newer one. A library/policy-only update is labeled **Browser component update available**.
+
+### Stage, qualify, activate
+
+The root preparation service also serves as the update controller. It holds the exclusive `.prepare.lock` throughout the transaction and stays connected to the UI until the independent jobs and activation finish. It never launches Firefox as its own child: that would inherit the preparer's seccomp filter and invalidate the existing content-sandbox check.
+
+The controller performs these phases:
+
+1. **Stage:** revalidate the user-selected bundle identity against the checkout, platform, filesystem ownership and actual process/service quiescence. Build a complete candidate using the same verified builder as first installation. Package cache names include the full pinned digest plus the original basename, retaining archive extensions. Verified legacy aliases can be migrated into that cache; a stale alias or corrupt digest entry cannot poison the next update indefinitely.
+2. **Copy:** start a separate UID `61234` maintenance service with the live state mounted read-only. Stream a full `profile/` snapshot, then an independent mutable copy of that snapshot. No hardlinks or writable profile inodes are shared. Separate downloads and caches are excluded; profile databases and site storage are included. Relative/internal links are preserved without following them outside the profile, special files are rejected, and stale top-level Firefox lock files are omitted only after quiescence. Check space for both copies in addition to the reserved free-space floor. Flush copied files and directories before proceeding.
+3. **Qualify:** start a separate Firefox service with the candidate bound at the usual virtual runtime path and only the copied probe state bound at the usual virtual state path. Its home/device templates also come from the candidate. The live state and snapshot are absent from this browser's mounts. Start Firefox with `--offline`, session restoration disabled in the probe copy, and a local HTML verification page. Require normal isolation/content seccomp checks, reference/SHM validation, a transaction-specific window title, four known painted color bands in the captured frame, and successful upload of that frame through Raylib. A mapped window, blank frame or texture allocation alone cannot commit an update.
+4. **Activate:** stop/reap the qualifier, verify no browser-UID process or conflicting transient unit remains, persist activation intent, move the old runtime into the transaction, move the candidate to the fixed `runtime/` path, and persist the application commit. File and parent-directory flushes make recovery decisions durable. Start ordinary Firefox with the live profile only after this application commit.
+5. **Clean:** use an unprivileged maintenance job to clear the probe and superseded snapshots, then remove unreferenced root-owned runtimes and obsolete package archives. Retain one ordinary previous runtime/profile-snapshot pair. Protected explicit-recovery data is excluded. Stop/reap the controller before starting ordinary Firefox.
+
+The shared lock descriptor is passed with the existing `SCM_RIGHTS` protocol; cooperating jobs retain the same open-file-description lock while the controller holds its copy. Ordinary browser workers acquire the lock independently, preventing concurrent browser/update sessions. A completed stop-command thread is not treated as proof of quiescence: the controller checks real services and browser-UID processes before copying or activating.
+
+Capture readiness and permission to interact are separate. Qualification frames can be uploaded while the pane shows progress, but browser input is disabled in the widget and rejected by the qualifying worker. Probe frame queues, shared maps and textures are discarded before ordinary browsing. The ordinary browser keeps its existing startup checks and does not need an updater acknowledgment.
+
+Profile-copy/extraction jobs use the 15-minute maintenance budget rather than the browser's 45-second startup timeout. A qualifier still has a bounded 45-second client deadline, including the GPU acknowledgment. Leases/watchdogs continue during heavy work, and closing, sleep, authority loss or owner death stops both controller and job. Forced stops can leave bounded transaction files for a later permitted opening; no cleanup worker runs in the background.
+
+The existing host network namespace is retained for the authenticated abstract Unix owner sockets. `PrivateNetwork=yes` would also disconnect those sockets, as documented in [systemd.exec](https://www.freedesktop.org/software/systemd/man/255/systemd.exec.html). Qualification uses Firefox's offline mode and a local file, without adding a web server, WebDriver, network namespace workaround or inherited systemd syscall filter.
+
+### Interrupted updates and explicit restoration
+
+| Recorded state | Next permitted opening |
+| --- | --- |
+| Staging, copying or qualification interrupted | Verify the original runtime still matches, discard only temporary candidate/copy data, retain the prior committed backup if one existed, and use the installed browser |
+| Activation intent recorded | Finish the already-approved application activation forward, including when the new runtime is already active but the final acknowledgment was lost |
+| Application committed, cleanup interrupted | Keep the new application; leftover scratch is eligible for later permitted maintenance |
+| Explicit profile restoration recorded | Finish the approved restoration idempotently while retaining the saved newer state |
+| Unknown metadata or unexpected runtime layout | Preserve files and report an error for review |
+
+**Automatic recovery never replaces the live profile with a snapshot.** An older branch may have ignored the journal and used the newly activated Firefox; finishing the app commit must not erase that newer browsing data. The updater cannot force older code to obey its protocol, so unexpected external layout changes halt recovery instead of guessing.
+
+If ordinary startup fails after a committed update, **Restore previous Firefox** is available only with the recorded previous pair and no existing protected recovery. Its confirmation explains that browser data returns to the pre-update snapshot and current data is saved separately. A maintenance job copies the snapshot into the private `restore-state/` directory beside `state/`. After durable restoration intent, the controller first preserves the failed runtime in `recovery/runtime` and activates the previous runtime. Only then, after checking process/service quiescence again, does it rename the **entire current state**, including downloads, to `recovery-state/` and rename `restore-state/` to `state/`.
+
+The state renames stay within the same parent directory. Moving another UID's mode-0700 directory between parents would require directory access that the controller's `CAP_CHOWN` does not grant; no broader capability or looser profile permissions are needed with this layout. The replacement directory is writable only to the restore-copy/cleanup maintenance roles, through a dedicated bind. The saved `recovery-state/` is never bound into a browser or maintenance job and is excluded from automatic cleanup.
+
+Restoring the runtime first prevents an older StarPilot branch that ignores the journal from launching the newer Firefox against the newly restored profile after an interruption. Once the restored state is live, recovery keeps any subsequent browsing data there rather than copying the snapshot over it again. Unknown or reversed application/state ordering stops for review. The controller never overwrites an existing recovery or automatically merges/deletes saved newer data. A later restore is refused if either `recovery/` or `recovery-state/` exists, even if the other was removed; there is no automatic data-deletion option.
+
+When abandoning an update that has no prior committed journal, recovery flushes removal of `update.json` before deleting the referenced transaction. Update/Later consumes its offer once, so queued repeated taps cannot create another session that escapes the widget's explicit close path.
+
+The candidate may migrate its probe copy during qualification. Actual live-profile migration begins only when ordinary Firefox starts after the application commit. Therefore qualification proves local rendering and copied-profile startup, not every website, extension or future browsing session. New Firefox terms/privacy prompts are not accepted on the user's behalf; a prompt blocking the hidden verification page fails qualification and retains the working browser. Such a release needs a deliberate consent-compatible qualification design before approving its pin.
+
+The updater changes only application-owned files under `/data/arabesque-firefox` and uses transient services. It does not upgrade AGNOS, install system packages, change the kernel/Xvfb, add an account or register a boot service.
+
 ## The browser runtime
 
 Each open starts a new service containing the bridge worker, a private Xvfb and Firefox's process tree.
@@ -171,7 +229,7 @@ The fixed X display number is safe within each service's `PrivateTmp` namespace.
 
 The initial window is sized and focused once. The bridge does not continually refocus it, which would steal focus from Firefox menus and dialogs. It does not implement a general window manager; popup placement and complex multi-window workflows remain qualification areas.
 
-A mapped window can precede Firefox's first paint. A brief initial black frame is therefore possible and is not treated as proof of a capture failure.
+A mapped window can precede Firefox's first paint. A brief initial black frame during ordinary startup is therefore possible and is not treated as proof of a capture failure. Update qualification has the stronger local-page paint/upload gate described above and does not accept that black frame.
 
 ## Capturing and displaying frames
 
@@ -332,6 +390,8 @@ Firefox's automatic troubleshooting-mode restart is suppressed with `MOZ_DISABLE
 | Browser startup checks | 12-second connection/start deadline, 30-second content verification window and 45-second client readiness deadline |
 | X reply / pending capture | Bounded by approximately two-second deadlines |
 
+The 6 GiB preparation threshold is a **free-space reserve**. On the tested image, the installed runtime occupied approximately **297 MiB** and its verified archives **76 MiB**, with profile data and downloads additional. Updates also need space for a candidate runtime and two independent profile copies, then retain the previous runtime/snapshot pair. Explicit restoration preserves the entire newer state separately. The reserve keeps this work above the drive-log deleter's 5 GiB threshold; it is left available on `/data`.
+
 The inspected kernel exposes memory cgroup enforcement but lacks the required CPU-bandwidth and PID-controller support. No hard CPU quota or cgroup `TasksMax` enforcement is claimed. Lower priority is not a guarantee that a complex page cannot consume substantial resources while the tool is open.
 
 Closing frees browser processes, frame maps/descriptors, textures and shaders after teardown. Installed files and profile data remain on disk. Small Python imports/widget objects are part of the UI process; “on demand” refers to the browser workload, not the entire UI having zero overhead.
@@ -348,10 +408,19 @@ Closing frees browser processes, frame maps/descriptors, textures and shaders af
 │   ├── usr/                  Private libraries, GTK data and schemas
 │   ├── isolation/            Empty-home and minimal-device templates
 │   └── ready.json            Manifest copied into the completed bundle
-└── state/                    UID/GID 61234, mode 0700
-    ├── profile/              Preferences, history, cookies and session data
-    ├── downloads/            Browser downloads
-    └── cache/                Application cache
+├── state/                    UID/GID 61234, mode 0700
+│   ├── profile/              Preferences, history, cookies and session data
+│   ├── downloads/            Browser downloads
+│   └── cache/                Application cache
+├── update.json               Small root-owned durable transaction journal, when present
+├── updates/<transaction>/    Staged candidate, previous runtime, snapshot and temporary probe
+│   ├── previous/             Retained previous runtime after commit
+│   └── profile-backup/       UID 61234, mode 0700; absent from ordinary Firefox mounts
+├── restore-state/            Temporary replacement state, UID 61234, mode 0700
+├── recovery-state/           Saved entire newer state; UID 61234, mode 0700; never automatic garbage
+└── recovery/                 Only after an explicit restoration; never automatic garbage
+    ├── runtime/              Saved failed/newer runtime
+    └── receipt.json          Saved/restored bundle identities
 ```
 
 Package cache mode is `0700`; final application files/directories are normalized to root ownership and `0644`/`0755` as appropriate. The ordinary comma user and other Arabesque tools cannot read the private state directory through normal filesystem permissions.
@@ -368,7 +437,7 @@ The manifest is the authority for versions, filenames, byte counts and hashes. I
 | `libepoxy0` | Graphics-library dispatch dependency; does not enable browser hardware acceleration |
 | `libxcb-damage0`, `libxcb-xtest0` | Native damage notifications and input injection |
 
-Existing Xvfb, xauth, Python, systemd, setpriv, timeout, `dpkg-deb` and schema-compilation tools are reused. Private `LD_LIBRARY_PATH`, GTK data/schema paths, X11 selection and software-rendering preferences are set for the browser service. Global graphics libraries and the system package database are unchanged.
+The browser bundle extracts prebuilt ARM64 Xvfb, xauth, keyboard data and the graphics libraries missing from AGNOS 20.2.1. Xvfb and Firefox share the pinned FreeType and Pixman libraries. Firefox uses private Fontconfig settings and fallback fonts. The transient worker exposes xkbcomp through a read-only service-local extension. AGNOS supplies Python, systemd, setpriv, timeout, `dpkg-deb` and schema-compilation tools.
 
 ## Validation and measured results
 
@@ -404,9 +473,33 @@ This exercised the backend first-use transition without replacing or pausing the
 
 After both trial sets, temporary bundles, profiles, caches, sources and units were removed. The installed checkout remained clean at the same commit, checked UI source hashes matched, normal UI/manager operation continued, and no browser-UID or test-service processes remained.
 
+### Updater device trial: October 30, 2026
+
+Tests used an independent copy of the installed runtime and profile on the supplied ARM64 AGNOS `19.8.1` device. Temporary sources in RAM redirected the application root to a disposable `/data` directory. A test-only bundle revision exercised **revision 0 → 1 of the same pinned Firefox `153.6.0esr`**. Archive verification, extraction, service restrictions and the 6 GiB reserve remained enabled. An existing StarPilot GBM pbuffer helper supplied actual Raylib GPU uploads without taking over the normal UI's physical display.
+
+| Check | Observed result |
+| --- | --- |
+| Complete update and explicit restore | Passed through real transient services, including offline candidate paint/title checks, GPU acknowledgment, activation and subsequent Firefox launch |
+| Profile safety | Live, snapshot and probe files had independent inodes; restored and saved profiles passed SQLite integrity checks; newer database entries, downloads and cache remained separately recoverable |
+| Interrupted restoration | Controller exit after each of four durable renames recovered successfully; a simulated older-client write after the final swap survived recovery |
+| Interrupted application activation | Exit after either application rename recovered forward without rewinding newer profile entries |
+| Saved recovery protection | A later complete update/cleanup preserved saved recovery hashes; a second restore was rejected before copying |
+| Actual qualifier mounts and privileges | Candidate read-only, probe state writable, live/snapshot/saved recovery and vehicle data hidden; controller retained only `CAP_CHOWN`, worker had UID `61234`, zero capabilities and no inherited seccomp filter |
+| Capture and shutdown | Reference and SHM capture passed; normal Firefox close took about 1.8–1.9 seconds; closing with a held maintenance worker stopped both services; killing the temporary UI owner stopped controller, qualifier and browser children in 1.99 seconds |
+
+The trial found a completion/heartbeat race: a finished helper could close with its successful response queued, and the next owner heartbeat could report broken pipe or connection reset before that response was read. The shared client now drains the queued response after either close error. Missing completion still fails. Ten deterministic socket cases cover the controller and maintenance roles, including unread owner leases.
+
+Final SQLite inspections used independent database/WAL copies: on this image, opening a saved database read-only still changed shared-memory sidecar timestamps. Inspecting the copies kept full source hashes stable. One trial stopped on a transient loss of fresh off-road authority; testing resumed with fresh evidence and kept the gate enabled. The final supplied-device checks found no browser-UID processes, active browser services or persistent browser unit files; installed browser, checkout and checked OS-file fingerprints matched their initial values, and the original UI process continued running.
+
+Temporary application, source and restore directories were removed. Nine recording segments temporarily offloaded for test space were restored; all 54 files matched their original contents, owners, modes, modification times and extended attributes. The temporary workstation backup was then removed.
+
+This validates the component-update transaction and sandbox on that device. Cross-version Firefox/profile migration, physical power-cut durability, new consent prompts, complete on-screen update/restore interaction and separate comma 3X qualification remain release checks for a new engine pin.
+
 ### Host regression evidence
 
-- The latest focused run passed **145 tests**, with user namespaces, native Xvfb capture and actual Raylib texture checks enabled. It covers first-use directory permissions, preparation progress/cancellation, completed-runtime reuse, packet/FD bounds, frame ownership, authority gates, sleep/wake, rapid reentry, gestures, Unicode and teardown.
+- On **October 30, 2026**, after the device-discovered completion fix, the relevant installer/updater and Arabesque suites passed **226 tests**, with **3 optional native/GPU checks skipped on the host**. Reference/SHM capture and actual GPU uploads were exercised separately on the comma. Scoped Ruff and `git diff --check` also passed.
+- After the four Ponytail review corrections on **October 29, 2026**, the updater's combined focused suite passed **219 tests**, with user namespaces, real Xvfb/XCB reference and SHM capture, window-title reads and Raylib GPU checks enabled. This includes restore under `CAP_CHOWN` alone with private directory access denied, interruption at every restore rename, recent browsing retained after interruption, journal-removal flush ordering, queued double taps, temporary-file update/restore transactions, frozen offers, hidden qualification/input gates, deadline separation and controller/job shutdown. Scoped Ruff and `ty` checks also passed. The broader UI startup/started-authority suites remain blocked at collection: this checkout's `libparams_c.so` and `msgq/ipc_pyx.so` are ARM64 builds that cannot load into the x86 host interpreter. Those device artifacts were left intact; no pass is claimed for those suites. The missing host XTest library was extracted only into a disposable test directory, and no OS package was installed. This is host evidence, not physical-device update qualification.
+- An earlier focused bridge run passed **145 tests**, with user namespaces, native Xvfb capture and actual Raylib texture checks enabled. It covers first-use directory permissions, preparation progress/cancellation, completed-runtime reuse, packet/FD bounds, frame ownership, authority gates, sleep/wake, rapid reentry, gestures, Unicode and teardown.
 - After first-use automation, a targeted run of UI startup, frame-loop, off-road authority and shared-render regressions passed **182 tests**.
 - Before first-use automation, the wider shared UI/authority run passed 2,988 tests. Two compact-keyboard compatibility failures reproduced from the exact committed implementation and tests.
 - Optional on-road-map EGL initialization also failed from committed code before importing Arabesque on that host. This remains a separate host graphics limitation; the browser's Xvfb/GPU tests passed.
@@ -424,9 +517,21 @@ The UI calls the same installer automatically. A developer may run it explicitly
 sudo -n /usr/local/venv/bin/python3 openpilot/tools/arabesque_firefox/setup.py
 ```
 
-Preparation requires root, ARM64 AGNOS `19.8.1`, safe ownership, an available numeric UID and sufficient free space. It refuses an existing runtime. It is not an in-place updater and does not overwrite profiles.
+Preparation requires root, ARM64 AGNOS `19.8.1`, `20.2-starpilot.1`, `20.2.1`, `20.5.1` or `20.5.2`, safe ownership, an available numeric UID and sufficient free space. Existing runtimes use the transactional updater.
 
-For offline preparation, supply every manifest archive under its exact filename in the root-owned `0700` package cache, with root-owned files that are not group/world-writable. The installer still checks sizes and digests; a cached file is not trusted merely because it exists.
+The `offline/` directory ships the original archives named by digest. The installer copies them into the private package cache and checks each size and digest before extraction. For a new pinned release, refresh the directory with `python3 openpilot/tools/arabesque_firefox/setup.py --stage-offline` and include the resulting archives in the device checkout. Packages absent from a checkout can still be fetched from their pinned HTTPS URLs during setup or an explicit update.
+
+### Check a new AGNOS image or Firefox bundle
+
+From the repo root on a Linux development machine with Python 3.12+, `dpkg-deb`, `glib-compile-schemas`, `debugfs`, and `simg2img`, run:
+
+```bash
+sudo /usr/bin/python3 -m openpilot.tools.arabesque_firefox.check_agnos
+```
+
+On x86-64, also install `qemu-user-static` for `qemu-aarch64-static`. Allow about 10 GiB of temporary space. Set `TMPDIR` via `sudo env TMPDIR=/path/to/scratch` if the default location is too small. The command downloads the pinned system image. Use `--image /path/to/system.img.xz` to reuse a local copy, or `--manifest openpilot/common/hardware/comma/agnos-c3.json` to check the C3 manifest if its system image differs.
+
+The check builds from the shipped archives with an empty cache and package downloads disabled. It verifies the decompressed system image against the manifest, then checks the browser and display libraries inside that image. Keep the existing pins if it passes. Use a parked comma to verify launch, rendering, input, and profile preservation before qualifying a new AGNOS version.
 
 ### Force the reference and SHM modes
 
@@ -437,7 +542,7 @@ After preparation has completed, close the Firefox tool and run one diagnostic a
 /usr/local/venv/bin/python3 openpilot/selfdrive/ui/layouts/arabesque/tools/browser_session.py --capture shm --seconds 45
 ```
 
-Use the direct script path: importing the Arabesque package also imports graphical UI modules. The diagnostic requires fresh off-road authority throughout and reports the capture method, frame count and sandbox-check result. Its measurement window is not intended to encompass a slow first-use download; complete automatic preparation in the UI first.
+Use the direct script path: importing the Arabesque package also imports graphical UI modules. The diagnostic requires fresh off-road authority throughout and reports the capture method, frame count and sandbox-check result. It is installed-only: it never chooses Update/Later, prepares a missing runtime, changes a pending transaction or impersonates a Raylib update acknowledgment. If setup/recovery is needed, it asks the developer to open Firefox in Arabesque first.
 
 ### Focused host suite
 
@@ -487,15 +592,15 @@ Services use `--collect`, so a finished unit may already have disappeared from t
 
 ### Browser updates and data
 
-Automatic **first-use preparation is not automatic Firefox upgrading**. A prepared bundle is reused. Firefox's in-app updater is disabled because application files are root-owned and immutable to the browser.
+Firefox's in-app updater remains disabled because application files are root-owned and immutable to the browser. Arabesque owns the explicit, on-demand bundle update described above. First-use setup remains automatic; updating an existing bundle requires choosing Update.
 
-Maintaining the feature therefore includes reviewing a new manifest, verifying the ARM64 dependency closure and repeating runtime/isolation/capture checks for security updates. Do not leave the pinned browser version deployed indefinitely.
-
-Before replacing a bundle, close all sessions, retain a recoverable copy of the old runtime and back up `state` with ownership preserved. A newer Firefox may migrate its profile; rolling the application back does not guarantee that the migrated profile can be rolled back safely. The preparation script intentionally refuses to overwrite an existing bundle.
+For each release, maintainers review and pin the exact ARM64 browser/library artifacts, increment `bundle_revision`, and qualify that bundle before distributing the updated manifest through StarPilot. Include actual version-to-version profile migration and terms/consent behavior in qualification; a synthetic revision bump of the same Firefox proves the transaction mechanism, not a real engine upgrade. Do not leave a security-sensitive pinned browser indefinitely unmaintained.
 
 History, cookies, credentials and downloads remain in the private state directory when the tool closes. Removing only the application/runtime cache should preserve `state` if that data is wanted. Removing the entire application directory intentionally erases that data. There is no OS package, permanent account, compositor replacement or boot service to uninstall.
 
 ### Qualification still needed
+
+The host tests and October 30 device trial cover independent profile copies, transactions and recovery, preserved newer data, explicit restore, metadata/cache validation, GPU acknowledgment, local paint/title checks, sandbox mounts and process/service cleanup. **The device trial used the same Firefox engine on both sides of a component revision.** Before releasing a new engine pin, test a disposable root on comma 3 and 3X with two real approved Firefox versions and seeded profile data. Cover actual profile migration, new consent prompts, full on-screen update/restore interaction, sleep/wake and missing-root setup under the comma-owned parent. Hardware power-cut testing remains distinct from the injected controller exits. No vehicle/control tests are required by this browser-only change.
 
 - Sustained browsing, memory pressure, thermal behavior, frame timing and input latency on both comma 3 and comma 3X.
 - More real websites, authentication flows, select/context menus, file/download/password dialogs and multiple-window behavior.

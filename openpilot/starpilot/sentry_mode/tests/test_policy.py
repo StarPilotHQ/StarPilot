@@ -74,6 +74,22 @@ def test_missing_sensor_during_arming_and_after_armed_requires_full_rearm():
   assert policy.update(180.5, active(motion(180.5, 9.8))).state == "arming"
 
 
+def test_pending_messages_preserve_countdown_but_never_count_as_motion():
+  policy = SentryPolicy()
+  pending = Inputs(True, True, True, True, True, sample_pending=True)
+  assert policy.update(0.0, pending).state == "sensor_unavailable"
+  for tenth in range(1, 905):
+    now = tenth / 10
+    decision = policy.update(now, active(motion(now, 9.8)) if tenth % 2 else pending)
+    assert decision.state == ("arming" if now < 90.1 else "armed")
+    assert decision.event is None
+  assert policy.trigger_count == 0
+  # The previous sample is 90.3; repeated polls cannot renew its freshness.
+  assert policy.update(90.7, pending).state == "armed"
+  assert policy.update(90.9, pending).state == "sensor_unavailable"
+  assert policy.update(91.0, active(motion(91.0, 9.8))).seconds_remaining == 90
+
+
 def test_disabled_onroad_low_voltage_and_lost_device_rearm_for_full_90_seconds():
   for stopped, expected in ((Inputs(False, True, True, True, True), "disabled"),
                             (Inputs(True, False, True, True, True), "disabled_onroad"),

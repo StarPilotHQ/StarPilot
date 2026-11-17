@@ -140,6 +140,7 @@ class TestGlobalFeaturePresentation(unittest.TestCase):
         self.assertFalse(_qualified(AuthorityContext(False, cp, None), 'switchback_wheel'))
 
   def test_every_lane_control_matches_runtime_and_rechecks_before_writing(self):
+    self.params.put_bool("LaneCentering", False, block=True)
     cp = params_for(ToyotaCar.TOYOTA_RAV4_TSS2)
     owner = FeatureSettingsOwner(self.params, lambda _group: True,
       vehicle_fingerprint=lambda: cp.carFingerprint, vehicle_params=lambda: cp)

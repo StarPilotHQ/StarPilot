@@ -214,7 +214,15 @@ def test_actual_card_retires_rejected_cold_wait_before_next_request():
     card = TestGmAol.card(cp, saved)
     cleanup.callback(card.vehicle_startup.close)
     card.ci_initialized = True
-    card.publish_sendcan = lambda *args, **kwargs: None
+    steering_receipts = []
+
+    def publish_sendcan(frames, valid=True):
+      # This idle transport fixture confirms only the commands actually sent.
+      if valid:
+        steering_receipts.extend((address, bytes(data), 128)
+                                 for address, data, bus in frames if address == 0x180 and bus == 0)
+
+    card.publish_sendcan = publish_sendcan
     published = {}
     card.pm.send = lambda name, message: published.__setitem__(name, message.as_reader())
     for tick in range(20):
@@ -245,6 +253,8 @@ def test_actual_card_retires_rejected_cold_wait_before_next_request():
       control = messaging.new_message('carControl', valid=True, logMonoTime=now)
       card.sm.update_msgs(now/1e9, [m.as_reader() for m in messages]+[control.as_reader()])
       rows = parse(card, now, counter=tick % 4, packets_only=True)
+      rows = steering_receipts + rows
+      steering_receipts.clear()
       batch = messaging.log_from_bytes(module.can_list_to_can_capnp(rows)).as_builder()
       batch.logMonoTime = now
       with patch.object(module, 'REPLAY', False), \

@@ -192,7 +192,8 @@ _MODEL = object()
 HOOK_CALLS = {'should_run': [(False, None, None)], 'status': [()], 'reason': [()], 'prepare': [(False,), (True,)],
               'attach': [(_MODEL, object(), 1928, 1208)], 'handed_over': [(_MODEL,)], 'state': [(_MODEL,)],
               'shutdown_step': [(False,), (True, 'test')], 'request_shutdown': [('test',)], 'shutdown_pending': [()],
-              'model_state': [('f' * 40,)], 'should_extend_catalog': [()], 'extend_catalog': [({'bundles': []},)],
+              'model_state': [('f' * 40,)], 'lists_big_models': [()], 'big_catalog': [(21,)], 'listed_ref': [('f' * 40,)],
+              'should_extend_catalog': [()], 'extend_catalog': [({'bundles': []},)],
               'runtime': [()], 'swap_events': [(0.01,)]}
 
 

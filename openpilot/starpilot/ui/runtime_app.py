@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from openpilot.starpilot.ui.feature_reset_question import feature_reset_question
 from openpilot.starpilot.ui.lane_change_feature import confirm_question as lane_change_question
 
 from collections import deque
@@ -16,12 +17,13 @@ import threading
 from typing import Any, cast
 from collections.abc import Callable
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import openpilot.cereal.messaging as messaging
 from opendbc.car.structs import car as car_schema
 
 from openpilot.selfdrive.ui.layouts.main import MainLayout, MainState
-from openpilot.selfdrive.ui.mici.layouts.main import MiciMainLayout
+from openpilot.selfdrive.ui.mici.layouts.main import MiciMainLayout as MiciMainLayout
+from openpilot.starpilot.ui.runtime_compact import StarMiciMainLayout as StarMiciMainLayout
 from openpilot.selfdrive.ui.ui_state import device as native_device, ui_state
 from openpilot.starpilot.ui.vehicle_bool import VEHICLE_BOOL_KEYS, confirmation_question as vehicle_question
 from openpilot.starpilot.ui.vehicle_large import SELECTION_PAGE, VehicleLarge
@@ -31,7 +33,8 @@ from openpilot.starpilot.drive_state.owner import DriveStateOwner, Rejected as D
 from openpilot.starpilot.drive_state.evidence import PhysicalSource
 from openpilot.starpilot.drive_state.control import DriveStateControl, LABELS
 from openpilot.starpilot.storage import starpilot_storage_root
-from openpilot.starpilot.ui.feature_settings_owner import FeatureSettingsOwner
+from openpilot.starpilot.ui.feature_settings_owner import (AGGRESSIVE_COOLING_DESCRIPTION, AGGRESSIVE_COOLING_KEY, FeatureSettingsOwner,
+                                                           cooling_available)
 from openpilot.starpilot.ui.conditional_feature import confirmation_question as conditional_question
 from openpilot.starpilot.ui.appearance_owner import AppearanceOwner
 from openpilot.starpilot.ui.appearance_preferences import CameraViewChoice
@@ -43,7 +46,7 @@ from openpilot.starpilot.ui.pip_owner import FORMAT_PREFIX as PIP_FORMAT_PREFIX,
 from openpilot.starpilot.ui.pip_preferences import read_pip
 from openpilot.starpilot.ui.pip_render import PiPRenderer
 from openpilot.starpilot.ui.pip_sidecam import Signals, Rect
-from openpilot.starpilot.ui.onroad_customization import CAMERA_WIDGETS, fit_to_road, placement, widget_size
+from openpilot.starpilot.ui.onroad_customization import CAMERA_WIDGETS, fit_road_snapshot, placement, widget_size
 from openpilot.starpilot.ui.layout_preview_sidebar import SIDEBAR_WIDTH
 from openpilot.starpilot.ui.pip_warning import PiPWarningSource
 from openpilot.starpilot.spot_monitor.preferences import read_preferences as read_vasm_preferences
@@ -51,13 +54,14 @@ from openpilot.starpilot.speed_limits.vision.observation import clock_pair_ns
 from openpilot.starpilot.ui.sounds_owner import AUTO_PREFIX as SOUND_AUTO_PREFIX, SoundsOwner
 from openpilot.starpilot.ui.feature_settings_state import (
   FeatureInput, FeaturePage, FeatureRow, FeatureSettingsRequest, FeatureUiAction, row_change,
-  feature_scroll, feature_parent_page, feature_parent_title, value_request, value_editor_state,
+  feature_scroll, feature_page_rows, feature_parent_page, feature_parent_title, value_request, value_editor_state,
   SOUND_PRESETS as SOUND_PRESETS, SYSTEM_PRESETS, sound_editor_state,
 )
 from openpilot.starpilot.ui.lane_change_feature import KEYS as LANE_CHANGE_KEYS, RESET as LANE_CHANGE_RESET
 from openpilot.starpilot.models.runtime import ModelStatusSource
 from openpilot.starpilot.models.status import project_status
-from openpilot.starpilot.ui.models_state import model_page, model_profile_choices, model_profile_request, home_model_label
+from openpilot.common.swaglog import cloudlog
+from openpilot.starpilot.ui.models_state import model_needs_gpu, model_toolbar, model_page, model_request, model_row_intent
 from openpilot.starpilot.ui.maps_state import MapStatusSource
 from openpilot.starpilot.galaxy.access import GalaxyAccessOwner, default_owner
 from openpilot.starpilot.ui.galaxy_access import GalaxyAccessFlow
@@ -70,12 +74,13 @@ from openpilot.starpilot.ui.runtime_snapshot import RuntimeSnapshotAdapter, curr
 from openpilot.starpilot.ui.runtime_software import deliver_software
 from openpilot.starpilot.ui.network_panel import NetworkPanelBridge
 from openpilot.starpilot.ui.slc_action_dispatch import SlcActionDispatcher
-from openpilot.starpilot.ui.onroad_state import AlertSize, BorderSignals, OnroadRequest, OnroadState, SlcUiRequest, is_personality_notice, is_lane_change_notice
+from openpilot.starpilot.ui.onroad_state import AlertSize, BorderSignals, OnroadRequest, OnroadState, SlcUiRequest, is_personality_notice
 from openpilot.starpilot.ui.onroad_favorites import OnroadFavorites
 from openpilot.starpilot.ui.onroad_dm import DriverMonitorLayer
 from openpilot.starpilot.favorites.owner import FavoritesOwner
 from openpilot.starpilot.controllers.cruise_action import CruiseActionPublisher, ui_authority as cruise_action_authority
 from openpilot.starpilot.controllers.wheel_actions import WheelConsumer
+from openpilot.starpilot.ui.wheel_input import onroad_action_context
 from openpilot.starpilot.system.starport.projection_bookmark import BookmarkReceiver
 from openpilot.starpilot.system.starport.projection_slc_action import SlcActionReceiver
 from openpilot.starpilot.controllers.mode_actions import ModeActionPublisher, producer_available, authority as mode_action_authority
@@ -94,8 +99,8 @@ from openpilot.starpilot.ui.software_state import DownloadLabel, SoftwareAction,
 from openpilot.starpilot.ui.toggles_state import Personality, ToggleKey, ToggleRequest
 from openpilot.system.ui.lib.application import MouseEvent, MousePos, gui_app
 from openpilot.system.ui.widgets import Widget
-from openpilot.system.ui.widgets.list_view import button_item, text_item
-from openpilot.starpilot.ui.compact_settings_page import StarCompactSettings
+from openpilot.system.ui.widgets.list_view import button_item, text_item, toggle_item
+from openpilot.starpilot.ui.compact_settings_page import StarCompactSettings as StarCompactSettings
 
 NATIVE_SETTINGS_PANELS = (Destination.DEVICE, Destination.SOFTWARE, Destination.BLUETOOTH, Destination.TOGGLES, Destination.DEVELOPER)
 _FEATURE_SETTINGS_PANES = {
@@ -180,7 +185,9 @@ class StarShellSession:
         else:
           camera_owner.render_camera_model_layer(rect, camera_view=state.appearance.camera_view,
                                                  reverse_driver=state.reverse_driver_camera,
-                                                 road_style=state.customization["roadColors"]["large"])
+                                                 road_style=state.customization["roadColors"]["large"],
+                                                 lead_display=(True, int(state.appearance.lead_info_mode), state.appearance.lead_info_metric)
+                                                 if state.appearance.lead_info_mode else None)
       self.view = ShellView(self.fonts, Path(__file__).parents[2] / "selfdrive/assets",
                             camera_layer=camera_layer,
                             pip_layer=self._render_pip)
@@ -190,16 +197,18 @@ class StarShellSession:
         self.view.onroad.stock_confidence_layer = lambda rect, state: render_stock_confidence(camera_owner, rect, state)
         self.view.onroad.stock_confidence_reset = camera_owner.reset_stock_confidence_layer
         self.view.onroad.extra_overlays = lambda rect, state: camera_owner.render_model_source_layer(rect, show_long_indicator=None)
-        self.view.onroad.compact_sidebar.personality_renderer = self._render_personality
       else:
         self.view.onroad.extra_overlays = lambda rect, state: camera_owner.render_model_source_layer(rect)
     except Exception:
       self.fonts.close()
       raise
+    from openpilot.starpilot.ui.home_stats_source import HomeStatsSource
+    self.home_stats_source = HomeStatsSource() if profile == Profile.LARGE else None
     self.galaxy_access = _galaxy_access_owner()
     self.bluetooth_source = BluetoothStatusSource() if profile == Profile.COMPACT else None
     self.adapter = RuntimeSnapshotAdapter(ui_state, self.galaxy_access,
-                                          self.bluetooth_source.snapshot if self.bluetooth_source is not None else None)
+                                          self.bluetooth_source.snapshot if self.bluetooth_source is not None else None,
+                                          home_stats=self.home_stats_source.snapshot if self.home_stats_source is not None else None)
     self.galaxy_flow = GalaxyAccessFlow(self.galaxy_access, self.confirmed_offroad)
     self.feature_owner = FeatureSettingsOwner(ui_state.params, self._feature_authority,
                                                vehicle_fingerprint=lambda: getattr(ui_state.CP, "carFingerprint", None),
@@ -215,6 +224,9 @@ class StarShellSession:
     self._home_model: tuple[float, str] | None = None
     self.map_source: MapStatusSource | None = None
     self.model_scroll = 0
+    self.model_page = "models"
+    self.model_stack: list[tuple[str, int]] = []
+    self.model_filter, self.model_sort, self.model_size = "installed", "date", "all"
     self.drive_state = DriveStateControl(DriveStateOwner(ui_state.params, starpilot_storage_root() / "drive-state"),
                                          PhysicalSource(ui_state.sm))
     self.system_power_action: Callable[[int], None] | None = None
@@ -283,6 +295,9 @@ class StarShellSession:
     self.favorites_owner = FavoritesOwner(ui_state.params, self._favorite_actions, self._favorite_authority, self._favorite_render_actions,
                                          current_action=lambda key: self._resolve_favorite_actions(frozenset((key,))).get(key))
     self.favorites = OnroadFavorites(self.fonts, self._favorite_request)
+    if profile == Profile.LARGE:
+      self.favorites.prepare()
+      self.view.onroad.quick_select_layer = lambda _content, _state: self.favorites.render(time.monotonic())
     self._favorite_snapshot = None
     self._favorite_data = None
     self._favorite_read_at = None
@@ -314,13 +329,20 @@ class StarShellSession:
     if getattr(self, "_projection_tap", False):
       return bool(ui_state.started and display_message(ui_state.sm, 'carState', time.monotonic_ns(),
                                                        after_frame=ui_state.started_frame) is not None)
-    if self._mode != ShellMode.ONROAD:
+    if not onroad_action_context(self, native_device, ui_state):
       return False
     state = self.snapshot(ShellMode.ONROAD).onroad
     camera_allowed = (self.profile != Profile.COMPACT or not state.reversing or
                       state.appearance.camera_view in (CameraViewChoice.NONE, CameraViewChoice.DRIVER))
     alert_allowed = state.alert.size == AlertSize.NONE or allow_personality_notice and is_personality_notice(state.alert)
-    return bool(self._mode == ShellMode.ONROAD and state.camera_available and alert_allowed and camera_allowed)
+    return bool(state.camera_available and alert_allowed and camera_allowed)
+
+  def _bookmark_authority(self) -> bool:
+    if (getattr(ui_state, "replay_clock", None) is not None or
+        not onroad_action_context(self, native_device, ui_state) or not ui_state.started):
+      return False
+    car_state = display_message(ui_state.sm, 'carState', time.monotonic_ns(), after_frame=ui_state.started_frame)
+    return bool(car_state is not None and car_state.canValid and not car_state.canTimeout)
 
   def _render_driver_monitor(self, rect, state):
     from openpilot.starpilot.ui.runtime_snapshot import display_message
@@ -337,12 +359,6 @@ class StarShellSession:
                                       fresh=monitor is not None and driver is not None,
                                       onroad=ui_state.is_onroad(), top_icons=top_icons)
 
-  def _render_personality(self, rect, state):
-    indicator = self.camera_owner._long_indicator
-    indicator.set_should_draw(state.alert.size == AlertSize.NONE or is_lane_change_notice(state.alert))
-    indicator.render_sidebar(rect, personality=state.personality,
-                             longitudinal_active=state.cruise_active, traffic_mode=state.traffic_mode)
-
   def _favorite_actions(self):
     return self._resolve_favorite_actions()
 
@@ -354,13 +370,14 @@ class StarShellSession:
                              lambda: self.appearance_owner.snapshot(self.profile), self.appearance_owner.apply, requested_keys=keys)
     actions.update(layout_actions(ui_state.params, str(self.profile),
                                   lambda: self._settings_preference_authority() or self._favorite_authority(),
-                                  lambda: self.adapter.invalidate_appearance()))
+                                  lambda: self.adapter.invalidate_appearance(), requested_keys=keys))
     actions.update(self._native_favorite_actions())
     return actions if keys is None else {key: action for key, action in actions.items() if key in keys}
 
   def native_favorite_actions(self, bookmark, personality, experimental):
     state = self.snapshot(ShellMode.ONROAD).onroad
     available = self._favorite_authority()
+    bookmark_available = self._bookmark_authority()
     conditional = self._conditional_favorite_active()
     long_available = bool(available and ui_state.CP is not None and ui_state.has_longitudinal_control and
                           not ui_state.params.get_bool("SafeMode"))
@@ -403,8 +420,9 @@ class StarShellSession:
                                  ui_state.has_longitudinal_control and not ui_state.params.get_bool("SafeMode"))
     self._wheel_personality = lambda: cycle_personality(-1)
     actions = {
-      BOOKMARK: FavoriteAction(BOOKMARK, "Bookmark", available=available, reason="" if available else "Onroad only",
-                               token=repr((drive, available)), invoke=lambda: guarded(bookmark)),
+      BOOKMARK: FavoriteAction(BOOKMARK, "Bookmark", available=bookmark_available, reason="" if bookmark_available else "Fresh onroad state required",
+                               token=repr((drive, bookmark_available)),
+                               invoke=lambda: self._bookmark_authority() and bookmark()),
       CYCLE_PERSONALITY: FavoriteAction(CYCLE_PERSONALITY, "Cycle Driving Personality", kind="enum",
                                       state_label=("Aggressive", "Standard", "Relaxed")[current_personality],
                                       available=personality_available, reason="" if personality_available else "Longitudinal control required",
@@ -447,7 +465,7 @@ class StarShellSession:
       invoke=lambda: guarded(device.toggle_screen_off))
     if not hasattr(self, 'mode_actions'):
       self.mode_actions = ModeActionPublisher()
-    for key, label, mode, requested in ((TRAFFIC, "Traffic Mode", 'traffic', state.traffic_mode),
+    for key, label, mode, requested in ((TRAFFIC, "Traffic Mode", 'traffic', state.traffic_selected or state.traffic_mode),
                                        (SWITCHBACK, "Switchback Mode", 'switchback', getattr(state, 'switchback_mode', False))):
       now_ns = time.monotonic_ns()
       allowed = (self._favorite_authority() and not ui_state.params.get_bool("SafeMode") and
@@ -551,7 +569,11 @@ class StarShellSession:
         self._wheel_pending.append(event)
         continue
       command = self._wheel_consumer.accept(event, ui_state.params, ui_state.CP, ui_state.sm, now_ns=now_ns)
-      if command is None or command.action == 0 or not self._favorite_authority(allow_personality_notice=command.action == 1):
+      if command is None or command.action == 0:
+        continue
+      authorized = (self._bookmark_authority() if command.action == 8 else
+                    self._favorite_authority(allow_personality_notice=command.action == 1))
+      if not authorized:
         continue
       actions = self._native_favorite_actions()
       try:
@@ -568,7 +590,8 @@ class StarShellSession:
           state = self._live_slc_message(now_ns)
           if state is not None and not state.hasPending:
             self.slc_actions.dispatch(SlcUiRequest(SlcActionKind.ADOPT, str(state.sessionId), int(state.decisionId),
-                                                  int(state.presentationId), float(state.speedLimit)))
+                                                  int(state.presentationId), float(state.speedLimit)),
+                                      wheel_observed_ns=command.observed_ns)
         elif command.action in (11, 12, 13):
           slot = self.favorites_owner.snapshot().slots[command.action - 11]
           if slot.available and slot.request is not None:
@@ -664,14 +687,11 @@ class StarShellSession:
     if cp is None or not getattr(cp, "carFingerprint", ""):
       return False
     if group in ("lane_change", "conditional", "conditional_wheel", "switchback_wheel", "aol_wheel",
-                 "lane", "long", "toyota_cruise", "long_output", "slc", "torque", "aol", "vehicle", "toyota_radar"):
+                 "lane", "long", "toyota_cruise", "long_output", "slc", "torque", "aol", "vehicle"):
       if not preference_authority:
         return False
       if group == "toyota_cruise":
         from openpilot.starpilot.controllers.toyota_cruise import capability
-        return capability(cp) is not None
-      if group == "toyota_radar":
-        from openpilot.starpilot.car.toyota.radar_preferences import capability
         return capability(cp) is not None
       if group == "vehicle":
         from opendbc.car.toyota.interface import toyota_auto_hold_supported
@@ -704,7 +724,7 @@ class StarShellSession:
                                         if row.key == "AlwaysOnLateral" else row for row in state.rows))
     if self.profile == Profile.LARGE and not favorite:
       state = value_editor_state(state, getattr(self, "feature_edit_key", None) if page is None else None)
-      if state.editor and state.rows[0].key in (*LANE_CHANGE_KEYS, "CustomCruise", "CustomCruiseLong", "ToyotaRadarMode"):
+      if state.editor and state.rows[0].key in (*LANE_CHANGE_KEYS, "CustomCruise", "CustomCruiseLong"):
         state = replace(state, save_hint="Changes require confirmation")
     return state
 
@@ -737,7 +757,7 @@ class StarShellSession:
     self._poll_aol_save()
     if getattr(self, "_aol_save_closed", False) or getattr(self, "_aol_save", None) is not None:
       return False
-    group = "preferences" if request.value == "Off" else "aol"
+    group = "preferences"
     if not self._feature_authority(group):
       self._unavailable("AOL preference is unavailable in this context")
       return False
@@ -901,9 +921,14 @@ class StarShellSession:
     try:
       if self.model_source is None:
         self.model_source = ModelStatusSource(self.adapter.ui_state.params)
-      return model_page(self.model_source.snapshot(), self.model_manager_snapshot())
-    except Exception:
-      # Model status is optional diagnostics; UI remains usable without IPC.
+      return model_page(self.model_source.snapshot(), self.model_manager_snapshot(), getattr(self, "model_page", "models"),
+                        getattr(self, "model_filter", "installed"), getattr(self, "model_sort", "date"),
+                        getattr(self, "model_size", "all"))
+    except Exception as error:
+      # Model status is optional diagnostics; UI remains usable without IPC. Log each new failure once, not per frame.
+      if getattr(self, "_model_error", None) != repr(error):
+        self._model_error = repr(error)
+        cloudlog.exception("Driving Model page unavailable")
       return model_page(project_status(None, None, None, None, time.monotonic_ns()))
 
   def _model_manager(self):
@@ -912,49 +937,111 @@ class StarShellSession:
       self.model_manager = ModelManager(parked=self.confirmed_offroad, refresh_catalog=True)
     return self.model_manager
 
-  def model_manager_snapshot(self):
-    return self._model_manager().snapshot()
+  def model_manager_snapshot(self, fresh: bool = False):
+    # The manager reads files and takes a lock; twice a second keeps download progress current.
+    cached = getattr(self, "_model_data", None)
+    now = time.monotonic()
+    if fresh or cached is None or now - cached[0] >= 0.5:
+      cached = self._model_data = (now, self._model_manager().snapshot())
+    return cached[1]
 
   def model_manager_action(self, action, payload):
-    return self._model_manager().action(action, payload)
+    try:
+      return self._model_manager().action(action, payload)
+    finally:
+      self._model_data = None
+
+  def _model_open(self, page: str) -> None:
+    self.model_stack.append((self.model_page, self.model_scroll))
+    self.model_page, self.model_scroll = page, 0
+    if page.startswith("models:pick:"):
+      self.model_filter = "installed"
+    elif page == "models:catalog":
+      self.model_filter = "all"
+    self.input.cancel()
 
   def _models_ui(self, action: FeatureUiAction) -> None:
     if self._mode != ShellMode.SETTINGS or self.selected != Destination.DRIVING_MODEL:
       return
     state = self.model_snapshot()
+    row = action.row
     if action.kind == "back":
-      self.selected = Destination.STAR
-      self.model_scroll = 0
+      if getattr(self, "model_stack", None):
+        self.model_page, self.model_scroll = self.model_stack.pop()
+      else:
+        self.selected = Destination.STAR
+        self.model_scroll = 0
       self.input.cancel()
     elif action.kind == "scroll":
-      self.model_scroll = feature_scroll(self.model_scroll, action.direction, len(state.rows))
-    elif action.kind == "open" and action.row in state.rows and action.row.page in ("models:small", "models:big"):
-      from openpilot.system.ui.lib.application import gui_app
-      from openpilot.system.ui.widgets import DialogResult
-      from openpilot.system.ui.widgets.option_dialog import MultiOptionDialog
-      profile = action.row.page.split(":", 1)[1]
-      manager = self.model_manager_snapshot()
-      choices = dict(model_profile_choices(manager, profile))
-      current = manager["activeSmallModel" if profile == "small" else "activeBigModel"]
-      current_label = next((label for label, model_id in choices.items() if model_id == current), "")
+      self.model_scroll = feature_scroll(self.model_scroll, action.direction, len(state.rows), feature_page_rows(state))
+    elif action.kind == "toolbar":
+      self._model_option(action.direction)
+    elif row is None or row not in state.rows:
+      if action.kind == "details" and row is None:
+        self._feature_details("models", action)
+    elif action.kind == "open" and row.page.startswith("models:"):
+      self._model_open(row.page)
+    elif action.kind == "details":
+      self._feature_details("models", action)
+    elif row.key == "models:randomizer" and action.kind == "change":
+      self._model_do("randomizer")
+    elif row.key == "models:active" and action.kind == "action" and action.direction in (0, 1):
+      self._model_open(("models:pick:small", "models:pick:big")[action.direction])
+    elif action.kind == "action":
+      intent = model_row_intent(self.model_manager_snapshot(fresh=True), self.model_page, row.key, action.direction)
+      # A refreshed button that now means something else must not act on the displayed press.
+      if intent is None or action.direction >= len(row.actions) or intent[0] != row.actions[action.direction][0]:
+        self._unavailable("model list changed; try again")
+      else:
+        self._model_do(*intent[1:])
+    self._snapshot_cache = None
 
-      def confirmed(result):
-        if result != DialogResult.CONFIRM or self._mode != ShellMode.SETTINGS or self.selected != Destination.DRIVING_MODEL:
-          return
-        fresh = self.model_manager_snapshot()
-        if fresh["activeSmallModel" if profile == "small" else "activeBigModel"] != current:
-          self._unavailable("saved model changed; reopen the selection")
-          return
-        request = model_profile_request(fresh, profile, choices.get(dialog.selection, ""))
-        if request is not None:
-          try:
-            self.model_manager_action("active", request)
-          except (OSError, ValueError, RuntimeError) as error:
-            self._unavailable(str(error))
+  def _model_option(self, index: int) -> None:
+    from openpilot.system.ui.lib.application import gui_app
+    from openpilot.system.ui.widgets import DialogResult
+    from openpilot.system.ui.widgets.option_dialog import MultiOptionDialog
+    settings = model_toolbar(self.model_page)
+    if not 0 <= index < len(settings):
+      return
+    key, title, options = settings[index]
+    page = self.model_page
+
+    def chosen(result):
+      if (result == DialogResult.CONFIRM and self._mode == ShellMode.SETTINGS and self.selected == Destination.DRIVING_MODEL and
+          self.model_page == page):
+        setattr(self, f"model_{key}", next(mode for mode, label in options if label == dialog.selection))
+        self.model_scroll = 0
         self._snapshot_cache = None
 
-      dialog = MultiOptionDialog(f"Active {'Small' if profile == 'small' else 'Big'}", list(choices), current_label, callback=confirmed)
-      gui_app.push_widget(dialog)
+    dialog = MultiOptionDialog(title, [label for _, label in options], dict(options)[getattr(self, f"model_{key}")], callback=chosen)
+    self.input.cancel()
+    gui_app.push_widget(dialog)
+
+  def _model_do(self, action: str, model_id: str = "", profile: str = "", confirmed: bool = False) -> None:
+    from openpilot.system.ui.lib.application import gui_app
+    from openpilot.system.ui.widgets import DialogResult
+    from openpilot.system.ui.widgets.confirm_dialog import ConfirmDialog
+    data = self.model_manager_snapshot(fresh=True)
+    model = next((m for m in data.get("models", ()) if m.get("value") == model_id), None)
+    needs_gpu = model_needs_gpu(data, action, model)
+    if not confirmed and (action == "delete" or needs_gpu):
+      def done(result):
+        if result == DialogResult.CONFIRM and self._mode == ShellMode.SETTINGS and self.selected == Destination.DRIVING_MODEL:
+          self._model_do(action, model_id, profile, True)
+      name = model.get("label", model_id) if model else model_id
+      question = (f"Delete {name}? Its downloaded files are removed." if action == "delete" else
+                  "Download Chestnut models? They need an external GPU to run.")
+      gui_app.push_widget(ConfirmDialog(question, "Delete" if action == "delete" else "Download", callback=done))
+      return
+    request = model_request(data, action, model_id, profile, allow_gpu=needs_gpu)
+    if request is None:
+      self._unavailable("model action; turn the vehicle off and try again")
+      return
+    try:
+      result = self.model_manager_action(*request)
+      self.notice, self.notice_until = result.get("message", "Saved"), time.monotonic() + 3.0
+    except (OSError, ValueError, RuntimeError) as error:
+      self._unavailable(str(error))
     self._snapshot_cache = None
 
   def power_request(self, request: FeatureSettingsRequest) -> bool:
@@ -1172,7 +1259,7 @@ class StarShellSession:
       if request is not None:
         if request.key in VEHICLE_BOOL_KEYS:
           self._confirm_vehicle_bool(request)
-        elif request.key in ("CustomCruise", "CustomCruiseLong", "ToyotaRadarMode"):
+        elif request.key in ("CustomCruise", "CustomCruiseLong"):
           self._confirm_vehicle_bool(request, f"Set {action.row.label.lower()} to {request.value} {action.row.unit}".rstrip() + "?")
         elif request.key in LANE_CHANGE_KEYS:
           self._confirm_lane_change(request)
@@ -1186,9 +1273,8 @@ class StarShellSession:
     from openpilot.system.ui.widgets.confirm_dialog import ConfirmDialog
     from openpilot.system.ui.widgets import DialogResult
     from openpilot.starpilot.ui.feature_settings_state import CURVE_CONFIRM_ACTIONS, CONDITIONAL_CONFIRM_ACTIONS, TORQUE_CONFIRM_ACTIONS, is_long_confirm_action
-    from openpilot.starpilot.ui.long_profile_feature import long_confirm_question
-    from openpilot.starpilot.ui.controller_feature import SETUP_ACTION, SETUP_QUESTION
-    action_key = row.key if (row.key in TORQUE_CONFIRM_ACTIONS or row.key in ("slc_adopt", "slc_reset", LANE_CHANGE_RESET, SETUP_ACTION) or
+    from openpilot.starpilot.ui.controller_feature import SETUP_ACTION
+    action_key = row.key if (row.key in TORQUE_CONFIRM_ACTIONS or row.key in ("slc_reset", LANE_CHANGE_RESET, SETUP_ACTION) or
                              row.key in CURVE_CONFIRM_ACTIONS | CONDITIONAL_CONFIRM_ACTIONS or is_long_confirm_action(row.key)) else "reset_profiles"
     if action_key in CONDITIONAL_CONFIRM_ACTIONS:
       self._confirm_conditional(FeatureSettingsRequest(action_key, row.source, "confirm", confirmation=True,
@@ -1199,26 +1285,14 @@ class StarShellSession:
       self._confirm_lane_change(FeatureSettingsRequest(action_key, row.source, "confirm",
                                                        vehicle_fingerprint=row.vehicle_fingerprint, capability=row.capability))
       return
-    question = {"torque_adopt": "Use the new torque editor for this vehicle model and configuration? Existing saved values will be kept but no longer used.",
-                SETUP_ACTION: SETUP_QUESTION,
-                "torque_reset": "Reset invalid torque profiles? Existing legacy values will be kept but remain inactive.",
-                "torque_reset_profile": "Reset this vehicle model's custom torque profile to Vehicle/learned? Other models and legacy values remain saved.",
-                "torque_gain_rebase": "Apply the saved steering response to the selected controller and current vehicle tune? " +
-                                     "Friction and other models stay unchanged.",
-                "torque_rebase": f"Reapply saved torque values ({row.value}) with the current vehicle tune? " +
-                                 "Saved values must pass current limits.",
-                "slc_adopt": "Keep these speed-limit offsets and speed ranges when units change? Legacy values remain saved but inactive.",
-                "slc_reset": f"Reset speed-limit offsets to zero? {row.value}. " +
-                             "Saved SLC control may resume if its switch is On; the switch will not change.",
-                "curve_reset": "Reset saved Curve learning? Your Curve Speed Controller On/Off choice will stay the same.",
-                "reset_profiles": "Reset invalid saved Long Planner profiles to defaults?"}.get(action_key, long_confirm_question(row))
+    question = feature_reset_question(action_key, row)
     def confirmed(result: DialogResult) -> None:
       if result == DialogResult.CONFIRM:
         self.feature_request(FeatureSettingsRequest(action_key, row.source, "confirm", confirmation=True,
                                                      related_source=row.related_source,
                                                      vehicle_fingerprint=row.vehicle_fingerprint,
                                                      capability=row.capability, dependencies=row.dependencies))
-    if action_key in ("torque_adopt", "slc_adopt"):
+    if action_key == "torque_adopt":
       button = "Continue"
     elif action_key in ("torque_rebase", "torque_gain_rebase"):
       button = "Review"
@@ -1277,10 +1351,11 @@ class StarShellSession:
         not any(p.ignitionLine or p.ignitionCan for p in pandas)):
       return None
     after = ui.started_frame
-    car = current_message(ui.sm, "carState", now_ns, after_frame=after)
-    control = current_message(ui.sm, "carControl", now_ns, after_frame=after)
-    controls = current_message(ui.sm, "controlsState", now_ns, after_frame=after)
-    selfdrive = current_message(ui.sm, "selfdriveState", now_ns, after_frame=after)
+    # plannerd revalidates actions.
+    car = display_message(ui.sm, "carState", now_ns, after_frame=after)
+    control = display_message(ui.sm, "carControl", now_ns, after_frame=after)
+    controls = display_message(ui.sm, "controlsState", now_ns, after_frame=after)
+    selfdrive = display_message(ui.sm, "selfdriveState", now_ns, after_frame=after)
     cp = ui.CP
     if (car is None or not getattr(car, "canValid", False) or getattr(car, "canTimeout", True) or
         control is None or controls is None or selfdrive is None or cp is None):
@@ -1296,11 +1371,11 @@ class StarShellSession:
                                   compact_scroll_x=self.compact_scroll_x, sidebar_expanded=self.sidebar_expanded,
                                   menu_only=self.profile == Profile.COMPACT and mode == ShellMode.SETTINGS,
                                   onroad_view_only=mode == ShellMode.ONROAD, stopped_timer_profile=str(self.profile))
+    from openpilot.starpilot.ui.onroad_rear_fog import update_rear_fog
+    snapshot = update_rear_fog(self, snapshot, onroad=mode == ShellMode.ONROAD)
     if mode == ShellMode.ONROAD and self.profile == Profile.LARGE:
       width = getattr(self, '_onroad_page_width', 2160.0) - (SIDEBAR_WIDTH if snapshot.onroad.appearance.show_developer_sidebar else 0)
-      fitted = fit_to_road(snapshot.onroad.customization, width)
-      if snapshot.onroad.viewport_width != width or fitted is not snapshot.onroad.customization:
-        snapshot = replace(snapshot, onroad=replace(snapshot.onroad, viewport_width=width, customization=fitted))
+      snapshot = fit_road_snapshot(snapshot, width)
     if mode == ShellMode.HOME:
       now = time.monotonic()
       previous = getattr(self, "_home_model", None)
@@ -1308,7 +1383,7 @@ class StarShellSession:
         try:
           if self.model_source is None:
             self.model_source = ModelStatusSource(self.adapter.ui_state.params)
-          label = home_model_label(self.model_source.snapshot(), snapshot.home.commit if self.profile == Profile.COMPACT else "")
+          label = self.model_source.home_label(snapshot.home.commit if self.profile == Profile.COMPACT else "")
         except (OSError, RuntimeError, ValueError):
           label = "Driving model unavailable"
         self._home_model = (now, label)
@@ -1365,7 +1440,7 @@ class StarShellSession:
       snapshot = replace(snapshot, display=display)
     if self.profile == Profile.LARGE and mode == ShellMode.SETTINGS and self.selected == Destination.DRIVING_MODEL:
       models = self.model_snapshot()
-      self.model_scroll = feature_scroll(self.model_scroll, 0, len(models.rows))
+      self.model_scroll = feature_scroll(self.model_scroll, 0, len(models.rows), feature_page_rows(models))
       models = replace(models, scroll=self.model_scroll, sidebar_expanded=self.sidebar_expanded)
       snapshot = replace(snapshot, models=models)
     self._snapshot_cache = (key, snapshot)
@@ -1396,6 +1471,8 @@ class StarShellSession:
     if mode == ShellMode.ONROAD:
       self._update_favorites(snapshot.onroad, time.monotonic())
       self._poll_wheel(time.monotonic_ns())
+      if self.profile == Profile.LARGE and self.favorites.is_open:
+        snapshot = replace(snapshot, onroad=self.favorites.present(snapshot.onroad))
     else:
       self.favorites.cancel()
     if mode != ShellMode.ONROAD or not snapshot.onroad.camera_available:
@@ -1419,7 +1496,7 @@ class StarShellSession:
       drag_x = getattr(self.input, pane[2]).drag_x if pane else 0.0
       self.view.render(replace(snapshot, selected=Destination.NETWORK) if external else snapshot, drag_x=drag_x)
       self._pip_signals_cache = None
-      if mode == ShellMode.ONROAD:
+      if mode == ShellMode.ONROAD and self.profile == Profile.COMPACT:
         self.favorites.render(time.monotonic())
     network = (mode == ShellMode.SETTINGS and self.profile == Profile.LARGE and snapshot.selected == Destination.NETWORK and
                snapshot.settings.destination(Destination.NETWORK).available and self.network_layer is not None)
@@ -1457,6 +1534,11 @@ class StarShellSession:
     self._request_emitted = True
     previous_destination = self.selected
     action = request.action
+    if request.source == 'onroad' and getattr(action, 'kind', None) == 'cycle_personality':
+      self._native_favorite_actions()
+      if self._wheel_personality is not None:
+        self._wheel_personality()
+      return
     if request.source == "onroad" and getattr(action, "kind", None) == "set_experimental":
       binding = self._native_favorite_actions().get(EXPERIMENTAL)
       if not (binding is not None and binding.available and binding.invoke is not None and
@@ -1517,7 +1599,7 @@ class StarShellSession:
             self.display_page = "system"
             self.display_edit_key = None
           elif destination == Destination.DRIVING_MODEL:
-            self.model_scroll = 0
+            self.model_scroll, self.model_page, self.model_stack = 0, "models", []
         elif action.destination.available and self._on_compact_destination is not None:
           self._on_compact_destination(destination)
         else:
@@ -1525,7 +1607,7 @@ class StarShellSession:
     elif (request.source in ("toggles", "device", "software") and self._mode == ShellMode.SETTINGS and
           self.profile == Profile.LARGE and self._request_owner is not None and self._request_owner(action)):
       self._snapshot_cache = None  # the owner acknowledged; read its state on the next frame
-    elif request.source in ("features", "sounds", "appearance", "display", "models") and isinstance(action, FeatureUiAction) and action.kind == "details":
+    elif request.source in ("features", "sounds", "appearance", "display") and isinstance(action, FeatureUiAction) and action.kind == "details":
       self._feature_details(request.source, action)
     elif request.source == "features" and isinstance(action, FeatureUiAction):
       self._feature_ui(action)
@@ -1639,7 +1721,7 @@ class StarShellSession:
     self._onroad_claimed = False
     if mode == ShellMode.ONROAD:
       self._update_favorites(snapshot.onroad, now)
-      if self.favorites.is_open:
+      if self.favorites.is_open or self.favorites.claims_corner(x, y):
         self._favorite_claimed = self.favorites.press(x, y, now)
         self.input.cancel()
         return
@@ -1706,6 +1788,8 @@ class StarShellSession:
     self._favorite_claimed = False
 
   def close(self) -> None:
+    if receiver := getattr(self, "rear_fog", None):
+      receiver.close()
     if layer := getattr(self, 'onroad_jetlink', None):
       layer.close()
       self.onroad_jetlink = None
@@ -1721,6 +1805,9 @@ class StarShellSession:
     self._aol_save_closed = True
     if pending := getattr(self, "_aol_save", None):
       pending.cancel.set()
+    if source := getattr(self, "home_stats_source", None):
+      source.close()
+      self.home_stats_source = None
     self.drive_state.physical.close()
     self.slc_actions = None
     self.galaxy_flow.close()
@@ -1829,8 +1916,9 @@ class StarMainLayout(MainLayout):
     device_scroller._items.insert(1, device_scroller._items.pop())
     toggle_items = self._large_panels[Destination.TOGGLES]._scroller._items
     toggle_items.insert(2, text_item("Safe Mode", "N/A"))
-    toggle_items.insert(7, text_item("Right Hand Driving", "N/A"))
     from openpilot.common.hardware import HARDWARE
+    if cooling_available():
+      self._add_aggressive_cooling(self._large_panels[Destination.DEVICE])
     from openpilot.starpilot.ui.starpilot_settings_adapter_large import StarPilotSettingsAdapterLarge
     for destination, owner in self._large_panels.items():
       if destination == Destination.DEVELOPER and HARDWARE.get_device_type() in ('mici', 'tici', 'tizi'):
@@ -1846,6 +1934,31 @@ class StarMainLayout(MainLayout):
     self.star.set_request_owner(self._deliver_settings_request)
     self.star._native_favorite_actions = self._native_favorites
     self.star._publish_bookmark = self._on_bookmark_clicked
+
+  @staticmethod
+  def _add_aggressive_cooling(device_panel) -> None:
+    from openpilot.common.params import UnknownKeyName
+
+    def saved() -> bool:
+      try:
+        return ui_state.params.get_bool(AGGRESSIVE_COOLING_KEY)
+      except UnknownKeyName:
+        return False
+
+    def save(state: bool) -> None:
+      try:
+        ui_state.params.put_bool(AGGRESSIVE_COOLING_KEY, state, block=True)
+      except UnknownKeyName:
+        item.action_item.set_state(False)
+
+    item = toggle_item("Aggressive Cooling", AGGRESSIVE_COOLING_DESCRIPTION, initial_state=saved(), callback=save)
+    device_panel._scroller.add_widget(item)
+    native_show = device_panel.show_event
+
+    def show_event():
+      item.action_item.set_state(saved())
+      native_show()
+    device_panel.show_event = show_event
 
   def _exit_spacepilot(self) -> None:
     gui_app.pop_widgets_to(self, instant=True)
@@ -1941,7 +2054,7 @@ class StarMainLayout(MainLayout):
       return False
     param = {ToggleKey.ENABLED: "OpenpilotEnabledToggle", ToggleKey.EXPERIMENTAL: "ExperimentalMode",
              ToggleKey.DISENGAGE_ACCELERATOR: "DisengageOnAccelerator", ToggleKey.LANE_DEPARTURE: "IsLdwEnabled",
-             ToggleKey.ALWAYS_ON_DM: "AlwaysOnDM", ToggleKey.RECORD_FRONT: "RecordFront",
+             ToggleKey.ALWAYS_ON_DM: "AlwaysOnDM", ToggleKey.RIGHT_HAND_DRIVING: "IsRhdDetected", ToggleKey.RECORD_FRONT: "RecordFront",
              ToggleKey.RECORD_AUDIO: "RecordAudio", ToggleKey.METRIC: "IsMetric"}.get(request.key)
     return bool(param is not None and owner.request_toggle(param, request.value))
 
@@ -2026,138 +2139,5 @@ class StarMainLayout(MainLayout):
     super().close()
     self._leave_large_panel()
     self._network_bridge.leave()
-    self.star.close()
-    self._native_onroad.close()
-
-
-class StarMiciMainLayout(MiciMainLayout):
-  """Compact existing scroller/nav stack with StarPilot content pages."""
-
-  def __init__(self):
-    validate_runtime_fonts(Profile.COMPACT)
-    validate_runtime_assets()
-    super().__init__()
-    self._native_onroad = self._car_onroad_layout
-    self._compact_panels: dict[Destination, Widget] = {}
-    try:
-      self.star = StarShellSession(Profile.COMPACT, self._native_onroad)
-    except Exception:
-      self._native_onroad.close()
-      raise
-    self._home_layout = StarShellPage(self.star, ShellMode.HOME)
-    self._car_onroad_layout = StarShellPage(self.star, ShellMode.ONROAD,
-                                            on_background_tap=lambda: self._scroll_to(self._home_layout))
-    self._settings_layout = StarCompactSettings(self.star)
-    self._scroller.items[1] = self._home_layout
-    self._scroller.items[2] = self._car_onroad_layout
-    for page in (self._home_layout, self._car_onroad_layout):
-      page.set_touch_valid_callback(lambda: self._scroller.scroll_panel.is_touch_valid() and self.enabled)
-    for page in (self._home_layout, self._car_onroad_layout, self._settings_layout):
-      page.set_rect(rl.Rectangle(0, 0, gui_app.width, gui_app.height))
-    self.star.set_navigation(on_settings=lambda: gui_app.push_widget(self._settings_layout),
-                             on_home=lambda: self._settings_layout.dismiss(),
-                             on_compact_destination=self._open_compact_destination)
-    self._scroller.set_scrolling_enabled(lambda: not self._native_onroad.is_swiping_left())
-    self._on_body_changed()
-    self.star._native_favorite_actions = self._native_favorites
-    self.star._publish_bookmark = self._on_bookmark_clicked
-
-  def _render(self, _) -> None:
-    rect = _
-    page = self._car_onroad_layout
-    bookmark = self._native_onroad._bookmark_icon
-    bookmark.set_rect(page.rect)
-    bookmark.set_parent_rect(self.rect)
-    if not (self.enabled and page.enabled and page.is_visible):
-      bookmark.cancel_gesture()
-    bookmark.process_gesture(can_start=(self.enabled and page.enabled and page.is_visible and page._touch_valid() and
-                                       not self._scroller.is_auto_scrolling and abs(page.rect.x - self.rect.x) < 1))
-    self.star.camera_paint = not self._settings_layout.covers_camera(rect)
-    try:
-      super()._render(rect)
-    finally:
-      self.star.camera_paint = True
-
-  def _native_favorites(self):
-    def panel():
-      from openpilot.selfdrive.ui.mici.layouts.settings.toggles import TogglesLayoutMici
-      if Destination.TOGGLES not in self._compact_panels:
-        self._compact_panels[Destination.TOGGLES] = TogglesLayoutMici()
-      return self._compact_panels[Destination.TOGGLES]
-    return self.star.native_favorite_actions(lambda: (self._on_bookmark_clicked() or True),
-                                             lambda index: panel().request_personality(index),
-                                             lambda: panel().request_experimental())
-
-  def _handle_transitions(self):
-    from openpilot.starpilot.ui.spacepilot.native import SpacePilotPage, Stage, live_witness
-    page = gui_app.get_active_widget()
-    if (isinstance(page, SpacePilotPage) and not page.closed and page.session.stage != Stage.CLOSED and
-        live_witness() is not None):
-      # Cancel only the cosmetic delayed startup redirect for a freshly parked
-      # game. The base movement transition and the game's own gates still run.
-      self._onroad_time_delay = None
-    super()._handle_transitions()
-
-  def _exit_spacepilot(self) -> None:
-    # An unsafe game exit must reveal the existing road/alert presentation now,
-    # including when engagement/alerts change while the car still reports Park.
-    gui_app.pop_widgets_to(self, instant=True)
-    self._scroller.scroll_to(self._onroad_layout.rect.x if ui_state.started else self._home_layout.rect.x, smooth=False)
-
-  def _open_compact_destination(self, destination: Destination) -> None:
-    if destination == Destination.BLUETOOTH:
-      from openpilot.starpilot.ui.bluetooth_compact import BluetoothCompact
-      panel = self._compact_panels.get(destination)
-      if panel is None:
-        panel = BluetoothCompact(self.star.connectivity_allowed)
-        self._compact_panels[destination] = panel
-      gui_app.push_widget(panel)
-      return
-    if destination == Destination.GALAXY:
-      self.star.galaxy_flow.open_compact()
-      return
-    if destination == Destination.DRIVING_MODEL:
-      from openpilot.starpilot.ui.models_compact import ModelsCompact
-      ModelsCompact(self.star).open()
-      return
-    if destination == Destination.DRIVING_CONTROLS:
-      from openpilot.starpilot.ui.feature_settings_compact import FeatureSettingsCompact
-      FeatureSettingsCompact(self.star).open(FeaturePage.HUB)
-      return
-    if destination == Destination.APPEARANCE:
-      from openpilot.starpilot.ui.appearance_compact import AppearanceCompact
-      AppearanceCompact(self.star).open()
-      return
-    if destination == Destination.VEHICLE:
-      from openpilot.starpilot.ui.vehicle_compact import VehicleCompact
-      gui_app.push_widget(VehicleCompact(self.star))
-      return
-    if destination == Destination.PAIR:
-      self._open_compact_destination(Destination.DEVICE)
-      self._compact_panels[Destination.DEVICE].scroll_to_pairing()
-      return
-    from openpilot.selfdrive.ui.mici.layouts.settings.device.device_layout import DeviceLayoutMici
-    from openpilot.selfdrive.ui.mici.layouts.settings.developer import DeveloperLayoutMici
-    from openpilot.selfdrive.ui.mici.layouts.settings.network.network_layout import NetworkLayoutMici
-    from openpilot.selfdrive.ui.mici.layouts.settings.software import SoftwareLayoutMici
-    from openpilot.selfdrive.ui.mici.layouts.settings.toggles import TogglesLayoutMici
-    panel_types = {Destination.TOGGLES: TogglesLayoutMici, Destination.NETWORK: NetworkLayoutMici,
-                   Destination.DEVICE: DeviceLayoutMici, Destination.SOFTWARE: SoftwareLayoutMici,
-                   Destination.DEVELOPER: DeveloperLayoutMici}
-    panel_type = panel_types.get(destination)
-    if panel_type is None:
-      self.star._unavailable(destination.value)
-      return
-    panel = self._compact_panels.get(destination)
-    if panel is None:
-      panel = DeveloperLayoutMici(on_spacepilot_exit=self._exit_spacepilot) if destination == Destination.DEVELOPER else panel_type()
-      if destination == Destination.DEVICE:
-        from openpilot.starpilot.ui.display_compact import DisplayCompact
-        from openpilot.starpilot.ui.replay_settings import replay_entry
-        panel._scroller.add_widgets([DisplayCompact(self.star).entry_button(), replay_entry(self.star)])
-      self._compact_panels[destination] = panel
-    gui_app.push_widget(panel)
-
-  def close(self) -> None:
     self.star.close()
     self._native_onroad.close()

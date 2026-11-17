@@ -1,44 +1,19 @@
-import platform
 import time
 import numpy as np
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.cereal.visionipc import VisionStreamType
-from msgq.visionipc import VisionIpcClient, VisionBuf
+from msgq.visionipc import VisionIpcClient
 from openpilot.common.swaglog import cloudlog
 from openpilot.common.hardware import COMMA_HARDWARE
 from openpilot.system.ui.lib.application import gui_app
-from openpilot.system.ui.lib.egl import init_egl, create_egl_image, destroy_egl_image, bind_egl_image_to_texture, EGLImage
-from openpilot.system.ui.widgets import Widget
+from openpilot.selfdrive.ui.onroad.cameraview import CameraView as BaseCameraView, VERSION, VERTEX_SHADER as VERTEX_SHADER, CONNECTION_RETRY_INTERVAL
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
 from openpilot.starpilot.ui.camera_color import ROAD_COLOR_SHADER, road_color_strength
 
-CONNECTION_RETRY_INTERVAL = 0.2  # seconds between connection attempts
-
-VERSION = """
-#version 300 es
-precision mediump float;
-"""
-if platform.system() == "Darwin":
-  VERSION = """
-    #version 330 core
-  """
 
 
-VERTEX_SHADER = VERSION + """
-in vec3 vertexPosition;
-in vec2 vertexTexCoord;
-in vec3 vertexNormal;
-in vec4 vertexColor;
-uniform mat4 mvp;
-out vec2 fragTexCoord;
-out vec4 fragColor;
-void main() {
-  fragTexCoord = vertexTexCoord;
-  fragColor = vertexColor;
-  gl_Position = mvp * vec4(vertexPosition, 1.0);
-}
-"""
+
 
 # Choose fragment shader based on platform capabilities
 if COMMA_HARDWARE:
@@ -112,52 +87,24 @@ else:
     """
 
 
-class CameraView(Widget):
+class CameraView(BaseCameraView):
+  FRAGMENT_SHADER = FRAME_FRAGMENT_SHADER
+
   def __init__(self, name: str, stream_type: VisionStreamType):
-    super().__init__()
-    self._name = name
-    # Primary stream
-    self.client = VisionIpcClient(name, stream_type, conflate=True)
-    self._stream_type: VisionStreamType = stream_type
+    super().__init__(name, stream_type)
     self.available_streams: list[VisionStreamType] = []
 
-    # Target stream for switching
-    self._target_client: VisionIpcClient | None = None
-    self._target_stream_type: VisionStreamType | None = None
-    self._switching: bool = False
+  def _init_clients(self, name: str, stream_type: VisionStreamType):
+    self.client = VisionIpcClient(name, stream_type, conflate=True)
 
-    self._texture_needs_update = True
-    self.last_connection_attempt: float = 0.0
-    self.shader = rl.load_shader_from_memory(VERTEX_SHADER, FRAME_FRAGMENT_SHADER)
-    self._texture1_loc: int = rl.get_shader_location(self.shader, "texture1") if not COMMA_HARDWARE else -1
+  def _init_color_uniforms(self, stream_type: VisionStreamType):
     self._engaged_loc = rl.get_shader_location(self.shader, "engaged")
-    self._engaged_val = rl.ffi.new("int[1]", [1])
+    self._engaged_val = np.array([1], dtype=np.int32)
     self._color_strength_loc = rl.get_shader_location(self.shader, "color_strength")
-    self._color_strength_val = rl.ffi.new("float[1]")
+    self._color_strength_val = np.zeros(1, dtype=np.float32)
     self._enhance_driver_loc = rl.get_shader_location(self.shader, "enhance_driver")
-    self._enhance_driver_val = rl.ffi.new("int[1]", [1 if stream_type == VisionStreamType.VISION_STREAM_CABIN else 0])
+    self._enhance_driver_val = np.array([1 if stream_type == VisionStreamType.VISION_STREAM_CABIN else 0], dtype=np.int32)
 
-    self.frame: VisionBuf | None = None
-    self.texture_y: rl.Texture | None = None
-    self.texture_uv: rl.Texture | None = None
-
-    # EGL resources
-    self.egl_images: dict[int, EGLImage] = {}
-    self.egl_texture: rl.Texture | None = None
-
-    self._placeholder_color: rl.Color | None = None
-
-    # Initialize EGL for zero-copy rendering on COMMA_HARDWARE
-    if COMMA_HARDWARE:
-      if not init_egl():
-        raise RuntimeError("Failed to initialize EGL")
-
-      # Create a 1x1 pixel placeholder texture for EGL image binding
-      temp_image = rl.gen_image_color(1, 1, rl.BLACK)
-      self.egl_texture = rl.load_texture_from_image(temp_image)
-      rl.unload_image(temp_image)
-
-    ui_state.add_offroad_transition_callback(self._offroad_transition)
 
   def _offroad_transition(self):
     if self.client is None:
@@ -173,9 +120,6 @@ class CameraView(Widget):
     self._texture_needs_update = True
     self.last_connection_attempt = 0.0
 
-  def _set_placeholder_color(self, color: rl.Color):
-    """Set a placeholder color to be drawn when no frame is available."""
-    self._placeholder_color = color
 
   def switch_stream(self, stream_type: VisionStreamType) -> None:
     if self._stream_type == stream_type:
@@ -193,9 +137,6 @@ class CameraView(Widget):
     self._target_client = VisionIpcClient(self._name, stream_type, conflate=True)
     self._switching = True
 
-  @property
-  def stream_type(self) -> VisionStreamType:
-    return self._stream_type
 
   def close(self) -> None:
     self._clear_textures()
@@ -214,44 +155,10 @@ class CameraView(Widget):
     self.available_streams.clear()
     self.client = None
 
-  def __del__(self):
-    self.close()
 
-  def _calc_frame_matrix(self, rect: rl.Rectangle) -> np.ndarray:
-    if not self.frame:
-      return np.eye(3)
 
-    # Calculate aspect ratios
-    widget_aspect_ratio = rect.width / rect.height
-    frame_aspect_ratio = self.frame.width / self.frame.height
 
-    # Calculate scaling factors to maintain aspect ratio
-    zx = min(frame_aspect_ratio / widget_aspect_ratio, 1.0)
-    zy = min(widget_aspect_ratio / frame_aspect_ratio, 1.0)
-
-    return np.array([
-      [zx, 0.0, 0.0],
-      [0.0, zy, 0.0],
-      [0.0, 0.0, 1.0]
-    ])
-
-  def _poll_camera(self) -> bool:
-    if self._switching:
-      self._handle_switch()
-
-    if not self._ensure_connection():
-      return False
-
-    buffer = self.client.recv(timeout_ms=0)
-    if buffer:
-      self._texture_needs_update = True
-      self.frame = buffer
-    elif not self.client.is_connected():
-      self.frame = None
-
-    return self.frame is not None
-
-  def _render(self, rect: rl.Rectangle, /, *, paint: bool = True, poll_camera: bool = True):
+  def _render(self, rect: rl.Rectangle, *, paint: bool = True, poll_camera: bool = True):
     if (poll_camera and not self._poll_camera()) or self.frame is None:
       if paint:
         self._draw_placeholder(rect)
@@ -285,59 +192,8 @@ class CameraView(Widget):
     else:
       self._render_textures(src_rect, dst_rect)
 
-  def _draw_placeholder(self, rect: rl.Rectangle):
-    if self._placeholder_color:
-      rl.draw_rectangle_rec(rect, self._placeholder_color)
 
-  def _render_egl(self, src_rect: rl.Rectangle, dst_rect: rl.Rectangle) -> None:
-    """Render using EGL for direct buffer access"""
-    if self.frame is None or self.egl_texture is None:
-      return
 
-    idx = self.frame.idx
-    egl_image = self.egl_images.get(idx)
-
-    # Create EGL image if needed
-    if egl_image is None:
-      egl_image = create_egl_image(self.frame.width, self.frame.height, self.frame.stride, self.frame.fd, self.frame.uv_offset)
-      if egl_image:
-        self.egl_images[idx] = egl_image
-      else:
-        return
-
-    # Update texture dimensions to match current frame
-    self.egl_texture.width = self.frame.width
-    self.egl_texture.height = self.frame.height
-
-    # Bind the EGL image to our texture
-    bind_egl_image_to_texture(self.egl_texture.id, egl_image)
-
-    # Render with shader
-    rl.begin_shader_mode(self.shader)
-    self._update_texture_color_filtering()
-    rl.draw_texture_pro(self.egl_texture, src_rect, dst_rect, rl.Vector2(0, 0), 0.0, rl.WHITE)
-    rl.end_shader_mode()
-
-  def _render_textures(self, src_rect: rl.Rectangle, dst_rect: rl.Rectangle) -> None:
-    """Render using texture copies"""
-    if not self.texture_y or not self.texture_uv or self.frame is None:
-      return
-
-    # Update textures with new frame data
-    if self._texture_needs_update:
-      y_data = self.frame.data[: self.frame.uv_offset]
-      uv_data = self.frame.data[self.frame.uv_offset:]
-
-      rl.update_texture(self.texture_y, rl.ffi.cast("void *", rl.ffi.from_buffer(y_data)))
-      rl.update_texture(self.texture_uv, rl.ffi.cast("void *", rl.ffi.from_buffer(uv_data)))
-      self._texture_needs_update = False
-
-    # Render with shader
-    rl.begin_shader_mode(self.shader)
-    self._update_texture_color_filtering()
-    rl.set_shader_value_texture(self.shader, self._texture1_loc, self.texture_uv)
-    rl.draw_texture_pro(self.texture_y, src_rect, dst_rect, rl.Vector2(0, 0), 0.0, rl.WHITE)
-    rl.end_shader_mode()
 
   def _update_texture_color_filtering(self):
     self._color_strength_val[0] = road_color_strength(ui_state)
@@ -367,23 +223,6 @@ class CameraView(Widget):
 
     return True
 
-  def _handle_switch(self) -> None:
-    """Check if target stream is ready and switch immediately."""
-    if not self._target_client or not self._switching:
-      return
-
-    # Try to connect target if needed
-    if not self._target_client.is_connected():
-      if not self._target_client.connect(False) or not self._target_client.num_buffers:
-        return
-
-      cloudlog.debug(f"Target stream connected: {self._target_stream_type}")
-
-    # Check if target has frames ready
-    target_frame = self._target_client.recv(timeout_ms=0)
-    if target_frame:
-      self.frame = target_frame  # Update current frame to target frame
-      self._complete_switch()
 
   def _complete_switch(self) -> None:
     """Instantly switch to target stream."""
@@ -414,20 +253,6 @@ class CameraView(Widget):
       self.texture_uv = rl.load_texture_from_image(rl.Image(None, int(self.client.stride // 2),
         int(self.client.height // 2), 1, rl.PixelFormat.PIXELFORMAT_UNCOMPRESSED_GRAY_ALPHA))
 
-  def _clear_textures(self):
-    if self.texture_y and self.texture_y.id:
-      rl.unload_texture(self.texture_y)
-      self.texture_y = None
-
-    if self.texture_uv and self.texture_uv.id:
-      rl.unload_texture(self.texture_uv)
-      self.texture_uv = None
-
-    # Clean up EGL resources
-    if COMMA_HARDWARE:
-      for data in self.egl_images.values():
-        destroy_egl_image(data)
-      self.egl_images = {}
 
 
 if __name__ == "__main__":

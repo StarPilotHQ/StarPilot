@@ -1,9 +1,10 @@
+from openpilot.system.ui.lib.display_translation import DisplayText
 from enum import IntEnum
 from functools import partial
 from typing import cast
 from collections.abc import Callable
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 from openpilot.system.ui.lib.application import gui_app, TextAlignment
 from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.lib.scroll_panel import GuiScrollPanel
@@ -506,10 +507,11 @@ class WifiManagerUI(Widget):
   def _on_network_updated(self, networks: list[Network]):
     self._networks = networks
     for n in self._networks:
-      self._networks_buttons[n.ssid] = Button(normalize_ssid(n.ssid), partial(self._networks_buttons_callback, n), font_size=55,
+      self._networks_buttons[n.ssid] = Button(DisplayText(normalize_ssid(n.ssid)), partial(self._networks_buttons_callback, n), font_size=55,
                                               text_alignment=TextAlignment.LEFT, button_style=ButtonStyle.TRANSPARENT_WHITE_TEXT)
       self._networks_buttons[n.ssid].set_touch_valid_callback(lambda: self.scroll_panel.is_touch_valid())
-      self._forget_networks_buttons[n.ssid] = Button(tr("Forget"), partial(self._forget_networks_buttons_callback, n), button_style=ButtonStyle.FORGET_WIFI,
+      self._forget_networks_buttons[n.ssid] = Button(lambda: tr("Forget"), partial(self._forget_networks_buttons_callback, n),
+                                                     button_style=ButtonStyle.FORGET_WIFI,
                                                      font_size=45)
       self._forget_networks_buttons[n.ssid].set_touch_valid_callback(lambda: self.scroll_panel.is_touch_valid())
 

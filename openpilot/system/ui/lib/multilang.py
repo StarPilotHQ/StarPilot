@@ -5,6 +5,7 @@ import re
 from typing import TYPE_CHECKING
 from openpilot.common.basedir import BASEDIR
 from openpilot.common.swaglog import cloudlog
+from openpilot.system.ui.lib.display_translation import DisplayText, display_templates, translate_display
 
 if TYPE_CHECKING:
   from openpilot.common.params import Params
@@ -41,6 +42,7 @@ PLURAL_SELECTORS = {
   'zh-CHS': lambda n: 0,
   'ko': lambda n: 0,
   'ja': lambda n: 0,
+  'vi': lambda n: 0,
 }
 
 
@@ -158,6 +160,7 @@ class Multilang:
     self._translations: dict[str, str] = {}
     self._plurals: dict[str, list[str]] = {}
     self._plural_selector = PLURAL_SELECTORS.get('en', lambda n: 0)
+    self._display_templates = {}
     self._load_languages()
 
   @property
@@ -178,20 +181,36 @@ class Multilang:
       self._translations = {}
       self._plurals = {}
 
+    self._display_templates = display_templates(self._translations)
+
+  def refresh_language(self) -> None:
+    if self._params is None:
+      return
+    code = str(self._params.get("LanguageSetting")).removeprefix("main_")
+    code = code if code in self.codes else "en"
+    if code != self._language:
+      self._language = code
+      self.setup()
+
   def change_language(self, language_code: str) -> None:
     self._params.put("LanguageSetting", language_code, block=True)
     self._language = language_code
     self.setup()
 
   def tr(self, text: str) -> str:
-    return self._translations.get(text, text) or text
+    if isinstance(text, DisplayText):
+      return text
+    return DisplayText(self._translations[text]) if self._translations.get(text) else text
+
+  def tr_display(self, text: str) -> str:
+    return translate_display(text, self._translations, self._display_templates)
 
   def trn(self, singular: str, plural: str, n: int) -> str:
     if singular in self._plurals:
       idx = self._plural_selector(n)
       forms = self._plurals[singular]
       if idx < len(forms) and forms[idx]:
-        return forms[idx]
+        return DisplayText(forms[idx])
     return singular if n == 1 else plural
 
   def _load_languages(self):
@@ -209,6 +228,7 @@ multilang = Multilang()
 multilang.setup()
 
 tr, trn = multilang.tr, multilang.trn
+tr_display = multilang.tr_display
 
 
 # no-op marker for static strings translated later

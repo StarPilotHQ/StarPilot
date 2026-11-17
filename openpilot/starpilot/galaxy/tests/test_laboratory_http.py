@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 
 from openpilot.starpilot.galaxy.access import GalaxyAccessOwner
 from openpilot.starpilot.galaxy.remote import RemotePairing
@@ -16,6 +17,9 @@ from openpilot.starpilot.models.manager import ModelManager, atomic_json
 
 class LaboratoryHttpTest(unittest.TestCase):
   def setUp(self):
+    unsupported = patch('openpilot.starpilot.models.laboratory.RUNTIME_QUALIFIED', False)
+    unsupported.start()
+    self.addCleanup(unsupported.stop)
     temporary = tempfile.TemporaryDirectory()
     self.addCleanup(temporary.cleanup)
     root = Path(temporary.name)
@@ -70,11 +74,13 @@ class LaboratoryHttpTest(unittest.TestCase):
     for remote in (False, True):
       cookie = self.remote_cookie if remote else self.local_cookie
       status, view, _ = self.request('/api/models/laboratory', remote=remote, cookie=cookie)
-      self.assertEqual(status, 200)
+      self.assertEqual(status, 200, view)
       self.assertEqual({r['value'] for r in view['models']}, {r['id'] for r in self.manifest['models']})
       self.assertFalse(view['runtimeSupported'])
       self.assertFalse(view['runtime']['active'])
-      self.assertTrue(any(r['modelLabStatus'] == 'unsupported' and not r['small'] for r in view['models']))
+      big = [row for row in view['models'] if not row['small']]
+      self.assertTrue(big)
+      self.assertTrue(all(row['modelLabEligible'] and row['modelLabChestnut'] for row in big))
       views.append(view)
       payload = {'enabled': True, 'lateralModel': 'gwm8223', 'longitudinalModel': 'sc23'}
       self.assertNotEqual(self.request('/api/models/laboratory', payload=payload, remote=remote, cookie=cookie)[0], 200)
@@ -82,3 +88,11 @@ class LaboratoryHttpTest(unittest.TestCase):
       self.assertNotEqual(self.request('/api/models/laboratory', payload=payload, remote=remote, cookie=cookie,
                                        origin='https://untrusted.invalid')[0], 200)
     self.assertEqual(views[0], views[1])
+
+  def test_runtime_capability_is_separate_from_connected_gpu_and_activation(self):
+    with patch('openpilot.starpilot.models.laboratory.RUNTIME_QUALIFIED', True):
+      status, view, _ = self.request('/api/models/laboratory', cookie=self.local_cookie)
+    self.assertEqual(status, 200, view)
+    self.assertTrue(view['runtimeSupported'])
+    self.assertFalse(view['chestnutReady'])
+    self.assertFalse(view['runtime']['active'])

@@ -13,6 +13,8 @@ import tempfile
 import types
 import unittest
 
+from openpilot.common.file_chunker import get_existing_chunks
+
 
 SOURCE = Path(__file__).resolve().parents[3] / "build"
 HELPER = SOURCE.parent / "scripts/laptop_device_build.sh"
@@ -88,7 +90,7 @@ exit "${HELPER_EXIT:-0}"
     self.assertEqual(self.args(), ["scons", "--no-scrub", "openpilot/common/libparams_c.so", "-j6"])
     self.assertEqual(self.run_build("--cereal").returncode, 0)
     self.assertEqual(self.args(), ["scons", "--no-scrub", "openpilot/cereal/libcereal.a",
-                                   "openpilot/cereal/libsocketmaster.a", "openpilot/cereal/messaging/bridge",
+                                   "openpilot/cereal/libsocketmaster.a",
                                    "openpilot/cereal/services.h"])
     self.assertEqual(self.run_build("--panda", "8").returncode, 0)
     self.assertEqual(self.args(), ["scons", "--no-scrub", "panda/board/obj/panda.bin.signed", "panda/board/obj/panda_h7.bin.signed",
@@ -434,6 +436,9 @@ class ArtifactCheckTest(unittest.TestCase):
     chunks.parent.mkdir(parents=True)
     (self.root / "openpilot/__init__.py").touch()
     shutil.copy2(SOURCE.parent / "openpilot/common/file_chunker.py", chunks)
+    bridge = Path("openpilot/starpilot/models/runtime_bridge")
+    for name in ("__init__.py", "runtime.py", "bootstrap.py"):
+      self.write(str(bridge / name), (SOURCE.parent / bridge / name).read_bytes())
     shipped = b"verified RDF artifact fixture"
     self.write("openpilot/selfdrive/modeld/models/rdf43_driving_tinygrad.pkl", shipped)
     self.write("openpilot/starpilot/models/catalog.py",
@@ -468,9 +473,10 @@ class ArtifactCheckTest(unittest.TestCase):
                       b"644".ljust(8) + b"200".ljust(10) + b"`\n")
     archive = b"!<arch>\n" + archive_header + bytes(obj)
 
-    for name in ("openpilot/starpilot/flm/_primitive_walk.so", "openpilot/common/libparams_c.so", "openpilot/selfdrive/pandad/pandad",
+    for name in ("openpilot/starpilot/ui/native/_raylib_extra.so", "openpilot/starpilot/flm/_primitive_walk.so",
+                 "openpilot/common/libparams_c.so", "openpilot/selfdrive/pandad/pandad",
                  "openpilot/system/loggerd/loggerd", "openpilot/system/loggerd/encoderd",
-                 "msgq_repo/msgq/ipc_pyx.so", "msgq_repo/msgq/visionipc/visionipc_pyx.so",
+                 "msgq_repo/msgq/_ipc.so", "msgq_repo/msgq/visionipc/_visionipc.so",
                  "rednose_repo/rednose/helpers/ekf_sym_pyx.so", "openpilot/tools/replay/replay",
                  "openpilot/tools/replay/libmedia_mux.so", "opendbc_repo/opendbc/can/_raw_value.so"):
       self.write(name, self.elf)
@@ -488,13 +494,15 @@ class ArtifactCheckTest(unittest.TestCase):
     }).encode())
     for name in ("openpilot/cereal/libcereal.a", "openpilot/cereal/libsocketmaster.a"):
       self.write(name, archive)
-    for name in ("dmonitoring_model_tinygrad.pkl",):
-      code = captured_pickle("QCOM", host_backend="CPU")
-      self.write(f"openpilot/selfdrive/modeld/models/{name}", struct.pack("<q", len(code)) + code + b"buffer")
-    for kind in ("driving", "dm"):
-      for size in ("1344x760", "1928x1208"):
-        self.write(f"openpilot/selfdrive/modeld/models/{kind}_warp_{size}_tinygrad.pkl",
-                   captured_pickle("QCOM", host_backend="CPU"))
+    # Exercise the real stock guard with the checkout's authenticated DM bytes.
+    # Read numbered parts directly so fixture setup does not create source caches.
+    for name in ("dmonitoring_model_tinygrad.pkl", "dm_warp_1344x760_tinygrad.pkl", "dm_warp_1928x1208_tinygrad.pkl"):
+      path = Path("openpilot/selfdrive/modeld/models") / name
+      parts = get_existing_chunks(SOURCE.parent / path)
+      self.write(str(path), b"".join(part.read_bytes() for part in (parts if parts == [SOURCE.parent / path] else parts[1:])))
+    for size in ("1344x760", "1928x1208"):
+      self.write(f"openpilot/selfdrive/modeld/models/driving_warp_{size}_tinygrad.pkl",
+                 captured_pickle("QCOM", host_backend="CPU"))
 
   def write(self, name, data):
     path = self.root / name
@@ -511,6 +519,19 @@ class ArtifactCheckTest(unittest.TestCase):
     (self.root / "openpilot/selfdrive/modeld/models/dmonitoring_model_tinygrad.pkl").unlink()
     self.assertNotEqual(self.verify().returncode, 0)
 
+  def test_stock_monitoring_artifacts_remain_pinned(self):
+    self.assertEqual(self.verify().returncode, 0)
+    for name in ("dmonitoring_model_tinygrad.pkl", "dm_warp_1344x760_tinygrad.pkl", "dm_warp_1928x1208_tinygrad.pkl"):
+      with self.subTest(name=name):
+        path = self.root / "openpilot/selfdrive/modeld/models" / name
+        original = path.read_bytes()
+        path.write_bytes(original[:-1] + bytes([original[-1] ^ 1]))
+        result = self.verify()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Stock model artifact changed", result.stderr)
+        path.write_bytes(original)
+    self.assertEqual(self.verify().returncode, 0)
+
   def test_replay_runtime_required_before_prebuilt(self):
     for name in ("openpilot/tools/replay/replay", "openpilot/tools/replay/libmedia_mux.so"):
       with self.subTest(name=name):
@@ -522,6 +543,22 @@ class ArtifactCheckTest(unittest.TestCase):
 
   def test_can_decoder_required_and_valid(self):
     name = "opendbc_repo/opendbc/can/_raw_value.so"
+    wrong = bytearray(self.elf)
+    struct.pack_into("<H", wrong, 18, 62)
+    for defect, data in (("missing", None), ("foreign", wrong), ("header_only", self.elf[:20])):
+      with self.subTest(defect=defect):
+        self.assertEqual(self.verify().returncode, 0)
+        if data is None:
+          (self.root / name).unlink()
+        else:
+          self.write(name, data)
+        result = self.verify()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(name, result.stderr)
+        self.write(name, self.elf)
+
+  def test_raylib_native_binding_required_and_valid(self):
+    name = "openpilot/starpilot/ui/native/_raylib_extra.so"
     wrong = bytearray(self.elf)
     struct.pack_into("<H", wrong, 18, 62)
     for defect, data in (("missing", None), ("foreign", wrong), ("header_only", self.elf[:20])):

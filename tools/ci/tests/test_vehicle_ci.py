@@ -250,9 +250,13 @@ class TestVehicleCollection(unittest.TestCase):
             self.assertEqual(artifact["error_phase"], "collection" if failing == "collect" else "initialization", name)
 
   def test_native_safety_targets_are_top_level_and_complete(self):
-    root = Path(__file__).resolve().parents[3] / "opendbc_repo/opendbc/safety/tests"
-    expected = {path.name for path in root.glob("test_*.py")} | {"test_classic_startup_neutral_replacement.py"}
-    self.assertEqual({Path(target.split("::", 1)[0]).name for target in targets_for("safety-debug")}, expected)
+    root = Path(__file__).resolve().parents[3]
+    expected = {str(path.relative_to(root))
+                for folder in ('opendbc_repo/opendbc/safety/tests', 'opendbc_repo/opendbc/bluepilot_lateral/safety/tests')
+                for path in (root / folder).glob('test_*.py')}
+    expected.add('openpilot/starpilot/aol/tests/test_classic_startup_neutral_replacement.py')
+    expected.add('openpilot/starpilot/tests/test_ford_starpilot_ordering.py')
+    self.assertEqual({target.split("::", 1)[0] for target in targets_for("safety-debug")}, expected)
     self.assertTrue(all(Path(target.split("::", 1)[0]).parent.name == "tests" for target in targets_for("safety-debug")))
 
   def test_pe_native_variants_select_healthy_acceptance_and_denial_classes_separately(self):
@@ -292,7 +296,6 @@ class TestVehicleCollection(unittest.TestCase):
           self.assertIn(target, debug)
           self.assertIn(target, release)
     self.assertIn("opendbc_repo/opendbc/safety/tests/test_hyundai_ev9_long.py", mixed)
-    self.assertIn("opendbc_repo/opendbc/safety/tests/test_ford_mach_e_extended.py", mixed)
 
   def test_interfaces_do_not_mislabel_historical_route_test_base(self):
     root = Path(__file__).resolve().parents[3]

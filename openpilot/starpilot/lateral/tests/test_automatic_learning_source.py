@@ -7,6 +7,9 @@ import struct
 import unittest
 
 from opendbc.car.car_helpers import interfaces
+from opendbc.car.structs import car
+from openpilot.starpilot.lateral.learning_preferences import KEY as LEARNING_KEY, LEGACY_KEY as LEARNING_LEGACY_KEY, replace_preference
+from openpilot.system.manager.process_config import managed_processes
 from opendbc.car.gm.values import CAR as GM
 from opendbc.car.hyundai.values import CAR as HKG
 from opendbc.car.toyota.values import CAR as TOYOTA
@@ -236,3 +239,140 @@ class TestAutomaticLearningSource(unittest.TestCase):
       self.assertIsNone(conversion_identity(cp, ci, ControllerMode.STANDARD))
       cp, ci, _, _ = context(HKG.HYUNDAI_IONIQ_6)
       self.assertIsNone(conversion_identity(cp, ci, ControllerMode.STARPILOT))
+
+
+class TestDisabledLearnerProcess(unittest.TestCase):
+  def setUp(self):
+    self.prefix = OpenpilotPrefix()
+    self.prefix.__enter__()
+    self.addCleanup(self.prefix.__exit__, None, None, None)
+    self.params = Params()
+    self.cp = car.CarParams.new_message(brand='hyundai', carFingerprint='HYUNDAI_IONIQ_6')
+    self.process = managed_processes['steerlearnerd']
+
+  def test_default_still_runs_onroad_and_parked_analysis(self):
+    assert self.process.should_run(True, self.params, self.cp)
+    assert self.process.should_run(False, self.params, self.cp)
+    assert self.process.restart_on_exit
+
+  def test_explicit_off_does_not_start_learner(self):
+    self.params.put(LEARNING_KEY, replace_preference(None, self.cp, False), block=True)
+    assert not self.process.should_run(True, self.params, self.cp)
+
+  def test_toggle_can_stop_and_restart_learner(self):
+    for enabled in (False, True, False, True):
+      self.params.put(LEARNING_KEY, replace_preference(self.params.get(LEARNING_KEY), self.cp, enabled), block=True)
+      assert self.process.should_run(True, self.params, self.cp) is enabled
+
+  def test_legacy_off_does_not_start_learner(self):
+    self.params.put_bool(LEARNING_LEGACY_KEY, True, block=True)
+    assert not self.process.should_run(True, self.params, self.cp)
+
+  def test_scoped_on_retains_precedence_over_legacy_off(self):
+    self.params.put_bool(LEARNING_LEGACY_KEY, True, block=True)
+    self.params.put(LEARNING_KEY, replace_preference(None, self.cp, True), block=True)
+    assert self.process.should_run(True, self.params, self.cp)
+
+  def test_invalid_preference_does_not_start_learner(self):
+    for raw in (b'', b'not json', b'{"version":1,"vehicles":{"hyundai":{"HYUNDAI_IONIQ_6":1}}}'):
+      self.params.put(LEARNING_KEY, raw, block=True)
+      assert not self.process.should_run(True, self.params, self.cp)
+
+  def test_other_vehicle_preference_is_not_reused(self):
+    self.params.put(LEARNING_KEY, replace_preference(None, self.cp, False), block=True)
+    other = car.CarParams.new_message(brand='ford', carFingerprint='FORD_MUSTANG_MACH_E_MK1')
+    assert self.process.should_run(True, self.params, other)
+
+  def test_offroad_does_not_read_preferences(self):
+    from unittest.mock import patch
+    with patch('openpilot.starpilot.lateral.learning_preferences.read_preference',
+               side_effect=AssertionError('Offroad learner should not read settings')):
+      assert self.process.should_run(False, self.params, self.cp)
+
+
+class TestLearningProjectionPreference(unittest.TestCase):
+  def make_car(self, vehicle, preference=None, legacy=False):
+    from openpilot.selfdrive.car.card import Car
+    params = Params()
+    params.put_bool('OpenpilotEnabledToggle', True, block=True)
+    params.put_bool(LEARNING_LEGACY_KEY, legacy, block=True)
+    cp = interfaces[vehicle].get_non_essential_params(vehicle)
+    if preference is not None:
+      raw = replace_preference(None, cp, preference) if type(preference) is bool else preference
+      params.put(LEARNING_KEY, raw, block=True)
+    ci = interfaces[vehicle](cp)
+    return Car(CI=ci, RI=interfaces[vehicle].RadarInterface(cp))
+
+  def test_explicit_off_skips_actual_factory_observer(self):
+    for vehicle in VEHICLES:
+      with self.subTest(vehicle=vehicle), OpenpilotPrefix():
+        host = self.make_car(vehicle, False)
+        assert host.learning_stamp_observer is None
+        assert getattr(host.CI.CC, 'learning_projection_observer', None) is None
+        assert host.learning_applied_evidence is None
+
+  def test_default_on_keeps_actual_factory_observer(self):
+    for vehicle in VEHICLES:
+      with self.subTest(vehicle=vehicle), OpenpilotPrefix():
+        host = self.make_car(vehicle)
+        assert host.learning_stamp_observer is not None
+        assert host.CI.CC.learning_projection_observer is not None
+
+  def test_scoped_on_still_overrides_legacy_off(self):
+    with OpenpilotPrefix():
+      host = self.make_car(HKG.HYUNDAI_IONIQ_6, True, legacy=True)
+      assert host.learning_stamp_observer is not None
+
+  def test_legacy_off_and_invalid_preference_do_not_install(self):
+    for preference, legacy in ((None, True), (b'not json', False)):
+      with self.subTest(preference=preference, legacy=legacy), OpenpilotPrefix():
+        host = self.make_car(HKG.HYUNDAI_IONIQ_6, preference, legacy)
+        assert host.learning_stamp_observer is None
+        assert getattr(host.CI.CC, 'learning_projection_observer', None) is None
+
+
+class TestControlsLearningPreference(unittest.TestCase):
+  def make_controls(self, vehicle, preference=None, legacy=False):
+    from openpilot.selfdrive.controls.controlsd import Controls
+    params = Params()
+    cp = interfaces[vehicle].get_non_essential_params(vehicle)
+    params.put('CarParams', cp.to_bytes(), block=True)
+    params.put_bool('OpenpilotEnabledToggle', True, block=True)
+    params.put_bool(LEARNING_LEGACY_KEY, legacy, block=True)
+    if preference is not None:
+      params.put(LEARNING_KEY, replace_preference(None, cp, preference) if type(preference) is bool else preference, block=True)
+    before = (params.get(LEARNING_KEY), params.get(TORQUE_KEY))
+    host = Controls()
+    assert before == (params.get(LEARNING_KEY), params.get(TORQUE_KEY))
+    return host
+
+  def test_saved_off_skips_actual_controls_learning_runtime(self):
+    from unittest.mock import patch
+    from openpilot.selfdrive.controls import controlsd
+    for vehicle in VEHICLES:
+      with self.subTest(vehicle=vehicle), OpenpilotPrefix(), patch.object(controlsd, 'GlobalRuntime', wraps=controlsd.GlobalRuntime) as runtime:
+        host = self.make_controls(vehicle, False)
+        assert host.global_learning is None
+        runtime.assert_not_called()
+
+  def test_default_and_explicit_on_keep_actual_runtime(self):
+    from unittest.mock import patch
+    from openpilot.selfdrive.controls import controlsd
+    for vehicle, preference in ((HKG.HYUNDAI_IONIQ_6, None), (GM.CHEVROLET_BOLT_CC_2018_2021, True),
+                                (TOYOTA.TOYOTA_COROLLA_TSS2, True)):
+      with self.subTest(vehicle=vehicle, preference=preference), OpenpilotPrefix(), \
+           patch.object(controlsd, 'GlobalRuntime', wraps=controlsd.GlobalRuntime) as runtime:
+        host = self.make_controls(vehicle, preference)
+        assert host.global_learning is not None and type(host.global_learning).__name__ == 'GlobalRuntime'
+        runtime.assert_called_once()
+
+  def test_scoped_on_wins_over_legacy_off(self):
+    with OpenpilotPrefix():
+      host = self.make_controls(HKG.HYUNDAI_IONIQ_6, True, legacy=True)
+      assert host.global_learning is not None
+
+  def test_legacy_off_and_invalid_preference_skip_runtime(self):
+    for preference, legacy in ((None, True), (b'not json', False)):
+      with self.subTest(preference=preference, legacy=legacy), OpenpilotPrefix():
+        host = self.make_controls(HKG.HYUNDAI_IONIQ_6, preference, legacy)
+        assert host.global_learning is None

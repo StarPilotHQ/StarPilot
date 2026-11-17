@@ -313,76 +313,34 @@ await revoked.reply(0, { error: "Sign in" }, 401)
 assert.equal(revoked.unauthorized, 1)
 assert.equal(revoked.states.at(-1).status, "idle")
 
-const page = (selectedTarget = "Dom", availableBranches = ["StarPilot", "Dom", "beta"], installedBranch = "Dom") => {
-  const state = { operations: { ...operations, selectedTarget, availableBranches }, data: {
-    installed: { ...installed, branch: installedBranch } }, actionDisabled: false,
-    draftBranch: "", primaryChoice: "", draftTouched: false, dialog: null }
-  Object.defineProperty(state,"branchOptions",{get:()=>SoftwarePage.computed.branchOptions.call(state)})
-  Object.defineProperty(state,"otherBranches",{get:()=>SoftwarePage.computed.otherBranches.call(state)})
-  Object.defineProperty(state,"primaryBranchHelp",{get:()=>SoftwarePage.computed.primaryBranchHelp.call(state)})
-  Object.defineProperty(state,"canStageBranch",{get:()=>SoftwarePage.computed.canStageBranch.call(state)})
+const page = (selectedTarget = 'Dom', availableBranches = ['StarPilot', 'Dom', 'beta'], installedBranch = 'Dom') => {
+  const state = { operations: { ...operations, selectedTarget, availableBranches },
+    data: { installed: { ...installed, branch: installedBranch } }, actionDisabled: false,
+    draftBranch: '', draftTouched: false, dialog: null, version: '', calls: [],
+    async loadVersions() { this.calls.push(this.draftBranch) } }
+  for (const key of ['branchOptions', 'previousVersion', 'otherBranches'])
+    Object.defineProperty(state, key, {get:()=>SoftwarePage.computed[key].call(state)})
   return state
 }
 const staged = page()
-SoftwarePage.methods.syncDraftBranch.call(staged,"Dom")
-assert.equal(staged.draftBranch,"Dom")
-staged.draftBranch="beta"
-SoftwarePage.methods.changeBranch.call(staged)
-assert.equal(staged.draftTouched,true)
-assert.equal(staged.canStageBranch,true)
-SoftwarePage.methods.chooseBranch.call(staged)
-assert.equal(staged.dialog.action,"select") // Normal updates can still stage a target without restarting.
-assert.equal(staged.dialog.branch,"beta")
-SoftwarePage.methods.askUpdate.call({...staged, operations:{...staged.operations,canFastUpdate:true}})
-const switchPage={...staged,operations:{...staged.operations,canFastUpdate:true}}
+SoftwarePage.methods.syncDraftBranch.call(staged, 'Dom')
+staged.draftBranch = 'beta'
+await SoftwarePage.methods.changeBranch.call(staged)
+assert.equal(staged.draftTouched, true)
+assert.deepEqual(staged.calls, ['beta'], 'branch changes automatically refresh metadata')
+const switchPage = {...staged, operations: {...staged.operations, canFastUpdate:true}}
 SoftwarePage.methods.askUpdate.call(switchPage)
-assert.equal(switchPage.dialog.action,"update")
-assert.equal(switchPage.dialog.branch,"beta")
-assert.equal(switchPage.dialog.label,"Update & restart")
-const alternateTarget=page("legacy",["StarPilot","Dom","beta"],"installed-only")
-SoftwarePage.methods.syncDraftBranch.call(alternateTarget,"legacy")
-assert.equal(alternateTarget.canStageBranch,false)
-assert.equal(alternateTarget.draftBranch,"installed-only")
-assert.deepEqual(alternateTarget.branchOptions.map(branch=>branch.name),["legacy","installed-only","StarPilot","Dom","beta"])
-assert.equal(alternateTarget.branchOptions[0].available,false)
-assert.equal(alternateTarget.branchOptions[1].available,true)
-const sentinel = fixture()
-sentinel.feed.start()
-await sentinel.reply(0, snapshot({ operations: { ...operations, availableBranches: ["Dom", "other:"] } }))
-sentinel.feed.action("select", "other:")
-assert.equal(sentinel.requests.length, 1)
-assert.deepEqual(page("Dom", ["Dom", "other:"]).branchOptions.map(branch=>branch.name), ["Dom"])
-sentinel.feed.stop()
-
-assert.equal(SoftwarePage.methods.branchLabel("StarPilot"), "Stable — StarPilot")
-assert.equal(SoftwarePage.methods.branchLabel("Dom"), "Development — Dom")
-
-const namedBranches = page("StarPilot", ["StarPilot", "Dom", "beta"], "StarPilot")
-SoftwarePage.methods.syncDraftBranch.call(namedBranches, "StarPilot")
-assert.equal(namedBranches.primaryChoice, "StarPilot")
-assert.equal(namedBranches.draftBranch, "StarPilot")
-const otherBranches = page("beta", ["StarPilot", "Dom", "beta"], "Dom")
-SoftwarePage.methods.syncDraftBranch.call(otherBranches, "beta")
-assert.equal(otherBranches.primaryChoice, "other:")
-assert.equal(otherBranches.draftBranch, "beta")
-assert.deepEqual(otherBranches.otherBranches.map(branch => branch.name), ["beta"])
-otherBranches.primaryChoice = "Dom"
-assert.equal(otherBranches.primaryBranchHelp, "Latest features and fixes under development. Updates regularly and may introduce bugs.")
-otherBranches.draftBranch = "beta"
-otherBranches.primaryChoice = "other:"
-SoftwarePage.methods.onPrimaryBranchChange.call(otherBranches)
-assert.equal(otherBranches.draftBranch, "beta")
-assert.match(SoftwarePage.template, /Stable — StarPilot/)
-assert.match(SoftwarePage.template, /Development — Dom/)
-assert.match(SoftwarePage.template, /Other branches…/)
-assert.match(SoftwarePage.template, /onPrimaryBranchChange/)
-assert.match(SoftwarePage.template, /Check for updates/)
+assert.equal(switchPage.dialog.action, 'update')
+assert.equal(switchPage.dialog.branch, 'beta')
+assert.equal(SoftwarePage.methods.branchLabel('StarPilot'), 'Stable — StarPilot')
+assert.equal(SoftwarePage.methods.branchLabel('Dom'), 'Development — Dom')
+assert.deepEqual(page('Dom', ['Dom', 'other:']).branchOptions.map(branch=>branch.name), ['Dom'])
+assert.match(SoftwarePage.template, /aria-label="Version branch"/)
+assert.match(SoftwarePage.template, /@change="changeBranch"/)
 assert.match(SoftwarePage.template, /Download only/)
-assert.match(SoftwarePage.template, /@click="askUpdate">Update<\/button>/)
+assert.match(SoftwarePage.template, /Select previous version/)
+assert.doesNotMatch(SoftwarePage.template, /Save target/)
 assert.match(SoftwarePage.template, /displayVersion \?\? data\.installed\.version/)
-assert.match(SoftwarePage.template, /@click="askRollback">Previous version/ )
-assert.match(SoftwarePage.template, /operations\.canRollback !== true/)
-assert.doesNotMatch(SoftwarePage.template, /historical version|status only/i)
 
 const preferences = fixture()
 preferences.feed.start()
@@ -492,7 +450,7 @@ assert.equal(validSoftwareSnapshot(snapshot({ operations: { ...operations, canRo
 assert.equal(softwareProgress(updater), null)
 assert.equal(softwareProgress(updater, {progress: {stage: null, detail: "", percent: null}}), null)
 assert.deepEqual(softwareProgress({...updater, state: "finalizing update..."}),
-  {active: true, failed: false, percent: null, label: "Finalizing update", detail: ""})
+  {active: true, failed: false, percent: null, label: "Preparing update", detail: ""})
 assert.equal(softwareProgress({...updater, state: "downloading..."}, {progress: {stage: "Downloading", detail: "", percent: 37}}).percent, 37)
 for (const percent of [NaN, Infinity, -1, 101]) {
   assert.equal(validSoftwareSnapshot(snapshot({operations: {...operations, progress: {stage: "fetching", detail: "", percent}}})), false)
@@ -501,7 +459,7 @@ assert.equal(softwareProgress({...updater, state: "finalizing update..."}, {prog
 assert.ok(validSoftwareSnapshot(snapshot({updater: {...updater, lastCheckedAt: null}})))
 assert.equal(validSoftwareSnapshot(snapshot({updater: {...updater, lastCheckedAt: 12}})), false)
 assert.match(SoftwarePage.template, /<summary>Advanced options<\/summary>/)
-assert.match(SoftwarePage.template, /<summary>Versions &amp; release notes<\/summary>/)
+assert.doesNotMatch(SoftwarePage.template, /<summary>Versions &amp; release notes<\/summary>/)
 assert.match(SoftwarePage.template, /data\.updater\.lastCheckedAt/)
 
 for (const progress of [{stage: "idle", detail: "", percent: null}, {stage: null, detail: null, percent: null}, {stage: "unknown", detail: "", percent: null}]) {
@@ -514,7 +472,7 @@ for (const stage of ["complete", "error"]) {
   assert.equal(softwareProgress(state, {progress}).active, false)
   assert.equal(softwareProgress(state, {progress}).percent, null)
 }
-assert.equal(softwareProgress({...updater, state: "finalizing update..."}, {progress: {stage: "finalizing", detail: null, percent: null}}).label, "Finalizing update")
+assert.equal(softwareProgress({...updater, state: "finalizing update..."}, {progress: {stage: "finalizing", detail: null, percent: null}}).label, "Preparing update")
 
 const lightweight = fixture(false)
 lightweight.feed.start()
@@ -527,6 +485,11 @@ assert.equal(lightweight.requests[1].url, './api/software/status')
 await lightweight.reply(1, snapshot({ operations: { ...operations, history } }))
 assert.deepEqual(lightweight.states.at(-1).data.operations.history, history)
 lightweight.feed.stop()
+
+const versionRefreshActions = []
+await SoftwarePage.methods.loadVersions.call({ actionDisabled: false, draftBranch: 'Dom',
+  operations: { selectedTarget: 'Dom' }, feed: { action: (...args) => versionRefreshActions.push(args) } })
+assert.deepEqual(versionRefreshActions, [['versions', 'Dom']], 'version refresh must use the metadata-only operation')
 
 const directBranch = fixture()
 directBranch.feed.start()
@@ -544,7 +507,7 @@ directBranch.feed.stop()
 // A visit checks immediately, without interrupting an update already in progress.
 for (const [canCheck, pending, state, expected] of [
   [true, false, 'idle', ['check']], [false, false, 'idle', []],
-  [true, true, 'idle', []], [true, false, 'downloading...', []],
+  [true, true, 'idle', []], [true, false, 'downloading...', ['check']],
 ]) {
   const actions = []
   const view = { mode: 'local', initialChecking: true, operations: { canCheck }, pending,
@@ -556,7 +519,7 @@ for (const [canCheck, pending, state, expected] of [
 
 const updateView = { ...SoftwarePage.data(), data: snapshot(), operations: { ...operations },
   requestMessage: SoftwarePage.methods.requestMessage }
-for (const key of ['pending', 'reportedProgress', 'updateProgress', 'updateAvailable', 'osUpdateRequired', 'updateBanner', 'repositoryUrl', 'commitUrl', 'commitsUrl']) {
+for (const key of ['pending', 'reportedProgress', 'metadataProgress', 'backgroundProgress', 'updateProgress', 'updateAvailable', 'osUpdateRequired', 'updateBanner', 'repositoryUrl', 'commitUrl', 'commitsUrl']) {
   Object.defineProperty(updateView, key, { get: () => SoftwarePage.computed[key].call(updateView) })
 }
 assert.equal(updateView.updateProgress.label, 'Checking for updates')
@@ -576,7 +539,7 @@ updateView.data = snapshot({ updater: { ...updater, targetChangeFound: false } }
 updateView.operations.request = request('check', 'complete')
 assert.equal(updateView.updateBanner.message, 'No Update Available')
 updateView.operations.request = request('check')
-assert.equal(updateView.updateProgress.label, 'Checking for updates')
+assert.equal(updateView.updateProgress.label, 'Checking for new versions')
 assert.equal(updateView.updateBanner, null)
 updateView.operations.request = request('check', 'failed', null, 'Network unavailable')
 assert.equal(updateView.updateProgress, null)
@@ -645,14 +608,14 @@ for (const [state, outcome] of [['failed', undefined], ['complete', 'up_to_date'
 // Gateway error envelopes are not software snapshots, even when the tunnel uses HTTP 200.
 const unreachableMessage = 'Your comma cannot be reached. Check your connection and try again'
 for (const action of ['update', 'fast', 'rollback', 'install', 'version']) {
-  for (const status of [200, 400, 500, 503]) {
+  for (const status of [200, 400, 500, 503]) for (const code of [undefined, 'connection_unavailable']) {
     for (const field of ['error', 'message']) {
       for (const duringPoll of [false, true]) {
         const restarts = []
         const f = fixture(true, baseline => restarts.push(baseline))
         f.feed.start()
         await f.reply(0, snapshot({ operations: { ...operations, canFastUpdate: true, canRollback: true, canInstall: true,
-          history: { installed: [], downloaded: [], currentReleaseNotes: null, downloadedReleaseNotes: null,
+          history: { installed: [], downloaded: [{ hash: 'b'.repeat(40), date: '', subject: '' }], currentReleaseNotes: null, downloadedReleaseNotes: null,
             recent: { branch: 'Dom', head: installed.commit, entries: [{ hash: 'b'.repeat(40), date: '', subject: '' }] } } } }))
         f.feed.action(action, 'Dom', { expectedCommit: installed.commit, selectedCommit: 'b'.repeat(40) })
         assert.equal(f.requests.length, 2)
@@ -660,7 +623,7 @@ for (const action of ['update', 'fast', 'rollback', 'install', 'version']) {
           await f.reply(1, snapshot({ operations: { ...operations, request: request(action, 'pending', 'Dom') } }))
           f.fire(1000)
         }
-        await f.reply(duringPoll ? 2 : 1, { [field]: unreachableMessage }, status)
+        await f.reply(duringPoll ? 2 : 1, { [field]: unreachableMessage, code }, status)
         assert.ok(restarts.length, `${action} ${status} ${field} ${duringPoll ? 'poll' : 'POST'} must reconnect`)
         assert.equal(restarts.at(-1).action, action)
         assert.equal(f.feed.installBaseline.action, action)
@@ -674,7 +637,7 @@ for (const action of ['update', 'fast', 'rollback', 'install', 'version']) {
 for (const status of [200, 400, 500]) {
   const f = fixture(true, () => assert.fail('ordinary status failure must not show update recovery'))
   f.feed.start()
-  await f.reply(0, { message: unreachableMessage }, status)
+  await f.reply(0, { message: unreachableMessage, code: 'connection_unavailable' }, status)
   assert.equal(f.states.at(-1).error, unreachableMessage)
   f.feed.stop()
 }
@@ -697,3 +660,146 @@ for (const [status, payload, unauthorized] of [
   f.feed.stop()
 }
 console.log('Software status and tunnel-envelope regressions passed')
+
+// Metadata checks remain separate from a background finalization and its real progress.
+updateView.error = ''
+updateView.operations = { ...operations, reason: 'Updater is busy', request: request('versions'),
+  progress: { stage: 'finalizing', detail: 'Copying update files: 44/100 (44%)', percent: 44, background: true } }
+updateView.data = snapshot({ updater: { ...updater, state: 'finalizing update...',
+  fast: { stage: 'finalizing', check: { state: 'checking', detail: 'Fetching version metadata...' } } } })
+assert.equal(updateView.updateProgress.label, 'Checking for new versions')
+assert.equal(updateView.backgroundProgress.percent, 44)
+assert.match(updateView.backgroundProgress.detail, /44\/100/)
+assert.equal(SoftwarePage.computed.metadataActionDisabled.call(updateView), false)
+updateView.data.updater.fast.check = { state: 'complete' }
+updateView.operations.request = request('versions', 'complete')
+assert.equal(updateView.updateProgress, null)
+assert.equal(updateView.backgroundProgress.percent, 44)
+
+// Clicking Check immediately replaces the previous Refresh versions result, before its POST returns.
+const nextCheck = fixture()
+nextCheck.feed.start()
+await nextCheck.reply(0, snapshot({ operations: { ...operations, request: request('versions', 'complete') } }))
+nextCheck.feed.action('check')
+assert.equal(nextCheck.states.at(-1).submittingAction, 'check')
+updateView.operations = { ...operations, request: request('versions', 'complete') }
+updateView.data = snapshot()
+updateView.busy = true
+updateView.submittingAction = nextCheck.states.at(-1).submittingAction
+assert.equal(updateView.updateProgress.label, 'Checking for new versions')
+assert.equal(updateView.updateBanner, null)
+await nextCheck.reply(1, snapshot({ operations: { ...operations, request: request('check') } }))
+assert.equal(nextCheck.states.at(-1).submittingAction, null)
+nextCheck.feed.stop()
+
+updateView.busy = false
+updateView.submittingAction = null
+updateView.operations = { ...operations, request: null }
+updateView.draftBranch = 'Dom'
+updateView.data = snapshot({ updater: { ...updater, finalizedUpdateReady: true } })
+assert.deepEqual(updateView.updateBanner, { tone: 'success', message: 'Downloaded · Ready to install' })
+
+// Downloading a selected version pins it without entering restart recovery.
+const selectedDownload = fixture()
+const selectedHash = 'b'.repeat(40)
+const selectionHistory = { installed: [], downloaded: [], currentReleaseNotes: null, downloadedReleaseNotes: null,
+  recent: { branch: 'beta', head: selectedHash, entries: [{hash:selectedHash,date:'',subject:'Beta build'}] } }
+selectedDownload.feed.start()
+await selectedDownload.reply(0, snapshot({operations:{...operations, canFastUpdate:true, history:selectionHistory}}))
+selectedDownload.feed.action('download-version', 'beta', {expectedCommit:installed.commit,selectedCommit:selectedHash})
+assert.deepEqual(JSON.parse(selectedDownload.requests[1].options.body), {action:'download-version',branch:'beta',expectedCommit:installed.commit,selectedCommit:selectedHash})
+assert.equal(selectedDownload.feed.installBaseline, null)
+await selectedDownload.reply(1, snapshot({operations:{...operations,request:request('download-version','pending','beta')}}))
+assert.equal(selectedDownload.feed.installBaseline, null)
+selectedDownload.feed.stop()
+
+const previousSelection = page('Dom',['Dom','beta'])
+previousSelection.operations.history = {previous:{hash:selectedHash,date:'',subject:'Previous',branch:'beta'}}
+previousSelection.syncDraftBranch = SoftwarePage.methods.syncDraftBranch.bind(previousSelection)
+await SoftwarePage.methods.selectPreviousVersion.call(previousSelection)
+assert.equal(previousSelection.draftBranch, 'beta')
+assert.equal(previousSelection.version, selectedHash)
+assert.deepEqual(previousSelection.calls, [], 'selecting a saved previous version must not refresh metadata')
+assert.equal(previousSelection.dialog,null,'selecting previous must not install it')
+
+// A finished metadata refresh must leave the actual update status visible.
+updateView.error = ''
+updateView.busy = false
+updateView.submittingAction = null
+updateView.initialChecking = false
+updateView.draftBranch = 'Dom'
+updateView.operations = { ...operations, request: request('versions', 'complete') }
+updateView.data = snapshot({ updater: { ...updater, finalizedUpdateReady: true } })
+assert.equal(updateView.updateBanner.message, 'Downloaded · Ready to install')
+updateView.data.updater.finalizedUpdateReady = false
+assert.equal(updateView.updateBanner.message, 'Update Available')
+updateView.data.updater.targetChangeFound = false
+assert.equal(updateView.updateBanner.message, 'No Update Available')
+assert.equal(SoftwarePage.methods.requestMessage(request('versions', 'complete')), '')
+
+const branchLayout = page()
+branchLayout.changeBranch = SoftwarePage.methods.changeBranch.bind(branchLayout)
+SoftwarePage.methods.syncDraftBranch.call(branchLayout, 'Dom')
+assert.equal(branchLayout.primaryChoice, 'Dom')
+branchLayout.primaryChoice = 'other:'
+await SoftwarePage.methods.onPrimaryBranchChange.call(branchLayout)
+assert.equal(branchLayout.draftBranch, '')
+assert.deepEqual(branchLayout.calls, [], 'opening Other does not refresh metadata without a branch')
+assert.deepEqual(branchLayout.otherBranches.map(branch => branch.name), ['beta'])
+branchLayout.draftBranch = 'beta'
+await branchLayout.changeBranch()
+assert.deepEqual(branchLayout.calls, ['beta'])
+branchLayout.primaryChoice = 'StarPilot'
+await SoftwarePage.methods.onPrimaryBranchChange.call(branchLayout)
+assert.equal(branchLayout.draftBranch, 'StarPilot')
+assert.deepEqual(branchLayout.calls, ['beta', 'StarPilot'])
+assert.equal(previousSelection.primaryChoice, 'other:', 'previous selection synchronizes both selectors without refreshing')
+
+assert.doesNotMatch(SoftwarePage.template, /Refresh versions/)
+assert.match(SoftwarePage.template, /@click="loadVersions">Refresh/ )
+assert.match(SoftwarePage.template, /feed.action\('check'\)">Check for updates/)
+
+assert.match(SoftwarePage.template, /GalaxySelect show-description v-model="primaryChoice"/)
+assert.doesNotMatch(SoftwarePage.template, /<p v-if="primaryBranchHelp"/)
+
+assert.match(SoftwarePage.template, /DriveStatePanel offroad-only :lockout="operations\?\.parked === false"/)
+
+
+const installPreferences = fixture()
+const installOptions = {...operations, canConfigure:true, automaticInstalls:false, restartSchedule:'0 0 * * *',
+  installPreferenceRevision:'0'.repeat(32),restartTimezone:'UTC'}
+assert.ok(validSoftwareSnapshot(snapshot({operations:installOptions})))
+assert.equal(validSoftwareSnapshot(snapshot({operations:{...installOptions,automaticInstalls:'yes'}})),false)
+installPreferences.feed.start()
+await installPreferences.reply(0,snapshot({operations:installOptions}))
+installPreferences.feed.configureInstallPreferences(true,' 0  0 * * * ','Asia/Tokyo')
+assert.deepEqual(JSON.parse(installPreferences.requests[1].options.body),{action:'install-preferences',automaticInstalls:true,
+  restartSchedule:'0 0 * * *',expectedRevision:'0'.repeat(32),restartTimezone:'Asia/Tokyo'})
+await installPreferences.reply(1,snapshot({operations:{...installOptions,automaticInstalls:true,installPreferenceRevision:'a'.repeat(32)}}))
+assert.equal(installPreferences.feed.installBaseline,null,'enabling the schedule does not install immediately')
+installPreferences.feed.stop()
+assert.match(SoftwarePage.template,/Install updates automatically/)
+assert.match(SoftwarePage.template,/Automatic restart schedule/)
+assert.deepEqual(SoftwarePage.data().restartCronFields,['0','0','*','*','*'])
+
+const previousTimezone = process.env.TZ
+try {
+  process.env.TZ = 'America/Los_Angeles'
+  const localTime = SoftwarePage.methods.reported('2026-11-01T00:00:00+00:00')
+  assert.equal(localTime, new Date("2026-11-01T00:00:00+00:00").toLocaleString())
+} finally {
+  if (previousTimezone === undefined) delete process.env.TZ
+  else process.env.TZ = previousTimezone
+}
+assert.match(SoftwarePage.template, /is ready for install\. Click Update when ready\./)
+assert.match(SoftwarePage.template, /Auto install will run at/)
+
+assert.match(SoftwarePage.template, /reported\(operations.nextRestartAt\)/)
+
+assert.ok(SoftwarePage.computed.restartTimezones.call({restartTimezone:'Asia/Tokyo',operations:{restartTimezone:'UTC'}}).includes('Asia/Tokyo'))
+assert.equal(SoftwarePage.computed.restartScheduleChanged.call({restartCronFields:['0','0','*','*','*'],restartTimezone:'Asia/Tokyo',
+  operations:{restartSchedule:'0 0 * * *',restartTimezone:'UTC'}}),true)
+let toggleSettings
+SoftwarePage.methods.configureAutomaticInstalls.call({operations:{restartSchedule:'0 0 * * *',restartTimezone:'UTC'},restartTimezone:'Asia/Tokyo',
+  feed:{configureInstallPreferences:(...args)=>{toggleSettings=args}}},true)
+assert.deepEqual(toggleSettings,[true,'0 0 * * *','UTC'],'toggle preserves the saved timezone')

@@ -544,6 +544,8 @@ KIA_EV6_LOW_SPEED_CENTER_TAPER_SPEED_WIDTH = 1.4
 
 KIA_EV6_CENTER_OUTPUT_TAPER_MAX = 0.14
 
+KIA_EV6_HIGHWAY_CENTER_DAMPING = 0.08
+
 KIA_EV6_CENTER_OUTPUT_TAPER_LAT = 0.30
 
 KIA_EV6_CENTER_OUTPUT_TAPER_LAT_WIDTH = 0.08
@@ -1298,12 +1300,17 @@ def get_kia_ev6_low_speed_center_taper_scale(desired_lateral_accel: float, v_ego
   reduction = KIA_EV6_LOW_SPEED_CENTER_TAPER_MAX * speed_weight * center_weight
   return 1.0 - reduction
 
-def get_kia_ev6_center_output_scale(desired_lateral_accel: float, v_ego: float) -> float:
+def get_kia_ev6_center_output_scale(desired_lateral_accel: float, v_ego: float,
+                                  future_lateral_accel: float | None = None) -> float:
   speed_weight = _kia_ev6_sigmoid((v_ego - KIA_EV6_CENTER_OUTPUT_TAPER_SPEED) /
                                   KIA_EV6_CENTER_OUTPUT_TAPER_SPEED_WIDTH)
   center_weight = _kia_ev6_sigmoid((KIA_EV6_CENTER_OUTPUT_TAPER_LAT - abs(desired_lateral_accel)) /
                                    KIA_EV6_CENTER_OUTPUT_TAPER_LAT_WIDTH)
   reduction = _flm_vehicle_knob("hyundai_kia_ev6.center_output_taper_max", KIA_EV6_CENTER_OUTPUT_TAPER_MAX) * speed_weight * center_weight
+  future_accel = abs(desired_lateral_accel) if future_lateral_accel is None else max(abs(desired_lateral_accel), abs(future_lateral_accel))
+  future_center_weight = _kia_ev6_sigmoid((KIA_EV6_CENTER_OUTPUT_TAPER_LAT - future_accel) /
+                                         KIA_EV6_CENTER_OUTPUT_TAPER_LAT_WIDTH)
+  reduction += KIA_EV6_HIGHWAY_CENTER_DAMPING * speed_weight * future_center_weight
   return 1.0 - reduction
 
 
@@ -1352,3 +1359,9 @@ def get_kia_carnival_hev_center_weight(v_ego: float, setpoint: float, measuremen
   tracking_weight = np.interp(abs(setpoint - measurement), KIA_CARNIVAL_HEV_CENTER_ERROR_BP, [1.0, 0.0])
   calm_weight = np.interp(abs(jerk), KIA_CARNIVAL_HEV_CENTER_JERK_BP, [1.0, 0.0])
   return float(speed_weight * center_weight * tracking_weight * calm_weight)
+
+
+def get_kia_carnival_crawl_center_weight(v_ego: float, setpoint: float, future_lateral_accel: float) -> float:
+  speed_weight = np.interp(v_ego, [0.3, 1.0, 3.0, 5.0], [0.0, 1.0, 1.0, 0.0])
+  center_weight = np.interp(max(abs(setpoint), abs(future_lateral_accel)), [0.10, 0.30], [1.0, 0.0])
+  return float(speed_weight * center_weight)

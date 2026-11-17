@@ -9,7 +9,7 @@ from collections.abc import Callable
 from functools import cache
 
 from opendbc.car import DT_CTRL, apply_hysteresis, gen_empty_fingerprint, scale_rot_inertia, scale_tire_stiffness, STD_CARGO_KG
-from opendbc.car import structs
+from opendbc.car import structs, ACCEL_MAX_TAKEOFF
 from opendbc.car.can_definitions import CanData, CanRecvCallable, CanSendCallable
 from opendbc.car.common.basedir import BASEDIR
 from opendbc.car.common.conversions import Conversions as CV
@@ -117,8 +117,8 @@ class CarInterfaceBase(ABC):
     return self.CC.update(c, self.CS, now_nanos)
 
   @staticmethod
-  def get_pid_accel_limits(CP, current_speed, cruise_speed):
-    return ACCEL_MIN, ACCEL_MAX
+  def get_pid_accel_limits(CP, current_speed, cruise_speed, *, faster_takeoffs=False):
+    return ACCEL_MIN, ACCEL_MAX_TAKEOFF if faster_takeoffs else ACCEL_MAX
 
   @classmethod
   def get_non_essential_params(cls, candidate: str) -> structs.CarParams:

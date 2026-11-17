@@ -6,7 +6,7 @@ from opendbc.car.fw_versions import match_fw_to_car
 from opendbc.car.subaru.fingerprints import FW_VERSIONS
 from opendbc.car.subaru.values import CAR
 
-CARS = (CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_LEGACY_2025)
+CARS = (CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025, CAR.SUBARU_LEGACY_2025)
 REQUIRED = (structs.CarParams.Ecu.abs, structs.CarParams.Ecu.fwdCamera, structs.CarParams.Ecu.engine)
 VIN = '00000000000000000'
 
@@ -41,7 +41,10 @@ def test_foreign_version_appended_to_valid_ecu_rejects_mixed_observation(car, ec
   live = records(car)
   target = next(record for record in live if record.ecu == ecu)
   foreign = next(record for record in records(peer) if record.ecu == ecu)
+  foreign.fwVersion = next(version for version in FW_VERSIONS[peer][ecu, foreign.address, None]
+                           if version not in FW_VERSIONS[car][ecu, target.address, None])
   assert foreign.address == target.address and foreign.fwVersion != target.fwVersion
+  assert foreign.fwVersion not in FW_VERSIONS[car][ecu, target.address, None]
   live.append(foreign)
   _, matches = match_fw_to_car(live, VIN, allow_exact=allow_exact, log=False)
   assert not (set(CARS) & matches)

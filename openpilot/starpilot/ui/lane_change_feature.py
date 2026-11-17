@@ -21,6 +21,7 @@ ENABLED = "lane_change:enabled"
 SPEED = "lane_change:speed"
 ONE = "lane_change:one"
 AUTO = "lane_change:auto"
+REQUIRE_CRUISE = "lane_change:require_cruise"
 DELAY = "lane_change:delay"
 WIDTH = "lane_change:width"
 CLOSE = "lane_change:close_gap"
@@ -36,7 +37,8 @@ def confirm_question(request: FeatureSettingsRequest) -> str:
     return "Turn off lane-change assistance? The current assistance cancels after the preference refresh."
   if request.key == AUTO and request.value == "Off":
     return "Turn off automatic lane changes? New automatic triggers stop after the preference refresh."
-  label = {GUIDANCE: "turn signal guidance", ENABLED: "lane-change assistance", AUTO: "automatic lane changes", SPEED: "minimum lane-change speed",
+  label = {GUIDANCE: "turn signal guidance", ENABLED: "lane-change assistance", AUTO: "automatic lane changes",
+           REQUIRE_CRUISE: "cruise requirement for automatic lane changes", SPEED: "minimum lane-change speed",
            ONE: "one lane change per signal", PACE: "steering pace", DELAY: "signal delay",
            WIDTH: "minimum adjacent lane width", CLOSE: "Close lane-change gap", GAP: "lane-change following time"}[request.key]
   unit = request.display_unit
@@ -47,7 +49,7 @@ def confirm_question(request: FeatureSettingsRequest) -> str:
             "Changes apply after the current signal and maneuver end.")
   checks = ' Lane and blindspot checks remain required.' if request.key == AUTO and request.value == 'On' else ''
   return f"Set {label} to {value}? {timing}{checks}"
-KEYS = frozenset((GUIDANCE, ENABLED, SPEED, ONE, AUTO, DELAY, WIDTH, CLOSE, GAP, PACE, RESET))
+KEYS = frozenset((GUIDANCE, ENABLED, SPEED, ONE, AUTO, REQUIRE_CRUISE, DELAY, WIDTH, CLOSE, GAP, PACE, RESET))
 
 
 def _unit_source(params) -> tuple[bytes | None, bool]:
@@ -128,6 +130,10 @@ class LaneChangeFeature:
                     choices=("Off", "On"), available=allowed,
                     reason="Starts an assisted lane change after the turn signal delay without a steering nudge, " +
                            "when the adjacent lane and blind spot are clear."),
+            replace(common, key=REQUIRE_CRUISE, label="Require Cruise for Automatic Lane Changes",
+                    value="On" if policy.auto_requires_cruise else "Off", choices=("Off", "On"), available=allowed,
+                    reason="Requires factory cruise or openpilot speed control to be engaged for a nudgeless start. " +
+                           "With cruise off, a wheel nudge still works. Engage cruise before signaling."),
             replace(common, key=DELAY, label="Automatic lane-change delay", value=str(round(policy.auto_delay_s, 1)),
                     step=0.1, minimum=0.0, maximum=5.0, unit="s", available=allowed,
                     reason="Time to wait after signaling before an automatic lane change; lane and blindspot checks still apply"),
@@ -143,7 +149,8 @@ class LaneChangeFeature:
 
     defaults = LaneChangePolicy()
     targets = {ENABLED: "On" if defaults.enabled else "Off", ONE: "On" if defaults.one_per_signal else "Off",
-               AUTO: "On" if defaults.auto_lane_change else "Off", CLOSE: "On" if defaults.close_gap else "Off",
+               AUTO: "On" if defaults.auto_lane_change else "Off", REQUIRE_CRUISE: "On" if defaults.auto_requires_cruise else "Off",
+               CLOSE: "On" if defaults.close_gap else "Off",
                SPEED: str(round(defaults.minimum_speed_mps * multiplier, 3)), DELAY: str(defaults.auto_delay_s),
                WIDTH: str(defaults.minimum_lane_width_m), GAP: str(defaults.close_gap_seconds),
                PACE: str(round(1.0 + (8.0 - defaults.duration_s) * 9.0 / 5.0, 2))}
@@ -178,8 +185,9 @@ class LaneChangeFeature:
       return LaneChangePolicy() if not saved.valid and request.value == "confirm" else None
     if not saved.valid:
       return None
-    if request.key in (GUIDANCE, ENABLED, ONE, AUTO, CLOSE) and request.value in ("On", "Off"):
-      field = {GUIDANCE: "turn_signal_guidance", ENABLED: "enabled", ONE: "one_per_signal", AUTO: "auto_lane_change", CLOSE: "close_gap"}[request.key]
+    if request.key in (GUIDANCE, ENABLED, ONE, AUTO, REQUIRE_CRUISE, CLOSE) and request.value in ("On", "Off"):
+      field = {GUIDANCE: "turn_signal_guidance", ENABLED: "enabled", ONE: "one_per_signal", AUTO: "auto_lane_change",
+               REQUIRE_CRUISE: "auto_requires_cruise", CLOSE: "close_gap"}[request.key]
       return replace(saved.policy, **{field: request.value == "On"})
     if request.key == PACE:
       try:

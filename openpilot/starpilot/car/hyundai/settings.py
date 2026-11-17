@@ -6,12 +6,12 @@ from opendbc.car.hyundai.values import CAR
 @dataclass(frozen=True)
 class WheelSettingsPolicy:
   settings_supported: bool = True
-  fixed_cruise_buttons: bool = True
+  fixed_cruise_buttons: bool = False
   explicit_latch: bool = True
   distance_pause_only: bool = True
   paddle_pause: bool = True
   runtime_supported: bool = False
-  lkas_button_supported: bool = False
+  lkas_button_supported: bool = True
   auxiliary_lkas_supported: bool = False
 
 
@@ -30,4 +30,6 @@ def configuration_wheel_policy(cp) -> WheelSettingsPolicy | None:
 
 
 def configuration_media_supported(cp) -> bool:
-  return supports_ioniq6_configuration(cp)
+  return (supports_ioniq6_configuration(cp) or
+          bool(cp is not None and cp.brand == 'hyundai' and cp.carFingerprint == CAR.KIA_EV6 and
+               not cp.notCar and not cp.passive and not cp.dashcamOnly))

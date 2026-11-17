@@ -92,7 +92,7 @@ class TestHyundaiHda2LongAol(unittest.TestCase):
       if not self.release:
         self.assertTrue(self.safety.safety_tx_hook(self.accel()))
       self.safety.aol_set_host_request(3)
-      for raw, value in ((2.01, 0), (0, 2.01), (-3.51, 0), (0, -3.51)):
+      for raw, value in ((3.51, 0), (0, 3.51), (-3.51, 0), (0, -3.51)):
         self.assertFalse(self.safety.safety_tx_hook(self.accel(raw, value)))
       self.rx('CRUISE_BUTTONS', {'CRUISE_BUTTONS': 4})
       self.assertFalse(self.safety.get_controls_allowed())

@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
+from ctypes import c_float
 from dataclasses import dataclass
 import math
 import threading
 
 from openpilot.starpilot.speed_limits import offset_document as od
-from openpilot.starpilot.ui.feature_settings_state import FeatureRow, FeatureSettingsRequest
+from openpilot.starpilot.ui.feature_settings_state import FeatureRow, FeatureSettingsRequest, SLC_OFFSET_KEYS
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.saved_document import commit_exact
 
 DOCUMENT_KEY = "SLCOffsetSchedule"
-OFFSET_KEYS = tuple(f"Offset{i}" for i in range(1, 8))
 _LOCK = threading.RLock()
 
 
@@ -30,7 +30,6 @@ class OffsetSnapshot:
   raw_document: bytes | None
   raw_unit: bytes | None
   raw_control: bytes | None
-  raw_legacy: tuple[bytes | None, ...]
   document: od.OffsetDocument | od.NeedsReview | None
   metric: bool | None
   valid: bool
@@ -44,16 +43,6 @@ def _strict_unit(raw: bytes | None) -> bool | None:
   return None
 
 
-def _legacy(raw: tuple[bytes | None, ...], metric: bool) -> od.OffsetDocument:
-  values = []
-  for value in raw:
-    number = 0.0 if value is None else float(value)
-    if not math.isfinite(number):
-      raise ValueError("Invalid saved SLC offset")
-    values.append(number)
-  return od.adopt_legacy(metric, tuple(values))
-
-
 def _unit_factor(metric: bool) -> float:
   return od.KPH_TO_MPS if metric else od.MPH_TO_MPS
 
@@ -65,7 +54,14 @@ def _minimum_offset(document: od.OffsetDocument, index: int, metric: bool) -> fl
 
 
 def _display(value: float) -> str:
-  return f"{value:.2f}".rstrip("0").rstrip(".")
+  return str(round(value))
+
+
+def _whole_limit_cutoff(bound_mps: float, factor: float) -> int:
+  """First whole posted limit on or above the saved cutoff."""
+  nearest = round(bound_mps / factor)
+  # SLC source readings arrive as Float32.
+  return nearest + (c_float(nearest * factor).value < bound_mps)
 
 
 def _capability(cp, configuration_longitudinal=False) -> tuple | None:
@@ -100,21 +96,20 @@ class SlcOffsetOwner:
     raw_doc = self._raw(DOCUMENT_KEY)
     raw_unit = self._raw("IsMetric")
     raw_control = self._raw("SpeedLimitController")
-    raw_legacy = tuple(self._raw(key) for key in OFFSET_KEYS) if raw_doc is None else (None,) * 7
     metric = _strict_unit(raw_unit)
     try:
       if not all(self._readable(key) for key in (DOCUMENT_KEY, "IsMetric", "SpeedLimitController")):
         raise ValueError("Unreadable SLC setting")
       if raw_doc is not None:
         document = od.decode(raw_doc)
-      elif metric is not None and all(self._readable(key) for key in OFFSET_KEYS):
-        document = _legacy(raw_legacy, metric)
+      elif metric is not None:
+        document = od.default_document(metric)
       else:
         document = None
-      return OffsetSnapshot(raw_doc, raw_unit, raw_control, raw_legacy, document, metric,
+      return OffsetSnapshot(raw_doc, raw_unit, raw_control, document, metric,
                             document is not None and metric is not None)
     except (ValueError, OSError, OverflowError):
-      return OffsetSnapshot(raw_doc, raw_unit, raw_control, raw_legacy, None, metric, False)
+      return OffsetSnapshot(raw_doc, raw_unit, raw_control, None, metric, False)
 
   def ready_to_enable(self) -> bool:
     snap = self.snapshot()
@@ -126,44 +121,36 @@ class SlcOffsetOwner:
     available = allowed and capable is not None
     repair_available = available if repair_allowed is None else repair_allowed and capable is not None
     deps = (("IsMetric", snap.raw_unit), ("SpeedLimitController", snap.raw_control))
-    if snap.raw_document is None:
-      deps += tuple(zip(OFFSET_KEYS, snap.raw_legacy, strict=True))
-    if snap.raw_document is None and isinstance(snap.document, od.OffsetDocument):
-      mode = "Saved legacy schedule"
-      action = FeatureRow("slc_adopt", "Adopt fixed offsets", "Keep these offsets and speed ranges when units change", None,
-                          available=repair_available, related_source=snap.raw_unit,
-                          capability=capable, dependencies=deps)
-    elif isinstance(snap.document, od.OffsetDocument):
+    if isinstance(snap.document, od.OffsetDocument):
       mode = "Fixed speed ranges"
-      action = None
     elif snap.document is od.NEEDS_REVIEW:
       mode = "Saved offsets need review; SLC control is paused"
-      action = None
     else:
       mode = "Invalid saved offsets; SLC control is paused"
-      action = None
     rows = [FeatureRow("", "Offset policy", mode)]
-    if action is not None:
-      rows.append(action)
     if isinstance(snap.document, od.OffsetDocument) and snap.metric is not None:
       unit = "km/h" if snap.metric else "mph"
-      scale = 1 / _unit_factor(snap.metric)
-      display_bounds = tuple(str(round(bound * scale)) for bound in snap.document.bounds_mps)
-      for index in range(7):
-        # Round presentation only: the stored SI boundaries remain authoritative.
-        label = f"{display_bounds[index]}–<{display_bounds[index + 1]} {unit}"
+      factor = _unit_factor(snap.metric)
+      scale = 1 / factor
+      display_bounds = tuple(_whole_limit_cutoff(bound, factor) for bound in snap.document.bounds_mps)
+      for index, (lower, next_lower) in enumerate(zip(display_bounds[:-1], display_bounds[1:], strict=True)):
+        upper = next_lower - 1
+        if lower > upper:
+          label = f"Band {index + 1} offset (no whole-number limits)"
+        else:
+          limits = str(lower) if lower == upper else f"{lower}–{upper}"
+          label = f"{limits} {unit} offset"
         value = _display(snap.document.offsets_mps[index] * scale)
-        rows.append(FeatureRow(OFFSET_KEYS[index], label + " offset", value, snap.raw_document,
-                               step=1 if snap.raw_document is not None else 0, unit=unit,
+        rows.append(FeatureRow(SLC_OFFSET_KEYS[index], label, value, snap.raw_document,
+                               step=1, unit=unit,
                                minimum=_minimum_offset(snap.document, index, snap.metric), maximum=150 if snap.metric else 99,
-                               available=available and snap.raw_document is not None,
-                               reason="Legacy value; adopt to edit" if snap.raw_document is None else
-                                      "Upper boundary excluded; displayed ranges rounded to whole speeds. Unsafe reductions use the unadjusted limit",
+                               available=available,
+                               reason="Ranges show whole-number posted limits. Unsafe reductions use the unadjusted limit",
                                related_source=snap.raw_unit, capability=capable, dependencies=deps,
                                display_unit=unit, default_value="0"))
       rows.append(FeatureRow("", f"{display_bounds[-1]} {unit} and above", "Zero offset"))
     else:
-      for index, key in enumerate(OFFSET_KEYS, start=1):
+      for index, key in enumerate(SLC_OFFSET_KEYS, start=1):
         label = f"Band {index} offset (invalid saved units)" if snap.metric is None else f"Band {index} offset"
         rows.append(FeatureRow(key, label, "Invalid saved offset or document", snap.raw_document,
                                reason="Unavailable until saved source is repaired"))
@@ -181,9 +168,7 @@ class SlcOffsetOwner:
 
   def _same(self, request: FeatureSettingsRequest, snap: OffsetSnapshot, *, require_capability: bool) -> bool:
     expected_deps = (("IsMetric", snap.raw_unit), ("SpeedLimitController", snap.raw_control))
-    if snap.raw_document is None:
-      expected_deps += tuple(zip(OFFSET_KEYS, snap.raw_legacy, strict=True))
-    authority = self.repair_parked if request.key in ("slc_adopt", "slc_reset") else self.parked
+    authority = self.repair_parked if request.key == "slc_reset" else self.parked
     return (authority() and (not require_capability or request.capability is not None and request.capability == self.capability()) and
             request.dependencies == expected_deps and
             self._raw(DOCUMENT_KEY) == request.expected and self._readable(DOCUMENT_KEY) and
@@ -192,37 +177,31 @@ class SlcOffsetOwner:
             snap.raw_control == self._raw("SpeedLimitController"))
 
   def apply(self, request: FeatureSettingsRequest) -> bool:
-    if request.key not in ("slc_adopt", "slc_reset", *OFFSET_KEYS):
+    if request.key not in ("slc_reset", *SLC_OFFSET_KEYS):
       return False
     with _LOCK:
       snap = self.snapshot()
       if not self._same(request, snap, require_capability=True):
         return False
       try:
-        if request.key == "slc_adopt":
-          if not request.confirmation or request.expected is not None or not isinstance(snap.document, od.OffsetDocument):
-            return False
-          result = snap.document
-        elif request.key == "slc_reset":
+        if request.key == "slc_reset":
           if not request.confirmation or snap.metric is None or \
              request.expected is None and isinstance(snap.document, od.OffsetDocument):
             return False
           if isinstance(snap.document, od.OffsetDocument):
             result = od.OffsetDocument(snap.document.bounds_mps, (0.0,) * 7)
           else:
-            result = od.adopt_legacy(snap.metric, (0.0,) * 7)
+            result = od.default_document(snap.metric)
         else:
-          if not isinstance(snap.document, od.OffsetDocument) or request.expected is None or snap.metric is None or \
+          if not isinstance(snap.document, od.OffsetDocument) or snap.metric is None or \
              request.direction not in (-1, 0, 1) or request.display_unit != ("km/h" if snap.metric else "mph"):
             return False
-          if request.key not in OFFSET_KEYS:
-            return False
-          index = OFFSET_KEYS.index(request.key)
+          index = SLC_OFFSET_KEYS.index(request.key)
           current = snap.document.offsets_mps[index]
           low, high = _minimum_offset(snap.document, index, snap.metric), 150.0 if snap.metric else 99.0
           factor = _unit_factor(snap.metric)
-          candidate = (float(request.value) * factor if request.direction == 0 else
-                       max(low * factor, min(high * factor, current + request.direction * factor)))
+          candidate = (round(float(request.value)) * factor if request.direction == 0 else
+                       max(low, min(high, round(current / factor) + request.direction)) * factor)
           if not math.isfinite(candidate) or not low * factor <= candidate <= high * factor:
             return False
           new_offsets = list(snap.document.offsets_mps)
@@ -238,68 +217,12 @@ class SlcOffsetOwner:
         return False
 
   def change_units(self, desired: bool, expected_unit: bytes | None) -> bool:
-    """Preserve an adopted SI schedule before the global presentation change."""
+    """Change display units without changing the saved physical offsets."""
     if type(desired) is not bool:
       return False
     with _LOCK:
-      snap = self.snapshot()
-      if not self._readable("IsMetric") or snap.raw_unit != expected_unit:
-        return False
-      if snap.metric is not None and snap.metric == desired:
-        return True
-      if (snap.raw_document is None and snap.raw_control in (None, b"0") and
-          isinstance(snap.document, od.OffsetDocument) and not any(snap.document.offsets_mps)):
-        result = commit_exact(self.params, key="IsMetric", max_bytes=8,
-                              raw=b"1" if desired else b"0", expected=expected_unit,
-                              authorized=lambda: self._same_unit_source(snap, None), temp_prefix=".display-units-")
-        return result.committed and result.verified
-      try:
-        protected_capability = None
-        migrating = False
-        written_document = None
-        if snap.raw_document is None:
-          if isinstance(snap.document, od.OffsetDocument):
-            if not self.repair_parked():
-              return False
-            protected_capability = self.capability()
-            migrating = True
-            if not self._same_unit_source(snap, protected_capability):
-              return False
-            self.params.put(DOCUMENT_KEY, od.to_value(snap.document), block=True)
-            written_document = snap.document
-          elif snap.raw_control not in (None, b"0"):
-            if not self.repair_parked() or not self._same_unit_source(snap, self.capability()):
-              return False
-            protected_capability = self.capability()
-            migrating = True
-            self.params.put(DOCUMENT_KEY, od.to_value(od.NEEDS_REVIEW), block=True)
-            written_document = od.NEEDS_REVIEW
-        if not self._readable("IsMetric") or self._raw("IsMetric") != expected_unit:
-          return False
-        if snap.raw_document is None:
-          written = self._raw(DOCUMENT_KEY)
-          if written_document is not None:
-            if written is None or not self._readable(DOCUMENT_KEY) or od.decode(written) != written_document:
-              return False
-          elif written is not None or not self._readable(DOCUMENT_KEY):
-            return False
-        elif self._raw(DOCUMENT_KEY) != snap.raw_document or not self._readable(DOCUMENT_KEY):
-          return False
-        if (snap.raw_document is None and
-            (not self._readable("SpeedLimitController") or self._raw("SpeedLimitController") != snap.raw_control) or
-            migrating and not self.repair_parked() or
-            protected_capability is not None and self.capability() != protected_capability):
-          return False
-        if snap.raw_document is None and written_document is None and not self._same_unit_source(snap, None):
-          return False
-        self.params.put_bool("IsMetric", desired, block=True)
-        return self._raw("IsMetric") == (b"1" if desired else b"0")
-      except (OSError, ValueError, TypeError, OverflowError):
-        return False
-
-  def _same_unit_source(self, snap: OffsetSnapshot, capability: tuple | None) -> bool:
-    return (self._readable(DOCUMENT_KEY) and self._raw(DOCUMENT_KEY) == snap.raw_document and
-            self._readable("IsMetric") and self._raw("IsMetric") == snap.raw_unit and
-            self._readable("SpeedLimitController") and self._raw("SpeedLimitController") == snap.raw_control and
-            all(self._readable(key) and self._raw(key) == raw for key, raw in zip(OFFSET_KEYS, snap.raw_legacy, strict=True)) and
-            (capability is None or self.repair_parked() and self.capability() == capability))
+      result = commit_exact(self.params, key="IsMetric", max_bytes=8,
+                            raw=b"1" if desired else b"0", expected=expected_unit,
+                            authorized=lambda: self._readable("IsMetric") and self._raw("IsMetric") == expected_unit,
+                            temp_prefix=".display-units-")
+      return result.committed and result.verified

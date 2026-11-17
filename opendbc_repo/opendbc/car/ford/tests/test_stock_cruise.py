@@ -91,13 +91,13 @@ def test_reached_controller_preserves_precedence_cadence_and_stock_bits():
 
 
 def test_unknown_ae_longitudinal_and_unpaired_profiles_deny_translation():
-  # Actual factory results, not fabricated safety words. Classic stock0 is unreached.
+  # Actual factory results, not fabricated safety words.
   fingerprint = gen_empty_fingerprint()
   fingerprint[0][0x5a] = 8
   fingerprint[2][0x3d6] = fingerprint[2][0x186] = 8
-  matrix = ((CAR.FORD_F_150_MK14, 66), (CAR.FORD_EDGE_MK2, 8),
+  matrix = ((CAR.FORD_F_150_MK14, 2), (CAR.FORD_EDGE_MK2, 8),
             (CAR.FORD_MONDEO_MK5, 10), (CAR.FORD_TRANSIT_MK5, 12),
-            (CAR.FORD_MUSTANG_MACH_E_MK1, 18))
+            (CAR.FORD_MUSTANG_MACH_E_MK1, 2), (CAR.FORD_BRONCO_SPORT_MK1, 0))
   for vehicle, word in matrix:
     actual = CarInterface.get_params(vehicle, fingerprint, [], False, False, False)
     assert actual.safetyConfigs[-1].safetyParam == word, vehicle
@@ -119,7 +119,7 @@ def test_unknown_ae_longitudinal_and_unpaired_profiles_deny_translation():
   cp.openpilotLongitudinalControl = True
   assert not qualified(cp)
   cp.openpilotLongitudinalControl = False
-  cp.safetyConfigs[-1].safetyParam = 19
+  cp.safetyConfigs[-1].safetyParam = 3
   assert not qualified(cp)
   for word in (0, 4, 34):
     cp.safetyConfigs[-1].safetyParam = word

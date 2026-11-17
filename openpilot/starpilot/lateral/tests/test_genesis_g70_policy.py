@@ -16,6 +16,7 @@ from opendbc.car.vehicle_model import VehicleModel
 from openpilot.selfdrive.controls.lib.latcontrol_torque import LatControlTorque
 from openpilot.starpilot.lateral.controller_selection import ControllerMode
 from openpilot.starpilot.lateral.torque_extension import selected_policy
+from openpilot.starpilot.lateral.torque_shaping import INTERP_SPEEDS, KP_INTERP, KP
 from openpilot.starpilot.lateral.genesis_g70_policy import supported_cp
 from openpilot.starpilot.lateral import genesis_g70_policy
 
@@ -37,6 +38,9 @@ def test_frozen_base_tuning_numeric_traces(_traffic, _damping, case_index):
   fixture = json.loads(FIXTURE.read_text())
   cp, controller, vm = controller_for()
   assert selected_policy(controller) is not None
+  assert controller.pid._k_p == [[0.0], [KP]]
+  # Isolate the historical gain schedule while keeping the original numeric traces frozen.
+  controller.pid._k_p = [list(INTERP_SPEEDS), list(KP_INTERP)]
   params = log.VehicleParameters.new_message(angleOffsetDeg=0.3, roll=0.006)
   for index, frame in enumerate(fixture['cases'][case_index]['frames']):
     active, speed, angle, pressed, limited, curve, curve_limited, delay = frame['input']

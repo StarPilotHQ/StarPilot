@@ -78,8 +78,11 @@ def test_resume_before_first_set_retains_established_lateral_owner(order):
       case.doCleanups()
 
 
-@pytest.mark.parametrize('fault', ['unarmed', 'pause', 'native_denied', 'native_invalid', 'panda_rx', 'eps_permanent', 'door', 'can_invalid'])
-def test_resume_refusal_never_bypasses_real_lateral_veto(fault):
+@pytest.mark.parametrize('fault,lateral_allowed', [
+  ('unarmed', False), ('pause', False), ('native_denied', False), ('native_invalid', False),
+  ('panda_rx', False), ('eps_permanent', False), ('door', True), ('can_invalid', False),
+])
+def test_resume_refusal_preserves_lateral_only_with_current_native_grant(fault, lateral_allowed):
   with OpenpilotPrefix():
     case, (sd, _, drive, card, receive) = make_callers()
     try:
@@ -107,9 +110,14 @@ def test_resume_refusal_never_bypasses_real_lateral_veto(fault):
       axis, selfdrive, command = drive(2, **options)
       assert EventName.resumeBlocked in sd.events.names
       assert not sd.enabled and not selfdrive.enabled and not command.longActive and not axis.longitudinalActive
-      assert not axis.lateralActive and not command.latActive
+      assert axis.lateralActive == command.latActive == lateral_allowed
       assert not command.cruiseControl.resume
       if fault in ('native_denied', 'native_invalid', 'panda_rx', 'eps_permanent', 'door', 'can_invalid'):
-        assert not receive(10_020_000_000, axis=sd.pm.messages['aolAxisState'], event=sd.pm.messages['onroadEvents'], state=state)
+        assert receive(10_020_000_000, axis=sd.pm.messages['aolAxisState'],
+                       event=sd.pm.messages['onroadEvents'], state=state) == lateral_allowed
+      if lateral_allowed:
+        assert EventName.doorOpen in sd.events.names
+        native = current_native(sd.sm, sd.CP, now_ns=10_020_000_000, axis_session_id=sd.aol_session_id)
+        assert native is not None and native.requestedLateral and native.lateralAllowed
     finally:
       case.doCleanups()

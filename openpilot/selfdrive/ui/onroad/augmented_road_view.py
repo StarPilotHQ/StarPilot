@@ -1,7 +1,7 @@
 import numpy as np
 from openpilot.starpilot.ui.camera_selection import (selected_camera_stream, WIDE_CAM_MAX_SPEED as WIDE_CAM_MAX_SPEED,
                                                     ROAD_CAM_MIN_SPEED as ROAD_CAM_MIN_SPEED)
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 from openpilot.cereal import log
 from openpilot.cereal.visionipc import VisionStreamType
 from openpilot.selfdrive.ui import UI_BORDER_SIZE

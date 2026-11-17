@@ -139,6 +139,11 @@ export class RasterMap {
     const theme = value === 'light' ? 'light' : 'dark'
     if (this.closed || this.theme === theme) return
     this.theme = theme
+    this.clearTiles()
+    this.changed('')
+    this.draw()
+  }
+  clearTiles() {
     for (const controller of this.pending.values()) controller.abort()
     this.pending.clear()
     for (const image of this.tiles.values()) image.close()
@@ -147,8 +152,6 @@ export class RasterMap {
     this.failures = 0
     clearTimeout(this.retryTimer)
     this.retryTimer = null
-    this.changed('')
-    this.draw()
   }
   pause() {
     if (this.follow) { this.follow = false; this.changed() }
@@ -206,6 +209,9 @@ export class RasterMap {
     if (data?.location && (this.locationFresh || data.location.lastKnown === true && !this.lastLocation)) {
       this.lastLocation = { ...data.location, bearing: Number.isFinite(data.location.bearing) ? data.location.bearing : this.lastLocation?.bearing }
     }
+    const provider = data?.mapProvider === 'google' && data?.hasGoogleKey && !data?.googleMap?.failure ? 'google' : 'mapbox'
+    if (this.provider && this.provider !== provider) this.clearTiles()
+    this.provider = provider
     this.data = data || {}
     this.stale = stale
     // A newly chosen route is shown whole once; Recenter returns to following the car.
@@ -253,7 +259,7 @@ export class RasterMap {
     for (let up = 1; up <= 5 && zoom - up >= 0; up++) {
       const image = this.tiles.get(`${zoom - up}/${x >> up}/${y >> up}`)
       if (image) {
-        const span = SIZE / 2 ** up
+        const span = (image.width || SIZE) / 2 ** up
         return [image, (x - ((x >> up) << up)) * span, (y - ((y >> up) << up)) * span, span]
       }
     }
@@ -348,8 +354,9 @@ export class RasterMap {
       timedOut = true;
       controller.abort()
     }, 8000)
+    const providerQuery = this.provider === 'google' ? '&provider=google' : ''
     try {
-      const response = await fetch(`./api/navigation/map/tiles/${key}.png?theme=${this.theme}`, {
+      const response = await fetch(`./api/navigation/map/tiles/${key}.png?theme=${this.theme}${providerQuery}`, {
         credentials: 'same-origin', signal: controller.signal
       });
       if (!response.ok) throw new Error('Map tiles unavailable')
@@ -359,22 +366,26 @@ export class RasterMap {
         return
       }
       this.tiles.set(key, image);
+      this.failed.delete(key);
       this.failures = 0
       while (this.tiles.size > TILE_BITMAPS) {
         const oldest = this.tiles.keys().next().value;
         this.tiles.get(oldest).close();
         this.tiles.delete(oldest)
       }
-      if (!this.failed.size) this.changed('')
+      this.changed('')
+      if (this.failed.size && !this.retryTimer) {
+        this.retryTimer = setTimeout(() => { this.retryTimer = null; this.retry() }, 400)
+      }
     } catch (error) {
       if (this.pending.get(key) === controller && (timedOut || !controller.signal.aborted)) {
         this.failed.add(key);
         if (this.failed.size > 64) this.failed.delete(this.failed.values().next().value);
         // A quick refusal (a busy moment) is retried quickly and silently; a hung request or a run of failures is reported.
         this.failures = (this.failures || 0) + 1
-        const persistent = timedOut || this.failures >= 6
+        const persistent = timedOut || this.failures >= 8
         if (persistent) this.changed('Map tiles unavailable. Check the saved key and connection. Reconnecting automatically…')
-        this.retryTimer ??= setTimeout(() => { this.retryTimer = null; this.retry() }, persistent ? 5000 : 800)
+        this.retryTimer ??= setTimeout(() => { this.retryTimer = null; this.retry() }, persistent ? 3000 : 600)
       }
     } finally {
       clearTimeout(timer);
@@ -410,6 +421,9 @@ export const NavigationMap = {
   props: ['data', 'stale'], data: () => ({
     error: '', map: null, locationFresh: false, lastLocation: null, following: true
   }),
+  computed: {
+    googleMap() { return this.data?.mapProvider === 'google' && !!this.data?.hasGoogleKey && !this.data?.googleMap?.failure },
+  },
   mounted() {
     this.map = markRaw(new RasterMap(this.$refs.canvas, (error) => {
       if (error !== undefined) this.error = error
@@ -447,9 +461,12 @@ export const NavigationMap = {
     <button type="button" class="gx-navigation-map__control" :class="{'gx-navigation-map__control--active':!following}" @click="map.recenter()" :aria-pressed="following" aria-label="Recenter and follow"><i class="bi bi-crosshair" aria-hidden="true"></i></button>
     </div>
     <GxNotice v-if="error" tone="danger">{{error}}</GxNotice>
-    <a class="gx-navigation-map__logo" href="https://www.mapbox.com/" target="_blank" rel="noopener noreferrer" aria-label="Mapbox">
+    <a v-if="!googleMap" class="gx-navigation-map__logo" href="https://www.mapbox.com/" target="_blank" rel="noopener noreferrer" aria-label="Mapbox">
     </a>
-    <div class="gx-navigation-map__credits">
+    <div v-if="googleMap" class="gx-navigation-map__credits">
+    <a class="gx-link" href="https://www.google.com/maps" target="_blank" rel="noopener noreferrer">Google Maps</a> · <span>{{ data?.googleMap?.copyright || 'Map data © Google' }}</span> · <a class="gx-link" href="https://www.google.com/intl/en-US_US/help/terms_maps/" target="_blank" rel="noopener noreferrer">Terms</a>
+    </div>
+    <div v-else class="gx-navigation-map__credits">
     <a class="gx-link" href="https://www.mapbox.com/about/maps/" target="_blank" rel="noopener noreferrer">© Mapbox</a> · <a class="gx-link" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap</a> · <a class="gx-link" href="https://apps.mapbox.com/feedback/" target="_blank" rel="noopener noreferrer">Improve this map</a>
     </div>
     </section>`

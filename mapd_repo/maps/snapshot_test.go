@@ -309,17 +309,25 @@ func pbfBlock(kind string, raw []byte) []byte {
 	data = append(data, header...)
 	return append(data, blob...)
 }
-func syntheticPBF() []byte {
+func syntheticPBF(tags ...string) []byte {
 	header := pbfBytesField(nil, 4, []byte("OsmSchema-V0.6"))
 	header = pbfBytesField(header, 5, []byte("LocationsOnWays"))
+	if len(tags) == 0 {
+		tags = []string{"highway", "residential", "maxspeed", "30 mph"}
+	}
 	var table []byte
-	for _, value := range []string{"", "highway", "residential", "maxspeed", "30 mph"} {
+	for _, value := range append([]string{""}, tags...) {
 		table = pbfBytesField(table, 1, []byte(value))
+	}
+	var keys, values []uint64
+	for i := 0; i < len(tags); i += 2 {
+		keys = append(keys, uint64(i+1))
+		values = append(values, uint64(i+2))
 	}
 	var way []byte
 	way = pbfVarintField(way, 1, 42)
-	way = pbfBytesField(way, 2, pbfPacked(1, 3))
-	way = pbfBytesField(way, 3, pbfPacked(2, 4))
+	way = pbfBytesField(way, 2, pbfPacked(keys...))
+	way = pbfBytesField(way, 3, pbfPacked(values...))
 	way = pbfBytesField(way, 8, pbfPacked(protowire.EncodeZigZag(1), protowire.EncodeZigZag(1)))
 	way = pbfBytesField(way, 9, pbfPacked(protowire.EncodeZigZag(351000000), protowire.EncodeZigZag(1000000)))
 	way = pbfBytesField(way, 10, pbfPacked(protowire.EncodeZigZag(-979000000), protowire.EncodeZigZag(0)))

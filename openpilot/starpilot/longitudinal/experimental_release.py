@@ -105,9 +105,14 @@ class ExperimentalRelease:
       self.release_until_ns = 0
     elif previous is not None and previous.experimental:
       self.release_until_ns = frame.now_ns + (LOW_SPEED_HOLD_NS if frame.speed < LOW_SPEED_MPS else HOLD_NS)
-    if (frame.now_ns >= self.release_until_ns or lead is None or frame.speed < 2.5 or lead.speed < 5.0 or
+    stopped_radar_lead = (key is not None and key[3] == 'conditional_experimental' and lead is not None and lead.radar and 0.0 < frame.speed < 2.5 and
+                          -0.5 <= lead.speed < 0.5 and abs(lead.acceleration) <= 0.2)
+    if (frame.now_ns >= self.release_until_ns or lead is None or
+        (not stopped_radar_lead and (frame.speed < 2.5 or lead.speed < 5.0)) or
         not -1.0 <= lead.speed - frame.speed <= 1.5 or max(0.0, -lead.acceleration) > 0.2 or
         (not lead.radar and lead.probability < 0.9) or abs(lead.lateral_offset) > 1.5 or
         lead.distance / max(frame.speed, 1e-3) < follow_seconds or target - previous_target < MIN_DELTA_A):
       return None
+    if stopped_radar_lead:
+      return min(target, max(0.0, previous_target) + ACCEL_STEP) if target > 0.0 else None
     return min(target, previous_target + ACCEL_STEP)

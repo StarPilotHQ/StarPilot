@@ -26,7 +26,7 @@ STREAMED = [
   (0, 9, "stage", {"state": "authenticating"}),
   (0, 10, "discovered", {"head_unit": {"2": ["Honda"], "3": ["Civic"], "4": ["2022"], "7": ["Alpine"], "8": ["HU-1"],
                                        "14": ["Danny's Civic"]}, "channels": []}),
-  (0, 11, "projection_ready", {"mode": {"width": 1280, "height": 720, "fps": 30, "margin_width": 0, "margin_height": 0}}),
+  (0, 11, "projection_ready", {"mode": {"width": 1280, "height": 720, "fps": 30, "margin_width": 0, "margin_height": 240, "density": 160}}),
   (0, 11, "frame_pipeline", {"nv12": True, "async_readback": True, "target_fps": 30, "encoder": "v4l2"}),
   (0, 12, "stage", {"state": "streaming"}),
   (0, 12, "video_acknowledged", {}),
@@ -54,6 +54,7 @@ def test_session_record_reports_stages_resolution_and_fps(tmp_path):
   assert record["stages"][2]["at_s"] == 6.0
   video = record["video"]
   assert video["resolution"] == "1280x720" and video["car_fps"] == 30 and video["target_fps"] == 30 and video["encoder"] == "v4l2"
+  assert video["screen"] == "1280x480" and video["margins"] == "0x240" and video["density_dpi"] == 160
   assert video["samples"] == 2 and video["fps_avg"] == 25.0 and video["fps_min"] == 20.0  # the unfocused sample is left out
   assert video["encode_peak_ms"] == 15.0 and video["wifi_dbm_min"] == -70 and video["encoder_recoveries"] == 1
   assert record["head_unit"] == {"head_unit_make": "Alpine", "head_unit_model": "HU-1", "car_make": "Honda",
@@ -70,7 +71,7 @@ def test_drive_event_groups_sessions_by_head_unit_and_weights_fps(tmp_path):
   assert crumbs[1]["message"] == "Attempt 1: wifi_join_failed at joining_wifi: TimeoutError" and crumbs[1]["category"] == "session 2"
   assert crumbs[1]["timestamp"] == "2026-10-16T12:00:30+00:00"
   assert event["level"] == "error" and event["tags"]["aa.outcome"] == "failed"
-  assert event["tags"]["aa.resolution"] == "1280x720" and event["tags"]["aa.fps"] == "25.0"
+  assert event["tags"]["aa.resolution"] == "1280x720" and event["tags"]["aa.screen"] == "1280x480" and event["tags"]["aa.fps"] == "25.0"
   drive = event["contexts"]["starport_drive"]
   assert drive["sessions"] == 2 and drive["failures"] == 1 and drive["fps_avg"] == 25.0 and drive["resolutions"] == ["1280x720"]
   assert "_report" not in event["contexts"]["starport_session_1"]
@@ -440,3 +441,127 @@ def test_pairing_that_failed_carries_a_device_slice_but_success_does_not(tmp_pat
   assert event["contexts"]["starport_pairing_system"]["bluetooth"]["lines"] == ["bt '<name>' up"]
   assert calls[0][1] - calls[0][0] == 30
   assert "starport_pairing_system" not in br.pairing_event({**record, "result": "paired"}, collector)["contexts"]
+
+
+OFFER = {"channels": [{"id": 3, "video_configs": [
+  {"1": [2], "10": [3], "3": [0], "4": [240]},
+  {"1": [8], "10": [7], "3": [288], "4": [1378]},
+  {"1": [7], "10": [7], "3": [0], "4": [811]}]}], "head_unit": {"2": ["Honda"]}}
+
+
+def adapter_session():
+  events: list = [list(item) for item in STREAMED]
+  events[0] = (0, 0, "session_start", {"receiver": "AAWireless", "trigger": "auto",
+                                       "setup": {"type": "adapter", "profile": "aawireless", "profile_source": "override"}})
+  events[5] = (0, 10, "discovered", {**OFFER, "head_unit": STREAMED[5][3]["head_unit"]})
+  events.insert(6, (0, 10, "bootstrap_start_response", {}))
+  events.insert(7, (0, 10, "bootstrap_version_reply", {"style": "modern", "channel_type": 1}))
+  events.insert(8, (0, 10, "bluetooth_opened", {"channel": 6, "phone_address": "39:90:21:64:07:00"}))
+  events.insert(9, (0, 11, "video_setup", {"mode": {"config_index": 0}, "window": 30, "used_window": 30}))
+  return events
+
+
+def test_report_keeps_setup_offered_modes_and_the_working_strategy(tmp_path):
+  record = br.session_record(write_session(tmp_path, 1, adapter_session()))
+  assert record["setup"] == {"type": "adapter", "profile": "aawireless", "profile_source": "override"}
+  assert record["offered_modes"] == ["1280x720 H.264 margins 0x240", "1440x2560 H.265 margins 288x1378", "1080x1920 H.265 margins 0x811"]
+  assert record["phone_address_sent"] is True
+  assert record["strategy"] == {"profile": "aawireless", "window_offered": 30, "window_used": 30,
+                                "reply_style": "modern", "channel_type": 1, "config_index": 0}
+  event = br.drive_event([record])
+  tags = event["tags"]
+  assert (tags["aa.setup_type"], tags["aa.adapter_model"], tags["aa.profile_source"], tags["aa.phone_address_sent"]) == (
+    "adapter", "aawireless", "override", "yes")
+  assert (tags["aa.reply_style"], tags["aa.wifi_channel_type"]) == ("modern", "1")
+  context = event["contexts"]["starport_session_1"]
+  assert context["offered_modes"] == record["offered_modes"] and context["strategy"]["reply_style"] == "modern"
+  assert "39:90:21:64:07:00" not in json.dumps(event)  # the comma's own address is sanitized from every field
+
+
+def test_report_records_that_the_address_was_not_sent_and_old_logs_still_report(tmp_path):
+  events: list = [list(item) for item in STREAMED]
+  events.insert(6, (0, 10, "bluetooth_opened", {"channel": 6, "phone_address": ""}))
+  assert br.drive_event([br.session_record(write_session(tmp_path, 1, events))])["tags"]["aa.phone_address_sent"] == "no"
+  current: list = [list(item) for item in STREAMED]
+  current.insert(6, (0, 10, "bluetooth_opened", {"channel": 6, "phone_address_sent": True, "has_car_address": True}))
+  assert br.session_record(write_session(tmp_path, 3, current))["phone_address_sent"] is True
+  old = br.session_record(write_session(tmp_path, 2, STREAMED))  # a log written before these fields existed
+  assert old["setup"] == {} and old["offered_modes"] == [] and old["phone_address_sent"] is None and old["strategy"] == {}
+  tags = br.drive_event([old])["tags"]
+  assert not any(key in tags for key in ("aa.setup_type", "aa.adapter_model", "aa.profile_source", "aa.phone_address_sent"))
+
+
+def test_unknown_setup_values_are_dropped(tmp_path):
+  events: list = [list(item) for item in STREAMED]
+  events[0] = (0, 0, "session_start", {"setup": {"type": "<script>", "profile": "x" * 90, "profile_source": "guess"}})
+  setup = br.session_record(write_session(tmp_path, 1, events))["setup"]
+  assert "type" not in setup and "profile_source" not in setup and len(setup["profile"]) <= 40
+
+
+def test_report_shows_what_the_ladder_tried_and_what_worked(tmp_path):
+  events: list = [list(item) for item in STREAMED]
+  events.insert(1, (0, 1, "ladder_strategy", {"rung": "standard", "learned": False}))
+  events.insert(2, (0, 5, "ladder_failed", {"outcome": "advanced", "rung": "standard", "next": "other_reply"}))
+  events.insert(3, (0, 6, "ladder_strategy", {"rung": "other_reply", "learned": False}))
+  events.append((1, 50, "ladder_worked", {"rung": "other_reply", "streamed_s": 62.0, "t_ready_s": 14.5}))
+  record = br.session_record(write_session(tmp_path, 1, events))
+  assert record["ladder"] == [{"rung": "standard", "learned": False, "at_s": 1.0, "outcome": "advanced"},
+                              {"rung": "other_reply", "learned": False, "at_s": 6.0, "outcome": "worked", "streamed_s": 62.0, "t_ready_s": 14.5}]
+  tags = br.drive_event([record])["tags"]
+  assert (tags["aa.ladder_rung"], tags["aa.ladder_learned"]) == ("other_reply", "no")
+  assert br.session_record(write_session(tmp_path, 2, STREAMED))["ladder"] == []   # older logs report nothing, without error
+
+
+def test_report_says_why_a_rung_failed_and_how_often_the_car_was_only_busy(tmp_path):
+  events: list = [list(item) for item in STREAMED]
+  events.insert(1, (0, 1, "ladder_strategy", {"rung": "standard", "learned": True}))
+  events.insert(2, (0, 60, "ladder_not_ready", {"rung": "standard", "refusals": 11}))
+  events.insert(3, (0, 61, "ladder_strategy", {"rung": "standard", "learned": True}))
+  events.insert(4, (0, 62, "ladder_strategy", {"rung": "other_reply", "learned": False}))
+  events.insert(5, (0, 62, "ladder_failed", {"outcome": "reverted", "rung": "other_reply", "reason": "rejected_reply"}))
+  ladder = br.session_record(write_session(tmp_path, 1, events))["ladder"]
+  assert ladder[0]["not_ready"] == 1 and "outcome" not in ladder[0]
+  assert (ladder[2]["outcome"], ladder[2]["reason"]) == ("reverted", "rejected_reply")
+
+
+def test_report_says_how_the_rfcomm_channel_was_found(tmp_path):
+  events: list = [list(item) for item in STREAMED]
+  events.insert(1, (0, 1, "sdp_retry", {"error": "x"}))
+  events.insert(2, (0, 2, "rfcomm_channel", {"channel": 8, "source": "sdp"}))
+  assert br.session_record(write_session(tmp_path, 1, events))["sdp"] == {"channel": 8, "source": "sdp", "retries": 1}
+  assert br.session_record(write_session(tmp_path, 2, STREAMED))["sdp"] == {}
+
+
+def test_trace_keeps_how_the_session_started_as_well_as_how_it_ended(tmp_path):
+  noisy = [(0, 0, "session_start", {}), (0, 1, "hfp_initiator", {"initiator": "car"})]
+  noisy += [(i // 60, i % 60, "sdp_retry", {"error": "x" * 250, "n": i}) for i in range(2, 400)]
+  noisy.append((9, 0, "attempt_failed", {"stage": "discovering", "error": "gone", "kind": "RuntimeError"}))
+  event = br.drive_event([br.session_record(write_session(tmp_path, 1, noisy))])
+  trace = event["contexts"]["starport_trace_session_1"]
+  names = [e["event"] for e in trace["events"]]
+  assert names[:2] == ["session_start", "hfp_initiator"] and names[-2:] == ["attempt_failed", "session_stop"]
+  assert trace["omitted"] > 0 and 0 < trace["head"] < len(names)
+  assert len(json.dumps(trace)) <= br.TRACE_SESSION_BYTES + 1024
+
+
+def test_fix_milestones_and_hangup_bucket_are_reported_without_changing_other_tags(tmp_path):
+  events = STREAMED[:10] + [
+    (0, 10, "fix_applied", {"rule": "gm_mychevrolet_w28e", "level": 1, "actions": ["open_bluetooth"]}),
+    (0, 11, "focus_requested", {}),
+    (0, 12, "video_focus", {"focused": True, "wait_s": 0.4}),
+    (0, 12, "video_acknowledged", {}),
+    (0, 40, "peer_requested_shutdown", {"reason": 1, "reason_label": "user_selection", "after_focus_s": 28.0}),
+    (0, 41, "fix_outcome", {"rule": "gm_mychevrolet_w28e", "level": 1, "verdict": "failed", "state": "trying"}),
+  ]
+  record = br.session_record(write_session(tmp_path, 1, events))
+  assert record["fixes"] == {"rule": "gm_mychevrolet_w28e", "level": 1, "focus_wait_s": 0.4, "shutdown": "user_selection",
+                             "after_focus_s": 28.0, "verdict": "failed", "state": "trying", "milestone": "video_acknowledged"}
+  tags = br.drive_event([record])["tags"]
+  assert tags["aa.fixes"] == "gm_mychevrolet_w28e:1" and tags["aa.fix_verdict"] == "failed"
+  assert tags["aa.milestone"] == "video_acknowledged"
+  plain = br.drive_event([br.session_record(write_session(tmp_path, 2, STREAMED))])["tags"]
+  assert not any(key in plain for key in ("aa.fixes", "aa.fix_verdict", "aa.hangup_after"))
+
+
+def test_hangup_bucket_edges():
+  assert [br.hangup_bucket(v) for v in (0, 9.9, 10, 29, 30, 119, 120, None)] == ["0-10s", "0-10s", "10-30s", "10-30s", "30-120s", "30-120s", ">120s", ""]

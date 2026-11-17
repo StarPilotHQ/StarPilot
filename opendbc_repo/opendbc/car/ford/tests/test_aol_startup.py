@@ -5,15 +5,17 @@ import pytest
 
 from opendbc.car import gen_empty_fingerprint, structs
 from opendbc.car.ford.interface import CarInterface
-from opendbc.car.ford.values import CAR
+from opendbc.car.ford.values import CAR, FordFlags
+from opendbc.bluepilot_lateral.core.values_ext import FordSafetyFlagsSP
+from opendbc.bluepilot_lateral.hosts.starpilot.safety_param import BP_SAFETY_PARAM_SHIFT
 
 
 PROFILES = (
-  (CAR.FORD_BRONCO_SPORT_MK1, 32), (CAR.FORD_ESCAPE_MK4, 32), (CAR.FORD_FOCUS_MK4, 32),
-  (CAR.FORD_MAVERICK_MK1, 32), (CAR.FORD_EXPLORER_MK6, 32),
-  (CAR.FORD_MUSTANG_MACH_E_MK1, 18), (CAR.FORD_ESCAPE_MK4_5, 66),
-  (CAR.FORD_EXPEDITION_MK4, 66), (CAR.FORD_F_150_MK14, 66),
-  (CAR.FORD_F_150_LIGHTNING_MK1, 66), (CAR.FORD_RANGER_MK2, 66),
+  (CAR.FORD_BRONCO_SPORT_MK1, 0), (CAR.FORD_ESCAPE_MK4, 0), (CAR.FORD_FOCUS_MK4, 0),
+  (CAR.FORD_MAVERICK_MK1, 0), (CAR.FORD_EXPLORER_MK6, 0),
+  (CAR.FORD_MUSTANG_MACH_E_MK1, 2), (CAR.FORD_ESCAPE_MK4_5, 2),
+  (CAR.FORD_EXPEDITION_MK4, 2), (CAR.FORD_F_150_MK14, 2),
+  (CAR.FORD_F_150_LIGHTNING_MK1, 2), (CAR.FORD_RANGER_MK2, 2),
   (CAR.FORD_EDGE_MK2, 8), (CAR.FORD_MONDEO_MK5, 10), (CAR.FORD_TRANSIT_MK5, 12),
 )
 
@@ -62,7 +64,6 @@ def run_startup(identity, base_word, alpha, release, topology, monkeypatch):
   from openpilot.selfdrive.car.card import Car
   from openpilot.selfdrive.controls.controlsd import Controls
   from openpilot.starpilot.aol.vehicle import policy_for
-  from openpilot.starpilot.controller_extensions import ManualTurnInputs
   from openpilot.starpilot.lateral.tests.test_lane_runtime import feed
 
   monkeypatch.setenv("SIMULATION", "1")
@@ -77,6 +78,8 @@ def run_startup(identity, base_word, alpha, release, topology, monkeypatch):
   initial_word = base_word | int(expected_long)
   expected_word = initial_word | (256 if topology == "manual" else 0)
   initial = CarInterface.get_params(identity, fingerprint, [], expected_long, release, False)
+  if not initial.flags & FordFlags.LKA_STEERING:
+    expected_word |= FordSafetyFlagsSP.BP_LATERAL << BP_SAFETY_PARAM_SHIFT
   initial.carVin = "0" * 17
   initial.carFw = []
   admitted = True
@@ -89,8 +92,7 @@ def run_startup(identity, base_word, alpha, release, topology, monkeypatch):
   with OpenpilotPrefix():
     saved = Params()
     for key, value in (("OpenpilotEnabledToggle", True), ("AlwaysOnLateral", True),
-                       ("AlphaLongitudinalEnabled", alpha), ("IsReleaseBranch", release),
-                       ("FordHumanTurnDetection", False)):
+                       ("AlphaLongitudinalEnabled", alpha), ("IsReleaseBranch", release)):
       saved.put_bool(key, value, block=True)
     observed = (identity, fingerprint, initial.carVin, [], initial.fingerprintSource, True)
     subscriber = messaging.sub_sock("carParams", timeout=100, conflate=True)
@@ -111,12 +113,6 @@ def run_startup(identity, base_word, alpha, release, topology, monkeypatch):
       assert policy.normal_runtime_supported == admitted
       assert ci.CP is card.CP
       assert ci.CC is not None
-      if base_word in (18, 32, 66):
-        owner = ci.CC.mache_lateral if base_word == 18 else ci.CC.classic_lateral
-        assert owner is not None
-        assert owner.CP is card.CP
-        assert isinstance(ci.CC.manual_turn_inputs, ManualTurnInputs)
-        assert not ci.CC.manual_turn_inputs.enabled
       if admitted:
         assert card.aol_card_intent is not None
         healthy = structs.CarState(canValid=True, canTimeout=False, gearShifter="drive", buttonEvents=[])
@@ -178,8 +174,6 @@ def run_startup(identity, base_word, alpha, release, topology, monkeypatch):
           assert active_command.enabled
           assert active_command.latActive == (acknowledged and not stale)
           assert not active_command.longActive
-      if base_word in (18, 32, 66):
-        assert not owner.human_turn_enabled
     finally:
       del controls, card, ci, subscriber
       gc.collect()

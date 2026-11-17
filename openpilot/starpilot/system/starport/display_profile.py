@@ -18,7 +18,7 @@ def validate_screen(value):
     raise ValueError('Invalid projection screen')
   if any(type(value[key]) is not int for key in FIELDS):
     raise ValueError('Invalid projection dimensions')
-  if ((value['width'], value['height']) not in ((800, 480), (1280, 720), (1920, 1080)) or
+  if ((value['width'], value['height']) not in ((800, 480), (1280, 720), (1920, 1080), (720, 1280)) or
       value['fps'] not in (30, 60) or not 0 <= value['config_index'] <= 255):
     raise ValueError('Unsupported projection screen')
   projection_geometry(value['width'], value['height'], value['margin_width'], value['margin_height'])

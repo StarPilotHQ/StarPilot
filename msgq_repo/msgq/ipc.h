@@ -41,6 +41,7 @@ public:
   int connect(std::string endpoint, bool conflate=false, size_t segment_size=0);
   void setTimeout(int timeout);
   msgq_queue_t * getQueue() {return q;}
+  bool fakeEventsConfigured() const {return fake_state != nullptr;}
   Message *receive(bool non_blocking=false);
   static SubSocket * create(std::string endpoint, bool conflate=false, size_t segment_size=0);
   ~SubSocket();

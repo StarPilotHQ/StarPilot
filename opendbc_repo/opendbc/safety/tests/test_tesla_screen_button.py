@@ -33,7 +33,8 @@ class TestTeslaScreenButton(unittest.TestCase):
       ('DAS_steeringControl', 2, {'DAS_steeringControlType': stock_type}),
       ('DI_speed', 0, {'DI_vehicleSpeed': 0}),
       ('ESP_B', 0, {'ESP_vehicleSpeed': 0, 'ESP_wheelSpeedsQF': 1, 'ESP_vehicleStandstillSts': 1}),
-      ('EPAS3S_sysStatus', 0, {'EPAS3S_internalSAS': 0, 'EPAS3S_eacStatus': eps, 'EPAS3S_handsOnLevel': hands}),
+      ('EPAS3S_sysStatus', 0, {'EPAS3S_internalSAS': 0, 'EPAS3S_eacStatus': eps, 'EPAS3S_handsOnLevel': hands,
+                             'EPAS3S_torsionBarTorque': 0}),
       ('DI_systemStatus', 0, {'DI_gear': gear, 'DI_accelPedalPos': 0}),
       ('ESP_status', 0, {'ESP_driverBrakeApply': 2 if brake else 1}),
       ('UI_warning', 0, {'anyDoorOpen': int(door), 'buckleStatus': int(belt)}),
@@ -75,7 +76,7 @@ class TestTeslaScreenButton(unittest.TestCase):
     self.touch(3)
     self.assertEqual(self.permission(), 0)
 
-  def test_cruise_baseline_screen_override_and_main_cycle(self):
+  def test_cruise_baseline_screen_override_and_real_engagement(self):
     self.feed(state=1)
     self.assertEqual(self.permission(), 1)
     self.touch(0)
@@ -88,7 +89,91 @@ class TestTeslaScreenButton(unittest.TestCase):
     self.assertEqual(self.permission(), 0)
     self.feed(state=0)
     self.feed(state=1)
+    self.assertEqual(self.permission(), 0, 'availability is not a new driver engagement')
+    self.feed(state=2)
     self.assertEqual(self.permission(), 1)
+
+  def test_availability_cycles_cannot_rearm_a_cleared_permission(self):
+    for word in (512, 1536):
+      for fault in ({'door': True}, {'eps': 3}, {'hands': 3}, {'gear': 0}):
+        with self.subTest(word=word, fault=fault):
+          self.start(word)
+          self.arm()
+          self.feed(state=1)
+          self.feed(state=1, **fault)
+          self.assertEqual(self.permission(), 0)
+          for state in (0, 1, 0, 1):
+            self.feed(state=state)
+            self.assertEqual(self.permission(), 0)
+          self.arm()
+
+  def test_availability_loss_preserves_only_explicit_screen_arm(self):
+    tx_packer = CANPackerSafety('tesla_model3_party')
+    for word in (512, 768, 1536, 1792):
+      with self.subTest(word=word):
+        self.start(word)
+        self.arm()
+        self.touch(0)
+        for state in (1, 0, 1, 0, 1):
+          self.feed(state=state)
+          self.assertEqual(self.permission(3), 1)
+          positive = tx_packer.make_can_msg_safety('DAS_control', 0, {'DAS_accelMin': 1, 'DAS_accelMax': 1})
+          self.assertFalse(self.lib.safety_tx_hook(positive))
+        self.touch(3)
+        self.assertEqual(self.permission(), 0)
+        for state in (0, 1, 0, 1):
+          self.feed(state=state)
+          self.assertEqual(self.permission(), 0)
+
+        self.start(word)
+        self.feed(state=1)
+        self.assertEqual(self.permission(), 1)
+        self.feed(state=0)
+        self.assertEqual(self.permission(), 0)
+        self.feed(state=1)
+        self.assertEqual(self.permission(), 0)
+
+  def test_cruise_fault_clears_screen_arm_and_blocks_gestures(self):
+    for word in (512, 768, 1536, 1792):
+      with self.subTest(word=word):
+        self.start(word)
+        self.arm()
+        self.feed(state=1)
+        self.feed(state=5)
+        self.assertEqual(self.permission(), 0)
+        self.touch(0)
+        self.touch(3)
+        self.assertEqual(self.permission(), 0)
+        for state in (0, 1):
+          self.feed(state=state)
+          self.assertEqual(self.permission(), 0)
+        self.arm()
+
+  def test_availability_loss_cannot_hide_physical_fault_or_brake(self):
+    for word in (512, 768, 1536, 1792):
+      faults = [{'door': True}, {'eps': 3}, {'hands': 3}, {'gear': 0}, {'autopark': 3}]
+      if word & 1024:
+        faults.append({'brake': True})
+      for fault in faults:
+        with self.subTest(word=word, fault=fault):
+          self.start(word)
+          self.arm()
+          self.feed(state=1)
+          self.feed(state=0, **fault)
+          self.assertEqual(self.permission(), 0)
+          for state in (0, 1, 0, 1):
+            self.feed(state=state)
+            self.assertEqual(self.permission(), 0)
+
+  def test_brake_disengagement_cannot_be_undone_by_availability(self):
+    self.start(1536)
+    self.arm()
+    self.feed(state=1, brake=True)
+    self.assertEqual(self.permission(), 0)
+    for state in (0, 1, 0, 1):
+      self.feed(state=state)
+      self.assertEqual(self.permission(), 0)
+    self.arm()
 
   def test_brake_word_and_physical_faults_withdraw(self):
     for word in (512, 1536):
@@ -200,7 +285,7 @@ class TestTeslaScreenButton(unittest.TestCase):
     self.assertFalse(self.lib.safety_tx_hook(steering))
 
   def test_screen_namespace_excludes_hw1_neighbors_and_unknown_flags(self):
-    for word in (16 | 512, 1024, 514, 1538, 512 | 256, 0xFFFF):
+    for word in (16 | 512, 1024, 514, 1538, 512 | 2048, 16 | 256, 0xFFFF):
       self.assertEqual(self.lib.set_safety_hooks(10, word), -1, hex(word))
 
   def test_exact_long_words_debug_authority_and_release_rejection(self):

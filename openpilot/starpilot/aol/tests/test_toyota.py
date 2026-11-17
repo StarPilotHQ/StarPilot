@@ -122,6 +122,19 @@ class TestHighlanderAol(unittest.TestCase):
         self._assert_card_full_axis_transport(car, True, prepared_cp=cp,
                                              filter_disabled=disabled, late_disable=late)
 
+  def test_continental_radar_metadata_keeps_exact_stock_owner(self):
+    for car in (CAR.TOYOTA_CHR_TSS2, CAR.TOYOTA_RAV4_TSS2_2022):
+      for alpha in (False, True):
+        with self.subTest(car=car, alpha=alpha):
+          cp = CarInterface.get_params(car, gen_empty_fingerprint(), [], alpha, False, False)
+          cp.flags |= int(ToyotaFlags.ARS510_RADAR)
+          expected = car == CAR.TOYOTA_RAV4_TSS2_2022 and not alpha
+          self.assertEqual(qualified(cp), expected)
+          cp.alternativeExperience = 32
+          self.assertEqual(qualified(cp, marked_only=True), expected)
+          cp.flags |= int(ToyotaFlags.ARS510_FUSED)
+          self.assertFalse(qualified(cp))
+
   def test_radar_torque_factory_stock_and_alpha_transport(self):
     from opendbc.car.toyota.carcontroller import CarController
     from opendbc.car.toyota.carstate import CarState

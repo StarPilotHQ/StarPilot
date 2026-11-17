@@ -2,7 +2,6 @@
 import pytest
 from unittest.mock import patch
 from opendbc.can import CANPacker
-from opendbc.car import gen_empty_fingerprint
 from opendbc.car.toyota.interface import CarInterface
 from opendbc.car.toyota.radar_interface import RadarInterface
 from opendbc.car.toyota.values import CAR
@@ -12,13 +11,13 @@ from openpilot.selfdrive.controls.radard import RadarD
 from openpilot.common.prefix import OpenpilotPrefix
 
 
-def setup():
-  cp=CarInterface.get_params(CAR.TOYOTA_CAMRY,gen_empty_fingerprint(),[],False,False,False)
+def setup(alpha=False):
+  cp=CarInterface.get_params(CAR.TOYOTA_CAMRY,{0: {0x2FF: 4}, 1: {}, 2: {}},[],alpha,False,False)
   assert not cp.radarUnavailable
   return cp,RadarInterface(cp),CANPacker('toyota_radar_dsu_tssp'),CANPacker('toyota_nodsu_pt_generated')
 
 
-def batch(radar,pt,tick,*,target=True,wheels=True,bus=1,omit=None):
+def batch(radar,pt,tick,*,target=True,wheels=True,bus=1,omit=None,lateral=1.5):
   frames=[]
   if wheels:
     frames.append(pt.make_can_msg('WHEEL_SPEEDS',0,{f'WHEEL_SPEED_{c}':36. for c in ('FL','FR','RL','RR')}))
@@ -27,18 +26,21 @@ def batch(radar,pt,tick,*,target=True,wheels=True,bus=1,omit=None):
       if address==omit:
         continue
       fields={'ID':3 if target and address==0x680 else 63,'LONG_DIST':30. if target and address==0x680 else 0.,
-              'LAT_DIST':1.5,'SPEED':10.,'LAT_SPEED':.2}
+              'LAT_DIST':lateral,'SPEED':10.,'LAT_SPEED':.2 if lateral > 0 else -.2}
       frames.append(radar.make_can_msg(address,bus,fields))
   return [(1_000_000_000+tick*10_000_000,frames)]
 
 
-def test_cluster_factory_can_card_and_radard(tmp_path):
+@pytest.mark.parametrize('lateral', (-1.5, 1.5))
+@pytest.mark.parametrize('alpha', (False, True))
+def test_cluster_factory_can_card_and_radard(tmp_path, lateral, alpha):
   with OpenpilotPrefix():
-    _check_card_and_radard()
+    _check_card_and_radard(lateral, alpha)
 
 
-def _check_card_and_radard():
-  cp,ri,rp,pt=setup()
+def _check_card_and_radard(lateral, alpha):
+  cp,ri,rp,pt=setup(alpha)
+  assert cp.openpilotLongitudinalControl == alpha
   ci=CarInterface(cp)
   host=Car(CI=ci,RI=ri)
   published={}
@@ -46,13 +48,14 @@ def _check_card_and_radard():
   capture.start()
   try:
     for tick in range(1,51):
-      result=host.radar_update(batch(rp,pt,tick))
+      result=host.radar_update(batch(rp,pt,tick,lateral=lateral))
       host.radar_publish(result)
     rd=published['radarTracks'].radarTracks
     assert len(rd.points)==1 and not rd.errors.canError
     point=rd.points[0]
     assert point.dRel==pytest.approx(30.,abs=.03)
-    assert point.yRel==pytest.approx(-1.5,abs=.02)
+    assert point.yRel==pytest.approx(lateral,abs=.02), 'CAMRY_CLUSTER_SIDE_MIRRORED'
+    assert point.deprecated.yvRel==pytest.approx(.2 if lateral > 0 else -.2,abs=.01)
     assert point.vRel==pytest.approx(10.-10.*cp.wheelSpeedFactor*.922,abs=.08)
     sm=messaging.SubMaster(['modelV2','carState'])
     model=messaging.new_message('modelV2',valid=True)
@@ -64,6 +67,7 @@ def _check_card_and_radard():
     fused.update(sm,rd)
     assert len(fused.tracks)==1
     assert next(iter(fused.tracks.values())).dRel==pytest.approx(point.dRel)
+    assert next(iter(fused.tracks.values())).yRel==pytest.approx(point.yRel)
     for tick in range(51,61):
       host.radar_publish(host.radar_update(batch(rp,pt,tick,target=False)))
     assert len(published['radarTracks'].radarTracks.points)==0

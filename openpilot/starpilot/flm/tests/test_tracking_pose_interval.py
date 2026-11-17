@@ -43,6 +43,24 @@ class TestTrackingPoseInterval(unittest.TestCase):
     assert selected[0] is rows[0][0] and selected[1] is rows[0][1]
     assert rows[0][1].apply_ns == 1_000_000_000
 
+  def test_unknown_older_profile_outside_causal_interval_does_not_replace_pair(self):
+    owner = subject()
+    rows = [pair(owner, stamp) for stamp in (990_000_000, 1_000_000_000, 1_010_000_000)]
+    rows[0][0].applied_coordinates = (0.001, 0.)
+    pose = SimpleNamespace(source_lower_ns=1_005_000_000, source_upper_ns=1_015_000_000)
+    selected = owner.original_pose_pair(rows, pose)
+    assert selected is not None
+    assert selected[0] is rows[1][0] and selected[1] is rows[1][1]
+
+  def test_unknown_newer_profile_outside_causal_interval_does_not_replace_pair(self):
+    owner = subject()
+    rows = [pair(owner, stamp) for stamp in (1_000_000_000, 1_010_000_000, 1_020_000_000)]
+    rows[-1][0].applied_coordinates = (0.001, 0.)
+    pose = SimpleNamespace(source_lower_ns=1_005_000_000, source_upper_ns=1_015_000_000)
+    selected = owner.original_pose_pair(rows, pose)
+    assert selected is not None
+    assert selected[0] is rows[0][0] and selected[1] is rows[0][1]
+
   def test_plant_model_keeps_single_emission_requirement(self):
     owner = subject(False)
     rows = [pair(owner, 1_000_000_000), pair(owner, 1_010_000_000)]

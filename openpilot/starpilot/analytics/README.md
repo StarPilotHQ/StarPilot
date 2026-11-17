@@ -1,7 +1,9 @@
 # Usage statistics
 
 The manager worker reports to `stats.firestar.link` after a drive and
-once after startup with a valid clock. It starts requests only while offroad.
+once after startup with a valid clock and a previously verified model.
+Fresh installs wait for an observed running model before reporting; a saved
+model selection is not evidence that the model ran. It starts requests only while offroad.
 Reporting failures do not affect manager process health or engagement.
 
 Reports contain the branch and commit, device type, vehicle fingerprint,

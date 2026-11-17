@@ -7,6 +7,7 @@ from opendbc.car.toyota.values import ToyotaFlags
 
 from openpilot.selfdrive.selfdrived.events import Events
 from openpilot.starpilot.car.events import event_rules, unsupported_gear
+from openpilot.starpilot.car.ford.aol import stock_conventional_cruise_supported
 
 ButtonType = structs.CarState.ButtonEvent.Type
 GearShifter = structs.CarState.GearShifter
@@ -19,6 +20,8 @@ class CarEvents:
     self.CP = CP
     self.event_rules = event_rules(CP)
 
+    from opendbc.car.gm.values import is_volt_cc_profile
+    self.volt_cc_profile = CP.brand == "gm" and is_volt_cc_profile(CP)
     self.steering_unpressed = 0
     self.low_speed_alert = False
     self.no_steer_warning = False
@@ -62,7 +65,8 @@ class CarEvents:
       # TODO: when we check for unexpected disengagement, check gear not S1, S2, S3
       if self.CP.openpilotLongitudinalControl:
         # Only can leave standstill when planner wants to move
-        if CS.cruiseState.standstill and not CS.brakePressed and (CC.cruiseControl.resume or self.CP.flags & ToyotaFlags.HYBRID.value):
+        if (not self.CP.autoResumeSng and CS.standstill and CS.cruiseState.standstill and not CS.brakePressed and
+            (CC.cruiseControl.resume or self.CP.flags & ToyotaFlags.HYBRID.value)):
           events.add(EventName.resumeRequired)
         if CS.vEgo < self.CP.minEnableSpeed:
           events.add(EventName.belowEngageSpeed)
@@ -74,9 +78,16 @@ class CarEvents:
             events.add(EventName.manualRestart)
 
     elif self.CP.brand == 'gm':
+      if self.volt_cc_profile:
+        # Conventional LONG requires the car's cruise acknowledgment. MAIN alone
+        # still arms independent steering and cannot create a LONG engagement.
+        if (CS.canValid and not CS.canTimeout and CS.cruiseState.available and CS.cruiseState.enabled and
+            (CS.buttonEnable or not CS_prev.cruiseState.enabled)):
+          events.add(EventName.buttonEnable)
       # Enabling at a standstill with brake is allowed
       # TODO: verify 17 Volt can enable for the first time at a stop and allow for all GMs
-      if CS.vEgo < self.CP.minEnableSpeed and not (CS.standstill and CS.brakePressed and
+      # Zero permits standstill, including a filtered-speed undershoot below zero.
+      if self.CP.minEnableSpeed > 0. and CS.vEgo < self.CP.minEnableSpeed and not (CS.standstill and CS.brakePressed and
                                                    self.CP.networkLocation == NetworkLocation.fwdCamera):
         events.add(EventName.belowEngageSpeed)
       if CS.cruiseState.standstill:
@@ -128,7 +139,7 @@ class CarEvents:
       events.add(EventName.stockLkas)
     if CS.vEgo > MAX_CTRL_SPEED:
       events.add(EventName.speedTooHigh)
-    if CS.cruiseState.nonAdaptive:
+    if CS.cruiseState.nonAdaptive and not stock_conventional_cruise_supported(self.CP):
       events.add(EventName.wrongCruiseMode)
     if CS.brakeHoldActive and self.CP.openpilotLongitudinalControl:
       events.add(EventName.brakeHold)
@@ -152,7 +163,7 @@ class CarEvents:
       events.add(EventName.invalidLkasSetting)
     if CS.lowSpeedAlert:
       events.add(EventName.belowSteerSpeed)
-    if CS.buttonEnable:
+    if CS.buttonEnable and not self.volt_cc_profile:
       events.add(EventName.buttonEnable)
 
     # Handle cancel button presses

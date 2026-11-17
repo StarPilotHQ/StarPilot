@@ -3,6 +3,7 @@ import { GxState } from "./state.js"
 import { GxNotice } from "./notice.js"
 import { reactive } from "../vendor/vue/vue.esm-browser.js"
 import { LiveCameraPreview } from "./cameras.js"
+import { whiteBalancePref } from "./white-balance.js"
 import { BluetoothNotice, bluetoothConnection } from "./bluetooth-notice.js"
 import { SettingsFeed, isPipCropRow, settingsBusy } from "./settings.js"
 import { GalaxySettingRow } from "./galaxy-setting-row.js"
@@ -42,9 +43,10 @@ export const PipPage = {
         }
       }
     } })
-    return { state, feed, FORMATS, SIDES, bluetooth: bluetoothConnection() }
+    return { state, feed, FORMATS, SIDES, bluetooth: bluetoothConnection(), pref: whiteBalancePref }
   },
   mounted() {
+    this.pref.load()
     this._dragIndex = -1
     this._dragSide = null
     this.liveCamera = new LiveCameraPreview({
@@ -57,6 +59,7 @@ export const PipPage = {
   },
   updated() { this.$nextTick(() => this.redraw()) },
   beforeUnmount() { this.liveCamera.stop(); this.feed.stop() },
+  watch: { "pref.on"() { this.liveCamera?.refresh() } },
   computed: {
     controls() { return (this.state.data?.rows || []).map((row, index) => ({ row, index }))
       .filter(({ row }) => !isPipCropRow(row) && !/camera availability/i.test(row.label)) },

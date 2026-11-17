@@ -13,7 +13,7 @@ from openpilot.starpilot.soloist import credentials, preferences
 from openpilot.starpilot.soloist.paths import Layout
 
 SESSION = ('token', 1)
-DEVICES = [{'address': 'AA:BB:CC:DD:EE:FF', 'name': 'My Car', 'paired': True, 'connected': True},
+DEVICES = [{'address': 'AA:BB:CC:DD:EE:FF', 'name': 'My Car', 'paired': True, 'connected': True, 'audioSink': True},
            {'address': '11:22:33:44:55:66', 'name': 'Nearby', 'paired': False, 'connected': False}]
 
 
@@ -58,7 +58,7 @@ def test_status_never_contains_the_key(owner):
   setup.set_key(SESSION, 'sk_live_0123456789abcdef')
   status = setup.status(SESSION)
   assert status['keyPresent'] is True and 'sk_live' not in json.dumps(status)
-  assert status['devices'] == [{'address': 'AA:BB:CC:DD:EE:FF', 'name': 'My Car', 'connected': True}]
+  assert status['devices'] == [{'address': 'AA:BB:CC:DD:EE:FF', 'name': 'My Car', 'connected': True, 'audioSink': True}]
   assert status['links']['download'].startswith('https://developer.spotify.com/')
   with pytest.raises(SetupRejected):
     setup.set_key(SESSION, 'bad key')

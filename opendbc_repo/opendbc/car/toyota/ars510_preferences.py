@@ -1,4 +1,4 @@
-"""Explicit startup radar selection; never changes ECU or native safety permissions."""
+"""Automatic supported-vehicle radar selection; never changes ECU or native safety permissions."""
 
 from opendbc.car import structs
 from opendbc.car.toyota.values import ARS510_RADAR_CAR, ToyotaFlags
@@ -16,13 +16,13 @@ def supported(cp):
   )
 
 
-def apply_radar_mode(cp, mode):
-  if not supported(cp) or type(mode) is not int or mode not in (1, 2):
+def configure_radar(cp):
+  if not supported(cp):
+    return False
+  cp.flags &= ~int(ToyotaFlags.ARS510_RADAR | ToyotaFlags.ARS510_FUSED)
+  if cp.flags & ToyotaFlags.DISABLE_RADAR:
+    cp.radarUnavailable = True
     return False
   cp.flags |= int(ToyotaFlags.ARS510_RADAR)
-  if mode == 2:
-    cp.flags |= int(ToyotaFlags.ARS510_FUSED)
-  else:
-    cp.flags &= ~int(ToyotaFlags.ARS510_FUSED)
   cp.radarUnavailable = False
   return True

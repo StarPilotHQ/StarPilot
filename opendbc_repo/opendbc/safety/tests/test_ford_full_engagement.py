@@ -5,7 +5,7 @@ import pytest
 from opendbc.car import structs
 from opendbc.safety.tests.test_ford_aol import TestFordAolDriverIntent as _FordNative
 
-WORDS = (8, 9, 10, 11, 12, 13, 18, 19, 32, 33, 66, 67)
+WORDS = (0, 1, 2, 3, 8, 9, 10, 11, 12, 13)
 
 
 @pytest.fixture
@@ -94,7 +94,7 @@ def test_full_engagement_never_bypasses_native_qualification(ford_native, word, 
 def test_full_engagement_token_dies_on_source_health_heartbeat_or_permanent_eps(ford_native):
   n = ford_native
   for fault in ('health', 'heartbeat', 'eps'):
-    select(n, 32)
+    select(n, 0)
     n.pump(40, main=3)
     n.pump(10, main=4, mask=1)
     n.rx('EngBrakeData', {'BpedDrvAppl_D_Actl': 2, 'CcStat_D_Actl': 3})

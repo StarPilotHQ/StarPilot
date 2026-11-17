@@ -1,5 +1,6 @@
 """Original EPS66 Prius four-byte filter; no smartDSU status is inferred."""
 from opendbc.car import structs
+from opendbc.car.config_cache import cached_config
 from opendbc.car.toyota.advert_filter import AdvertFilterCANParser
 from opendbc.car.toyota.values import CAR, ToyotaFlags
 
@@ -41,6 +42,7 @@ def apply(cp):
   cp.alphaLongitudinalAvailable = False
 
 
+@cached_config
 def configured(cp):
   from opendbc.car.toyota.pedal_composite import parent_cp
   cp = parent_cp(cp)

@@ -1,6 +1,7 @@
 
 from openpilot.common.parameterized import parameterized
 from openpilot.common.test import OpenpilotTestCase
+from openpilot.system.hardware import fan_controller
 from openpilot.system.hardware.fan_controller import FanController
 
 ALL_CONTROLLERS = [FanController]
@@ -45,3 +46,37 @@ class TestFanController(OpenpilotTestCase):
     for _ in range(10):
       controller.update(90, True)
     assert controller.update(90, True) >= 60
+
+  def test_aggressive_runs_more_fan(self):
+    for temp in (70., 75., 80.):
+      stock, aggressive = FanController(2), FanController(2)
+      for _ in range(20):
+        stock_out = stock.update(temp, True)
+        aggressive_out = aggressive.update(temp, True, True)
+      assert aggressive_out > stock_out, temp
+
+  def test_aggressive_keeps_offroad_limit(self):
+    controller = FanController(2)
+    for _ in range(1000):
+      controller.update(100, False, True)
+    assert controller.update(100, False, True) <= 30
+
+  def test_mode_switch_starts_from_clean_state(self):
+    controller = FanController(2)
+    for _ in range(1000):
+      controller.update(100, True)
+    fresh = FanController(2)
+    fresh.update(70, True)
+    assert controller.update(70, True, True) == fresh.update(70, True, True)
+
+  def test_mici_ignores_aggressive(self):
+    original = fan_controller.IS_MICI
+    fan_controller.IS_MICI = True
+    try:
+      stock, aggressive = FanController(2), FanController(2)
+      for _ in range(20):
+        stock_out = stock.update(70, True)
+        aggressive_out = aggressive.update(70, True, True)
+      assert aggressive_out == stock_out
+    finally:
+      fan_controller.IS_MICI = original

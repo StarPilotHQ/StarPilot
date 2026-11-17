@@ -20,6 +20,7 @@ from openpilot.starpilot.conditional_mode.preferences import (
   SavedPreferences, decode_preferences, saved_selection_for_drive,
 )
 from openpilot.starpilot.saved_source import read_saved
+from openpilot.starpilot.conditional_mode.policy import ModeChoice
 
 
 DOCUMENT_KEY = 'ConditionalModeConfig'
@@ -114,7 +115,10 @@ def _document(raw: bytes | None, readable: bool) -> tuple[DocumentState, SavedPr
   if raw is None:
     return DocumentState.ABSENT, SavedPreferences()
   try:
-    return DocumentState.VALID, decode_preferences(raw)
+    preferences = decode_preferences(raw)
+    if preferences.mode is ModeChoice.CCM:
+      preferences = replace(preferences, mode=ModeChoice.CEM)
+    return DocumentState.VALID, preferences
   except PreferenceError:
     return DocumentState.INVALID, None
 

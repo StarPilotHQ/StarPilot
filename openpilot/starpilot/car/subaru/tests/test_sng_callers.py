@@ -8,6 +8,7 @@ import pytest
 from opendbc.can import CANParser
 from opendbc.car import Bus, gen_empty_fingerprint, structs
 from opendbc.car.subaru.values import CAR, DBC
+from opendbc.car.subaru.stock_aol import IMPREZA_MAIN_AOL
 from opendbc.car.subaru.fingerprints import FW_VERSIONS
 from opendbc.safety.tests.libsafety import libsafety_py
 from openpilot.cereal import messaging
@@ -71,7 +72,8 @@ def test_sng_actual_stock_callers(candidate, software, aol, subaru_native_pair, 
     safety = libsafety_py.libsafety
     assert cp.pcmCruise and not cp.openpilotLongitudinalControl and not cp.alphaLongitudinalAvailable
     assert cp.alternativeExperience == (32 if aol else 0) and not cp.dashcamOnly
-    assert cp.safetyConfigs[0].safetyParam == (520 if software else 8) and cp.autoResumeSng
+    expected_word = (520 if software else 8) | (IMPREZA_MAIN_AOL if aol and candidate == CAR.SUBARU_IMPREZA_2020 else 0)
+    assert cp.safetyConfigs[0].safetyParam == expected_word and cp.autoResumeSng
     sd, controls = SelfdriveD(CP=cp), Controls()
     stream = CompleteCan(ci)
     safety.init_tests()

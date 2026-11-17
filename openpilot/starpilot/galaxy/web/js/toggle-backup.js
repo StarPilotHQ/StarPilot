@@ -8,7 +8,7 @@ export const ToggleBackup = {
   name: "ToggleBackup",
   components: { GxDialog, GxNotice },
   props: { unauthorized: { type: Function, required: true } },
-  data: () => ({ busy: false, draft: null, legacy: false, error: "", notice: "" }),
+  data: () => ({ busy: false, draft: null, resetDraft: null, legacy: false, error: "", notice: "" }),
   methods: {
     async request(path, payload) {
       try {
@@ -51,6 +51,32 @@ export const ToggleBackup = {
         }
       } catch (error) { this.draft = null; this.error = error.message || "Could not read toggle backup." }
     },
+    async reviewResetDefaults() {
+      if (this.busy) return
+      this.busy = true; this.resetDraft = null; this.error = this.notice = ""
+      try {
+        const snapshot = await this.request("./api/settings/non-defaults")
+        const selected = snapshot.rows.filter(row => row.resetAvailable === true).map(row => row.id)
+        if (!selected.length) {
+          if (snapshot.count) throw new Error("Park the vehicle before resetting available toggles.")
+          this.notice = "All available toggles already use their defaults."
+          return
+        }
+        this.resetDraft = await this.request("./api/settings/recovery/preview", { view: snapshot.view, selected })
+      } catch (error) { this.error = error.message || "Could not prepare toggle reset." }
+      finally { this.busy = false }
+    },
+    async resetDefaults() {
+      if (this.busy || !this.resetDraft) return
+      const pending = this.resetDraft
+      this.resetDraft = null; this.busy = true; this.error = this.notice = ""
+      try {
+        const result = await this.request("./api/settings/recovery/confirm", { intent: pending.intent, confirmed: true })
+        if (!result.saved) throw new Error(`${result.applied.length} settings reset. ${result.reason || "Review Toggles before retrying."}`)
+        this.notice = `${result.applied.length} ${result.applied.length === 1 ? "setting" : "settings"} reset to default.`
+      } catch (error) { this.error = error.message || "Could not reset toggles. Review Toggles before retrying." }
+      finally { this.busy = false }
+    },
     async restoreBackup() {
       if (this.busy || !this.draft) return
       const draft = this.draft, legacy = this.legacy
@@ -75,12 +101,20 @@ export const ToggleBackup = {
     <div class="gx-section__header"><i class="bi bi-cloud-arrow-down" aria-hidden="true"></i><span class="gx-section__title">Toggle backup</span></div><p class="gx-note">Save your editable toggles, onroad layout and colors. Restore compatible settings while parked.</p>
     <div class="gx-actions"><button type="button" class="gx-btn gx-btn--tonal" @click="exportBackup">Back up toggles</button>
       <button type="button" class="gx-btn gx-btn--tonal" @click="$refs.file.click()">Restore toggles</button>
+      <button type="button" class="gx-btn gx-btn--tonal" @click="reviewResetDefaults">Reset toggles to default</button>
       <input ref="file" type="file" accept=".json,application/json" class="gx-sr-only" tabindex="-1" aria-label="Choose toggle backup" @change="chooseFile"></div>
     <p v-if="busy" class="gx-note" role="status"><span class="gx-spinner" aria-hidden="true"></span> Working…</p>
     <GxNotice v-if="notice" tone="success">{{ notice }}</GxNotice><GxNotice v-if="error" tone="danger">{{ error }}</GxNotice>
     <GxDialog v-if="draft" :inert="busy" labelledby="gx-toggle-restore-title" @close="draft=null"><h3 id="gx-toggle-restore-title">Restore {{ legacy ? 'layout' : 'toggles' }}?</h3>
       <p>{{ legacy ? 'Replace your saved layout and colors?' : 'Apply the compatible saved toggles, layout and colors from this backup? Unavailable settings will be skipped.' }} Keep the vehicle parked.</p>
       <div class="gx-actions"><button type="button" class="gx-btn gx-btn--tonal" @click="draft=null">Cancel</button><button type="button" class="gx-btn" @click="restoreBackup">Restore</button></div>
+    </GxDialog>
+    <GxDialog v-if="resetDraft" :inert="busy" labelledby="gx-toggle-reset-title" @close="resetDraft=null">
+      <h3 id="gx-toggle-reset-title">Reset toggles to default?</h3>
+      <p>{{ resetDraft.question }}</p>
+      <p>Keep the vehicle parked. Settings unavailable for this vehicle are left unchanged. Calibration, downloaded models, accounts and network credentials are kept.</p>
+      <div class="gx-actions"><button type="button" class="gx-btn gx-btn--tonal" @click="resetDraft=null">Cancel</button>
+        <button type="button" class="gx-btn" @click="resetDefaults">Reset toggles</button></div>
     </GxDialog>
   </section>`,
 }

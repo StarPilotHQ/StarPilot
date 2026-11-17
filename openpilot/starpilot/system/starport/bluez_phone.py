@@ -16,6 +16,7 @@ This module adds and releases the phone-specific profiles and identity:
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import threading
@@ -43,6 +44,21 @@ HFP_PROFILE_PATH = "/link/firestar/starpilot/starport/hfp_ag"
 HFP_RETRY_SECONDS = 30.0
 PHONE_MAJOR_CLASS = 2   # Phone
 PHONE_MINOR_CLASS = 3   # Smartphone (minor field value; 0x00020c as a full CoD)
+STRAY_HANDLE_RE = re.compile(r"ACL packet for unknown connection handle (\d+)")
+KNOWN_HANDLE_RE = re.compile(r"\bhandle (\d+)\b")
+QCA_DEBUG_HANDLE = 3804  # Qualcomm firmware debug packets, never a real link
+MAX_ACL_HANDLE = 0x0EFF
+
+
+def stray_acl_handle(kernel_log: str) -> int | None:
+  """The most recent ACL handle the kernel reported data for without knowing the link, or None."""
+  handles = [int(value) for value in STRAY_HANDLE_RE.findall(kernel_log)]
+  handles = [handle for handle in handles if handle != QCA_DEBUG_HANDLE and handle <= MAX_ACL_HANDLE]
+  return handles[-1] if handles else None
+
+
+def known_acl_handles(hcitool_con: str) -> set[int]:
+  return {int(value) for value in KNOWN_HANDLE_RE.findall(hcitool_con)}
 
 
 def address_from_path(path: str) -> str:
@@ -294,6 +310,36 @@ class BluezPhone:
     if not commands:
       self.log("class_command_unavailable")
     return False
+
+  def disconnect_stray_link(self) -> int | None:
+    """Drop a link the controller still holds but the kernel forgot ("ACL packet for unknown connection handle N").
+
+    BlueZ cannot see that link, so only a raw HCI Disconnect reaches it. Returns the handle, or None when there
+    was nothing it was safe to drop.
+    """
+    try:
+      kernel = subprocess.run(["journalctl", "-k", "--since=-60s", "-o", "cat", "--no-pager"],
+                              capture_output=True, text=True, timeout=5).stdout
+      handle = stray_acl_handle(kernel)
+      if handle is None:
+        self.log("stray_link_not_found")
+        return None
+      connections = subprocess.run(["hcitool", "con"], capture_output=True, text=True, timeout=5)
+      if connections.returncode != 0 or handle in known_acl_handles(connections.stdout):
+        self.log("stray_link_skipped", handle=handle, reason="the kernel knows this handle or could not list links")
+        return None
+      # HCI Disconnect (OGF 0x01, OCF 0x0006): handle little-endian, reason 0x13 (remote user terminated)
+      result = subprocess.run(["sudo", "-n", "hcitool", "-i", "hci0", "cmd", "0x01", "0x0006",
+                               f"{handle & 0xFF:#04x}", f"{handle >> 8:#04x}", "0x13"],
+                              capture_output=True, text=True, timeout=5)
+      if result.returncode != 0:
+        self.log("stray_link_failed", handle=handle, error=result.stderr.strip()[-200:])
+        return None
+    except (OSError, subprocess.TimeoutExpired) as error:
+      self.log("stray_link_failed", error=str(error))
+      return None
+    self.log("stray_link_disconnected", handle=handle)
+    return handle
 
   def set_trusted(self, address: str) -> None:
     info = self.device(address)

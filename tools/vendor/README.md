@@ -35,3 +35,34 @@ checks reject that layout.
 
 Dependency provenance checks do not replace runtime, firmware, or vehicle
 qualification for an update.
+
+## Local Mapd integration
+
+`mapd_repo/` contains tracked source with StarPilot changes. The static Linux
+ARM64 executable and its source/hash manifest are also tracked, under
+`openpilot/starpilot/maps/provider/`. The upstream pin identifies the original
+merge base; it does not require this source folder to match upstream exactly.
+
+The local `limit_preview.go` helper publishes bounded, data-only speed-limit
+previews from the provider's qualified road evidence. Python SLC owns advance
+timing, offsets, confirmations, overrides and vehicle commands. Preserve the
+preview lifecycle hooks, matching/schema changes and Go/Python regression tests
+together when updating the provider.
+
+Fixed one-way generation and closed-loop entry are backported from
+[pfeiferj/mapd PR #105](https://github.com/pfeiferj/mapd/pull/105), merged as
+`92a22aaac0396330d0db40432407f011ff723553`. Reverse one-way roads reverse their
+nodes and both directional speed-tag pairs. Closed two-way loops cannot qualify
+an early preview because their entry direction is ambiguous. Generator changes
+apply to newly generated tiles; existing downloaded tiles are not rewritten.
+
+Use the sync command above with dependency `mapd_repo` for upstream updates.
+It preserves committed local changes through a three-way merge and stops on
+conflicts; a normal update does not require manually reapplying this feature.
+Review the merged behavior and run the provider and host SLC/wire tests. Follow
+`mapd_repo/INTEGRATION.md` if changed schemas require regenerating Go bindings.
+
+After changing provider source or its upstream pin, run `./build --mapd`, then
+`python3 tools/release/stage_mapd_provider.py --source . --require-tracked`.
+Commit the source, bindings, tests, executable and manifest together. Existing
+package checks reject a binary whose recorded source or upstream pin is stale.

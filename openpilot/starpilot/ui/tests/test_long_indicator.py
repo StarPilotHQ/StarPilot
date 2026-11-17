@@ -1,216 +1,209 @@
+from dataclasses import replace
 from types import SimpleNamespace as NS
 from typing import cast
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import pytest
 
-from openpilot.cereal import log
-from openpilot.selfdrive.ui.mici.onroad import long_indicator as indicator
+from openpilot.selfdrive.ui.mici.onroad import long_indicator as native
+from openpilot.starpilot.ui import onroad_personality as indicator
+from openpilot.starpilot.ui.onroad_customization import default_document
+from openpilot.starpilot.ui.onroad_state import AlertSize, OnroadAlert, OnroadState, SpeedLimitObservation
+from openpilot.starpilot.ui.presentation import BitmapFonts, Profile
+from openpilot.starpilot.ui.traffic_status import TrafficDisplay
+
+
+def road(**changes):
+  return replace(OnroadState(True, False, 15, 80, SpeedLimitObservation(),
+                             longitudinal_active=True, lead_detected=True), **changes)
 
 
 @pytest.fixture
 def display(monkeypatch):
-  class Messages(dict):
-    recv_frame = {'selfdriveState': 12}
-    alive = {'longitudinalPlan': True, 'carControl': True}
-  sm = Messages(selfdriveState=NS(enabled=True, active=True, personality=NS(raw=1), alertSize=log.SelfdriveState.AlertSize.none),
-                longitudinalPlan=NS(hasLead=True, longitudinalPlanSource=log.LongitudinalPlan.LongitudinalPlanSource.e2e),
-                carControl=NS(longActive=True), onroadEvents=[])
-  state = NS(sm=sm, started_frame=10, has_longitudinal_control=True)
-  monkeypatch.setattr(indicator, 'ui_state', state)
-  monkeypatch.setattr(indicator.rl, 'get_time', lambda: 1.)
-  with patch.object(indicator.gui_app, 'texture', side_effect=lambda path, *args, **kwargs: path):
-    widget = indicator.LongIndicator()
+  monkeypatch.setattr(indicator.gui_app, 'texture', lambda path: NS(path=path, width=200, height=200))
+  monkeypatch.setattr(rl, 'get_time', lambda: 1.)
+  fonts = cast(BitmapFonts, NS(profile=Profile.COMPACT, measure=Mock(return_value=NS(width=20)), draw=Mock()))
+  widget = indicator.PersonalityWidget(fonts)
   widget._draw_centered = Mock()
-  widget.set_should_draw(True)
-  return widget, state
+  return widget
 
 
-@pytest.mark.parametrize('missing', ['longitudinal', 'engagement', 'drive'])
-def test_no_longitudinal_indicator_from_unavailable_or_previous_drive(display, missing):
-  widget, state = display
-  if missing == 'longitudinal':
-    state.has_longitudinal_control = False
-  elif missing == 'engagement':
-    state.sm['selfdriveState'].enabled = False
-  else:
-    state.started_frame = 13
-  widget._render(rl.Rectangle(0, 0, 476, 240))
-  widget._draw_centered.assert_not_called()
+def settle(widget, state):
+  for _ in range(90):
+    widget.render(state)
+  return widget._draw_centered.call_args_list[-8:]
 
 
-@pytest.mark.parametrize('source', tuple(log.LongitudinalPlan.LongitudinalPlanSource.schema.enumerants))
-def test_indicator_tracks_lead_policy_and_yields_to_alerts(display, source):
-  widget, state = display
-  state.sm['longitudinalPlan'].longitudinalPlanSource = source
-  rect = rl.Rectangle(0, 0, 476, 240)
-  for _ in range(60):
-    widget._render(rect)
-  lead_draws = widget._draw_centered.call_args_list[-8:-6]
-  assert lead_draws[1].args[0].endswith('car_green.png')
-  assert lead_draws[1].args[3] > .95
-  for has_lead, alive in ((False, True), (True, False)):
-    state.sm['longitudinalPlan'].hasLead = has_lead
-    state.sm.alive['longitudinalPlan'] = alive
-    for _ in range(60):
-      widget._render(rect)
-    lead_draws = widget._draw_centered.call_args_list[-8:-6]
-    assert lead_draws[0].args[3] == pytest.approx(.35, abs=.001)
-    assert lead_draws[1].args[3] < .001
-  state.sm['selfdriveState'].alertSize = log.SelfdriveState.AlertSize.full
-  for _ in range(60):
-    widget._render(rect)
-  assert all(call.args[3] < .001 for call in widget._draw_centered.call_args_list[-8:])
+@pytest.mark.parametrize('profile', list(Profile))
+@pytest.mark.parametrize('personality', range(3))
+def test_same_selected_bars_and_lead_on_both_profiles(display, profile, personality):
+  display.fonts.profile = profile
+  draws = settle(display, road(personality=personality))
+  assert draws[1].args[3] > .999
+  assert all(draws[2 + 2*i].args[3] == pytest.approx(.9 if i <= personality else .35, abs=.001) for i in range(3))
+  for has_lead, active, white, green in ((False, True, .35, 0), (True, False, 1, 0), (True, True, 0, 1)):
+    draws = settle(display, road(lead_detected=has_lead, longitudinal_active=active))
+    assert draws[0].args[3] == pytest.approx(white, abs=.001)
+    assert draws[1].args[3] == pytest.approx(green, abs=.001)
 
 
-def test_stock_indicator_fits_bottom_right_and_moved_personality_slot(display, monkeypatch):
-  widget, _ = display
-  widget._draw_centered = indicator.LongIndicator._draw_centered.__get__(widget)
-  monkeypatch.setattr(widget, 'render', widget._render)
-  widget._txt_lead_car = (NS(width=35, height=27), NS(width=50, height=42))
-  widget._txt_distance = [(NS(width=w, height=h), NS(width=gw, height=gh))
-                          for w, h, gw, gh in ((32, 7, 60, 35), (40, 9, 68, 37), (48, 11, 76, 39))]
+@pytest.mark.parametrize('traffic', (False, True))
+def test_art_scales_uniformly_without_clipping_or_downsized_source_textures(display, monkeypatch, traffic):
+  def draw_all_art_opaque(art, rect, y, alpha, *args, **kwargs):
+    return indicator.PersonalityWidget._draw_centered(art, rect, y, 1., *args, **kwargs)
+  display._draw_centered = draw_all_art_opaque
   draw = Mock()
-  monkeypatch.setattr(rl, 'draw_texture_ex', draw)
-  for rect in (rl.Rectangle(476, 160, 60, 80), rl.Rectangle(476, 160, 60, 66), rl.Rectangle(300, 20, 60, 80)):
+  monkeypatch.setattr(rl, 'draw_texture_pro', draw)
+  state = road(traffic_mode=traffic, traffic_display=TrafficDisplay('active', 'TRAFFIC') if traffic else None)
+  bounds = []
+  for profile in (Profile.COMPACT, Profile.LARGE):
+    display.fonts.profile = profile
     draw.reset_mock()
-    widget.render_sidebar(rect)
-    assert draw.call_count == 8
-    for call in draw.call_args_list:
-      texture, pos, _, scale, _ = call.args
-      assert rect.x <= pos.x and pos.x + texture.width * scale <= rect.x + rect.width
-      assert rect.y <= pos.y and pos.y + texture.height * scale <= rect.y + rect.height
-    assert not widget._sidebar
+    display.render(state)
+    x, y, width, height = (476, 160, 60, 80) if profile == Profile.COMPACT else (88, 804, 150, 200)
+    destinations = [call.args[2] for call in draw.call_args_list]
+    assert len(destinations) == 8
+    assert all(x <= r.x < r.x + r.width <= x + width and y <= r.y < r.y + r.height <= y + height for r in destinations)
+    bounds.append([(r.x-x, r.y-y, r.width, r.height) for r in destinations])
+    assert all(call.args[1].width == 200 for call in draw.call_args_list)
+  for compact, large in zip(*bounds, strict=True):
+    assert large == pytest.approx(tuple(value * 2.5 for value in compact), abs=.0001)
 
 
-def test_stock_sidebar_preserves_traffic_accent_then_restores_personality(display, monkeypatch):
-  widget, _ = display
-  monkeypatch.setattr(widget, 'render', widget._render)
-  rect = rl.Rectangle(476, 160, 60, 80)
-  widget.render_sidebar(rect, traffic_mode=True)
-  first_bar = widget._draw_centered.call_args_list[-6]
-  assert first_bar.args[4] == (200, 32, 48)
-  for _ in range(60):
-    widget.render_sidebar(rect)
-  bars = widget._draw_centered.call_args_list[-6::2]
-  assert bars[1].args[3] > bars[2].args[3]
-  assert all(call.args[4] == (255, 255, 255) for call in bars)
+def test_selection_highlight_waits_for_alert_and_then_expires(display, monkeypatch):
+  settle(display, road(personality=1))
+  monkeypatch.setattr(rl, 'get_time', lambda: 1.1)
+  assert settle(display, road(personality=2))[7].args[3] > .999
+  monkeypatch.setattr(rl, 'get_time', lambda: 2.)
+  settle(display, road(personality=2, alert=OnroadAlert(AlertSize.MID)))
+  monkeypatch.setattr(rl, 'get_time', lambda: 4.)
+  assert settle(display, road(personality=2))[7].args[3] > .999
+  monkeypatch.setattr(rl, 'get_time', lambda: 4.6)
+  assert settle(display, road(personality=2))[7].args[3] < .001
 
 
-@pytest.mark.parametrize('missing', ['longitudinal', 'engagement', 'drive'])
-def test_sidebar_keeps_selected_personality_without_claiming_active_control(display, monkeypatch, missing):
-  widget, state = display
-  if missing == 'longitudinal':
-    state.has_longitudinal_control = False
-  elif missing == 'engagement':
-    state.sm['selfdriveState'].enabled = False
-  else:
-    state.started_frame = 13
-  monkeypatch.setattr(widget, 'render', widget._render)
-  for _ in range(60):
-    widget.render_sidebar(rl.Rectangle(476, 160, 60, 80), personality=0)
-  draws = widget._draw_centered.call_args_list[-8:]
-  assert draws[0].args[3] == pytest.approx(1., abs=.001)
-  assert draws[1].args[3] < .001
-  assert draws[2].args[3] > .89
+def test_gas_override_blinks_only_selected_bars_and_clears_on_disengagement(display, monkeypatch):
+  monkeypatch.setattr(rl, 'get_time', lambda: 1.1)
+  state = road(personality=1, gas_pressed_override=True)
+  draws = settle(display, state)
+  assert draws[2].args[3] == pytest.approx(.35, abs=.001)
   assert draws[4].args[3] == pytest.approx(.35, abs=.001)
   assert draws[6].args[3] == pytest.approx(.35, abs=.001)
+  display.render(replace(state, longitudinal_active=False))
+  draws = display._draw_centered.call_args_list[-8:]
+  assert draws[1].args[3] == 0
+  assert draws[2].args[3] == pytest.approx(.9, abs=.001)
+  monkeypatch.setattr(rl, 'get_time', lambda: 1.2)
+  assert settle(display, state)[2].args[3] == pytest.approx(.9, abs=.001)
 
 
-def test_sidebar_disengagement_clears_active_lead_and_gas_override_immediately(display, monkeypatch):
-  widget, state = display
-  monkeypatch.setattr(widget, 'render', widget._render)
-  monkeypatch.setattr(indicator.rl, 'get_time', lambda: 1.1)
-  rect = rl.Rectangle(476, 160, 60, 80)
-  for _ in range(60):
-    widget.render_sidebar(rect, personality=1, longitudinal_active=True)
-  assert widget._draw_centered.call_args_list[-7].args[3] > .95
-  state.sm['onroadEvents'] = [NS(name=log.OnroadEvent.EventName.gasPressedOverride)]
-  widget.render_sidebar(rect, personality=1, longitudinal_active=False)
-  draws = widget._draw_centered.call_args_list[-8:]
-  assert draws[0].args[3] == pytest.approx(1., abs=.001)
-  assert draws[1].args[3] == 0.0
-  assert draws[2].args[3] > .89
-  assert draws[4].args[3] > .89
+@pytest.mark.parametrize('profile', list(Profile))
+def test_traffic_accent_is_stable_without_labels_and_restores_personality(display, profile):
+  display.fonts.profile = profile
+  state = road(personality=2, traffic_mode=True, traffic_display=TrafficDisplay('active', 'TRAFFIC'))
+  draws = settle(display, state)
+  assert draws[2].args[4] == (200, 32, 48)
+  assert draws[4].args[3] == pytest.approx(.35, abs=.001)
+  assert all(draws[i].args[3] < .001 for i in (3, 5, 7))
+  original_rect = draws[2].args[1]
+  for status in ('paused', 'unavailable_source', 'unavailable_profile', None):
+    draws = settle(display, replace(state, traffic_mode=False, traffic_selected=True,
+                                    gas_pressed_override=True,
+                                    traffic_display=TrafficDisplay(status, '') if status else None))
+    assert draws[2].args[4] == (200, 32, 48)
+    assert draws[2].args[3] == pytest.approx(.9, abs=.001)
+    rect = draws[2].args[1]
+    assert (rect.x, rect.y, rect.width, rect.height) == (original_rect.x, original_rect.y, original_rect.width, original_rect.height)
+  draws = settle(display, replace(state, traffic_mode=False, traffic_selected=False, traffic_display=TrafficDisplay('off', 'OFF')))
+  assert all(draws[i].args[3] == pytest.approx(.9, abs=.001) for i in (2, 4, 6))
+  display.fonts.draw.assert_not_called()
 
 
-@pytest.mark.parametrize('ordered', [False, True])
-@pytest.mark.parametrize('moved', [False, True])
-def test_lane_change_notice_keeps_compact_rail_without_covering_urgent_alerts(display, monkeypatch, ordered, moved):
-  from dataclasses import replace
+def test_large_default_sits_left_of_driver_monitor_and_custom_positions_stay_put(display):
+  display.fonts.profile = Profile.LARGE
+  state = road(right_hand_drive=True)
+  display.render(state)
+  assert display._draw_centered.call_args.args[1].x == 1280
+  document = default_document()
+  document['layouts']['large']['following_distance'].update(x=600, y=300)
+  display.render(replace(state, customization=document))
+  rect = display._draw_centered.call_args.args[1]
+  assert (rect.x, rect.y) == (600, 300)
 
-  from openpilot.cereal import messaging
-  from openpilot.starpilot.ui import onroad
+
+@pytest.mark.parametrize('profile', list(Profile))
+def test_hidden_widget_and_driver_camera_do_not_paint(display, profile):
+  from openpilot.starpilot.ui.appearance_preferences import CameraViewChoice
+  display.fonts.profile = profile
+  document = default_document()
+  document['layouts'][profile]['following_distance']['enabled'] = False
+  display.render(road(customization=document))
+  state = road()
+  display.render(replace(state, appearance=replace(state.appearance, camera_view=CameraViewChoice.DRIVER)))
+  display._draw_centered.assert_not_called()
+
+
+@pytest.mark.parametrize('missing', ['longitudinal', 'engagement', 'drive'])
+def test_native_recovery_indicator_keeps_its_original_availability_guard(monkeypatch, missing):
+  class Messages:
+    recv_frame = {'selfdriveState': 12}
+    def __getitem__(self, key):
+      return NS(enabled=missing != 'engagement')
+  sm = Messages()
+  ui = NS(sm=sm, started_frame=13 if missing == 'drive' else 10, has_longitudinal_control=missing != 'longitudinal')
+  monkeypatch.setattr(native, 'ui_state', ui)
+  widget = native.LongIndicator()
+  widget.indicator = Mock()
+  widget._render(rl.Rectangle(0, 0, 476, 240))
+  widget.indicator.draw.assert_not_called()
+  widget.indicator.reset.assert_called_once()
+
+
+@pytest.mark.parametrize('profile', list(Profile))
+@pytest.mark.parametrize('ordered', (False, True))
+def test_shared_widget_is_in_both_layer_orders(display, profile, ordered):
+  from openpilot.starpilot.ui.onroad import OnroadView
   from openpilot.starpilot.ui.onroad_compact_widgets import MiciSidebarWidgets
-  from openpilot.starpilot.ui.onroad_customization import default_document, DEFAULT_WIDGET_ORDER
-  from openpilot.starpilot.ui.onroad_state import OnroadState, SpeedLimitObservation
-  from openpilot.starpilot.ui.presentation import BitmapFonts, Profile
-  from openpilot.starpilot.ui.runtime_app import StarShellSession
-  from openpilot.starpilot.ui.runtime_snapshot import current_alert
-  from openpilot.starpilot.ui.tests.test_runtime_snapshot import NOW, ui_fake
+  from openpilot.starpilot.ui.onroad_customization import DEFAULT_WIDGET_ORDER
+  display.fonts.profile = profile
+  view = OnroadView.__new__(OnroadView)
+  view.fonts, view.personality, view.projection_viewport = display.fonts, display, None
+  view.compact_sidebar = MiciSidebarWidgets(display.fonts)
+  view.compact_sidebar.personality = display
+  document = default_document()
+  if ordered:
+    document['widgetOrder'] = {profile: list(reversed(DEFAULT_WIDGET_ORDER[profile]))}
+  view._ordered_widgets(rl.Rectangle(0, 0, *profile.size), road(customization=document), only_widget='following_distance')
+  assert display._draw_centered.call_count == 8
 
-  widget, _ = display
-  monkeypatch.setattr(widget, 'render', widget._render)
-  session = StarShellSession.__new__(StarShellSession)
-  session.camera_owner = NS(_long_indicator=widget)
-  fonts = cast(BitmapFonts, NS(profile=Profile.COMPACT, draw=Mock(), measure=Mock(return_value=NS(width=100, height=30))))
-  rail = MiciSidebarWidgets(fonts)
-  rail.personality_renderer = session._render_personality
-  rail._conditional = Mock()  # Unrelated CEM icon; confidence and native bars remain real.
-  view = onroad.OnroadView.__new__(onroad.OnroadView)
-  view.fonts, view.compact_sidebar = fonts, rail
-  for name in ('navigation', 'compact_hud', 'torque_bar', 'alert'):
-    setattr(view, name, Mock())
-  for name in ('camera_layer', 'background_layer', 'projection_viewport', 'extra_overlays', '_fade'):
-    setattr(view, name, None)
+
+@pytest.mark.parametrize('profile', list(Profile))
+@pytest.mark.parametrize('moved', (False, True))
+def test_routine_lane_guidance_keeps_widget_and_urgent_alerts_hide_it(display, profile, moved):
+  display.fonts.profile = profile
   document = default_document()
   if moved:
-    document['layouts']['compact']['model_confidence'].update(x=200, y=20)
-    document['layouts']['compact']['following_distance'].update(x=260, y=20)
-  if ordered:
-    document['widgetOrder'] = {'compact': list(DEFAULT_WIDGET_ORDER['compact'])}
-  base = OnroadState(True, False, 15, 80, SpeedLimitObservation(), customization=document,
-                    lateral_active=True, longitudinal_active=True, personality=1,
-                    stock_confidence_source_fresh=True, stock_confidence_source_stamp_ns=NOW,
-                    stock_confidence_drive_frame=1, model_confidence=.9)
-  ui = ui_fake()
-  cases = [('preLaneChangeLeft/warning', 'mid', 'normal', 'none', True),
-           ('preLaneChangeRight/warning', 'mid', 'normal', 'none', True),
-           ('preLaneChangeLeft/warning', 'small', 'normal', 'none', True),
-           ('laneChange/warning', 'small', 'normal', 'none', True),
-           ('laneChangeBlocked/warning', 'small', 'userPrompt', 'none', False),
-           ('preLaneChangeLeft/warning', 'mid', 'critical', 'none', False),
-           ('preLaneChangeLeft/warning', 'full', 'normal', 'none', False),
-           ('preLaneChangeLeft/warning', 'mid', 'normal', 'steerRequired', False)]
-  with patch.object(onroad.clip, 'begin_scissor_mode'), patch.object(onroad.clip, 'end_scissor_mode'), \
-       patch.object(rl, 'draw_rectangle'), patch.object(rl, 'draw_rectangle_rounded'), \
-       patch.object(rl, 'draw_rectangle_rounded_lines_ex'), patch.object(rl, 'draw_texture_ex'), \
-       patch.object(rl, 'draw_rectangle_gradient_v') as confidence, patch.object(rl, 'draw_ring'), \
-       patch.object(onroad, 'render_compact_half_borders'), patch.object(view, '_prepare_compact_fade'), \
-       patch.object(view, '_slc_actions'):
-    for alert_type, size, status, visual, routine in cases:
-      event = messaging.new_message('selfdriveState', valid=True, logMonoTime=NOW)
-      event.selfdriveState.enabled = True
-      event.selfdriveState.alertType, event.selfdriveState.alertSize = alert_type, size
-      event.selfdriveState.alertStatus, event.selfdriveState.alertHudVisual = status, visual
-      wire = messaging.log_from_bytes(event.to_bytes())
-      ui.sm.put('selfdriveState', wire.selfdriveState)
-      alert = current_alert(ui.sm, NOW, after_frame=ui.started_frame)
-      state = replace(base, alert=alert)
-      confidence.reset_mock()
-      widget._draw_centered.reset_mock()
-      for _ in range(60):
-        view.render(state)
-      assert view.alert.render.call_args.args[1] == alert
-      if routine:
-        assert widget._draw_centered.call_args_list[-7].args[3] > .99
-        color = confidence.call_args.args[-2]
-        assert (color.r, color.g, color.b) == (0, 255, 204)
-      elif moved:
-        widget._draw_centered.assert_not_called()
-        confidence.assert_not_called()
-      else:
-        assert all(call.args[3] < .001 for call in widget._draw_centered.call_args_list[-8:])
-        color = confidence.call_args.args[-2]
-        assert (color.r, color.g, color.b) == (50, 50, 50)
+    document['layouts'][profile]['following_distance'].update(x=260, y=20)
+  for kind, user_prompt, visible in (('preLaneChangeLeft', False, True), ('laneChange', False, True), ('laneChangeBlocked', True, False)):
+    display._draw_centered.reset_mock()
+    settle(display, road(customization=document, alert=OnroadAlert(AlertSize.SMALL, alert_type=kind + '/warning', user_prompt=user_prompt)))
+    draws = display._draw_centered.call_args_list
+    if profile == Profile.COMPACT and moved and not visible:
+      assert not draws
+    else:
+      assert (draws[-7].args[3] > .99) if visible else (draws[-7].args[3] < .001)
+
+
+@pytest.mark.parametrize(('alpha', 'visible_alpha'), ((0., None), (.0001, None), (.0019, None),
+                                                       (.002, 1), (1/255, 1), (.5, 128), (1., 255)))
+def test_invisible_art_avoids_gpu_submission_without_losing_faint_visible_art(display, monkeypatch, alpha, visible_alpha):
+  display._prepare()
+  draw = Mock()
+  monkeypatch.setattr(rl, 'draw_texture_pro', draw)
+  indicator.PersonalityWidget._draw_centered(display._lead_car[0], rl.Rectangle(476, 160, 60, 80), 100, alpha)
+  if visible_alpha is None:
+    draw.assert_not_called()
+  else:
+    draw.assert_called_once()
+    assert draw.call_args.args[-1].a == visible_alpha

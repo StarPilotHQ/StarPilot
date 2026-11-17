@@ -107,7 +107,7 @@ class ValueEditorTests(unittest.TestCase):
       self.assertIsNone(value_request(replace(editor, rows=(current,)), FeatureUiAction("change", current, 1)))
 
   def test_long_choices_and_precise_numbers_fit_the_existing_editor(self):
-    import pyray as rl
+    from openpilot.starpilot.ui.raylib import rl
     rows = (FeatureRow("choice", "Choice", "Use the selected vehicle controller", available=True,
                        choices=("Use the selected vehicle controller", "Use the other controller")),
             FeatureRow("number", "Number", "123.45678901234567", step=.01, minimum=0., maximum=200., available=True, unit="m/s²"))
@@ -179,7 +179,7 @@ class ValueEditorTests(unittest.TestCase):
   def test_cruise_interval_editor_keeps_the_owners_required_confirmation(self):
     self.owner.show_cruise_intervals = True
     self.owner.vehicle_params().pcmCruise = False
-    self.session.feature_page = FeaturePage.PROFILES
+    self.session.feature_page = FeaturePage.WHEEL
     editor = self.open_feature("CustomCruise")
     dialogs = []
     with patch("openpilot.system.ui.widgets.confirm_dialog.ConfirmDialog", side_effect=lambda *args, **kw: NS(callback=kw["callback"])), \
@@ -192,9 +192,7 @@ class ValueEditorTests(unittest.TestCase):
 
   def test_slc_steps_keep_direction_and_presets_keep_exact_source_guards(self):
     self.session.feature_page = FeaturePage.SLC
-    adopt = next(row for row in self.session.feature_snapshot().rows if row.key == "slc_adopt")
-    self.assertTrue(self.owner.apply(replace(row_request(adopt, "confirm"), confirmation=True)))
-    editor = self.open_feature("Offset2")
+    editor = self.open_feature("slc:offset:2")
     row = editor.rows[0]
     self.assertEqual(value_request(editor, FeatureUiAction("change", row, 1)).direction, 1)
     self.tap(editor, value_buttons(editor, row, feature_row_top(editor))[-1][1], self.session._feature_ui)

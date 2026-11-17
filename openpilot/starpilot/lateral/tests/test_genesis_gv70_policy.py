@@ -19,6 +19,7 @@ from openpilot.starpilot.lateral.controller_selection import ControllerMode, pol
 from openpilot.starpilot.lateral.torque_extension import selected_policy
 from openpilot.starpilot.lateral import genesis_gv70_policy as policy
 from openpilot.starpilot.lateral import gv70_shaping
+from openpilot.starpilot.lateral.torque_shaping import KP
 
 
 def controller_for(vehicle=CAR.GENESIS_GV70_ELECTRIFIED_1ST_GEN, mode=None):
@@ -53,8 +54,7 @@ def test_exact_admission_and_saved_standard_keeps_upstream_controller():
   assert policy.supported_cp(cp)
   assert policy_for(cp) == 'genesis_gv70_electrified'
   assert isinstance(selected_policy(controller), policy.GenesisGV70TorquePolicy)
-  # Dom retains the full speed-interpolated schedule, ending at0.6, not flat0.6.
-  assert controller.pid._k_p == [[1, 1.5, 2.0, 3.0, 5, 7.5, 10, 15, 30], [250, 120, 65, 30, 11.5, 5.5, 3.5, 2.0, 0.6]]
+  assert controller.pid._k_p == [[0.0], [KP]]
   assert controller.pid._k_i == ([0], [0.35])
   choice = json.dumps({'version': 1, 'vehicles': {'GENESIS_GV70_ELECTRIFIED_1ST_GEN': {'brand': 'hyundai', 'mode': 'standard'}}}).encode()
   assert selection_from_bytes(cp, choice).mode == ControllerMode.STANDARD
@@ -76,10 +76,10 @@ def test_exact_admission_and_saved_standard_keeps_upstream_controller():
   changed = cp.as_reader().as_builder()
   changed.lateralTuning.init('pid')
   assert not policy.supported_cp(changed)
-  for vehicle in (CAR.GENESIS_GV70_1ST_GEN, CAR.GENESIS_GV70_ELECTRIFIED_2ND_GEN):
+  for vehicle, expected in ((CAR.GENESIS_GV70_1ST_GEN, 'generic'), (CAR.GENESIS_GV70_ELECTRIFIED_2ND_GEN, None)):
     sibling = interfaces[vehicle].get_non_essential_params(vehicle)
     assert not policy.supported_cp(sibling)
-    assert policy_for(sibling) is None
+    assert policy_for(sibling) == expected
 
 
 def test_stabilization_only_changes_feedforward_feedback_remains_immediate():

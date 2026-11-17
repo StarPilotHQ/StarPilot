@@ -7,10 +7,13 @@ from dataclasses import astuple, dataclass
 
 from openpilot.common.constants import CV
 from opendbc.car.structs import car
-from opendbc.car.interfaces import ACCEL_MIN, ACCEL_MAX
+from opendbc.car.interfaces import ACCEL_MIN, ACCEL_MAX as DEFAULT_ACCEL_MAX
+from openpilot.starpilot.longitudinal.lead_takeoff_preferences import MAX_ACCEL as ACCEL_MAX
+from openpilot.starpilot.longitudinal import drive_mode as drive_mode_profiles
 from openpilot.starpilot.longitudinal.accel_profile import A_CRUISE_MAX_VALS_TRAFFIC_ALL, interpolate_accel_profile
 from openpilot.starpilot.longitudinal.profile_document import (
-  DEFAULT_DECELERATION_PROFILE, active_personality_id, interpolate_category_curve, is_truck_fingerprint,
+  DEFAULT_DECELERATION_PROFILE, active_personality_id, default_personality_profiles, interpolate_category_curve,
+  is_truck_fingerprint, profile_document,
 )
 from openpilot.starpilot.longitudinal.profile_preferences import (
   FOLLOW_MIN_SECONDS, FOLLOW_MAX_SECONDS, NAMES, SCALARS, TRAFFIC_JERK_SUFFIXES,
@@ -110,7 +113,7 @@ class ProfileSmoother:
       return None
     default_follow = {'traffic': 0.75, 'aggressive': 1.25, 'standard': 1.45, 'relaxed': 1.75}[personality_id]
     default_jerk = 0.5 if personality_id == 'aggressive' else 1.0
-    default = AppliedProfile(default_follow, ACCEL_MAX, 1.2, default_jerk, default_jerk,
+    default = AppliedProfile(default_follow, DEFAULT_ACCEL_MAX, 1.2, default_jerk, default_jerk,
                              default_jerk, default_jerk, 1.0)
     if target is None and self.applied is None:
       return None
@@ -131,7 +134,7 @@ class ProfileSmoother:
       if ordinary_follow is None:
         return None
       ordinary_jerk = 0.5 if ordinary_id == 'aggressive' else 1.0
-      previous = AppliedProfile(ordinary_follow, ACCEL_MAX, 1.2, ordinary_jerk, ordinary_jerk,
+      previous = AppliedProfile(ordinary_follow, DEFAULT_ACCEL_MAX, 1.2, ordinary_jerk, ordinary_jerk,
                                 ordinary_jerk, ordinary_jerk, 1.0)
     else:
       previous = self.applied or default
@@ -267,6 +270,7 @@ class SelectedProfileTuning:
   acceleration_max: float | None = None
   cruise_brake_magnitude: float | None = None
   braking_style: str = 'standard'
+  extra_stopped_gap_m: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -300,7 +304,8 @@ def read_global_powertrain_preset(params, CP) -> GlobalPowertrainPreset | None:
 def selected_profiles_requested(document: dict | None) -> bool:
   if document is None:
     return False
-  if document['selectedAccelerationProfile'] != 'dom_default' or document['selectedDecelerationProfile'] != 'dom_default':
+  if (document.get('extraStoppedGapM', 0.) > 0 or document['selectedAccelerationProfile'] != 'dom_default' or
+      document['selectedDecelerationProfile'] != 'dom_default'):
     return True
   return any(config['preset'] not in ('dom_default', 'selected_profile') and not config.get('legacyActivation', False)
              for profile in document['profiles'].values() for category, config in profile.items() if category != 'following')
@@ -353,7 +358,7 @@ def resolve_selected_profiles(document: dict | None, personality, v_ego: float, 
     else:
       braking = min(max(value, 0.35 if traffic_mode else 0.5), abs(ACCEL_MIN))
       style = preset if preset in ('eco', 'sport') else 'standard'
-  return SelectedProfileTuning(acceleration, braking, style)
+  return SelectedProfileTuning(acceleration, braking, style, document.get("extraStoppedGapM", 0.))
 
 
 class ProfileHost:
@@ -366,6 +371,7 @@ class ProfileHost:
     self.disabled = False
     self.selected_document: dict | None = None
     self.selected_powertrain: GlobalPowertrainPreset | None = None
+    self.selected_drive_mode = (False, False)
     self.selected_attempt_ns = -self.REFRESH_NS
     self.selected_success_ns = -1
     self.settings: ProfileSettings | TrafficSettings | None = None
@@ -378,10 +384,11 @@ class ProfileHost:
     self.global_last_success_ns = -1
 
   def sample_selected(self, now_ns: int, personality, v_ego: float, CP, *, traffic_mode: bool | None = False,
-                      legacy: ProfileTuning | None = None) -> SelectedProfileTuning | None:
+                      legacy: ProfileTuning | None = None, drive_mode: str | None = None) -> SelectedProfileTuning | None:
     if now_ns < 0 or now_ns < self.selected_attempt_ns:
       self.selected_document = None
       self.selected_powertrain = None
+      self.selected_drive_mode = (False, False)
       self.selected_attempt_ns = now_ns - self.REFRESH_NS
       self.selected_success_ns = -1
     if now_ns - self.selected_attempt_ns >= self.REFRESH_NS:
@@ -390,14 +397,22 @@ class ProfileHost:
         saved = read_document_value(self.params)
         self.selected_document = saved.value if saved.valid and isinstance(saved.value, dict) else None
         self.selected_powertrain = read_global_powertrain_preset(self.params, CP)
+        self.selected_drive_mode = drive_mode_profiles.read_enabled(self.params)
         self.selected_success_ns = now_ns if saved.valid else -1
       except (OSError, RuntimeError, ValueError, TypeError, KeyError):
         self.selected_document = None
         self.selected_powertrain = None
+        self.selected_drive_mode = (False, False)
         self.selected_success_ns = -1
     if self.selected_success_ns < 0 or now_ns - self.selected_success_ns > self.MAX_AGE_NS:
       return None
-    return resolve_selected_profiles(self.selected_document, personality, v_ego, CP,
+    document = self.selected_document
+    if any(self.selected_drive_mode) and traffic_mode is False and drive_mode in drive_mode_profiles.PROFILES:
+      if document is None:
+        document = profile_document(default_personality_profiles(False), enabled=False)
+      document = drive_mode_profiles.apply(document, drive_mode, acceleration=self.selected_drive_mode[0],
+                                           deceleration=self.selected_drive_mode[1])
+    return resolve_selected_profiles(document, personality, v_ego, CP,
                                      traffic_mode=traffic_mode, legacy=legacy, global_powertrain=self.selected_powertrain)
 
   def sample_global_braking(self, now_ns: int) -> str | None:

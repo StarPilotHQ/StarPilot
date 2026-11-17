@@ -451,8 +451,9 @@ class TestBoltPedalMessages(unittest.TestCase):
           cs.out = state.as_reader()
           _, commands = controller.update(control.as_reader(), cs, 1_000_000_000)
           owned = [msg for msg in commands if msg[0] in (0x200, 0x1F5, 0xBD)]
-          self.assertEqual([msg[0] for msg in owned], [0x200])
-          if candidate == CAR.CHEVROLET_BOLT_ACC_2022_2023_PEDAL and gear == structs.CarState.GearShifter.drive:
+          gen2_drive = candidate == CAR.CHEVROLET_BOLT_CC_2022_2023 and gear == structs.CarState.GearShifter.drive
+          self.assertEqual([msg[0] for msg in owned], [0x200, 0x1F5, 0xBD] if gen2_drive else [0x200])
+          if candidate in (CAR.CHEVROLET_BOLT_CC_2022_2023, CAR.CHEVROLET_BOLT_ACC_2022_2023_PEDAL) and gear == structs.CarState.GearShifter.drive:
             self.assertGreater(controller.pedal_steady, 0.)
           else:
             self.assertEqual(owned[0][1][0:4], b"\x00" * 4)
@@ -475,7 +476,7 @@ class TestBoltPedalStartupParser(unittest.TestCase):
 
   def present_tick(self, ci, native, now, sensor_counter, *, button=None, gear=4, manual=0, main=True,
                    stock=True, driver=0., sensor_state=0, fault=1, loopback=(), omit=(), wrong_bus=None,
-                   bad_length=None, healthy=True, acc_cruise=0, camera_stock=False):
+                   bad_length=None, healthy=True, acc_cruise=0, camera_stock=False, one_pedal=None, source_overrides=None):
     packer = CANPacker(DBC[ci.CP.carFingerprint][Bus.pt])
     values = {
       'PSCMStatus': {'LKADriverAppldTrq': driver, 'LKATorqueDelivered': 0, 'LKATorqueDeliveredStatus': fault},
@@ -487,15 +488,21 @@ class TestBoltPedalStartupParser(unittest.TestCase):
       'EBCMWheelSpdFront': {'FLWheelSpd': 72, 'FRWheelSpd': 72},
       'EBCMWheelSpdRear': {'RLWheelSpd': 72, 'RRWheelSpd': 72, 'RLWheelDir': 1, 'RRWheelDir': 1},
     }
+    for name, override in (source_overrides or {}).items():
+      values.setdefault(name, {}).update(override)
     frames = [packer.make_can_msg(name, 1 if name == wrong_bus else 0, values.get(name, {})) for name in self.PT_MESSAGES
               if name not in ('ASCMSteeringButton', 'GAS_SENSOR', *omit)]
     if 'GAS_SENSOR' not in omit:
-      frames.append(TestBoltPedalMessages.sensor(packer, 0, sensor_counter % 16, state=sensor_state))
+      frames.append(TestBoltPedalMessages.sensor(packer, values.get("GAS_SENSOR", {}).get("INTERCEPTOR_GAS", 0),
+                                                 sensor_counter % 16, state=sensor_state))
     frames += [packer.make_can_msg('ASCMLKASteeringCmd', 2, {}), packer.make_can_msg('AEBCmd', 2, {})]
     if int(ci.CP.safetyConfigs[0].safetyParam) == 0x1CD and now % 40_000_000 < 10_000_000:
       frames.append(packer.make_can_msg('EBCMFrictionBrakeCmd', 2, {'RollingCounter': (now // 40_000_000) % 4}))
     if camera_stock:
       frames.append(packer.make_can_msg('ASCMActiveCruiseControlStatus', 2, {'ACCCruiseState': 2}))
+    if one_pedal is not None:
+      frames.append(packer.make_can_msg('EVDriveMode', 1 if wrong_bus == 'EVDriveMode' else 0,
+                                       {'SinglePedalModeActive': int(one_pedal)}))
     if bad_length is not None:
       frames = [(address, raw[:-1] if address == bad_length else raw, bus) for address, raw, bus in frames]
     if button is not None:
@@ -782,6 +789,118 @@ class TestBoltPedalStartupParser(unittest.TestCase):
             for address, raw, bus in steering:
               self.assertEqual(decoder.vl['ASCMLKASteeringCmd']['LKASteeringCmd'], 0)
               self.assertTrue(native.safety_tx_hook(libsafety_py.make_CANPacket(address, bus, raw)))
+
+  def test_gen2_drive_does_not_inherit_previous_alternative_experience(self):
+    from opendbc.safety.tests.libsafety import libsafety_py
+    for run in (self.test_gen2_pedal_drive_actual_parser_controller_and_native,
+                self.test_gen2_pedal_drive_withdraws_on_source_or_driver_change):
+      with self.subTest(contract=run.__name__):
+        libsafety_py.libsafety.set_alternative_experience(32)
+        run()
+
+  def test_gen2_pedal_drive_actual_parser_controller_and_native(self):
+    from opendbc.car.gm.bolt_cc import button_bytes
+    from opendbc.safety.tests.libsafety import libsafety_py
+    from opendbc.safety.tests.test_gm_bolt_pedal import TestGmBoltPedalSafety
+    cases = ((CAR.CHEVROLET_BOLT_CC_2022_2023, 4, True, True),
+             (CAR.CHEVROLET_BOLT_CC_2022_2023, 4, False, True),
+             (CAR.CHEVROLET_BOLT_CC_2022_2023, 4, None, True),
+             (CAR.CHEVROLET_BOLT_CC_2022_2023, 6, None, True),
+             (CAR.CHEVROLET_BOLT_CC_2018_2021, 4, True, False),
+             (CAR.CHEVROLET_BOLT_CC_2018_2021, 6, None, True),
+             (CAR.CHEVROLET_BOLT_ACC_2022_2023_PEDAL, 4, False, True),
+             (CAR.CHEVROLET_BOLT_ACC_2022_2023_PEDAL, 6, None, True))
+    for identity, gear, mode, expected in cases:
+      with self.subTest(identity=identity, gear=gear, mode=mode):
+        cp = params(identity, pedal=True, camera=True)
+        native = libsafety_py.libsafety
+        native.set_alternative_experience(cp.alternativeExperience)
+        self.assertEqual(native.set_safety_hooks(cp.safetyConfigs[0].safetyModel.raw, cp.safetyConfigs[0].safetyParam), 0)
+        native.init_tests()
+        ci, _ = self.stream(cp, native=native)
+        ci.CC.frame = 100
+        recorder = TestGmBoltPedalSafety()
+        recorder.safety = native
+        command = structs.CarControl(enabled=True, longActive=True)
+        command.actuators.accel = 1.
+        command.actuators.longControlState = structs.CarControl.Actuators.LongControlState.pid
+        positive = 0
+        releases = []
+        for tick in range(50):
+          now = 3_500_000_000 + tick * 10_000_000
+          native.reset_recorded_can()
+          self.present_tick(ci, native, now, 13 + tick, gear=gear, stock=False,
+                            camera_stock=identity == CAR.CHEVROLET_BOLT_ACC_2022_2023_PEDAL,
+                            one_pedal=mode if tick % 10 == 0 else None,
+                            button=button_bytes(2 if tick == 0 else 1, (3 + tick) % 4))
+          self.assertTrue(native.get_controls_allowed(), (identity, tick))
+          _, messages = ci.apply(command.as_reader(), now)
+          for message in messages:
+            if message[0] == 0x200:
+              enabled = bool(message[1][4] & 128)
+              if tick >= 4:
+                self.assertEqual(enabled, expected, (identity, tick, mode))
+              positive += enabled
+              self.assertTrue(native.safety_tx_hook(recorder.packet(message)), (identity, tick, message))
+            elif message[0] in (0xBD, 0x1F5):
+              self.assertFalse(native.safety_tx_hook(recorder.packet(message)))
+          releases += [raw[3] & 15 for address, _, raw in recorder.recorded() if address == 0x1F5]
+        self.assertEqual(positive > 0, expected)
+        if identity == CAR.CHEVROLET_BOLT_CC_2022_2023 and gear == 4 and mode:
+          self.assertTrue(releases)
+          self.assertEqual(set(releases), {4})
+
+  def test_gen2_pedal_drive_withdraws_on_source_or_driver_change(self):
+    from opendbc.car.gm.bolt_cc import button_bytes
+    from opendbc.car.gm.gmcan import create_pedal_command
+    from opendbc.safety.tests.libsafety import libsafety_py
+    from opendbc.safety.tests.test_gm_bolt_pedal import TestGmBoltPedalSafety
+    faults = ('park', 'reverse', 'manual', 'gas', 'brake', 'paddle')
+    for fault in faults:
+      with self.subTest(fault=fault):
+        cp = params(CAR.CHEVROLET_BOLT_CC_2022_2023, pedal=True, camera=True)
+        native = libsafety_py.libsafety
+        native.set_alternative_experience(cp.alternativeExperience)
+        self.assertEqual(native.set_safety_hooks(cp.safetyConfigs[0].safetyModel.raw, cp.safetyConfigs[0].safetyParam), 0)
+        native.init_tests()
+        ci, _ = self.stream(cp, native=native)
+        ci.CC.frame = 100
+        packer = CANPacker(DBC[cp.carFingerprint][Bus.pt])
+        command = structs.CarControl(enabled=True, longActive=True)
+        command.actuators.accel = 1.
+        positive = 0
+        last_counter = None
+        for tick in range(70):
+          now = 3_500_000_000 + tick * 10_000_000
+          withdrawn = tick >= 20
+          mode = True if tick % 10 == 0 else None
+          if withdrawn and fault in ('missing', 'wrong_bus'):
+            mode = None if fault == 'missing' else mode
+          if withdrawn and fault == 'off':
+            mode = False
+          overrides = ({'GAS_SENSOR': {'INTERCEPTOR_GAS': 100}} if fault == 'gas' else
+                       {'ECMAcceleratorPos': {'BrakePedalPos': 12}, 'ECMEngineStatus': {'BrakePressed': 1}} if fault == 'brake' else
+                       {'EBCMRegenPaddle': {'RegenPaddle': 2}} if fault == 'paddle' else {})
+          self.present_tick(ci, native, now, 13 + tick, stock=False, one_pedal=mode,
+                            gear={'park': 1, 'reverse': 2}.get(fault, 4) if withdrawn else 4,
+                            manual=int(withdrawn and fault == 'manual'),
+                            wrong_bus='EVDriveMode' if withdrawn and fault == 'wrong_bus' else None,
+                            bad_length=0x3C7 if withdrawn and fault == 'short' else None,
+                            source_overrides=overrides if withdrawn else None,
+                            button=button_bytes(2 if tick == 0 else 1, (3 + tick) % 4))
+          _, messages = ci.apply(command.as_reader(), now)
+          for message in messages:
+            if message[0] == 0x200:
+              enabled = bool(message[1][4] & 128)
+              positive += enabled and not withdrawn
+              if tick >= (54 if fault in ('missing', 'wrong_bus', 'short') else 24):
+                self.assertFalse(enabled, (fault, tick))
+              self.assertTrue(native.safety_tx_hook(TestGmBoltPedalSafety.packet(message)), (fault, tick))
+              last_counter = message[1][4] & 15
+          if tick == 60:
+            probe = create_pedal_command(packer, .1, (last_counter + 1) % 16)
+            self.assertFalse(native.safety_tx_hook(TestGmBoltPedalSafety.packet(probe)), fault)
+        self.assertGreater(positive, 0)
 
   def stream(self, cp, missing=None, *, blindspot=False, pedal_present=True, camera_present=True, native=None):
     ci = CarInterface(cp)

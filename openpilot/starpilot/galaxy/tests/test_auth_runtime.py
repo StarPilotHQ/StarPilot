@@ -11,10 +11,41 @@ import unittest
 from unittest import mock
 
 from openpilot.starpilot.galaxy.access import GalaxyAccessOwner
+from openpilot.starpilot.galaxy.http_server import ReverseProxy
 from openpilot.starpilot.galaxy.server import _LocalHTTPServer, allowed_authority, direct_local_connection, make_server
 
 
 class AuthRuntimeTest(unittest.TestCase):
+  def test_weather_requires_session_and_rechecks_revocation(self):
+    sample = {'status': 'current', 'temperatureC': 12, 'observedAt': 10000}
+    source = mock.Mock()
+    source.sample.return_value = sample
+    with mock.patch('openpilot.starpilot.galaxy.weather.WeatherSource', return_value=source) as factory:
+      self.assertEqual(self.request('/api/weather')[0], 503)
+      factory.assert_not_called()
+      self.assertTrue(self.owner.configure('password123', lambda: True))
+      _, _, cookie = self.login()
+      cookie = cookie.split(';', 1)[0]
+      self.assertEqual(self.request('/api/weather', headers={'Cookie': cookie})[0], 200)
+      source.sample.side_effect = lambda: (self.owner.replace_for_pairing('newpassword123', lambda: True), sample)[1]
+      self.assertEqual(self.request('/api/weather', headers={'Cookie': cookie})[0], 401)
+  def test_reverse_proxy_requires_password_even_without_forwarding_headers(self):
+    self.stop()
+    self.server = make_server(port=0, owner=self.owner, monitor=self.monitor,
+                              reverse_proxy=ReverseProxy('127.0.0.1', 'https://galaxy.example'))
+    self.worker = threading.Thread(target=self.server.serve_forever, kwargs={'poll_interval': 0.01}, daemon=True)
+    self.worker.start()
+    headers = {'Host': 'galaxy.example', 'Origin': 'https://galaxy.example'}
+    self.assertTrue(self.owner.configure('password123', lambda: True))
+    self.assertEqual(self.request('/api/system/monitor', headers=headers, local=True)[0], 401)
+    self.assertEqual(self.request('/api/auth/session', headers={'Host': 'evil.example'}, local=True)[0], 403)
+    self.assertEqual(self.post('/api/auth/login', {'password': 'password123'},
+                               headers={**headers, 'Origin': 'https://evil.example'}, local=True)[0], 403)
+    code, _, response_headers = self.post('/api/auth/login', {'password': 'password123'}, headers=headers, local=True)
+    self.assertEqual(code, 200)
+    cookie = response_headers['Set-Cookie'].split(';', 1)[0]
+    self.assertEqual(self.request('/api/system/monitor', headers={**headers, 'Cookie': cookie}, local=True)[0], 200)
+
   def test_socket_destination_authority_rejects_dns_rebinding_and_mismatch(self):
     port = 8082
     self.assertTrue(allowed_authority('127.0.0.1:8082', '127.0.0.1', port))

@@ -109,7 +109,7 @@ class CemGreenCallerTests(unittest.TestCase):
     self.params.put(DOCUMENT_KEY, json.loads(encode_preferences(SavedPreferences(mode=ModeChoice.CEM))), block=True)
     self.cp = CarInterface.get_non_essential_params(CAR.HYUNDAI_IONIQ_6)
     self.cp.openpilotLongitudinalControl = True
-    self.owner = ConditionalPlannerHost(self.params, slc_runtime_enabled=False)
+    self.owner = ConditionalPlannerHost(self.params)
     self.addCleanup(self.owner.close)
     self.consumer = ModeConsumer()
     self.planner = LongitudinalPlanner(self.cp, init_v=4.27)
@@ -119,7 +119,7 @@ class CemGreenCallerTests(unittest.TestCase):
 
   def cycle(self, *, stopped=False, position=None, velocity=None, should_stop=True,
             personality=log.LongitudinalPersonality.aggressive, unavailable=None, stale=None,
-            repeat_model=False, lead=False, desired_accel=None, horizon=20.):
+            repeat_model=False, lead=False, desired_accel=None, horizon=20., force_stop_owner=None, resume=False, aol=False, starting=False):
     now = MONO + self.tick * 50_000_000
     self.tick += 1
     stamp = now - 2_000_000
@@ -143,11 +143,16 @@ class CemGreenCallerTests(unittest.TestCase):
           value.velocity.x = velocity
       elif name == 'controlsState':
         value.curvature = 0.
-        value.longControlState = LongCtrlState.stopping if stopped else LongCtrlState.pid
+        value.longControlState = LongCtrlState.starting if starting else LongCtrlState.stopping if stopped else LongCtrlState.pid
       elif name == 'selfdriveState':
         value.personality = personality
+        if aol:
+          value.enabled = False
       elif name == 'carControl':
         value.orientationNED = [0.] * 3
+        if aol:
+          value.enabled = value.longActive = False
+          value.latActive = True
       elif name == 'carState':
         value.vEgoRaw = 0. if stopped else 4.27
       payloads[name] = getattr(messaging.log_from_bytes(event.to_bytes()), name)
@@ -162,7 +167,18 @@ class CemGreenCallerTests(unittest.TestCase):
     if repeat_model:
       sm.logMonoTime['modelV2'] = stamp - 50_000_000
       sm.recv_time['modelV2'] = (stamp - 50_000_000) / 1e9
-    self.planner.update(sm, now_ns=now, drive_id=self.drive)
+    provider = None
+    if force_stop_owner is not None:
+      event = messaging.new_message('carState', valid=True)
+      event.logMonoTime = stamp
+      event.carState = sm['carState']
+      if resume:
+        event.carState.buttonEvents = [{'type': 'accelCruise', 'pressed': True}]
+      force_stop_owner.resume.observe(event, now_ns=now, drive_id=self.drive)
+      def provider(follow):
+        return force_stop_owner.sample(sm, self.cp, now_ns=now, now_boot_ns=boot,
+                                       drive_id=self.drive, follow_seconds=follow, traffic_mode=False)
+    self.planner.update(sm, now_ns=now, drive_id=self.drive, force_stop_provider=provider)
     self.assertEqual(self.planner.mpc.solution_status, 0)
     proposal, snapshot = self.owner.sample(sm, self.cp, self.planner, now_mono_ns=now,
       now_boot_ns=boot, sample_skew_ns=1000, drive_id=self.drive, native_plan_valid=sm.all_checks(payloads))
@@ -278,3 +294,34 @@ class CemGreenCallerTests(unittest.TestCase):
       self.cycle(stopped=True, position=CLEAR_64_X, velocity=CLEAR_64_V, should_stop=False)
       self.assertFalse(self.owner.mode.projector.stop_detector.committed)
       self.assertFalse(self.owner.mode.projector.stop_detector.standstill_committed)
+
+
+  def test_res_releases_existing_force_and_cem_holds_together(self):
+    from openpilot.starpilot.longitudinal.force_stop_runtime import ForceStopRuntime
+    self.params.put_bool('ForceStops', True, block=True)
+    force = ForceStopRuntime(self.params)
+    for _ in range(45):
+      self.cycle(force_stop_owner=force)
+    for _ in range(12):
+      _, _, held, plan = self.cycle(stopped=True, position=RED_97_X, velocity=RED_97_V, force_stop_owner=force)
+    self.assertTrue(held and plan.shouldStop and self.planner.force_stop_plan.manual_hold)
+    self.cycle(stopped=True, position=RED_97_X, velocity=RED_97_V, force_stop_owner=force, resume=True)
+    for _ in range(20):
+      _, _, held, plan = self.cycle(stopped=True, position=RED_97_X, velocity=RED_97_V, force_stop_owner=force)
+      self.assertFalse(held)
+    self.assertTrue(self.planner.force_stop_plan.resume_override)
+    self.assertFalse(plan.shouldStop)
+    self.assertGreaterEqual(plan.aTarget, .1)
+
+  def test_res_engagement_from_aol_preserves_red_light_hold(self):
+    from openpilot.starpilot.longitudinal.force_stop_runtime import ForceStopRuntime
+    self.params.put_bool('ForceStops', True, block=True)
+    force = ForceStopRuntime(self.params)
+    for _ in range(45):
+      self.cycle(stopped=True, position=RED_97_X, velocity=RED_97_V, force_stop_owner=force, aol=True)
+    self.cycle(stopped=True, position=RED_97_X, velocity=RED_97_V, force_stop_owner=force, resume=True)
+    for _ in range(20):
+      _, _, _, plan = self.cycle(stopped=True, position=RED_97_X, velocity=RED_97_V, force_stop_owner=force)
+      self.assertFalse(self.planner.force_stop_plan.resume_override)
+      self.assertTrue(plan.shouldStop)
+      self.assertLessEqual(plan.aTarget, 0.)

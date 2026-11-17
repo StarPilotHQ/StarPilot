@@ -19,8 +19,8 @@ class SystemMonitorRuntimeTest(unittest.TestCase):
     self.addCleanup(self.directory.cleanup)
     self.root = Path(self.directory.name)
     self.time = 10.0
-    self.monitor = SystemMonitor(self.root, clock=lambda: self.time, wall_clock=lambda: 1_000_000 + self.time,
-                                 disk_usage=lambda _: SimpleNamespace(used=2 ** 30, total=4 * 2 ** 30), page_size=4096)
+    self.monitor = SystemMonitor(self.root, device_type='pc', clock=lambda: self.time, wall_clock=lambda: 1_000_000 + self.time,
+                                 disk_usage=lambda _: SimpleNamespace(used=2 ** 30, total=4 * 2 ** 30, free=3 * 2 ** 30), page_size=4096)
     self.write_snapshot(100, 100, 10)
 
   def write_snapshot(self, user, idle, ticks, *, start=1000):
@@ -96,6 +96,8 @@ class SystemMonitorRuntimeTest(unittest.TestCase):
       status, body, headers = request('/api/system/monitor', headers=auth)
       self.assertEqual(status, 200)
       self.assertEqual(json.loads(body)['mode'], 'local-runtime')
+      self.assertEqual(json.loads(body)['storage'], {'usedGiB': 1, 'totalGiB': 4, 'freeGiB': 3})
+      self.assertIsNone(json.loads(body)['recordingStorage'])
       self.assertEqual(headers['Cache-Control'], 'no-store')
       self.assertNotIn('Access-Control-Allow-Origin', headers)
       self.assertEqual(json.loads(request('/data/runtime.json')[1])['monitor'], 'local')
@@ -115,3 +117,35 @@ class SystemMonitorRuntimeTest(unittest.TestCase):
       server.shutdown()
       worker.join(timeout=2)
       server.server_close()
+
+
+class BatteryVoltageTest(unittest.TestCase):
+  def test_peripheral_millivolts_freshness_and_unavailable(self):
+    state = SimpleNamespace(pandaType=1, voltage=12640)
+    class Snapshot(SimpleNamespace):
+      def __getitem__(self, key):
+        return state
+    sm = Snapshot(seen={'peripheralState':True}, valid={'peripheralState':True},
+                  logMonoTime={'peripheralState':9_000_000_000}, recv_time={'peripheralState':9.})
+    source = SimpleNamespace(snapshot=lambda:sm)
+    monitor = SystemMonitor(messages=source, clock=lambda:10., boot_clock=lambda:10.)
+    self.assertEqual(monitor._battery_voltage(),12.64)
+    state.voltage=14420
+    self.assertEqual(monitor._battery_voltage(),14.42)
+    for voltage in (0, -1, 1000000):
+      state.voltage=voltage
+      self.assertIsNone(monitor._battery_voltage())
+    state.voltage=12640
+    for field,bad,good in (('seen',False,True),('valid',False,True),
+                           ('logMonoTime',5_000_000_000,9_000_000_000),
+                           ('logMonoTime',11_000_000_000,9_000_000_000),
+                           ('recv_time',5.,9.),('recv_time',11.,9.)):
+      getattr(sm,field)['peripheralState']=bad
+      self.assertIsNone(monitor._battery_voltage())
+      getattr(sm,field)['peripheralState']=good
+    state.pandaType=0
+    self.assertIsNone(monitor._battery_voltage())
+    state.pandaType=1
+    source.snapshot=lambda:None
+    self.assertIsNone(monitor._battery_voltage())
+    self.assertIsNone(SystemMonitor()._battery_voltage())

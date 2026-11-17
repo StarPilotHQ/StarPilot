@@ -6,7 +6,7 @@ from openpilot.starpilot.vehicle_selection import read_selection
 
 STARTUP_KEYS = ('SubaruAvhStartup', 'SubaruStopStartOff', 'AlphaLongitudinalEnabled', 'IsReleaseBranch', 'OpenpilotEnabledToggle', 'SafeMode',
                 'DisableOpenpilotLongitudinal', 'ToyotaAutoHold', 'JeepBrakeHold',
-                'ToyotaRadarMode', 'VoltSNG', 'GMAutoHold', 'VoltOnePedalMode', 'TurnAssist', 'LongPitch',
+                'VoltSNG', 'GMAutoHold', 'VoltOnePedalMode', 'TurnAssist', 'LongPitch',
                 'HondaBoschARadar', 'NAPPedalEnabled', 'NAPRadarEnabled', 'NAPRadarBehindNosecone')
 
 

@@ -314,7 +314,7 @@ def qualified(cp):
       cp.alternativeExperience not in (0, 32) or
       not cp.alphaLongitudinalAvailable or len(cp.safetyConfigs) != 1 or cp.safetyConfigs[0].safetyParam != LONG_PARAM):
     return False
-  if type(cp) is _DynamicStructBuilder and cp.schema == structs.CarParams.schema:
+  if type(cp) in (_DynamicStructBuilder, _DynamicStructReader) and cp.schema == structs.CarParams.schema:
     return metadata_qualified(cp)
   stock = stock_copy(cp)
   stock.alternativeExperience = 0

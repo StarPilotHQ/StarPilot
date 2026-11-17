@@ -57,7 +57,7 @@ def _configurations():
     disabled = cp.as_reader().as_builder()
     VehicleStartupPreferences(disable_bolt_long=True).prepare(disabled)
     yield disabled
-  for identity in GM_BASE_GATEWAY_IDS:
+  for identity in sorted(GM_BASE_GATEWAY_IDS):
     cp = ordinary_params(identity, radar=True)
     yield cp
     if identity == CAR.BUICK_LACROSSE:
@@ -102,12 +102,12 @@ def _configurations():
   from opendbc.car.gm.tests.test_conventional_pedal import params as conventional_pedal
   from opendbc.car.gm.tests.test_silverado_cc_pedal import params as silverado_pedal
   from opendbc.car.gm.tests.test_camera_acc_pedal import params as camera_pedal
-  for identity in ORDINARY_ASCM_CAR | ORDINARY_SDGM_CAR:
+  for identity in sorted(ORDINARY_ASCM_CAR | ORDINARY_SDGM_CAR):
     for alpha in (False, True):
       for c9 in (False, True):
         for radar in (False, True):
           yield intercept_params(identity, sascm=True, accelerator=not c9, radar=radar, alpha=alpha)
-  for identity in ORDINARY_CAMERA_CAR:
+  for identity in sorted(ORDINARY_CAMERA_CAR):
     for alpha in (False, True):
       for analog in (False, True):
         yield ordinary_camera(identity, alpha=alpha, be=analog)
@@ -123,7 +123,7 @@ def _configurations():
     disabled = cp.as_reader().as_builder()
     VehicleStartupPreferences(disable_bolt_long=True).prepare(disabled)
     yield disabled
-  for identity in ORDINARY_CC_CAR:
+  for identity in sorted(ORDINARY_CC_CAR):
     yield intercept_params(identity)
     for removed in (False, True):
       for disabled in (False, True):

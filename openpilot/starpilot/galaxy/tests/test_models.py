@@ -10,6 +10,7 @@ import unittest
 from openpilot.starpilot.galaxy.access import GalaxyAccessOwner
 from openpilot.starpilot.galaxy.server import make_server
 from openpilot.starpilot.models.manager import ModelManager, preferences
+from openpilot.starpilot.models.jetlink_settings import JetlinkSettings
 
 
 PAYLOAD = {"schemaVersion": 1, "catalog": [{"id": "bundled-current", "name": "Bundled driving model",
@@ -91,18 +92,23 @@ class LocalModelManagerHttpTest(unittest.TestCase):
     with tempfile.TemporaryDirectory() as tmp:
       root = Path(tmp)
       parked = [True]
-      class LinkSettings:
+      class LinkSettings(JetlinkSettings):
         mode = "off"
 
         def snapshot(self):
-          return {"mode": self.mode}
+          return {"mode": self.mode, "supported": True, "chestnut": False}
+
+        def pick(self):
+          return None
 
         def configure(self, payload):
           self.mode = payload["mode"]
           return {"message": "Saved"}
 
       link = LinkSettings()
-      manager = ModelManager(root=root / 'models', parked=lambda: parked[0], gpu_present=lambda: False, jetlink=link)
+      def offline(url, timeout):
+        raise OSError('HTTP fixture disables network')
+      manager = ModelManager(root=root / 'models', parked=lambda: parked[0], gpu_present=lambda: False, jetlink=link, opener=offline)
       server = make_server(port=0, owner=GalaxyAccessOwner(root / 'access'), model_manager=manager)
       thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': 0.01}, daemon=True)
       thread.start()
@@ -130,17 +136,25 @@ class LocalModelManagerHttpTest(unittest.TestCase):
         status, snapshot = request('/api/models/manager')
         self.assertEqual(status, 200)
         self.assertFalse(snapshot['randomizer'])
+        self.assertIsNone(snapshot['downloadProgress'])
         self.assertEqual(request('/api/models/jetlink', {'mode': 'usb'})[0], 200)
         self.assertEqual(link.mode, 'usb')
+        status, snapshot = request('/api/models/manager')
+        self.assertEqual(status, 200)
+        self.assertTrue(snapshot['jetlinkBig'])
+        self.assertEqual(snapshot['activeBigModel'], '')
         status, laboratory = request('/api/models/laboratory')
         self.assertEqual(status, 200)
-        self.assertFalse(laboratory['runtimeSupported'])
+        self.assertTrue(laboratory['runtimeSupported'])
         self.assertFalse(laboratory['runtime']['active'])
-        self.assertEqual(laboratory['summary']['published'], 0)
+        self.assertEqual(laboratory['summary']['published'], 91)
         pair = {'enabled': False, 'lateralModel': 'gwm8223', 'longitudinalModel': 'sc23'}
         self.assertEqual(request('/api/models/laboratory', pair)[0], 200)
         self.assertEqual(request('/api/models/laboratory', {**pair, 'enabled': True})[0], 409)
-        self.assertEqual(request('/api/models/laboratory/download', {'model': 'gwm8223'})[0], 409)
+        self.assertEqual(request('/api/models/laboratory/download', {'model': 'gwm8223'})[0], 200)
+        manager.worker.join(3)
+        self.assertFalse(manager.worker.is_alive())
+        self.assertEqual(manager.snapshot()['progress'], 'HTTP fixture disables network')
         self.assertEqual(request('/api/models/laboratory/delete', {'model': 'gwm8223'})[0], 200)
         self.assertEqual(request('/api/models/preferences', {'randomizer': True, 'blacklistedModels': ['gwm8223']})[0], 200)
         self.assertEqual(preferences(manager.root)['blacklistedModels'], ['gwm8223'])
@@ -148,10 +162,10 @@ class LocalModelManagerHttpTest(unittest.TestCase):
         parked[0] = False
         self.assertEqual(request('/api/models/jetlink', {'mode': 'off'})[0], 409)
         self.assertEqual(link.mode, 'usb')
-        self.assertEqual(request('/api/models/laboratory', pair)[0], 409)
+        self.assertEqual(request('/api/models/laboratory', pair)[0], 200)
         self.assertEqual(request('/api/models/laboratory/delete', {'model': 'gwm8223'})[0], 409)
-        self.assertEqual(request('/api/models/preferences', {'randomizer': False})[0], 409)
-        self.assertTrue(preferences(manager.root)['randomizer'])
+        self.assertEqual(request('/api/models/preferences', {'randomizer': False})[0], 200)
+        self.assertFalse(preferences(manager.root)['randomizer'])
         self.assertEqual(request('/api/models/preferences', {'userFavorites': ['pop223']})[0], 200)
         self.assertEqual(request('/api/models/jetlink', {'mode': 'off'}, forwarded=True)[0], 503)
         self.assertEqual(link.mode, 'usb')

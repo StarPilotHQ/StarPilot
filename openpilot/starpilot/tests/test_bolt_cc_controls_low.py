@@ -13,7 +13,7 @@ from opendbc.car import structs
 from opendbc.car.gm.bolt_cc import button_bytes
 from opendbc.car.gm.gmcan import pedal_crc
 from opendbc.car.gm.tests.test_bolt_cc import feed, fixture, native, setup
-from opendbc.car.gm.values import CAR
+from opendbc.car.gm.values import AccState, CAR
 from opendbc.safety.tests.libsafety import libsafety_py
 
 
@@ -53,6 +53,7 @@ class TestBoltCcControlsLow(unittest.TestCase):
         active_frames = gas_frames = cancelled_frames = 0
         drive_pedal_frames = low_pedal_frames = stock_withdrawals = 0
         last_feeds = {}
+        steering_receipts = []
         internal_frames = 0
         internal_status_frames = 0
         from opendbc.safety.tests.test_gm_bolt_pedal import TestGmBoltPedalSafety
@@ -71,7 +72,8 @@ class TestBoltCcControlsLow(unittest.TestCase):
             packer.make_can_msg('ECMPRDNL2', 0, {'PRNDL2': 4 if (stock_acc and tick < 180) or 180 <= tick < 220 else 6}),
             packer.make_can_msg('ECMEngineStatus', 0, {'CruiseMainOn': int(not stock_acc or tick < 330)}),
             packer.make_can_msg('ECMCruiseControl', 0, {'CruiseActive': int(tick >= 42), 'CruiseSetSpeed': 54}),
-            packer.make_can_msg('AcceleratorPedal2', 0, {'AcceleratorPedal2': 30 if gas else 0, 'CruiseState': int(stock_acc and 240 <= tick < 260)}),
+            packer.make_can_msg('AcceleratorPedal2', 0, {'AcceleratorPedal2': 30 if gas else 0,
+              'CruiseState': AccState.FAULTED if stock_acc and 310 <= tick < 315 else int(stock_acc and 240 <= tick < 260)}),
             (0x1E1, button_bytes(button, tick % 4), 0),
           ]
           if stock_acc:
@@ -99,7 +101,8 @@ class TestBoltCcControlsLow(unittest.TestCase):
               internal_frames += 1
               internal_status_frames += int(address == 0x3D1)
           libsafety_py.libsafety.safety_tick()
-          cs = ci.update([(now, frames)])
+          cs = ci.update([(now - 5_000_000, steering_receipts), (now, frames)])
+          steering_receipts = []
           self.assertTrue(cs.canValid)
           expected_gear = (structs.CarState.GearShifter.drive if (stock_acc and tick < 180) or 180 <= tick < 220
                            else structs.CarState.GearShifter.low)
@@ -177,6 +180,8 @@ class TestBoltCcControlsLow(unittest.TestCase):
               last_feeds[frame[0]] = frame[1]
             else:
               self.assertTrue(allowed, (tick, hex(frame[0])))
+              if frame[0] == 0x180:
+                steering_receipts.append((frame[0], bytes(frame[1]), 128))
           if stock_acc and (60 <= tick < 100 or 220 <= tick < 240):
             pedals = [frame for frame in commands if frame[0] == 0x200]
             for frame in pedals:
@@ -289,3 +294,4 @@ class TestBoltCcControlsLow(unittest.TestCase):
         self.assertEqual(maximum_mismatch, 200)
         self.assertTrue(mismatch_observed)
         self.assertFalse(sd.enabled)
+

@@ -313,8 +313,8 @@ class TestHyundaiBlendedAlphaAol(unittest.TestCase):
         self.assertEqual(self.request(1), 0)
         self.assertFalse(self.safety.get_controls_allowed())
 
-  def test_main_off_cancel_and_heartbeat_loss_revoke_physical_token(self):
-    for cause in ('main_off', 'cancel', 'heartbeat'):
+  def test_main_off_and_heartbeat_loss_revoke_physical_token(self):
+    for cause in ('main_off', 'heartbeat'):
       self.now = 1_000_000
       self.counter = 0
       self.reset()
@@ -325,12 +325,97 @@ class TestHyundaiBlendedAlphaAol(unittest.TestCase):
         continue
       if cause == 'main_off':
         self.feed(available=False)
-      elif cause == 'cancel':
-        self.feed(button=4)
       else:
         self.safety.set_aol_test_heartbeat(False)
       self.assertEqual(self.request(1), 0)
       self.assertFalse(self.safety.get_controls_allowed())
+
+  def test_cancel_retains_only_existing_claimed_lateral_and_stops_long(self):
+    for word in (0x2004, 0x2014):
+      for held in (7, 23):  # Both reported short and longer Pause/Resume holds.
+        self.counter, self.now = 0, 1_000_000
+        self.reset(word)
+        self.warm()
+        self.feed(lda=True)
+        self.assertEqual(self.request(1), 0 if self.release else 1)
+        if self.release:
+          continue
+        self.feed(button=2)
+        self.feed()
+        self.assertTrue(self.safety.get_controls_allowed())
+        self.assertEqual(self.request(3), 3)
+        for _ in range(held):
+          self.feed(button=4)
+          self.assertFalse(self.safety.get_controls_allowed())
+          self.assertEqual(self.request(1), 1)
+        self.feed()
+        self.assertFalse(self.safety.get_controls_allowed())
+        self.assertEqual(self.request(1), 1)
+        if self.bus:
+          self.primary_counter = 0
+          steering = TestHyundaiBlendedAlpha.primary(self, 1, True)
+        else:
+          from opendbc.car.hyundai.hyundaican import hyundai_checksum
+
+          def steering_checksum(message):
+            address, data, bus = message
+            return address, bytes([hyundai_checksum(data[1:8])]) + data[1:8], bus
+          steering = self.packer.make_can_msg_safety('LKAS11', 0,
+            {'CF_Lkas_MsgCount': 0, 'CR_Lkas_StrToqReq': 1, 'CF_Lkas_ActToi': 1}, fix_checksum=steering_checksum)
+        self.assertTrue(self.safety.safety_tx_hook(steering), 'Only retained LAT can authorize steering')
+        accel = self.packer.make_can_msg_safety('SCC11', self.bus, {'aReqRaw': .1})
+        self.assertFalse(self.safety.safety_tx_hook(accel))
+        self.assertEqual(self.request(0), 0)  # Configured cancellation remains authoritative.
+
+  def test_cancel_cannot_arm_or_restore_expired_or_withdrawn_authority(self):
+    for word in (0x2004, 0x2014):
+      for cause in ('cold', 'unclaimed', 'withdrawn', 'stale_request', 'heartbeat', 'main_off', 'relay'):
+        with self.subTest(word=word, cause=cause):
+          self.counter, self.now = 0, 1_000_000
+          self.reset(word)
+          self.warm()
+          if cause != 'cold':
+            self.feed(lda=True)
+          if cause not in ('cold', 'unclaimed'):
+            self.assertEqual(self.request(1), 0 if self.release else 1)
+          if self.release:
+            continue
+          if cause == 'withdrawn':
+            self.request(0)
+          elif cause == 'stale_request':
+            for _ in range(32):
+              self.feed()  # Fresh main and token source, without a host renewal.
+          elif cause == 'heartbeat':
+            self.safety.set_aol_test_heartbeat(False)
+          elif cause == 'relay':
+            self.safety.set_relay_malfunction(True)
+          self.feed(button=4, available=cause != 'main_off')
+          self.assertEqual(self.request(1), 0, cause)
+
+  def test_cancel_cannot_restore_expired_source_simultaneous_main_or_bad_rx(self):
+    for word in (0x2004, 0x2014):
+      for cause in ('source', 'simultaneous_main', 'bad_rx'):
+        with self.subTest(word=word, cause=cause):
+          self.counter, self.now = 0, 1_000_000
+          self.reset(word)
+          self.warm()
+          self.feed(lda=True)
+          self.assertEqual(self.request(1), 0 if self.release else 1)
+          if self.release:
+            continue
+          if cause == 'source':
+            for _ in range(32):
+              self.feed(omit='BCM_PO_11')
+              self.safety.aol_set_host_request(1)  # Fresh request, expired physical LDA source.
+          elif cause == 'bad_rx':
+            invalid = self.packer.make_can_msg_safety('TCS13', self.bus, {'AliveCounterTCS': self.counter % 8}, fix_checksum=checksum)
+            invalid[0].data[6] ^= 1
+            self.assertFalse(self.safety.safety_rx_hook(invalid))
+          packet = self.packer.make_can_msg_safety('CLU11', self.bus,
+            {'CF_Clu_CruiseSwState': 4, 'CF_Clu_CruiseSwMain': int(cause == 'simultaneous_main'),
+             'CF_Clu_AliveCnt1': self.counter % 16})
+          self.assertTrue(self.safety.safety_rx_hook(packet))
+          self.assertEqual(self.request(1), 0, cause)
 
   def test_cluster_lda_source_needs_its_own_neutral_edge(self):
     self.reset()

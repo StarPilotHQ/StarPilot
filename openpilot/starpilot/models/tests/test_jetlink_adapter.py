@@ -18,7 +18,11 @@ GUARD = install_guard()
 
 
 @pytest.fixture(autouse=True)
-def no_machine_files():
+def no_machine_files(tmp_path, monkeypatch):
+  from openpilot.common.params import Params
+  monkeypatch.setenv("PARAMS_ROOT", str(tmp_path / "params"))
+  private_params = Params(str(tmp_path / "params"))
+  monkeypatch.setattr("openpilot.common.params.Params", lambda *args, **kwargs: private_params)
   # on a comma, a test that reaches the live params would clear JetlinkSpec
   GUARD.start()
   yield
@@ -38,8 +42,10 @@ def test_interface_keys():
   op = adapter.adapter()
   assert adapter.owner_config().adapter == adapter.__name__
   assert op.keys.link == "JetlinkMode"
-  # nothing writes a big-model slot or catalog: jetlink's default model, so a fresh Jetson is provisioned
-  assert op.keys.big_model is None and op.keys.catalog is None
+  # Active Big's choice for Jetlink, by the ONNX's hash, and no catalog or model manager for jetlink: with no
+  # choice a fresh Jetson gets the Jetlink app's or jetlink's default, and a newer app choice is written back here
+  assert op.keys.big_model == "JetlinkModel"
+  assert op.keys.catalog is None and op.keys.select is None
 
 
 def test_guard_answers_link_off_without_a_usable_jetlink():

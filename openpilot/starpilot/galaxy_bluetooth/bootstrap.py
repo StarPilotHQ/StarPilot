@@ -12,6 +12,8 @@ DATA = Path('/data/galaxy-ble')
 BRIDGE = Path(__file__).resolve().parent / 'bridge'
 UNIT = 'galaxy-ble-fork.service'
 LAN_UNIT = 'galaxy-lan-discovery.service'
+RADIO_UNIT = 'starpilot-bluetooth-radio.service'
+RADIO_WAIT_UNTIL = 45.  # seconds since boot; past this, never hold setup for the radio
 STATUS_HEARTBEAT = 30
 STATUS_STALE = 90  # Longer than the slowest step interval (60 s) plus the heartbeat.
 LOG = logging.getLogger('galaxy.bluetooth.setup')
@@ -75,6 +77,48 @@ class Bootstrap:
   def systemctl(self, *args, **kwargs):
     return self.command(['sudo', '-n', 'systemctl', *args], **kwargs)
 
+  def radio_starting(self):
+    """True while the comma Bluetooth radio unit is still starting after boot."""
+    if time.monotonic() > RADIO_WAIT_UNTIL:
+      return False
+    try:
+      result = self.run(['systemctl', 'show', RADIO_UNIT, '--property=ActiveState', '--value'],
+                        timeout=5, check=False, capture_output=True, text=True)
+    except (OSError, subprocess.SubprocessError):
+      return False
+    return result.stdout.strip() == 'activating'
+
+  def register_units(self):
+    """Link the bridge and discovery units with a single systemd reload.
+
+    A reload stalls every other systemd job for 1-3 s at boot, including the Bluetooth radio unit's own
+    steps (starting btattach and bluetoothd), so wait for that unit first and reload once for both units.
+    A bridge failure raises; a discovery failure only leaves discovery unregistered."""
+    if self.registered and self.discovery_registered:
+      return
+    while self.radio_starting():
+      time.sleep(0.5)
+    linked = []
+    if not self.registered:
+      self.systemctl('link', '--runtime', '--force', '--no-reload', str(self.bridge / UNIT), stdout=subprocess.DEVNULL)
+      linked.append(UNIT)
+    if not self.discovery_registered:
+      try:
+        self.systemctl('link', '--runtime', '--force', '--no-reload', str(self.bridge / LAN_UNIT), stdout=subprocess.DEVNULL)
+        linked.append(LAN_UNIT)
+      except (OSError, subprocess.SubprocessError):
+        pass
+    if not linked:
+      return
+    try:
+      self.systemctl('daemon-reload', stdout=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+      if UNIT in linked:
+        raise
+      return
+    self.registered = self.registered or UNIT in linked
+    self.discovery_registered = self.discovery_registered or LAN_UNIT in linked
+
   def step(self):
     wake = self.data / 'wake-setup.json'
     if wake.exists():
@@ -93,20 +137,14 @@ class Bootstrap:
       # The bridge runs before any phone is paired; an empty phone list accepts no one.
       from openpilot.starpilot.galaxy_bluetooth.bridge.pairing import ensure_store
       ensure_store(self.data / 'pairing.json')
-      if not self.registered:
-        self.systemctl('link', '--runtime', '--force', str(self.bridge / UNIT), stdout=subprocess.DEVNULL)
-        self.systemctl('daemon-reload', stdout=subprocess.DEVNULL)
-        self.registered = True
+      self.register_units()
       # Discovery remains available when Bluetooth is off or the BLE service retries.
       # An optional discovery failure must not prevent Bluetooth startup.
-      try:
-        if not self.discovery_registered:
-          self.systemctl('link', '--runtime', '--force', str(self.bridge / LAN_UNIT), stdout=subprocess.DEVNULL)
-          self.systemctl('daemon-reload', stdout=subprocess.DEVNULL)
-          self.discovery_registered = True
-        self.systemctl('start', LAN_UNIT, stdout=subprocess.DEVNULL)
-      except (OSError, subprocess.SubprocessError):
-        pass
+      if self.discovery_registered:
+        try:
+          self.systemctl('start', LAN_UNIT, stdout=subprocess.DEVNULL)
+        except (OSError, subprocess.SubprocessError):
+          pass
       from openpilot.starpilot.bluetooth.radio_preference import RadioPreference
       if not RadioPreference().enabled():
         self.run(['sudo', '-n', 'systemctl', 'stop', UNIT], timeout=20, check=False,

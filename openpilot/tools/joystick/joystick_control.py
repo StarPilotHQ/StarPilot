@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import os
 import time
 import argparse
 import threading
@@ -11,7 +10,7 @@ from openpilot.cereal import messaging
 from openpilot.common.params import Params
 from openpilot.common.realtime import Ratekeeper
 from openpilot.common.swaglog import cloudlog
-from openpilot.common.hardware import HARDWARE
+from openpilot.common.hardware import HARDWARE, PC
 from openpilot.tools.lib.kbhit import KBHit
 from openpilot.tools.joystick.devices import refresh_gamepads
 
@@ -161,7 +160,7 @@ if __name__ == '__main__':
   parser.add_argument('--keyboard', action='store_true', help='Use your keyboard instead of a joystick')
   args = parser.parse_args()
 
-  if not Params().get_bool("IsOffroad") and "ZMQ" not in os.environ:
+  if not PC and not Params().get_bool("IsOffroad"):
     print("The car must be off before running joystick_control.")
     exit()
 
@@ -173,7 +172,7 @@ if __name__ == '__main__':
     print('- `R`: Resets axes')
     print('- `C`: Cancel cruise control')
   else:
-    print('Using joystick, make sure to run openpilot/cereal/messaging/bridge on your device if running over the network!')
+    print('Using joystick, make sure to run openpilot/system/webrtc/bridge.py if running over the network!')
     print('If not running on a comma device, the mapping may need to be adjusted.')
 
   joystick = Keyboard() if args.keyboard else Joystick()

@@ -3,13 +3,14 @@
 import math
 import numpy as np
 
-from opendbc.car.gm.values import CAR, is_ordinary_cc_profile, is_conventional_cc_pedal_profile, malibu_hybrid_profile
+from opendbc.car.gm.values import CAR, is_ordinary_cc_profile, is_ordinary_cc_stock_profile, is_conventional_cc_pedal_profile, malibu_hybrid_profile
 from opendbc.car.structs import CarParams
 from openpilot.starpilot.lateral.gm_ordinary_policy import GMOrdinaryTorquePolicy
 
 
 def supported_cp(cp):
-  if (not (is_ordinary_cc_profile(cp) or is_conventional_cc_pedal_profile(cp) or malibu_hybrid_profile(cp) is not None) or
+  if (not (is_ordinary_cc_profile(cp) or is_ordinary_cc_stock_profile(cp) or
+           is_conventional_cc_pedal_profile(cp) or malibu_hybrid_profile(cp) is not None) or
       cp.steerControlType != CarParams.SteerControlType.torque or cp.lateralTuning.which() != 'torque'):
     return False
   tune = cp.lateralTuning.torque

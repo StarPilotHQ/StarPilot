@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.common.params import Params
 from openpilot.starpilot.ui.presentation import Profile
@@ -71,6 +71,26 @@ class TestCompactSettingsNavigation(unittest.TestCase):
 
 
 class TestExistingToggleOwner(unittest.TestCase):
+  def test_rhd_toggle_saves_through_shared_owner_and_requests_next_drive(self):
+    from openpilot.starpilot.galaxy.localization_settings import LocalizationSettingsOwner
+    with tempfile.TemporaryDirectory() as directory:
+      params = Params(directory)
+      owner = TogglesLayout.__new__(TogglesLayout)
+      owner._params = params
+      owner._localization = LocalizationSettingsOwner(params, lambda: True, lambda: True)
+      with patch.object(owner, '_update_toggles'):
+        for enabled in (True, False):
+          owner._rhd_source = owner._localization.snapshot().rows[1].source
+          self.assertTrue(owner._toggle_callback(enabled, 'IsRhdDetected'))
+          self.assertEqual(params.get_bool('IsRhdDetected'), enabled)
+          self.assertTrue(params.get_bool('OnroadCycleRequested'))
+          params.put_bool('OnroadCycleRequested', False, block=True)
+        params.put_bool('IsDriverViewEnabled', True, block=True)
+        owner._rhd_source = b'0'
+        self.assertFalse(owner._toggle_callback(True, 'IsRhdDetected'))
+        self.assertFalse(params.get_bool('IsRhdDetected'))
+        self.assertFalse(params.get_bool('OnroadCycleRequested'))
+
   def test_personality_no_op_uses_typed_integer_value(self):
     owner = TogglesLayout.__new__(TogglesLayout)
     owner._long_personality_setting = NS(action_item=NS(enabled=True))

@@ -26,10 +26,10 @@ class Ev6PhysicalAuthorization:
     # Retain actual held-button history: withdrawal is not a synthetic new edge.
     self.main_on = self.lkas_on = False
 
-  def observe(self, main, lkas, cruise, *, main_available):
+  def observe(self, main, lkas, cruise, *, main_available, lkas_toggle=True):
     if main and not self.previous_main:
       self.main_on = not self.main_on
-    if lkas and not self.previous_lkas:
+    if lkas_toggle and lkas and not self.previous_lkas:
       self.lkas_on = not self.lkas_on
     if self.lkas_on_engage and cruise != self.previous_cruise and self.previous_cruise in (Buttons.SET_DECEL, Buttons.RES_ACCEL):
       self.lkas_on = True

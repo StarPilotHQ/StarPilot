@@ -66,7 +66,11 @@ def video_config(resolution: int, margin_w: int = 0, margin_h: int = 0) -> bytes
 SENSOR_CHANNEL, BLUETOOTH_CHANNEL = 7, 8
 
 
-def discovery_response(video_channel: int = 3, input_channel: int = 1, *, phone_services: bool = False) -> bytes:
+PHONE_STATUS_CHANNEL, VENDOR_CHANNEL = 9, 10
+BOLT_IDENTITY = {2: "Chevrolet", 3: "myChevrolet", 4: "2021", 7: "Chevrolet", 8: "myChevrolet", 10: "W28E-V155.3.8-MIHS21A-107"}
+
+
+def discovery_response(video_channel: int = 3, input_channel: int = 1, *, phone_services: bool = False, bolt: bool = False) -> bytes:
   """``phone_services`` adds the car-data and Bluetooth channels (sensor types one per entry, pairing method packed)."""
   av = field(1, 3) + field(4, video_config(1)) + field(4, video_config(2, 0, 240))
   video = field(1, video_channel) + field(3, av)
@@ -77,6 +81,12 @@ def discovery_response(video_channel: int = 3, input_channel: int = 1, *, phone_
     sensors = b"".join(field(1, field(1, kind)) for kind in (1, 3, 7, 8, 10, 13, 21))
     extra = (field(1, field(1, SENSOR_CHANNEL) + field(2, sensors)) +
              field(1, field(1, BLUETOOTH_CHANNEL) + field(6, field(1, "F8:36:9B:0A:7D:C8") + field(2, bytes([2])))))
+  if bolt:
+    sensors = b"".join(field(1, field(1, kind)) for kind in (1, 3, 7, 8, 10, 13, 21))
+    bluetooth = field(1, BLUETOOTH_CHANNEL) + field(6, field(1, "F8:36:9B:0A:7D:C8") + field(2, bytes([2])))
+    extra += (field(1, field(1, SENSOR_CHANNEL) + field(2, sensors)) + field(1, bluetooth) +
+              field(1, field(1, PHONE_STATUS_CHANNEL) + field(10, field(1, 1))) + field(1, field(1, VENDOR_CHANNEL) + field(12, field(1, 1))))
+    return field(1, video) + field(1, audio) + field(1, touch) + extra + b"".join(field(n, v) for n, v in BOLT_IDENTITY.items())
   return field(1, video) + field(1, audio) + field(1, touch) + extra + field(2, "Honda") + field(3, "Civic")
 
 
@@ -86,8 +96,23 @@ class FakeHeadUnit:
   def __init__(self, identity: dict[str, Path], *, window: int = 4, reject_auth: bool = False, require_client_cert: bool = True,
                unsolicited_focus: bool = False, version: tuple[int, int] = (1, 7), ack_codec_config: bool | int = True,
                connect_to: tuple[str, int] | None = None, ack_fragments: bool = False,
-               phone_services: bool = False):
+               phone_services: bool = False, bolt: bool = False, silent_discovery: bool = False, withhold_focus: bool = False,
+               grant_focus_after_s: float | None = None, hang_up_after_s: float | None = None,
+               hang_up_unless: frozenset[int] = frozenset()):
     self.phone_services = phone_services
+    self.bolt = bolt
+    self.silent_discovery = silent_discovery  # never answer service discovery
+    self.withhold_focus = withhold_focus  # never grant focus, whatever the phone asks
+    self.grant_focus_after_s = grant_focus_after_s  # grant it this long after the phone asks (a driver-selected grant)
+    self.hang_up_after_s = hang_up_after_s  # send a shutdown request this long after the first video frame ...
+    self.hang_up_unless = hang_up_unless  # ... unless the phone has opened all of these channels
+    self.discovery_requests: list[bytes] = []
+    self.focus_request_bodies: list[bytes] = []
+    self.video_stops: list[bytes] = []
+    self.messages_seen: dict[tuple[int, int], int] = {}
+    self._grant_at: float | None = None
+    self._first_frame_at: float | None = None
+    self.hung_up = False
     self.sensor_requests: list[int] = []
     self.pairing_requests: list[tuple[str, int]] = []
     self.unsolicited_focus = unsolicited_focus
@@ -229,10 +254,22 @@ class FakeHeadUnit:
     focused = False
     while not self.stop.is_set():
       channel, kind, data = self._receive()
+      self.messages_seen[(channel, kind)] = self.messages_seen.get((channel, kind), 0) + 1
+      now = time.monotonic()
+      if self._grant_at is not None and now >= self._grant_at and not focused:
+        self._grant_at, focused = None, True
+        self._send(3, 0x8008, field(1, 1) + field(2, 1))
+      if (self.hang_up_after_s is not None and self._first_frame_at is not None and now - self._first_frame_at >= self.hang_up_after_s
+          and not self.hang_up_unless <= set(self.opened)):
+        self.hung_up = True
+        self._send(0, 15, field(1, 1))  # ByeByeRequest, reason 1 (user selection)
+        return
       fields = parse_fields(data) if kind not in (0, 1) else {}
       if channel == 0 and kind == 5:
+        self.discovery_requests.append(data)
         self.device_name = one(fields, 4, b"").decode()
-        self._send(0, 6, discovery_response(phone_services=self.phone_services))
+        if not self.silent_discovery:
+          self._send(0, 6, discovery_response(phone_services=self.phone_services, bolt=self.bolt))
       elif channel == 0 and kind == 11:
         self._send(0, 12, data)
       elif channel == 0 and kind == 15:
@@ -242,12 +279,12 @@ class FakeHeadUnit:
       elif kind == 7:
         self.opened.append(channel)
         self._send(channel, 8, field(1, 0), control=True)
-      elif self.phone_services and channel == SENSOR_CHANNEL and kind == 0x8001:
+      elif (self.phone_services or self.bolt) and channel == SENSOR_CHANNEL and kind == 0x8001:
         self.sensor_requests.append(int(one(fields, 1, 0) or 0))
         self._send(SENSOR_CHANNEL, 0x8002, field(1, 0))
         if one(fields, 1) == 13:
           self._send(SENSOR_CHANNEL, 0x8003, field(13, field(1, 0)))  # driving status: unrestricted
-      elif self.phone_services and channel == BLUETOOTH_CHANNEL and kind == 0x8001:
+      elif (self.phone_services or self.bolt) and channel == BLUETOOTH_CHANNEL and kind == 0x8001:
         address = one(fields, 1, b"")
         self.pairing_requests.append((address.decode() if isinstance(address, bytes) else "", int(one(fields, 2, 0) or 0)))
         self._send(BLUETOOTH_CHANNEL, 0x8002, field(1, 1) + field(2, 0))  # not paired
@@ -260,7 +297,12 @@ class FakeHeadUnit:
         requested = int(one(fields, 2, 0) or 0)
         reason = int(one(fields, 3, 0) or 0)
         self.focus_requests.append((requested, reason))
-        if requested == 1 and not focused:
+        self.focus_request_bodies.append(data)
+        if requested == 1 and not focused and self.withhold_focus:
+          pass
+        elif requested == 1 and not focused and self.grant_focus_after_s is not None:
+          self._grant_at = time.monotonic() + self.grant_focus_after_s
+        elif requested == 1 and not focused:
           focused = True
           self._send(3, 0x8008, field(1, 1) + field(2, 0))
         elif requested == 2 and focused:
@@ -280,11 +322,15 @@ class FakeHeadUnit:
       elif channel == 3 and kind == 0:
         assert isinstance(session_id, int)
         self.frames.append((session_id, data[8:]))
+        if self._first_frame_at is None:
+          self._first_frame_at = time.monotonic()
         unacked += 1
         self.streaming.set()
         if not self.hold_acks.is_set():
           self._ack(session_id)
           unacked -= 1
+      elif channel == 3 and kind == 0x8002:
+        self.video_stops.append(data)
       elif channel == 1 and kind == 0x8002:
         self._send(1, 0x8003, field(1, 0))
 
@@ -308,7 +354,7 @@ class FakeHeadUnit:
 def rfcomm_head_unit(sock: socket.socket, endpoint: tuple[str, int], *, version_first: bool = False, oaa_layout: bool = False,
                      setup_info_only: bool = False, pings: bool = True, byte_by_byte: bool = False,
                      wait_for_phone_start: bool = False, answer_start: bool = False, busy_replies: int = 0,
-                     busy_follow_up: bool = False) -> dict:
+                     busy_follow_up: bool = False, require_phone_ping: bool = False) -> dict:
   """Car side of the RFCOMM bootstrap; returns what the phone sent.
 
   ``answer_start`` models a 2025 Honda: it answers the phone's WifiStartRequest with
@@ -356,6 +402,11 @@ def rfcomm_head_unit(sock: socket.socket, endpoint: tuple[str, int], *, version_
       message_id, payload = receive()
       assert message_id == bs.WIFI_START_REQUEST, message_id
       seen["phone_start_request"] = payload
+    if require_phone_ping:  # a dongle that starts only after the phone pings it
+      message_id, payload = receive()
+      while message_id != bs.WIFI_PING_REQUEST:
+        message_id, payload = receive()
+      seen["phone_ping_first"] = True
     if pings:
       send(bs.WIFI_PING_REQUEST, field(1, 123))
     if answer_start:

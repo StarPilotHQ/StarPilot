@@ -1,7 +1,11 @@
 # StarPilot steering learning
 
-Galaxy’s Auto Learn results at `/tuning/flm` read the existing bounded training
-report and live plots. `/tuning` and `/tuning/plots` show Live Plots directly.
+Galaxy’s StarPilot Tuner at `/tuning` shows Auto Learn status, grouped full30
+correction coordinates, and reported learning activity. `/tuning/flm` remains an
+alias; `/tuning/plots` opens the separate live control plots. The saved vehicle
+choice is read independently of the optional learner report, so Off remains
+visible when the learner is stopped. Historical reports, current controller
+acknowledgement, accepted corrections and disk saving are separate states.
 Recorded-log analysis, manual GM trial generation, their worker and CLI have
 been removed. Shared log readers remain for route summaries and downloads.
 

@@ -41,11 +41,17 @@ def checksum(data):
   return crc
 
 
+def primary_pedal_hardware(fingerprint):
+  # StarPilot enrolls the bus0 pedal. A six-byte camera copy is informational;
+  # it cannot replace that primary source or enroll a second pedal bus.
+  return (fingerprint.get(0, {}).get(0x201) == 6 and
+          all(bus in (0, 2) and frames[0x201] == 6 for bus, frames in fingerprint.items() if 0x201 in frames))
+
+
 def hardware_supported(candidate, fingerprint, car_fw):
-  if candidate not in CAMERA_PEDAL_CARS | RADAR_PEDAL_CARS or fingerprint.get(0, {}).get(0x201) != 6:
+  if candidate not in CAMERA_PEDAL_CARS | RADAR_PEDAL_CARS or not primary_pedal_hardware(fingerprint):
     return False
-  if any(0x201 in fingerprint.get(bus, {}) for bus in (1, 2)) or any(
-      addr in messages for messages in fingerprint.values() for addr in (0x2FF, 0x2AA)):
+  if any(addr in messages for messages in fingerprint.values() for addr in (0x2FF, 0x2AA)):
     return False
   from opendbc.car.toyota.fingerprints import FW_VERSIONS
   known = FW_VERSIONS[candidate]

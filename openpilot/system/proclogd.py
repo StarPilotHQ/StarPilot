@@ -89,7 +89,8 @@ def _parse_proc_stat(stat: str) -> ProcStat | None:
   if open_paren == -1 or close_paren == -1 or open_paren > close_paren:
     return None
   name = stat[open_paren + 1:close_paren]
-  stat = stat[:open_paren] + stat[open_paren:close_paren].replace(' ', '_') + stat[close_paren:]
+  if ' ' in name:
+    stat = stat[:open_paren] + stat[open_paren:close_paren].replace(' ', '_') + stat[close_paren:]
   parts = stat.split()
   if len(parts) < 52:
     return None
@@ -143,6 +144,8 @@ def _read_smaps(pid: int) -> SmapsData:
     result: SmapsData = {'pss': 0, 'pss_anon': 0, 'pss_shmem': 0}
     with open(f'/proc/{pid}/{_smaps_path}', 'rb') as f:
       for line in f:
+        if line and line[0] not in b'P \t\n\r\v\f':
+          continue
         parts = line.split()
         if len(parts) >= 2 and parts[0] in _SMAPS_KEYS:
           val = int(parts[1]) * 1024  # kB -> bytes

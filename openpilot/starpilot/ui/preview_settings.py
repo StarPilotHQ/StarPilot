@@ -12,8 +12,7 @@ import json
 from pathlib import Path
 import time
 
-import pyray as rl
-import raylib
+from openpilot.starpilot.ui.raylib import native_library_path, rl
 
 from openpilot.starpilot.ui.device import DeviceView
 from openpilot.starpilot.ui.device_state import DeviceInput
@@ -76,7 +75,7 @@ def main():
           rl.end_texture_mode()
           pixels = rl.load_image_from_texture(target.texture)
           try:
-            if pixels.data == rl.ffi.NULL:
+            if pixels.data is None:
               raise RuntimeError("Unable to read Settings framebuffer")
             if frame >= 6:
               timings.append((time.perf_counter() - begin) * 1000)
@@ -85,13 +84,13 @@ def main():
               rl.image_flip_vertical(pixels)
               if not rl.export_image(pixels, str(args.output / f"{profile}.png")):
                 raise RuntimeError("Unable to export Settings framebuffer")
-              rgba_hash = hashlib.sha256(bytes(rl.ffi.buffer(pixels.data, width * height * 4))).hexdigest()
+              rgba_hash = hashlib.sha256(bytes(pixels.data[:width * height * 4])).hexdigest()
           finally:
-            if pixels.data != rl.ffi.NULL:
+            if pixels.data is not None:
               rl.unload_image(pixels)
         report = {"profile": profile, "dimensions": [width, height], "snapshot": args.snapshot, "development_only": True,
                   "state": asdict(state), "rgba_sha256": rgba_hash, "submission_readback_ms": timings,
-                  "native_raylib_sha256": hashlib.sha256(Path(raylib._cffi.__file__).read_bytes()).hexdigest(),
+                  "native_raylib_sha256": hashlib.sha256(Path(native_library_path).read_bytes()).hexdigest(),
                   "scope": "static entry presentation; no compact motion, leaf panels, device services or performance qualification"}
         (args.output / f"{profile}.json").write_text(json.dumps(report, indent=2) + "\n")
         if args.interactive:

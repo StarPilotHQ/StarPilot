@@ -29,12 +29,14 @@ class Preferences:
   # Live-tunable while driving: excluded from equality so changing them never restarts the player.
   pause_mute: float = field(default=0.5, compare=False)
   skip_mute: float = field(default=0.25, compare=False)
+  pull_onroad: bool = field(default=False, compare=False)
 
   def public(self) -> dict:
     return {'deviceName': self.device_name, 'cacheMb': self.cache_mb, 'initialVolume': self.initial_volume,
             'output': self.output, 'outputAddress': self.output_address, 'outputName': self.output_name,
             'source': self.source, 'phoneAddress': self.phone_address, 'phoneName': self.phone_name,
-            'pauseMute': self.pause_mute, 'skipMute': self.skip_mute, 'muteMax': MUTE_MAX}
+            'pauseMute': self.pause_mute, 'skipMute': self.skip_mute, 'muteMax': MUTE_MAX,
+            'pullOnroad': self.pull_onroad}
 
 
 def _mute(value: object) -> float:
@@ -67,8 +69,11 @@ def validated(values: dict) -> Preferences:
   if prefs.source == 'phone' and phone and prefs.output == 'bluetooth' and phone == address:
     raise ValueError('Choose a different device for the phone and speaker')
   phone_name = prefs.phone_name.strip()[:80] if isinstance(prefs.phone_name, str) else ''
+  if type(prefs.pull_onroad) is not bool:
+    raise ValueError('Invalid Spotify settings')
   return Preferences(name, prefs.cache_mb, prefs.initial_volume, prefs.output, address, output_name if address else '',
-                     prefs.source, phone, phone_name if phone else '', _mute(prefs.pause_mute), _mute(prefs.skip_mute))
+                     prefs.source, phone, phone_name if phone else '', _mute(prefs.pause_mute), _mute(prefs.skip_mute),
+                     prefs.pull_onroad)
 
 
 def load(layout: Layout | None = None) -> Preferences:

@@ -30,7 +30,7 @@ class TestHyundaiSharedCanfdStockAol(unittest.TestCase):
         if name == omit:
           continue
         bus = 1 - pt if name == wrong_bus else pt
-        values = {'COUNTER': counter % (16 if name == 'CRUISE_BUTTONS' else 256)}
+        values: dict[str, float] = {'COUNTER': counter % (16 if name == 'CRUISE_BUTTONS' else 256)}
         if name == 'MDPS':
           values['MDPS_StrTqSnsrVal'] = 0
         frame = self.packer.make_can_msg(name, bus, values)
@@ -93,3 +93,60 @@ class TestHyundaiSharedCanfdStockAol(unittest.TestCase):
       self.healthy(word, wrong_bus='WHEEL_SPEEDS')
       self.gesture(word)
       self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+
+  def test_fresh_stock_enable_retains_lateral_through_brake(self):
+    for word in STOCK_AOL_WORDS:
+      for button in (1, 2):
+        for engaged_first in (False, True):
+          with self.subTest(word=hex(word), button=button, engaged_first=engaged_first):
+            self.mode(word)
+            self.healthy(word)
+            pt = 1 if word & 0x10 else 0
+            name = 'CRUISE_BUTTONS_ALT' if word & 0x20 else 'CRUISE_BUTTONS'
+
+            def rx(name, bus, values):
+              self.assertTrue(self.safety.safety_rx_hook(self.packet(self.packer.make_can_msg(name, bus, values))))
+            self.safety.set_timer(1_001_000)
+            rx(name, pt, {'COUNTER': 7, 'CRUISE_BUTTONS': button})
+            if engaged_first:
+              rx('SCC_CONTROL', 2 if word & 8 else pt, {'COUNTER': 7, 'ACCMode': 1})
+            self.safety.set_timer(1_002_000)
+            rx(name, pt, {'COUNTER': 8, 'CRUISE_BUTTONS': 0})
+            if not engaged_first:
+              rx('SCC_CONTROL', 2 if word & 8 else pt, {'COUNTER': 7, 'ACCMode': 1})
+            self.assertTrue(self.safety.get_controls_allowed())
+            self.safety.set_aol_test_heartbeat(True)
+            self.safety.aol_set_host_request(1)
+            self.assertEqual(self.safety.aol_get_permission_mask(), 1)
+            self.safety.set_timer(1_003_000)
+            rx('TCS', pt, {'COUNTER': 7, 'DriverBraking': 1})
+            self.assertFalse(self.safety.get_controls_allowed())
+            self.assertEqual(self.safety.aol_get_permission_mask(), 1)
+            self.safety.set_aol_test_heartbeat(False)
+            self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+
+  def test_stock_enable_needs_fresh_physical_release_and_accepted_cruise(self):
+    for word in (0x800, 0x828, 0x2C2A, 0x2832, 0x28B2):
+      for fault in ('missing_press', 'held', 'counter_gap', 'main', 'lkas', 'not_engaged', 'long_request', 'expired'):
+        with self.subTest(word=hex(word), fault=fault):
+          self.mode(word)
+          self.healthy(word)
+          pt = 1 if word & 0x10 else 0
+          name = 'CRUISE_BUTTONS_ALT' if word & 0x20 else 'CRUISE_BUTTONS'
+          self.safety.set_timer(1_001_000)
+          frame = self.packer.make_can_msg(name, pt, {'COUNTER': 7, 'CRUISE_BUTTONS': 0 if fault == 'missing_press' else 2})
+          self.assertTrue(self.safety.safety_rx_hook(self.packet(frame)))
+          self.safety.set_timer(1_002_000)
+          values: dict[str, float] = {'COUNTER': 10 if fault == 'counter_gap' else 8, 'CRUISE_BUTTONS': 2 if fault == 'held' else 0,
+                    'ADAPTIVE_CRUISE_MAIN_BTN': int(fault == 'main'), 'LDA_BTN': int(fault == 'lkas')}
+          self.assertTrue(self.safety.safety_rx_hook(self.packet(self.packer.make_can_msg(name, pt, values))))
+          if fault != 'not_engaged':
+            self.assertTrue(self.safety.safety_rx_hook(self.packet(self.packer.make_can_msg(
+              'SCC_CONTROL', 2 if word & 8 else pt, {'COUNTER': 7, 'ACCMode': 1}))))
+          if fault == 'expired':
+            self.safety.set_timer(1_203_001)
+          self.safety.set_aol_test_heartbeat(True)
+          self.safety.aol_set_host_request(3 if fault == 'long_request' else 1)
+          self.safety.aol_get_permission_mask()
+          self.assertTrue(self.safety.safety_rx_hook(self.packet(self.packer.make_can_msg('TCS', pt, {'COUNTER': 7, 'DriverBraking': 1}))))
+          self.assertEqual(self.safety.aol_get_permission_mask(), 1 if fault in ('main', 'lkas') else 0)

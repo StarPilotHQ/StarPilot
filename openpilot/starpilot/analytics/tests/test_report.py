@@ -94,7 +94,7 @@ def test_branch_commit_lookup_stays_on_official_repository_and_bounds_body():
   response.iter_content.return_value = [b'{"sha":"' + b"b" * 40 + b'"}']
   session.get.return_value = response
   assert fetch_branch_commit("feature/branch", session=session) == "b" * 40
-  assert session.get.call_args.args[0] == "https://api.github.com/repos/firestar5683/StarPilot/commits/feature%2Fbranch"
+  assert session.get.call_args.args[0] == "https://api.github.com/repos/StarPilotHQ/StarPilot/commits/feature%2Fbranch"
   assert session.get.call_args.kwargs["allow_redirects"] is False
   response.iter_content.return_value = [b"x" * 65_537]
   assert fetch_branch_commit("branch", session=session) is None
@@ -149,3 +149,13 @@ def test_builtin_authentication_allows_normal_branch_branding():
   assert CLIENT_TOKEN.encode() in payload
   assert ReportClient(CLIENT_TOKEN, session=session).send(payload)
   assert session.post.call_args.kwargs['data'] == payload
+
+
+
+@pytest.mark.parametrize('major', [7, 8, 6, 0, -1, 100, True, '7', 7.0, None])
+def test_software_major_is_a_validated_integer_not_a_branch_guess(major):
+  payload = build_payload({'branch': 'StarPilot', 'metrics': {'software_major': major}}, {}, 1).decode()
+  if type(major) is int and 0 < major < 100:
+    assert f'software_major={major}i' in payload
+  else:
+    assert 'software_major=' not in payload

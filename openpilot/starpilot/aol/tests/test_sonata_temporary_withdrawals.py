@@ -31,7 +31,7 @@ from openpilot.starpilot.aol.tests.hyundai_cpp_order import hkg_pandad_order as 
 disable_ecu_module = importlib.import_module('opendbc.car.disable_ecu')
 
 
-def classic_frames(ci, tick, *, main=0, main_pressed=0, lkas=0, button=0, engaged=False, brake=False, steer_fault=False):
+def classic_frames(ci, tick, *, main=0, main_pressed=0, lkas=0, button=0, engaged=False, brake=False, steer_fault=False, gas=False):
 
   assert ci.CP.carFingerprint == CAR.HYUNDAI_SONATA_HYBRID
   packer = CANPacker('hyundai_can_generated')
@@ -56,7 +56,7 @@ def classic_frames(ci, tick, *, main=0, main_pressed=0, lkas=0, button=0, engage
     if name == 'CLU11':
       values.update(CF_Clu_AliveCnt1=counter%16, CF_Clu_CruiseSwState=button, CF_Clu_CruiseSwMain=main_pressed)
     elif name == 'E_EMS11':
-      values.update(CR_Vcu_AccPedDep_Pos=0)
+      values.update(CR_Vcu_AccPedDep_Pos=20 if gas else 0)
     elif name == 'WHL_SPD11':
       values.update(WHL_SPD_AliveCounter_LSB=counter%4, WHL_SPD_AliveCounter_MSB=(counter//4)%4,
                     WHL_SPD_FL=40,WHL_SPD_FR=40,WHL_SPD_RL=40,WHL_SPD_RR=40)
@@ -98,7 +98,8 @@ def _invalid_controls_emits_no_commands(received):
 @pytest.mark.parametrize('raw_fault', [0, 8])
 @pytest.mark.parametrize('withdrawal', ['brake', 'cruise-cancel'])
 @pytest.mark.parametrize('temporary', ['eps', 'source', 'axis'])
-def test_classic_stock_temporary_withdrawal_recovers_with_real_cpp(raw_fault, withdrawal, temporary, monkeypatch, hkg_pandad_order):
+def test_classic_stock_temporary_withdrawal_recovers_with_real_cpp(
+    raw_fault, withdrawal, temporary, monkeypatch, hkg_pandad_order, *, main_off=False, gas_override=False):
   shared_long = False
   native = libsafety_py.libsafety
   case = caller_fixture.IoniqAvailabilityTests(methodName='runTest')
@@ -232,8 +233,9 @@ def test_classic_stock_temporary_withdrawal_recovers_with_real_cpp(raw_fault, wi
           else:
             native.set_aol_test_heartbeat(heartbeat if heartbeat_override is None else heartbeat_override)
             native.aol_set_host_request(request)
+          main = 0 if main_off else main
           frames = classic_frames(card.CI, tick, main=main, main_pressed=main_pressed, lkas=lkas, button=button,
-                                  engaged=engaged, brake=brake, steer_fault=steer_fault)
+                                  engaged=engaged, brake=brake, steer_fault=steer_fault, gas=gas_override)
           if drop_wheel:
             frames = [frame for frame in frames if frame[0] != 0x386]
           if bad_checksum:
@@ -348,9 +350,9 @@ def test_classic_stock_temporary_withdrawal_recovers_with_real_cpp(raw_fault, wi
           step(main=0)
         assert native.safety_config_valid()
         # Real Card constructed CI before applying the native AOL marker.
-        # A fresh physical MAIN must arm mapped intent without SET or LKAS.
+        # The mapped physical button arms without SET or stock MAIN availability.
         for _ in range(14):
-          step(main=1, main_pressed=1)
+          step(main=1, main_pressed=int(not main_off), lkas=int(main_off))
         nonzero = False
         for _ in range(35):
           state, axis, host, command, steering = step(main=1, engaged=False)
@@ -396,6 +398,7 @@ def test_classic_stock_temporary_withdrawal_recovers_with_real_cpp(raw_fault, wi
           state, axis, host, command, steering = step(main=1)
         assert not state.steerFaultTemporary and card.aol_card_intent.allowed_latch
         assert axis.lateralActive and command.latActive
+        gas_override = False
         observations: list[dict[str, Any]] = []
         for index in range(20):
           state, axis, host, command, steering = step(main=1, engaged=False,
@@ -410,7 +413,7 @@ def test_classic_stock_temporary_withdrawal_recovers_with_real_cpp(raw_fault, wi
         proof = {'raw_fault': raw_fault, 'withdrawal': withdrawal, 'observations': observations}
         print(json.dumps(proof))
         stopped = [row for row in observations if not row['cruise_enabled']]
-        assert stopped and all(row['main_available'] for row in stopped)
+        assert stopped and all(row['main_available'] == (not main_off) for row in stopped)
         assert all(row['axis']['lateralActive'] and row['command_lat'] for row in stopped), (
           'CLASSIC_CRUISE_ONLY_WITHDRAWAL_LOST_LAT ' + json.dumps(proof))
         assert all(not row['command_long'] and not row['axis']['longitudinalActive'] for row in observations)
@@ -438,3 +441,9 @@ def test_classic_stock_temporary_withdrawal_recovers_with_real_cpp(raw_fault, wi
       case.doCleanups()
       if card is not None:
         card.vehicle_startup.close()
+
+
+@pytest.mark.parametrize('gas_override', [False, True])
+def test_classic_eps_recovery_with_cruise_main_off(gas_override, monkeypatch, hkg_pandad_order):
+  test_classic_stock_temporary_withdrawal_recovers_with_real_cpp(
+    0, 'brake', 'eps', monkeypatch, hkg_pandad_order, main_off=True, gas_override=gas_override)

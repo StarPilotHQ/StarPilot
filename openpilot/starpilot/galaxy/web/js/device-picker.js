@@ -79,7 +79,7 @@ export const DevicePicker = {
       <div class="gx-nav-section__title">Commas</div>
       <div v-for="(device, index) in devices" :key="device.slug" class="gx-device-picker__row">
         <button type="button" class="gx-nav-item gx-grow" :class="{active:device.slug === activeSlug}" @click="select(device)">
-          <i class="bi bi-cpu"></i><span class="gx-truncate">{{ device.name || 'Comma ' + (index + 1) }}</span>
+          <i class="bi bi-cpu"></i><span class="gx-truncate"><span translate="no">{{ device.name || 'Comma ' + (index + 1) }}</span></span>
           <small v-if="device.slug === activeSlug">Current</small>
         </button>
         <button type="button" class="gx-icon-btn" :aria-label="'Rename ' + (device.name || 'comma')" @click="edit(device)"><i class="bi bi-pencil"></i></button>

@@ -52,7 +52,7 @@ class TestCruiseIntervals(unittest.TestCase):
     Path(self.params.get_param_path("CustomCruiseLong")).write_bytes(b"200")
     self.assertEqual(read_cruise_intervals(self.params, self.cp), CruiseIntervals())
 
-  def test_slc_uses_saved_intervals_for_every_other_make_and_pcm_mode(self):
+  def test_slc_preserves_software_intervals_and_native_pcm_set(self):
     brands = [brand.__module__.split('.')[-2] for brand in BRANDS if brand.__module__.split('.')[-2] != 'toyota'] + ['future']
     self.params.put("CustomCruise", 3.0, block=True)
     self.params.put("CustomCruiseLong", 7.0, block=True)
@@ -67,6 +67,11 @@ class TestCruiseIntervals(unittest.TestCase):
         helper.v_cruise_kph = helper.v_cruise_cluster_kph = initial
         helper.intervals = read_cruise_intervals(self.params, cp)
         helper.update_v_cruise(state(button, True, native=140.), True, metric, slc_enabled=True)
+        if pcm:
+          helper.update_v_cruise(state(button, False, native=140.), True, metric, slc_enabled=True)
+          self.assertAlmostEqual(helper.v_cruise_kph, 140., places=4)
+          self.assertIsNone(helper.slc_cruise_change)
+          continue
         if held:
           for _ in range(CRUISE_LONG_PRESS):
             helper.update_v_cruise(state(native=140.), True, metric, slc_enabled=True)
@@ -215,3 +220,19 @@ class TestCruiseIntervals(unittest.TestCase):
     self.step(slc, Button.accelCruise, False)
     self.assertEqual(slc.v_cruise_kph, 60)
     self.assertTrue(slc.slc_released_suppressed)
+
+
+def test_steps_stop_on_slc_limit_plus_offset():
+  helper = VCruiseHelper(car.CarParams(brand='hyundai', openpilotLongitudinalControl=True))
+  helper.intervals = CruiseIntervals(5, 5)
+  def step(start_mph, button, stop_mph):
+    helper.v_cruise_kph = helper.v_cruise_cluster_kph = slc_target_kph(start_mph * CV.MPH_TO_MS, False)
+    helper.slc_stop_kph = slc_target_kph(stop_mph * CV.MPH_TO_MS, False) if stop_mph else None
+    helper.adjust_v_cruise(button, state(), False)
+    return round(helper.v_cruise_kph * CV.KPH_TO_MPH)
+  assert step(25, Button.accelCruise, 28) == 28
+  assert step(35, Button.accelCruise, 38) == 38
+  assert step(28, Button.accelCruise, 28) == 30
+  assert step(30, Button.decelCruise, 28) == 28
+  assert step(25, Button.accelCruise, 30) == 30
+  assert step(25, Button.accelCruise, None) == 30

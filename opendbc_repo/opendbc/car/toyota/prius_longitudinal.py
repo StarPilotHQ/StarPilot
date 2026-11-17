@@ -1,5 +1,6 @@
 import numpy as np
 from opendbc.car import structs
+from opendbc.car.config_cache import cached_config
 from opendbc.car.toyota.values import CAR, ToyotaFlags
 
 PRIUS_POSITIVE_FEEDFORWARD_SCALE = .7
@@ -12,6 +13,7 @@ TOYOTA_NO_LEAD_COAST_BRAKE_ACCEL = -.30
 TOYOTA_NO_LEAD_CRUISE_SIGN_FLIP_MIN_SET_SPEED_ERROR = .35
 
 
+@cached_config
 def configured(cp):
   from opendbc.car.toyota.pedal_composite import parent_cp
   cp = parent_cp(cp)
@@ -27,6 +29,7 @@ def configured(cp):
           cp.openpilotLongitudinalControl == (cp.safetyConfigs[0].safetyParam == 0x8049))
 
 
+@cached_config
 def eps73_status_configured(cp):
   from opendbc.car.toyota.pedal_composite import parent_cp
   cp = parent_cp(cp)

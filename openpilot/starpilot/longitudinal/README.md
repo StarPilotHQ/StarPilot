@@ -12,15 +12,14 @@ Policy order matters. Target shaping precedes PID preparation; vehicle output sh
 
 `LongitudinalPlanner.update(sm, *, cruise_ceiling=None, profile_tuning=None)` accepts an optional
 `CruiseCeiling(speed_mps, authority)` in addition to the existing driver cruise
-message. The live caller supplies no ceiling. The planner still reads
-`carState.vCruise` for the driver's selected ceiling and leaves every supplied
-Cap'n Proto message unchanged. [SLC](../speed_limits/README.md) adopts accepted
-limits into Card's ordinary cruise SET; it supplies no additional planner ceiling.
-The optional input remains available to explicit callers and replay tests.
+message. The live [SLC](../speed_limits/README.md) caller supplies a qualified cap.
+The planner still reads `carState.vCruise` as the driver's selected ceiling and
+leaves supplied messages unchanged. Accepted limits affect the planner cap, not SET.
 
 The `CruiseCeiling` dataclass validates no source or acceptance history by
-construction. Its caller must first establish a fresh, accepted, normalized
-m/s ceiling in the correct speed coordinate. The planner validates its numeric
+construction. Its caller must establish an accepted, normalized m/s ceiling in
+the correct speed coordinate, including the fixed previous-accepted-limit fallback.
+Vehicle coordinates and authority remain fresh. The planner validates its numeric
 shape and the shared four-mode `Authority` contract. It applies the lower of
 the supplied ceiling and the existing driver ceiling only when native system
 longitudinal control is available, the supplied authority grants active system
@@ -33,7 +32,7 @@ publish that diagnostic or alter the longitudinal plan schema.
 
 This optional input changes only the cruise candidate before the planner's
 existing jerk limiting. SLC uses the ordinary cruise braking response and selected
-profile after its SET adoption. Lead-relevance checks still prevent cruise comfort
+profile for its capped target; a cap does not strengthen a softer cruise profile. Lead-relevance checks still prevent cruise comfort
 tuning from weakening braking for a close, slow or braking lead; malformed lead
 evidence also vetoes that tuning. The native MPC, lead, e2e, stop and acceleration
 arbitration remain in place. An inactive planner may still compute a nonzero
@@ -111,7 +110,7 @@ different historical scales:
 | Sport (`sport`) | 2.4 m/s² | 2.0 m/s² |
 
 These are positive deceleration magnitudes for ordinary cruise braking,
-including an SLC change to cruise SET. Global values preserve the historical
+including a changed SLC cap. Global values preserve the historical
 1.2 m/s² baseline with half/normal/double responses; explicit personality
 presets retain their original physical values. The distinction preserves
 existing tuning and saved-document compatibility.

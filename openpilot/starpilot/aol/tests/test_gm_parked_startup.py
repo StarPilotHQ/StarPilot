@@ -26,8 +26,8 @@ def test_cold_park_main_waits_without_losing_intent(index, main_action):
   _exercise_parked_main(index, main_action)
 
 
-def _exercise_parked_main(index, main_action, *, below_engage=False):
-  cp = list(cases())[index]
+def _exercise_parked_main(index, main_action, *, below_engage=False, cp=None):
+  cp = list(cases())[index] if cp is None else cp
   case = fixture.IoniqAvailabilityTests(methodName='runTest')
   with OpenpilotPrefix(), ExitStack() as cleanup:
     cleanup.callback(case.doCleanups)
@@ -44,6 +44,9 @@ def _exercise_parked_main(index, main_action, *, below_engage=False):
     cleanup.callback(card.vehicle_startup.close)
     card.ci_initialized = True
     card.car_params_published = True
+    if getattr(card, 'volt_cc_selected', False):
+      card.volt_cc_boot_offset_ns = 0
+      card.volt_cc_source_floor_ns = 9_000_000_000
     card.sm.frame = 1
     assert card.CP.to_dict() == sd.CP.to_dict() == controls.CP.to_dict()
     original_pm = card.pm
@@ -159,6 +162,11 @@ def _exercise_parked_main(index, main_action, *, below_engage=False):
     def receive_card(now):
       nonlocal last_control_stamp
       rows = list(wire_batch(now))
+      if getattr(card, 'volt_cc_selected', False):
+        device = messaging.new_message('deviceState', valid=True, logMonoTime=now)
+        device.deviceState.started = True
+        device.deviceState.startedMonoTime = 9_000_000_000
+        rows.append(device.as_reader())
       rows += [sd.pm.messages[k] for k in ('aolAxisState', 'selfdriveState', 'onroadEvents') if k in sd.pm.messages]
       published = controls.pm.messages['carControl']
       if published.logMonoTime != last_control_stamp:
@@ -178,10 +186,19 @@ def _exercise_parked_main(index, main_action, *, below_engage=False):
     def physical(tick, stamp, driving):
       speed = max(4.0, cp.minSteerSpeed + 2.0)
       if below_engage:
+        speed = cp.minSteerSpeed + 0.05
         assert speed < cp.minEnableSpeed
       else:
         speed = max(speed, cp.minEnableSpeed + 2.0)
       packets = parsed_packets(cp, packer, stamp, tick, speed if driving else 0.0, True)
+      from opendbc.car.gm.values import CAR, is_volt_cc_f1_profile
+      if is_volt_cc_f1_profile(cp):
+        packets = [f for f in packets if f[0] != 0xBE]
+        packets.append(packer.make_can_msg('EBCMBrakePedalPosition', 0, {}))
+      if cp.carFingerprint == CAR.CHEVROLET_VOLT_CC and tick in (320, 321):
+        button = packer.make_can_msg('ASCMSteeringButton', 0,
+          {'ACCButtons': 3 if tick == 320 else 1, 'RollingCounter': tick % 4})
+        packets = [f for f in packets if f[0] != button[0]] + [button]
       packets = [f for f in packets if f[0] not in (0x1F5, 0x12A, 0x184, 0x17D)]
       if cp.pcmCruise and cp.networkLocation == structs.CarParams.NetworkLocation.fwdCamera:
         address = packer.make_can_msg('ASCMActiveCruiseControlStatus', 2, {})[0]
@@ -210,7 +227,7 @@ def _exercise_parked_main(index, main_action, *, below_engage=False):
     assert safety.safety_config_valid() and safety.aol_get_permission_mask() == 0
     tx = 0
     active = 0
-    for tick in range(1, 381):
+    for tick in range(1, 581 if below_engage and cp.carFingerprint == "CHEVROLET_VOLT_CC" else 381):
       now = 10_020_000_000 + (tick - 1) * 10_000_000
       driving = tick > 300
       safety.set_timer(now // 1000)

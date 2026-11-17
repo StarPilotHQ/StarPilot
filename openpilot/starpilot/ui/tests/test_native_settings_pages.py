@@ -9,7 +9,7 @@ from types import SimpleNamespace as NS, ModuleType
 import unittest
 from unittest.mock import Mock, patch
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.feature_settings_state import (
   FEATURE_ROW_TOP, FEATURE_ROW_HEIGHT, FeatureInput, FeatureUiAction, feature_row_top, value_buttons, value_done_rect,
@@ -498,6 +498,10 @@ class NativeSettingsPageTests(unittest.TestCase):
     self.assertEqual(personality.selected_button, 1)
 
   def test_toggles_saved_state_matches_display_after_changes(self):
+    import tempfile
+    from openpilot.common.params import Params
+    from openpilot.starpilot.galaxy.localization_settings import LocalizationSettingsOwner
+
     # Run the real controller methods with only device services isolated.
     source = Path('openpilot/selfdrive/ui/layouts/settings/toggles.py')
     layout = next(node for node in ast.parse(source.read_text()).body if isinstance(node, ast.ClassDef) and node.name == 'TogglesLayout')
@@ -505,29 +509,36 @@ class NativeSettingsPageTests(unittest.TestCase):
                'request_toggle', 'request_personality', '_set_longitudinal_personality'}
     layout.bases = []
     layout.body = [node for node in layout.body if isinstance(node, ast.FunctionDef) and node.name in methods]
-    ui = NS(CP=None, engaged=False, update_params=Mock(), sm=NS(updated={'selfdriveState': False}))
+    ui = NS(CP=None, engaged=False, parked=True, update_params=Mock(), sm=NS(updated={'selfdriveState': False}))
     app = NS(push_widget=Mock())
     namespace = ModuleType('toggles_controller_test')
     namespace.__dict__.update(tr=lambda text: text, ui_state=ui)
     exec(compile(ast.Module(body=[layout], type_ignores=[]), str(source), 'exec'), namespace.__dict__)
     owner = namespace.TogglesLayout()
-    saved = {'IsLdwEnabled': False, 'LongitudinalPersonality': 1}
-    owner._params = NS(get_bool=lambda key: bool(saved.get(key, False)), get=lambda key, **_: saved.get(key),
-                       put_bool=lambda key, value, **_: saved.__setitem__(key, value),
-                       put=lambda key, value, **_: saved.__setitem__(key, value))
+    class SavedParams(Params):
+      def __getitem__(self, key):
+        return self.get(key)
+
+    saved = SavedParams(self.enterContext(tempfile.TemporaryDirectory()))
+    for key in ('IsLdwEnabled', 'ExperimentalMode', 'IsRhdDetected', 'IsDriverViewEnabled', 'IsMetric'):
+      saved.put_bool(key, False, block=True)
+    saved.put('LongitudinalPersonality', 1, block=True)
+    owner._params = saved
+    owner._localization = LocalizationSettingsOwner(saved, lambda: True, lambda: ui.parked)
     toggle = item('Lane Departure Warnings', ToggleAction())
     experimental = item('Experimental Mode', ToggleAction())
+    rhd = item('Right Hand Driving', ToggleAction())
     experimental.set_description = Mock()
     with patch.object(gui_app, 'font', return_value=rl.Font()):
       personality = item('Driving Personality', MultipleButtonAction(['Aggressive', 'Standard', 'Relaxed'], 255, selected_index=1))
-    owner._toggles = {'IsLdwEnabled': toggle, 'ExperimentalMode': experimental}
+    owner._toggles = {'IsLdwEnabled': toggle, 'ExperimentalMode': experimental, 'IsRhdDetected': rhd}
     owner._toggle_defs = dict.fromkeys(owner._toggles, ('', '', '', False))
     owner._locked_toggles = set()
     owner._slc_offsets = NS(_raw=lambda key: b'0')
     owner._update_experimental_mode_icon = Mock()
     owner._long_personality_setting = personality
     owner._initial_cruise_speed = NS(action_item=NS(refresh=Mock()))
-    owner._scroller = NS(_items=[toggle, personality, experimental])
+    owner._scroller = NS(_items=[toggle, personality, experimental, rhd])
     pane = self.panel(owner._scroller._items)
     pane.panel, pane.title = owner, 'Toggles'
     for desired in (True, False):
@@ -543,7 +554,7 @@ class NativeSettingsPageTests(unittest.TestCase):
       self.assertEqual(pane.snapshot().rows[0].value, personality.action_item.buttons[expected])
     pane._emit(FeatureUiAction('back'))
     owner._toggle_defs['IsLdwEnabled'] = ('', '', '', True)
-    ui.engaged = True
+    ui.engaged, ui.parked = True, False
     self.click(pane, 2000)
     self.assertFalse(saved['IsLdwEnabled'])
     self.assertEqual(pane.snapshot().rows[0].value, 'Off')

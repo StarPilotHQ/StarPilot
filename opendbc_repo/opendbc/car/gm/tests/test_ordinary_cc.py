@@ -351,8 +351,8 @@ class TestOrdinaryCc(unittest.TestCase):
       cp = params(identity)
       prepare_disable_longitudinal(cp, True)
       self.assertFalse(cp.openpilotLongitudinalControl)
-      self.assertFalse(cp.pcmCruise)
-      self.assertEqual(cp.safetyConfigs[0].safetyParam, 0xC160)
+      self.assertTrue(cp.pcmCruise)
+      self.assertEqual(cp.safetyConfigs[0].safetyParam, 16)
       ci = CarInterface(cp)
       packer = CANPacker(DBC[identity][Bus.pt])
       control = structs.CarControl(enabled=True, latActive=True, longActive=True)
@@ -422,7 +422,7 @@ class TestOrdinaryCc(unittest.TestCase):
       ci = CarInterface(cp)
       owner = LatControlTorque(cp, ci, .01)
       self.assertEqual(owner.controller_policy, 'ordinary_cc')
-      self.assertEqual(owner.pid._k_p, ([0], [.6]))
+      self.assertEqual(owner.pid._k_p, [[0.0], [.6]])
       self.assertEqual(owner.pid._k_i, ([0], [.35]))
       standard = LatControlTorque(cp, ci, .01, controller_mode=ControllerMode.STANDARD)
       self.assertIsNone(standard.starpilot_extension)
@@ -440,12 +440,12 @@ class TestOrdinaryCc(unittest.TestCase):
       with OpenpilotPrefix(), patch.dict(os.environ, {'SIMULATION': '1'}):
         saved = Params()
         saved.put_bool('OpenpilotEnabledToggle', True, block=True)
-        saved.put_bool('DisableOpenpilotLongitudinal', True, block=True)
+        saved.put_bool('DisableOpenpilotLongitudinal', False, block=True)
         saved.put_bool('IsMetric', True, block=True)
         cp = params(identity)
         ci = CarInterface(cp)
         card = Car(CI=ci, RI=RadarInterface(cp))
-        self.assertFalse(card.CP.openpilotLongitudinalControl)
+        self.assertTrue(card.CP.openpilotLongitudinalControl)
         self.assertFalse(card.CP.pcmCruise)
         self.assertEqual(card.CP.safetyConfigs[0].safetyParam, 0xC160)
         self.assertTrue(card.volt_cc_selected)
@@ -573,15 +573,15 @@ class TestMalibuHybridCc(unittest.TestCase):
               self.assertEqual(cp.safetyConfigs[0].safetyParam, 0xE804 + int(removed))
 
   def test_semantic_unknown_packets_do_not_release_a_physical_press(self):
-    from opendbc.car.gm.hybrid_cc import HybridButtons, custom_bytes, standard_set_bytes
+    from opendbc.car.gm.hybrid_cc import HybridButtons, standard_set_bytes
     buttons = HybridButtons()
 
     def receive(stamp, raw):
       buttons.observe_packets([(stamp, [(0x1E1, raw, 0)])])
       return buttons.update(True)[2]
     self.assertEqual(receive(1, bytes.fromhex('000000410015ee')), [])
-    self.assertEqual(receive(2, custom_bytes('resume', 0, 0x41)), [(1, 2)])
-    for stamp, word in enumerate(('10ff', '1add', '659e', '6f7c'), 3):
+    self.assertEqual(receive(2, bytes.fromhex('000000410020ef')), [(1, 2)])
+    for stamp, word in enumerate(('20ee', '25df', '2acc', '2fbd'), 3):
       self.assertEqual(receive(stamp, bytes.fromhex('0000004100' + word)), [])
     self.assertEqual(receive(8, bytes.fromhex('00000041001fcc')), [(2, 1)])
     self.assertEqual(receive(9, standard_set_bytes(2)), [(1, 3)])
@@ -790,7 +790,8 @@ class TestMalibuHybridCc(unittest.TestCase):
                      packer.make_can_msg('ECMPRDNL2', 0, {'PRNDL2': 7, 'ManualMode': 1}),
                      packer.make_can_msg('EBCMRegenPaddle', 0, {}),
                      (0x1E1, bytes.fromhex('000000010015ee' if tick % 2 else '00000001001fcc'), 0)]
-          sensor = bytearray((612).to_bytes(2, 'big') + (285).to_bytes(2, 'big') + bytes((tick % 16, 0)))
+          sensor = bytearray((1000 if blocked and fault == 'accelerator' else 612).to_bytes(2, 'big') +
+                             (500 if blocked and fault == 'accelerator' else 285).to_bytes(2, 'big') + bytes((tick % 16, 0)))
           sensor[-1] = pedal_crc(sensor)
           frames.append((0x201, bytes(sensor), 0))
           if not removed:
@@ -820,7 +821,7 @@ class TestMalibuHybridCc(unittest.TestCase):
             recovered |= tick >= 210 and bool(statuses)
           if removed and blocked and (fault != 'main_expiry' or tick >= 110):
             if fault == 'accelerator':
-              self.assertFalse(state.gasPressed)  # Healthy pedal data replaces the host gas state.
+              self.assertTrue(state.gasPressed)  # The physical sensor, not ECU output, is driver input.
               self.assertTrue(ci.CS.hybrid_status.accelerator_pressed)
             if fault == 'main_expiry':
               self.assertGreater(now - ci.CS.hybrid_status.main_ns, 300_000_000)

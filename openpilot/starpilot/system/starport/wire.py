@@ -10,6 +10,8 @@ pinned at 672a16f6183567c0ada53654f8527d97e1a483fa.
 
 from __future__ import annotations
 
+from typing import overload
+
 
 def varint(value: int) -> bytes:
   if not 0 <= value < 1 << 64:
@@ -78,6 +80,14 @@ def parse_fields(data: bytes) -> dict[int, list[int | bytes]]:
 
 def one(fields: dict, number: int, default=None):
   return fields.get(number, [default])[0]
+
+
+@overload
+def signed(value: int) -> int: ...
+
+
+@overload
+def signed(value: None) -> None: ...
 
 
 def signed(value: int | None) -> int | None:

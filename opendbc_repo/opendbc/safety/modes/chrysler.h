@@ -20,7 +20,7 @@ static bool chrysler_hold_ready(void) {
   const uint32_t now = microsecond_timer_get();
   bool healthy = !safety_rx_checks_invalid;
   for (int i = 0; i < current_safety_config.rx_checks_len; i++) {
-    const RxStatus *status = &current_safety_config.rx_checks[i].status;
+    const RxStatus *status = &rx_status[i];
     healthy &= status->msg_seen && status->valid_checksum && status->valid_quality_flag &&
                (status->wrong_counters < MAX_WRONG_COUNTERS) && !status->lagging &&
                (safety_get_ts_elapsed(now, status->last_timestamp) <= 1000000U);
@@ -196,7 +196,7 @@ static safety_config chrysler_init(uint16_t param) {
   chrysler_hold_stock_timestamp = 0U;
   for (int i = 0; i < 8; i++) { chrysler_hold_stock[i] = 0U; }
 
-  static RxCheck chrysler_ram_dt_rx_checks[] = {
+  static const RxCheck chrysler_ram_dt_rx_checks[] = {
     {.msg = {{CHRYSLER_RAM_DT_EPS_2, 0, 8, 100U, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},
     {.msg = {{CHRYSLER_RAM_DT_ESP_1, 0, 8, 50U, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},
     {.msg = {{CHRYSLER_RAM_DT_ESP_8, 0, 8, 50U, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},
@@ -204,7 +204,7 @@ static safety_config chrysler_init(uint16_t param) {
     {.msg = {{CHRYSLER_RAM_DT_DAS_3, 2, 8, 50U, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},
   };
 
-  static RxCheck chrysler_rx_checks[] = {
+  static const RxCheck chrysler_rx_checks[] = {
     {.msg = {{CHRYSLER_EPS_2, 0, 8, 100U, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},
     {.msg = {{CHRYSLER_ESP_1, 0, 8, 50U, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},
     {.msg = {{514, 0, 8, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
@@ -232,7 +232,7 @@ static safety_config chrysler_init(uint16_t param) {
   };
 
 #ifdef ALLOW_DEBUG
-  static RxCheck chrysler_ram_hd_rx_checks[] = {
+  static const RxCheck chrysler_ram_hd_rx_checks[] = {
     {.msg = {{CHRYSLER_RAM_HD_EPS_2, 0, 8, 100U, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},
     {.msg = {{CHRYSLER_RAM_HD_ESP_1, 0, 8, 50U, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},
     {.msg = {{CHRYSLER_RAM_HD_ESP_8, 0, 8, 50U, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},

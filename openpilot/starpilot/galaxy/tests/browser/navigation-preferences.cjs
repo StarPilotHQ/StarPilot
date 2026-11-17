@@ -25,7 +25,7 @@ const status = { enabled: true, hasKey: true, isMetric: true, status: 'noDestina
       }
       if (pathname.startsWith('/api/')) return route.fulfill({ json: status })
       if (pathname === '/') return route.fulfill({ contentType: 'text/html', body: `<meta name="viewport" content="width=device-width,initial-scale=1">
-        <link rel="stylesheet" href="/css/galaxy.css"><link rel="stylesheet" href="/css/settings.css"><link rel="stylesheet" href="/css/navigation.css">
+        <link rel="stylesheet" href="/css/galaxy.css"><link rel="stylesheet" href="/css/setup.css"><link rel="stylesheet" href="/css/settings.css"><link rel="stylesheet" href="/css/navigation.css">
         <main class="gx-content"><div id="app"></div></main><script type="module">
         import {createApp} from '/vendor/vue/vue.esm-browser.js'; import {NavigationPage} from '/js/navigation.js';
         window.navigation = createApp(NavigationPage,{mode:'local',initialTab:'setup',unauthorized:()=>{}}).mount('#app');</script>` })

@@ -15,7 +15,7 @@ source_matched_native = helpers.source_matched_native
 daemon_gc_scope = helpers.daemon_gc_scope
 
 
-@pytest.mark.parametrize('scenario', ('startup-main', 'physical', 'saved-long-off', 'ordinary-cruise'))
+@pytest.mark.parametrize('scenario', ('startup-main', 'physical', 'saved-long-off', 'ordinary-cruise', 'mirrored-pedal'))
 def test_actual_prius_retrofit_stock_lifecycle(scenario, host_heartbeat_bridge):
   def physical(packer, **fields):
     fields['sdsu'] = None
@@ -23,6 +23,9 @@ def test_actual_prius_retrofit_stock_lifecycle(scenario, host_heartbeat_bridge):
       fields['cruise'] = False
     frames = helpers.physical(packer, **fields)
     frames.append(packer.make_can_msg('ACC_CONTROL', 0, {}))
+    if scenario == 'mirrored-pedal':
+      frames.extend(((0x4CB, bytes(8), 0), (0x201, bytes.fromhex('01f003dc5dd6'), 0)))
+      frames.extend((address, data, 2) for address, data, bus in list(frames) if bus == 0)
     assert len(next(data for address, data, bus in frames if address == 0x262 and bus == 0)) == 8
     assert len(next(data for address, data, bus in frames if address == 0x1D3 and bus == 0)) == 8
     return frames
@@ -70,5 +73,7 @@ def test_actual_prius_retrofit_stock_lifecycle(scenario, host_heartbeat_bridge):
   actual_scenario = 'physical' if scenario == 'physical' else 'off' if scenario == 'saved-long-off' else 'nominal'
   helpers.run_case(True, actual_scenario, candidate=CAR.TOYOTA_PRIUS_RETROFIT,
                    bridge=host_heartbeat_bridge, input_clock=True, aol=scenario != 'ordinary-cruise',
-                   sdsu_words=(585, 585), firmware_override=fw, fingerprint_frames=[], manual_selection=True,
+                   sdsu_words=(585, 585), firmware_override=fw, fingerprint_frames=([(address, data, bus) for bus in (0, 2) for address, data in
+                     ((0x343, bytes(8)), (0x4CB, bytes(8)), (0x201, bytes.fromhex('01f003dc5dd6')))]
+                     if scenario == 'mirrored-pedal' else []), manual_selection=True,
                    physical_frames=physical, on_state=on_state, on_sample=observe)

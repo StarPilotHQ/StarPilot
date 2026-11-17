@@ -2,7 +2,7 @@ from contextlib import ExitStack
 from types import SimpleNamespace as NS
 from unittest.mock import Mock, patch
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.conditional_mode.policy import ModeChoice
 from openpilot.starpilot.ui.conditional_status import ConditionalDisplay
@@ -34,6 +34,7 @@ def test_compact_aol_light_is_informational_without_orange_border():
 
 def test_large_aol_light_uses_same_perception_without_control_authority():
   view = OnroadView.__new__(OnroadView)
+  view.personality = Mock()
   view.fonts = Mock(profile=Profile.LARGE)
   view.fonts.measure.return_value = NS(width=100, height=30)
   view.cem_gauge = AetherGauge(view.fonts)

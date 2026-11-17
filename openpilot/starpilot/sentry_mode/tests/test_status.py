@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from openpilot.starpilot.sentry_mode.policy import Decision
 from openpilot.starpilot.sentry_mode.preferences import Preferences, SavedPreferences, encode
-from openpilot.starpilot.sentry_mode.status import RuntimeStatus, TTL_NS
+from openpilot.starpilot.sentry_mode.status import RuntimeStatus, TTL_NS, STATES
 
 
 class RuntimeStatusTest(unittest.TestCase):
@@ -67,3 +67,13 @@ class RuntimeStatusTest(unittest.TestCase):
     target.write_bytes(original)
     destination.symlink_to(target)
     self.assertEqual(self.status.runtime_snapshot(self.saved)[0], "Waiting for monitor")
+
+  def test_low_voltage_reports_the_battery_reading(self):
+    self.status.publish(Decision("low_voltage"), self.saved.raw, "idle", power=(118, 120))
+    self.assertEqual(self.status.runtime_snapshot(self.saved), ("Not armed", "Battery is 11.8 V; needs above 12.0 V"))
+    self.status.publish(Decision("low_voltage"), self.saved.raw, "idle", power=(None, 120))
+    self.assertEqual(self.status.runtime_snapshot(self.saved)[1], "Battery voltage cannot be read")
+    self.status.publish(Decision("low_voltage"), self.saved.raw, "idle", power=(125, 120))
+    self.assertEqual(self.status.runtime_snapshot(self.saved)[1], f"{STATES['low_voltage'][1]} (battery 12.5 V)")
+    self.status.publish(Decision("low_voltage"), self.saved.raw, "idle", power=(125, None))
+    self.assertEqual(self.status.runtime_snapshot(self.saved)[1], "Battery is 12.5 V; the low-battery cutoff cannot be read")

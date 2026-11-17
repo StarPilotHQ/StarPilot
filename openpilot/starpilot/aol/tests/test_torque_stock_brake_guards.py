@@ -178,8 +178,8 @@ def test_stock_brake_exception_does_not_expand_configuration_admission(identity,
     configs[1].safetyParam = word
     from opendbc.car.hyundai.canfd_owner import config_index
 
-    assert config_index(cp) == (1 if lka else None)
-    assert qualified(cp, marked_only=True) == lka
+    assert config_index(cp) == 1
+    assert qualified(cp, marked_only=True)
   assert not stock_lateral_off(cp, state, native, allow_independent_brake=boundary != 'no_brake_role')
 
 
@@ -211,7 +211,7 @@ def test_source_selected_hybrid_stock_brake_continuity(tick, gesture):
 @pytest.mark.parametrize('identity,lka', MODELS)
 @pytest.mark.parametrize('tick', [3, 7])
 @pytest.mark.parametrize('gesture', ['cancel', 'brake'])
-def test_default_button_mapping_keeps_its_existing_cancel_withdrawal(identity, lka, tick, gesture):
+def test_default_button_mapping_retains_independent_lateral_on_cruise_withdrawal(identity, lka, tick, gesture):
   with configured_callers(identity, lka, 'baseline', lkas_action=0) as context:
     sd, step, card, receive = context.sd, context.step, context.card, context.receive
     state = car_state(brake=gesture == 'brake')
@@ -220,20 +220,20 @@ def test_default_button_mapping_keeps_its_existing_cancel_withdrawal(identity, l
     if gesture == 'cancel':
       state.buttonEvents = [structs.CarState.ButtonEvent(type='cancel', pressed=True)]
     card.aol_card_intent.update(state, now_ns=10_000_000_000 + tick * 10_000_000)
-    assert card.aol_card_intent.allowed_latch == (gesture == 'brake')
+    assert card.aol_card_intent.allowed_latch
     axis, _, command = step(tick, observed_state=state, panda_controls_allowed=gesture == 'cancel')
     assert axis.lateralActive and command.latActive
     assert not axis.longitudinalActive and not command.longActive
     assert receive(10_000_000_000 + tick * 10_000_000, state=state,
-                   axis=sd.pm.messages['aolAxisState'], event=sd.pm.messages['onroadEvents']) == (gesture == 'brake')
+                   axis=sd.pm.messages['aolAxisState'], event=sd.pm.messages['onroadEvents'])
     settled = car_state(brake=gesture == 'brake')
     settled.vEgoRaw = settled.vEgo
     axis, _, command = step(tick + 1, observed_state=settled)
     assert not sd.enabled
-    assert bool(axis.lateralActive) == bool(command.latActive) == (gesture == 'brake')
+    assert axis.lateralActive and command.latActive
     assert not axis.longitudinalActive and not command.longActive
     assert receive(10_000_000_000 + (tick + 1) * 10_000_000, state=settled,
-                   axis=sd.pm.messages['aolAxisState'], event=sd.pm.messages['onroadEvents']) == (gesture == 'brake')
+                   axis=sd.pm.messages['aolAxisState'], event=sd.pm.messages['onroadEvents'])
 
 
 @pytest.mark.parametrize('identity,lka', MODELS)

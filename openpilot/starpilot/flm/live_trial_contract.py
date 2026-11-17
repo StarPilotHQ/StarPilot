@@ -9,9 +9,9 @@ VERSION = 'live-tracking-trial-v1'
 MAX_STEP = 0.05
 MAX_LEASE_NS = 500_000_000
 SLEW_PER_SECOND = 0.005
-# A source-only experiment starts with one second of the existing safe slew.
+# A one-percent source experiment ramps at the unchanged 0.5%/s slew.
 # Native probes must measure this same amplitude before selection.
-SOURCE_EXPERIMENT_STEP = SLEW_PER_SECOND
+SOURCE_EXPERIMENT_STEP = 2 * SLEW_PER_SECOND
 MAX_TRIAL_NS = 120_000_000_000
 
 

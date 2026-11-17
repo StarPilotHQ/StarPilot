@@ -64,11 +64,11 @@ static bool tesla_preap_sources_ready(bool require_belt) {
     (safety_get_ts_elapsed(microsecond_timer_get(), tesla_preap_stw_ts) <= 300000U);
   const uint32_t now = microsecond_timer_get();
   for (int i = 0; i < current_safety_config.rx_checks_len; i++) {
-    ready = ready && current_safety_config.rx_checks[i].status.msg_seen &&
-      current_safety_config.rx_checks[i].status.valid_checksum &&
-      current_safety_config.rx_checks[i].status.valid_quality_flag &&
-      (current_safety_config.rx_checks[i].status.wrong_counters < MAX_WRONG_COUNTERS) &&
-      (safety_get_ts_elapsed(now, current_safety_config.rx_checks[i].status.last_timestamp) <= 1000000U);
+    ready = ready && rx_status[i].msg_seen &&
+      rx_status[i].valid_checksum &&
+      rx_status[i].valid_quality_flag &&
+      (rx_status[i].wrong_counters < MAX_WRONG_COUNTERS) &&
+      (safety_get_ts_elapsed(now, rx_status[i].last_timestamp) <= 1000000U);
   }
   return ready;
 }
@@ -370,8 +370,8 @@ static safety_config tesla_preap_init(uint16_t param) {
   };
   safety_config config = BUILD_SAFETY_CFG(rx, tx);
   if (pedal) {
-    config.rx_checks[config.rx_checks_len - 1].msg[0].bus = tesla_preap_pedal_bus;
-    config.rx_checks[config.rx_checks_len - 1].status = (RxStatus){0};
+    rx[config.rx_checks_len - 1].msg[0].bus = tesla_preap_pedal_bus;
+    rx_status[config.rx_checks_len - 1] = (RxStatus){0};
   } else {
     config.rx_checks_len--;
   }

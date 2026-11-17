@@ -372,7 +372,7 @@ def test_gm_cancel_exempts_only_current_armed_lateral_no_entry(fault):
     assert aol_no_entry([EventName.buttonCancel], cs, paddle_only_cancel=False, allow_lateral_cancel=allowed) == (fault is not None)
     assert ET.USER_DISABLE in EVENTS[EventName.buttonCancel]
     assert aol_no_entry([EventName.buttonCancel, EventName.doorOpen], cs,
-                        paddle_only_cancel=False, allow_lateral_cancel=allowed)
+                        paddle_only_cancel=False, allow_lateral_cancel=allowed) == (not allowed)
 
 
 def test_native_lat_only_after_long_belt_loss_keeps_saved_lateral_intent():

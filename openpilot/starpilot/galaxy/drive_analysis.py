@@ -25,7 +25,7 @@ MAX_ANALYSIS_SECONDS = 30.0
 MAX_PAIR_SECONDS = 1.0
 MAX_SPEED_MPS = 70.0
 MAX_ROUTE_COMPRESSED_BYTES = 256 * 1024 * 1024
-ANALYSIS_VERSION = 4
+ANALYSIS_VERSION = 5
 MAX_MODEL_METADATA_SECONDS = 4.0
 DISTRACTED_EVENT = 'driverDistracted2'
 UNRESPONSIVE_EVENT = 'driverUnresponsive3'
@@ -441,7 +441,7 @@ def analyze_route(root: Path, route: dict, *, permitted: Callable[[], bool], pre
     return result
   except (_Incomplete, LocalLogUnavailable, LogDecodeError, OSError, ValueError) as error:
     result['reason'] = str(error) or 'Route analysis unavailable'
-    if (not prefer_rlog and result['reason'] in ('Route samples are missing or gapped', 'Route has no observed duration') and
+    if (not prefer_rlog and result['reason'] in ('Route samples are missing or gapped', 'Route has no observed duration', 'End of route was not recorded') and
         isinstance(route, dict) and route.get('segments') and
         all(segment.get('files', {}).get('rlog') is True for segment in route['segments']) and permitted()):
       return analyze_route(root, route, permitted=allowed, prefer_rlog=True)

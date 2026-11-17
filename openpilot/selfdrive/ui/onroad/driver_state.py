@@ -1,5 +1,5 @@
 import numpy as np
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 from openpilot.cereal import log
 from dataclasses import dataclass
 from openpilot.selfdrive.ui import UI_BORDER_SIZE

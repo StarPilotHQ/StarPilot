@@ -14,6 +14,7 @@ from openpilot.starpilot.aol.intent import independent_axis_requested, read_sett
 from openpilot.starpilot.aol.vehicle import policy_for as aol_policy_for
 from openpilot.starpilot.feature_capabilities import display_supported, longitudinal_supported
 from openpilot.starpilot.longitudinal.profile_runtime import read_settings as read_profile_settings, selected_profiles_requested, read_global_powertrain_preset
+from openpilot.starpilot.longitudinal.drive_mode import KEY as DRIVE_MODE_KEY
 from openpilot.starpilot.longitudinal.profile_preferences import read_document_value
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.speed_limits.runtime_settings import Settings as SlcSettings, read_params as read_slc_settings
@@ -29,6 +30,9 @@ def _read(params, key: str, limit: int = 4096) -> tuple[bytes | None, bool]:
 
 def requested(params, feature: str, *, include_auxiliary: bool = False, saved_slc: SlcSettings | None = None) -> bool:
   """Read one feature request, including the readable factory CEM default."""
+  if feature == 'vision_stop':
+    return (_read(params, 'ForceStops', 8) == (b'1', True) and
+            _read(params, 'SafeMode', 8) in ((None, True), (b'0', True)))
   if feature == 'conditional':
     raw, document_readable = _read(params, 'ConditionalModeConfig')
     safe, safe_readable = _read(params, 'SafeMode', 8)
@@ -52,7 +56,8 @@ def requested(params, feature: str, *, include_auxiliary: bool = False, saved_sl
     document = read_document_value(params)
     return (read_profile_settings(params) is not None or
             (document.valid and isinstance(document.value, dict) and
-             selected_profiles_requested(document.value)))
+             selected_profiles_requested(document.value)) or
+            (document.valid and _read(params, DRIVE_MODE_KEY, 8) == (b'1', True)))
   if feature in ('slc', 'vision'):
     settings = read_slc_settings(params) if saved_slc is None else saved_slc
     return (settings.enabled or settings.display) if feature == 'slc' else (
@@ -62,6 +67,8 @@ def requested(params, feature: str, *, include_auxiliary: bool = False, saved_sl
 
 def enabled(params, cp, feature: str, environment: Mapping[str, str], *, saved_slc: SlcSettings | None = None) -> bool:
   """Preserve explicit replay opt-ins and each vehicle capability."""
+  if feature == 'vision_stop':
+    return bool(longitudinal_supported(cp) and requested(params, feature))
   flags = {'conditional': 'CONDITIONAL_MODE_REPLAY_RUNTIME', 'curve': 'CURVE_REPLAY_RUNTIME',
            'aol': 'AOL_REPLAY_RUNTIME',
            'slc': 'SLC_REPLAY_RUNTIME', 'vision': 'SLC_VISION_DEVELOPMENT',

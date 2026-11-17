@@ -214,6 +214,17 @@ class TestLeadDetector(unittest.TestCase):
       else:
         self.assertIsNone(observation.tracked)
 
+  def test_curved_path_keeps_lead_state_known(self):
+    event = messaging.new_message('modelV2', valid=True)
+    xs = [245. * index / 32 for index in range(33)]
+    event.modelV2.position.x = xs
+    event.modelV2.position.y = [x * x / 460. for x in xs]
+    curved = messaging.log_from_bytes(event.to_bytes()).modelV2
+    detector = LeadDetector()
+    clear = [step(detector, tick, lead=wire_lead(present=False, distance=0, speed=0), model=curved, speed=24.6)
+             for tick in range(3)]
+    self.assertTrue(all(observation.tracked is False and observation.following is False for observation in clear))
+
   def test_serialized_model_origin_roundoff_only(self):
     detector = LeadDetector()
     roundoff = step(detector, 0, model=wire_model(origin=-6.64888977208733e-11))

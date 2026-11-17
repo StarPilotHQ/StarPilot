@@ -1,3 +1,4 @@
+from opendbc.car import ACCEL_MAX_TAKEOFF
 #!/usr/bin/env python3
 from math import fabs, exp
 import numpy as np
@@ -26,6 +27,7 @@ TransmissionType = structs.CarParams.TransmissionType
 NetworkLocation = structs.CarParams.NetworkLocation
 
 NON_LINEAR_TORQUE_PARAMS = {
+  CAR.BUICK_ENVISION_SDGM: [2.4, 1.05, 0.20, 0.0],
   CAR.CHEVROLET_BOLT_EUV: [2.6531724862969748, 1.0, 0.1919764879840985, 0.009054123646805178],
   CAR.GMC_ACADIA: [4.78003305, 1.0, 0.3122, 0.05591772],
   CAR.CHEVROLET_SILVERADO: [3.29974374, 1.0, 0.25571356, 0.0465122]
@@ -51,6 +53,9 @@ class CarInterface(CarInterfaceBase):
     return super().apply(c, now_nanos)
 
   def update(self, can_packets):
+    if self.CC.bolt_steering_ack_counter:
+      self.CC.observe_steering_receipts(can_packets)
+      self.CS.bolt_steering_pending = self.CC.bolt_steering_pending
     self.CS.steering_authority.observe(can_packets)
     if malibu_hybrid_profile(self.CP) is not None:
       self.CS.hybrid_buttons.observe_packets(can_packets)
@@ -132,7 +137,10 @@ class CarInterface(CarInterfaceBase):
     return ret
 
   @staticmethod
-  def get_pid_accel_limits(CP, current_speed, cruise_speed):
+  def get_pid_accel_limits(CP, current_speed, cruise_speed, *, faster_takeoffs=False):
+    if faster_takeoffs:
+      lower, _ = CarInterface.get_pid_accel_limits(CP, current_speed, cruise_speed)
+      return lower, ACCEL_MAX_TAKEOFF
     if is_volt_sdgm_accepted_envelope(CP):
       return CarControllerParams.ACCEL_MIN, volt_sdgm_accepted_accel_max(CP, current_speed)
     profile = camera_acc_pedal_profile(CP)
@@ -446,11 +454,28 @@ class CarInterface(CarInterfaceBase):
           if 0xbe not in fingerprint[CanBus.POWERTRAIN]:
             ret.safetyConfigs[0].safetyParam |= GMSafetyFlags.VOLT_GATEWAY_ALT_BRAKE.value
 
+    flashed_volt = False
+    if candidate == CAR.CHEVROLET_VOLT and ret.radarUnavailable and not docs:
+      pt, camera = fingerprint[CanBus.POWERTRAIN], fingerprint[CanBus.CAMERA]
+      required = {0x184: 8, 0x34A: 5, 0x348: 5, 0x1C4: 8, 0xC9: 8, 0x1E1: 7,
+                  0x1F5: 8, 0xBD: 7, 0xF1: 6, 0x232: 8}
+      flashed_volt = (not is_release and all(pt.get(a) == length for a, length in required.items()) and
+                      not any(a in pt for a in (0xBE, 0x201, 0x2FF, 0x320)) and
+                      not any(a in camera for a in (0x180, 0x320, 0x370)) and not fingerprint[CanBus.OBSTACLE])
+      if flashed_volt:
+        # Reuse the plain OBD/F1 wire protocol; this is not stock cruise or a camera owner.
+        ret.flags = int(ret.flags) & int(GMFlags.HAS_BSM)
+        ret.alphaLongitudinalAvailable = True
+        ret.openpilotLongitudinalControl = bool(alpha_long)
+        ret.pcmCruise = False
+        ret.safetyConfigs[0].safetyParam = int(GMSafetyFlags.EV | GMSafetyFlags.VOLT_GATEWAY_LONG |
+                                             GMSafetyFlags.VOLT_GATEWAY_ALT_BRAKE)
+
     # These cars have been put into dashcam only due to both a lack of users and test coverage.
     # These cars likely still work fine. Once a user confirms each car works and a test route is
     # added to opendbc/car/tests/routes.py, we can remove it from this list.
     ret.dashcamOnly = candidate in {CAR.CADILLAC_ATS, CAR.HOLDEN_ASTRA, CAR.CHEVROLET_MALIBU, CAR.BUICK_REGAL} or \
-                      (ret.networkLocation == NetworkLocation.gateway and ret.radarUnavailable)
+                      (ret.networkLocation == NetworkLocation.gateway and ret.radarUnavailable and not flashed_volt)
 
     # Start with a baseline tuning for all GM vehicles. Override tuning as needed in each model section below.
     ret.lateralTuning.pid.kiBP, ret.lateralTuning.pid.kpBP = [[0.], [0.]]
@@ -467,6 +492,15 @@ class CarInterface(CarInterfaceBase):
     elif candidate == CAR.GMC_ACADIA:
       ret.minEnableSpeed = -1.  # engage speed is decided by pcm
       ret.steerActuatorDelay = 0.2
+      CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
+
+    elif candidate == CAR.BUICK_ENVISION_SDGM:
+      ret.minEnableSpeed = -1.
+      ret.steerActuatorDelay = 0.2
+      ret.alphaLongitudinalAvailable = False
+      ret.openpilotLongitudinalControl = False
+      ret.pcmCruise = True
+      ret.safetyConfigs[0].safetyParam = 0xE900
       CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
 
     elif candidate in (CAR.BUICK_LACROSSE, CAR.BUICK_LACROSSE_ASCM, CAR.BUICK_LACROSSE_ASCM_19US):
@@ -558,12 +592,28 @@ class CarInterface(CarInterfaceBase):
       ret.dashcamOnly = candidate not in ORDINARY_CC_CAR
       if candidate == CAR.CHEVROLET_SILVERADO_CC:
         pt = fingerprint.get(CanBus.POWERTRAIN, {})
-        ret.dashcamOnly = not (
+        cam = fingerprint.get(CanBus.CAMERA, {})
+        cc_long = (all(pt.get(address) == (8 if address == 0x17D else length)
+                       for address, length in SILVERADO_CC_STOCK_SOURCES.items()) and
+                   pt.get(0xBE) == 6 and 0x201 not in pt and
+                   all(cam.get(address) == length for address, length in ((0x180, 4), (0x320, 6), (0x370, 6))) and
+                   RADAR_HEADER_MSG not in fingerprint.get(CanBus.OBSTACLE, {}) and
+                   CAMERA_DATA_HEADER_MSG not in fingerprint.get(CanBus.OBSTACLE, {}) and not docs)
+        ret.dashcamOnly = not (cc_long or (
           all(pt.get(address) == length for address, length in SILVERADO_CC_STOCK_SOURCES.items()) and
           pt.get(0xBE) in (6, 7, 8) and 0x201 not in pt and
           0x320 not in fingerprint.get(CanBus.CAMERA, {}) and
           RADAR_HEADER_MSG not in fingerprint.get(CanBus.OBSTACLE, {}) and
-          CAMERA_DATA_HEADER_MSG not in fingerprint.get(CanBus.OBSTACLE, {}) and not docs)
+          CAMERA_DATA_HEADER_MSG not in fingerprint.get(CanBus.OBSTACLE, {}) and not docs))
+        if cc_long:
+          # Retain StarPilot's conventional-cruise button owner for this complete source layout.
+          ret.openpilotLongitudinalControl, ret.pcmCruise = True, False
+          ret.flags |= int(GMFlags.CC_LONG)
+          ret.safetyConfigs[0].safetyParam = ORDINARY_CC_WORD
+          ret.minEnableSpeed = 24 * CV.MPH_TO_MS
+          ret.longitudinalActuatorDelay = 1.
+          ret.longitudinalTuning.kiBP, ret.longitudinalTuning.kiV = [0.], [.1]
+          ret.stopAccel = -2.
 
     if candidate in CAMERA_STOCK_CAR:
       ret.dashcamOnly = True  # Require a recognized camera layout for manual identities.

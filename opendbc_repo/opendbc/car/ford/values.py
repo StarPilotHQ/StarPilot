@@ -45,12 +45,7 @@ class FordSafetyFlags(IntFlag):
   CANFD = 2
   LKA_STEERING = 4
   NEW_PORT = 8
-  MACH_E_EXTENDED = 16
-  CLASSIC_EXTENDED = 32
-  EXPLORER_EXTENDED = CLASSIC_EXTENDED  # Existing public profile spelling.
   MANUAL = 256
-  BLUEPILOT_ANGLE = 128
-  GENERIC_CANFD_EXTENDED = 64
 
 
 class FordFlags(IntFlag):
@@ -354,3 +349,10 @@ FW_QUERY_CONFIG = FwQueryConfig(
 )
 
 DBC = CAR.create_dbc_map()
+
+# StarPilot's Ford families: openpilot longitudinal is an explicit choice on these, and AOL, the stock
+# cruise switch and the cluster/radar handling key off the family rather than a safety-param profile
+FORD_CLASSIC_CARS = frozenset({CAR.FORD_BRONCO_SPORT_MK1, CAR.FORD_ESCAPE_MK4, CAR.FORD_FOCUS_MK4,
+                               CAR.FORD_MAVERICK_MK1, CAR.FORD_EXPLORER_MK6})
+FORD_CANFD_CARS = frozenset({CAR.FORD_ESCAPE_MK4_5, CAR.FORD_EXPEDITION_MK4, CAR.FORD_F_150_MK14,
+                             CAR.FORD_F_150_LIGHTNING_MK1, CAR.FORD_RANGER_MK2, CAR.FORD_MUSTANG_MACH_E_MK1})

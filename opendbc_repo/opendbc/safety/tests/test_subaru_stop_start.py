@@ -76,6 +76,73 @@ class TestSubaruStopStartNative(unittest.TestCase):
     for _ in range(12):
       self.feed()
 
+  def test_state_zero_only_on_exact_outback_profile_and_no_latch_between_profiles(self):
+    for experience in (0, 32, 1, 64):
+      # Reinitialize after 465: its state-zero permission must never leak to Legacy.
+      for word in (465, 401, 465, 1425, 209, 464, 466):
+        self.configure(word, experience)
+        for _ in range(12):
+          self.feed(state=0)
+        self.assertEqual(bool(self.safety.safety_tx_hook(self.command())), word == 465 and experience in (0, 32),
+                         (word, experience))
+
+  def test_outback_state_zero_retains_guards_and_off_acknowledgement(self):
+    for driver in ('gas', 'moving', 'fault', 'cruise'):
+      self.configure(465)
+      for _ in range(12):
+        self.feed(state=0)
+      self.assertTrue(self.safety.safety_tx_hook(self.command()))
+      self.feed(state=0, **{driver: True})
+      for _ in range(6):
+        self.feed(state=0)
+      self.assertFalse(self.safety.safety_tx_hook(self.command()), driver)
+    self.configure(465)
+    for _ in range(12):
+      self.feed(state=0)
+    self.assertFalse(self.safety.safety_tx_hook(self.command(bus=0)))
+    self.assertFalse(self.safety.safety_tx_hook(self.command(changed=True)))
+    self.assertTrue(self.safety.safety_tx_hook(self.command()))
+    self.feed(state=3)
+    for _ in range(6):
+      self.feed(state=0)
+    self.assertFalse(self.safety.safety_tx_hook(self.command()))
+
+  def test_outback_state_zero_pulse_budget_freshness_and_gear(self):
+    self.configure(465)
+    for _ in range(12):
+      self.feed(state=0)
+    accepted = []
+    for _ in range(100):
+      if self.safety.safety_tx_hook(self.command()):
+        accepted.append(self.now)
+      self.feed(state=0)
+    self.assertEqual(len(accepted), 6)
+    self.assertLess(accepted[-1] - accepted[0], 300_000)
+    self.assertTrue(all(b - a >= 50_000 for a, b in zip(accepted, accepted[1:], strict=False)))
+    for gear in (0, 1, 3):
+      self.configure(465)
+      for _ in range(12):
+        self.feed(state=0, gear=gear)
+      self.assertFalse(self.safety.safety_tx_hook(self.command()))
+    for name in ('Dashlights', 'Transmission', 'Engine_Stop_Start', 'ES_Distance'):
+      self.configure(465)
+      for _ in range(12):
+        self.feed(state=0)
+      for _ in range(31):
+        self.feed(state=0, omit=(name,))
+      self.assertFalse(self.safety.safety_tx_hook(self.command()), name)
+
+  def test_outback_state_zero_manual_press_aborts_permanently(self):
+    self.configure(465)
+    for _ in range(12):
+      self.feed(state=0)
+    self.assertTrue(self.safety.safety_tx_hook(self.command()))
+    press = self.packer.make_can_msg_safety('Dashlights', 1, {'COUNTER': self.count % 16, 'STOP_START': 1})
+    self.safety.safety_rx_hook(press)
+    for _ in range(6):
+      self.feed(state=0)
+    self.assertFalse(self.safety.safety_tx_hook(self.command()))
+
   def test_exact_optional_word_and_experience_only(self):
     for experience in (0, 32):
       self.ready(experience=experience)

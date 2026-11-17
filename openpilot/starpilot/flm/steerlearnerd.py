@@ -19,6 +19,7 @@ from openpilot.common.params import Params
 from openpilot.starpilot.flm.fullrate_collector import FullrateCollector, PairedDrainState, drain_pair, ControlEvidence, AppliedEvidence
 from openpilot.starpilot.flm.learning_wire import read_control, read_applied, result_message, write_source_receipt
 from openpilot.starpilot.flm.runtime_adapter_registry import SOURCE_LEASE_NS
+from openpilot.starpilot.flm.calibration_lifecycle import configuration_calibration as _configuration_calibration
 
 
 class _SourceDelivery:
@@ -31,6 +32,8 @@ class _SourceDelivery:
   def __init__(self):
     self.pending = False
     self.pose_header = 0
+    self.evidence_poller = None
+    self.evidence_sockets = ()
 
   def refresh(self, sm):
     sm.update(0)
@@ -38,9 +41,21 @@ class _SourceDelivery:
     if sm.updated['deviceMotion']:
       self.pose_header = int(sm.logMonoTime['deviceMotion'])
 
-  def next(self, sm):
+  def next(self, sm, *, pending_evidence=()):
     if not self.pending:
-      sm.update()
+      if pending_evidence:
+        # A received pose may still need a genuinely newer consumed state.
+        # Poll existing tapes without consuming/reordering their FIFO heads.
+        sockets = (sm.sock['deviceMotion'], *pending_evidence)
+        if len(sockets) != len(self.evidence_sockets) or any(a is not b for a, b in zip(sockets, self.evidence_sockets, strict=True)):
+          self.evidence_poller = messaging.Poller()
+          for socket in sockets:
+            self.evidence_poller.registerSocket(socket)
+          self.evidence_sockets = sockets
+        self.evidence_poller.poll(10)
+        sm.update(0)
+      else:
+        sm.update()
     header = self.pose_header or (int(sm.logMonoTime['deviceMotion']) if sm.updated['deviceMotion'] else 0)
     self.pending = False
     self.pose_header = 0
@@ -55,8 +70,37 @@ def source_receiver(services):
   # Wake on the actual motion/native/state delivery rather than waiting for
   # another CarState. All envelope, source-age and current authority checks
   # still run on the real received messages.
-  return messaging.SubMaster(services, ignore_alive=['aolSafetyWire'],
+  queued_services = {'deviceMotion', 'driverMonitoringState'} & set(services)
+
+  class SourceReceiver(messaging.SubMaster):
+    def update_msgs(self, cur_time, msgs):
+      latest = []
+      received_extra = False
+      for packet in msgs:
+        if packet is not None and packet.which() in queued_services:
+          service, received_at = packet.which(), cur_time
+          # Count actual dequeued packets with actual receipt clocks. Keep only
+          # the newest body for normal SubMaster state; never restamp a source.
+          for _ in range(7):
+            following = messaging.recv_one_or_none(self.sock[service])
+            if following is None:
+              break
+            received_extra = True
+            self.freq_tracker[service].record_recv_time(received_at)
+            packet, received_at = following, time.monotonic()
+        latest.append(packet)
+      super().update_msgs(time.monotonic() if received_extra else cur_time, latest)
+
+  sm = SourceReceiver(services, ignore_alive=['aolSafetyWire'],
     ignore_valid=['aolSafetyWire'], ignore_avg_freq=['aolSafetyWire', 'carState'])
+  for service in queued_services:
+    sm.sock[service] = messaging.sub_sock(service, conflate=False)
+  if 'deviceMotion' in services:
+    poller = messaging.Poller()
+    poller.registerSocket(sm.sock['deviceMotion'])
+    sm.poller = poller
+    sm.non_polled_services = set(services) - {'deviceMotion'}
+  return sm
 
 
 MAX_OBJECTIVES = 12
@@ -107,17 +151,6 @@ def _collect_applied_output(collector, applied, sm, cp, now_ns):
   return collector.output(applied, now_ns)
 
 
-def _configuration_calibration(sm, calibration_lifecycle, now):
-  # Calibration describes the vehicle frame, not a per-message command lease.
-  # Like torqued's PoseCalibrator, retain a valid calibrated transform between
-  # deliveries. Sample freshness and current native authority are checked
-  # independently when admitting physical observations and applying offers.
-  stamp = int(sm.logMonoTime['extrinsicsCalibration'])
-  receipt = int(round(sm.recv_time['extrinsicsCalibration'] * 1e9))
-  if not (sm.seen['extrinsicsCalibration'] and sm.valid['extrinsicsCalibration'] and
-          0 < stamp <= now and 0 < receipt <= now):
-    return calibration_lifecycle.observe(None, current=False)
-  return calibration_lifecycle.observe(sm['extrinsicsCalibration'], current=True)
 
 def _source_config_binding(source):
   return (source.cp_sha256, source.source_epoch, source.reset, source.calibration_generation,
@@ -163,6 +196,47 @@ def _pause_historical_collector(collector, reason):
     # Only a genuine next checkpoint may restart frame recording after a pause.
     replay.failed = True
     replay.cached_validation = replay.cached_key = None
+
+
+def _early_tracking_offer(sm, cp, collector, actor, source, *, now_ns, clock):
+  """Renew an existing source-only trial from real new motion before FIFO work."""
+  if (collector is None or not collector.ready or actor is None or
+      getattr(actor, 'source_tracking', False) is not True or actor.ingress is None or
+      actor.certificate is None or actor.restore_pending or source is None or
+      not source.enabled or source.manual or not _source_config_known(source, now_ns)):
+    return None
+  from openpilot.starpilot.flm.native_health import current_native_health
+  if not current_native_health(sm, cp, collector.ready[-1][0], now_ns):
+    return None
+  from openpilot.starpilot.flm.source_plant_runtime import observe
+  from openpilot.starpilot.flm.live_tracking_response import validate_response_witness
+  observe(sm, cp, collector, now_ns, True)
+  current = clock()
+  if (getattr(collector, '_original_source_pose_queue', ()) and
+      getattr(actor.ingress, 'last_pose_ns', 0) <= actor.last_publication_pose_ns):
+    return None
+  offer = actor._current_publication_offer(current)
+  if offer is None:
+    return None
+  pose = validate_response_witness(offer.response_witness, actor.certificate.binding, current).last_pose_ns
+  if pose <= actor.last_publication_pose_ns:
+    return None
+  actor.last_publication_pose_ns = pose
+  return offer
+
+
+def _pending_pose_bracket_ready(collector, control, now_ns):
+  """Scheduling hint only; the full original pose/native admission still runs."""
+  from openpilot.starpilot.flm.original_source_capture import MAX_GAP_NS
+  queue = getattr(collector, '_original_source_pose_queue', ())
+  if not queue:
+    return False
+  pose = queue[0]
+  stamp = getattr(pose, 'mono_ns', 0)
+  upper = getattr(pose, 'source_upper_ns', 0) or stamp
+  state = getattr(control, 'state_ns', 0)
+  return (type(stamp) is int and type(upper) is int and type(state) is int and
+          0 < stamp <= now_ns <= stamp + MAX_GAP_NS and 0 < upper <= state)
 
 
 def tracking_message(source, *, now_ns, current_native, offer=None, restore=None):
@@ -366,6 +440,7 @@ def run(
   retained_event = pending_event = None
   live_offer = None
   previous_tracking_pose_header = 0
+  last_tracking_observation_header = 0
   next_tracking_status_ns = 0
   study_health_control = None
   saved_live_targets = set()
@@ -458,6 +533,47 @@ def run(
   def study_native_current(now_ns):
     return study_health_control is not None and current_native_health(sm, CP, study_health_control, now_ns)
 
+  tracking_needs_native = False
+
+  def current_tracking_offer():
+    return live_offer
+
+  def renew_tracking(*, refresh=False, incoming=None):
+    nonlocal live_offer, next_tracking_status_ns, tracking_needs_native, last_tracking_observation_header
+    if live_offer is None or live_actor is None or live_history.offer is not None:
+      tracking_needs_native = False
+      return False
+    if refresh:
+      source_delivery.refresh(sm)
+      if (not sm.updated['deviceMotion'] and int(sm.logMonoTime['deviceMotion']) <= last_tracking_observation_header and
+          not tracking_needs_native and
+          not _pending_pose_bracket_ready(collector, incoming, clock())):
+        return False
+    valid, stamp = source_current(read=refresh)
+    if not valid or collector is None:
+      tracking_needs_native = False
+      return False
+    tracking_needs_native = not (collector.ready and
+      current_native_health(sm, CP, collector.ready[-1][0], stamp))
+    if tracking_needs_native:
+      return False
+    early = _early_tracking_offer(sm, CP, collector, live_actor, source, now_ns=stamp, clock=clock)
+    # A subsequent refresh can clear updated after receiving real new motion.
+    # Retain only its consumed header; all pose/native/lease checks still run.
+    last_tracking_observation_header = max(last_tracking_observation_header, int(sm.logMonoTime['deviceMotion']))
+    if early is None:
+      return False
+    live_offer = early
+    valid, stamp = source_current()
+    native = bool(valid and collector is not None and collector.ready and
+      current_native_health(sm, CP, collector.ready[-1][0], stamp))
+    message = tracking_message(source, now_ns=stamp, current_native=native, offer=live_offer)
+    if live_offer is not None and int(message.starpilotSteeringTracking.trial.version) == 1:
+      live_actor.mark_publication(live_offer)
+    pm.send('starpilotSteeringTracking', message)
+    next_tracking_status_ns = stamp + 50_000_000
+    return True
+
   class Sink:
     def split(self, reason, **kwargs):
       if collector is not None:
@@ -473,12 +589,14 @@ def run(
     while True:
       state = (live_actor.ingress.optimizer.offer_state
                if live_actor is not None and live_actor.ingress is not None else None)
-      defer_gc = bool(gc_initially_enabled and state is not None and state['phase'] == 'trial' and
-                      not state.get('accepted', False) and clock() <= state['deadline_ns'])
+      pending_application = bool(state is not None and state['phase'] in ('trial', 'confirmed') and
+                                 not state.get('accepted', False) and clock() <= state['deadline_ns'])
+      defer_gc = gc_initially_enabled and pending_application
       if defer_gc and not trial_gc_deferred:
         # This separate optional process must receive the real 100Hz tape during
-        # the existing bounded trial. Reference counting continues normally;
-        # cyclic collection resumes on rollback, completion or the same deadline.
+        # the bounded trial AND its unacknowledged confirmation. Reference
+        # counting continues; cyclic GC resumes after actual acceptance,
+        # rollback, context loss or the unchanged original deadline.
         gc.disable()
         trial_gc_deferred = True
       elif trial_gc_deferred and not defer_gc:
@@ -486,7 +604,18 @@ def run(
         trial_gc_deferred = False
       # Parent handles bounded primitive ingest and live receipts. Physical
       # calibration and native sensitivity execute in bounded separate children.
-      delivered_pose_header = source_delivery.next(sm)
+      pending_poses = cast(tuple[object, ...], getattr(collector, '_original_source_pose_queue', ()))
+      pending_fresh = False
+      if pending_poses:
+        from openpilot.starpilot.flm.original_source_capture import MAX_GAP_NS
+        pending_stamp = getattr(pending_poses[0], 'mono_ns', 0)
+        pending_now = clock()
+        pending_fresh = type(pending_stamp) is int and 0 < pending_stamp <= pending_now <= pending_stamp + MAX_GAP_NS
+      # Bootstrap also needs evidence wakeups; waiting for motion lets the
+      # full-rate tapes spend their original freshness budget before decoding.
+      delivered_pose_header = (source_delivery.next(sm, pending_evidence=(control_socket, applied_socket))
+                               if pending_fresh or pending_application or (live_actor is not None and collector is not None and
+                                  getattr(collector.adapter, 'event_collection', False)) else source_delivery.next(sm))
       source_rejected = False
       now = clock()
       # This is an ORIGINAL header from the real poll or an already consumed
@@ -507,6 +636,11 @@ def run(
         collector._learning_current_native_allowed = bool(source_valid and previous is not None and
           current_native_health(sm, CP, previous, now))
 
+      # An existing trial can renew before FIFO work or as soon as its
+      # missing original bracket/native pair is admitted within that work.
+      if tracking_pose_header > 0 and renew_tracking():
+        previous_tracking_pose_header = tracking_pose_header
+
       native_refreshed = False
 
       def ingest_current(evidence):
@@ -522,7 +656,7 @@ def run(
           valid_source, stamp = source_current(read=True)
         return valid_source, stamp
 
-      def control(event, current, stamp, offered=live_offer):
+      def control(event, current, stamp):
         nonlocal collector, raw_context, active_key, unavailable_reason
         valid_source, received_now = source_current()
         if not valid_source:
@@ -584,7 +718,7 @@ def run(
                   # Preserve the actual startup refusal instead of the previous identity-reset status.
                   live_actor.reason = unavailable_reason
                   from openpilot.starpilot.flm.source_stall_log import log_source_stall
-                  log_source_stall(live_actor, collector, now_ns=received_now, bootstrap_allowed=True)
+                  log_source_stall(live_actor, collector, now_ns=received_now, bootstrap_allowed=True, sm=sm)
                 collector = None
                 return
           else:
@@ -614,7 +748,9 @@ def run(
             valid_source, received_now = ingest_current(prepared)
             if not valid_source or collector is not original_collector:
               return
-          _collect_source_control(collector, prepared, sm, CP, received_now)
+          admitted = _collect_source_control(collector, prepared, sm, CP, received_now)
+          # A renewal can occur inside this batch; decode against the current owned offer.
+          offered = current_tracking_offer()
           if live_actor is not None and offered is not None:
             from openpilot.starpilot.flm.live_trial_wire import read_application
             application = read_application(event.starpilotLateralState, now_ns=received_now, offer=offered)
@@ -625,6 +761,9 @@ def run(
             application = read_restore_application(event.starpilotLateralState, now_ns=received_now, offer=live_history.offer)
             if application is not None and current_native_health(sm, CP, evidence, received_now):
               live_history.acknowledge(live_actor, application, now_ns=received_now)
+          if live_actor is not None and offered is not None and admitted:
+            # Motion may arrive while the original FIFO is still draining.
+            renew_tracking(refresh=True, incoming=prepared)
 
       def output(event, current, stamp):
         valid_source, received_now = source_current()
@@ -638,13 +777,18 @@ def run(
             collector.split('no_current_applied_evidence')
             return
           applied = read_applied(event)
+          consumed = None
           if live_actor is not None:
             original_collector = collector
             consumed = collector.controls.get(applied.control_ns, collector.recent_controls.get(applied.control_ns))
             valid_source, received_now = ingest_current(consumed)
             if not valid_source or collector is not original_collector:
               return
+          previous_pair = collector.ready[-1] if live_actor is not None and collector.ready else None
           _collect_applied_output(collector, applied, sm, CP, received_now)
+          if (live_actor is not None and consumed is not None and collector.ready and collector.ready[-1] is not previous_pair and
+              (tracking_needs_native or _pending_pose_bracket_ready(collector, consumed, clock()))):
+            renew_tracking()
 
       drain_pair(control_socket, control, applied_socket, output, messaging.recv_one_or_none, sink, now, drain_state)
       if collector is not None:
@@ -969,7 +1113,9 @@ def main():
   try:
     if hasattr(os, 'sched_setscheduler'):
       os.sched_setscheduler(0, os.SCHED_OTHER, os.sched_param(0))
-    os.nice(10)
+    os.setpriority(os.PRIO_PROCESS, 0, 0)
+    from openpilot.starpilot.flm.learner_cpu import configure_cpu
+    configure_cpu()
   except OSError:
     # An optional estimator must not inherit realtime scheduling on failure.
     return
@@ -1076,3 +1222,4 @@ def main():
 
 if __name__ == '__main__':
   main()
+

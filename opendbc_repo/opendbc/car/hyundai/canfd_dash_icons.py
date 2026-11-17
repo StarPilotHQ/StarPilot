@@ -16,4 +16,4 @@ class CanFDDashIcons:
       self.disengage_frame = frame
     blinking = self.disengaging and (frame - self.disengage_frame) * DT_CTRL < 1.0
     self.previous_lateral = lateral_active
-    return 2 if enabled or lateral_active else 3 if blinking else 0
+    return 2 if lateral_active else 3 if blinking else 0

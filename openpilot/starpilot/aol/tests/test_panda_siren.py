@@ -1,7 +1,8 @@
 """Host heartbeat -> native USB handlers -> safety RX -> actual 8 Hz siren tick.
 
-Hardware IO is stubbed. The compiled tick and USB cases are extracted verbatim
-from production sources, and permissions come from real Toyota CAN RX hooks.
+Hardware IO is modeled. The compiled tick, timer/interrupt health checks, fault
+recording and USB cases are extracted verbatim from production sources, and
+permissions come from real Toyota CAN RX hooks.
 """
 import ctypes
 import re
@@ -30,19 +31,58 @@ def native_template(tmp_path_factory, request):
   tick = main[main.index('// go into SILENT'):main.index('\nint main(void)')]
   comms = (ROOT / 'panda/board/main_comms.h').read_text()
   cases = ''.join(usb_case(comms, r) for r in ('f3', 'f5', 'f6'))
+  drivers = (ROOT / 'panda/board/drivers/drivers.h').read_text()
+  declarations = drivers[drivers.index('typedef struct interrupt'):drivers.index('// ******************** registers')]
+  utils = (ROOT / 'panda/board/utils.h').read_text()
+  elapsed = re.search(r'uint32_t get_ts_elapsed\(.*?\n\}', utils, re.S)
+  assert elapsed is not None
+  timers = (ROOT / 'panda/board/drivers/timers.h').read_text()
+  timer_check = timers[timers.index('bool timer_check('):timers.index('\nvoid interrupt_timer_init(')]
+  interrupts = (ROOT / 'panda/board/drivers/interrupts.h').read_text()
+  interrupts = interrupts[interrupts.index('static void unused_interrupt_handler'):]
+  sys = (ROOT / 'panda/board/sys/sys.h').read_text()
+  faults = sys[sys.index('#define FAULT_STATUS_NONE'):sys.index('// ******************** power_saving')]
+  fault_impl = (ROOT / 'panda/board/sys/faults.h').read_text()
+  faults += fault_impl[fault_impl.index('uint8_t fault_status'):]
   code = r'''
 #include "opendbc/safety/tests/libsafety/safety.c"
 uint32_t heartbeat_counter, heartbeat_tick_counter, uptime_cnt, ignition_can_cnt, wake_on_can_cnt;
 uint32_t voltage = 12000U;
 bool heartbeat_lost, heartbeat_disabled, siren_enabled, ignition_can, wake_on_can, power_save_enabled;
 bool ignition_line = true, siren_output;
-struct { uint32_t SR; } timer;
+struct { uint32_t SR; } timer, interrupt_timer;
 #define TICK_TIMER (&timer)
+#define INTERRUPT_TIMER (&interrupt_timer)
+// STM32F413 register/IRQ layout; only hardware access is modeled.
+#define TIM_SR_UIF 1U
+#define NUM_INTERRUPTS 102U
+#define TICK_TIMER_IRQ 24U
+#define INTERRUPT_TIMER_IRQ 54U
+typedef uint32_t IRQn_Type;
+struct { uint32_t ISER[8]; uint8_t IP[240]; } nvic;
+#define NVIC (&nvic)
+#define ENTER_CRITICAL() ((void)0)
+#define EXIT_CRITICAL() ((void)0)
+uint32_t current_irq;
+uint32_t __get_IPSR(void) { return current_irq + 16U; }
+uint32_t __CLZ(uint32_t value) { return value ? __builtin_clz(value) : 32U; }
+uint32_t __RBIT(uint32_t value) {
+ uint32_t reversed = 0U;
+ for (uint32_t i = 0U; i < 32U; i++) { reversed = (reversed << 1U) | (value & 1U); value >>= 1U; }
+ return reversed;
+}
+void NVIC_EnableIRQ(IRQn_Type irq) { NVIC->ISER[irq >> 5U] |= 1U << (irq & 31U); }
+void NVIC_DisableIRQ(IRQn_Type irq) { NVIC->ISER[irq >> 5U] &= ~(1U << (irq & 31U)); }
+// Register setup is hardware IO; the timer ISR and its health checks below are real.
+void interrupt_timer_init(void) {}
+void fault_safe_state(void) { abort(); }
+void print(const char *s) { (void)s; }
+void puth(uint32_t n) { (void)n; }
+''' + declarations + faults + elapsed[0] + '\n' + timer_check + interrupts + r'''
 #define HARNESS_STATUS_NC 0U
 #define HARNESS_STATUS_FLIPPED 2U
 #define LED_GREEN 0U
 #define LED_BLUE 1U
-#define FAULT_RELAY_MALFUNCTION 1U
 struct { uint8_t status; } harness;
 void noop(void) {}
 uint32_t read_voltage(void) { return voltage; }
@@ -58,14 +98,10 @@ struct { uint32_t (*read_voltage_mV)(void); void (*set_siren)(bool);
 #define sound_tick noop
 #define can_init_all noop
 #define check_registers noop
-void fault_occurred(uint32_t f) { (void)f; }
-void fault_recovered(uint32_t f) { (void)f; }
 void can_set_orientation(bool flipped) { (void)flipped; }
 void led_set(uint8_t color, bool enabled) { (void)color; (void)enabled; }
 void bootkick_tick(bool started, bool recent, bool wake) { (void)started; (void)recent; (void)wake; }
 void fan_set_power(uint8_t power) { (void)power; }
-void print(const char *s) { (void)s; }
-void puth(uint32_t n) { (void)n; }
 bool panda_ignition_line(void) { return ignition_line; }
 bool is_car_safety_mode(uint16_t mode) {
  return mode != SAFETY_SILENT && mode != SAFETY_NOOUTPUT && mode != SAFETY_ALLOUTPUT && mode != SAFETY_ELM327;
@@ -81,11 +117,28 @@ void test_usb(uint16_t request, uint16_t param1) {
  }
 }
 bool test_heartbeat_lost(void) { return heartbeat_lost; }
+void test_native_init(void) {
+ init_interrupts(true);
+ REGISTER_INTERRUPT(TICK_TIMER_IRQ, tick_handler, 10U, FAULT_INTERRUPT_RATE_TICK)
+ interrupts[TICK_TIMER_IRQ].min_call_rate = 4U;
+ REGISTER_INTERRUPT(INTERRUPT_TIMER_IRQ, interrupt_timer_handler, 2U, FAULT_INTERRUPT_RATE_INTERRUPTS)
+ nvic_enable(TICK_TIMER_IRQ);
+ nvic_enable(INTERRUPT_TIMER_IRQ);
+}
+uint32_t test_faults(void) { return faults; }
 void test_tick(bool powered, bool started) {
  voltage = powered ? 12000U : 5000U;
  ignition_line = started;
- timer.SR = 1U;
- tick_handler();
+ // Model the independent 1 Hz interrupt timer alongside the 8 Hz tick.
+ static uint32_t ticks = 0U;
+ if ((ticks++ % 8U) == 0U) {
+   interrupt_timer.SR = TIM_SR_UIF;
+   current_irq = INTERRUPT_TIMER_IRQ;
+   handle_interrupt(INTERRUPT_TIMER_IRQ);
+ }
+ timer.SR = TIM_SR_UIF;
+ current_irq = TICK_TIMER_IRQ;
+ handle_interrupt(TICK_TIMER_IRQ);
 }
 bool test_siren(void) { return siren_output; }
 '''
@@ -109,6 +162,8 @@ def native(tmp_path, native_template):
   io.test_tick.argtypes = [ctypes.c_bool, ctypes.c_bool]
   io.test_siren.restype = ctypes.c_bool
   io.test_heartbeat_lost.restype = ctypes.c_bool
+  io.test_faults.restype = ctypes.c_uint32
+  io.test_native_init()
   yield safety, io
 
 
@@ -207,6 +262,7 @@ class Loop:
     if no_output:
       assert self.safety.set_safety_hooks(19, 0) == 0
     self.io.test_tick(powered, started)
+    assert self.io.test_faults() == 0
     return self.io.test_siren()
 
 
@@ -321,3 +377,42 @@ def test_main_off_workaround_expires_last_activity(native, host, word):
   for _ in range(40):
     assert not loop.step(main=False, cruise=False, mask=0, retain=False)
   assert not any(loop.step(main=False, heartbeat=False, powered=False, started=False) for _ in range(24))
+
+
+@pytest.mark.parametrize('status', [0, 2], ids=['no-status', 'non-update-status'])
+def test_tick_without_update_flag_records_fault(native, status):
+  _, io = native
+  ctypes.c_uint32.in_dll(io, 'timer').value = status
+  io.handle_interrupt(24)  # TIM1_BRK_TIM9_IRQn in the modeled STM32F413.
+  assert io.test_faults() == (1 << 1)  # FAULT_UNUSED_INTERRUPT_HANDLED
+  assert ctypes.c_uint32.in_dll(io, 'heartbeat_tick_counter').value == 0
+
+
+@pytest.mark.parametrize('field', ['enabled', 'priority'])
+def test_nvic_divergence_records_fault(native, field):
+  _, io = native
+
+  class Nvic(ctypes.Structure):
+    _fields_ = [('enabled', ctypes.c_uint32 * 8), ('priority', ctypes.c_uint8 * 240)]
+
+  getattr(Nvic.in_dll(io, 'nvic'), field)[0] ^= 1
+  io.nvic_check()
+  assert io.test_faults() == (1 << 18)  # FAULT_REGISTER_DIVERGENT
+
+
+def test_missing_interrupt_timer_records_fault(native):
+  _, io = native
+  io.interrupt_timer_check()
+  assert io.test_faults() == 0  # One missed window is allowed for drift.
+  io.interrupt_timer_check()
+  assert io.test_faults() == (1 << 17)  # FAULT_INTERRUPT_MISSING
+
+
+def test_bad_timer_period_records_fault(native):
+  safety, io = native
+  for tick in range(25):
+    safety.set_timer(1_000_000 + (tick + 1) * 250_000)  # Half the expected clock rate.
+    io.test_tick(True, True)
+    if tick < 24:
+      assert io.test_faults() == 0  # Two successive bad periods are required.
+  assert io.test_faults() == (1 << 29)  # FAULT_TIMER

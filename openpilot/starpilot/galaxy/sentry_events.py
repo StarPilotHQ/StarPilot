@@ -5,7 +5,7 @@ import re
 from collections.abc import Callable
 from typing import Protocol, cast
 
-from openpilot.starpilot.sentry_mode.storage import EventStore, StorageUnavailable
+from openpilot.starpilot.sentry_mode.storage import BATTERY_FIELDS, EventStore, StorageUnavailable, valid_tenths
 
 
 MAX_RESPONSE_BYTES = 128 * 1024
@@ -39,12 +39,14 @@ class SentryEvents:
       for value in source["events"]:
         if (type(value) is not dict or type(value.get("eventId")) is not str or
             ID.fullmatch(value["eventId"]) is None or type(value.get("kind")) is not str or
-            value["kind"] not in ("warning", "alarm", "selfie") or
+            value["kind"] not in ("warning", "alarm", "selfie", "battery") or
+            (value["kind"] == "battery" and not all(valid_tenths(value.get(k)) for k in BATTERY_FIELDS)) or
             type(value.get("wallTimeNs")) is not int or not 0 < value["wallTimeNs"] < 2**63):
           raise ValueError("Invalid motion event")
         events.append({"eventId": value["eventId"], "kind": value["kind"],
                        "systemTimeMs": value["wallTimeNs"] // 1_000_000,
                        **({"simulated": True} if value.get("simulated") else {}),
+                       **({k: value[k] for k in BATTERY_FIELDS} if value["kind"] == "battery" else {}),
                        "images": cast(Callable[[str], list], self.store.images)(value["eventId"]) if hasattr(self.store, "images") else []})
       result = {"schemaVersion": 1, "source": "local", "scanIncomplete": source["incomplete"],
                 "capacity": source["capacity"], "events": events,

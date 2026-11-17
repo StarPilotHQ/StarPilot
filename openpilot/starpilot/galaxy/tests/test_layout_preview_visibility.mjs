@@ -47,6 +47,25 @@ try {
   assert.equal(starport.previewHidden("car_exit"), false)
   assert.deepEqual([...saved], before)
 
+  for (const projection of [false, true]) {
+    const vm = editor(projection)
+    vm.state.scene = 'slc_pending'
+    vm.state.profile = 'large'
+    vm.layout = {clock:{enabled:true}}
+    vm.state.art = {status:'ready', scene:'slc_pending', profile:projection ? 'projection' : 'large',
+      sprites:{sprites:{clock:{visible:false}}}}
+    assert.equal(vm.sceneHidden('clock'), true, 'Native prompt occlusion hides the preview and its eye control')
+    vm.layout.clock.enabled = false
+    assert.equal(vm.sceneHidden('clock'), false, 'A disabled clock can still be added from the tray')
+    vm.layout.clock.enabled = true
+    for (const change of [{status:'updating'}, {scene:'engaged'}, {profile:'compact'}]) {
+      const native = vm.state.art
+      vm.state.art = {...native, ...change}
+      assert.equal(vm.sceneHidden('clock'), false, 'Retained artwork cannot apply stale visibility')
+      vm.state.art = native
+    }
+  }
+
   saved.delete('gx-layout-preview-visibility-v2:comma')
   saved.set('gx-layout-preview-visibility-v1:comma', JSON.stringify({ large: { current_speed: true }, compact: { stopped_timer: true } }))
   const migrated = editor(false)

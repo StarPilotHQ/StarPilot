@@ -1,6 +1,7 @@
 from pathlib import Path
 import tempfile
 import threading
+import time
 import sys
 from types import ModuleType
 import unittest
@@ -41,6 +42,7 @@ class TestFastRequest(unittest.TestCase):
     self.helper.request_lock = threading.RLock()
     self.helper.request_generation = 0
     self.helper.fast_target = None
+    self.helper.metadata = None
     self.helper.user_request = self.updated.UserRequest.NONE
     self.helper._control_request('fast', branch='SecretGoodStarPilot', commit='a' * 40)
     self.helper.sleep = Mock(side_effect=StopLoop)
@@ -67,15 +69,23 @@ class TestFastRequest(unittest.TestCase):
     actual = module.Updater()
     actual.params = self.params
     actual._branches_checked = True
+    actual._checked_branch = "SecretGoodStarPilot"
     actual.branches = {"SecretGoodStarPilot": "a" * 40}
     self.values["UpdaterTargetBranch"] = "SecretGoodStarPilot"
     module.run = Mock(return_value="a" * 40)
     module.setup_git_options = Mock()
     module.set_consistent_flag = Mock()
+    module.init_overlay = Mock()
     module.validate_revision = Mock()
+    module.validate_update_revision = Mock(return_value=False)
     module.AGNOS = False
+    self.updater.target_branch = "SecretGoodStarPilot"
+    self.updater._checked_branch = "SecretGoodStarPilot"
+    self.updater._checked_at = time.monotonic()
     for failure in (False, True):
       with self.subTest(failure=failure):
+        module.init_overlay.reset_mock()
+        module.validate_update_revision.reset_mock()
         self.writes.clear()
         self.values.pop("LastUpdateTime", None)
         self.helper._control_request("download")
@@ -95,6 +105,11 @@ class TestFastRequest(unittest.TestCase):
         self.assertEqual(states[-1], "idle")
         self.assertEqual("LastUpdateTime" in self.values, not failure)
         module.finalize_update.assert_called_once()
+        module.init_overlay.assert_called_once_with()
+        self.assertEqual(module.validate_update_revision.call_args_list, [
+          mock.call(module.OVERLAY_MERGED, 'a' * 40, 'SecretGoodStarPilot'),
+          mock.call(module.OVERLAY_MERGED, 'HEAD', 'SecretGoodStarPilot'),
+        ])
 
   def test_fast_request_skips_staging_and_startup_delay(self):
     self.run_cycle()

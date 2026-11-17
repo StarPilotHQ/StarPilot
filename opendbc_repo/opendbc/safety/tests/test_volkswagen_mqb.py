@@ -5,7 +5,7 @@ from opendbc.car.structs import CarParams
 import opendbc.safety.tests.common as common
 from opendbc.car.volkswagen.values import VolkswagenSafetyFlags
 
-MAX_ACCEL = 2.0
+MAX_ACCEL = 3.0
 MIN_ACCEL = -3.5
 
 MSG_LH_EPS_03 = 0x9F    # RX from EPS, for driver steering torque

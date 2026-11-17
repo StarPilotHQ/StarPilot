@@ -22,6 +22,7 @@ BASE = FIXTURE_BASE + 14_000_000_000
 def test_parent_renews_actual_source_and_retains_real_collector_block(tmp_path, boundary, change, queued_calibration=True):
   cp = interfaces[CAR.TOYOTA_COROLLA_TSS2].get_non_essential_params(CAR.TOYOTA_COROLLA_TSS2)
   params = Params(str(tmp_path))
+  params.put_bool('OpenpilotEnabledToggle', True, block=True)
   current = [BASE + 490_000_000]
   reads, instances = [], []
   metadata_reconciled = [False]

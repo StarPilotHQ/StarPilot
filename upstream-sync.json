@@ -2,7 +2,7 @@
   "schema_version": 1,
   "upstream": {
     "url": "https://github.com/commaai/openpilot.git",
-    "commit": "2ab952d5eb16020116d3354b83f30303db5a99b4"
+    "commit": "ad4c9cdf1857034bb06c12e4b0cfba093e6ae3d6"
   },
   "dependencies": [
     {
@@ -22,29 +22,29 @@
     {
       "path": "panda",
       "url": "https://github.com/commaai/panda.git",
-      "commit": "a59195163c32a3a375ea6c86715dc08fd0984c1b",
-      "tree": "207668f2df34a2ca503de012208c394ad01b2c6b",
+      "commit": "f38f504ffac4a6d42bb4c20897adcf5b68093151",
+      "tree": "6d6101f8f3700088062c247a9509f8b5ac8d23c7",
       "exclude": []
     },
     {
       "path": "rednose_repo",
       "url": "https://github.com/commaai/rednose.git",
-      "commit": "8671c17c3a4cdc4be5df07a068039e2da5b94eaa",
-      "tree": "6ce3aa5c97c7cdb43c2cb046fc8f51e9c2518fe1",
+      "commit": "d7c66e80d2d28a63d0720692ccaa029d504751ba",
+      "tree": "9f000b8db090de568e6111f2d2861445708e7b27",
       "exclude": []
     },
     {
       "path": "teleoprtc_repo",
       "url": "https://github.com/commaai/teleoprtc.git",
-      "commit": "1aa8fc433bef1519a95c0700c96258c3be6dfb34",
-      "tree": "bd9739faee9e432d23f167c9134bd17eebdc0d9b",
+      "commit": "f19ceb4553d1d9ccd46cc86f47483564814423ec",
+      "tree": "e65e0df08e088daf80e8b4e570c9fa134c51efc3",
       "exclude": []
     },
     {
       "path": "tinygrad_repo",
       "url": "https://github.com/tinygrad/tinygrad.git",
-      "commit": "9d0446a4ba8a532c8b674fb6ad795af015cd9dcf",
-      "tree": "03f35edac84fbe516023911c1a135e5a577f5d95",
+      "commit": "ec91b74b5b6b0fc924b72d3f27689679ca2438b9",
+      "tree": "1cb22a40b0aa242b2e432fc7b88f8b85fc391f81",
       "exclude": [
         "AGENTS.md"
       ]
@@ -65,8 +65,8 @@
     {
       "path": "jetlink_repo",
       "url": "https://github.com/zoompilot/jetlink.git",
-      "commit": "bf4dc940e98f5d3ed9b7163adb021439010d634f",
-      "tree": "81237da0aa4423d8b47c4e18c4b02763afbc1917",
+      "commit": "9cfde98eec1d7cc714d800504944cf1a3944513d",
+      "tree": "dbcb53149dbc8ae5df9d8236deeb216f2493a5f9",
       "include": [
         "jetlink",
         "LICENSE",

@@ -4,10 +4,11 @@ let nextId = 0
 export const GalaxySelect = {
   name: "GalaxySelect",
   inheritAttrs: false,
-  props: { value: { default: undefined }, modelValue: { default: undefined }, disabled: Boolean },
+  props: { value: { default: undefined }, modelValue: { default: undefined }, disabled: Boolean, showDescription: Boolean },
   emits: ["change", "update:modelValue"],
   data() { return { uid: `gx-select-${++nextId}`, items: [], selected: "", label: "", open: false, name: "Choose an option", typeahead: "", typedAt: 0 } },
   computed: {
+    selectedDescription() { return this.items.find(item => item.value === this.selected)?.description || "" },
     current() { return this.modelValue !== undefined ? this.modelValue : this.value },
     buttonId() { return this.$attrs.id || this.uid },
     nativeAttrs() {
@@ -129,7 +130,7 @@ export const GalaxySelect = {
       <select ref="native" v-bind="nativeAttrs" hidden tabindex="-1" aria-hidden="true" :disabled="disabled" @change="change"><slot /></select>
       <button ref="button" :id="buttonId" class="gx-select__button" type="button" role="combobox" aria-haspopup="listbox" :aria-expanded="open" :aria-controls="uid + '-list'"
         :aria-label="name" :aria-describedby="$attrs['aria-describedby']" :disabled="disabled" @click="show" @keydown="buttonKey">
-        <span>{{ label }}</span><i class="bi bi-chevron-down" aria-hidden="true"></i>
+        <span class="gx-grow gx-wrap"><span>{{ label }}</span><small v-if="showDescription && selectedDescription" class="gx-note gx-select__description">{{ selectedDescription }}</small></span><i class="bi bi-chevron-down" aria-hidden="true"></i>
       </button>
       <dialog ref="menu" class="gx-select-menu" @cancel.prevent="close" @click.self="close" @keydown="menuKey">
         <div :id="uid + '-list'" role="listbox" :aria-label="name">

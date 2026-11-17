@@ -31,6 +31,8 @@ Browser JavaScript tests use Node 24; set `STARPILOT_NODE` to an existing Node
 24 executable when needed. A static preview can serve `web/` over loopback;
 it labels its sample System Monitor data and cannot edit a device.
 
+StarPort log uploads use the built-in developer Discord webhook.
+
 ## Pages and owners
 
 | Page | Current source and operations |
@@ -38,7 +40,7 @@ it labels its sample System Monitor data and cannot edit a device.
 | Home and Tools | Local status cards, navigation, theme, drawer, pinned tiles, and hash routes. |
 | System Monitor and Plots | Bounded local process/device and driving-message samples. Unavailable data stays unknown; leaving a page stops its polling. |
 | Logs and Routes | Crash-report previews and a shared route workspace for camera footage, driving UI replay, segment details, and scoped footage/replay/log downloads. |
-| Software & Updates | Read-only installed and updater status. Refresh rereads reported Params; it does not check, download, switch branches, install, roll back, or reboot. |
+| Software & Updates | Parked update controls and a newest-first version list. Installed and fully cached commits are marked; selecting a commit offers installation or download and installation. Initially shows up to two newer commits, the installed commit, and the previous installed commit. Collapsed gaps above and below the installed commit expand independently; older history remains available below the previous version. Each gap shows its own remaining count and reveals at most ten commits per click inside a scroll area bounded by the viewport. Release notes follow the selected installed or prepared version. |
 | Driving and Device Preferences | Saved settings through typed owners shared with native controls, including SLC, lateral and longitudinal tuning, conditional modes, display, cameras, and sounds. |
 | Vehicle Controls | One saved manual vehicle choice for the next start, or Auto for normal detection. |
 | Models and Model Laboratory | Verified model catalog management and parked Laboratory configuration. Paired inference is unavailable in the production model runner. |
@@ -47,6 +49,21 @@ it labels its sample System Monitor data and cannot edit a device.
 | Cameras and Sentry | Saved PiP and V-ASM settings and bounded Sentry event metadata. The crop editor uses a browser-local still image; it does not upload that image. |
 | Sound packs | Catalog status, verified download and cancellation through the local sound owner. |
 | Galaxy Access & Install | Remote link pairing, Galaxy installation, and an opt-in Wi-Fi hotspot. Local addresses are on Home. |
+
+`Refresh` and branch changes request filtered
+history metadata in a separate Git cache and worker. They remain available during
+background staging. `Check for updates` also wakes the background updater after the metadata check. When automatic downloads are enabled, a newer commit wakes
+the separate download phase. Update and download actions retrieve the chosen
+snapshot's missing file contents; version browsing uses `--filter=blob:none` with
+bounded history depth. The branch selector lives in the version list and refreshes its metadata without changing the updater target. `Download only` prepares the selected commit without restarting; `Select previous version` selects the saved branch and commit without installing it. Downloads report Git object progress and finalization
+reports copied files; Git garbage collection is outside the finalization path.
+
+Automatic installation is opt-in and defaults off. Its five numeric cron fields
+(minute, hour, day, month, weekday) default to `0 0 * * *`: daily at midnight in
+the saved local timezone shown in Advanced options. The timezone selector saves an IANA timezone with the schedule, including daylight-saving rules. The updater only restarts for a
+validated, prepared update while idle and freshly confirmed offroad. It skips
+onroad occurrences and reserves each scheduled minute before restarting to avoid
+reboot loops. These preferences live in the StarPilot software state directory.
 
 The Vue router in `web/js/app.js` and the route handlers in `server.py` are the
 current route map. API groups include `/api/auth`, `/api/system/monitor`,
@@ -58,6 +75,36 @@ there is no arbitrary Params or shell-command endpoint. The retired
 access uses the same authenticated, same-origin HTTP API as local Wi-Fi.
 
 ## Access and operation rules
+
+Home's outside temperature is an Open-Meteo weather estimate near the last
+saved navigation location, not a vehicle sensor reading. The authenticated
+weather endpoint fetches asynchronously, rounds coordinates to two decimal
+places before sending them to Open-Meteo, caches successful requests for ten
+minutes and backs off failed requests for one minute. Changed locations may
+refresh after one minute. Data older than thirty minutes is unavailable;
+no saved location means no weather request. The Home page respects Use Metric
+and stops weather polling when hidden. Device thermal sensors are not cabin-air
+thermometers, so no cabin temperature is inferred from CPU, modem or board heat.
+
+### Optional reverse proxy
+
+While offroad, open **Toggles → Developer → Reverse proxy**. Enter the proxy IP
+address (for example `192.168.1.2`) and public HTTPS origin (for example
+`https://galaxy.example.com`), enable reverse proxy, and save with confirmation.
+Settings persist beside Galaxy's access credentials and apply immediately;
+no startup-script edits or restart are needed. Keep direct IP access available
+when changing or disabling a proxy you are currently using.
+
+The address must be the actual proxy socket peer as seen by the comma, not the
+browser address. The origin must be the exact external HTTPS origin (include
+a nonstandard port if used), without a trailing slash or path. The proxy must
+preserve the external Host and browser Origin headers and forward to Galaxy's
+HTTP port. Forwarded client-IP headers are not trusted. Only this peer and
+hostname gain the exception; all proxy requests require an existing Galaxy
+password-backed session, even without forwarding headers. Configure a Galaxy
+password through the existing device controls before using the proxy. Direct
+IP-and-port access from other clients remains unchanged. Proxy access is off
+by default. Invalid configuration never grants proxy access.
 
 The hotspot is off by default. While parked, open **Galaxy Access &
 Install → Galaxy Wi-Fi Hotspot**, enable automatic broadcast, and save a password
@@ -73,7 +120,24 @@ hardware validation.
 
 The server requires the actual peer and socket destination to be local for
 passwordless access. Proxy headers select the password-backed path. The Host
-must match the destination address, and JSON writes require that same origin.
+must match the destination address or an independently discovered local DNS
+identity, including the listening port. DNS identities come from the device's
+OS hostname (with its local resolver search domains) or the socket destination's
+reverse DNS records. Each name must forward-resolve only to that exact IPv4
+destination. A request-selected name merely resolving to a private address is
+not trusted, because that would allow DNS rebinding. This trusts the local
+OS/DHCP/DNS infrastructure; arbitrary aliases without that identity metadata
+are not admitted as API/session origins. For those aliases, direct local
+GET/HEAD of exactly `/` without Origin redirects to the actual socket's
+IP-and-port address. Browsers follow this automatically without a password or
+hostname registration, but the address bar changes to the IP. Curl to the DNS
+URL needs `-L`; with a manually overridden Host, request the returned Location
+without that override instead. The redirect sends no cookies and never applies to API paths,
+writes, forwarded requests, or remote transport. DNS discovery has a one-second
+bound and a five-second destination-specific cache. Literal IP access remains available
+when discovery fails. A manually overridden portless Host is accepted only for
+GET/HEAD of the landing document without Origin, never API/session requests.
+JSON writes require the same exact origin.
 Sessions use opaque HttpOnly, SameSite=Strict cookies; a local session cannot
 authorize a remote request. A session is checked again after slower reads and
 before sensitive results are returned. The server bounds connections, request
@@ -125,3 +189,24 @@ The UI adapts StarPilot's earlier Vue Galaxy design; the adapted StarPilot
 source remains under the repository [LICENSE](../../../LICENSE). The bundled
 Vue and Bootstrap Icons assets retain their respective MIT notices in
 `web/vendor/notices/`. Other asset notices remain beside their files.
+
+## Shared display language
+
+Galaxy → Toggles → Localization selects the persistent openpilot `LanguageSetting`.
+Galaxy reads the authenticated `/api/localization` endpoint and applies the same
+`selfdrive/ui/translations/app_*.po` catalogs used by the device. Language changes
+apply to an open Galaxy page within two seconds. Translation changes presentation
+text and accessibility labels; request values, parameter keys, input values and
+technical logs remain unchanged. The native large/compact renderer translates
+measurements and drawing together and loads bundled Unicode fonts as needed.
+
+`starpilot/ui/translation_strings.py` and `translation_messages.json` retain the
+shared UI sources for the existing catalog update tool. The six requested
+languages each contain 5,465 catalog entries: stock openpilot labels, Galaxy
+pages and settings descriptions, native UI labels, formatted status messages
+and driving alerts. Formatted translations retain the original values and
+identifiers. Unlisted runtime diagnostics and external content retain English
+fallback; user names, addresses, media metadata and technical logs are literal.
+Boot/login initially uses English until the authenticated language response.
+Native text is translated before measurement, wrapping and elision; translated
+values carry a marker so they cannot be translated twice.

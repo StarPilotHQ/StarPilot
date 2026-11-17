@@ -35,7 +35,7 @@ extern "C" {
 #endif
 
 #define RSANUMBYTES 128           /* 1024 bit key length */
-#define RSANUMWORDS (RSANUMBYTES / sizeof(uint32_t))
+#define RSANUMWORDS ((uint32_t)RSANUMBYTES / sizeof(uint32_t))
 
 typedef struct RSAPublicKey {
     int len;                  /* Length of n[] in number of uint32_t */

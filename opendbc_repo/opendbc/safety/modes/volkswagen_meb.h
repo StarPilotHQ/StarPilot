@@ -138,7 +138,7 @@ static safety_config volkswagen_meb_init(uint16_t param) {
 
   safety_config ret;
   if (volkswagen_meb_alt_crc) {
-    static RxCheck volkswagen_meb_gen2_rx_checks[] = {
+    static const RxCheck volkswagen_meb_gen2_rx_checks[] = {
       VOLKSWAGEN_MEB_COMMON_RX_CHECKS
       {.msg = {{MSG_Motor_51, 0, 48, 50U, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},
       {.msg = {{MSG_ESC_51, 0, 64, 50U, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},
@@ -146,7 +146,7 @@ static safety_config volkswagen_meb_init(uint16_t param) {
 
     ret = BUILD_SAFETY_CFG(volkswagen_meb_gen2_rx_checks, VOLKSWAGEN_MEB_TX_MSGS);
   } else {
-    static RxCheck volkswagen_meb_rx_checks[] = {
+    static const RxCheck volkswagen_meb_rx_checks[] = {
       VOLKSWAGEN_MEB_COMMON_RX_CHECKS
       {.msg = {{MSG_Motor_51, 0, 32, 50U, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},
       {.msg = {{MSG_ESC_51, 0, 48, 50U, .max_counter = 15U, .ignore_quality_flag = true}, { 0 }, { 0 }}},
@@ -238,7 +238,7 @@ static void volkswagen_meb_rx_hook(const CANPacket_t *msg) {
 static bool volkswagen_meb_tx_hook(const CANPacket_t *msg) {
   // acceleration in m/s2 * 1000 to avoid floating point math
   const LongitudinalLimits VOLKSWAGEN_MEB_LONG_LIMITS = {
-    .max_accel = 2000,
+    .max_accel = 3000,
     .min_accel = -3500,
     .inactive_accel = 3010,  // VW sends one increment above the max range when inactive
   };

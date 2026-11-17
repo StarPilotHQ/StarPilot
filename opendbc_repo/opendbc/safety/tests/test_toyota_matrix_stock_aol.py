@@ -98,32 +98,35 @@ def test_actual_required_rx_refusal(matrix, address, kind):
   matrix.warm()
   assert matrix.safety.aol_get_permission_mask() == 1
   config = matrix.safety.current_safety_config
-  check = next(config.rx_checks[i] for i in range(config.rx_checks_len) if config.rx_checks[i].msg[0].addr == address)
-  original_timestamp = check.status.last_timestamp
+  matches = [i for i in range(config.rx_checks_len) if config.rx_checks[i].msg[0].addr == address]
+  assert len(matches) == 1, (hex(address), matches)
+  index = matches[0]
+  check = config.rx_checks[index]
+  original_timestamp = matrix.safety.rx_status[index].last_timestamp
   matrix.tick(fault=(kind, address))
   if address == 0x260 and kind == 'length':
     # Generic required RX matches address, bus AND DLC. A wrong-DLC frame must
     # never renew the last good source; the unchanged native tick expires it.
     assert check.msg[0].frequency == 50
-    assert check.status.last_timestamp == original_timestamp
+    assert matrix.safety.rx_status[index].last_timestamp == original_timestamp
     for _ in range(19):
       matrix.tick(fault=(kind, address))
-      assert check.status.last_timestamp == original_timestamp
+      assert matrix.safety.rx_status[index].last_timestamp == original_timestamp
     # AOL's unchanged ten-period freshness bound is tighter than generic lag.
     assert matrix.now - original_timestamp == 200_000
-    assert not check.status.lagging and matrix.safety.aol_get_permission_mask() == 1
+    assert not matrix.safety.rx_status[index].lagging and matrix.safety.aol_get_permission_mask() == 1
     matrix.tick(fault=(kind, address))
     assert matrix.now - original_timestamp == 210_000
-    assert check.status.last_timestamp == original_timestamp and not check.status.lagging
+    assert matrix.safety.rx_status[index].last_timestamp == original_timestamp and not matrix.safety.rx_status[index].lagging
     assert matrix.safety.aol_get_permission_mask() == 0
     assert not matrix.tx('STEERING_LKA', {'STEER_TORQUE_CMD': 1, 'STEER_REQUEST': 1})
     for _ in range(79):
       matrix.tick(fault=(kind, address))
-      assert check.status.last_timestamp == original_timestamp
+      assert matrix.safety.rx_status[index].last_timestamp == original_timestamp
     assert matrix.now - original_timestamp == 1_000_000
-    assert not check.status.lagging and matrix.safety.aol_get_permission_mask() == 0
+    assert not matrix.safety.rx_status[index].lagging and matrix.safety.aol_get_permission_mask() == 0
     matrix.tick(fault=(kind, address))
-    assert check.status.last_timestamp == original_timestamp and check.status.lagging
+    assert matrix.safety.rx_status[index].last_timestamp == original_timestamp and matrix.safety.rx_status[index].lagging
     assert matrix.now - original_timestamp == 1_010_000
   # EPS/MAIN observer DLC and required-source checksum refusals are immediate.
   assert matrix.safety.aol_get_permission_mask() == 0
@@ -201,3 +204,50 @@ def test_real_stock_steering_rx_triggers_relay_refusal(matrix):
   assert matrix.safety.get_relay_malfunction()
   assert matrix.safety.aol_get_permission_mask() == 0
   assert not matrix.tx('STEERING_LKA', {'STEER_TORQUE_CMD': 1, 'STEER_REQUEST': 1})
+
+
+from opendbc.car import Bus
+from opendbc.car.toyota.stock_aol import PROFILES as FACTORY_PROFILES, EPS5_WORDS, ALT_MAIN_WORDS
+from opendbc.car.toyota.values import DBC
+
+FACTORY_CASES = {word: car for car, word in FACTORY_PROFILES.items()}
+
+
+class FactoryPhysical(Physical):
+  def __init__(self, word):
+    super().__init__(word=word)
+    self.word = word
+    self.packer = CANPacker(DBC[FACTORY_CASES[word]][Bus.pt])
+
+  def tick(self, *, main=True, **fields):
+    self.now += 10_000
+    self.safety.set_timer(self.now)
+    frames = helpers.physical(self.packer, main=main, sdsu=None, **fields)
+    if self.word in ALT_MAIN_WORDS:
+      frames.append(self.packer.make_can_msg('DSU_CRUISE', 0, {'MAIN_ON': main, 'SET_SPEED': 90}))
+    for address, data, bus in frames:
+      self.safety.safety_rx_hook(libsafety_py.make_CANPacket(address, bus, data))
+    self.safety.safety_tick()
+    self.safety.aol_set_host_request(3)
+
+
+@pytest.mark.parametrize('word', sorted(FACTORY_CASES))
+def test_every_factory_profile_keeps_stock_acc_and_physical_steering(word):
+  case = FactoryPhysical(word)
+  try:
+    assert case.safety.aol_get_permission_mask() == 0
+    case.warm()
+    assert case.safety.safety_config_valid()
+    assert case.safety.aol_get_permission_mask() == 1
+    assert case.tx('STEERING_LKA', {'STEER_REQUEST': 1, 'STEER_TORQUE_CMD': 1})
+    assert not case.tx('ACC_CONTROL', {'ACCEL_CMD': .1})
+    assert case.safety.safety_fwd_hook(2, 0x343) == 0
+    cfg = case.safety.current_safety_config
+    sources = [(cfg.rx_checks[i].msg[0].addr, cfg.rx_checks[i].msg[0].len) for i in range(cfg.rx_checks_len)]
+    assert (0x262, 5 if word in EPS5_WORDS else 8) in sources
+    assert (0x365, 7) in sources if word in ALT_MAIN_WORDS else (0x1D3, 8) in sources
+    case.tick(main=False, cruise=True)
+    assert case.safety.aol_get_permission_mask() == 0
+    assert not case.tx('STEERING_LKA', {'STEER_REQUEST': 1, 'STEER_TORQUE_CMD': 1})
+  finally:
+    case.close()

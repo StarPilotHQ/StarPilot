@@ -23,7 +23,8 @@ class Chassis:
   parser fixture; this does not claim a recorded physical bus schedule.
   """
 
-  def __init__(self):
+  def __init__(self, radar_available=False):
+    self.radar_available = radar_available
     self.packer = CANPacker('rivian_primary_actuator')
     self.counters = defaultdict(int)
 
@@ -63,11 +64,14 @@ class Chassis:
         values[counter] = self.counters[name] % 15
         self.counters[name] += 1
       result.append(self.packer.make_can_msg(name, bus, values))
+    if self.radar_available and (tick - 1) % 5 == 0:
+      from opendbc.car.rivian.tests.test_radar_reachability import bank
+      result.extend(bank())
     return result
 
 
 @pytest.mark.parametrize('alpha', [False, True], ids=['stock', 'debug-alpha'])
-def test_actual_rivian_aol_engage_brake_reverse_fault_recovery(alpha, monkeypatch, tmp_path):
+def test_actual_rivian_aol_engage_brake_reverse_fault_recovery(alpha, monkeypatch, tmp_path, radar_available=False):
   from opendbc.safety.tests.common import make_msg
   from openpilot.cereal import messaging
   from openpilot.common.params import Params
@@ -97,6 +101,9 @@ def test_actual_rivian_aol_engage_brake_reverse_fault_recovery(alpha, monkeypatc
       saved.put_bool(key, value, block=True)
     fp = gen_empty_fingerprint()
     fp[0][0x321] = 7
+    if radar_available:
+      from opendbc.car.rivian.tests.test_radar_reachability import fingerprint
+      fp = fingerprint()
     factory = interfaces[CAR.RIVIAN_R1]
     cp = factory.get_params(CAR.RIVIAN_R1, fp, [], alpha, False, False)
     saved.put(KEY, replace_preference(None, cp, False), block=True)
@@ -139,7 +146,7 @@ def test_actual_rivian_aol_engage_brake_reverse_fault_recovery(alpha, monkeypatc
         send(service, raw)
 
       io_contexts.enter_context(patch.object(card.pm, 'send', capture))
-      chassis = Chassis()
+      chassis = Chassis(radar_available)
       ready_observed = False
       metadata = {}
 
@@ -227,8 +234,8 @@ def test_actual_rivian_aol_engage_brake_reverse_fault_recovery(alpha, monkeypatc
         can_source = messaging.log_from_bytes(card_module.can_list_to_can_capnp(frames)).as_builder()
         can_source.logMonoTime = now[0]  # synthetic CAN producer's original acquisition time
         queued[:] = [can_source.to_bytes()]
-        state, _ = card.state_update(defer_radar=True)
-        card.state_publish(state, None)
+        state, radar = card.state_update(defer_radar=not radar_available)
+        card.state_publish(state, radar if radar_available else None)
         axis, host, command = drive(
           tick,
           car_state_message=received['carState'],

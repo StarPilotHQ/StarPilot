@@ -5,9 +5,12 @@ A valid pedal source supplements that parent; it cannot replace it.
 """
 
 from opendbc.car import structs
+from opendbc.car.toyota.config_cache import cached_config
 from opendbc.car.toyota.values import CAR, ToyotaFlags
 
 PARENT_WORDS = {
+  0xE449: 0x9849,
+  0xE649: 0x9A49,
   0x3049: 0x1049,
   0x3249: 0x1249,
   0x3449: 0x1449,
@@ -75,6 +78,8 @@ def marked(cp):
     and len(cp.safetyConfigs) == 1
     and cp.safetyConfigs[0].safetyModel == structs.CarParams.SafetyModel.toyota
     and cp.safetyConfigs[0].safetyParam in PARENT_WORDS
+    and (cp.safetyConfigs[0].safetyParam not in (0xE449, 0xE649) or
+         cp.carFingerprint == CAR.TOYOTA_PRIUS_RETROFIT and cp.flags & ToyotaFlags.HYBRID)
   )
 
 
@@ -109,13 +114,18 @@ def parent_modules():
   return (dsu_bypass, prius_longitudinal, advert_filter, rav4h_filter, radar_filter)
 
 
+@cached_config
 def configured(cp):
   return marked(cp) and not cp.secOcRequired and any(module.configured(parent_cp(cp)) for module in parent_modules())
 
 
 def hardware_supported(candidate, fingerprint, car_fw):
+  from opendbc.car.toyota import prius_legacy_pedal
+  if prius_legacy_pedal.hardware_supported(candidate, fingerprint, car_fw):
+    return True
   from opendbc.car.toyota import dsu_bypass, rav4h_filter, eps8_sdsu, legacy_sdsu, advert_filter, prius_sdsu, prius_advert_filter, radar_filter
-  if fingerprint.get(0, {}).get(0x201) != 6 or any(0x201 in frames for bus, frames in fingerprint.items() if bus != 0):
+  from opendbc.car.toyota.pedal import primary_pedal_hardware
+  if not primary_pedal_hardware(fingerprint):
     return False
   parent = without_pedal(fingerprint)
   for module in (dsu_bypass, prius_advert_filter, prius_sdsu, advert_filter, legacy_sdsu, eps8_sdsu, rav4h_filter):
@@ -158,14 +168,18 @@ def without_pedal(fingerprint):
   return {bus: {address: size for address, size in frames.items() if address != 0x201} for bus, frames in fingerprint.items()}
 
 
-def composite_word(cp):
+def composite_word(cp, *, legacy_prius=False):
+  if legacy_prius:
+    return 0xE449 if cp.openpilotLongitudinalControl else 0xE649
   return cp.safetyConfigs[0].safetyParam | 0x2000
 
 
-def apply(cp):
+def apply(cp, *, legacy_prius=False):
+  if legacy_prius and (cp.carFingerprint != CAR.TOYOTA_PRIUS_RETROFIT or cp.safetyConfigs[0].safetyParam not in (0x9849, 0x9A49)):
+    return False
   if not any(module.configured(cp) for module in parent_modules()) or composite_word(cp) not in PARENT_WORDS:
     return False
-  cp.safetyConfigs[0].safetyParam = composite_word(cp)
+  cp.safetyConfigs[0].safetyParam = composite_word(cp, legacy_prius=legacy_prius)
   cp.flags |= int(ToyotaFlags.GAS_INTERCEPTOR)
   cp.minEnableSpeed = -1.
   return True
@@ -174,25 +188,33 @@ def apply(cp):
 def prepare_stock(cp):
   if not configured(cp):
     return False
+  legacy_prius = cp.safetyConfigs[0].safetyParam in (0xE449, 0xE649)
   parent = parent_cp(cp)
   assert any(module.prepare_stock(parent) for module in parent_modules())
   cp.flags = parent.flags | int(ToyotaFlags.GAS_INTERCEPTOR)
   cp.alternativeExperience = parent.alternativeExperience
   cp.openpilotLongitudinalControl = False
-  cp.safetyConfigs[0].safetyParam = composite_word(parent)
+  cp.safetyConfigs[0].safetyParam = composite_word(parent, legacy_prius=legacy_prius)
   cp.autoResumeSng = parent.autoResumeSng
   return True
 
 
 class ParentPedalParser:
-  def __init__(self, parent):
+  def __init__(self, parent, *, mirrored_pedal=False):
     self.parent = parent
+    self.mirrored_pedal = mirrored_pedal
 
   def __getattr__(self, name):
     return getattr(self.parent, name)
 
   def update(self, strings, sendcan=False):
-    # Only the enrolled primary six-byte pedal belongs to the second parser.
-    # Malformed lengths and foreign-bus contradictions still reach the parent.
-    batches = [(stamp, [frame for frame in frames if not (frame[0] == 0x201 and len(frame[1]) == 6 and frame[2] == 0)]) for stamp, frames in strings]
+    # Only primary pedal RX supplies its lease. A CRC-valid camera copy is
+    # ignored; malformed/foreign input still reaches the exact parent.
+    from opendbc.car.toyota.pedal import checksum
+
+    def enrolled(frame):
+      address, data, bus = frame
+      return address == 0x201 and len(data) == 6 and (bus == 0 or
+        self.mirrored_pedal and bus == 2 and data[-1] == checksum(data))
+    batches = [(stamp, [frame for frame in frames if not enrolled(frame)]) for stamp, frames in strings]
     return self.parent.update(batches, sendcan)

@@ -1,6 +1,6 @@
 {
-  "reviewed_schema_commit": "632fa395624275e900b072309950624d36b0184f",
-  "reviewed_schema_sha256": "ce728d3074ad43da2f8782cedae4665c118412f5758b011350d747ea6fbb93a0",
+  "reviewed_schema_commit": "0cc9ddddfe89ba679a96e6947e2cc3f9aaf58130",
+  "reviewed_schema_sha256": "3ccbe13345df6d797830e9cb66cdf7f925c3681958967ed54be023b46fcfa488",
   "incumbent_fixture_sha256": "a36ab54c00b5bbe61d520873d24aadfb8f33babd70c31a07046516d5545838d9",
   "types": {
     "0xf35cc4560bbf6ec2": {
@@ -18,7 +18,7 @@
       },
       "new_storage": {
         "dataWordCount": 3,
-        "pointerCount": 6,
+        "pointerCount": 7,
         "preferredListEncoding": "inlineComposite",
         "isGroup": false,
         "discriminantCount": 0,
@@ -59,10 +59,30 @@
             "hadExplicitDefault": false
           },
           "name": "toyotaCruise",
-          "codeOrder": 38,
+          "codeOrder": 39,
           "discriminantValue": 65535,
           "ordinal": {
             "explicit": 38
+          }
+        },
+        {
+          "slot": {
+            "offset": 6,
+            "type": {
+              "struct": {
+                "typeId": 15172299076723568810
+              }
+            },
+            "defaultValue": {
+              "schemaValueHex": "00000000040000000000000002000100100000000000000000000000000000000000000000000000"
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "steeringLimitInfo",
+          "codeOrder": 38,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 39
           }
         }
       ]
@@ -81,8 +101,8 @@
         "discriminantOffset": 0
       },
       "new_storage": {
-        "dataWordCount": 18,
-        "pointerCount": 21,
+        "dataWordCount": 21,
+        "pointerCount": 22,
         "preferredListEncoding": "inlineComposite",
         "isGroup": false,
         "discriminantCount": 0,
@@ -195,6 +215,114 @@
           "discriminantValue": 65535,
           "ordinal": {
             "explicit": 56
+          }
+        },
+        {
+          "slot": {
+            "offset": 33,
+            "type": {
+              "float32": null
+            },
+            "defaultValue": {
+              "float32": 0.0
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "upcomingSpeedLimit",
+          "codeOrder": 57,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 57
+          }
+        },
+        {
+          "slot": {
+            "offset": 21,
+            "type": {
+              "text": null
+            },
+            "defaultValue": {
+              "text": ""
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "upcomingBoundaryId",
+          "codeOrder": 58,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 58
+          }
+        },
+        {
+          "slot": {
+            "offset": 141,
+            "type": {
+              "bool": null
+            },
+            "defaultValue": {
+              "bool": false
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "acceptedIsPreview",
+          "codeOrder": 59,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 59
+          }
+        },
+        {
+          "slot": {
+            "offset": 18,
+            "type": {
+              "uint64": null
+            },
+            "defaultValue": {
+              "uint64": 0
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "wheelOverrideSince",
+          "codeOrder": 60,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 60
+          }
+        },
+        {
+          "slot": {
+            "offset": 19,
+            "type": {
+              "uint64": null
+            },
+            "defaultValue": {
+              "uint64": 0
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "wheelAdoptMonoTime",
+          "codeOrder": 61,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 61
+          }
+        },
+        {
+          "slot": {
+            "offset": 40,
+            "type": {
+              "float32": null
+            },
+            "defaultValue": {
+              "float32": 0.0
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "wheelAdoptTargetMps",
+          "codeOrder": 62,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 62
           }
         }
       ]
@@ -380,7 +508,7 @@
       },
       "new_storage": {
         "dataWordCount": 10,
-        "pointerCount": 3,
+        "pointerCount": 4,
         "preferredListEncoding": "inlineComposite",
         "isGroup": false,
         "discriminantCount": 0,
@@ -403,6 +531,24 @@
           "discriminantValue": 65535,
           "ordinal": {
             "explicit": 14
+          }
+        },
+        {
+          "slot": {
+            "offset": 3,
+            "type": {
+              "text": null
+            },
+            "defaultValue": {
+              "text": ""
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "upcomingBoundaryId",
+          "codeOrder": 15,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 15
           }
         }
       ]
@@ -488,11 +634,396 @@
           }
         }
       ]
+    },
+    "0xa4f1eb3323f5f582": {
+      "kind": "struct",
+      "before_name": "MapdOut",
+      "after_name": "MapdOut",
+      "old_field_count": 34,
+      "old_storage": {
+        "dataWordCount": 14,
+        "pointerCount": 6,
+        "preferredListEncoding": "inlineComposite",
+        "isGroup": false,
+        "discriminantCount": 0,
+        "discriminantOffset": 0
+      },
+      "new_storage": {
+        "dataWordCount": 16,
+        "pointerCount": 7,
+        "preferredListEncoding": "inlineComposite",
+        "isGroup": false,
+        "discriminantCount": 0,
+        "discriminantOffset": 0
+      },
+      "added_fields": [
+        {
+          "slot": {
+            "offset": 19,
+            "type": {
+              "float32": null
+            },
+            "defaultValue": {
+              "float32": 0.0
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "previewSpeedLimit",
+          "codeOrder": 34,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 34
+          }
+        },
+        {
+          "slot": {
+            "offset": 28,
+            "type": {
+              "float32": null
+            },
+            "defaultValue": {
+              "float32": 0.0
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "previewDistance",
+          "codeOrder": 35,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 35
+          }
+        },
+        {
+          "slot": {
+            "offset": 6,
+            "type": {
+              "text": null
+            },
+            "defaultValue": {
+              "text": ""
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "previewBoundaryId",
+          "codeOrder": 36,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 36
+          }
+        },
+        {
+          "slot": {
+            "offset": 15,
+            "type": {
+              "int64": null
+            },
+            "defaultValue": {
+              "int64": 0
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "previewWayId",
+          "codeOrder": 37,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 37
+          }
+        }
+      ]
+    },
+    "0x9099c88083a9a9ff": {
+      "kind": "enum",
+      "before_name": "SlcCruiseEvent.Kind",
+      "after_name": "SlcCruiseEvent.Kind",
+      "old_field_count": 12,
+      "old_storage": {},
+      "new_storage": {},
+      "added_enumerants": [
+        {
+          "name": "engagementAdopt",
+          "codeOrder": 12
+        }
+      ]
+    },
+    "0x9e04a179bcb4ab72": {
+      "kind": "struct",
+      "before_name": "StarPilotModelDataV2.VisionObservation",
+      "after_name": "StarPilotModelDataV2.VisionObservation",
+      "old_field_count": 12,
+      "old_storage": {
+        "dataWordCount": 6,
+        "pointerCount": 2,
+        "preferredListEncoding": "inlineComposite",
+        "isGroup": false,
+        "discriminantCount": 0,
+        "discriminantOffset": 0
+      },
+      "new_storage": {
+        "dataWordCount": 6,
+        "pointerCount": 3,
+        "preferredListEncoding": "inlineComposite",
+        "isGroup": false,
+        "discriminantCount": 0,
+        "discriminantOffset": 0
+      },
+      "added_fields": [
+        {
+          "slot": {
+            "offset": 2,
+            "type": {
+              "struct": {
+                "typeId": 12978956571779529976
+              }
+            },
+            "defaultValue": {
+              "schemaValueHex": "00000000040000000000000002000100100000000000000000000000000000000000000000000000"
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "stopSigns",
+          "codeOrder": 12,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 12
+          }
+        }
+      ]
+    },
+    "0xe4b42a95dcb60d90": {
+      "kind": "struct",
+      "before_name": "StarPilotCarControl.Navigation.Instruction",
+      "after_name": "StarPilotCarControl.Navigation.Instruction",
+      "old_field_count": 6,
+      "old_storage": {
+        "dataWordCount": 2,
+        "pointerCount": 3,
+        "preferredListEncoding": "inlineComposite",
+        "isGroup": false,
+        "discriminantCount": 0,
+        "discriminantOffset": 0
+      },
+      "new_storage": {
+        "dataWordCount": 2,
+        "pointerCount": 4,
+        "preferredListEncoding": "inlineComposite",
+        "isGroup": false,
+        "discriminantCount": 0,
+        "discriminantOffset": 0
+      },
+      "added_fields": [
+        {
+          "slot": {
+            "offset": 3,
+            "type": {
+              "list": {
+                "elementType": {
+                  "struct": {
+                    "typeId": 17182543244013116018
+                  }
+                }
+              }
+            },
+            "defaultValue": {
+              "schemaValueHex": "000000000400000000000000020001000e0000000000000000000000000000000000000000000000"
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "lanes",
+          "codeOrder": 6,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 6
+          }
+        }
+      ]
+    },
+    "0x9ccdc8676701b412": {
+      "kind": "struct",
+      "before_name": "SlcAction",
+      "after_name": "SlcAction",
+      "old_field_count": 8,
+      "old_storage": {
+        "dataWordCount": 4,
+        "pointerCount": 4,
+        "preferredListEncoding": "inlineComposite",
+        "isGroup": false,
+        "discriminantCount": 0,
+        "discriminantOffset": 0
+      },
+      "new_storage": {
+        "dataWordCount": 5,
+        "pointerCount": 4,
+        "preferredListEncoding": "inlineComposite",
+        "isGroup": false,
+        "discriminantCount": 0,
+        "discriminantOffset": 0
+      },
+      "added_fields": [
+        {
+          "slot": {
+            "offset": 4,
+            "type": {
+              "uint64": null
+            },
+            "defaultValue": {
+              "uint64": 0
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "wheelAdoptMonoTime",
+          "codeOrder": 8,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 8
+          }
+        }
+      ]
+    },
+    "0xcd96dafb67a082d0": {
+      "kind": "struct",
+      "before_name": "SlcCruiseEvent",
+      "after_name": "SlcCruiseEvent",
+      "old_field_count": 16,
+      "old_storage": {
+        "dataWordCount": 7,
+        "pointerCount": 6,
+        "preferredListEncoding": "inlineComposite",
+        "isGroup": false,
+        "discriminantCount": 0,
+        "discriminantOffset": 0
+      },
+      "new_storage": {
+        "dataWordCount": 8,
+        "pointerCount": 6,
+        "preferredListEncoding": "inlineComposite",
+        "isGroup": false,
+        "discriminantCount": 0,
+        "discriminantOffset": 0
+      },
+      "added_fields": [
+        {
+          "slot": {
+            "offset": 7,
+            "type": {
+              "uint64": null
+            },
+            "defaultValue": {
+              "uint64": 0
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "wheelOverrideSince",
+          "codeOrder": 16,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 16
+          }
+        }
+      ]
+    },
+    "0xda96579883444c35": {
+      "kind": "struct",
+      "before_name": "StarPilotLongitudinalPlan",
+      "after_name": "StarPilotLongitudinalPlan",
+      "old_field_count": 5,
+      "old_storage": {
+        "dataWordCount": 4,
+        "pointerCount": 0,
+        "preferredListEncoding": "inlineComposite",
+        "isGroup": false,
+        "discriminantCount": 0,
+        "discriminantOffset": 0
+      },
+      "new_storage": {
+        "dataWordCount": 6,
+        "pointerCount": 0,
+        "preferredListEncoding": "inlineComposite",
+        "isGroup": false,
+        "discriminantCount": 0,
+        "discriminantOffset": 0
+      },
+      "added_fields": [
+        {
+          "slot": {
+            "offset": 17,
+            "type": {
+              "bool": null
+            },
+            "defaultValue": {
+              "bool": false
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "forceStopBraking",
+          "codeOrder": 5,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 5
+          }
+        },
+        {
+          "slot": {
+            "offset": 4,
+            "type": {
+              "uint64": null
+            },
+            "defaultValue": {
+              "uint64": 0
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "forceStopEpisodeMonoTime",
+          "codeOrder": 6,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 6
+          }
+        },
+        {
+          "slot": {
+            "offset": 3,
+            "type": {
+              "uint8": null
+            },
+            "defaultValue": {
+              "uint8": 0
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "departureAlertKind",
+          "codeOrder": 7,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 7
+          }
+        },
+        {
+          "slot": {
+            "offset": 5,
+            "type": {
+              "uint64": null
+            },
+            "defaultValue": {
+              "uint64": 0
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "departureAlertMonoTime",
+          "codeOrder": 8,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 8
+          }
+        }
+      ]
     }
   },
   "published_addition_commits": {
     "slc": "ab8368f287b78b42f8590722878c7d5834609e19",
-    "flm": "b151ca11cb4d88f32d7adfdbcff50baf29f4fbbc"
+    "flm": "b151ca11cb4d88f32d7adfdbcff50baf29f4fbbc",
+    "tesla_cooperative_steering": "63beafc6af294d0759b47dc3bc546f24082a2a5d",
+    "vision_stop_signs": "0571890b8e6d023050ae0ec1e0c5fa9163422568",
+    "navigation_lanes": "0cc9ddddfe89ba679a96e6947e2cc3f9aaf58130"
   },
-  "review_basis": "Published SLC and FLM append-only changes. Every incumbent compiled field descriptor and enum prefix was independently checked unchanged; only the exact seven typed deltas below are permitted."
+  "review_basis": "Published SLC, FLM, and Tesla cooperative-steering additions. Every incumbent wire field descriptor and enum prefix was independently checked unchanged; only the exact typed deltas listed here are permitted. Tesla adds steeringLimitInfo @39 at pointer slot 6 using the existing SteeringLimitInfo type. ToyotaCruise @38 retains pointer slot 5, type, and default; only its declaration codeOrder changes from 38 to 39. Published vision stop-sign addition appends VisionObservation.stopSigns @12 at pointer slot 2 with StopObservation type 0xb41e843c9023fcf8 and a null struct default. All 12 incumbent descriptors and nested Status/Stream types remain unchanged; data words stay 6 and pointers grow from 2 to 3. Old-reader relay preserves the populated stop observation and incumbent fields. Published navigation lane guidance appends Instruction.lanes @6 at pointer slot 3 as List(Navigation.Lane), type 0xee74a80b1d309a72, with a null list default. All six incumbent descriptors remain unchanged; data words stay 2 and pointers grow from 3 to 4. The new Lane type has one data word and two pointers, with active @0 :Bool, directions @1 :List(Text), and activeDirection @2 :Text; its compiled ID and layout are pinned separately. Old-reader relay preserves empty and populated lane lists on both instruction and nextManeuver, along with all incumbent parent fields."
 }

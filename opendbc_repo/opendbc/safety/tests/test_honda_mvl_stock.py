@@ -37,8 +37,9 @@ def check_physical_pcm_camera_override_cancel_and_validated_arrival_expiry(word)
   for _ in range(10):
     safety.safety_rx_hook(packet("SCM_BUTTONS", {"CRUISE_BUTTONS": 0}, 1))
   assert safety.safety_fwd_hook(0, 0x296) == -1
-  for _ in range(10):
+  for remaining in range(9, -1, -1):
     assert safety.safety_rx_hook(packet("SCM_BUTTONS", {"CRUISE_BUTTONS": 0}))
+    assert safety.safety_fwd_hook(0, 0x296) == (-1 if remaining else 2)
   assert safety.safety_fwd_hook(0, 0x296) == 2
   assert safety.safety_tx_hook(packet("SCM_BUTTONS", {"CRUISE_BUTTONS": 0}, 2))
   assert safety.set_safety_hooks(structs.CarParams.SafetyModel.hondaBosch, 16) == 0

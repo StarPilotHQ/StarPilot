@@ -15,7 +15,8 @@ import time
 
 from openpilot.common.hardware.hw import Paths
 from openpilot.starpilot.models.catalog import BUNDLED_CURRENT, model_entries
-from openpilot.starpilot.models.status import ModelLoad, ModelVariant
+from openpilot.starpilot.models.status import LaboratoryLoad, ModelLoad, ModelVariant
+from openpilot.starpilot.models.catalog import ARTIFACT_ABI as LEGACY_ABI, COMPILER_REVISION as LEGACY_REVISION
 
 
 MAX_RECEIPT_BYTES = 1024
@@ -287,6 +288,105 @@ def record_prepared(prepared: PreparedArtifact, variant: ModelVariant, fallback_
   return load
 
 
+MAX_PAIR_RECEIPT_BYTES = 4096
+
+
+def pair_receipt_path(path: Path | None = None) -> Path:
+  return (receipt_path() if path is None else path).with_name('load-v2.json')
+
+
+def _pair_record(load: LaboratoryLoad) -> dict:
+  return {'version': 2, 'pid': load.pid, 'processStartTicks': load.process_start_ticks,
+          'loadedMonoNs': load.loaded_mono_ns, 'planSha256': load.plan_sha256, 'runtimeFamily': 'legacy9d',
+          'targetRuntimeRevision': LEGACY_REVISION, 'fallbackArtifactAbi': LEGACY_ABI,
+          'roles': {'lateral': {'modelId': load.lateral_id, 'behaviorVersion': load.lateral_version, 'artifactSha256': load.lateral_sha256,
+                                 'sourceFormat': load.lateral_source_format, 'sourceCompilerRevision': load.lateral_source_compiler,
+                                 'sourceManifestSha256': load.lateral_source_manifest},
+                    'longitudinal': {'modelId': load.longitudinal_id, 'behaviorVersion': load.longitudinal_version,
+                                     'artifactSha256': load.longitudinal_sha256, 'sourceFormat': load.longitudinal_source_format,
+                                     'sourceCompilerRevision': load.longitudinal_source_compiler,
+                                     'sourceManifestSha256': load.longitudinal_source_manifest}}}
+
+
+def _decode_pair(raw: bytes) -> LaboratoryLoad:
+  record = json.loads(raw.decode('utf-8'), object_pairs_hook=_pairs)
+  if (not isinstance(record, dict) or set(record) != {'version', 'pid', 'processStartTicks', 'loadedMonoNs',
+                                                                   'planSha256', 'runtimeFamily', 'targetRuntimeRevision', 'fallbackArtifactAbi', 'roles'} or
+      type(record['version']) is not int or record['version'] != 2 or record['runtimeFamily'] != 'legacy9d' or
+      record['targetRuntimeRevision'] != LEGACY_REVISION or record['fallbackArtifactAbi'] != LEGACY_ABI or
+      not all(_positive_int(record[k]) for k in ('pid', 'processStartTicks', 'loadedMonoNs')) or
+      not isinstance(record['planSha256'], str) or _DIGEST.fullmatch(record['planSha256']) is None or
+      not isinstance(record['roles'], dict) or set(record['roles']) != {'lateral', 'longitudinal'}):
+    raise ReceiptUnavailable('invalid laboratory receipt')
+  entries = model_entries()
+  roles = record['roles']
+  for role in roles.values():
+    if (not isinstance(role, dict) or set(role) != {'modelId', 'behaviorVersion', 'artifactSha256',
+                                                    'sourceFormat', 'sourceCompilerRevision', 'sourceManifestSha256'} or
+        not isinstance(role['modelId'], str) or role['modelId'] not in entries or role['modelId'] == BUNDLED_CURRENT or
+        role['behaviorVersion'] != entries[role['modelId']].version or
+        not isinstance(role['artifactSha256'], str) or _DIGEST.fullmatch(role['artifactSha256']) is None):
+      raise ReceiptUnavailable('invalid laboratory role')
+    if not ((role['sourceFormat'] == LEGACY_ABI and role['sourceCompilerRevision'] == LEGACY_REVISION and
+             role['sourceManifestSha256'] == '') or
+            (role['sourceFormat'] == 'tinygrad_single_v1' and role['sourceCompilerRevision'] is None and
+             isinstance(role['sourceManifestSha256'], str) and _DIGEST.fullmatch(role['sourceManifestSha256']) is not None)):
+      raise ReceiptUnavailable('invalid laboratory source provenance')
+  a, b = roles['lateral'], roles['longitudinal']
+  if a['modelId'] == b['modelId'] or a['artifactSha256'] == b['artifactSha256']:
+    raise ReceiptUnavailable('laboratory roles are not distinct')
+  return LaboratoryLoad(record['pid'], record['processStartTicks'], record['loadedMonoNs'],
+                        a['modelId'], a['behaviorVersion'], a['artifactSha256'],
+                        b['modelId'], b['behaviorVersion'], b['artifactSha256'], record['planSha256'],
+                        a['sourceFormat'], a['sourceCompilerRevision'], a['sourceManifestSha256'],
+                        b['sourceFormat'], b['sourceCompilerRevision'], b['sourceManifestSha256'])
+
+
+def read_pair_receipt(path: Path | None = None) -> LaboratoryLoad | None:
+  path = pair_receipt_path(path)
+  root_fd = fd = None
+  try:
+    root_fd = _root_fd(path, create=False)
+    fd = os.open(path.name, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=root_fd)
+    before = os.fstat(fd)
+    if (not stat.S_ISREG(before.st_mode) or before.st_uid != os.geteuid() or
+        stat.S_IMODE(before.st_mode) != 0o600 or not 0 < before.st_size <= MAX_PAIR_RECEIPT_BYTES):
+      return None
+    raw = os.read(fd, MAX_PAIR_RECEIPT_BYTES + 1)
+    if (len(raw) > MAX_PAIR_RECEIPT_BYTES or _identity(before) != _identity(os.fstat(fd)) or
+        _identity(before) != _identity(os.stat(path.name, dir_fd=root_fd, follow_symlinks=False))):
+      return None
+    return _decode_pair(raw)
+  except (OSError, ValueError, TypeError, KeyError, RecursionError):
+    return None
+  finally:
+    if fd is not None:
+      os.close(fd)
+    if root_fd is not None:
+      os.close(root_fd)
+
+
+def write_pair_receipt(load: LaboratoryLoad, path: Path | None = None) -> None:
+  path = pair_receipt_path(path)
+  raw = json.dumps(_pair_record(load), separators=(',', ':'), sort_keys=True).encode()
+  if len(raw) > MAX_PAIR_RECEIPT_BYTES or _decode_pair(raw) != load:
+    raise ReceiptUnavailable('invalid laboratory receipt')
+  root_fd = _root_fd(path, create=True)
+  temporary = f'.pair-{secrets.token_hex(8)}'
+  try:
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=root_fd)
+    with os.fdopen(fd, 'wb') as stream:
+      stream.write(raw)
+    os.replace(temporary, path.name, src_dir_fd=root_fd, dst_dir_fd=root_fd)
+  finally:
+    try:
+      os.unlink(temporary, dir_fd=root_fd)
+    except FileNotFoundError:
+      pass
+    os.close(root_fd)
+
+
+
 class ModelReceiptOwner:
   """Best-effort modeld hook: diagnostic failures never stop inference."""
 
@@ -296,15 +396,18 @@ class ModelReceiptOwner:
     self.report = report if report is not None else lambda _reason: None
     self.record = record
     self.load = None
+    self.pair_load = None
     self._identity_since_ns = time.monotonic_ns()
     self._last_publication_ns = 0
 
   def start(self) -> None:
     self.load = None
+    self.pair_load = None
     self._identity_since_ns = time.monotonic_ns()
     self._last_publication_ns = 0
     try:
       clear_receipt(self.receipt_file)
+      clear_receipt(pair_receipt_path(self.receipt_file))
     except Exception:
       self.report("clear-failed")
 
@@ -329,6 +432,18 @@ class ModelReceiptOwner:
     """Repeat actual load identity so routes started after warm-up retain it."""
     if self._last_publication_ns and now_ns - self._last_publication_ns < 5_000_000_000:
       return False
+    if self.pair_load is not None:
+      try:
+        from openpilot.cereal import messaging
+        packet = messaging.new_message(None, valid=True, logMonoTime=now_ns)
+        packet.logMessage = json.dumps({'process': os.getpid(), 'msg': {'event': 'modeld.loaded_pair',
+                                      **_pair_record(self.pair_load)}}, separators=(',', ':'))
+        publisher.send('modelIdentity', packet)
+        self._last_publication_ns = now_ns
+        return True
+      except Exception:
+        self.report('pair-publish-failed')
+        return False
     try:
       from openpilot.cereal import messaging
       message = messaging.new_message(None, valid=True, logMonoTime=now_ns)
@@ -351,6 +466,7 @@ class ModelReceiptOwner:
       self.report("prepared-artifact-unavailable")
       return False
     try:
+      clear_receipt(pair_receipt_path(self.receipt_file))
       load = record_prepared(prepared, variant, fallback_reason, model_id=model_id, receipt_file=self.receipt_file)
     except Exception:
       self.report("record-failed")
@@ -362,3 +478,25 @@ class ModelReceiptOwner:
     except Exception:
       self.report("log-failed")
     return True
+
+
+  def loaded_pair(self, pair, plan_sha256: str) -> bool:
+    self.load = self.pair_load = None
+    self._identity_since_ns = time.monotonic_ns()
+    self._last_publication_ns = 0
+    try:
+      clear_receipt(self.receipt_file)
+      clear_receipt(pair_receipt_path(self.receipt_file))
+      a, b = pair.lateral_role, pair.longitudinal_role
+      load = LaboratoryLoad(os.getpid(), process_start_ticks(os.getpid()), time.monotonic_ns(),
+                            a.model_id, a.behavior_version, a.artifact.sha256,
+                            b.model_id, b.behavior_version, b.artifact.sha256, plan_sha256,
+                            a.source_format, a.source_compiler_revision, a.source_manifest_sha256,
+                            b.source_format, b.source_compiler_revision, b.source_manifest_sha256)
+      write_pair_receipt(load, self.receipt_file)
+      self.pair_load = load
+      return True
+    except Exception:
+      self.report('pair-record-failed')
+      return False
+

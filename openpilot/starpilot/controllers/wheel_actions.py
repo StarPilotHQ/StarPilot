@@ -56,10 +56,11 @@ def button_reported(cp, key):
     if key in KEYS[2:5] and bool(cp.flags & ToyotaFlags.RADAR_CAN_FILTER) and camera_2aa_filter.configured(cp):
       return False  # No verified FD_BUTTON receiver is implied by a 2AA discriminator.
     if key == 'LKASButtonControl':
-      return bool(cp.flags & (ToyotaFlags.TSS2 | ToyotaFlags.LONG_FILTER) or
-                  cp.carFingerprint == CAR.TOYOTA_PRIUS_RETROFIT or legacy_advert)
+      return bool(cp.carFingerprint != CAR.TOYOTA_CAMRY and
+                  (cp.flags & (ToyotaFlags.TSS2 | ToyotaFlags.LONG_FILTER | ToyotaFlags.FILTER_BUTTONS) or
+                   cp.carFingerprint == CAR.TOYOTA_PRIUS_RETROFIT or legacy_advert))
     return bool(cp.flags & ToyotaFlags.TSS2 and not cp.flags & (ToyotaFlags.RADAR_ACC | ToyotaFlags.SECOC) or
-                cp.flags & ToyotaFlags.LONG_FILTER or legacy_advert or cp.carFingerprint in
+                cp.flags & (ToyotaFlags.LONG_FILTER | ToyotaFlags.FILTER_BUTTONS) or legacy_advert or cp.carFingerprint in
                 (CAR.TOYOTA_PRIUS, CAR.TOYOTA_PRIUS_RETROFIT, CAR.TOYOTA_SIENNA_4TH_GEN))
   if brand == 'tesla':
     from opendbc.car.tesla.values import CAR, TeslaFlags
@@ -68,7 +69,10 @@ def button_reported(cp, key):
                   cp.flags & TeslaFlags.AOL_SCREEN_BUTTON)
     return bool(key in KEYS[5:8] and cp.carFingerprint == CAR.TESLA_MODEL_S_PREAP)
   if key == 'LKASButtonControl':
-    if brand in ('chrysler', 'gm', 'mazda', 'nissan', 'volkswagen', 'volvo'):
+    if brand == 'gm':
+      from opendbc.car.gm.values import is_volt_flashed_profile
+      return is_volt_flashed_profile(cp)
+    if brand in ('chrysler', 'mazda', 'nissan', 'volkswagen', 'volvo'):
       return False
     if brand == 'hyundai':
       from opendbc.car.hyundai.values import CAR, HyundaiFlags, is_blended
@@ -82,7 +86,7 @@ def button_reported(cp, key):
     if brand == 'ford':
       return bool(cp.openpilotLongitudinalControl)
     if brand == 'mazda':
-      from opendbc.car.mazda.aol import qualified
+      from opendbc.car.mazda.stock_aol import qualified
       return qualified(cp, marked_only=True)
   return True
 
@@ -182,10 +186,12 @@ class WheelPublisher:
     self.suppress_distance_release = any(event.type == structs.CarState.ButtonEvent.Type.gapAdjustCruise and not event.pressed
                                          for event in state.buttonEvents)
     # Repeated neutral packets are not button edges. Keep held-input audits,
-    # the periodic audit, and the final read before emitted commands below.
+    # periodic held-input audits, and the final read before emitted commands below.
     media_edge = self.media_audit_needed(media)
     edge = bool(state.buttonEvents) or media_edge
-    audit = self.mapping is None or drive_id != self.drive or edge or now_ns - self.checked_ns >= 1_000_000_000
+    held = self.paddle_held or any(tracker.distance_held or tracker.media_held is not None
+                                    for tracker in (self.tracker, self.cancel_tracker, self.main_tracker))
+    audit = self.mapping is None or drive_id != self.drive or edge or held and now_ns - self.checked_ns >= 1_000_000_000
     source_eligible = bool(eligible(cp) and state.canValid and not state.canTimeout and type(now_ns) is int and
                            type(drive_id) is int and 0 < drive_id < now_ns)
     mapping = capture(params) if audit and source_eligible else self.mapping

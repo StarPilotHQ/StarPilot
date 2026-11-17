@@ -4,10 +4,10 @@ from collections.abc import Callable
 import math
 import time
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.selfdrive.ui.layouts.arabesque.theme import DEFAULT_THEME
-from openpilot.selfdrive.ui.layouts.arabesque.tools.browser_session import BrowserSession
+from openpilot.selfdrive.ui.layouts.arabesque.tools.browser_session import BrowserSession, load_setup
 from openpilot.system.ui.lib.application import GL_VERSION, gui_app, MouseEvent, MousePos, TextAlignment
 from openpilot.system.ui.widgets import Widget, device
 from openpilot.system.ui.widgets.keyboard import KEYBOARD_LAYOUTS, BACKSPACE_KEY, ENTER_KEY, SHIFT_ACTIVE_KEY, SHIFT_INACTIVE_KEY
@@ -49,6 +49,14 @@ class Browser(Widget):
     self._wake_guard = False
     self._closing = None
     self._resume_pending = False
+    self._declined = False
+    self._offer = None
+    self._message = ''
+    self._restorable = self._confirm_restore = False
+    self._actions = []
+    self._retry_operation = None
+    self._texture_generation = None
+    self._error_seen = ''
 
   def show_event(self):
     super().show_event()
@@ -63,10 +71,36 @@ class Browser(Widget):
       self._start_session()
     gui_app.add_render_prepare(self._prepare, self.hide_event)
 
-  def _start_session(self):
+  def _start_session(self, operation=None):
+    if not self._permitted():
+      return
+    if self._confirm_restore and operation is None:
+      return
+    self._update_layout_rects()
+    offered = self._offer['target'] if operation == 'update' and self._offer else None
+    self._offer = None
+    try:
+      setup = load_setup()
+      info = setup.inspect()
+      self._message = ''
+      self._error_seen = ''
+      self._restorable = info.get('restorable', False)
+      if operation is None:
+        operation = info['action']
+        if operation == 'update' and not info.get('repair'):
+          if not self._declined:
+            self._offer = info
+            return
+          operation = 'browse'
+      target = setup.bundle_id(info['target'])
+      if offered is not None and target != setup.bundle_id(offered):
+        raise RuntimeError('Firefox update changed. Reopen Firefox to review the current offer.')
+    except (OSError, ValueError, RuntimeError) as error:
+      self._message = str(error)
+      return
     # Keep a readable fixed X screen; opening the keyboard crops/pans the view rather than squashing it.
     height = max(240, min(1200, round((self._rect.height - 88 * self._scale) * 1440 / self._rect.width)))
-    self._session = BrowserSession(1440, height, max(1, min(30, gui_app.target_fps)))
+    self._session = BrowserSession(1440, height, max(1, min(30, gui_app.target_fps)), operation=operation, target=target)
     self._update_layout_rects()
 
   def hide_event(self):
@@ -99,12 +133,19 @@ class Browser(Widget):
     self._awake = awake
     if awake and self._resume_pending and (self._closing is None or self._closing.is_set()) and self._permitted():
       self._resume_pending = False
-      self._start_session()
+      operation, self._retry_operation = self._retry_operation, None
+      self._start_session(operation)
     if self._session is not None:
       if not self._permitted():
         self.hide_event()
         return
       self._session.poll()
+      if self._session.error and self._session.error != self._error_seen:
+        self._error_seen = self._session.error
+        try:
+          self._restorable = load_setup().inspect().get('restorable', False)
+        except (OSError, ValueError, RuntimeError):
+          self._restorable = False
 
   def set_enabled(self, enabled):
     super().set_enabled(enabled)
@@ -134,7 +175,7 @@ class Browser(Widget):
     self._pan = (rl.Rectangle(rect.x + rect.width - 280 * s, rect.y + 4 * s, 128 * s, 76 * s),
                  rl.Rectangle(rect.x + rect.width - 144 * s, rect.y + 4 * s, 128 * s, 76 * s))
     if self._keyboard:
-      self._buttons += [(self._pan[0], 'View ↑', 'pan-up'), (self._pan[1], 'View ↓', 'pan-down')]
+      self._buttons += [(self._pan[0], 'Up', 'pan-up'), (self._pan[1], 'Down', 'pan-down')]
       labels = {BACKSPACE_KEY: '<-', ENTER_KEY: 'Enter', SHIFT_INACTIVE_KEY: 'Shift', SHIFT_ACTIVE_KEY: 'Shift', ' ': 'Space'}
       for row, keys in enumerate(KEYBOARD_LAYOUTS[self._layout_name]):
         unit = rect.width / sum(3 if key == ' ' else 1 for key in keys)
@@ -152,6 +193,12 @@ class Browser(Widget):
 
   def _prepare(self):
     session = self._session
+    generation = (id(session), session.generation) if session is not None else None
+    if generation != self._texture_generation:
+      if self._texture is not None:
+        rl.unload_texture(self._texture)
+        self._texture = None
+      self._texture_generation = generation
     if session is None or not session.ready or not device.awake or not self._permitted():
       return
     frame = session.take_frame()
@@ -164,27 +211,25 @@ class Browser(Widget):
         self._shader = rl.load_shader_from_memory(_VERTEX, _FRAGMENT)
         if not rl.is_shader_valid(self._shader) or self._shader.id == rl.rl_get_shader_id_default():
           raise RuntimeError('Firefox color shader failed')
-      pixels = rl.ffi.from_buffer('unsigned char[]', buffer, require_writable=False)
+      pixels = buffer
       if self._texture is None:
-        image = rl.ffi.new('Image *', {'data': pixels, 'width': session.width, 'height': session.height,
-                                     'mipmaps': 1, 'format': rl.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8})
-        self._texture = rl.load_texture_from_image(image[0])
+        image = rl.Image(pixels, session.width, session.height, 1, rl.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8)
+        self._texture = rl.load_texture_from_image(image)
         if not rl.is_texture_valid(self._texture):
           raise RuntimeError('Firefox texture allocation failed')
         rl.set_texture_filter(self._texture, rl.TEXTURE_FILTER_BILINEAR)
       else:
-        rl.update_texture(self._texture, rl.ffi.cast('void *', pixels))
+        rl.update_texture(self._texture, pixels)
+      session.uploaded(slot)
     except (OSError, TypeError, RuntimeError, ValueError) as e:
       failure = str(e)
     finally:
-      if pixels is not None:
-        rl.ffi.release(pixels)
       session.release(slot)
     if failure is not None:
       session.fail(failure)
 
   def _input(self, event, a, b):
-    if self._session and self._session.ready and self._permitted():
+    if self._session and self._session.interactive and self._permitted():
       self._session.send({'type': 'input', 'event': event, 'a': a, 'b': b})
 
   def _key(self, symbol, modifiers=0):
@@ -198,7 +243,7 @@ class Browser(Widget):
       self._key(code if code <= 255 else 0x01000000 | code)
 
   def _update_state(self):
-    if not self.enabled or not device.awake or self._wake_guard or not self._session or not self._session.ready:
+    if not self.enabled or not device.awake or self._wake_guard or not self._session or not self._session.interactive:
       self._drain_keys()
       return
     ctrl = rl.is_key_down(rl.KEY_LEFT_CONTROL) or rl.is_key_down(rl.KEY_RIGHT_CONTROL)
@@ -232,8 +277,8 @@ class Browser(Widget):
     super()._process_mouse_events()
 
   def _handle_mouse_press(self, pos: MousePos):
-    self._pressed = next((key for bounds, _, key in self._buttons if rl.check_collision_point_rec(pos, bounds)), None)
-    if self._pressed is not None or not self._session or not self._session.ready:
+    self._pressed = next((key for bounds, _, key in self._actions + self._buttons if rl.check_collision_point_rec(pos, bounds)), None)
+    if self._pressed is not None or not self._session or not self._session.interactive:
       return
     if point := self._point(pos):
       self._gesture = (pos.x, pos.y, pos.y, time.monotonic(), False)
@@ -272,9 +317,32 @@ class Browser(Widget):
 
   def _handle_mouse_release(self, pos: MousePos):
     key, self._pressed = self._pressed, None
-    if key is None or not any(value == key and rl.check_collision_point_rec(pos, bounds) for bounds, _, value in self._buttons):
+    if key is None or not any(value == key and rl.check_collision_point_rec(pos, bounds) for bounds, _, value in self._actions + self._buttons):
       return
     self._reset_input()
+    if key in ('update', 'later'):
+      if self._offer is None:
+        return
+      self._declined = True
+      self._start_session('update' if key == 'update' else 'browse')
+      self._drain_keys()
+      return
+    if key == 'restore':
+      self._confirm_restore = True
+      if self._session:
+        self._message = self._session.error
+      return
+    if key == 'cancel-restore':
+      self._confirm_restore = False
+      return
+    if key in ('retry', 'confirm-restore'):
+      self._confirm_restore = False
+      self._retry_operation = 'restore' if key == 'confirm-restore' else None
+      self._stop_session()
+      self._resume_pending = True
+      return
+    if not self._session or not self._session.interactive:
+      return
     if key == 'keyboard':
       self._keyboard = not self._keyboard
     elif key == 'address':
@@ -299,7 +367,9 @@ class Browser(Widget):
   def _render(self, rect):
     theme, s = DEFAULT_THEME, self._scale
     rl.draw_rectangle_rec(rect, theme.background)
-    if self._texture is not None and self._session and not self._session.error:
+    self._actions = []
+    if (self._texture is not None and self._session and self._session.interactive and not self._session.error and
+        self._texture_generation == (id(self._session), self._session.generation)):
       source = rl.Rectangle(0, self._scroll_y, self._session.width, self._image.height / self._factor)
       rl.begin_shader_mode(self._shader)
       rl.draw_texture_pro(self._texture, source, self._image, rl.Vector2(0, 0), 0, rl.WHITE)
@@ -307,10 +377,32 @@ class Browser(Widget):
       if self._pointer and self._cursor and rl.check_collision_point_rec(self._cursor, self._image):
         rl.draw_circle_lines(int(self._cursor.x), int(self._cursor.y), 12 * s, theme.text)
     else:
-      message = ((self._session.error or self._session.status) if self._session else
-                 'Closing the previous Firefox session…' if self._resume_pending else 'Firefox is available off-road only.')
-      gui_label(self._screen, message, round(28 * s), theme.text, theme.font_weight, alignment=TextAlignment.CENTER)
-    for bounds, label, key in self._buttons:
+      choices = []
+      if self._confirm_restore:
+        message = ('Restore previous Firefox and its pre-update browser data?\n' +
+                   'Your current browser data will be saved separately.')
+        choices = [('Restore previous Firefox', 'confirm-restore'), ('Cancel', 'cancel-restore')]
+      elif self._offer:
+        current, target = self._offer['current'], self._offer['target']
+        message = ('Firefox update available: ' + current['version'] + ' -> ' + target['version']
+                   if current['version'] != target['version'] else 'Browser component update available')
+        choices = [('Update Firefox', 'update'), ('Later', 'later')]
+      else:
+        message = self._message
+        if not message:
+          if self._session:
+            message = self._session.error or self._session.status
+          else:
+            message = 'Closing the previous Firefox session...' if self._resume_pending else 'Firefox is available off-road only.'
+        if self._message or self._session and self._session.error:
+          choices = [('Retry', 'retry')]
+          if self._restorable:
+            choices.append(('Restore previous Firefox', 'restore'))
+      gui_label(self._screen, message.replace('…', '...'), round(28 * s), theme.text, theme.font_weight, alignment=TextAlignment.CENTER)
+      for index, (label, key) in enumerate(choices):
+        self._actions.append((rl.Rectangle(rect.x + rect.width / 2 + (index - len(choices) / 2) * 540 * s,
+                                           rect.y + rect.height * 0.7, 516 * s, 92 * s), label, key))
+    for bounds, label, key in self._buttons + self._actions:
       pressed = self.enabled and key == self._pressed and self.is_pressed
       rl.draw_rectangle_rounded(bounds, 0.2, 8, theme.control if pressed else theme.surface)
       gui_label(bounds, label, round(28 * s), theme.background if pressed else theme.text, theme.font_weight,

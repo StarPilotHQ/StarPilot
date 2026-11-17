@@ -4,6 +4,7 @@ import threading
 import time
 
 from .resolver import Mode
+from .owner import Rejected
 
 
 LABELS = {Mode.AUTO: 'Auto', Mode.OFFROAD: 'Offroad', Mode.ONROAD: 'Onroad'}
@@ -39,8 +40,12 @@ class DriveStateControl:
     return result
 
   def change_galaxy(self, mode, revision, authorized):
-    result = self.owner.request(mode, expected_revision=revision, authorized=authorized,
-                                override_allowed=lambda: self.physical.status(require_park=True)['allowed'])
+    def offroad_allowed():
+      status = self.physical.status(require_park=True)
+      if not status['allowed']:
+        raise Rejected(status.get('reason') or 'Park the vehicle and disengage before forcing Offroad')
+      return True
+    result = self.owner.request(mode, expected_revision=revision, authorized=authorized, override_allowed=offroad_allowed)
     with self.lock:
       self.cached = None
     return result

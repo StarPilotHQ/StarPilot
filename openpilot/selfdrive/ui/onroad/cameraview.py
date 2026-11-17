@@ -1,7 +1,7 @@
 import platform
 import time
 import numpy as np
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.cereal.visionipc import VisionStreamType
 from msgq.visionipc import VisionIpcClient, VisionBuf
@@ -85,13 +85,14 @@ else:
 
 
 class CameraView(Widget):
+  FRAGMENT_SHADER = FRAME_FRAGMENT_SHADER
+
   def __init__(self, name: str, stream_type: VisionStreamType):
     super().__init__()
     self._name = name
-    # Primary stream
-    self.client = VisionIpcClient(name, stream_type, conflate=True)
+    self._init_clients(name, stream_type)
     self._stream_type: VisionStreamType = stream_type
-    self.available_streams: list[VisionStreamType] = []
+    self.available_streams: set[VisionStreamType] | list[VisionStreamType] = set()
 
     # Target stream for switching
     self._target_client: VisionIpcClient | None = None
@@ -100,12 +101,9 @@ class CameraView(Widget):
 
     self._texture_needs_update = True
     self.last_connection_attempt: float = 0.0
-    self.shader = rl.load_shader_from_memory(VERTEX_SHADER, FRAME_FRAGMENT_SHADER)
+    self.shader = rl.load_shader_from_memory(VERTEX_SHADER, self.FRAGMENT_SHADER)
     self._texture1_loc: int = rl.get_shader_location(self.shader, "texture1") if not COMMA_HARDWARE else -1
-    self._color_strength_loc = rl.get_shader_location(self.shader, "color_strength")
-    self._color_strength_val = rl.ffi.new("float[1]")
-    self._road_camera_loc = rl.get_shader_location(self.shader, "road_camera")
-    self._road_camera_val = rl.ffi.new("int[1]", [int(stream_type in ROAD_STREAMS)])
+    self._init_color_uniforms(stream_type)
 
     self.frame: VisionBuf | None = None
     self.texture_y: rl.Texture | None = None
@@ -129,17 +127,26 @@ class CameraView(Widget):
 
     ui_state.add_offroad_transition_callback(self._offroad_transition)
 
+  def _init_clients(self, name: str, stream_type: VisionStreamType):
+    # Reuse subscribers: destroying a VisionIpcClient doesn't reclaim its msgq reader slot.
+    self._clients = {stream: VisionIpcClient(name, stream, conflate=True) for stream in VisionStreamType}
+    self.client = self._clients[stream_type]
+
+  def _init_color_uniforms(self, stream_type: VisionStreamType):
+    self._color_strength_loc = rl.get_shader_location(self.shader, "color_strength")
+    self._color_strength_val = np.zeros(1, dtype=np.float32)
+    self._road_camera_loc = rl.get_shader_location(self.shader, "road_camera")
+    self._road_camera_val = np.array([int(stream_type in ROAD_STREAMS)], dtype=np.int32)
+
   def _offroad_transition(self):
-    # Reconnect if not first time going onroad
+    # Discard queued frames from the previous drive without recreating subscribers.
     if ui_state.is_onroad() and self.frame is not None:
-      # Prevent old frames from showing when going onroad. Qt has a separate thread
-      # which drains the VisionIpcClient SubSocket for us. Re-connecting is not enough
-      # and only clears internal buffers, not the message queue.
       self.frame = None
-      self.available_streams.clear()
-      if self.client:
-        del self.client
-      self.client = VisionIpcClient(self._name, self._stream_type, conflate=True)
+      for client in self._clients.values():
+        client.recv(timeout_ms=0)
+      self._target_client = None
+      self._target_stream_type = None
+      self._switching = False
 
   def _set_placeholder_color(self, color: rl.Color):
     """Set a placeholder color to be drawn when no frame is available."""
@@ -154,11 +161,8 @@ class CameraView(Widget):
 
     cloudlog.debug(f'Preparing switch from {self._stream_type} to {stream_type}')
 
-    if self._target_client:
-      del self._target_client
-
     self._target_stream_type = stream_type
-    self._target_client = VisionIpcClient(self._name, stream_type, conflate=True)
+    self._target_client = self._clients[stream_type]
     self._switching = True
 
   @property
@@ -181,6 +185,8 @@ class CameraView(Widget):
     self.frame = None
     self.available_streams.clear()
     self.client = None
+    self._target_client = None
+    self._clients.clear()
 
   def __del__(self):
     self.close()
@@ -292,8 +298,8 @@ class CameraView(Widget):
       y_data = self.frame.data[: self.frame.uv_offset]
       uv_data = self.frame.data[self.frame.uv_offset:]
 
-      rl.update_texture(self.texture_y, rl.ffi.cast("void *", rl.ffi.from_buffer(y_data)))
-      rl.update_texture(self.texture_uv, rl.ffi.cast("void *", rl.ffi.from_buffer(uv_data)))
+      rl.update_texture(self.texture_y, y_data)
+      rl.update_texture(self.texture_uv, uv_data)
       self._texture_needs_update = False
 
     # Render with shader
@@ -325,7 +331,7 @@ class CameraView(Widget):
 
       cloudlog.debug(f"Connected to {self._name} stream: {self._stream_type}, buffers: {self.client.num_buffers}")
       self._initialize_textures()
-      self.available_streams = self.client.available_streams(self._name, block=False)
+      self.available_streams = {VisionStreamType(s) for s in self.client.available_streams(self._name, block=False)}
 
     return True
 
@@ -350,10 +356,6 @@ class CameraView(Widget):
   def _complete_switch(self) -> None:
     """Instantly switch to target stream."""
     cloudlog.debug(f"Switching to {self._target_stream_type}")
-    # Clean up current resources
-    if self.client:
-      del self.client
-
     # Switch to target
     assert self._target_client is not None and self._target_stream_type is not None
     self.client = self._target_client
@@ -371,10 +373,10 @@ class CameraView(Widget):
   def _initialize_textures(self):
     self._clear_textures()
     if not COMMA_HARDWARE:
-      self.texture_y = rl.load_texture_from_image(rl.Image(None, int(self.client.stride),
-        int(self.client.height), 1, rl.PixelFormat.PIXELFORMAT_UNCOMPRESSED_GRAYSCALE))
-      self.texture_uv = rl.load_texture_from_image(rl.Image(None, int(self.client.stride // 2),
-        int(self.client.height // 2), 1, rl.PixelFormat.PIXELFORMAT_UNCOMPRESSED_GRAY_ALPHA))
+      stride, height = self.client.stride, self.client.height
+      assert stride is not None and height is not None
+      self.texture_y = rl.load_texture_from_image(rl.Image(None, stride, height, 1, rl.PixelFormat.PIXELFORMAT_UNCOMPRESSED_GRAYSCALE))
+      self.texture_uv = rl.load_texture_from_image(rl.Image(None, stride // 2, height // 2, 1, rl.PixelFormat.PIXELFORMAT_UNCOMPRESSED_GRAY_ALPHA))
 
   def _clear_textures(self):
     if self.texture_y and self.texture_y.id:

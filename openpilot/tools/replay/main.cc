@@ -319,7 +319,7 @@ int main(int argc, char *argv[]) {
     config.allow = {"modelV2", "controlsState", "lateralDelay", "lateralTorqueParameters", "onroadEvents", "extrinsicsCalibration",
                     "radarState", "deviceState", "pandaStates", "carParams", "driverMonitoringState", "carState", "driverStateV2",
                     "narrowRoadCameraState", "wideRoadCameraState", "cabinCameraState", "managerState", "selfdriveState", "starpilotSelfdriveState",
-                    "starpilotLateralState", "starpilotNavigation", "longitudinalPlan", "gpsLocationExternal", "carOutput", "carControl",
+                    "starpilotLateralState", "starpilotNavigation", "longitudinalPlan", "gpsLocationExternal", "carOutput", "carControl", "aolAxisState", "aolIntentWire",
                     "slcState", "vehicleParameters", "customReserved6", "spotMonitorState", "clocks", "narrowRoadEncodeIdx", "wideRoadEncodeIdx", "cabinEncodeIdx"};
     try {
       Replay replay(config.route, config.allow, {}, nullptr, config.flags, config.data_dir, false);

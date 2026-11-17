@@ -30,7 +30,9 @@ ERRORS = {1: "invalid SDP version", 2: "invalid service record handle", 3: "inva
 
 
 class SdpError(RuntimeError):
-  pass
+  def __init__(self, message: str, raw: bytes = b""):
+    super().__init__(message)
+    self.raw = raw   # what the car sent, for the log when the record is not usable
 
 
 def build_request(continuation: bytes, service: uuid.UUID = AA_WIRELESS_UUID, transaction_id: int = 0) -> bytes:
@@ -107,5 +109,5 @@ def query_channel(sock, timeout: float = 10.0) -> int:
     raise SdpError("Head unit does not advertise Android Auto Wireless (SDP record missing)")
   channel = rfcomm_channel(bytes(collected))
   if channel is None:
-    raise SdpError("Android Auto Wireless SDP record has no RFCOMM channel")
+    raise SdpError("Android Auto Wireless SDP record has no RFCOMM channel", bytes(collected))
   return channel

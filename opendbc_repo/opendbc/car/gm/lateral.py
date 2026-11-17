@@ -5,6 +5,7 @@ from opendbc.car.structs import CarParams
 from opendbc.car.gm.values import (malibu_hybrid_profile, control_flags, CAR, GMSafetyFlags, is_volt_gateway_profile,
                                   is_volt_ascm_longitudinal, is_volt_cc_profile, is_volt_sdgm_profile, is_volt_camera_removed,
                                       is_ordinary_ascm_profile, is_ordinary_camera_profile, is_ordinary_sdgm_profile, is_ordinary_cc_profile,
+                                   is_ordinary_cc_stock_profile,
                                       is_conventional_cc_pedal_profile)
 
 
@@ -24,7 +25,7 @@ def lane_centering_supported(cp) -> bool:
         return False
     if camera_acc_pedal_profile(cp) is not None or is_ordinary_camera_profile(cp, longitudinal=cp.openpilotLongitudinalControl):
       return True
-    if is_ordinary_cc_profile(cp) or is_conventional_cc_pedal_profile(cp) or malibu_hybrid_profile(cp) is not None:
+    if is_ordinary_cc_profile(cp) or is_ordinary_cc_stock_profile(cp) or is_conventional_cc_pedal_profile(cp) or malibu_hybrid_profile(cp) is not None:
       return True
     if (is_ordinary_ascm_profile(cp, longitudinal=cp.openpilotLongitudinalControl)
         or is_ordinary_sdgm_profile(cp, longitudinal=cp.openpilotLongitudinalControl)):

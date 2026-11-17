@@ -1,4 +1,4 @@
-"""Camry cluster-radar traffic must not impersonate a bus-0 filter status."""
+"""Camry/C-HR cluster-radar traffic must not impersonate a bus-0 filter status."""
 import pytest
 from opendbc.car import gen_empty_fingerprint
 from opendbc.car.toyota import radar_filter
@@ -15,27 +15,28 @@ def observed():
   return fp
 
 
+@pytest.mark.parametrize('candidate', (CAR.TOYOTA_CAMRY, CAR.TOYOTA_CHR))
 @pytest.mark.parametrize('alpha', (False, True))
 @pytest.mark.parametrize('primary', (0x2FF, 0x2AA))
-def test_camry_radar_bus_preserves_exact_filter_owner(alpha, primary):
+def test_camry_radar_bus_preserves_exact_filter_owner(candidate, alpha, primary):
   fp = observed()
   if primary == 0x2AA:
     fp[0] = fp[2] = {primary: 8}
   canonical = gen_empty_fingerprint()
   canonical[0][primary] = 4 if primary == 0x2FF else 8
-  expected = CarInterface.get_params(CAR.TOYOTA_CAMRY, canonical, [], alpha, False, False)
-  actual = CarInterface.get_params(CAR.TOYOTA_CAMRY, fp, [], alpha, False, False)
-  assert radar_filter.hardware_supported(CAR.TOYOTA_CAMRY, fp)
+  expected = CarInterface.get_params(candidate, canonical, [], alpha, False, False)
+  actual = CarInterface.get_params(candidate, fp, [], alpha, False, False)
+  assert radar_filter.hardware_supported(candidate, fp)
   assert actual.to_dict() == expected.to_dict()
   assert actual.safetyConfigs[0].safetyParam == (0x1049 if alpha else 0x1249)
   assert actual.openpilotLongitudinalControl == alpha and qualified(actual)
 
 
+@pytest.mark.parametrize('candidate', (CAR.TOYOTA_CAMRY, CAR.TOYOTA_CHR))
 @pytest.mark.parametrize('bad', ('missing_filter', 'bus1_short', 'missing_cluster', 'bad_cluster',
                                   'wrong_cluster_bus', 'wrong_model', 'bus1_advert', 'mixed_status', 'pedal'))
-def test_camry_radar_bus_is_not_general_adapter_evidence(bad):
+def test_camry_radar_bus_is_not_general_adapter_evidence(candidate, bad):
   fp = observed()
-  candidate = CAR.TOYOTA_CAMRY
   if bad == 'missing_filter':
     fp[0].clear()
   elif bad == 'bus1_short':
@@ -47,7 +48,7 @@ def test_camry_radar_bus_is_not_general_adapter_evidence(bad):
   elif bad == 'wrong_cluster_bus':
     fp[3] = fp.pop(1)
   elif bad == 'wrong_model':
-    candidate = CAR.TOYOTA_CHR
+    candidate = CAR.TOYOTA_CHR_TSS2
   elif bad == 'bus1_advert':
     fp[1][0x2FF] = 4
   elif bad == 'mixed_status':

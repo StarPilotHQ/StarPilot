@@ -13,6 +13,7 @@ import math
 from typing import Protocol
 
 from openpilot.starpilot.ui.presentation import Profile
+from openpilot.starpilot.ui.weather import WeatherReading
 from openpilot.starpilot.ui.large_speed_geometry import ACTION_BOUNDS, LIMIT_RECTS, confirmation_bounds, confirmation_buttons
 from openpilot.starpilot.ui.appearance_preferences import CameraViewChoice, OnroadAppearance
 from openpilot.starpilot.curve_speed.status import CurveObservation
@@ -22,9 +23,9 @@ from openpilot.starpilot.ui.traffic_status import TrafficDisplay
 from openpilot.starpilot.ui.developer_preview import OnroadVisualPreview
 from openpilot.starpilot.ui.navigation_state import NavigationDisplay
 from openpilot.starpilot.ui.live_developer_sidebar import DeveloperMetric
+from openpilot.starpilot.speed_limits.speed_domain import OffsetSchedule
 
 
-TOYOTA_NOTICE_STATUSES = frozenset(('raise_dash', 'release_plus', 'off_hold', 'off_resume'))
 
 
 class ObservationKind(StrEnum):
@@ -61,6 +62,7 @@ class SlcControl:
   request: SlcUiRequest
   label: str
   bounds: tuple[float, float, float, float]
+  enabled: bool = True
 
 
 @dataclass(frozen=True)
@@ -98,8 +100,6 @@ class SpeedLimitObservation:
   presentation_adjusted_limit_mps: float | None = None
   override_basis: str = 'none'
   retained_override: bool = False
-  command_action_sequence_id: int = 0
-  command_status: str = ''
   action_feedback: str = ''
   automatic_adoption_pending: bool = False
   pending_since_ns: int = 0
@@ -189,9 +189,15 @@ class OnroadState:
   experimental_enabled: bool = False
   torque_utilization: float = 0.0
   personality: int = 1
+  lead_detected: bool = False
+  gas_pressed_override: bool = False
+  right_hand_drive: bool = False
   switchback_mode: bool = False
   traffic_mode: bool = False
+  traffic_selected: bool = False
   traffic_display: TrafficDisplay | None = None
+  aol_latched: bool | None = None
+  aol_armed_at_stop: bool = False
   lateral_active: bool = False
   longitudinal_active: bool = False
   longitudinal_overridden: bool = False
@@ -225,13 +231,21 @@ class OnroadState:
   viewport_width: float = 2160.0
   developer_metrics: tuple[DeveloperMetric, ...] = ()
   slc_prompt_open: bool = False
+  quick_select_open: bool = False
   slc_wheel_confirmation_available: bool = False
-  toyota_cruise_status: str = ''
-  toyota_cruise_target_kph: float | None = None
+
+  torque_is_demand: bool = False
 
   @property
   def cruise_active(self) -> bool:
     return self.longitudinal_active or self.longitudinal_overridden or self.stock_cruise_active
+
+  stop_sign_observed_ns: int = 0
+  weather_location: tuple[float, float] | None = None
+  weather: WeatherReading | None = None
+  ford_rear_fog_on: bool = False
+  ford_rear_fog_source_ns: int = 0
+  slc_offset_schedule: OffsetSchedule | None = None
 
   def __post_init__(self) -> None:
     if self.speed_mps is not None and (not math.isfinite(self.speed_mps) or self.speed_mps < 0):
@@ -240,6 +254,8 @@ class OnroadState:
       raise ValueError("Cruise speed must be finite and nonnegative")
     if not math.isfinite(self.torque_utilization) or not -1.0 <= self.torque_utilization <= 1.0:
       raise ValueError("Torque utilization must be normalized")
+    if type(self.torque_is_demand) is not bool:
+      raise ValueError("Steering demand kind must be Boolean")
     if not 0 <= self.personality <= 2:
       raise ValueError("Personality must be aggressive, standard, or relaxed")
     if self.stopped_duration_s is not None and (type(self.stopped_duration_s) is not int or self.stopped_duration_s <= 0):
@@ -247,6 +263,7 @@ class OnroadState:
     if self.model_confidence is not None and (not math.isfinite(self.model_confidence) or
                                                not 0 <= self.model_confidence <= 1):
       raise ValueError("Model confidence must be normalized")
+
 
 
 @dataclass(frozen=True)
@@ -259,45 +276,22 @@ class OnroadRequest:
 def manual_slc_confirmation(profile: Profile, state: OnroadState) -> bool:
   obs = state.speed_limit
   widget = 'speed_limit' if profile == Profile.COMPACT else 'cruise_limits'
-  return bool(state.alert.size == AlertSize.NONE and state.toyota_cruise_status not in TOYOTA_NOTICE_STATUSES and
+  return bool((state.longitudinal_active or state.longitudinal_overridden) and
+              state.alert.size == AlertSize.NONE and
               (profile != Profile.COMPACT or not state.reverse_driver_camera and state.appearance.camera_view != CameraViewChoice.DRIVER) and
-              obs.kind == ObservationKind.VALID and obs.action_enabled and not obs.automatic_adoption_pending and
+              obs.action_enabled and not obs.automatic_adoption_pending and
               obs.pending_speed_limit_mps is not None and obs.pending_speed_limit_mps > 0 and
-              obs.session_id and obs.decision_id and obs.decision_id > 0 and obs.presentation_id and obs.presentation_id > 0 and
+              obs.session_id and obs.decision_id and obs.decision_id > 0 and
+              obs.presentation_id is not None and obs.presentation_id > 0 and
               placement(state.customization, profile, widget)['enabled'] and
               placement(state.customization, profile, 'speed_limit_actions')['enabled'])
 
 
-def _default_slc_controls(profile: Profile, state: OnroadState) -> tuple[SlcControl, ...]:
-  """Only render/accept actions backed by a displayed live SLC decision."""
-  observation = state.speed_limit
-  if (state.toyota_cruise_status in TOYOTA_NOTICE_STATUSES or
-      state.alert.size != AlertSize.NONE or not observation.action_enabled or
-      observation.kind != ObservationKind.VALID or not observation.session_id):
-    return ()
-  pending = observation.pending_speed_limit_mps
-  if (pending is None and observation.speed_limit_mps is not None and
-      observation.presentation_id is not None and observation.presentation_id > 0):
-    # Once this limit is the one in use, adopting it again only helps to clear an override
-    # or to raise a set speed that sits below it.
-    accepted = observation.accepted_speed_limit_mps
-    adjusted = observation.presentation_adjusted_limit_mps or observation.speed_limit_mps
-    # Card selects whole display units. Compare those same units so its rounded
-    # set speed does not keep offering an already applied limit (e.g. 70 mph).
-    display_units = 3.6 if state.metric else 2.2369362921
-    raises_set = (state.cruise_active and state.cruise_kph is not None and
-                  round(state.cruise_kph / 3.6 * display_units) < round(adjusted * display_units))
-    if (accepted is not None and abs(accepted - observation.speed_limit_mps) <= 0.02 and
-        not observation.driver_override_active and not raises_set):
-      return ()
-    request = SlcUiRequest(SlcActionKind.ADOPT, observation.session_id, observation.decision_id or 0,
-                           observation.presentation_id, observation.speed_limit_mps)
-    first, last = ACTION_BOUNDS[profile]
-    bounds = first[0], first[1], last[2], last[3]
-    target = observation.presentation_adjusted_limit_mps
-    label = f'Use {round((target or observation.speed_limit_mps) * display_units)}'
-    return (SlcControl(request, label, bounds),)
-  return ()
+def slc_accept_available(state: OnroadState) -> bool:
+  obs = state.speed_limit
+  return bool(obs.action_enabled and obs.presentation_id and obs.presentation_id > 0 and
+              (obs.kind == ObservationKind.VALID or obs.pending_speed_limit_mps is not None and
+               not obs.automatic_adoption_pending))
 
 
 def slc_action_bounds(profile: Profile, state: OnroadState):
@@ -312,31 +306,18 @@ def slc_controls(profile: Profile, state: OnroadState) -> tuple[SlcControl, ...]
     if bounds is None:
       return ()
     return tuple(SlcControl(SlcUiRequest(kind, obs.session_id or '', obs.decision_id or 0,
-                                        obs.presentation_id or 0, obs.pending_speed_limit_mps or 0), label, area)
+                                        obs.presentation_id or 0, obs.pending_speed_limit_mps or 0), label, area,
+                            kind == SlcActionKind.REJECT or slc_accept_available(state))
                  for kind, label, area in zip((SlcActionKind.ACCEPT, SlcActionKind.REJECT), ('Accept', 'Reject'),
                                              confirmation_buttons(profile, bounds), strict=True))
-  if not placement(state.customization, profile, "speed_limit_actions")["enabled"]:
-    return ()
-  dx, dy = offset(state.customization, profile, 'speed_limit_actions')
-  controls = tuple(SlcControl(item.request, item.label,
-                             (item.bounds[0] + dx, item.bounds[1] + dy, item.bounds[2] + dx, item.bounds[3] + dy))
-                   for item in _default_slc_controls(profile, state))
-  if profile == Profile.COMPACT:
-    controls = tuple(replace(item, bounds=(max(0, item.bounds[0]), max(0, item.bounds[1]),
-                                           min(476, item.bounds[2]), min(240, item.bounds[3]))) for item in controls)
-  return controls
+  return ()
 
 
 def slc_action_occludes(profile: Profile, state: OnroadState, bounds) -> bool:
   if manual_slc_confirmation(profile, state):
     area = speed_limit_bounds(profile, state)
     return area is not None and area[0] < bounds[2] and bounds[0] < area[2] and area[1] < bounds[3] and bounds[1] < area[3]
-  notice = state.toyota_cruise_status in TOYOTA_NOTICE_STATUSES
-  if state.alert.size != AlertSize.NONE or not (notice or slc_controls(profile, state)):
-    return False
-  first, last = slc_action_bounds(profile, state)
-  left, top, right, bottom = bounds
-  return first[0] < right and left < last[2] and first[1] < bottom and top < last[3]
+  return False
 
 
 def _inside_widget(x, y, state, widget, bounds):
@@ -351,19 +332,8 @@ def _inside_widget(x, y, state, widget, bounds):
   return left + dx <= x <= right + dx and top + dy <= y <= bottom + dy
 
 
-def compact_sign_obscured_by_actions(state: OnroadState) -> bool:
-  """Hide a moved limit only where the visible confirmation words overlap it."""
-  if manual_slc_confirmation(Profile.COMPACT, state) or not slc_controls(Profile.COMPACT, state):
-    return False
-  sign = placement(state.customization, "compact", "speed_limit")
-  actions = placement(state.customization, "compact", "speed_limit_actions")
-  widgets = PROFILES["compact"]["widgets"]
-  area, sign_area = widgets["speed_limit_actions"], widgets["speed_limit"]
-  top = actions["y"]
-  bottom = top + area["height"]
-  return (max(0, sign["x"] - sign_area.get('visualInsetLeft', 0)) < actions["x"] + area["width"] and
-          sign["x"] + sign_area["width"] > actions["x"] and
-          max(0, sign["y"] - sign_area.get('visualInsetTop', 0)) < bottom and sign["y"] + sign_area["height"] > top)
+# Tap area above and below the sign, grown with the large sign so its tallest outline stays inside.
+SIGN_PADDING = {Profile.LARGE: (19, 26), Profile.COMPACT: (12, 8)}
 
 
 def speed_limit_bounds(profile: Profile, state: OnroadState) -> tuple[float, float, float, float] | None:
@@ -373,13 +343,36 @@ def speed_limit_bounds(profile: Profile, state: OnroadState) -> tuple[float, flo
     return None
   widget = 'speed_limit' if profile == Profile.COMPACT else 'cruise_limits'
   saved = placement(state.customization, profile, widget)
-  if not saved['enabled'] or profile == Profile.COMPACT and compact_sign_obscured_by_actions(state):
+  if not saved['enabled']:
     return None
   if manual_slc_confirmation(profile, state):
-    return confirmation_bounds(profile, saved['x'], saved['y'], opened=state.slc_prompt_open)
-  x, y, width, height = LIMIT_RECTS[profile]
-  dx, dy = offset(state.customization, profile, widget)
-  return x + dx - 12, y + dy - 12, x + dx + width + 12, y + dy + height + 8
+    bounds = confirmation_bounds(profile, saved['x'], saved['y'], opened=state.slc_prompt_open)
+  else:
+    x, y, width, height = LIMIT_RECTS[profile]
+    dx, dy = offset(state.customization, profile, widget)
+    top, bottom = SIGN_PADDING[profile]
+    bounds = x + dx - 12, y + dy - top, x + dx + width + 12, y + dy + height + bottom
+    if profile == Profile.COMPACT and bounds[1] < 12:
+      shift = 12 - bounds[1]
+      bounds = bounds[0], bounds[1] + shift, bounds[2], bounds[3] + shift
+  return bounds
+
+
+def personality_bounds(profile: Profile, state: OnroadState) -> tuple[float, float, float, float] | None:
+  position = placement(state.customization, profile, 'following_distance')
+  if not position['enabled'] or state.appearance.camera_view == CameraViewChoice.DRIVER or state.reverse_driver_camera:
+    return None
+  width, height = widget_size(state.customization, profile, 'following_distance')
+  x, y = position['x'], position['y']
+  if profile == Profile.LARGE and state.right_hand_drive:
+    widgets = PROFILES['large']['widgets']
+    monitor = placement(state.customization, profile, 'driver_monitor')
+    if all(position[axis] == widgets['following_distance']['default'][axis] and
+           monitor[axis] == widgets['driver_monitor']['default'][axis] for axis in ('x', 'y')):
+      bounds = PROFILES['large']['bounds']
+      monitor_width, _ = widget_size(state.customization, profile, 'driver_monitor')
+      x = 2 * bounds['x'] + bounds['width'] - monitor['x'] - monitor_width - 32 - width
+  return x, y, x + width, y + height
 
 
 class OnroadInput:
@@ -392,13 +385,21 @@ class OnroadInput:
     self._press: tuple[float, float, bool, str] | None = None
     self._slc_press: SlcControl | None = None
     self._sign_press: tuple[tuple, tuple] | None = None
+    self._personality_press: tuple[float, float, int | None, tuple] | None = None
     self._prompt: tuple | None = None
 
   def _pending_context(self, state: OnroadState) -> tuple | None:
     obs = state.speed_limit
     if manual_slc_confirmation(self.profile, state):
-      return obs.session_id, obs.decision_id, obs.presentation_id, obs.pending_speed_limit_mps
+      return obs.session_id, obs.decision_id, obs.pending_speed_limit_mps
     return None
+
+  def _personality_target(self, state: OnroadState) -> tuple | None:
+    if (not state.camera_available or state.quick_select_open or
+        state.alert.size != AlertSize.NONE and not is_personality_notice(state.alert) or
+        self.profile == Profile.COMPACT and state.reversing and state.appearance.camera_view != CameraViewChoice.NONE):
+      return None
+    return personality_bounds(self.profile, state)
 
   def present(self, state: OnroadState) -> OnroadState:
     if self._prompt != self._pending_context(state):
@@ -407,11 +408,11 @@ class OnroadInput:
 
   @property
   def pressed_action(self):
-    return self._slc_press.request if self._slc_press else None
+    return self._slc_press.request if self._slc_press and self._slc_press.enabled else None
 
   @property
   def claimed(self) -> bool:
-    return self._press is not None or self._slc_press is not None or self._sign_press is not None
+    return self._press is not None or self._slc_press is not None or self._sign_press is not None or self._personality_press is not None
 
   def press(self, x: float, y: float, state: OnroadState) -> None:
     self.cancel()
@@ -426,6 +427,10 @@ class OnroadInput:
     if bounds is not None and context is not None and bounds[0] <= x <= bounds[2] and bounds[1] <= y <= bounds[3]:
       self._sign_press = context, bounds
       return
+    bounds = self._personality_target(state)
+    if bounds is not None and bounds[0] <= x <= bounds[2] and bounds[1] <= y <= bounds[3]:
+      self._personality_press = x, y, state.drive_frame, bounds
+      return
     # Only the large-profile wheel is an experimental-mode touch target.
     if self.profile != Profile.LARGE:
       self.cancel()
@@ -435,6 +440,13 @@ class OnroadInput:
 
   def move(self, x: float, y: float, state: OnroadState) -> None:
     state = self.present(state)
+    if self._personality_press:
+      px, py, drive_frame, original_bounds = self._personality_press
+      bounds = self._personality_target(state)
+      if (abs(x - px) > self.slop or abs(y - py) > self.slop or drive_frame != state.drive_frame or bounds != original_bounds or
+          bounds is None or not (bounds[0] <= x <= bounds[2] and bounds[1] <= y <= bounds[3])):
+        self.cancel()
+      return
     if self._sign_press:
       context, original_bounds = self._sign_press
       bounds = speed_limit_bounds(self.profile, state)
@@ -456,11 +468,13 @@ class OnroadInput:
 
   def release(self, x: float, y: float, state: OnroadState) -> None:
     self.move(x, y, state)
-    if self._slc_press:
+    if self._slc_press and self._slc_press.enabled:
       self.emit(self._slc_press.request)
       self._prompt = None
     if self._sign_press:
       self._prompt = self._sign_press[0]
+    if self._personality_press:
+      self.emit(OnroadRequest('cycle_personality'))
     if self._press:
       self.emit(OnroadRequest("set_experimental", not self._press[2], self._press[3]))
     self.cancel()
@@ -469,6 +483,7 @@ class OnroadInput:
     self._press = None
     self._slc_press = None
     self._sign_press = None
+    self._personality_press = None
     if close_prompt:
       self._prompt = None
 
@@ -520,7 +535,7 @@ def speed_limit_from_message(message: SlcStateMessage | None) -> SpeedLimitObser
     kind = ObservationKind(message.observationKind)
   except (ValueError, AttributeError):
     return SpeedLimitObservation(kind=ObservationKind.UNKNOWN, status="Invalid SLC observation kind")
-  if kind != ObservationKind.VALID and not (getattr(message, 'lastReceivedSpeedLimit', 0) > 0 or
+  if kind != ObservationKind.VALID and not (message.hasPending or getattr(message, 'lastReceivedSpeedLimit', 0) > 0 or
       getattr(message, 'hasAccepted', False) and getattr(message, 'hasEffectiveClusterTarget', False)):
     return SpeedLimitObservation(kind=kind, source=message.source, status=message.status,
                                  source_readings=source_readings_from_message(message))
@@ -529,17 +544,17 @@ def speed_limit_from_message(message: SlcStateMessage | None) -> SpeedLimitObser
     return SpeedLimitObservation(kind=kind, source=message.source, speed_limit_mps=message.speedLimit if live else None,
                                  source_readings=source_readings_from_message(message),
                                  offset_mps=message.offset,
-                                 pending_speed_limit_mps=message.pendingSpeedLimit if live and message.hasPending else None,
+                                 pending_speed_limit_mps=message.pendingSpeedLimit if message.hasPending else None,
                                  effective_cap_mps=message.effectiveCap if message.hasCeiling else None,
                                  accepted_speed_limit_mps=message.acceptedSpeedLimit if message.hasAccepted else None,
                                  accepted_source=str(getattr(message, "acceptedSource", "none")) or "none",
-                                 pending_source=(str(getattr(message, "pendingSource", "none")) or "none") if live else "none",
+                                 pending_source=str(getattr(message, "pendingSource", "none")) or "none",
                                  effective_cluster_target_mps=(getattr(message, "effectiveClusterTarget", None)
                                    if getattr(message, "hasEffectiveClusterTarget", False) else None),
                                  limiting_max_set=bool(getattr(message, "isLimitingMaxSet", False)),
                                  driver_override_active=bool(getattr(message, "driverOverrideActive", False)),
-                                 session_id=message.sessionId, decision_id=message.decisionId if live else None,
-                                 presentation_id=message.presentationId if live else None, status=message.status,
+                                 session_id=message.sessionId, decision_id=message.decisionId if live or message.hasPending else None,
+                                 presentation_id=message.presentationId if live or message.hasPending else None, status=message.status,
                                  action_enabled=bool(getattr(message, "enabled", False)),
                                  action_sequence_id=int(getattr(message, "actionSequenceId", 0)),
                                  action_status=str(getattr(message, "actionStatus", "")),
@@ -555,9 +570,7 @@ def speed_limit_from_message(message: SlcStateMessage | None) -> SpeedLimitObser
                                  presentation_adjusted_limit_mps=(getattr(message, 'presentationAdjustedLimit', None)
                                    if getattr(message, 'hasPresentationAdjustedLimit', False) else None),
                                  override_basis=str(getattr(message, 'overrideBasis', 'none')),
-                                 retained_override=bool(getattr(message, 'retainedOverride', False)),
-                                 command_action_sequence_id=int(getattr(message, 'commandActionSequenceId', 0)),
-                                 command_status=str(getattr(message, 'commandStatus', '')))
+                                 retained_override=bool(getattr(message, 'retainedOverride', False)))
   except (ValueError, TypeError, AttributeError, OverflowError):
     return SpeedLimitObservation(kind=ObservationKind.UNKNOWN, source=message.source,
                                  status="Invalid SLC numeric observation")

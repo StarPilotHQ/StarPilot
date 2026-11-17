@@ -6,7 +6,7 @@ from opendbc.car.structs import CarParams
 from opendbc.car.volkswagen.values import VolkswagenSafetyFlags
 import opendbc.safety.tests.common as common
 
-MAX_ACCEL = 2.0
+MAX_ACCEL = 3.0
 MIN_ACCEL = -3.5
 
 # ACC_18.ACC_Anforderung_HMS
@@ -224,7 +224,7 @@ class TestVolkswagenMebSafetyBase(common.CarSafetyTest, common.CurvatureSteering
         self.safety.set_controls_allowed(True)
         self._tx(self._curvature_cmd_msg(0, steer_req=True))
 
-        within_delta = abs(speed - speed_2) <= common.MAX_SPEED_DELTA
+        within_delta = common.speeds_within_delta(speed, speed_2)
         self.assertEqual(self.safety.get_controls_allowed(), within_delta)
 
   def test_curvature_violation(self):

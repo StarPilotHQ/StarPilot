@@ -67,3 +67,5 @@ Starting the gain owner requires manual adjustments On and a qualified custom ga
 ## Volt controller
 
 Admitted Volt, Volt ASCM, Volt Camera, Volt CC and Volt 2019 configurations use their StarPilot torque policy by default. It uses the common Volt torque calibration, asymmetric fixed conversion, proportional gain 0.6 and integral gain 0.35. A saved Standard selection preserves the standard torque algorithm and its parameter policy, using the restored vehicle geometry and calibration. The vehicle model uses the selected configuration’s geometry without a policy ratio multiplier. This controller selection does not enable manual torque settings or expand automatic learning.
+
+Original-rack and EPS-retrofit Prius profiles use the pre-rebase Prius torque shaping by default. The two racks retain distinct high-speed output and friction-jerk taper values. An explicit Standard selection remains available; manual and learned torque parameters retain their existing owners.

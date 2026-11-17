@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import ctypes
+import os
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -18,6 +20,48 @@ TIMING_COLUMNS = ('ordinal', 'entry_mono_ns', 'entry_cpu_ns', 'exit_mono_ns', 'e
 # sounddevice marks its pointer closed even when Pa_CloseStream returns an error.
 # Keep code, userdata and PCM alive until process exit if that fence fails.
 _unclosed_streams = []
+
+
+def request_alsa_realtime(stream, sd) -> bool:
+  """Request PortAudio's FIFO-1 callback thread; the Python owner stays ordinary."""
+  if sys.platform != 'linux':
+    return False
+  try:
+    device = sd.query_devices(stream.device, 'output')
+    if sd.query_hostapis(device['hostapi'])['name'] != 'ALSA':
+      return False
+    enable = ctypes.CDLL(sd._libname).PaAlsa_EnableRealtimeScheduling
+    pointer = int(sd._ffi.cast('uintptr_t', stream._ptr))
+  except (AttributeError, KeyError, OSError, TypeError, ValueError):
+    return False
+  if not pointer:
+    return False
+  enable.argtypes = [ctypes.c_void_p, ctypes.c_int]
+  enable.restype = None
+  enable(pointer, 1)
+  return True
+
+
+def start_native_stream(stream, sd) -> bool:
+  if sys.platform != 'linux':
+    stream.start()
+    return False
+  original = os.sched_getaffinity(0)
+  callback_cores = original - {4, 5, 6}
+  if callback_cores:
+    try:
+      os.sched_setaffinity(0, callback_cores)
+    except OSError:
+      pass
+    else:
+      try:
+        if request_alsa_realtime(stream, sd):
+          stream.start()
+          return True
+      finally:
+        os.sched_setaffinity(0, original)
+  stream.start()
+  return False
 
 
 class NativePlayback:
@@ -55,6 +99,7 @@ class NativePlayback:
     if not self.handle:
       raise MemoryError('Native audio allocation failed')
     self._close_failed = False
+    self.realtime_requested = False
     self.signature = None
     self.sounds = {}
     self.builtin = {}
@@ -221,7 +266,7 @@ class NativeStream:
 
   def __enter__(self):
     try:
-      self.stream.start()
+      self.playback.realtime_requested = start_native_stream(self.stream, self.playback.sd)
     except BaseException as start_error:
       try:
         self.close()

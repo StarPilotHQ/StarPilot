@@ -298,7 +298,10 @@ def run_case(stock, scenario='nominal', *, aol=True, candidate=CAR.TOYOTA_COROLL
     else:
       assert 'Bookmark' in rows['wheel:LKASButtonControl'].choices
       assert 'Toggle AOL' not in rows['wheel:LKASButtonControl'].choices
-    assert not any('Cancel' in k or 'MainCruise' in k for k in rows)
+    assert not any('Cancel' in k for k in rows)
+    main = rows['wheel:MainCruiseButtonControl']
+    assert main.value == 'Factory cruise / AOL' and not main.available and not main.choices
+    assert not wheel.choices('MainCruiseButtonControl')
     assert display_supported(host.CP) and longitudinal_supported(host.CP) == (not stock)
     params.put('CancelButtonControl', 9, block=True)  # Unsupported saved remap cannot steal MAIN/physical Cancel ownership.
     seen_active = False

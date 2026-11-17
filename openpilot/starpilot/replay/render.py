@@ -278,7 +278,7 @@ class Compositor:
     self.context = HeadlessContext(width, height)
     self.resources.callback(self.context.close)
     try:
-      import pyray as rl
+      from openpilot.starpilot.ui.raylib import rl
       from openpilot.system.ui.lib.application import gui_app
       from openpilot.selfdrive.ui.ui_state import ui_state
       from openpilot.starpilot.ui.presentation import BitmapFonts, Profile, default_font_directory
@@ -356,7 +356,6 @@ class Compositor:
       self.view.stock_confidence_layer = lambda rect, state: self.camera.render_stock_confidence_layer(rect, lateral_active=state.lateral_active)
       self.view.stock_confidence_reset = self.camera.reset_stock_confidence_layer
       self.view.extra_overlays = lambda rect, state: self.camera.render_model_source_layer(rect, show_long_indicator=None)
-      self.view.compact_sidebar.personality_renderer = self._personality_layer
 
   def _camera_layer(self, rect, state):
     self.primary_ready = self._primary_matches()
@@ -469,13 +468,6 @@ class Compositor:
     self.monitor.render(state, monitor=monitor, driver=driver, fresh=monitor is not None and driver is not None,
                         onroad=self.ui.is_onroad(), top_icons=top_icons)
 
-  def _personality_layer(self, rect, state):
-    from openpilot.starpilot.ui.onroad_state import AlertSize, is_lane_change_notice
-    indicator = self.camera._long_indicator
-    indicator.set_should_draw(state.alert.size == AlertSize.NONE or is_lane_change_notice(state.alert))
-    indicator.render_sidebar(rect, personality=state.personality, longitudinal_active=state.cruise_active,
-                             traffic_mode=state.traffic_mode)
-
   def _close_camera(self):
     callbacks = self.ui._offroad_transition_callbacks
     if self.camera._offroad_transition in callbacks:
@@ -517,7 +509,7 @@ class Compositor:
     # Preserve the subscriber to avoid repeated seeks while paused.
     self.camera.client = client
     self.camera.frame = frame
-    self.camera.available_streams = available
+    self.camera.available_streams = list(available)
     if client is not None and client.is_connected():
       self.camera._initialize_textures()
     pip_client = self.pip_stream._client

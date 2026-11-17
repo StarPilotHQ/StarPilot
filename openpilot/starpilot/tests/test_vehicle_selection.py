@@ -25,6 +25,12 @@ class TestVehicleSelection(unittest.TestCase):
     self.assertIsNone(startup_candidate(self.params))
     self.assertIn(CAR.KIA_XCEED_PHEV, [choice.platform for choice in choices()])
 
+  def test_elantra_refresh_label_preserves_saved_identity(self):
+    selected = next(choice for choice in choices() if choice.platform == CAR.HYUNDAI_ELANTRA_HEV_2024)
+    self.assertEqual(selected.label, "Hyundai Elantra Hybrid 2024-2026")
+    self.assertTrue(self.owner.choose(None, selected.platform).verified)
+    self.assertEqual(startup_candidate(self.params), CAR.HYUNDAI_ELANTRA_HEV_2024)
+
   def test_multiple_documented_trims_share_neutral_platform_choice(self):
     from opendbc.car.hyundai.values import CAR as HYUNDAI
     from opendbc.car.values import PLATFORMS

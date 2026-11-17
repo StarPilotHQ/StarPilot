@@ -1,4 +1,4 @@
-"""Receive-only Ioniq 6 wheel media evidence, independent of CAN validity.
+"""Receive-only Ioniq 6 / first-generation EV6 wheel media evidence, independent of CAN validity.
 
 Only exact physical-bus 0x448/8 packets establish a sample. Times come from
 the CAN receive timeline; consumers must not compare them to MONOTONIC.
@@ -33,11 +33,11 @@ class Ioniq6MediaButtons:
   The recorded Ioniq neutral source runs at about 5 Hz. A 300 ms bound allows
   normal cadence but clears a held sequence across a missing source. Press
   transitions and their physical cadence still require vehicle qualification.
-  The caller must restrict construction to the reviewed Ioniq configuration.
+  The caller restricts construction to supported Ioniq 6 / EV6 configurations.
   """
 
   def __init__(self, bus: int):
-    if type(bus) is not int or not 0 <= bus <= 3:
+    if type(bus) is not int or bus not in (0, 1, 2, 3, 4, 5):
       raise ValueError("physical CAN bus required")
     self.bus = bus
     self.epoch = 0

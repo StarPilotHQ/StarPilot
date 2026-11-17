@@ -11,7 +11,7 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.device_state import DeviceState
 from openpilot.starpilot.ui.display_preferences import MASTER, SCREEN_OFF, SCREEN_OFF_DESCRIPTION
@@ -32,7 +32,7 @@ FEATURE_SCENES = ("settings_driving_controls", "settings_sounds", "settings_appe
                   "settings_system_offroad", "settings_system_onroad", "settings_system_unavailable",
                   "settings_system_display_off", "settings_system_display_off_collapsed",
                   "settings_display_preferences", "settings_display_preferences_off", "settings_display_preferences_off_collapsed",
-                  "settings_models", "settings_vehicle_features", "settings_pip", "settings_feature_states",
+                  "settings_models", "settings_models_catalog", "settings_models_pick", "settings_vehicle_features", "settings_pip", "settings_feature_states",
                   "settings_feature_states_scrolled", "settings_long_text")
 LARGE_SCENES = ("home", "settings_starpilot", "settings_device", "settings_toggles", "settings_software",
                 "onroad_engaged_no_camera", "onroad_disengaged_no_camera", "onroad_alert_small",
@@ -40,6 +40,24 @@ LARGE_SCENES = ("home", "settings_starpilot", "settings_device", "settings_toggl
                 *FEATURE_SCENES)
 COMPACT_SCENES = ("home", "settings", "onroad_engaged_no_camera", "onroad_disengaged_no_camera",
                   "onroad_alert_small", "onroad_alert_mid", "onroad_alert_full")
+
+
+def reference_models_page(scene: str) -> FeatureSettingsState:
+  from openpilot.starpilot.models.status import ModelHealth, ModelStatus
+  from openpilot.starpilot.ui.models_state import model_page
+  def model(mid, label, **extra):
+    return {"value": mid, "label": label, "version": "v12", "released": "2025-08", "artifactSize": 118_000_000,
+            "installed": False, "selectable": False, "downloadAvailable": True, "requiresGpu": False} | extra
+  data = {"schemaVersion": 1, "isOnroad": False, "downloading": True, "modelToDownload": "tr16", "progress": "TR16 👀📡: 42%",
+          "activeSmallModel": "rdf4", "activeBigModel": "", "randomizer": False, "summary": {"installed": 2, "total": 101},
+          "capabilities": dict.fromkeys(("select", "download", "downloadAll", "cancel", "refresh", "favorites", "delete",
+                                          "randomizer", "exclusions"), True),
+          "models": [model("rdf4", "Regret Driven Framework V4 👀📡", installed=True, selectable=True, builtin=True),
+                     model("wd40", "WD40", installed=True, selectable=True, userFavorite=True, communityFavorite=True),
+                     model("tr16", "TR16 👀📡"), model("cinque", "Cinque Terre", requiresGpu=True)]}
+  page = {"settings_models": "models", "settings_models_catalog": "models:catalog", "settings_models_pick": "models:pick:small"}[scene]
+  status = ModelStatus("rdf4", None, None, ModelHealth.UNAVAILABLE, False, None, None)
+  return model_page(status, data, page, "all", "date")
 
 
 def reference_feature_scene(scene: str) -> tuple[Destination, str, FeatureSettingsState]:
@@ -52,6 +70,8 @@ def reference_feature_scene(scene: str) -> tuple[Destination, str, FeatureSettin
                       unit="%", available=True)
   reset = FeatureRow("pip:reset", "Restore default camera crop", "Reset to Default", available=True,
                      reason="Requires confirmation")
+  if scene.startswith("settings_models"):
+    return Destination.DRIVING_MODEL, "models", reference_models_page(scene)
   if scene == "settings_driving_controls":
     rows = tuple(FeatureRow("", label, "Saved settings", page=page, available=True) for page, label in (
       ("slc", "Speed Limit Controller"), ("lane", "Lane Centering"), ("lane_change", "Lane Changes"),
@@ -96,12 +116,6 @@ def reference_feature_scene(scene: str) -> tuple[Destination, str, FeatureSettin
       page, title = "display", "Custom Display Settings"
     else:
       rows = rows[:2] + (replace(rows[2], page="display", reason="Brightness and screen timing"),) + rows[8:]
-  elif scene == "settings_models":
-    rows = (FeatureRow("", "Active Small", "Bundled driving model", page="models:small", available=True),
-            FeatureRow("", "Active Big", "Bundled driving model", page="models:big", available=True),
-            FeatureRow("", "Runtime", "Healthy", reason="Updates while driving"),
-            FeatureRow("", "Compiled artifact", "0123456789abcdef"))
-    destination, field, page, title = Destination.DRIVING_MODEL, "models", "models", "Driving Model"
   elif scene == "settings_vehicle_features":
     rows = (boolean("ToyotaAutoHold", "On"), boolean("LongPitch", "Off", available=False))
     destination, field, page, title = Destination.DRIVING_CONTROLS, "features", "vehicle", "Vehicle Settings"
@@ -115,8 +129,7 @@ def reference_feature_scene(scene: str) -> tuple[Destination, str, FeatureSettin
             FeatureRow("repair", "Repair saved preference", "Invalid saved choice", choices=("Off", "On"),
                        available=True, reason="Choose Off to repair", repair_value="Off"),
             FeatureRow("unreadable", "Saved preference", "Unreadable", reason="Saved source cannot be read"),
-            FeatureRow("SLCFallback", "Previous accepted limit", "Off (saved mode 0 or 1)", b"1",
-                       ("Off", "On"), available=True), FeatureRow("", "Following", ""), number, reset,
+            FeatureRow("", "Following", ""), number, reset,
             FeatureRow("", "Child settings", "Saved settings", page="lane", available=True),
             FeatureRow("stock", "Parked Power", "Stock", choices=("Stock", "On"), available=True),
             boolean("last_off", "Off"), boolean("last_on", "On"))
@@ -223,7 +236,7 @@ def main() -> None:
             path = args.output / f"{scene}.png"
             if not rl.export_image(image, str(path)):
               raise RuntimeError(f"Unable to export {scene}")
-            report["scenes"][scene] = hashlib.sha256(bytes(rl.ffi.buffer(image.data, width * height * 4))).hexdigest()
+            report["scenes"][scene] = hashlib.sha256(bytes(image.data[:width * height * 4])).hexdigest()
           finally:
             rl.unload_image(image)
         (args.output / "results.json").write_text(json.dumps(report, indent=2) + "\n")

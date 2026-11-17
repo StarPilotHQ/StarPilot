@@ -292,6 +292,7 @@ PLURAL_FORMS: dict[str, str] = {
   'zh-CHS': 'nplurals=1; plural=0;',
   'ko': 'nplurals=1; plural=0;',
   'ja': 'nplurals=1; plural=0;',
+  'vi': 'nplurals=1; plural=0;',
 }
 
 

@@ -328,14 +328,16 @@ def test_actual_card_active_observation_requires_fresh_selfdrive_state(monkeypat
   samples.logMonoTime = {"carControl": now, "onroadEvents": now, "selfdriveState": now}
   host = Car.__new__(Car)
   host.CP, host.aol_card_intent = cp, intent
-  host.CI = SimpleNamespace(update=lambda _: cs, CS=SimpleNamespace())
+  host.aol_settings = intent.settings
+  host.CI = SimpleNamespace(update=lambda _: cs, CS=SimpleNamespace(),
+                            can_parsers=CarInterface.CarState(cp).get_can_parsers(cp))
   host.RI = SimpleNamespace(update=lambda _: None)
   host.car_gps_publisher = SimpleNamespace(update=lambda *args: None)
   host.observe_ioniq6_long_authority = lambda *args: None
   host.update_vehicle_state_context = lambda *args: None
 
-  def update_cruise_speed(_state, _pending, *, approved=None):
-    assert approved is None
+  def update_cruise_speed(_state, _pending, *, wheel_context=None):
+    assert wheel_context is None
   host.update_cruise_speed = update_cruise_speed
   host.v_cruise_helper = SimpleNamespace(slc_consumed_button=None, toyota=None)
   host.startup_panda_configured = lambda: True

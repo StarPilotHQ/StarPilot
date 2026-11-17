@@ -84,6 +84,7 @@ def joined_case(cleanup, bridge, *, c9=False, pedal='none', engage=False, cp=Non
   bridge.reset_host()
   packer = CANPacker(DBC[card.CP.carFingerprint][Bus.pt])
   receipt_queue = deque()
+  steering_receipts = []
   sd.steering_companion = SteeringCompanion(sock=object())
   original_receive = messaging.recv_one_or_none
   original_update = sd.sm.update_msgs
@@ -235,10 +236,11 @@ def joined_case(cleanup, bridge, *, c9=False, pedal='none', engage=False, cp=Non
          mock.patch.object(card_module.time, 'clock_gettime_ns', return_value=now), \
          mock.patch.object(card_module.messaging, 'new_message', side_effect=card_message), \
          mock.patch.object(card_module.messaging, 'drain_sock_raw', return_value=[b'physical-can']), \
-         mock.patch.object(card_module, 'can_capnp_to_list', return_value=[(now, rows)]), \
+         mock.patch.object(card_module, 'can_capnp_to_list', return_value=[(now - 1, list(steering_receipts)), (now, rows)]), \
          mock.patch.object(card_module, 'REPLAY', False), mock.patch.object(card.sm, 'update'), \
          mock.patch.object(card.RI, 'update', return_value=None):
       cs, rd = card.state_update()
+      steering_receipts.clear()
       if publish:
         card.state_publish(cs, rd)
     current['last_cs'] = cs
@@ -280,6 +282,8 @@ def joined_case(cleanup, bridge, *, c9=False, pedal='none', engage=False, cp=Non
           assert not accepted
         else:
           assert accepted, (hex(frame.address), frame.src)
+          if frame.address == 0x180:
+            steering_receipts.append((frame.address, bytes(frame.dat), 128))
 
   native_due = BASE
   for tick in range(26):
@@ -410,7 +414,15 @@ def test_gm_initial_main_waits_on_original_soft_occurrence(index, braking, varia
     cleanup.callback(card.vehicle_startup.close)
     packer = CANPacker(DBC[card.CP.carFingerprint][Bus.pt])
     card.ci_initialized = True
-    card.publish_sendcan = lambda *args, **kwargs: None
+    steering_receipts = []
+
+    def publish_sendcan(frames, valid=True):
+      # This idle transport fixture confirms only the commands actually sent.
+      if valid:
+        steering_receipts.extend((address, bytes(data), 128)
+                                 for address, data, bus in frames if address == 0x180 and bus == 0)
+
+    card.publish_sendcan = publish_sendcan
 
     def packets(now, tick, main=True):
       rows = parsed_packets(card.CP, packer, now, tick, 8., main)
@@ -494,6 +506,8 @@ def test_gm_initial_main_waits_on_original_soft_occurrence(index, braking, varia
       card.sm.update_msgs(now / 1e9, [incoming.messages[k] for k in ('aolSafetyWire', 'pandaStates')] +
                            [axis.as_reader(), events.as_reader(), control.as_reader()])
       rows = packets(now, tick, main=not (mutate and variation == 'main_off'))
+      rows = steering_receipts + rows
+      steering_receipts.clear()
       batch = messaging.log_from_bytes(module.can_list_to_can_capnp(rows)).as_builder()
       batch.logMonoTime = now
       with patch.object(module, 'REPLAY', False), \

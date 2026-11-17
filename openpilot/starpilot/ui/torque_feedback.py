@@ -1,11 +1,10 @@
-"""Original torque-bar utilization from caller-qualified observations."""
+"""Caller-qualified torque commands or lateral-acceleration demand for display."""
 
 from dataclasses import dataclass
 import math
 from typing import Any, Literal
 
 
-GRAVITY = 9.81
 DEFAULT_MAX_LATERAL_ACCELERATION = 3.0
 LATERAL_STATES = frozenset(("pidState", "angleState", "debugState", "torqueState", "curvatureState",
                             "lqrStateDEPRECATED", "indiStateDEPRECATED"))
@@ -14,7 +13,7 @@ LATERAL_STATES = frozenset(("pidState", "angleState", "debugState", "torqueState
 @dataclass(frozen=True)
 class TorqueFeedback:
   utilization: float | None = None
-  source: Literal["unavailable", "actuator_output", "lateral_acceleration_estimate"] = "unavailable"
+  source: Literal["unavailable", "actuator_output", "lateral_acceleration_demand"] = "unavailable"
   reason: str = "car_state_unavailable"
 
 
@@ -41,7 +40,7 @@ def observe_torque_feedback(car_state: Any, car_control: Any, controls_state: An
   if type(state) is not str or state not in LATERAL_STATES:
     return TorqueFeedback(reason="lateral_state_unavailable")
 
-  angle = state == "angleState"
+  angle = state in ("angleState", "curvatureState")
   if getattr(car_params, "brand", None) == "rivian" and not angle:
     if output is None:
       return TorqueFeedback(reason="actuator_output_unavailable")
@@ -63,7 +62,7 @@ def observe_torque_feedback(car_state: Any, car_control: Any, controls_state: An
   if control is None or type(getattr(control, "latActive", None)) is not bool:
     return TorqueFeedback(reason="lateral_activity_unavailable")
   if not control.latActive:
-    return TorqueFeedback(0.0, "lateral_acceleration_estimate", "lateral_inactive")
+    return TorqueFeedback(0.0, "lateral_acceleration_demand", "lateral_inactive")
   parameters = vehicle_parameters
   if parameters is None or getattr(parameters, "valid", None) is not True:
     return TorqueFeedback(reason="vehicle_parameters_unavailable")
@@ -78,9 +77,9 @@ def observe_torque_feedback(car_state: Any, car_control: Any, controls_state: An
   speed_squared = speed * speed
   actual_acceleration = curvature * speed_squared
   desired_acceleration = desired_curvature * speed_squared
-  acceleration_error = desired_acceleration - actual_acceleration
-  roll_compensation = roll * GRAVITY * max(0.0, min(1.0, (speed - 5) / 10))
-  utilization = ((actual_acceleration - roll_compensation) + acceleration_error) / maximum
+  if not math.isfinite(actual_acceleration):
+    return TorqueFeedback(reason="estimate_inputs_invalid")
+  utilization = desired_acceleration / maximum
   if not math.isfinite(utilization):
     return TorqueFeedback(reason="estimate_inputs_invalid")
-  return TorqueFeedback(max(-1.0, min(1.0, utilization)), "lateral_acceleration_estimate", "estimated")
+  return TorqueFeedback(max(-1.0, min(1.0, utilization)), "lateral_acceleration_demand", "requested")

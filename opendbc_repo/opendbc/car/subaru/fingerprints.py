@@ -584,6 +584,7 @@ FW_VERSIONS = {
     ],
     (Ecu.fwdCamera, 0x787, None): [
       b'\t!\x08\x046\x05!\x08\x01/',
+      b'\t!\x08\x046\x00\x00\x00\x00\x00',
     ],
     (Ecu.engine, 0x7a2, None): [
       b'\xed,\xa0q\x07',
@@ -609,6 +610,22 @@ FW_VERSIONS = {
     (Ecu.engine, 0x7a2, None): [
       b'\x04"cP\x07',
       b'\xe8!cp\x07',
+    ],
+  },
+
+  CAR.SUBARU_IMPREZA_2025: {
+    (Ecu.abs, 0x7b0, None): [
+      b'\xa2 $\x07\x05',
+    ],
+    (Ecu.eps, 0x746, None): [
+      b'\xc2 $\x01\x01',
+    ],
+    (Ecu.fwdCamera, 0x787, None): [
+      b'\x1d!\x08\x00F\x00\x00\x00\x00\x00',
+      b'\x1d!\x08\x00F\x14!\x08\x00=',
+    ],
+    (Ecu.engine, 0x7a2, None): [
+      b'\x04"ep\x07',
     ],
   },
 

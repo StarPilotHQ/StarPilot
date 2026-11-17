@@ -45,9 +45,16 @@ class TestSourceSelection(unittest.TestCase):
           selected = select_limit(observations(dashboard=30, map=20, vision=vision), policy(mode, slots))
           self.assertEqual(selected.selected_source, Source.DASHBOARD if mode == SelectionMode.HIGHEST else Source.MAP)
           self.assertNotIn(Source.VISION, selected.considered)
-      for slots in ((Source.VISION, None), (None, Source.VISION)):
+      for slots in ((Source.VISION, None), (None, Source.VISION), (None, None, Source.VISION)):
         selected = select_limit(observations(dashboard=30, map=20, vision=vision), policy(mode, slots))
         self.assertEqual(selected.selected_source, Source.VISION)
+
+  def test_three_ranked_sources_fall_through_in_order(self):
+    slots = (Source.MAP, Source.DASHBOARD, Source.VISION)
+    supplied = observations(map=35, dashboard=45, vision=25)
+    for source in slots:
+      self.assertIs(select_limit(supplied, policy(slots=slots)).selected_source, source)
+      supplied[source] = Observation(ObservationKind.STALE)
 
   def test_extrema_ties_keep_stable_dashboard_map_vision_order(self):
     original = observations(dashboard=20, map=20, vision=20)
@@ -154,7 +161,7 @@ class TestSourceSelection(unittest.TestCase):
     for mode in (Mode.LONGITUDINAL_ONLY, Mode.COMBINED):
       with self.subTest(mode=mode):
         authority = Authority(mode, LongitudinalOwner.SYSTEM, mode == Mode.COMBINED, True, False, False)
-        acceptance_policy = Policy(confirm_lower=True, confirm_higher=False, fallback_previous=True)
+        acceptance_policy = Policy(confirm_lower=True, confirm_higher=False)
         source_policy = policy(slots=(Source.DASHBOARD, None), online=False)
         candidate = observations(dashboard=29.0576)[Source.DASHBOARD].candidate
         state = replace(new_session("selection-regression", AcceptedLimit(candidate, "selection-regression", 0)), received_speed_mps=29.0576)
@@ -179,7 +186,7 @@ class TestSourceSelection(unittest.TestCase):
 
   def test_uncertainty_and_axis_ownership_survive_composition(self):
     system = Authority(Mode.LONGITUDINAL_ONLY, LongitudinalOwner.SYSTEM, False, True, False, False)
-    acceptance_policy = Policy(confirm_higher=False, fallback_previous=True)
+    acceptance_policy = Policy(confirm_higher=False)
     source_policy = policy(slots=(Source.MAP, None), online=False)
     history = AcceptedLimit(observations(map=20)[Source.MAP].candidate, "uncertainty", 0)
     state = replace(new_session("uncertainty", history), received_speed_mps=20)
@@ -191,7 +198,7 @@ class TestSourceSelection(unittest.TestCase):
       selected = select_limit(supplied, source_policy)
       decision = step(accepted.state, selected.observation, system, acceptance_policy, now_ns=1)
       self.assertEqual(decision.state.accepted, accepted.state.accepted)
-      self.assertEqual(decision.control_target_mps, 20)
+      self.assertEqual(decision.control_target_mps, accepted.state.accepted.candidate.speed_mps)
       self.assertEqual(decision.state.observation.kind, kind)
     for authority in (Authority(Mode.LATERAL_ONLY, LongitudinalOwner.NONE, True, False, False, False),
                       Authority(Mode.LATERAL_ONLY, LongitudinalOwner.STOCK, True, False, True, False),
@@ -226,7 +233,7 @@ class TestSourceSelection(unittest.TestCase):
 
   def test_dashboard_session_value_rejection_and_adopt_through_selection(self):
     authority = Authority(Mode.LONGITUDINAL_ONLY, LongitudinalOwner.SYSTEM, False, True, False, False)
-    acceptance_policy = Policy(confirm_higher=False, fallback_previous=True)
+    acceptance_policy = Policy(confirm_higher=False)
     selection_policy = policy(slots=(Source.DASHBOARD, None), online=False)
     candidate = Candidate("dashboard", ObservationIdentity(IdentityKind.SESSION_VALUE, session_id="drive"), 29.0576)
     state = replace(new_session("drive", AcceptedLimit(candidate, "drive", 0)), received_speed_mps=29.0576)
@@ -247,8 +254,8 @@ class TestSourceSelection(unittest.TestCase):
     adopted = step(state, selected.observation, authority, acceptance_policy, now_ns=5, adopt=request)
     self.assertTrue(adopted.adoption_receipt.consumed)
     self.assertEqual(adopted.control_target_mps, 20.1168)
-    self.assertEqual(adopted.state.rejected, frozenset())
-    self.assertEqual(adopted.adoption.action_sequence_id, request.sequence_id)
+    self.assertIsNone(adopted.state.rejected)
+    self.assertEqual(adopted.adoption_receipt.sequence_id, request.sequence_id)
     self.assertEqual(adopted.history_write.candidate, shown.candidate)
 
 

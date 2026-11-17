@@ -34,8 +34,10 @@ def test_manual_selection_remains_denied_at_actual_card_startup(mode, monkeypatc
     saved.put(SELECTION_KEY, json.loads(encode_selection(str(CAR.TESLA_MODEL_S_PREAP))), block=True)
     saved.put(DOCUMENT_KEY, json.loads(encode(mode, 0.25)), block=True)
     # The actual get_car function must apply the selection and mark it fixed.
-    monkeypatch.setattr(car_helpers, 'fingerprint', lambda *args: (None, {0: {}, 1: {}, 2: {}},
-                         '0' * 17, [], structs.CarParams.FingerprintSource.can, False))
+    def fingerprint(can_recv, can_send, set_obd_multiplexing, cached_params, *, known_tesla_bus0=False):
+      assert known_tesla_bus0
+      return (None, {0: {}, 1: {}, 2: {}}, '0' * 17, [], structs.CarParams.FingerprintSource.can, False)
+    monkeypatch.setattr(car_helpers, 'fingerprint', fingerprint)
     monkeypatch.setattr(card_module, 'can_comm_callbacks', lambda *args: (lambda *args: [], lambda frames: None))
     monkeypatch.setattr(card_module.messaging, 'recv_one_retry', lambda socket: messaging.new_message('can', 1))
     card = None

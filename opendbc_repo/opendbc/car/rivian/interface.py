@@ -2,7 +2,7 @@ from opendbc.car import get_safety_config, structs
 from opendbc.car.interfaces import CarInterfaceBase
 from opendbc.car.rivian.carcontroller import CarController
 from opendbc.car.rivian.carstate import CarState
-from opendbc.car.rivian.radar_interface import RadarInterface
+from opendbc.car.rivian.radar_interface import RADAR_MSG_COUNT, RADAR_START_ADDR, RadarInterface
 from opendbc.car.rivian.values import RivianFlags, RivianSafetyFlags
 
 
@@ -26,7 +26,10 @@ class CarInterface(CarInterfaceBase):
     CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
 
     ret.steerControlType = structs.CarParams.SteerControlType.torque
-    ret.radarUnavailable = True
+    ret.radarUnavailable = not (
+      not ret.flags & RivianFlags.GEN2 and 0x1310 not in fingerprint[1] and 0x131A in fingerprint[1] and
+      all(fingerprint[1].get(address) == 8 for address in range(RADAR_START_ADDR, RADAR_START_ADDR + RADAR_MSG_COUNT))
+    )
 
     # TODO is GEN2 the same?
     ret.alphaLongitudinalAvailable = docs or not (ret.flags & RivianFlags.GEN2)

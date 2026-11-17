@@ -1,3 +1,4 @@
+from opendbc.car import ACCEL_MAX_TAKEOFF
 from opendbc.car import Bus, structs, get_safety_config, uds
 from opendbc.car.toyota.carstate import CarState
 from opendbc.car.toyota.carcontroller import CarController
@@ -46,13 +47,14 @@ class CarInterface(CarInterfaceBase):
   DRIVABLE_GEARS = (structs.CarState.GearShifter.sport, structs.CarState.GearShifter.brake)
 
   @staticmethod
-  def get_pid_accel_limits(CP, current_speed, cruise_speed):
-    return CarControllerParams(CP).ACCEL_MIN, CarControllerParams(CP).ACCEL_MAX
+  def get_pid_accel_limits(CP, current_speed, cruise_speed, *, faster_takeoffs=False):
+    return CarControllerParams(CP).ACCEL_MIN, ACCEL_MAX_TAKEOFF if faster_takeoffs else CarControllerParams(CP).ACCEL_MAX
 
   @staticmethod
   def _get_params(ret: structs.CarParams, candidate, fingerprint, car_fw, alpha_long, is_release, docs) -> structs.CarParams:
-    from opendbc.car.toyota import pedal_composite
-    composite_pedal = pedal_composite.hardware_supported(candidate, fingerprint, car_fw)
+    from opendbc.car.toyota import pedal_composite, prius_legacy_pedal
+    legacy_prius_pedal = prius_legacy_pedal.hardware_supported(candidate, fingerprint, car_fw)
+    composite_pedal = legacy_prius_pedal or pedal_composite.hardware_supported(candidate, fingerprint, car_fw)
     if composite_pedal:
       fingerprint = pedal_composite.without_pedal(fingerprint)
     ret.brand = "toyota"
@@ -105,9 +107,8 @@ class CarInterface(CarInterfaceBase):
       # Only give steer angle deadzone to for bad angle sensor prius
       for fw in car_fw:
         if fw.ecu == "eps" and not fw.fwVersion == b'8965B47060\x00\x00\x00\x00\x00\x00':
-          retrofit = candidate == CAR.TOYOTA_PRIUS_RETROFIT or smart_dsu
-          ret.steerActuatorDelay = 0.14 if retrofit else 0.25
-          CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning, steering_angle_deadzone_deg=0.3 if retrofit else 0.2)
+          ret.steerActuatorDelay = 0.14
+          CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning, steering_angle_deadzone_deg=0.3)
         # 2021+ TSS2 steering rack swapped into a TSS-P car, not supported
         if candidate == CAR.TOYOTA_PRIUS and not smart_dsu and fw.ecu == "eps" and fw.fwVersion == b'8965B47070\x00\x00\x00\x00\x00\x00':
           ret.dashcamOnly = True
@@ -141,6 +142,8 @@ class CarInterface(CarInterfaceBase):
     radar_filter = radar_filter_supported(candidate, fingerprint)
     if radar_filter:
       ret.flags |= int(ToyotaFlags.RADAR_CAN_FILTER)
+      if fingerprint.get(0, {}).get(0x2FF) == 4 and ret.steerControlType == SteerControlType.torque:
+        ret.flags |= int(ToyotaFlags.FILTER_BUTTONS)
       ret.safetyConfigs[0].safetyParam |= int(ToyotaSafetyFlags.LONG_FILTER)
 
     # since we don't yet parse radar on TSS2 radar-based ACC cars, gate longitudinal behind alpha toggle
@@ -167,10 +170,9 @@ class CarInterface(CarInterfaceBase):
       # These manually selected retrofits currently own stock PCM longitudinal.
       # Observed takeover hardware needs its paired controller/native port.
       camera_fp = fingerprint.get(2, {})
-      late_camera = candidate == CAR.TOYOTA_PRIUS_RETROFIT and any(
-        fw.ecu == Ecu.fwdCamera and bytes(fw.fwVersion).startswith(b"8646F4705") for fw in car_fw)
       bypass = 0x343 in camera_fp or 0x4CB in camera_fp
-      if late_camera:
+      # A camera-bus copy of a still-present native DSU is not a takeover.
+      if candidate == CAR.TOYOTA_PRIUS_RETROFIT:
         bypass = ((0x343 in camera_fp and not any(0x343 in fingerprint.get(bus, {}) for bus in (0, 1))) or
                   (0x4CB in camera_fp and 0x4CB not in fingerprint[0]))
       smart_dsu = (candidate == CAR.TOYOTA_PRIUS_RETROFIT and
@@ -264,12 +266,16 @@ class CarInterface(CarInterfaceBase):
       ret.flags |= int(ToyotaFlags.GAS_INTERCEPTOR)
       ret.safetyConfigs[0].safetyParam = pedal.long_word(candidate)
     if composite_pedal:
-      assert pedal_composite.apply(ret)
+      if legacy_prius_pedal:
+        dsu_bypass.apply(ret)
+      assert pedal_composite.apply(ret, legacy_prius=legacy_prius_pedal)
     from opendbc.car.toyota import stock_aol
     if stock_aol.hardware_supported(candidate, fingerprint):
       stock_aol.apply(ret)
     from opendbc.car.toyota.dom_defaults import apply_defaults
     apply_defaults(ret)
+    from opendbc.car.toyota.ars510_preferences import configure_radar
+    configure_radar(ret)
     return ret
 
   @staticmethod

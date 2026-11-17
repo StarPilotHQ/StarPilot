@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import unittest
 
 import numpy as np
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.cereal import messaging
 from openpilot.starpilot.lateral.lane_centering import LaneCenteringResult

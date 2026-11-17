@@ -15,6 +15,7 @@ from tools.ci.lifecycle_shards import build_identity, same_build_inputs
 
 ROOT = Path(__file__).resolve().parents[2]
 HEAVY_MODULES = {
+  'openpilot/starpilot/tests/test_ford_bluepilot_library_lifecycle.py',
   'openpilot/starpilot/car/toyota/tests/test_camera_pedal_extension_callers.py',
   'openpilot/starpilot/car/toyota/tests/test_eps8_sdsu_callers.py',
   'openpilot/starpilot/car/toyota/tests/test_legacy_advert_callers.py',
@@ -97,7 +98,7 @@ def blob_id(path):
 
 def partition(catalog, count, root=ROOT):
   """Whole modules, except explicitly reviewed independent heavy parameter cases."""
-  if type(count) is not int or not 1 <= count <= 24 or not catalog or len(catalog) != len(set(catalog)):
+  if type(count) is not int or not 1 <= count <= 32 or not catalog or len(catalog) != len(set(catalog)):
     raise ValueError('Empty, duplicate or invalid custom pytest catalog')
   grouped = defaultdict(list)
   for node in catalog:
@@ -430,7 +431,7 @@ def main():
   parser = argparse.ArgumentParser(description=__doc__)
   parser.add_argument('action', choices=('run', 'aggregate'))
   parser.add_argument('--index', type=int)
-  parser.add_argument('--count', type=int, default=24)
+  parser.add_argument('--count', type=int, default=32)
   parser.add_argument('--output', type=Path, required=True)
   parser.add_argument('--directory', type=Path)
   args = parser.parse_args()

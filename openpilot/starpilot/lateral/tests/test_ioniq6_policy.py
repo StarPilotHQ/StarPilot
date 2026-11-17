@@ -28,7 +28,7 @@ def _legacy_friction(controller, error, deadzone, threshold, _cs, _setpoint):
 
 
 def _rows(car, sequence, *, profile='2023', matched_frozen_cp=False, passive=False, direct_original_controller=False, turn_assist=True,
-          roll=None):
+          roll=None, controller_mode=None):
   cp = interfaces[car].get_non_essential_params(car)
   cp.passive = passive
   if matched_frozen_cp:
@@ -44,7 +44,7 @@ def _rows(car, sequence, *, profile='2023', matched_frozen_cp=False, passive=Fal
       versions[0].fwVersion = b'IONIQ6-230915'
       versions[1].fwVersion = b'IONIQ6-240206'
   ci = interfaces[car](cp)
-  controller = LatControlTorque(cp.as_reader(), ci, DT_CTRL, turn_assist=turn_assist)
+  controller = LatControlTorque(cp.as_reader(), ci, DT_CTRL, turn_assist=turn_assist, controller_mode=controller_mode)
   if direct_original_controller:
     # The older frozen vectors called the controller directly, before the
     # original controlsd drive loop replaced the PID gain curve each tick.
@@ -97,6 +97,7 @@ class Ioniq6PolicyTests(unittest.TestCase):
     controller.update_torque_parameters(3.2, 0.01, 0.10)
     self.assertEqual(controller.pid._k_p, [[0.0], [0.6]])
 
+  @mock.patch.object(tune, "IONIQ_6_STANDARD_FRICTION_THRESHOLD_INCREASE", 0.0)
   def test_actual_frozen_controller_sequences_and_pure_calibration(self):
     sequence = ([(False, 0.3, 10.0, -0.001, False)] * 2 +
                 [(True, 0.3, 10.0, -0.001, False)] * 4 +
@@ -178,8 +179,149 @@ class Ioniq6PolicyTests(unittest.TestCase):
     parent = json.loads((TESTDATA / 'non_ioniq_parent.json').read_text())
     for car in (TOYOTA.TOYOTA_COROLLA_TSS2, HYUNDAI.HYUNDAI_IONIQ_5):
       with self.subTest(car=str(car)):
-        controller, actual = _rows(car, sequence, passive=car == TOYOTA.TOYOTA_COROLLA_TSS2, turn_assist=False)
+        controller, actual = _rows(car, sequence, passive=car == TOYOTA.TOYOTA_COROLLA_TSS2, turn_assist=False,
+                                   controller_mode='standard')
         self.assertIsNone(selected_policy(controller))
         for row, expected in zip(actual, parent[str(car)], strict=True):
           for value, reference in zip(row, expected, strict=True):
             self.assertAlmostEqual(value, reference, places=7)
+
+
+class Ioniq6HighwayFrictionTests(unittest.TestCase):
+  def controller(self, *, firmware_2025=True, long=False):
+    cp = interfaces[HYUNDAI.HYUNDAI_IONIQ_6].get_non_essential_params(HYUNDAI.HYUNDAI_IONIQ_6)
+    cp.openpilotLongitudinalControl = long
+    cp.pcmCruise = not long
+    if firmware_2025:
+      fw = cp.init('carFw', 2)
+      fw[0].fwVersion = b'IONIQ6-230915'
+      fw[1].fwVersion = b'IONIQ6-240206'
+    controller = LatControlTorque(cp.as_reader(), interfaces[HYUNDAI.HYUNDAI_IONIQ_6](cp), DT_CTRL)
+    return controller, VehicleModel(cp)
+
+  def trace(self, *, speed=29.0, firmware_2025=True, long=False, tuning=True, pressed=False, center=-3.0):
+    controller, vm = self.controller(firmware_2025=firmware_2025, long=long)
+    params = SimpleNamespace(angleOffsetDeg=0.0, roll=0.0)
+    cs = structs.CarState.new_message(vEgo=speed, steeringPressed=pressed,
+                                      gearShifter=structs.CarState.GearShifter.drive)
+    rows = []
+    with mock.patch.object(tune, 'IONIQ_6_2025_HIGHWAY_FRICTION_THRESHOLD_INCREASE', .50 if tuning else 0.0):
+      for index in range(400):
+        cs.steeringAngleDeg = center + .5 * math.sin(index * DT_CTRL * 2 * math.pi)
+        output, _, state = controller.update(index != 0, cs, vm, params, True, .001, False, .322)
+        rows.append((output, state.f, state.desiredLateralAccel, state.desiredLateralJerk, state.p, state.i))
+        self.assertLessEqual(abs(output), 1.0)
+        self.assertTrue(all(math.isfinite(x) for x in rows[-1]))
+    return controller, rows
+
+  def test_highway_feedback_is_softer_without_changing_path_or_pid(self):
+    _, tuned = self.trace()
+    _, baseline = self.trace(tuning=False)
+    tuned_f = [row[1] for row in tuned[100:]]
+    original_f = [row[1] for row in baseline[100:]]
+    self.assertLess(max(tuned_f) - min(tuned_f), .9 * (max(original_f) - min(original_f)))
+    for row, old in zip(tuned, baseline, strict=True):
+      self.assertEqual(row[2:], old[2:])
+
+  def test_low_speed_and_older_firmware_are_unchanged(self):
+    for kwargs in ({'speed': 20.0}, {'speed': 5.0}, {'firmware_2025': False}):
+      with self.subTest(**kwargs):
+        self.assertEqual(self.trace(**kwargs)[1], self.trace(tuning=False, **kwargs)[1])
+
+  def test_stock_and_alpha_long_use_identical_steering(self):
+    self.assertEqual(self.trace(long=False)[1], self.trace(long=True)[1])
+
+  def test_driver_override_is_unchanged_and_inactive_resets(self):
+    controller, rows = self.trace(pressed=True)
+    self.assertEqual(rows, self.trace(pressed=True, tuning=False)[1])
+    vm = VehicleModel(interfaces[HYUNDAI.HYUNDAI_IONIQ_6].get_non_essential_params(HYUNDAI.HYUNDAI_IONIQ_6))
+    cs = structs.CarState.new_message(vEgo=29.0, steeringAngleDeg=5.0)
+    output, _, state = controller.update(False, cs, vm, SimpleNamespace(angleOffsetDeg=0.0, roll=0.0),
+                                         False, .001, False, .322)
+    self.assertEqual(output, 0.0)
+    self.assertFalse(state.active)
+    self.assertEqual(selected_policy(controller).measurement_rate_filter.x, 0.0)
+
+  def test_constant_turn_strength_live_parameters_and_limits_are_preserved(self):
+    results = []
+    for tuning in (False, True):
+      controller, vm = self.controller()
+      controller.update_torque_parameters(3.2, .01, .08)
+      self.assertAlmostEqual(controller.torque_params.latAccelFactor, 3.2 * 1.22, places=6)
+      self.assertAlmostEqual(controller.torque_params.friction, .08, places=6)
+      self.assertEqual(controller.pid.pos_limit, controller.lateral_accel_from_torque(1.0, controller.torque_params))
+      cs = structs.CarState.new_message(vEgo=29.0, steeringAngleDeg=-3.0,
+                                        gearShifter=structs.CarState.GearShifter.drive)
+      curve = -vm.calc_curvature(math.radians(cs.steeringAngleDeg), cs.vEgo, 0.0)
+      with mock.patch.object(tune, 'IONIQ_6_2025_HIGHWAY_FRICTION_THRESHOLD_INCREASE', .50 if tuning else 0.0):
+        for index in range(400):
+          output, _, _ = controller.update(index != 0, cs, vm, SimpleNamespace(angleOffsetDeg=0.0, roll=0.0),
+                                           True, curve, False, .322)
+        results.append(output)
+    self.assertAlmostEqual(*results, places=12)
+
+  def test_large_tracking_error_keeps_full_correction(self):
+    _, tuned = self.trace(center=20.0)
+    _, original = self.trace(center=20.0, tuning=False)
+    self.assertEqual(tuned[100:], original[100:])
+
+
+class Ioniq6StandardFrictionTests(Ioniq6HighwayFrictionTests):
+  def controller(self, *, firmware_2025=False, long=False):
+    return super().controller(firmware_2025=firmware_2025, long=long)
+
+  def trace(self, *, speed=32.0, firmware_2025=False, long=False, tuning=True, pressed=False, center=None):
+    if center is None:
+      _, vm = self.controller(firmware_2025=firmware_2025, long=long)
+      center = math.degrees(vm.get_steer_from_curvature(-.001, speed, 0.0))
+    with mock.patch.object(tune, 'IONIQ_6_STANDARD_FRICTION_THRESHOLD_INCREASE', tune.IONIQ_6_STANDARD_FRICTION_THRESHOLD_INCREASE if tuning else 0.0):
+      return super().trace(speed=speed, firmware_2025=firmware_2025, long=long, tuning=False, pressed=pressed, center=center)
+
+  def test_low_speed_and_older_firmware_are_unchanged(self):
+    for kwargs in ({'speed': 3.0}, {'speed': .3}, {'firmware_2025': True}):
+      with self.subTest(**kwargs):
+        self.assertEqual(self.trace(**kwargs)[1], self.trace(tuning=False, **kwargs)[1])
+
+  def test_city_feedback_is_softer_without_changing_path_or_pid(self):
+    _, tuned = self.trace(speed=10.0)
+    _, baseline = self.trace(speed=10.0, tuning=False)
+    self.assertLess(max(row[1] for row in tuned[100:]) - min(row[1] for row in tuned[100:]),
+                    max(row[1] for row in baseline[100:]) - min(row[1] for row in baseline[100:]))
+    for row, old in zip(tuned, baseline, strict=True):
+      self.assertEqual(row[2:], old[2:])
+
+  def test_constant_turn_strength_live_parameters_and_limits_are_preserved(self):
+    results = []
+    for tuning in (False, True):
+      controller, vm = self.controller()
+      controller.update_torque_parameters(3.2, .01, .08)
+      self.assertAlmostEqual(controller.torque_params.latAccelFactor, 3.2 * 1.22, places=6)
+      self.assertAlmostEqual(controller.torque_params.friction, .08, places=6)
+      self.assertEqual(controller.pid.pos_limit, controller.lateral_accel_from_torque(1.0, controller.torque_params))
+      cs = structs.CarState.new_message(vEgo=32.0, steeringAngleDeg=-3.0,
+                                        gearShifter=structs.CarState.GearShifter.drive)
+      curve = -vm.calc_curvature(math.radians(cs.steeringAngleDeg), cs.vEgo, 0.0)
+      with mock.patch.object(tune, 'IONIQ_6_STANDARD_FRICTION_THRESHOLD_INCREASE', tune.IONIQ_6_STANDARD_FRICTION_THRESHOLD_INCREASE if tuning else 0.0):
+        for index in range(400):
+          output, _, _ = controller.update(index != 0, cs, vm, SimpleNamespace(angleOffsetDeg=0.0, roll=0.0),
+                                           True, curve, False, .322)
+        results.append(output)
+    self.assertAlmostEqual(*results, places=12)
+
+  def test_small_corrections_are_softer_than_previous_standard_tune(self):
+    _, actual = self.trace()
+    with mock.patch.object(tune, 'IONIQ_6_STANDARD_FRICTION_THRESHOLD_INCREASE', .50):
+      _, previous = self.trace()
+    def variation(rows):
+      return sum(abs(b[0] - a[0]) for a, b in zip(rows[100:-1], rows[101:], strict=True))
+    self.assertLess(variation(actual), .98 * variation(previous))
+    for row, old in zip(actual, previous, strict=True):
+      self.assertEqual(row[2:], old[2:])
+
+  def test_other_firmware_low_speed_and_driver_override_keep_previous_commands(self):
+    for kwargs in ({'firmware_2025': True}, {'speed': 3.0}, {'pressed': True}, {'center': 20.0}):
+      with self.subTest(**kwargs):
+        actual = self.trace(**kwargs)[1]
+        with mock.patch.object(tune, 'IONIQ_6_STANDARD_FRICTION_THRESHOLD_INCREASE', .50):
+          previous = self.trace(**kwargs)[1]
+        self.assertEqual(actual[100:], previous[100:])

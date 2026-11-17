@@ -5,7 +5,7 @@ import json
 import math
 from pathlib import Path
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.settings_icons import draw_icon_geometry
 
@@ -35,7 +35,7 @@ class SettingsAssets:
     image = rl.load_image(str(path))
     texture = None
     try:
-      if image.data == rl.ffi.NULL or not 0 < image.width <= 4096 or not 0 < image.height <= 4096:
+      if image.data is None or not 0 < image.width <= 4096 or not 0 < image.height <= 4096:
         raise ValueError(f"Invalid Settings image: {filename}")
       logical_ratio = min(width / image.width, height / image.height)
       logical_width, logical_height = round(image.width * logical_ratio), round(image.height * logical_ratio)
@@ -55,7 +55,7 @@ class SettingsAssets:
         rl.unload_texture(texture)
       raise
     finally:
-      if image.data != rl.ffi.NULL:
+      if image.data is not None:
         rl.unload_image(image)
     return texture
 

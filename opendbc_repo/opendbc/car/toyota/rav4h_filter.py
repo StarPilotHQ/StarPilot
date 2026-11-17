@@ -1,6 +1,7 @@
 """Exact EPS5 Toyota/Lexus smartDSU ownership; separate from Prius retrofit."""
 from opendbc.can import CANParser
 from opendbc.car import structs
+from opendbc.car.config_cache import cached_config
 from opendbc.car.toyota.values import CAR, ToyotaFlags
 
 # Bit15 is a distinct exact-profile marker; reserve Dom bit14 for Lexus ALT_CRUISE.
@@ -33,6 +34,7 @@ def hardware_supported(candidate, fingerprint, car_fw):
   return True
 
 
+@cached_config
 def configured(cp):
   from opendbc.car.toyota.pedal_composite import parent_cp
   cp = parent_cp(cp)

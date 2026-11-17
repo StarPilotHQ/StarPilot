@@ -76,7 +76,7 @@ class TestGMControlsStartup(unittest.TestCase):
 
   def test_restored_gateway_discovery_card_publication_and_controls(self):
     from opendbc.car.gm.fingerprints import FINGERPRINTS
-    from opendbc.car.gm.values import ORDINARY_CC_WORD, is_ordinary_cc_profile
+    from opendbc.car.gm.values import ORDINARY_CC_WORD, is_ordinary_cc_profile, is_ordinary_cc_stock_profile
     identities = (CAR.CADILLAC_CT6_CC, CAR.CADILLAC_XT5_CC, CAR.CHEVROLET_EQUINOX_CC,
                   CAR.CHEVROLET_SUBURBAN_CC, CAR.CHEVROLET_TRAILBLAZER_CC, CAR.CHEVROLET_MALIBU_CC)
     for identity, disable in itertools.product(identities, (False, True)):
@@ -94,10 +94,11 @@ class TestGMControlsStartup(unittest.TestCase):
              patch('openpilot.selfdrive.car.card.messaging.recv_one_retry',
                    return_value=messaging.new_message('can', 1)):
           card = Car()
-        self.assertTrue(is_ordinary_cc_profile(card.CP))
+        self.assertEqual(is_ordinary_cc_profile(card.CP), not disable)
+        self.assertEqual(is_ordinary_cc_stock_profile(card.CP), disable)
         self.assertEqual(card.CP.openpilotLongitudinalControl, not disable)
-        self.assertEqual(card.CP.safetyConfigs[0].safetyParam, ORDINARY_CC_WORD)
-        self.assertFalse(card.CP.pcmCruise)
+        self.assertEqual(card.CP.safetyConfigs[0].safetyParam, 16 if disable else ORDINARY_CC_WORD)
+        self.assertEqual(card.CP.pcmCruise, disable)
         controls = Controls()
         self.assertEqual(controls.CP.to_dict(), card.CP.to_dict())
         self.assertIsNone(controls.torque_host)

@@ -2,6 +2,7 @@
 
 from opendbc.can import CANParser
 from opendbc.car import structs
+from opendbc.car.toyota.config_cache import cached_config
 from opendbc.car.toyota.toyotacan import toyota_checksum
 from opendbc.car.toyota.values import CAR, ToyotaFlags
 
@@ -38,7 +39,7 @@ def hardware_supported(candidate, fingerprint, car_fw):
   late_prius = candidate in (CAR.TOYOTA_PRIUS, CAR.TOYOTA_PRIUS_RETROFIT) and any(
     fw.ecu == structs.CarParams.Ecu.fwdCamera and bytes(fw.fwVersion).startswith(b'8646F4705') for fw in car_fw
   )
-  if candidate in (CAR.LEXUS_IS, CAR.TOYOTA_CAMRY) or late_prius:
+  if candidate in (CAR.LEXUS_IS, CAR.TOYOTA_CAMRY, CAR.TOYOTA_PRIUS_RETROFIT) or late_prius:
     if not (
       (camera.get(0x343) == 8 and not any(0x343 in fingerprint.get(bus, {}) for bus in (0, 1)))
       or (camera.get(0x4CB) == 8 and 0x4CB not in fingerprint.get(0, {}))
@@ -78,6 +79,7 @@ def apply(cp):
     cp.dashcamOnly = False
 
 
+@cached_config
 def configured(cp):
   from opendbc.car.toyota.pedal_composite import parent_cp
   cp = parent_cp(cp)

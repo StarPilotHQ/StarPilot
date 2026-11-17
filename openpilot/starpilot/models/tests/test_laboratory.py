@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 from openpilot.starpilot.models.catalog import ARTIFACT_ABI, CATALOG_PATH, COMPILER_REVISION
 from openpilot.starpilot.models.laboratory import ModelLaboratory, configuration
@@ -17,6 +18,7 @@ class LaboratoryTest(unittest.TestCase):
     self.temp = tempfile.TemporaryDirectory()
     self.addCleanup(self.temp.cleanup)
     self.root = Path(self.temp.name)
+    self.enterContext(patch('openpilot.starpilot.models.manager.SHIPPED_MODELS', self.root / 'shipped'))
     self.parked = True
     self.gpu = False
     self.manifest = json.loads(CATALOG_PATH.read_text())
@@ -25,7 +27,7 @@ class LaboratoryTest(unittest.TestCase):
       row = next(row for row in self.manifest['models'] if row['id'] == mid)
       for variant in ('standard', 'amd'):
         content = f'{mid} compiled for {variant}'.encode()
-        path = artifact_path(mid, self.root, variant)
+        path = self.root / mid / f"{mid}_driving_{'amd_' if variant == 'amd' else ''}tinygrad.pkl"
         self.payloads[path.name] = content
         metadata = {'artifact_format': ARTIFACT_ABI, 'artifact_sha256': hashlib.sha256(content).hexdigest(),
                     'artifact_size': len(content), 'artifact_chunk_count': 0}
@@ -42,7 +44,7 @@ class LaboratoryTest(unittest.TestCase):
 
     self.manager = ModelManager(root=self.root, parked=lambda: self.parked, gpu_present=lambda: self.gpu, opener=opener)
     self.addCleanup(self.manager.close)
-    self.lab = ModelLaboratory(self.manager)
+    self.lab = ModelLaboratory(self.manager, runtime_supported=False)
     self.config = {'enabled': True, 'lateralModel': 'gwm8223', 'longitudinalModel': 'sc23'}
 
   def download(self, mid='gwm8223', variant='amd'):
@@ -68,22 +70,76 @@ class LaboratoryTest(unittest.TestCase):
     rows = {row['value']: row for row in result['models']}
     self.assertEqual(set(rows), {row['id'] for row in self.manifest['models']})
     self.assertEqual(result['summary']['catalog'], len(self.manifest['models']))
-    self.assertEqual(result['summary']['published'], 2)
+    published = sum(bool(row.get('artifact_sha256')) if row.get('uses_external_gpu') else True for row in self.manifest['models'])
+    self.assertEqual(result['summary']['published'], published)
     self.assertFalse(result['runtimeSupported'])
     big = rows['cinquev3']
     self.assertFalse(big['small'])
-    self.assertFalse(big['modelLabEligible'])
-    self.assertEqual(big['modelLabStatus'], 'unsupported')
-    self.assertEqual(big['modelLabReason'], 'Big models cannot be combined in this build.')
+    self.assertTrue(big['modelLabEligible'])
+    self.assertEqual(big['modelLabStatus'], 'missing')
     unpublished = next(row for row in rows.values() if row['modelLabStatus'] == 'unpublished')
     self.assertFalse(unpublished['modelLabArtifactAvailable'])
     self.assertFalse(unpublished['modelLabArtifactInstalled'])
-    self.assertEqual(unpublished['modelLabReason'], 'A Chestnut version for combining has not been published for this model.')
+    self.assertEqual(unpublished['modelLabReason'], 'A compatible artifact has not been published for this model.')
     self.assertEqual(rows['gwm8223']['modelLabStatus'], 'missing')
     self.download()
     verified = next(row for row in self.ready_snapshot()['models'] if row['value'] == 'gwm8223')
     self.assertEqual(verified['modelLabStatus'], 'runtime-unavailable')
     self.assertFalse(self.lab.snapshot()['runtime']['active'])
+
+  def test_laboratory_download_prepares_both_backends_without_changing_selection(self):
+    self.download()
+    self.assertTrue(artifact_path('gwm8223', self.root, 'standard').is_file())
+    self.assertTrue(artifact_path('gwm8223', self.root, 'amd').is_file())
+    self.assertFalse(configuration(self.root)['enabled'])
+    self.assertFalse((self.root / 'preferences.json').exists())
+
+  def test_original_chestnut_variant_downloads_when_normal_variant_is_unpublished(self):
+    row = next(row for row in self.manifest['models'] if row['id'] == 'gwm8223')
+    for field in ('artifact_sha256', 'artifact_size', 'artifact_chunk_count', 'artifact_format'):
+      row.pop(field, None)
+    atomic_json(self.root / 'catalog.json', self.manifest)
+    self.download()
+    self.assertFalse(artifact_path('gwm8223', self.root, 'standard').exists())
+    self.assertTrue(artifact_path('gwm8223', self.root, 'amd').exists())
+
+  def test_laboratory_download_repairs_missing_standard_with_installed_amd(self):
+    self.download()
+    standard = artifact_path('gwm8223', self.root, 'standard')
+    standard.unlink()
+    self.download()
+    self.assertEqual(standard.read_bytes(), self.payloads[standard.name])
+
+  def test_direct_laboratory_page_reuses_the_existing_catalog_refresh(self):
+    self.manager.refresh_catalog = True
+    self.lab.snapshot()
+    worker = self.manager.worker
+    self.assertIsNotNone(worker)
+    worker.join(3)
+    self.assertFalse(worker.is_alive())
+    self.assertEqual(self.manager.snapshot()['progress'], 'Catalog updated')
+    self.lab.snapshot()
+    self.assertIs(self.manager.worker, worker)
+
+  def test_two_big_models_are_rejected_before_configuration_is_written(self):
+    self.gpu = True
+    lab = ModelLaboratory(self.manager, runtime_supported=True)
+    pair = {'enabled': True, 'lateralModel': 'cinquev3', 'longitudinalModel': 'resfit'}
+    with self.assertRaisesRegex(ModelError, 'Two Big models cannot'):
+      lab.action('configure', pair)
+    self.assertFalse((self.root / 'laboratory.json').exists())
+
+  def test_previous_big_pair_is_suspended_without_destroying_saved_choices(self):
+    from openpilot.starpilot.models.laboratory import freeze_request
+    pair = {'enabled': True, 'lateralModel': 'cinquev3', 'longitudinalModel': 'resfit'}
+    atomic_json(self.root / 'laboratory.json', pair)
+    original = (self.root / 'laboratory.json').read_bytes()
+    self.assertEqual(configuration(self.root), pair | {'enabled': False})
+    self.assertIsNone(freeze_request(self.root))
+    self.assertEqual((self.root / 'laboratory.json').read_bytes(), original)
+    snapshot = self.lab.snapshot()
+    self.assertFalse(snapshot['configuration']['enabled'])
+    self.assertIn('Two Big models cannot', snapshot['configurationError'])
 
   def test_amd_download_and_delete_preserve_normal_small_artifact(self):
     self.download(variant='standard')
@@ -130,12 +186,12 @@ class LaboratoryTest(unittest.TestCase):
     ready_runtime = ModelLaboratory(self.manager, runtime_supported=True)
     for mid in ('gwm8223', 'sc23'):
       self.download(mid, 'standard')
-    with self.assertRaisesRegex(ModelError, 'verify both eGPU'):
+    with self.assertRaisesRegex(ModelError, 'verify both model'):
       ready_runtime.action('configure', self.config)
     self.download()
     self.download('sc23')
     artifact_path('sc23', self.root, 'amd').write_bytes(b'old compiled bytes')
-    with self.assertRaisesRegex(ModelError, 'verify both eGPU'):
+    with self.assertRaisesRegex(ModelError, 'verify both model'):
       ready_runtime.action('configure', self.config)
     self.assertFalse(configuration(self.root)['enabled'])
 
@@ -163,17 +219,69 @@ class LaboratoryTest(unittest.TestCase):
     ready_runtime.action('configure', {**self.config, 'enabled': False})
     self.assertFalse(configuration(self.root)['enabled'])
 
+  def test_small_lateral_big_longitudinal_uses_the_existing_big_artifact(self):
+    self.download()
+    row = next(row for row in self.manifest['models'] if row['id'] == 'cinquev3')
+    content = b'verified Big policy'
+    row.update(artifact_sha256=hashlib.sha256(content).hexdigest(), artifact_size=len(content), artifact_chunk_count=0)
+    atomic_json(self.root / 'catalog.json', self.manifest)
+    path = artifact_path('cinquev3', self.root)
+    path.parent.mkdir(parents=True)
+    path.write_bytes(content)
+    self.gpu = True
+    ready_runtime = ModelLaboratory(self.manager, runtime_supported=True)
+    config = {**self.config, 'longitudinalModel': 'cinquev3'}
+    result = ready_runtime.action('configure', config)
+    self.assertEqual(result['configuration'], config)
+    big = next(row for row in self.ready_snapshot()['models'] if row['value'] == 'cinquev3')
+    self.assertTrue(big['modelLabArtifactInstalled'])
+    self.assertTrue(big['modelLabEligible'])
+    with self.assertRaises(ModelError):
+      ready_runtime.action('delete', {'model': 'cinquev3'})
+    self.assertEqual(path.read_bytes(), content)
+
+  def test_onroad_pair_changes_are_queued_without_replacing_frozen_sources(self):
+    from openpilot.starpilot.models.laboratory import freeze_request
+    from openpilot.starpilot.models.runtime_bridge import runtime
+
+    for mid in ("gwm8223", "sc23"):
+      self.download(mid)
+    self.gpu = True
+    ready = ModelLaboratory(self.manager, runtime_supported=True)
+    self.parked = False
+    ready.action("configure", self.config)
+    first = freeze_request(self.root)
+    with patch.object(runtime, "_selection", {"role": "driving"}), patch.object(runtime, "_protection", None), \
+         patch.object(runtime, "_laboratory_request_json", None):
+      runtime.bind_laboratory_request(first)
+      swapped = {**self.config, "lateralModel": "sc23", "longitudinalModel": "gwm8223"}
+      ready.action("configure", swapped)
+      next_drive = freeze_request(self.root)
+      self.assertEqual(configuration(self.root), swapped)
+      self.assertEqual(runtime.frozen_laboratory_request(), first)
+      with self.assertRaisesRegex(ValueError, "cannot replace"):
+        runtime.bind_laboratory_request(next_drive)
+      with patch.object(runtime, "_laboratory_request_json", None):
+        runtime.bind_laboratory_request(next_drive)
+        self.assertEqual(runtime.frozen_laboratory_request()["lateralModel"], "sc23")
+      ready.action("configure", {**swapped, "enabled": False})
+      self.assertIsNone(freeze_request(self.root))
+      self.assertEqual(runtime.frozen_laboratory_request(), first)
+
   def test_parked_state_and_independent_progress_are_preserved(self):
     self.parked = False
-    for action, payload in (('download', {'model': 'gwm8223'}), ('delete', {'model': 'gwm8223'}),
-                            ('configure', {**self.config, 'enabled': False})):
+    for action, payload in (('download', {'model': 'gwm8223'}), ('delete', {'model': 'gwm8223'})):
       with self.assertRaises(ModelError):
         self.lab.action(action, payload)
+    saved = {**self.config, "enabled": False}
+    self.lab.action("configure", saved)
+    self.assertEqual(configuration(self.root), saved)
+    self.assertTrue(self.lab.snapshot()["capabilities"]["configure"])
     self.parked = True
     self.download()
     observer = ModelManager(root=self.root, parked=lambda: True, gpu_present=lambda: False)
     self.addCleanup(observer.close)
-    snapshot = ModelLaboratory(observer).snapshot()
+    snapshot = ModelLaboratory(observer, runtime_supported=False).snapshot()
     self.assertEqual(snapshot['download']['variant'], 'amd')
     self.assertEqual(snapshot['download']['progress'], 'Downloaded!')
     self.assertEqual(snapshot['download']['jobId'], self.manager.job_id)

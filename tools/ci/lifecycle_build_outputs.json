@@ -7,11 +7,11 @@
     "recipe": "msgq_repo/SConscript",
     "required_tracked": true
   },
-  "msgq_repo/msgq/ipc_pyx.so": {
+  "msgq_repo/msgq/_ipc.so": {
     "recipe": "msgq_repo/SConscript",
     "required_tracked": true
   },
-  "msgq_repo/msgq/visionipc/visionipc_pyx.so": {
+  "msgq_repo/msgq/visionipc/_visionipc.so": {
     "recipe": "msgq_repo/SConscript",
     "required_tracked": true
   },
@@ -24,10 +24,6 @@
     "required_tracked": true
   },
   "openpilot/cereal/libsocketmaster.a": {
-    "recipe": "openpilot/cereal/SConscript",
-    "required_tracked": true
-  },
-  "openpilot/cereal/messaging/bridge": {
     "recipe": "openpilot/cereal/SConscript",
     "required_tracked": true
   },
@@ -151,6 +147,10 @@
     "recipe": "openpilot/selfdrive/pandad/SConscript",
     "required_tracked": false
   },
+  "openpilot/selfdrive/pandad/tests/test_panda_faults": {
+    "recipe": "openpilot/selfdrive/pandad/SConscript",
+    "required_tracked": false
+  },
   "openpilot/selfdrive/pandad/tests/test_panda_owner": {
     "recipe": "openpilot/selfdrive/pandad/SConscript",
     "required_tracked": false
@@ -177,6 +177,10 @@
   },
   "openpilot/starpilot/flm/_primitive_walk.so": {
     "recipe": "openpilot/starpilot/flm/SConscript",
+    "required_tracked": true
+  },
+  "openpilot/starpilot/ui/native/_raylib_extra.so": {
+    "recipe": "openpilot/starpilot/ui/native/SConscript",
     "required_tracked": true
   },
   "openpilot/system/loggerd/bootlog": {

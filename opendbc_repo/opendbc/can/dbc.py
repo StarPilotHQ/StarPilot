@@ -261,7 +261,8 @@ def get_checksum_state(dbc_name: str) -> ChecksumState | None:
   elif dbc_name.startswith(("toyota_", "lexus_")):
     return ChecksumState(SignalType.TOYOTA_CHECKSUM, toyota_checksum)
   elif dbc_name.startswith("hyundai_canfd_generated"):
-    return ChecksumState(SignalType.HKG_CAN_FD_CHECKSUM, hkg_can_fd_checksum)
+    return ChecksumState(SignalType.HKG_CAN_FD_CHECKSUM, hkg_can_fd_checksum,
+                         checksum_pattern=r"^CHECKSUM$|^ADAS_CMD_Crc50Val$")
   elif dbc_name.startswith("vw_meb_2024"):
     return ChecksumState(SignalType.VOLKSWAGEN_MQB_MEB_CHECKSUM, volkswagen_meb_alt_crc_checksum)
   elif dbc_name.startswith(("vw_mqb", "vw_mqbevo", "vw_meb")):

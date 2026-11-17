@@ -27,6 +27,8 @@ HISTORY_NS = 12_000_000_000
 PROBE_DEADLINE_NS = 30_000_000_000
 MAX_COMPLETED = 16
 MAX_PROBE_REQUESTS = MAX_COMPLETED * 240
+INPUT_WINDOW_NS = 2_000_000_000
+INPUT_RESTART_STEP_NS = 50_000_000
 
 
 def _finite(value):
@@ -372,16 +374,16 @@ class TrackingEpisodeBuilder:
   def _input_window(self, stamp, goal):
     if self.input_window_origin is None:
       self.input_window_origin = stamp
-      self.input_window_boundary = stamp + 2_000_000_000
+      self.input_window_boundary = stamp + INPUT_WINDOW_NS
       self.start = stamp
     elif not self.start:
       if self.input_window_wait_until is None:
         elapsed = stamp - self.input_window_origin
-        self.input_window_wait_until = self.input_window_origin + ((elapsed + 1_999_999_999) // 2_000_000_000) * 2_000_000_000
+        self.input_window_wait_until = self.input_window_origin + ((elapsed + INPUT_RESTART_STEP_NS - 1) // INPUT_RESTART_STEP_NS) * INPUT_RESTART_STEP_NS
       if stamp < self.input_window_wait_until:
-        return  # Skip the interrupted partial window; never re-anchor on its outcome.
+        return  # Skip the partial window. Recovery slots remain on the original input clock; no loss/outcome selects a start.
       self.start = stamp
-      self.input_window_boundary = self.input_window_origin + ((stamp - self.input_window_origin) // 2_000_000_000 + 1) * 2_000_000_000
+      self.input_window_boundary = self.input_window_wait_until + INPUT_WINDOW_NS
       self.input_window_wait_until = None
     if stamp >= self.input_window_boundary:
       if self.input_window_count:
@@ -391,7 +393,7 @@ class TrackingEpisodeBuilder:
         self.mode = 'large' if self.first_sign and same_direction and max(abs(self.input_window_min), abs(self.input_window_max)) >= 0.25 else 'subtle'
         self._complete(self.last)  # Last ORIGINAL observed control, not a synthetic boundary tick.
       self.start = stamp
-      self.input_window_boundary = self.input_window_origin + ((stamp - self.input_window_origin) // 2_000_000_000 + 1) * 2_000_000_000
+      self.input_window_boundary += ((stamp - self.input_window_boundary) // INPUT_WINDOW_NS + 1) * INPUT_WINDOW_NS
       self.input_window_min = self.input_window_max = self.input_window_sum = 0.0
       self.input_window_count = 0
     self.input_window_min = min(self.input_window_min, goal)
@@ -701,7 +703,7 @@ class TrackingEpisodeBuilder:
         _Endpoint(control.control_ns, output.apply_ns, pose.mono_ns, pose.speed_mps, goal, goal - measured, measured, reference.control.control_ns)
       )
       self.last_pose_ns = pose.mono_ns
-      self.watermark = pose.source_lower_ns - lag
+      self.watermark = pose.source_lower_ns if self.source_tracking else pose.source_lower_ns - lag
       self.numerical_observed_ns = now_ns  # Already validated original pose/witness receipt clock.
       self._finish()
       self.last_input_status = 'accepted'
@@ -905,3 +907,4 @@ class TrackingEpisodeBuilder:
         for point in selected
       ],
     }
+

@@ -26,7 +26,7 @@ last.resolve(response(snapshot('offroad')));await pending
 assert.equal(value.state.mode,'onroad')
 const denied=panel();const loading=denied.load();requests.at(-1).resolve(response({error:'Sign in to Galaxy'},401));await loading
 assert.equal(denied.state,null)
-assert.equal(denied.error,'Drive state unavailable')
+assert.equal(denied.statusError,'Drive state unavailable')
 console.log('PASS: strict status; captured revision; aborted/out-of-order status; requested versus effective; unmount; unauthorized state')
 
 const onroad=panel();onroad.state={...snapshot(),effective:'onroad',overrideAllowed:false}
@@ -49,3 +49,27 @@ requests.at(-1).resolve(response(live));await forceOnroad;await flush()
 assert.equal(onroad.state.mode,'onroad')
 assert.equal(DriveStatePanel.computed.pending.call(onroad),false)
 console.log('PASS: Galaxy Offroad dispatch uses server admission; Force Onroad remains available')
+
+for (const [offroadOnly, lockout, mode, expected] of [
+  [true,true,'auto',true], [true,false,'auto',false], [true,false,'offroad',true], [false,false,'auto',true],
+]) assert.equal(DriveStatePanel.computed.visible.call({offroadOnly,lockout,state:snapshot(mode)}),expected)
+assert.match(DriveStatePanel.template,/Force device offroad/)
+
+// A rejected enable must not look enabled or lose its error during status polling.
+const rejectedToggle=panel();rejectedToggle.offroadOnly=true;rejectedToggle.lockout=false;rejectedToggle.state=snapshot()
+const input={checked:true}
+const attempt=rejectedToggle.toggleOffroad({target:input})
+assert.equal(input.checked,false,'wait for the server to accept the mode')
+requests.at(-1).resolve(response({error:'Current speed and gear are unavailable'},409));await flush()
+requests.at(-1).resolve(response(snapshot()));await attempt;await flush()
+assert.equal(input.checked,false)
+assert.equal(rejectedToggle.state.mode,'auto')
+assert.equal(rejectedToggle.error,'Current speed and gear are unavailable')
+assert.equal(DriveStatePanel.computed.visible.call(rejectedToggle),true,'keep the rejected action visible')
+input.checked=true
+const retry=rejectedToggle.toggleOffroad({target:input})
+assert.equal(rejectedToggle.error,'')
+requests.at(-1).resolve(response(snapshot('offroad','e'.repeat(32))));await flush()
+requests.at(-1).resolve(response(snapshot('offroad','e'.repeat(32))));await retry;await flush()
+assert.equal(input.checked,true)
+assert.equal(rejectedToggle.state.mode,'offroad')

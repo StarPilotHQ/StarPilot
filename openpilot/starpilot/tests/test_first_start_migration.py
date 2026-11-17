@@ -21,11 +21,12 @@ class TestFirstStartMigration(unittest.TestCase):
     self.namespace = self.root / 'params' / 'd'
     self.namespace.mkdir(parents=True)
     self.storage = self.root / 'recovery'
-    self.types = {'IsMetric': 'BOOL', 'ForceStops': 'BOOL', 'OpenpilotEnabledToggle': 'BOOL', 'SteerFriction': 'FLOAT',
+    self.types = {'IsRhdDetected': 'BOOL', 'LanguageSetting': 'STRING', 'AlphaLongitudinalEnabled': 'BOOL', 'IsMetric': 'BOOL',
+                  'ForceStops': 'BOOL', 'OpenpilotEnabledToggle': 'BOOL', 'SteerFriction': 'FLOAT',
                   'CalibrationParams': 'BYTES', 'CarParamsCache': 'BYTES', 'CarParamsPersistent': 'BYTES', 'CarParamsPrevRoute': 'BYTES',
                   'LiveParametersV2': 'BYTES', 'LiveDelay': 'BYTES',
                   'LiveTorqueParameters': 'BYTES', 'SecOCKey': 'BYTES', 'DongleId': 'STRING',
-                  'BluetoothEnabled': 'BOOL', 'GsmMetered': 'BOOL', 'HasAcceptedTerms': 'STRING'}
+                  'BluetoothEnabled': 'BOOL', 'GsmMetered': 'BOOL', 'HasAcceptedTerms': 'STRING', 'CompletedTrainingVersion': 'STRING'}
     self.params = SimpleNamespace(get_param_path=lambda: str(self.namespace), all_keys=lambda: list(self.types),
                                   get_type=lambda key: SimpleNamespace(name=self.types[key]))
     self.cache = SimpleNamespace(CACHE_KEYS={'CalibrationParams', 'CarParamsCache', 'CarParamsPersistent', 'CarParamsPrevRoute',
@@ -46,6 +47,169 @@ class TestFirstStartMigration(unittest.TestCase):
   def start(self, **kwargs):
     migration.prepare_manager_start(self.params, self.storage, auto_migrate=True, **kwargs)
 
+  def test_dashboard_history_survives_settings_reset_outside_params(self):
+    saved = {'GalaxyDashboardStats': {'version': 1, 'routes': {'old': {'distanceMeters': 1500, 'duration': 60,
+                                        'engagedSeconds': 30, 'date': '2026-10-01T12:00:00+00:00',
+                                        'model': 'Original Model', 'segmentCount': 1, 'analysisComplete': True}}},
+             'StarPilotStats': {'StarPilotMeters': 5000, 'StarPilotDrives': 3},
+             'ApiCache_DriveStats': {'all': {'distance': 10, 'routes': 5, 'minutes': 30}}}
+    values = {key: json.dumps(value).encode() for key, value in saved.items()}
+    self.write(values | {'ForceStops': b'1'})
+    self.start()
+    history = self.storage / 'galaxy' / 'legacy-dashboard-stats.json'
+    self.assertEqual(json.loads(history.read_bytes()), {'version': 1, 'params': saved})
+    self.assertEqual(history.stat().st_mode & 0o777, 0o600)
+    self.assertFalse(set(values) & self.values().keys())
+    self.assertEqual(migration.load_snapshot(next((self.storage / 'snapshots').iterdir())), values | {'ForceStops': b'1'})
+    before = history.read_bytes()
+    self.start()
+    self.assertEqual(history.read_bytes(), before)
+    from openpilot.starpilot.galaxy.drive_stats import DriveStatsOwner
+    owner = DriveStatsOwner(root=self.root / 'logs', store=self.storage / 'galaxy' / 'drive-stats.json',
+                            permitted=lambda: False)
+    try:
+      dashboard = owner.snapshot()
+      self.assertAlmostEqual(dashboard['totals']['distanceMeters'], 16093.44)
+      self.assertEqual(dashboard['totals']['drives'], 5)
+      self.assertEqual(dashboard['models'][0]['name'], 'Original Model')
+      self.assertEqual(dashboard['models'][0]['drives'], 1)
+    finally:
+      owner.close()
+
+  def already_reset_history(self):
+    saved = {'GalaxyDashboardStats': {'version': 1, 'routes': {
+      'overlap': {'date': '2026-10-01T12:00:00+00:00', 'duration': 60, 'distanceMeters': 1000,
+                  'engagedSeconds': 30, 'model': 'Original', 'segmentCount': 1, 'analysisComplete': True},
+      'old-only': {'date': '2026-10-01T13:00:00+00:00', 'duration': 60, 'distanceMeters': 1000,
+                   'engagedSeconds': 30, 'model': 'Original', 'segmentCount': 1, 'analysisComplete': True}}},
+      'ApiCache_DriveStats': {'all': {'distance': 10, 'routes': 6, 'minutes': 30}}}
+    self.write({key: json.dumps(value).encode() for key, value in saved.items()} |
+               {'PrivateCredential': b'not-statistics', 'ForceStops': b'1'})
+    # The earlier reset captured raw archives but did not export dashboard data.
+    with patch.object(migration, '_save_dashboard_history'):
+      self.start()
+    self.assertFalse((self.storage / 'galaxy' / 'legacy-dashboard-stats.json').exists())
+    return next((self.storage / 'snapshots').iterdir())
+
+  def archive_bytes(self):
+    return {str(path.relative_to(self.storage)): path.read_bytes()
+            for path in (self.storage / 'snapshots').rglob('*') if path.is_file()}
+
+  def test_archived_history_backfills_mixed_dashboard_once_without_restoring_params(self):
+    from openpilot.starpilot.galaxy.drive_stats import DriveStatsOwner
+    self.already_reset_history()
+    archives = self.archive_bytes()
+    params_before = self.values()
+    store = self.storage / 'galaxy' / 'drive-stats.json'
+    current = DriveStatsOwner(root=self.root / 'logs', store=store, permitted=lambda: False)
+    overlap = {'routeId': 'overlap', 'startTime': 1790856000, 'endTime': 1790856080,
+               'distanceMeters': 1200., 'durationSeconds': 80., 'engagedSeconds': 50.,
+               'model': 'Reviewed Model', 'complete': True, 'ignored': False, 'segmentCount': 1,
+               'sourceSignature': 'current-source', 'analysisVersion': 9}
+    newer = dict(overlap, routeId='current-only', distanceMeters=2500., model='New Model')
+    current._records.update(overlap=overlap, **{'current-only': newer})
+    current._save()
+    current.close()
+    original_read = migration._read_value
+
+    def stats_only(path):
+      if path.parent.name == 'values':
+        self.assertIn(path.name, ('GalaxyDashboardStats', 'StarPilotStats', 'ApiCache_DriveStats'))
+      return original_read(path)
+
+    with patch.object(migration, '_read_value', side_effect=stats_only):
+      self.start()
+    self.assertEqual(self.values(), params_before)
+    self.assertEqual(self.archive_bytes(), archives)
+    restored = DriveStatsOwner(root=self.root / 'logs', store=store, permitted=lambda: False)
+    try:
+      self.assertEqual(restored._records['overlap'], overlap)
+      self.assertEqual(restored._records['current-only'], newer)
+      snapshot = restored.snapshot()
+      self.assertAlmostEqual(snapshot['totals']['distanceMeters'], 18793.44)
+      self.assertEqual(snapshot['totals']['drives'], 7)
+      self.assertEqual({m['name']: m['drives'] for m in snapshot['models']},
+                       {'Original': 1, 'Reviewed Model': 1, 'New Model': 1})
+    finally:
+      restored.close()
+    before = store.read_bytes()
+    self.start()
+    repeated = DriveStatsOwner(root=self.root / 'logs', store=store, permitted=lambda: False)
+    try:
+      self.assertEqual(store.read_bytes(), before)
+      self.assertEqual(repeated.snapshot()['totals'], snapshot['totals'])
+    finally:
+      repeated.close()
+    self.assertEqual(self.archive_bytes(), archives)
+
+  def test_backfill_skips_corrupt_newer_archive_and_leaves_both_untouched(self):
+    good = self.already_reset_history()
+    values = migration.load_snapshot(good)
+    values['GalaxyDashboardStats'] = json.dumps({'version': 1, 'routes': {}}).encode()
+    bad = migration._save_snapshot(values, self.storage / 'snapshots')
+    (bad / 'migration.json').write_bytes((good / 'migration.json').read_bytes())
+    (bad / 'migration.json').chmod(0o600)
+    (bad / 'values' / 'GalaxyDashboardStats').write_bytes(b'corrupt')
+    before = self.archive_bytes()
+    self.start()
+    recovered = json.loads((self.storage / 'galaxy' / 'legacy-dashboard-stats.json').read_bytes())
+    self.assertIn('old-only', recovered['params']['GalaxyDashboardStats']['routes'])
+    self.assertEqual(self.archive_bytes(), before)
+
+  def test_backfill_skips_hash_valid_malformed_stats_before_older_valid_history(self):
+    good = self.already_reset_history()
+    values = migration.load_snapshot(good)
+    values['GalaxyDashboardStats'] = b'{"version":1,"routes":[]}'
+    malformed = migration._save_snapshot(values, self.storage / 'snapshots')
+    (malformed / 'migration.json').write_bytes((good / 'migration.json').read_bytes())
+    (malformed / 'migration.json').chmod(0o600)
+    before = self.archive_bytes()
+    self.start()
+    recovered = json.loads((self.storage / 'galaxy' / 'legacy-dashboard-stats.json').read_bytes())
+    self.assertIn('old-only', recovered['params']['GalaxyDashboardStats']['routes'])
+    self.assertEqual(self.archive_bytes(), before)
+
+  def test_backfill_rejects_wrong_namespace_and_symlinked_values(self):
+    archive = self.already_reset_history()
+    receipt_path = archive / 'migration.json'
+    receipt = json.loads(receipt_path.read_bytes())
+    receipt['namespace'] = str(self.root / 'another-device' / 'd')
+    receipt_path.write_bytes(migration.canonical_json(receipt))
+    self.start()
+    destination = self.storage / 'galaxy' / 'legacy-dashboard-stats.json'
+    self.assertFalse(destination.exists())
+    receipt['namespace'] = str(self.namespace)
+    receipt_path.write_bytes(migration.canonical_json(receipt))
+    value = archive / 'values' / 'GalaxyDashboardStats'
+    other = self.root / 'outside-archive.json'
+    other.write_bytes(value.read_bytes())
+    value.unlink()
+    value.symlink_to(other)
+    self.start()
+    self.assertFalse(destination.exists())
+    self.assertTrue(value.is_symlink())
+    value.unlink()
+    value.write_bytes(other.read_bytes())
+    values = archive / 'values'
+    outside = self.root / 'outside-values'
+    values.rename(outside)
+    values.symlink_to(outside, target_is_directory=True)
+    self.start()
+    self.assertFalse(destination.exists())
+    self.assertTrue(values.is_symlink())
+
+  def test_backfill_never_replaces_existing_export_and_dry_run_never_recovers(self):
+    self.already_reset_history()
+    self.start(dry_run=True)
+    destination = self.storage / 'galaxy' / 'legacy-dashboard-stats.json'
+    self.assertFalse(destination.exists())
+    destination.parent.mkdir(mode=0o700)
+    destination.write_bytes(b'existing export')
+    before = self.archive_bytes()
+    self.start()
+    self.assertEqual(destination.read_bytes(), b'existing export')
+    self.assertEqual(self.archive_bytes(), before)
+
   def test_epoch_two_archives_settings_and_calibration_retains_only_operational_state(self):
     original = {'IsMetric': b'1', 'ForceStops': b'0', 'SteerFriction': b'0.123',
                 'SecOCKey': b'private\x00bytes', 'CalibrationParams': b'legacy calibration',
@@ -63,6 +227,150 @@ class TestFirstStartMigration(unittest.TestCase):
     before = {str(path): path.read_bytes() for path in self.storage.rglob('*') if path.is_file()}
     self.start()
     self.assertEqual({str(path): path.read_bytes() for path in self.storage.rglob('*') if path.is_file()}, before)
+
+  def test_vehicle_preferences_keep_canonical_choices_and_new_settings_survive_restart(self):
+    self.types.update(dict.fromkeys(migration.VEHICLE_PREFERENCE_KEYS, 'BOOL'))
+    original = {key: b'1' if index % 2 else b'0' for index, key in enumerate(sorted(migration.VEHICLE_PREFERENCE_KEYS))}
+    original.update({'AlphaLongitudinalEnabled': b'1', 'CarParamsCache': b'old fingerprint',
+                     'CarParamsPersistent': b'old safety configuration', 'CarParamsPrevRoute': b'old route', 'SteerFriction': b'0.337'})
+    self.write(original)
+    self.start()
+    expected = {key: raw for key, raw in original.items() if key in migration.OPERATIONAL_KEYS}
+    self.assertEqual(self.values(), expected)
+    self.assertEqual(migration.load_snapshot(next((self.storage / 'snapshots').iterdir())), original)
+    for key in migration.VEHICLE_PREFERENCE_KEYS:
+      (self.namespace / key).write_bytes(b'0' if expected[key] == b'1' else b'1')
+    changed = self.values()
+    self.start()
+    self.assertEqual(self.values(), changed)
+
+  def test_invalid_vehicle_preferences_are_archived_without_enabling_them(self):
+    self.types.update(dict.fromkeys(migration.VEHICLE_PREFERENCE_KEYS, 'BOOL'))
+    original = dict.fromkeys(migration.VEHICLE_PREFERENCE_KEYS, b'true')
+    self.write(original)
+    self.start()
+    self.assertEqual(self.values(), {})
+    self.assertEqual(migration.load_snapshot(next((self.storage / 'snapshots').iterdir())), original)
+
+  def test_vehicle_preference_keys_are_registered_booleans(self):
+    from openpilot.common.params import Params
+    params = Params(str(self.root / 'native-params'))
+    for key in migration.VEHICLE_PREFERENCE_KEYS:
+      self.assertEqual(params.get_type(key).name, 'BOOL', key)
+
+  def test_regional_choices_survive_migration_and_later_changes(self):
+    original = {'IsMetric': b'1', 'IsRhdDetected': b'1', 'LanguageSetting': b'main_ko',
+                'SteerFriction': b'0.337', 'CarParamsPersistent': b'old fingerprint'}
+    self.write(original)
+    self.start()
+    self.assertEqual(self.values(), {key: original[key] for key in ('IsMetric', 'IsRhdDetected', 'LanguageSetting')})
+    self.assertEqual(migration.load_snapshot(next((self.storage / 'snapshots').iterdir())), original)
+    self.write({'IsMetric': b'0', 'IsRhdDetected': b'0', 'LanguageSetting': b'fr'})
+    changed = self.values()
+    self.start()
+    self.assertEqual(self.values(), changed)
+
+  def test_every_supported_current_and_legacy_language_is_retained(self):
+    catalog = json.loads((SOURCE.parents[1] / 'selfdrive/ui/translations/languages.json').read_text())
+    for code in catalog.values():
+      for prefix in ('', 'main_'):
+        with self.subTest(language=prefix + code), tempfile.TemporaryDirectory() as directory:
+          namespace = Path(directory) / 'params' / 'd'
+          namespace.mkdir(parents=True)
+          params = SimpleNamespace(get_param_path=lambda namespace=namespace: str(namespace), all_keys=self.params.all_keys, get_type=self.params.get_type)
+          raw = (prefix + code).encode()
+          (namespace / 'LanguageSetting').write_bytes(raw)
+          migration.prepare_manager_start(params, Path(directory) / 'state', auto_migrate=True)
+          self.assertEqual((namespace / 'LanguageSetting').read_bytes(), raw)
+
+  def test_invalid_regional_values_are_archived(self):
+    for language in (b'', b'\xff', b'unknown', b'main_', b'e' * 33):
+      with self.subTest(language=language), tempfile.TemporaryDirectory() as directory:
+        namespace = Path(directory) / 'params' / 'd'
+        namespace.mkdir(parents=True)
+        params = SimpleNamespace(get_param_path=lambda namespace=namespace: str(namespace), all_keys=self.params.all_keys, get_type=self.params.get_type)
+        original = {'IsMetric': b'true', 'IsRhdDetected': b'2', 'LanguageSetting': language}
+        for key, raw in original.items():
+          (namespace / key).write_bytes(raw)
+        storage = Path(directory) / 'state'
+        migration.prepare_manager_start(params, storage, auto_migrate=True)
+        self.assertEqual(migration._read_namespace(namespace), {})
+        self.assertEqual(migration.load_snapshot(next((storage / 'snapshots').iterdir())), original)
+
+  def test_legacy_explicit_wheel_side_wins_only_with_valid_override(self):
+    for override in (b'0', b'1', b'true'):
+      for side in (b'0', b'1', b'invalid'):
+        with self.subTest(override=override, side=side), tempfile.TemporaryDirectory() as directory:
+          namespace = Path(directory) / 'params' / 'd'
+          namespace.mkdir(parents=True)
+          params = SimpleNamespace(get_param_path=lambda namespace=namespace: str(namespace), all_keys=self.params.all_keys, get_type=self.params.get_type)
+          original = {'IsRhdDetected': b'1', 'IsRHDOverride': override, 'IsRHD': side}
+          for key, raw in original.items():
+            (namespace / key).write_bytes(raw)
+          migration.prepare_manager_start(params, Path(directory) / 'state', auto_migrate=True)
+          expected = side if override == b'1' and side in (b'0', b'1') else b'1'
+          self.assertEqual(migration._read_namespace(namespace), {'IsRhdDetected': expected})
+
+  def test_regional_defaults_are_not_invented_for_a_fresh_install(self):
+    self.start()
+    self.assertEqual(self.values(), {})
+
+  def test_onboarding_keeps_only_previously_saved_acceptance(self):
+    self.write({'HasAcceptedTerms': b'2', 'CompletedTrainingVersion': b'0.2.0', 'ForceStops': b'1'})
+    self.start()
+    self.assertEqual(self.values(), {'HasAcceptedTerms': b'2', 'CompletedTrainingVersion': b'0.2.0'})
+    self.start()
+    self.assertEqual(self.values(), {'HasAcceptedTerms': b'2', 'CompletedTrainingVersion': b'0.2.0'})
+
+  def test_fresh_install_does_not_fabricate_onboarding_acceptance(self):
+    self.start()
+    self.assertNotIn('HasAcceptedTerms', self.values())
+    self.assertNotIn('CompletedTrainingVersion', self.values())
+
+  def test_security_key_library_survives_preference_reset_and_restart(self):
+    self.types['SecOCKeys'] = 'STRING'
+    library = b'[{"name":"family car","value":"abababababababababababababababab"}]'
+    original = {'SecOCKey': b'ab' * 16, 'SecOCKeys': library, 'SteerFriction': b'0.2'}
+    self.write(original)
+    self.start()
+    self.assertEqual(self.values(), {'SecOCKey': original['SecOCKey'], 'SecOCKeys': library})
+    self.assertEqual(migration.load_snapshot(next((self.storage / 'snapshots').iterdir())), original)
+    self.start()
+    self.assertEqual(self.values()['SecOCKeys'], library)
+
+  def test_alpha_longitudinal_preserves_both_values_and_later_changes(self):
+    for value in (b'0', b'1'):
+      with self.subTest(value=value), tempfile.TemporaryDirectory() as directory:
+        namespace = Path(directory) / 'params' / 'd'
+        namespace.mkdir(parents=True)
+        storage = Path(directory) / 'recovery'
+        params = SimpleNamespace(get_param_path=lambda namespace=namespace: str(namespace), all_keys=self.params.all_keys, get_type=self.params.get_type)
+        (namespace / 'AlphaLongitudinalEnabled').write_bytes(value)
+        migration.prepare_manager_start(params, storage, auto_migrate=True)
+        self.assertEqual((namespace / 'AlphaLongitudinalEnabled').read_bytes(), value)
+        changed = b'1' if value == b'0' else b'0'
+        (namespace / 'AlphaLongitudinalEnabled').write_bytes(changed)
+        migration.prepare_manager_start(params, storage, auto_migrate=True)
+        self.assertEqual((namespace / 'AlphaLongitudinalEnabled').read_bytes(), changed)
+
+  def test_legacy_longitudinal_choice_requires_canonical_value_and_never_overrides_alpha(self):
+    for legacy in (b'0', b'1', b'true', b'', b'2'):
+      for alpha in (None, b'0', b'1', b'invalid'):
+        with self.subTest(legacy=legacy, alpha=alpha), tempfile.TemporaryDirectory() as directory:
+          namespace = Path(directory) / 'params' / 'd'
+          namespace.mkdir(parents=True)
+          storage = Path(directory) / 'recovery'
+          params = SimpleNamespace(get_param_path=lambda namespace=namespace: str(namespace), all_keys=self.params.all_keys, get_type=self.params.get_type)
+          (namespace / 'ExperimentalLongitudinalEnabled').write_bytes(legacy)
+          if alpha is not None:
+            (namespace / 'AlphaLongitudinalEnabled').write_bytes(alpha)
+          original = migration._read_namespace(namespace)
+          migration.prepare_manager_start(params, storage, auto_migrate=True)
+          expected = alpha if alpha in (b'0', b'1') else legacy if alpha is None and legacy in (b'0', b'1') else None
+          path = namespace / 'AlphaLongitudinalEnabled'
+          self.assertEqual(path.read_bytes() if path.exists() else None, expected)
+          self.assertFalse((namespace / 'ExperimentalLongitudinalEnabled').exists())
+          self.assertIn(original, [migration.load_snapshot(path) for path in (storage / 'snapshots').iterdir()])
 
   def test_invalid_operational_bool_archived_all_old_preferences_removed(self):
     original = {'IsMetric': b'True', 'ForceStops': b'1', 'OpenpilotEnabledToggle': b'true',

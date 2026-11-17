@@ -83,7 +83,10 @@ def test_factory_settings_allow_auxiliary_lkas_hide_unreported_cancel_and_keep_c
   row = rows['wheel:' + KEY]
   assert {'Off', 'Bookmark', 'Traffic mode', 'Cycle personality', 'Experimental override'} <= set(row.choices)
   assert not {'Pause steering', 'Pause longitudinal', 'Toggle AOL'} & set(row.choices)
-  assert not any('Cancel' in key or 'MainCruise' in key for key in rows)
+  assert not any('Cancel' in key for key in rows)
+  main = rows['wheel:MainCruiseButtonControl']
+  assert main.value == 'Factory cruise / AOL' and not main.available and not main.choices
+  assert not wheel.apply(FeatureSettingsRequest(main.key, main.source, 'Toggle AOL', capability=main.capability))
   assert wheel.apply(FeatureSettingsRequest(row.key, row.source, 'Bookmark', capability=row.capability))
   assert params.get(KEY) == 8
   assert not wheel.apply(FeatureSettingsRequest(row.key, b'8', 'Toggle AOL', capability=row.capability))
@@ -283,7 +286,12 @@ def test_parser_supported_toyota_auxiliary_lkas_does_not_require_aol_admission(t
   row = rows['wheel:' + KEY]
   assert 'Bookmark' in row.choices
   assert not {'Pause steering', 'Pause longitudinal', 'Toggle AOL'} & set(row.choices)
-  assert not any('MainCruise' in key or 'Cancel' in key for key in rows)
+  assert not any('Cancel' in key for key in rows)
+  assert ('wheel:MainCruiseButtonControl' in rows) == admitted
+  if admitted:
+    main = rows['wheel:MainCruiseButtonControl']
+    assert main.value == 'Factory cruise / AOL' and not main.available and not main.choices
+    assert not wheel.apply(FeatureSettingsRequest(main.key, main.source, 'Toggle AOL', capability=main.capability))
   assert wheel.apply(FeatureSettingsRequest(row.key, row.source, 'Bookmark', capability=row.capability))
   assert not wheel.apply(FeatureSettingsRequest(row.key, b'8', 'Toggle AOL', capability=row.capability))
   # This bench uses full factory parser transport, without forcing CAN validity.

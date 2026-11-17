@@ -15,5 +15,5 @@ def automatic_downloads(params) -> bool | None:
   return raw != b'0'  # Preserve the upstream schedule for existing installations.
 
 
-def download_permitted(params, *, manual: bool, check_only: bool) -> bool:
-  return not check_only and (manual or automatic_downloads(params) is True)
+def download_permitted(params, *, manual: bool) -> bool:
+  return manual or automatic_downloads(params) is True

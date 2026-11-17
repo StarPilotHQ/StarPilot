@@ -8,6 +8,10 @@ static uint8_t blended_adrv_counter = 0U;
 static bool blended_camera_seen = false;
 static uint8_t blended_camera_data[24] = {0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U};
 static uint32_t blended_camera_ts = 0U;
+static bool blended_camera_previous_seen = false;
+static uint8_t blended_camera_previous_data[24] = {0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U};
+static uint32_t blended_camera_previous_ts = 0U;
+static bool blended_camera_stale_echo = false;
 static bool blended_aol_main_seen = false;
 static bool blended_aol_main = false;
 static uint32_t blended_aol_main_ts = 0U;
@@ -26,6 +30,7 @@ static bool blended_aol_owned[4] = {false, false, false, false};
 static uint32_t blended_aol_tx_ts[4] = {0U, 0U, 0U, 0U};
 
 static void blended_aol_clear(void) {
+  blended_camera_stale_echo = false;
   blended_aol_main_seen = false;
   blended_aol_main = false;
   blended_aol_main_ts = 0U;
@@ -57,6 +62,8 @@ static void blended_aol_reset(void) {
   blended_aol_hda2 = false;
   blended_camera_seen = false;
   blended_camera_ts = 0U;
+  blended_camera_previous_seen = false;
+  blended_camera_previous_ts = 0U;
   blended_aol_counter_seen = false;
   blended_aol_counter = 0U;
   blended_aol_clear();
@@ -122,6 +129,13 @@ static uint8_t blended_aol_permission_mask(void) {
 
 static void blended_aol_rx(const CANPacket_t *msg) {
   if (blended_aol_hda2 && msg_matches(msg, 0x2A4U, 2U, 24U)) {
+    if (blended_camera_seen && (msg->data[2] != blended_camera_data[2])) {
+      for (unsigned int i = 0U; i < 24U; i++) {
+        blended_camera_previous_data[i] = blended_camera_data[i];
+      }
+      blended_camera_previous_seen = true;
+      blended_camera_previous_ts = blended_camera_ts;
+    }
     for (unsigned int i = 0U; i < 24U; i++) {
       blended_camera_data[i] = msg->data[i];
     }
@@ -144,10 +158,29 @@ static void blended_aol_rx(const CANPacket_t *msg) {
     bool pressed = false;
     if ((msg->bus == pt) && (msg->addr == 0x4F1U) && (GET_LEN(msg) == 4U)) {
       if ((msg->data[0] & 7U) == 4U) {
-        blended_aol_clear();
+        // Mixed LONG Pause/Resume still clears ordinary/LONG authority in the
+        // cruise hook. Retain only an already claimed, current lateral token.
+        // CANCEL cannot arm, renew a request/gesture lease, or clear an inhibit.
+        const bool source_current = (blended_aol_token_source < 3U) &&
+          (safety_get_ts_elapsed(now, blended_aol_source_ts[blended_aol_token_source]) <= 300000U);
+        const bool retain_lateral = blended_aol_long && !GET_BIT(msg, 3U) &&
+          blended_aol_token && blended_aol_claimed && blended_aol_session && heartbeat_engaged &&
+          blended_aol_main_seen && blended_aol_main &&
+          (safety_get_ts_elapsed(now, blended_aol_main_ts) <= 100000U) && source_current &&
+          blended_aol_request_seen && ((aol_host_axis_mask & 1U) != 0U) &&
+          (safety_get_ts_elapsed(now, aol_host_request_ts) <= AOL_HOST_REQUEST_TIMEOUT_US) &&
+          aol_rx_healthy() && !relay_malfunction && !safety_rx_checks_invalid;
+        if (!retain_lateral) {
+          blended_aol_clear();
+        }
+        // A simultaneous MAIN is not an arming gesture. The advancing physical
+        // source remains observable without changing its token or host lease.
+        blended_aol_pressed[0] = GET_BIT(msg, 3U);
+        blended_aol_source_ts[0] = now;
+      } else {
+        source = 0U;
+        pressed = GET_BIT(msg, 3U);
       }
-      source = 0U;
-      pressed = GET_BIT(msg, 3U);
     } else if ((msg->bus == pt) && (msg->addr == 0x391U) && (GET_LEN(msg) == 8U)) {
       source = 1U;
       pressed = GET_BIT(msg, 4U);
@@ -199,6 +232,7 @@ static void blended_aol_configure(uint16_t param) {
 
 static bool blended_aol_integrity(const CANPacket_t *msg) {
   bool valid = true;
+  blended_camera_stale_echo = false;
   const unsigned int steering = blended_aol_hda2 ? 0x50U : 0x340U;
   if (blended_aol_hda2 && ((msg->addr == 0x50U) || (msg->addr == 0x51U) || (msg->addr == 0x2A4U))) {
     unsigned int length = 24U;
@@ -227,14 +261,20 @@ static bool blended_aol_integrity(const CANPacket_t *msg) {
       blended_adrv_counter_seen = true;
     }
     if (valid && (msg->addr == 0x2A4U)) {
-      valid = blended_camera_seen &&
-        (safety_get_ts_elapsed(microsecond_timer_get(), blended_camera_ts) <= 500000U) &&
-        (msg->data[2] == blended_camera_data[2]) && (msg->data[7] == 0U);
+      const uint32_t now = microsecond_timer_get();
+      const bool camera_current = blended_camera_seen &&
+        (safety_get_ts_elapsed(now, blended_camera_ts) <= 500000U);
+      valid = camera_current && (msg->data[2] == blended_camera_data[2]) && (msg->data[7] == 0U);
+      bool previous = camera_current && blended_camera_previous_seen && (msg->data[7] == 0U) &&
+        (safety_get_ts_elapsed(now, blended_camera_previous_ts) <= 500000U) &&
+        (msg->data[2] == blended_camera_previous_data[2]);
       for (unsigned int i = 3U; i < 24U; i++) {
         if (i != 7U) {
           valid &= msg->data[i] == blended_camera_data[i];
+          previous &= msg->data[i] == blended_camera_previous_data[i];
         }
       }
+      blended_camera_stale_echo = !valid && previous && aol_rx_healthy();
     }
   } else if (blended_aol_enabled && (msg->addr == steering)) {
     valid = msg_matches(msg, steering, 0U, 8U);
@@ -259,7 +299,7 @@ static bool blended_aol_integrity(const CANPacket_t *msg) {
   } else {
     // Messages outside the owned integrity paths retain the existing verdict.
   }
-  if (!valid) {
+  if (!valid && !blended_camera_stale_echo) {
     blended_aol_clear();
   }
   return valid;
@@ -267,6 +307,11 @@ static bool blended_aol_integrity(const CANPacket_t *msg) {
 
 static void blended_aol_tx(const CANPacket_t *msg, bool accepted) {
   if (blended_aol_enabled) {
+    // A queued prior camera snapshot is denied without renewing its last accepted output lease.
+    bool retain_camera_ownership = false;
+    if (!accepted && blended_camera_stale_echo && msg_matches(msg, 0x2A4U, 0U, 24U)) {
+      retain_camera_ownership = blended_aol_permission_mask() != 0U;
+    }
     bool accepted_current = accepted;
     const uint32_t addresses[4] = {blended_aol_hda2 ? 0x50U : 0x340U, blended_aol_hda2 ? 0x2A4U : 0x364U, 0x485U, 0x340U};
     const unsigned int count = (blended_aol_hda2 && blended_aol_long) ? 4U : 3U;
@@ -281,7 +326,7 @@ static void blended_aol_tx(const CANPacket_t *msg, bool accepted) {
     }
     for (unsigned int i = 0U; i < count; i++) {
       const unsigned int bus = blended_aol_hda2 && (i >= 2U) ? 1U : 0U;
-      if ((msg->addr == addresses[i]) && (msg->bus == bus)) {
+      if ((msg->addr == addresses[i]) && (msg->bus == bus) && !retain_camera_ownership) {
         blended_aol_owned[i] = accepted_current && ((i == 0U) || (blended_aol_owned[0] &&
           safety_get_ts_elapsed(microsecond_timer_get(), blended_aol_tx_ts[0]) <= AOL_HOST_REQUEST_TIMEOUT_US)) && aol_rx_healthy() && (controls_allowed || (blended_aol_permission_mask() != 0U));
         blended_aol_tx_ts[i] = microsecond_timer_get();

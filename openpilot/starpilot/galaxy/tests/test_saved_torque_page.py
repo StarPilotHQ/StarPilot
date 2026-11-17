@@ -36,8 +36,10 @@ class TestSavedTorquePage(unittest.TestCase):
     page = self.page()
     rows = {row['label']: row for row in page['rows']}
     self.assertEqual(set(rows), {'Turn Signal Guidance', 'Steering Controller', 'Turn Assist', 'Prep My Vehicle for Tuning',
-                                'Use StarPilot Auto Learn', 'Lat Accel', 'Lateral acceleration — Reset to Default',
-                                'Friction', 'Friction — Reset to Default'})
+                                'Use StarPilot Auto Learn', 'Lat Accel', 'Friction', 'Highway Smoothing'})
+    for label in ('Lat Accel', 'Friction'):
+      self.assertTrue(rows[label]['resetAvailable'], label)
+      self.assertEqual(rows[label]['defaultValue'], 'Vehicle/learned')
     aol_rows = {row['label']: row for row in self.page('aol')['rows']}
     for label in ('Pause steering below', 'Steering resume delay', 'Pause only while signaling'):
       self.assertNotIn(label, rows)
@@ -76,7 +78,7 @@ class TestSavedTorquePage(unittest.TestCase):
     self.assertTrue(self.gateway._context('torque').editing_saved_vehicle)
     self.assertEqual(self.context.sample().cp.carFingerprint, 'HYUNDAI_IONIQ_6')
     self.assertEqual(self.gateway._context('slc').cp.carFingerprint, 'HYUNDAI_IONIQ_6')
-    slc = next(row for row in self.page('slc')['rows'] if row['label'] == 'Automatic adoption')
+    slc = next(row for row in self.page('slc')['rows'] if row['label'] == 'Confirm limits')
     self.assertTrue(slc['available'])
     self.offroad.return_value = False
     with patch.object(self.context, 'configuration_allowed', return_value=True):

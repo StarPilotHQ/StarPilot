@@ -25,7 +25,7 @@ def test_collect_turns_command_output_into_line_lists():
 def test_commands_are_niced_and_cover_the_session_window():
   command = system_slice.commands(1_000_000.0, 1_000_060.0)["network"]
   assert command[:3] == ["nice", "-n", "19"] and "--utc" in command
-  assert command[command.index("--since") + 1] == "1970-01-12 13:46:10" and "NetworkManager" in command
+  assert command[command.index("--since") + 1] == "1970-01-12 13:46:10 UTC" and "NetworkManager" in command
 
 
 def test_scrub_line_masks_names_ssids_and_addresses_and_caps_length():
@@ -43,6 +43,19 @@ def test_sidecar_round_trip_and_pruning(tmp_path):
   stale.write_text("{}")
   system_slice.prune_sidecars(tmp_path)
   assert not stale.exists() and system_slice.sidecar_path(log).exists()
+
+
+def test_stall_capture_sits_beside_the_session_capture_and_is_pruned_with_it(tmp_path):
+  log = tmp_path / "session-000007-20261016-120000.jsonl"
+  log.write_text("")
+  system_slice.write_sidecar(log, 1_000_000.0, 1_000_060.0, collector=fake_collector, tag=".stall")
+  stall = tmp_path / "session-000007.stall.system.json"
+  assert stall.exists() and not system_slice.sidecar_path(log).exists()
+  system_slice.prune_sidecars(tmp_path)
+  assert stall.exists()
+  log.unlink()
+  system_slice.prune_sidecars(tmp_path)
+  assert not stall.exists()
 
 
 def test_a_collector_that_raises_leaves_no_sidecar(tmp_path):

@@ -8,7 +8,7 @@ from types import SimpleNamespace as NS
 import unittest
 from unittest.mock import Mock, patch
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.common.params import Params
 from openpilot.starpilot import saved_document
@@ -52,7 +52,7 @@ class AppearanceSettingsTests(unittest.TestCase):
   def test_absent_defaults_are_read_only_and_match_both_views(self):
     self.assertEqual(onroad_appearance(self.params), OnroadAppearance())
     self.assertEqual(tuple(row.key for row in self.owner.snapshot(Profile.LARGE).rows),
-                     ("DeveloperSidebar", "HidePersonalityAlerts", "ShowBrakeStatus", "BlindSpotMetrics", "SignalMetrics"))
+                     ("DeveloperSidebar", "HidePersonalityAlerts", "ShowBrakeStatus", "BlindSpotMetrics", "SignalMetrics", "ReduceMotion"))
     self.assertEqual(tuple(row.key for row in self.owner.snapshot(Profile.COMPACT).rows),
                      ("CameraView", "DriverCamera", "StockConfidenceBallWidget", "HidePersonalityAlerts", "ShowBrakeStatus",
                       "HideLeadMarker", "LeadInfo", "SignalMetrics", "BlindSpotMetrics"))
@@ -126,6 +126,65 @@ class AppearanceSettingsTests(unittest.TestCase):
     path.write_bytes(b"bad")
     self.assertFalse(onroad_appearance(self.params).hide_personality_alerts)
     self.assertEqual(path.read_bytes(), b"bad")
+
+  def test_personality_toggle_controls_native_and_existing_projection_layouts(self):
+    from openpilot.starpilot.system.starport.projection_layout import default_layout_for_viewport, projection_appearance, validate_layout_for_viewport
+    from openpilot.starpilot.ui.tests.test_runtime_snapshot import RuntimeSnapshotAdapter
+
+    viewport = (2880, 1080)
+    for profile in (Profile.LARGE, Profile.COMPACT):
+      for hidden in (True, False):
+        request = row_change(self.row("HidePersonalityAlerts", profile))
+        assert request is not None
+        self.assertEqual(request.value, "On" if hidden else "Off")
+        self.assertTrue(self.owner.apply(request))
+        for old_aa_choice in (False, True):
+          layout = default_layout_for_viewport(viewport)
+          layout.update(hidePersonalityAlerts=old_aa_choice, wheelPedalFeedback=True)
+          saved = validate_layout_for_viewport(layout, viewport)
+          self.assertIs(saved['hidePersonalityAlerts'], old_aa_choice)
+          self.assertTrue(saved['wheelPedalFeedback'])
+          ui = ui_fake()
+          ui.params = self.params
+          source = ui.sm.messages['selfdriveState']
+          source.personality = NS(raw=1)
+          source.alertSize, source.alertType = NS(raw=1), 'personalityChanged/warning'
+          source.alertText1 = 'Driving Personality: Standard'
+          for projection in (False, True):
+            with self.subTest(profile=profile, hidden=hidden, legacy_aa=old_aa_choice, projection=projection):
+              adapter = RuntimeSnapshotAdapter(ui)
+              if projection:
+                adapter.appearance_override = lambda appearance, document=saved: projection_appearance(appearance, document)
+              alert = adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad.alert
+              self.assertEqual(alert.size, AlertSize.NONE if hidden else AlertSize.SMALL)
+              source.alertSize, source.alertStatus = NS(raw=3), NS(raw=2)
+              source.alertText1 = 'Take control'
+              safety = adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad.alert
+              self.assertEqual((safety.size, safety.text1), (AlertSize.FULL, 'Take control'))
+              source.alertSize, source.alertStatus = NS(raw=1), NS(raw=0)
+              source.alertText1 = 'Driving Personality: Standard'
+
+  def test_personality_toggle_refreshes_on_projection_without_reconnect(self):
+    from openpilot.starpilot.system.starport.projection_layout import default_layout_for_viewport, projection_appearance
+    from openpilot.starpilot.ui.tests.test_runtime_snapshot import RuntimeSnapshotAdapter
+
+    ui = ui_fake()
+    ui.params = self.params
+    source = ui.sm.messages['selfdriveState']
+    source.personality = NS(raw=1)
+    source.alertSize, source.alertType = NS(raw=1), 'personalityChanged/warning'
+    source.alertText1 = 'Driving Personality: Standard'
+    # A conflicting old AA-only preference must never pin either state.
+    layout = {**default_layout_for_viewport((2880, 1080)), 'hidePersonalityAlerts': True}
+    adapter = RuntimeSnapshotAdapter(ui)
+    adapter.appearance_override = lambda appearance: projection_appearance(appearance, layout)
+    for second, hidden in enumerate((False, True, False)):
+      self.params.put_bool('HidePersonalityAlerts', hidden, block=True)
+      now = NOW + second * 1_000_000_000
+      ui.sm.logMonoTime['selfdriveState'] = now
+      ui.sm.recv_time['selfdriveState'] = now / 1e9
+      alert = adapter.build(ShellMode.ONROAD, now_ns=now).onroad.alert
+      self.assertEqual(alert.size, AlertSize.NONE if hidden else AlertSize.SMALL)
 
   def test_developer_sidebar_external_changes_refresh_without_restart(self):
     from openpilot.starpilot.ui.tests.test_runtime_snapshot import RuntimeSnapshotAdapter
@@ -269,6 +328,8 @@ class AppearanceSettingsTests(unittest.TestCase):
   def test_stock_confidence_rail_requires_fresh_source_and_road_camera(self):
     from openpilot.starpilot.ui.appearance_preferences import CameraViewChoice
     view = onroad.OnroadView.__new__(onroad.OnroadView)
+    view._fade = Mock()
+    view.personality = Mock()
     view.navigation = Mock()
     view.background_layer = None
     view.projection_viewport = None
@@ -285,7 +346,6 @@ class AppearanceSettingsTests(unittest.TestCase):
     view.torque_bar = Mock()
     view.stock_confidence_layer = Mock()
     view.stock_confidence_reset = Mock()
-    view._fade = None
     base = OnroadState(engaged=True, camera_available=False, speed_mps=12, cruise_kph=60,
                        speed_limit=SpeedLimitObservation(),
                        appearance=OnroadAppearance(show_stock_confidence_ball=True),
@@ -296,7 +356,7 @@ class AppearanceSettingsTests(unittest.TestCase):
          patch.object(onroad.rl, "draw_rectangle_rec"), patch.object(onroad.rl, "draw_rectangle_gradient_v"), \
          patch.object(onroad.rl, "draw_rectangle"), patch.object(onroad.rl, "draw_texture_ex"), \
          patch.object(onroad.rl, "draw_rectangle_rounded_lines_ex"), patch.object(onroad, "render_compact_half_borders"), \
-         patch.object(view, "_prepare_compact_fade"), patch.object(view, "_slc_actions"):
+         patch.object(view, "_slc_actions"):
       view.render(base)
       view.stock_confidence_layer.assert_called_once()
       view.stock_confidence_reset.assert_called_once()
@@ -477,7 +537,8 @@ class AppearanceSettingsTests(unittest.TestCase):
     large.press(1980, 300, state)
     large.move(1800, 300, state)
     large.release(1800, 300, state)
-    self.assertEqual(changed, [], "the remaining rows fit on one page")
+    self.assertEqual([(action.kind, action.direction) for action in changed], [('scroll', 1)])
+    changed.clear()
     large.press(1980, 300, state)
     large.release(1980, 300, state)
     self.assertEqual(changed[0].row.key, "DeveloperSidebar")
@@ -563,9 +624,13 @@ class AppearanceSettingsTests(unittest.TestCase):
       UnifiedSpeedWidget(fonts).render(rl.Rectangle(30, 30, 1800, 1020), base)
       card.assert_not_called()
       from openpilot.starpilot.ui.tests.test_unified_speed_native import foreground_calls
-      self.assertEqual(foreground_calls(fonts.draw)[0].args[3:5], (192, 90))
+      x, y = foreground_calls(fonts.draw)[0].args[3:5]
+      self.assertAlmostEqual(x, 175)
+      self.assertAlmostEqual(y, 125.55, places=2)  # SET centers on the sign beside it
     for profile in (Profile.LARGE, Profile.COMPACT):
       view = onroad.OnroadView.__new__(onroad.OnroadView)
+      view._fade = Mock()
+      view.personality = Mock()
       view.navigation = Mock()
       view.background_layer = None
       view.projection_viewport = None
@@ -583,12 +648,11 @@ class AppearanceSettingsTests(unittest.TestCase):
       view.steering_wheel = Mock()
       view.compact_hud = Mock()
       view.compact_sidebar = Mock()
-      view._fade = None
       with patch.object(onroad.clip, "begin_scissor_mode"), patch.object(onroad.clip, "end_scissor_mode"), \
            patch.object(onroad.rl, "draw_rectangle_rec"), patch.object(onroad.rl, "draw_rectangle_gradient_v"), \
            patch.object(onroad.rl, "draw_rectangle_lines_ex"), patch.object(onroad.rl, "draw_rectangle"), \
            patch.object(onroad.rl, "draw_texture_ex"), patch.object(onroad.rl, "draw_rectangle_rounded_lines_ex"), \
-           patch.object(onroad, "render_corner_hint"), patch.object(view, "_prepare_compact_fade"), \
+           patch.object(onroad, "render_corner_hint"), \
            patch.object(view, "_slc_actions") as slc:
         view.render(base)
         view.torque_bar.render.assert_called_once()

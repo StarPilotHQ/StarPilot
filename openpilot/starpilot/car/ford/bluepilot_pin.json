@@ -1,0 +1,286 @@
+{
+  "commit": "2b9dc6cc784faac47a1885d0bda0561f7b76f74d",
+  "exclude": [
+    ".github"
+  ],
+  "files": {
+    ".gitattributes": {
+      "blob": "790302d680c22c2c7cf950e621d74bf7b5a74bc9",
+      "mode": "100644"
+    },
+    ".gitignore": {
+      "blob": "c18dd8d83ceed1806b50b0aaa46beb7e335fff13",
+      "mode": "100644"
+    },
+    "CREDITS.md": {
+      "blob": "233bb151f63c553526bbb087631a0f848a91f5ac",
+      "mode": "100644"
+    },
+    "FORKS.md": {
+      "blob": "4dc88b88e80077f14d0e6582e065cf25b2f6258b",
+      "mode": "100644"
+    },
+    "HOSTS.md": {
+      "blob": "d211deb45a2e09af49af18a18f9d7d15a3a1938e",
+      "mode": "100644"
+    },
+    "LICENSE": {
+      "blob": "d04886ea6897db864ab6b4266743851595cf12db",
+      "mode": "100644"
+    },
+    "README.md": {
+      "blob": "434970deca35afc80e25dd4644cadfe64d69c226",
+      "mode": "100644"
+    },
+    "__init__.py": {
+      "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "mode": "100644"
+    },
+    "can/LANE_ASSIST_DATA1.md": {
+      "blob": "30ba06e8c65960eeddc16dfb3c855730c5db0b21",
+      "mode": "100644"
+    },
+    "can/__init__.py": {
+      "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "mode": "100644"
+    },
+    "can/fordcan_ext.py": {
+      "blob": "25d2b8a4c5383c4cbdd3d2160092dfb071172af0",
+      "mode": "100644"
+    },
+    "core/__init__.py": {
+      "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "mode": "100644"
+    },
+    "core/carcontroller_ext.py": {
+      "blob": "f94b2967e08d1e979b658ea77ed622510902ca0b",
+      "mode": "100644"
+    },
+    "core/human_turn.py": {
+      "blob": "12ff8a1b56135377452bf42f9aeff8a8e647e28e",
+      "mode": "100644"
+    },
+    "core/lane_center_trim.py": {
+      "blob": "a8a310954cf12bfd98d8cc954d5467a3fd0328dd",
+      "mode": "100644"
+    },
+    "core/lateral_angle_ext.py": {
+      "blob": "fce3b99c490774f6e73edb19ae0b3bc753e6d163",
+      "mode": "100644"
+    },
+    "core/lateral_curv_ext.py": {
+      "blob": "8bdd151db9363b32414cd4914b6cf2c571541c1b",
+      "mode": "100644"
+    },
+    "core/lateral_inputs.py": {
+      "blob": "97d517b677aeae24a65245ea5ef139046aa50aae",
+      "mode": "100644"
+    },
+    "core/values_ext.py": {
+      "blob": "2f7dd43cb2072fb1a88b1ef61a77bcc1c33b2ab9",
+      "mode": "100644"
+    },
+    "host_types.py": {
+      "blob": "7a470e58bfd3c8a3c67847059422ed2969d64270",
+      "mode": "100644"
+    },
+    "hosts/__init__.py": {
+      "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "mode": "100644"
+    },
+    "hosts/iqpilot/__init__.py": {
+      "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "mode": "100644"
+    },
+    "hosts/iqpilot/hooks.patch": {
+      "blob": "618e7d8ad4235fd0819538e6ca786ae4b442a74e",
+      "mode": "100644"
+    },
+    "hosts/iqpilot/host.sh": {
+      "blob": "d9251e9036e089e9f74d407aa5ec698324610e36",
+      "mode": "100755"
+    },
+    "hosts/iqpilot/known_failures.txt": {
+      "blob": "4f041df48b641106203e54b812aa68eea40444c5",
+      "mode": "100644"
+    },
+    "hosts/iqpilot/lateral.py": {
+      "blob": "5fd6987ecaef3d6b280b9ba4953f990dc0e5eb3a",
+      "mode": "100644"
+    },
+    "hosts/iqpilot/safety_param.py": {
+      "blob": "fd7b2b09f87008acb06921088dc8813a7c246d33",
+      "mode": "100644"
+    },
+    "hosts/starpilot/__init__.py": {
+      "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "mode": "100644"
+    },
+    "hosts/starpilot/lateral.py": {
+      "blob": "67256b32b4b597ecc1f35b39562023e117128f2a",
+      "mode": "100644"
+    },
+    "hosts/starpilot/safety_param.py": {
+      "blob": "1679fc10712a989dec64d551867a310638e4d156",
+      "mode": "100644"
+    },
+    "hosts/sunnypilot/__init__.py": {
+      "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "mode": "100644"
+    },
+    "hosts/sunnypilot/lateral.py": {
+      "blob": "e96ca7e72a901455a698802c29beff0643d622b7",
+      "mode": "100644"
+    },
+    "hosts/sunnypilot/safety_param.py": {
+      "blob": "392ff82ca00dee7c5480415de1d3aee774c6efd5",
+      "mode": "100644"
+    },
+    "params/__init__.py": {
+      "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "mode": "100644"
+    },
+    "params/manifest.py": {
+      "blob": "ebdcba940952b55ae183b266d02203f56dbc81c7",
+      "mode": "100644"
+    },
+    "params/param_store.py": {
+      "blob": "0bc7245673ba1203dd2c5d8355a23950399fd17b",
+      "mode": "100644"
+    },
+    "safety/__init__.py": {
+      "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "mode": "100644"
+    },
+    "safety/ford.h": {
+      "blob": "7958b3bf8940cf4f1bc012e2bbd25b3be3c7ea5d",
+      "mode": "100644"
+    },
+    "safety/ford_declarations.h": {
+      "blob": "5565422ceba3169f69dd53c5db5e87f75013cd36",
+      "mode": "100644"
+    },
+    "safety/lateral.h": {
+      "blob": "4a0150f2cc8c1172ddad95453ef609ca48fff789",
+      "mode": "100644"
+    },
+    "safety/lateral_declarations.h": {
+      "blob": "820e980884648220ae03f1147b6df6442e29899d",
+      "mode": "100644"
+    },
+    "safety/tests/__init__.py": {
+      "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "mode": "100644"
+    },
+    "safety/tests/bluepilot_coverage.sh": {
+      "blob": "804a0daad5cd0d965af23998cf094d87af51360f",
+      "mode": "100755"
+    },
+    "safety/tests/bluepilot_mutation.py": {
+      "blob": "87f7a1d8661f62a3ec0825771ae15f009c7414db",
+      "mode": "100644"
+    },
+    "safety/tests/ford_bluepilot_common.py": {
+      "blob": "a313f97fa2ef87c94a62d8569a0bb5519d5ca962",
+      "mode": "100644"
+    },
+    "safety/tests/test_ford_bluepilot.py": {
+      "blob": "51e2defcb42f545435a24595323e17b5c73f4d7f",
+      "mode": "100644"
+    },
+    "safety/tests/test_ford_bluepilot_angle_mode.py": {
+      "blob": "aeac172346461ba4aa611c412c901461ea0f24dd",
+      "mode": "100644"
+    },
+    "safety/tests/test_ford_bluepilot_limits.py": {
+      "blob": "7562be9b9c5cae44ab893b59f20a0f21457e9937",
+      "mode": "100644"
+    },
+    "safety/tests/test_ford_bluepilot_matrix.py": {
+      "blob": "fa7416e790cf7d678147e5c25c1bd1dd9ff55ce4",
+      "mode": "100644"
+    },
+    "safety/tests/test_ford_bluepilot_pinion.py": {
+      "blob": "6e999fd25c63571f6f655dd804c38c8f028712d6",
+      "mode": "100644"
+    },
+    "tests/__init__.py": {
+      "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "mode": "100644"
+    },
+    "tests/host.py": {
+      "blob": "4c99db8af09d44dc60f3fdec8e8792f4810fa237",
+      "mode": "100644"
+    },
+    "tests/test_bluepilot_upstream_copies.py": {
+      "blob": "4975fe256e99c55edfe18292cd9d433e78790bca",
+      "mode": "100644"
+    },
+    "tests/test_core_imports.py": {
+      "blob": "c84e4092082324bd62a897bffca51e7e1cbf159a",
+      "mode": "100644"
+    },
+    "tests/test_host_types.py": {
+      "blob": "25856bc6f0728e18b0eac6a4c127898ddb670775",
+      "mode": "100644"
+    },
+    "tests/test_lane_assist_data1.py": {
+      "blob": "390105b1fefd8998ec0e6045eb99a83291d653b1",
+      "mode": "100644"
+    },
+    "tests/test_lane_center_trim.py": {
+      "blob": "673b35616dff6b989b1d357a15b649fca7a8ca52",
+      "mode": "100644"
+    },
+    "tests/test_lat_ctl2_checksum.py": {
+      "blob": "f9cf9058417561ea900a3a3b2af7539b8f5035bf",
+      "mode": "100644"
+    },
+    "tests/test_lateral_inputs.py": {
+      "blob": "e3971fc07d4c120e50076f55d71124851a98ef13",
+      "mode": "100644"
+    },
+    "tests/test_lateral_status.py": {
+      "blob": "03933a2e4f20087c4b245734d19cc11a6dbf83cf",
+      "mode": "100644"
+    },
+    "tests/test_param_store.py": {
+      "blob": "73b61f12530c0f9c6df53169be6f2e7ca5cad8a2",
+      "mode": "100644"
+    },
+    "tests/test_platform_tables.py": {
+      "blob": "20902d45e68bd8a719e6fc3a2177d348c398968a",
+      "mode": "100644"
+    },
+    "tests/test_safety_param_bits.py": {
+      "blob": "317401dbea86587e225208302c55d831b0448270",
+      "mode": "100644"
+    },
+    "tests/test_settings_manifest.py": {
+      "blob": "f94cc0a356fe1187d6e943a636e01913ee6929b0",
+      "mode": "100644"
+    },
+    "tests/test_vendor_tools.py": {
+      "blob": "6f2847c3643fcda675dccf34a1dab73f3d6858ed",
+      "mode": "100644"
+    },
+    "tools/check_vendored.sh": {
+      "blob": "fb3934c72679351b7fe43502ee8aa86e4ac7b7dc",
+      "mode": "100755"
+    },
+    "tools/make_hook_patch.sh": {
+      "blob": "ac0e05a12ba23422cab30bf0b9fc232c153e288a",
+      "mode": "100755"
+    },
+    "tools/test_on_host.sh": {
+      "blob": "e62950efb81628596b9191a9002f432f3598bf83",
+      "mode": "100755"
+    },
+    "tools/vendor.sh": {
+      "blob": "8dc8ca73623cccc1b00976449b7258623f25e600",
+      "mode": "100755"
+    }
+  },
+  "repository": "https://github.com/BluePilotDev/bluepilot-lateral",
+  "version": "v0.2.1"
+}

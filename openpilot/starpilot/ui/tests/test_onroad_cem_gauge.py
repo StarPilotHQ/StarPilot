@@ -5,7 +5,7 @@ from types import SimpleNamespace as NS
 from unittest.mock import Mock, patch
 import copy
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 import pytest
 
 from openpilot.starpilot.conditional_mode.policy import ModeChoice
@@ -78,14 +78,22 @@ def test_current_radar_metrics_use_native_units():
 
 def test_curve_selected_source_retains_speed_units_and_csc_reduction():
   curve = CurveObservation(True, 15., 15., True, True, False, 100., 2., 30., 'curve', 'selected', 'saved', True, False, .005)
-  sample = state('cem_curve', effective=True, curve=curve, metric=True)
+  sample = state('cem_curve', effective=True, curve=curve, metric=True, show_curve_status=True)
   data = gauge_data(sample)
   assert data.indicator_type is IndicatorType.ROAD_CURVE and data.indicator_value == .005
   assert (data.text, data.unit, data.reduction_text) == ('54', 'km/h', '-36')
   assert (gauge_data(replace(sample, metric=False)).text, gauge_data(replace(sample, metric=False)).unit) == ('34', 'mph')
-  perception = state('cem_curve', curve=curve)
-  assert gauge_data(perception).text == '45'  # Actual ego speed; no CSC control authority.
-  assert gauge_data(perception).reduction_text == ''
+  cem_only = replace(sample, metric=False, show_curve_status=False)
+  assert (gauge_data(cem_only).text, gauge_data(cem_only).reduction_text) == ('45', '')
+  assert gauge_data(replace(cem_only, speed_mps=24.5)) is None
+  assert gauge_data(state('cem_curve', curve=curve)) is None
+  hidden = replace(sample, show_curve_status=False)
+  assert (gauge_data(hidden).text, gauge_data(hidden).reduction_text) == ('72', '')
+  assert gauge_data(replace(state('no_trigger', effective=True, curve=curve), show_curve_status=False)) is None
+  assert gauge_data(replace(state('no_trigger', effective=True, curve=curve), show_curve_status=True)).reduction_text == '-22'
+  held = replace(state('no_trigger', effective=True, curve=replace(curve, applied=False, controlling=False)), show_curve_status=True)
+  assert (gauge_data(held).text, gauge_data(held).reduction_text) == ('45', '')
+  assert gauge_data(replace(held, curve=replace(held.curve, glow=False))) is None
 
 
 @pytest.mark.parametrize('changes', [{'alert': OnroadAlert(size=AlertSize.FULL, critical=True)},
@@ -234,8 +242,10 @@ def test_numeric_caption_declared_footprint_fits_actual_bottom_content_edge(proj
   fonts.measure.side_effect = lambda _text, _role, size: NS(width=80., height=size * Profile.LARGE.font_scale)
   gauge = AetherGauge(fonts)
   with patch.object(rl, 'draw_line_ex'):
-    sample = state('cem_curve', customization=customization)
-    gauge._draw_mini_cradle(1152., placed['y'] - 24 + 145, gauge_data(sample))
+    sample = state('cem_curve', effective=True, customization=customization)
+    data = gauge_data(sample)
+    assert data is not None
+    gauge._draw_mini_cradle(1152., placed['y'] - 24 + 145, data)
   unit_calls = [call.args for call in fonts.draw.call_args_list if call.args[0] == 'mph']
   assert len(unit_calls) == 5
   unit_size = unit_calls[-1][2]
@@ -267,7 +277,7 @@ def test_gauge_draws_only_for_visible_reasons(projection, kind):
     sample = replace(sample, conditional_perception=None)
   elif kind == 'curve_control':
     curve = CurveObservation(True, 15., 15., True, True, False, 100., 2., 30., 'curve', 'selected', 'saved', True, False, .005)
-    sample = replace(sample, curve=curve)
+    sample = replace(sample, curve=curve, show_curve_status=True)
   gauge = AetherGauge(Mock())
   with patch.object(gauge, '_render_unified_road') as draw:
     gauge.render(sample)
@@ -301,16 +311,16 @@ def test_gauge_box_shrinks_to_its_content_and_saved_positions_keep_the_drawing_i
   # Android Auto version 2 layouts move the same way.
   viewport = (2880, 1080)
   aa = default_layout_for_viewport(viewport)
-  assert aa['version'] == 5
+  assert aa['version'] == 7
   aa['version'] = 2
   aa['widgets'][CEM_GAUGE_WIDGET].update(x=900, y=200)
   moved = validate_layout_for_viewport(aa, viewport)
-  assert moved['version'] == 5 and (moved['widgets'][CEM_GAUGE_WIDGET]['x'], moved['widgets'][CEM_GAUGE_WIDGET]['y']) == (944, 224)
+  assert moved['version'] == 7 and (moved['widgets'][CEM_GAUGE_WIDGET]['x'], moved['widgets'][CEM_GAUGE_WIDGET]['y']) == (944, 224)
   assert validate_layout_for_viewport(moved, viewport) == moved
 
 
 @pytest.mark.parametrize('projection', [False, True])
-def test_default_cem_gauge_is_in_left_column_centered_above_driver_monitor(projection):
+def test_default_cem_gauge_keeps_left_column_with_personality_monitor_pair(projection):
   from openpilot.starpilot.system.starport.projection_layout import default_layout_for_viewport, layout_metadata_for_viewport
   from openpilot.starpilot.ui.onroad_customization import customization_metadata
 
@@ -322,6 +332,9 @@ def test_default_cem_gauge_is_in_left_column_centered_above_driver_monitor(proje
     widgets = customization_metadata()['profiles']['large']['widgets']
     layout = default_document()['layouts']['large']
   gauge, monitor, actions = (layout[key] for key in (CEM_GAUGE_WIDGET, 'driver_monitor', 'speed_limit_actions'))
-  assert gauge['x'] + widgets[CEM_GAUGE_WIDGET]['width'] / 2 == monitor['x'] + monitor['size'] / 2 == 184
+  personality = layout['following_distance']
+  assert gauge['x'] + widgets[CEM_GAUGE_WIDGET]['width'] / 2 == 184
+  assert personality['x'] + widgets['following_distance']['width'] + 32 == monitor['x']
+  assert personality['y'] + widgets['following_distance']['height'] / 2 == monitor['y'] + monitor['size'] / 2
   assert actions['y'] + widgets['speed_limit_actions']['height'] < gauge['y']
   assert gauge['y'] + widgets[CEM_GAUGE_WIDGET]['height'] < monitor['y']

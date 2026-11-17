@@ -83,6 +83,7 @@ class ToyotaFlags(IntFlag):
   RAISED_ACCEL_LIMIT = 1024
   SECOC = 2048
   AUTO_BRAKE_HOLD = 4096
+  FILTER_BUTTONS = 1 << 20  # Auxiliary inputs from a discovered primary four-byte radar filter
   RADAR_CAN_FILTER = 1 << 18  # Exact radar adapter; includes four-byte 2FF, distinct from legacy SDSU status
   GAS_INTERCEPTOR = 1 << 17  # Exact paired pedal owner
   DSU_BYPASS = 1 << 19  # Camera-bus DSU adapter; independent of smartDSU/filter
@@ -473,6 +474,16 @@ def get_platform_codes(fw_versions: list[bytes]) -> dict[bytes, set[bytes]]:
         codes[b'-'.join((part, platform, major_version))].add(sub_version)
 
   return dict(codes)
+
+
+def automatic_prius_candidate(candidate, car_fw):
+  if candidate != CAR.TOYOTA_PRIUS:
+    return candidate
+  eps = [fw for fw in car_fw if fw.ecu == Ecu.eps]
+  if eps and all(not fw.logging and fw.bus == 0 and fw.brand == 'toyota' and fw.address == 0x7A1 and
+                 not fw.subAddress and bytes(fw.fwVersion) == b'8965B47070' + bytes(6) for fw in eps):
+    return CAR.TOYOTA_PRIUS_RETROFIT
+  return candidate
 
 
 def match_fw_to_car_fuzzy(live_fw_versions, vin, offline_fw_versions) -> set[str]:

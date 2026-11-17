@@ -42,7 +42,7 @@ def probe(profile, output):
   from openpilot.starpilot.tests.tesla_fixture import EPS, FW_VERSIONS, NativeSafety, TeslaFixture, sha256, sha256_bytes
 
   native = {}
-  for name in ("capnp.lib.capnp", "msgq.ipc_pyx", "_cffi_backend"):
+  for name in ("capnp.lib.capnp", "msgq._ipc", "_cffi_backend"):
     module_file = importlib.import_module(name).__file__
     if module_file is None:
       raise RuntimeError(f"Native extension has no file: {name}")

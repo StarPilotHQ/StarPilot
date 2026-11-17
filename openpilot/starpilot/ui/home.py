@@ -9,7 +9,7 @@ import json
 import math
 from pathlib import Path
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui import clip
 
@@ -61,7 +61,7 @@ class HomeView:
       path = validate_home_asset(self.assets, filename)
       image = rl.load_image(str(path))
       try:
-        if image.data == rl.ffi.NULL or image.width <= 0 or image.height <= 0:
+        if image.data is None or image.width <= 0 or image.height <= 0:
           raise ValueError(f"Invalid Home image: {filename}")
         target_width = min(int(width * self._pixel_scale[0]), image.width)
         target_height = min(int(height * self._pixel_scale[1]), image.height)
@@ -72,7 +72,7 @@ class HomeView:
         if texture.id == 0:
           raise RuntimeError(f"Unable to load Home texture: {filename}")
       finally:
-        if image.data != rl.ffi.NULL:
+        if image.data is not None:
           rl.unload_image(image)
       rl.set_texture_filter(texture, rl.TextureFilter.TEXTURE_FILTER_BILINEAR)
       rl.set_texture_wrap(texture, rl.TextureWrap.TEXTURE_WRAP_CLAMP)
@@ -114,7 +114,13 @@ class HomeView:
   def _large(self, state: HomeState) -> None:
     self._sidebar(state)
     header = rl.Rectangle(340, 40, 1780, 80)
-    detail = (" " + state.description if state.description else "") + (" - " + state.model_label if state.model_label else "")
+    description = state.description
+    if state.branch == "StarPilot":
+      parts = description.split(" / ")
+      if len(parts) > 1 and parts[1] == "StarPilot":
+        parts[1] = "Stable"
+      description = " / ".join(parts)
+    detail = (" " + description if description else "") + (" - " + state.model_label if state.model_label else "")
     size = 48
     brand = self._measure("StarPilot", FontRole.BRAND, size + 2)
     model = self._measure(detail, FontRole.MEDIUM, size)
@@ -197,10 +203,10 @@ class HomeView:
       path = validate_home_asset(self.assets, "icons_mici/experimental_mode.png")
       image = rl.load_image(str(path))
       try:
-        if image.data == rl.ffi.NULL or not 0 < image.width <= 4096 or not 0 < image.height <= 4096:
+        if image.data is None or not 0 < image.width <= 4096 or not 0 < image.height <= 4096:
           raise ValueError("Invalid mode atom image")
         rl.image_format(image, rl.PixelFormat.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8)
-        pixels = bytearray(rl.ffi.buffer(image.data, image.width * image.height * 4))
+        pixels = bytearray(image.data[:image.width * image.height * 4])
         for row in range(image.height):
           for column in range(image.width):
             offset = (row * image.width + column) * 4
@@ -209,7 +215,7 @@ class HomeView:
             shade = 0.65 + max(pixels[offset:offset + 3]) / 255.0 * 0.35
             color = mode_atom_color(mode, column / max(image.width - 1, 1))
             pixels[offset:offset + 3] = bytes(round(value * shade) for value in (color.r, color.g, color.b))
-        rl.ffi.buffer(image.data, len(pixels))[:] = bytes(pixels)
+        image.data[:len(pixels)][:] = bytes(pixels)
         texture = rl.load_texture_from_image(image)
         if texture.id == 0:
           raise RuntimeError("Unable to load mode atom texture")
@@ -217,7 +223,7 @@ class HomeView:
         rl.set_texture_wrap(texture, rl.TextureWrap.TEXTURE_WRAP_CLAMP)
         self._mode_textures[mode] = texture
       finally:
-        if image.data != rl.ffi.NULL:
+        if image.data is not None:
           rl.unload_image(image)
     texture = self._mode_textures[mode]
     rl.draw_texture_pro(texture, rl.Rectangle(0, 0, texture.width, texture.height), rl.Rectangle(x, y, 48, 48), rl.Vector2(0, 0), 0, rl.WHITE)
@@ -225,14 +231,28 @@ class HomeView:
   def _compact(self, state: HomeState):
     white = rl.Color(255, 255, 255, 229)
     self._text("StarPilot", FontRole.BRAND, 64, 6, 8, white)
-    version_branch = f"{state.version}  {state.branch}".strip()
-    for text, y, color in ((version_branch, 98, rl.GRAY), (state.model_label, 140, white)):
+    branch_label = "Stable" if state.branch == "StarPilot" else state.branch
+    version_branch = f"{state.version}  {branch_label}".strip()
+    date_width = self._measure(state.commit_date, FontRole.ROMAN, 30).width if state.commit_date else 0
+    version_width = 520 - date_width - 16 if state.commit_date else 520
+    for text, y, color, width in ((version_branch, 98, rl.GRAY, version_width), (state.model_label, 140, white, 520)):
       size = 30
-      while size > 22 and self._measure(text, FontRole.ROMAN, size).width > 520:
+      while size > 22 and self._measure(text, FontRole.ROMAN, size).width > width:
         size -= 1
-      while text and self._measure(text, FontRole.ROMAN, size).width > 520:
+      if y == 140 and "/" in text:
+        parts = text.split("/", 1)
+        budget = (width - self._measure("/", FontRole.ROMAN, size).width) / 2
+        for i, part in enumerate(parts):
+          while part and self._measure(part, FontRole.ROMAN, size).width > budget:
+            part = part[:-2].rstrip('…') + '…'
+          parts[i] = part
+        text = "/".join(parts)
+      while text and self._measure(text, FontRole.ROMAN, size).width > width:
         text = text[:-2].rstrip('…') + '…'
       self._text(text, FontRole.ROMAN, size, 6, y, color)
+      if y == 98 and state.commit_date:
+        date_x = 6 + self._measure(text, FontRole.ROMAN, size).width + 16
+        self._text(state.commit_date, FontRole.ROMAN, 30, date_x, y, rl.GRAY)
     self._icon("icons_mici/settings.png", 48, 48, 8, 192, 0.9)
     if state.network == "wifi":
       suffix = "none" if state.network_strength == 0 else "medium" if state.network_strength == 3 else "full" if state.network_strength >= 4 else "low"

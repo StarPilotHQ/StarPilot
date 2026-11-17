@@ -7,6 +7,9 @@ from openpilot.starpilot.longitudinal.ioniq6_start import eligible as ioniq6_lon
 from openpilot.starpilot.saved_source import read_saved
 
 
+LONGITUDINAL_ONLY_EVENTS = (EventName.radarFault, EventName.radarTempUnavailable)
+
+
 ButtonType = car.CarState.ButtonEvent.Type
 
 
@@ -40,7 +43,9 @@ def physical_cancel(cs, cp=None) -> bool:
 def aol_no_entry(event_names, cs, *, paddle_only_cancel: bool, cruise_main_required: bool = True,
                  allow_below_engage_speed: bool = False, allow_lateral_cancel: bool = False) -> bool:
   """Apply vehicle-owned lateral exceptions without changing ordinary cruise events."""
-  return any(event not in (EventName.pedalPressed, EventName.seatbeltNotLatched, EventName.resumeBlocked) and ET.NO_ENTRY in EVENTS.get(event, {}) and
+  return any(event not in (EventName.pedalPressed, EventName.seatbeltNotLatched, EventName.resumeBlocked, EventName.doorOpen,
+                          *LONGITUDINAL_ONLY_EVENTS) and
+             ET.NO_ENTRY in EVENTS.get(event, {}) and
              (event != EventName.belowEngageSpeed or not allow_below_engage_speed) and
              (event != EventName.wrongCarMode or cruise_main_required) and
              (event != EventName.buttonCancel or

@@ -23,10 +23,7 @@ def installed_policy_for(cp):
 
 
 def policy_for(cp, startup_preferences=None):
-  from opendbc.car.gm.long_tune import selected_policy
-  installed = installed_policy_for(cp)
-  selection = getattr(startup_preferences, "gm_longitudinal_tune", 0)
-  return selected_policy(cp, installed, selection)
+  return installed_policy_for(cp)
 
 
 def stopping_decel_rate(cp, policy):
@@ -76,6 +73,10 @@ def forecast_should_stop(cp, speeds, time_indices, action_t, fallback):
   if decision is not None:
     return decision
   decision = hyundai_forecast_should_stop(cp, speeds, time_indices, action_t)
+  if decision is not None:
+    return decision
+  from opendbc.car.hyundai.forecast_stop import forecast_should_stop as hkg_forecast_stop
+  decision = hkg_forecast_stop(cp, speeds, time_indices, action_t)
   return fallback if decision is None else decision
 
 

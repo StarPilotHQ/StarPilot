@@ -1,5 +1,6 @@
 """Validated onroad colors and independent logical-pixel layouts."""
 
+from dataclasses import replace
 import copy
 import json
 import math
@@ -9,8 +10,9 @@ from typing import Any, NotRequired, TypedDict
 
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.ui.onroad_torque_geometry import maximum_footprint
-from openpilot.starpilot.ui.large_speed_geometry import confirmation_bounds, confirmation_footprint
+from openpilot.starpilot.ui.large_speed_geometry import LIMIT_RECTS, confirmation_footprint
 from openpilot.starpilot.ui.onroad_stopped_timer import timer_size
+from openpilot.starpilot.ui.onroad_favorites_geometry import shelf_metadata
 from openpilot.starpilot.ui.large_speed_geometry import (WIDTH, CARD_HEIGHT, ACTION_WIDTH, ACTION_HEIGHT, ACTION_X, ACTION_Y,
                                                         GAP, SOURCE_ROW_HEIGHT, sources_extent)
 
@@ -64,6 +66,7 @@ class Widget(TypedDict):
   opacity: NotRequired[dict[str, int]]
   anchorShift: NotRequired[float]
   expandable: NotRequired[bool]
+  hidden: NotRequired[bool]
 
 
 class LayoutProfile(TypedDict):
@@ -78,6 +81,7 @@ class LayoutProfile(TypedDict):
   inputZonePriority: NotRequired[str]
   widgetOrder: NotRequired[list[str]]
   runtimePreviewWidgets: NotRequired[list[str]]
+  quickSelectShelves: NotRequired[list[dict[str, Any]]]
 
 
 def _widget(label: str, kind: str, width: float, height: float, x: float, y: float) -> Widget:
@@ -94,21 +98,22 @@ PROFILES: dict[str, LayoutProfile] = {
               "cruise_limits": _widget("Cruise and speed limit", "cruise_limits", WIDTH, CARD_HEIGHT, 88, 75),
               "speed_limit_actions": _widget("Speed limit actions", "speed_limit_actions", ACTION_WIDTH, ACTION_HEIGHT, ACTION_X, ACTION_Y),
               "steering_wheel": _widget("Steering wheel", "steering_wheel", 192, 192, 1588, 75),
-              "driver_monitor": _widget("Driver monitoring", "driver_monitor", 128, 128, 120, 840)}},
+              "driver_monitor": _widget("Driver monitoring", "driver_monitor", 128, 128, 270, 840),
+              "following_distance": _widget("Following distance", "following_distance", 150, 200, 88, 804)}},
   "compact": {"label": "Small UI", "width": 536, "height": 240,
               "bounds": {"x": 0, "y": 0, "width": 476, "height": 240},
               "protectedWidget": "speed_limit_actions",
               "reservedZones": [],
               "widgets": {
                 "max_speed": _widget("Set speed", "max_speed", 146, 162, 0, 0),
-                "speed_limit": _widget("Speed limit", "speed_limit", 118, 132, 330, 20),
+                "speed_limit": _widget("Speed limit", "speed_limit", *LIMIT_RECTS['compact'][2:], *LIMIT_RECTS['compact'][:2]),
                 "speed_limit_actions": _widget("Speed limit actions", "speed_limit_actions", 184, 120, 146, 44),
                 "steering_wheel": _widget("Steering wheel", "steering_wheel", 50, 50, 21, 176),
                 "driver_monitor": _widget("Driver monitoring", "driver_monitor", 60, 60, 16, 10)}}}
 
 for _profile in PROFILES:
   PROFILES[_profile]['widgets']['speed_limit_actions']['note'] = (
-    'Accept / Reject appear inside a pending limit after tapping it. This placement controls Toyota guidance and re-adoption.')
+    'Accept / Reject appear inside a pending limit after tapping it.')
   _owner = 'cruise_limits' if _profile == 'large' else 'speed_limit'
   PROFILES[_profile]['widgets'][_owner]['confirmation'] = confirmation_footprint(_profile)
 
@@ -125,7 +130,7 @@ COMPACT_SPEED_LAYOUT_V8 = {
 for profile, sizes in DM_SIZES.items():
   PROFILES[profile]['widgets']['driver_monitor']['default']['size'] = sizes[1]
 
-LEGACY_WIDGETS = {"large": {"current_speed", "cruise_limits", "steering_wheel"},
+LEGACY_WIDGETS = {"large": {"current_speed", "cruise_limits", "steering_wheel", "following_distance"},
                   "compact": {"max_speed", "speed_limit", "steering_wheel"}}
 DM_WIDGETS = {profile: keys | {"driver_monitor"} for profile, keys in LEGACY_WIDGETS.items()}
 for _profile, _data in PROFILES.items():
@@ -133,7 +138,7 @@ for _profile, _data in PROFILES.items():
   _x, _y, _width, _height = maximum_footprint(_bounds["x"], _bounds["y"], _bounds["width"], _bounds["height"], _data["width"])
   _data["widgets"]["torque_bar"] = {
     **_widget("Torque bar", "torque_bar", _width, _height, _x, _y), "layer": "underlay",
-    "note": "Torque output, or steering-effort estimate on angle-controlled vehicles"}
+    "note": "Torque command or lateral-acceleration demand. Full width reflects the configured display scale."}
 ACTIONLESS_WIDGETS = {profile: set(data["widgets"]) - {"speed_limit_actions"} for profile, data in PROFILES.items()}
 
 RAILLESS_WIDGETS = {profile: set(data["widgets"]) for profile, data in PROFILES.items()}
@@ -176,11 +181,18 @@ for _profile, (_x, _y) in {"compact": (18, 48), "large": (600, 520)}.items():
   _timer_widget["note"] = "Counts how long you have been stopped, after the first minute of the drive"
   PROFILES[_profile]["widgets"][STOPPED_TIMER_WIDGET] = _timer_widget
 
+WEATHER_WIDGET = "weather"
+for _profile, _geometry in {"large": (280, 100, 640, 540), "compact": (112, 48, 172, 174)}.items():
+  _weather_widget = _widget("Weather", WEATHER_WIDGET, *_geometry)
+  _weather_widget["default"]["enabled"] = False
+  _weather_widget["note"] = "Outside temperature and conditions. Weather by Open-Meteo.com; requires internet and a GPS fix."
+  PROFILES[_profile]["widgets"][WEATHER_WIDGET] = _weather_widget
+
 NAV_CARD_WIDGET, NAV_MAP_WIDGET = "nav_card", "nav_map"
-NAV_CARD_SIZE = (560, 195)
+NAV_CARD_SIZE = (560, 255)  # sized for 3X glance legibility; grows up so its bottom edge stays put
 MAP_MIN_SIZE = (280, 200)
 MAP_OPACITY = (15, 100, 50)  # percent: min, max, default
-_nav_card = _widget("Turn-by-turn", NAV_CARD_WIDGET, *NAV_CARD_SIZE, 1230, 415)
+_nav_card = _widget("Turn-by-turn", NAV_CARD_WIDGET, *NAV_CARD_SIZE, 1230, 355)
 _nav_card["note"] = "The next maneuver while a route is active"
 PROFILES["large"]["widgets"][NAV_CARD_WIDGET] = _nav_card
 _nav_map = _widget("Map overlay", NAV_MAP_WIDGET, 560, 420, 1230, 625)
@@ -210,10 +222,13 @@ CEM_GAUGE_INSET = (44, 24)
 CEM_GAUGE_SIZE = (256, 276)
 PROFILES['large']['widgets'][CEM_GAUGE_WIDGET] = _widget('CEM road gauge', CEM_GAUGE_WIDGET, *CEM_GAUGE_SIZE,
                                                          56, 536)
+for _profile, _geometry in {"large": (112, 70, 165, 294), "compact": (45, 28, 220, 12)}.items():
+  PROFILES[_profile]["widgets"]["rear_fog"] = _widget("Rear fog indicator", "rear_fog", *_geometry)
+
 ROAD_BASE_WIDTH = 1860
 SIDEBAR_EXTRA = 300
 ANCHOR_SHIFT = {"steering_wheel": 1.0, NAV_CARD_WIDGET: 1.0, NAV_MAP_WIDGET: 1.0,
-                "current_speed": .5, "torque_bar": .5, MODE_WIDGET: .5, CLOCK_WIDGET: .5}
+                "current_speed": .5, "torque_bar": .5, MODE_WIDGET: .5, CLOCK_WIDGET: .5, WEATHER_WIDGET: .5}
 for _key, _widget_data in PROFILES["large"]["widgets"].items():
   if _key in ANCHOR_SHIFT:
     _widget_data["anchorShift"] = ANCHOR_SHIFT[_key]
@@ -221,7 +236,8 @@ for _key, _widget_data in PROFILES["large"]["widgets"].items():
   _widget_data["bounds"] = {**_base, "x": _base["x"] - ANCHOR_SHIFT.get(_key, 0) * SIDEBAR_EXTRA, "width": _base["width"] + SIDEBAR_EXTRA}
   _widget_data["expandable"] = True
 # Older documents retain every saved placement and gain this independent widget.
-OPTIONAL_WIDGETS = frozenset({MODE_WIDGET, CLOCK_WIDGET, STOPPED_TIMER_WIDGET, CEM_GAUGE_WIDGET, NAV_CARD_WIDGET, NAV_MAP_WIDGET, JETLINK_WIDGET})
+OPTIONAL_WIDGETS = frozenset({WEATHER_WIDGET, MODE_WIDGET, CLOCK_WIDGET, STOPPED_TIMER_WIDGET, CEM_GAUGE_WIDGET,
+                              NAV_CARD_WIDGET, NAV_MAP_WIDGET, JETLINK_WIDGET, "rear_fog"})
 
 # The torque arc grows when the developer sidebar closes; protect both road widths.
 _torque = PROFILES['large']['widgets']['torque_bar']
@@ -235,9 +251,10 @@ _torque['confirmationObstacle'] = {
 
 # These editor sprites use the runtime components and their canonical assets/fonts.
 RUNTIME_PREVIEW_WIDGETS = {
-  "large": ("current_speed", "cruise_limits", CEM_GAUGE_WIDGET, "steering_wheel", "driver_monitor", "speed_limit_actions"),
-  "compact": ("max_speed", "speed_limit", "steering_wheel", "conditional_mode", "following_distance",
-              "model_confidence", "driver_monitor", "speed_limit_actions"),
+  "large": (WEATHER_WIDGET, "current_speed", "cruise_limits", CEM_GAUGE_WIDGET, "steering_wheel", "following_distance",
+            "driver_monitor", "speed_limit_actions", "rear_fog", MODE_WIDGET, CLOCK_WIDGET),
+  "compact": (WEATHER_WIDGET, "max_speed", "speed_limit", "steering_wheel", "conditional_mode", "following_distance",
+              "model_confidence", "driver_monitor", "speed_limit_actions", "rear_fog", MODE_WIDGET, CLOCK_WIDGET),
 }
 
 _FRAME_COLORS = {"cardFill": "#00000000", "cardBorder": "#00000000"}
@@ -246,16 +263,19 @@ WIDGET_COLORS = {
   "large": {
     MODE_WIDGET: {"text": "#FFFFFFFF"},
     CLOCK_WIDGET: {"text": "#FFFFFFFF"},
+    WEATHER_WIDGET: {"cardFill": "#0F0D17CC", "cardBorder": "#C7AEF744", "text": "#F5F2FCFF"},
     CEM_GAUGE_WIDGET: {},
     "current_speed": {"text": None},
     "cruise_limits": {"cardFill": "#10191FFF", "cardBorder": "#35434DFF", "text": None},
     "speed_limit_actions": {"cardFill": "#10191FFF", "cardBorder": "#35434DFF", "text": "#F1F6F3FF"},
     "steering_wheel": {"cardFill": None, "cardBorder": "#00000000"},
     "driver_monitor": _FRAME_COLORS,
+    "following_distance": _FRAME_COLORS,
   },
   "compact": {
     MODE_WIDGET: {"text": "#FFFFFFFF"},
     CLOCK_WIDGET: {"text": "#FFFFFFFF"},
+    WEATHER_WIDGET: {"cardFill": "#0F0D17CC", "cardBorder": "#C7AEF744", "text": "#F5F2FCFF"},
     "max_speed": {"text": None},
     "speed_limit_actions": {**_ACTION_COLORS, "text": "#F1F6F3FF"},
     "driver_monitor": _FRAME_COLORS,
@@ -269,9 +289,10 @@ WIDGET_COLORS = {
 # Back-to-front order used when a layout first opts into custom layers.
 DEFAULT_WIDGET_ORDER = {
   "large": (NAV_MAP_WIDGET, "pip_left", "pip_right", "cruise_limits", "speed_limit_actions", CEM_GAUGE_WIDGET, "current_speed",
-            "steering_wheel", "torque_bar", "driver_monitor", MODE_WIDGET, CLOCK_WIDGET, STOPPED_TIMER_WIDGET, NAV_CARD_WIDGET, JETLINK_WIDGET),
+            "steering_wheel", "torque_bar", "following_distance", "driver_monitor", MODE_WIDGET, CLOCK_WIDGET, WEATHER_WIDGET,
+            STOPPED_TIMER_WIDGET, NAV_CARD_WIDGET, JETLINK_WIDGET, "rear_fog"),
   "compact": ("pip_left", "pip_right", "speed_limit", "max_speed", "steering_wheel", "torque_bar",
-              "speed_limit_actions", "driver_monitor", *RAIL_WIDGETS, MODE_WIDGET, CLOCK_WIDGET, STOPPED_TIMER_WIDGET),
+              "speed_limit_actions", "driver_monitor", *RAIL_WIDGETS, MODE_WIDGET, CLOCK_WIDGET, WEATHER_WIDGET, STOPPED_TIMER_WIDGET, "rear_fog"),
 }
 
 
@@ -293,16 +314,21 @@ def widget_bounds(profile, widget):
 def customization_metadata():
   profiles = copy.deepcopy(PROFILES)
   profiles["large"]["widgets"]["driver_monitor"]["defaultAnchor"] = "driver_side"
+  profiles["large"]["widgets"]["following_distance"]["defaultAnchor"] = "driver_side"
   # The editor grows the cruise box by these while speed-limit sources are shown.
   profiles["large"]["widgets"]["cruise_limits"]["sourcesExtent"] = {
     "inline": sources_extent({'speedSources': True}), "card": sources_extent({'speedSources': True, 'speedSourcesCard': True}), 'actionGap': GAP}
   profiles["large"]["inputZones"] = [{"id": "favorites_drawer", "label": "Quick Select drawer",
-                                       "x": 30, "y": 900, "width": 150, "height": 150}]
+                                    "x": 30, "y": 900, "width": 340, "height": 150,
+                                    "excludes": [key for key in profiles["large"]["widgets"]
+                                                 if key not in ("torque_bar", "pip_left", "pip_right", "nav_map", "speed_limit_actions")]}]
+  profiles["large"]["quickSelectShelves"] = shelf_metadata()
   profiles["compact"]["inputZones"] = [
     {"id": f"favorite_{index + 1}", "label": f"Quick Select {index + 1}",
      "x": index * 476 / 3, "y": 0, "width": 476 / 3, "height": 240} for index in range(3)]
   for profile in profiles.values():
     profile["inputZonePriority"] = "Enabled Quick Select slots; speed-limit controls and steering wheel take priority"
+  profiles["large"]["inputZonePriority"] = "Visible corner cue; other controls take priority over the larger swipe area"
   for name, profile in profiles.items():
     for key, widget in profile["widgets"].items():
       widget["colors"] = dict(WIDGET_COLORS[name].get(key, {}))
@@ -321,7 +347,7 @@ def customization_metadata():
 
 
 def default_document():
-  return {"version": 12, "clock24Hour": False, "palette": dict(PALETTE), "roadColors": {profile: {} for profile in PROFILES},
+  return {"version": 15, "clock24Hour": False, "reduceMotion": False, "palette": dict(PALETTE), "roadColors": {profile: {} for profile in PROFILES},
           "widgetColors": {profile: {} for profile in PROFILES}, "layouts": {
     profile: {key: {**widget["default"], **({"size": WIDGET_SIZES[key][profile][1]} if key in WIDGET_SIZES else {})}
               for key, widget in data["widgets"].items()}
@@ -395,6 +421,19 @@ def migrate_large_sign_layout(layout, bounds, *, widgets=None, extra_height=0):
                        bounds['y'] + bounds['height'] - widgets['speed_limit_actions']['height'])
 
 
+# Attached action gaps below the card before the large speed group grew 1.3x: plain, inline sources, sources card.
+SMALL_CARD_ACTION_GAPS = (192, 284, 292)
+
+
+def migrate_attached_actions_gap(layout, bounds):
+  """Keep attached actions below the grown card; place_attached_slc_actions then adds any sources row."""
+  card, actions = layout['cruise_limits'], layout['speed_limit_actions']
+  if actions['x'] == card['x'] + ACTION_X - 88 and actions['y'] - card['y'] in SMALL_CARD_ACTION_GAPS:
+    # Raise a low card so the moved actions still fit on screen and stay attached.
+    card['y'] = min(card['y'], bounds['y'] + bounds['height'] - ACTION_HEIGHT - (ACTION_Y - 75))
+    actions['y'] = card['y'] + ACTION_Y - 75
+
+
 def place_attached_slc_actions(layout, bounds, extra_height):
   card, actions = layout['cruise_limits'], layout['speed_limit_actions']
   if (actions['x'], actions['y']) == (card['x'] + ACTION_X - 88, card['y'] + ACTION_Y - 75):
@@ -410,7 +449,9 @@ def confirmation_layout_valid(layout, profile, widgets, bounds, *, extra_height=
   at = layout[owner]
   if not at['enabled'] or not layout['speed_limit_actions']['enabled']:
     return True
-  left, top, right, bottom = confirmation_bounds(profile, at['x'], at['y'], opened=True)
+  area = confirmation_footprint(profile)
+  left, top = at['x'] + area['x'], at['y'] + area['y']
+  right, bottom = left + area['width'], top + area['height']
   if extra_height:
     left, right = min(left, at['x']), max(right, at['x'] + widgets[owner]['width'])
     bottom = max(bottom, at['y'] + widgets[owner]['height'] + extra_height)
@@ -429,14 +470,15 @@ def migrate_confirmation_layout(layout, profile, widgets, bounds, *, extra_heigh
   owner = 'cruise_limits' if profile == 'large' else 'speed_limit'
   bounds = widgets[owner].get('bounds', bounds)
   area, at = confirmation_footprint(profile), layout[owner]
-  if not at['enabled'] or not layout['speed_limit_actions']['enabled']:
-    return
+  confirming = at['enabled'] and layout['speed_limit_actions']['enabled']
   actions = layout['speed_limit_actions']
   attached = profile == 'large' and actions['x'] == at['x'] + ACTION_X - 88 and actions['y'] == at['y'] + ACTION_Y - 75
   for axis, extent in (('x', 'width'), ('y', 'height')):
-    low = max(bounds[axis], bounds[axis] - area[axis])
-    high = min(bounds[axis] + bounds[extent] - widgets[owner][extent],
-               bounds[axis] + bounds[extent] - area[axis] - area[extent])
+    low = bounds[axis]
+    high = bounds[axis] + bounds[extent] - widgets[owner][extent]
+    if confirming:
+      low = max(low, bounds[axis] - area[axis])
+      high = min(high, bounds[axis] + bounds[extent] - area[axis] - area[extent])
     if axis == 'y':
       high = min(high, bounds['y'] + bounds['height'] - widgets[owner]['height'] - extra_height)
     at[axis] = max(math.ceil(low), min(at[axis], math.floor(high)))
@@ -451,7 +493,7 @@ def migrate_confirmation_layout(layout, profile, widgets, bounds, *, extra_heigh
 
 
 def validate_document(value):
-  if type(value) is not dict or type(value.get("version")) is not int or value["version"] not in range(1, 13):
+  if type(value) is not dict or type(value.get("version")) is not int or value["version"] not in range(1, 16):
     raise ValueError("Invalid customization version")
   fields = {"version", "palette", "layouts"} | ({"widgetColors"} if value["version"] >= 2 else set())
   if value["version"] >= 3:
@@ -474,6 +516,10 @@ def validate_document(value):
     fields.add('clock24Hour')
     if type(value['clock24Hour']) is not bool:
       raise ValueError('Invalid clock format preference')
+  if 'reduceMotion' in value:
+    fields.add('reduceMotion')
+    if type(value['reduceMotion']) is not bool:
+      raise ValueError('Invalid motion preference')
   if 'showMaxSpeed' in value:
     fields.add('showMaxSpeed')
     if type(value['showMaxSpeed']) is not bool:
@@ -483,6 +529,10 @@ def validate_document(value):
   palette, layouts = value["palette"], value["layouts"]
   if type(palette) is not dict or set(palette) != set(PALETTE) or type(layouts) is not dict or set(layouts) != set(PROFILES):
     raise ValueError("Invalid customization fields")
+  added_personality = type(layouts['large']) is dict and 'following_distance' not in layouts['large']
+  if added_personality:
+    layouts = copy.deepcopy(layouts)
+    layouts['large']['following_distance'] = dict(PROFILES['large']['widgets']['following_distance']['default'])
   if any(all(type(layouts[profile]) is dict and
              (set(layouts[profile]) - {"vasm", *OPTIONAL_WIDGETS, *CAMERA_WIDGETS}) == keys
              for profile, keys in shape.items())
@@ -546,6 +596,9 @@ def validate_document(value):
             if type(monitor.get(axis)) in (int, float):
               monitor[axis] += 32
         monitor['size'] = DM_SIZES[profile][1]
+      if (profile == 'large' and added_personality and type(monitor) is dict and
+          (monitor.get('x'), monitor.get('y'), monitor.get('size')) == (120, 840, 128)):
+        monitor['x'] = data['widgets']['driver_monitor']['default']['x']
       missing = set(data["widgets"]) - set(layouts[profile])
       if missing and missing <= OPTIONAL_WIDGETS:
         for optional in missing:
@@ -629,6 +682,11 @@ def validate_document(value):
           dimensions = COMPACT_SPEED_LAYOUT_V8.get(key)
         if dimensions is None and value['version'] < 10 and profile == 'large' and key == 'cruise_limits':
           dimensions = (WIDTH, 132)
+        if dimensions is None and value['version'] < 13:
+          if profile == 'large' and key == 'cruise_limits':
+            dimensions = (WIDTH, 168)
+          elif profile == 'compact' and key == 'speed_limit':
+            dimensions = (118, 132)
         if dimensions is None and value['version'] < 11 and key == 'speed_limit_actions':
           default = widget['default']
           current_default = (placement['x'], placement['y']) == (default['x'], default['y'])
@@ -658,7 +716,8 @@ def validate_document(value):
     result['widgetOrder'] = {}
     for profile, order in orders.items():
       if type(order) is list:
-        order = [*order, *(key for key in PROFILES[profile]['widgets'] if key in OPTIONAL_WIDGETS and key not in order)]
+        order = [*order, *(key for key in PROFILES[profile]['widgets']
+                          if (key in OPTIONAL_WIDGETS or profile == 'large' and key == 'following_distance') and key not in order)]
       result['widgetOrder'][profile] = validate_widget_order(order, PROFILES[profile]['widgets'])
   if 'speedSources' in value:
     result['speedSources'] = value['speedSources']
@@ -666,6 +725,7 @@ def validate_document(value):
     result['speedSourcesCard'] = value['speedSourcesCard']
   if 'speedAlign' in value:
     result['speedAlign'] = value['speedAlign']
+  result['reduceMotion'] = value.get('reduceMotion', False)
   if 'clock24Hour' in value:
     result['clock24Hour'] = value['clock24Hour']
   if 'showMaxSpeed' in value:
@@ -682,6 +742,8 @@ def validate_document(value):
       migrate_speed_layout(result['layouts'][profile], profile, PROFILES[profile]['bounds'], old_gap)
   elif value['version'] == 8:
     migrate_speed_layout(result['layouts']['compact'], 'compact', PROFILES['compact']['bounds'], previous=COMPACT_SPEED_LAYOUT_V8)
+  if value['version'] < 15:
+    migrate_attached_actions_gap(result['layouts']['large'], PROFILES['large']['bounds'])
   if value['version'] < 11:
     for profile, data in PROFILES.items():
       actions = result['layouts'][profile]['speed_limit_actions']
@@ -694,12 +756,18 @@ def validate_document(value):
                                   extra_height=sources_extent(result) if profile == 'large' else 0)
     return validate_document(result)
   for profile, data in PROFILES.items():
-    if value['version'] < 12:
+    if value['version'] < 13:
+      if profile == 'compact':
+        sign = result['layouts'][profile]['speed_limit']
+        if (sign['x'], sign['y']) == (330, 20):
+          sign.update(x=LIMIT_RECTS['compact'][0], y=LIMIT_RECTS['compact'][1])
       if profile == 'large' and result.get('speedSources') is True:
         card, actions = result['layouts'][profile]['cruise_limits'], result['layouts'][profile]['speed_limit_actions']
-        old_extra = SOURCE_ROW_HEIGHT + (GAP if result.get('speedSourcesCard') is True else 0)
-        if actions['x'] == card['x'] + ACTION_X - 88 and actions['y'] == card['y'] + ACTION_Y - 75 + old_extra:
+        old_gap = 284 if value['version'] == 12 else 192 + SOURCE_ROW_HEIGHT
+        old_gap += GAP if result.get('speedSourcesCard') is True else 0
+        if actions['x'] == card['x'] + ACTION_X - 88 and actions['y'] == card['y'] + old_gap:
           actions['y'] = card['y'] + ACTION_Y - 75
+    if value['version'] < 15:
       migrate_confirmation_layout(result['layouts'][profile], profile, data['widgets'], data['bounds'],
                                   extra_height=sources_extent(result) if profile == 'large' else 0)
     elif not confirmation_layout_valid(result['layouts'][profile], profile, data['widgets'], data['bounds'],
@@ -720,7 +788,14 @@ def _unique_object(pairs):
   return result
 
 
+@lru_cache(maxsize=2)
+def _validated_document(raw: bytes | str):
+  return validate_document(json.loads(raw, object_pairs_hook=_unique_object))
+
+
 def decode_document(raw):
+  if isinstance(raw, (bytes, str)) and len(raw) <= MAX_BYTES:
+    return copy.deepcopy(_validated_document(raw))
   return validate_document(json.loads(raw, object_pairs_hook=_unique_object))
 
 
@@ -794,3 +869,11 @@ def rgba(document, key, profile=None, widget=None):
 @lru_cache(maxsize=256)
 def _rgba_value(color):
   return tuple(int(color[index:index + 2], 16) for index in (1, 3, 5, 7))
+
+
+def fit_road_snapshot(snapshot, width):
+  state = snapshot.onroad
+  fitted = fit_to_road(state.customization, width)
+  if state.viewport_width != width or fitted is not state.customization:
+    return replace(snapshot, onroad=replace(state, viewport_width=width, customization=fitted))
+  return snapshot

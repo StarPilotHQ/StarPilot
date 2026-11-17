@@ -64,10 +64,12 @@ def reset_external_preferences(storage, model_root):
     locks.enter_context(_owner_lock(state, '.lock'))
     locks.enter_context(_owner_lock(model_root, '.state.lock'))
     locks.enter_context(_owner_lock(navigation_root, '.lock'))
+    locks.enter_context(_owner_lock(storage / 'software' / 'auto-install', '.lock'))
     if _read(state / 'complete.json') == identity:
       return ()
     paths = {'model_preferences': model_root / 'preferences.json',
-             'navigation_settings': navigation_root / 'settings.json'}
+             'navigation_settings': navigation_root / 'settings.json',
+             'software_install': storage / 'software' / 'auto-install' / 'settings.json'}
     journal_path = state / 'journal.json'
     journal_raw = _read(journal_path)
     if journal_raw is None:

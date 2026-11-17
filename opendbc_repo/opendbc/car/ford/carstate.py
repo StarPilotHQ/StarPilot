@@ -6,7 +6,6 @@ from opendbc.can.dbc import DBC as CANDBC
 from opendbc.car import Bus, create_button_events, structs
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.ford.fordcan import CanBus
-from opendbc.car.ford.mache_lateral import path_speed_window_supported
 from opendbc.car.ford.stock_cruise import FordStockCruiseButton
 from opendbc.car.ford.values import CAR, DBC, CarControllerParams, FordFlags
 from opendbc.car.interfaces import CarStateBase
@@ -41,9 +40,6 @@ class CarState(CarStateBase):
     self.lkas_available = False
     self.lkas_available_ts_nanos = 0
     self.lateral_motion_control = None
-    self.bluepilot_speed_samples = [0] * 6 if (CP.safetyConfigs and CP.safetyConfigs[-1].safetyParam & 128 or
-                                                 path_speed_window_supported(CP)) else None
-    self.bluepilot_speed_window = None
 
   def get_car_gps(self):
     return self.car_gps_tracker.get()
@@ -67,14 +63,6 @@ class CarState(CarStateBase):
 
     # car speed
     ret.vEgoRaw = cp.vl["BrakeSysFeatures"]["Veh_V_ActlBrk"] * CV.KPH_TO_MS
-    if self.bluepilot_speed_samples is not None:
-      # Match Panda's six raw ABS speed samples, including its millimetre/second rounding.
-      for value in cp.vl_all["BrakeSysFeatures"]["Veh_V_ActlBrk"]:
-        self.bluepilot_speed_samples.append(math.floor(value * CV.KPH_TO_MS * 1000 + .5))
-      self.bluepilot_speed_samples = self.bluepilot_speed_samples[-6:]
-      samples = self.bluepilot_speed_samples
-      step = max(abs(b - a) for a, b in zip(samples, samples[1:], strict=False)) / 1000
-      self.bluepilot_speed_window = (min(samples) / 1000, max(samples) / 1000, step)
     ret.vEgo, ret.aEgo = self.update_speed_kf(ret.vEgoRaw)
     ret.yawRate = cp.vl["Yaw_Data_FD1"]["VehYaw_W_Actl"]
     ret.standstill = cp.vl["DesiredTorqBrk"]["VehStop_D_Stat"] == 1

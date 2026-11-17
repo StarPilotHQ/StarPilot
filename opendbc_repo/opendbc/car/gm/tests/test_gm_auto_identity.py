@@ -165,8 +165,14 @@ class TestGMAutoIdentity(unittest.TestCase):
 
   def test_ambiguous_and_manual_identities_remain_unadvertised(self):
     for name in ('CHEVROLET_BOLT_ACC_2022_2023', 'CHEVROLET_BOLT_ACC_2022_2023_PEDAL',
-                 'CHEVROLET_BOLT_CC_2022_2023', 'CHEVROLET_TRAX'):
+                 'CHEVROLET_BOLT_CC_2022_2023'):
       self.assertNotIn('gm.' + name, self.inventory)
+
+  def test_registered_trax_still_requires_identity_beyond_can(self):
+    variants = self.inventory['gm.CHEVROLET_TRAX']
+    self.assertEqual(len(variants), 1)
+    self.assertEqual(set(self.candidates(variants[0].items())),
+                     {'gm.CHEVROLET_TRAX', 'gm.CHEVROLET_EQUINOX', 'gm.CHEVROLET_SILVERADO'})
 
 
 if __name__ == '__main__':

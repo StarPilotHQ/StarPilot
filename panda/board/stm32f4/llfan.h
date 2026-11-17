@@ -19,5 +19,5 @@ void llfan_init(void) {
   register_set_bits(&(EXTI->IMR), (1U << 2));
   register_set_bits(&(EXTI->RTSR), (1U << 2));
   register_set_bits(&(EXTI->FTSR), (1U << 2));
-  NVIC_EnableIRQ(EXTI2_IRQn);
+  nvic_enable(EXTI2_IRQn);
 }

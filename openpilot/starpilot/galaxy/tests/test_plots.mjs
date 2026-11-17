@@ -43,6 +43,19 @@ let history = []
 for (let i = 1; i <= 260; i++) history = appendPlotSample(history, payload(i), i * 750)
 assert.equal(history.length, MAX_POINTS)
 assert.equal(history[0].index, 21)
+
+// Optional source ages must not move the shared observation clock backwards.
+let variedAge = []
+for (const [i, age] of [.1, 1.2, .1, .1, .1].entries()) {
+  variedAge = appendPlotSample(variedAge, validatePlotPayload(payload(i + 1, { sampleAgeSeconds: age })), 1000 + i * 750)
+}
+assert.deepEqual(variedAge.map(sample => sample.at), [1000, 1750, 2500, 3250, 4000])
+assert.deepEqual(chartGeometry(variedAge, ['desiredLateralAccel', 'actualLateralAccel']).paths.map(paths => paths.length), [1, 1])
+const missingObservedInterval = variedAge.map((sample, index) => ({ ...sample, at: sample.at + (index >= 2 ? 2000 : 0) }))
+assert.deepEqual(chartGeometry(missingObservedInterval, ['desiredLateralAccel', 'actualLateralAccel']).paths.map(paths => paths.length), [2, 2])
+const unavailableSignal = variedAge.map((sample, index) => index === 2 ? { ...sample, actualLateralAccel: null } : sample)
+assert.deepEqual(chartGeometry(unavailableSignal, ['desiredLateralAccel', 'actualLateralAccel']).paths.map(paths => paths.length), [1, 2])
+
 assert.equal(appendPlotSample(history, payload(260), 10000).length, MAX_POINTS)
 const restarted = appendPlotSample(history, payload(260, { sessionId: 'cd'.repeat(8) }), 10000)
 assert.equal(restarted.length, 1)
@@ -93,6 +106,19 @@ await live.reply(3, payload(3))
 assert.equal(live.states.at(-1).status, 'idle')
 assert.equal(live.states.at(-1).history.length, 0)
 
+const delayed = fixture()
+delayed.feed.start()
+delayed.advance(500)
+await delayed.reply(0, payload(1))
+delayed.advance(250)
+assert.equal(delayed.requests.length, 2, 'HTTP latency must not be added to the polling interval')
+delayed.advance(500)
+await delayed.reply(1, payload(2))
+assert.equal(delayed.states.at(-1).status, 'current')
+assert.ok(!delayed.states.some(state => state.status === 'stale'), 'healthy delayed responses must not flicker stale')
+delayed.feed.stop()
+assert.match(PlotsPage.template, /class="gx-plots__status" role="status"/)
+
 const stale = fixture()
 stale.feed.start()
 await stale.reply(0, payload(1))
@@ -128,7 +154,7 @@ aged.feed.start()
 aged.advance(90)
 await aged.reply(0, payload(1, { sampleAgeSeconds: 1.4 }))
 assert.equal(aged.states.at(-1).status, 'current')
-assert.equal(aged.states.at(-1).history[0].at, -400)
+assert.equal(aged.states.at(-1).history[0].at, 1090) // Receipt time, independent of source age.
 aged.advance(10)
 assert.equal(aged.states.at(-1).status, 'stale')
 aged.feed.stop()
@@ -196,7 +222,7 @@ const { compile } = await import('../web/vendor/vue/vue.esm-browser.js')
 const render = compile(PlotsPage.template)
 const chart = chartGeometry([{ ...values(), at: 1000 }, { ...values(), desiredLateralAccel: .3, at: 2500 }],
   ['desiredLateralAccel', 'actualLateralAccel'])
-const context = { mode: 'local', status: 'current', data: payload(1), paused: false, advanced: false, error: '',
+const context = { embedded: false, mode: 'local', status: 'current', data: payload(1), paused: false, advanced: false, error: '',
   lateralChart: chart, longChart: chart, lateralTermsChart: chart, longTermsChart: chart,
   lateralQuality: { label: 'Good', detail: '8 samples' }, longQuality: { label: 'Fair', detail: '8 samples' },
   source: (source) => source, label: (number) => String(number), togglePause: () => {}, }
@@ -206,7 +232,7 @@ assert.match(rendered, /Longitudinal acceleration/)
 assert.match(rendered, /Good/)
 assert.match(rendered, /−1.5 s/)
 const graphRender = compile(PlotGraph.template)
-const graph = JSON.stringify(graphRender({ chart, title: 'Lateral acceleration history', terms: false }, []))
+const graph = JSON.stringify(graphRender({ chart, title: 'Lateral acceleration history', terms: false, startLabel: null, endLabel: 'Latest' }, []))
 assert.match(graph, /0.30/)
 assert.match(graph, /0.00/)
 assert.match(graph, /−1.5 s/)
@@ -214,3 +240,9 @@ assert.match(graph, /Latest/)
 assert.match(graph, /48.0,/) // Plot geometry stays inside the labeled axes.
 globalThis.document = prior
 console.log('Galaxy Plots browser lifecycle and rendering contracts passed')
+
+
+const recordedGraph = JSON.stringify(graphRender({ chart, title: 'Recorded section', terms: false, startLabel: 'Start · 0s', endLabel: 'End · 1.5s' }, []))
+assert.match(recordedGraph, /Start · 0s/)
+assert.match(recordedGraph, /End · 1.5s/)
+assert.doesNotMatch(recordedGraph, /Latest/)

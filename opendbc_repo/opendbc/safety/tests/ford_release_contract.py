@@ -8,11 +8,12 @@ from opendbc.safety.tests.libsafety import libsafety_py
 libsafety_py.ffi.cdef('extern safety_config current_safety_config;')
 
 STOCK_CANFD_TX = frozenset(((0x83, 0, 8), (0x83, 2, 8), (0x18A, 0, 8), (0x3CA, 0, 8), (0x3D8, 0, 8), (0x3D6, 0, 8)))
-RELEASE_LEDGER = {3: (6, STOCK_CANFD_TX)}
+# the retired Mach-E (19) and generic CAN FD (67) extended long words: stock CAN FD TX, no AOL or LONG
+RELEASE_LEDGER = {19: (6, STOCK_CANFD_TX), 67: (6, STOCK_CANFD_TX)}
 
 
 def assert_release_denial(native, word):
-  """Prove absent AOL/LONG, preserving the existing stock fallback of legacy parameter3.
+  """Prove absent AOL/LONG, preserving the existing stock fallback of a retired parameter.
 
   A physical PCM edge can still set the ordinary boolean even with an empty TX
   table. No assertion equates that boolean or hook return code with authority.

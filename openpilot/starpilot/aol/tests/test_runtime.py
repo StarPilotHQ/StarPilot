@@ -132,7 +132,7 @@ class CardIntentTests(unittest.TestCase):
       for extra in (log.OnroadEvent.EventName.doorOpen, log.OnroadEvent.EventName.calibrationInvalid,
                     log.OnroadEvent.EventName.canError):
         with self.subTest(extra=extra):
-          self.assertFalse(step(extra=extra).lateral_active)
+          self.assertEqual(step(extra=extra).lateral_active, extra == log.OnroadEvent.EventName.doorOpen)
       for optional in (False, True):
         with self.subTest(gm_optional=optional):
           sd.CP = gm.as_reader()
@@ -283,7 +283,7 @@ class CardIntentTests(unittest.TestCase):
     self.assertFalse(direct.desired_longitudinal)
     events.add(log.OnroadEvent.EventName.doorOpen)
     self.assertFalse(disarming_fault(events.to_msg(), state))
-    self.assertTrue(aol_no_entry(events.names, state, paddle_only_cancel=False))
+    self.assertFalse(aol_no_entry(events.names, state, paddle_only_cancel=False))
 
   def test_temporary_eps_and_known_gears_preserve_latch_with_zero_steering(self):
     owner = AolCardIntent(AolSettings(True, 0, 0, 0, (0, 0, 0), (0, 0, 0)), explicit_latch=True)
@@ -839,7 +839,8 @@ class IpcAxisContractTests(unittest.TestCase):
     self.enterContext(mock.patch.object(card, 'sm', messaging.SubMaster(services, ignore_avg_freq=services), create=True))
     card.aol_process_fault_context = AolProcessFaultContext()
     card.aol_transport_feedback = TransportPauseFeedback(card.CP)
-    card.aol_card_intent = create_intent(cp, AolSettings(True, 0., 9, 0, (0, 0, 0), (0, 0, 0)))
+    card.aol_settings = AolSettings(True, 0., 9, 0, (0, 0, 0), (0, 0, 0))
+    card.aol_card_intent = create_intent(cp, card.aol_settings)
     cs = car_state()
     cs.cruiseState.available = True
     card.aol_card_intent.update(cs, now_ns=100)
@@ -1232,7 +1233,7 @@ class IpcAxisContractTests(unittest.TestCase):
 
   def test_lateral_only_receipt_loss_keeps_take_control_alert(self):
     class SM:
-      seen = {'aolIntentWire': False}
+      seen = {'aolIntentWire': False, 'aolSafetyWire': False}
       frame = 0
 
       def __getitem__(self, service):
@@ -1292,6 +1293,7 @@ class IpcAxisContractTests(unittest.TestCase):
       self.assertNotIn(ET.IMMEDIATE_DISABLE, sd.state_machine.current_alert_types)
       self.assertNotEqual(sd.AM.current_alert.alert_text_1, 'TAKE CONTROL IMMEDIATELY')
 
+      sd.sm.seen['aolSafetyWire'] = True
       sd.sm.frame = 2
       sd.step()
       self.assertEqual(sd.aol_axis_decision.mode, 'lateralOnly')
@@ -1429,6 +1431,26 @@ class IpcAxisContractTests(unittest.TestCase):
     self.addCleanup(lambda: self.assertEqual(radar.call_count, calls[0]))
     return mock.patch.object(card, 'state_update', side_effect=state_update)
 
+  def test_gm_startup_has_no_prepublication_transaction_owner(self):
+    from opendbc.car.gm.interface import CarInterface
+    from openpilot.starpilot.aol.tests.test_gm import _configurations
+    from openpilot.starpilot.vehicle_startup import VehicleStartupOwner
+
+    # GM's real factory has no HKG-style prepublication transaction. Injecting
+    # an arbitrary owner into an already constructed GM Card is not this path.
+    self.assertIsNone(getattr(CarInterface, 'startup_owner', None))
+    for cp in _configurations():
+      with self.subTest(identity=cp.carFingerprint, safety=cp.safetyConfigs[0].safetyParam):
+        holder = VehicleStartupOwner()
+        recv, send, admission = mock.Mock(), mock.Mock(), mock.Mock()
+        result = holder.prepare(cp, CarInterface, (recv, send), requested=True,
+                                admission=admission, defer_until_controls=True)
+        self.assertIs(result, cp)
+        self.assertIsNone(holder.owner)
+        recv.assert_not_called()
+        send.assert_not_called()
+        admission.assert_not_called()
+
   def test_initialization_waits_for_current_matching_native_receipt(self):
     from dataclasses import replace
     from opendbc.car import gen_empty_fingerprint
@@ -1455,16 +1477,16 @@ class IpcAxisContractTests(unittest.TestCase):
       boot_events.add(log.OnroadEvent.EventName.selfdriveInitializing)
 
       class BootstrapSM(dict):
-        seen = {'onroadEvents': True, 'carControl': True}
-        valid = {'carControl': True}
-        alive = {'carControl': True}
-        logMonoTime = {'carControl': now}
-        recv_time = {'carControl': now / 1e9}
+        seen = {'onroadEvents': True, 'carControl': True, 'pandaStates': False}
+        valid = {'carControl': True, 'pandaStates': False}
+        alive = {'carControl': True, 'pandaStates': False}
+        logMonoTime = {'carControl': now, 'pandaStates': 0}
+        recv_time = {'carControl': now / 1e9, 'pandaStates': 0.0}
 
         def all_alive(self, _services):
           return self.alive['carControl']
 
-      boot_sm = BootstrapSM(onroadEvents=boot_events.to_msg(), carControl=cc)
+      boot_sm = BootstrapSM(onroadEvents=boot_events.to_msg(), carControl=cc, pandaStates=[])
       physical = car_state()
       with (mock.patch.object(selected, 'sm', boot_sm),
             self._deferred_step(selected, lambda: (physical, None)),
@@ -1494,12 +1516,12 @@ class IpcAxisContractTests(unittest.TestCase):
         physical.canValid, physical.canTimeout = True, False
         cc.enabled = cc.latActive = cc.longActive = False
         cc.actuators.torque = cc.actuators.accel = 0.0
-        for excluded in ('passive', 'other_startup_owner', 'volt_transport'):
+        self.assertIsNone(selected.vehicle_startup.owner)
+        for excluded in ('passive', 'volt_transport'):
           with (self.subTest(bootstrap_excluded=excluded),
                 mock.patch.object(selected, 'startup_panda_configured', return_value=False),
                 mock.patch('openpilot.selfdrive.car.card.clock_pair_ns', return_value=None)):
             selected.CP.passive = excluded == 'passive'
-            selected.vehicle_startup.owner = mock.Mock() if excluded == 'other_startup_owner' else None
             selected.volt_cc_selected = excluded == 'volt_transport'
             selected.step()
             self.assertFalse(settings.get_bool('ControlsReady'))
@@ -1603,13 +1625,17 @@ class IpcAxisContractTests(unittest.TestCase):
           self.assertEqual(sd.aol_axis_decision.mode, 'off')  # Zero-axis native acknowledgment grants no actuation.
           sm.seen['aolSafetyWire'] = False
           sd.step()
-          self.assertIn(log.OnroadEvent.EventName.controlsMismatch, sd.events.names)
-          self.assertTrue(sd.events.contains(ET.IMMEDIATE_DISABLE))
+          self.assertIn(log.OnroadEvent.EventName.commIssue, sd.events.names)
+          self.assertNotIn(log.OnroadEvent.EventName.controlsMismatch, sd.events.names)
+          self.assertFalse(sd.events.contains(ET.IMMEDIATE_DISABLE))
+          self.assertEqual(sd.aol_axis_decision.mode, 'off')
           sd.initialized = False
           sm.frame = 601
           sd.step()
-          self.assertTrue(sd.initialized)  # Existing six-second timeout still exposes a genuine missing receipt.
-          self.assertIn(log.OnroadEvent.EventName.controlsMismatch, sd.events.names)
+          self.assertTrue(sd.initialized)  # The timeout exposes missing startup transport without inventing active control.
+          self.assertIn(log.OnroadEvent.EventName.commIssue, sd.events.names)
+          self.assertNotIn(log.OnroadEvent.EventName.controlsMismatch, sd.events.names)
+          self.assertEqual(sd.aol_axis_decision.mode, 'off')
 
   def test_selected_volt_camera_bootstrap_waits_for_native(self):
     self._assert_sibling_bootstrap(transport=False)
@@ -1654,11 +1680,11 @@ class IpcAxisContractTests(unittest.TestCase):
       def all_alive(self, services):
         return all(self.alive[s] for s in services)
 
-    sm = BootstrapSM(onroadEvents=boot_events.to_msg(), carControl=cc, deviceState=device)
-    sm.seen = {'onroadEvents': True, 'carControl': True, 'deviceState': True}
-    sm.valid = {'carControl': True, 'deviceState': True}
+    sm = BootstrapSM(onroadEvents=boot_events.to_msg(), carControl=cc, deviceState=device, pandaStates=[])
+    sm.seen = {'onroadEvents': True, 'carControl': True, 'deviceState': True, 'pandaStates': False}
+    sm.valid = {'carControl': True, 'deviceState': True, 'pandaStates': False}
     sm.alive = dict(sm.valid)
-    sm.logMonoTime, sm.recv_time = {}, {}
+    sm.logMonoTime, sm.recv_time = {'pandaStates': 0}, {'pandaStates': 0.0}
 
     def refresh():
       # IPC receipt follows production by 1us; float seconds need not round-trip ns.
@@ -1851,17 +1877,21 @@ class IpcAxisContractTests(unittest.TestCase):
           self.assertEqual(sd.aol_axis_decision.mode, 'off')  # Zero-axis native acknowledgment grants no actuation.
           sm.seen['aolSafetyWire'] = False
           sd.step()
-          self.assertIn(log.OnroadEvent.EventName.controlsMismatch, sd.events.names)
-          self.assertTrue(sd.events.contains(ET.IMMEDIATE_DISABLE))
+          self.assertIn(log.OnroadEvent.EventName.commIssue, sd.events.names)
+          self.assertNotIn(log.OnroadEvent.EventName.controlsMismatch, sd.events.names)
+          self.assertFalse(sd.events.contains(ET.IMMEDIATE_DISABLE))
+          self.assertEqual(sd.aol_axis_decision.mode, 'off')
           sd.initialized = False
           sm.frame = 601
           sd.step()
-          self.assertTrue(sd.initialized)  # Existing six-second timeout still exposes a genuine missing receipt.
-          self.assertIn(log.OnroadEvent.EventName.controlsMismatch, sd.events.names)
+          self.assertTrue(sd.initialized)  # The timeout exposes missing startup transport without inventing active control.
+          self.assertIn(log.OnroadEvent.EventName.commIssue, sd.events.names)
+          self.assertNotIn(log.OnroadEvent.EventName.controlsMismatch, sd.events.names)
+          self.assertEqual(sd.aol_axis_decision.mode, 'off')
 
   def test_native_receipt_gates_engagement_and_disables_on_loss(self):
     class SM:
-      seen = {'aolIntentWire': False}
+      seen = {'aolIntentWire': False, 'aolSafetyWire': False}
       def __getitem__(self, service):
         if service == 'deviceState':
           return SimpleNamespace(started=True, startedMonoTime=1)
@@ -1923,6 +1953,7 @@ class IpcAxisContractTests(unittest.TestCase):
       self.assertTrue(sd.events.contains(ET.NO_ENTRY))
       self.assertEqual(sd.aol_axis_decision.mode, 'off')
       sd.publish_selfdriveState.assert_called_once()  # disabled bootstrap still publishes the zero-axis request
+      sd.sm.seen['aolSafetyWire'] = True
       sd.step()
       self.assertTrue(sd.enabled and sd.active)
       self.assertEqual(sd.aol_axis_decision.mode, 'combined')
@@ -2045,6 +2076,7 @@ class UiProcessIntentTests(unittest.TestCase):
 
     card = Car.__new__(Car)
     card.CP = stock(True)
+    card.aol_settings = None
     card.aol_card_intent = None  # Real Card initializes this when no optional owner is selected.
     card.aol_process_fault_context = AolProcessFaultContext()
     class SM:

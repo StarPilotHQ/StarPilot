@@ -10,6 +10,7 @@ from opendbc.car import structs
 from opendbc.car.car_helpers import interfaces
 from opendbc.car.hyundai.values import CAR
 from opendbc.car.vehicle_model import VehicleModel
+from openpilot.common.params import Params
 from openpilot.common.realtime import DT_CTRL
 from openpilot.selfdrive.controls.lib.latcontrol_torque import LatControlTorque
 from openpilot.starpilot.lateral.torque_extension import selected_policy
@@ -85,7 +86,8 @@ def test_startup_saved_exact_on_defaults_and_safe_mode():
   snapshot = VehicleStartupPreferences(toyota_auto_hold=True)
   assert snapshot.toyota_auto_hold and not snapshot.turn_assist
   with tempfile.TemporaryDirectory() as root:
-    source = SimpleNamespace(get_param_path=lambda key: str(Path(root) / key))
+    source = SimpleNamespace(get_param_path=lambda key: str(Path(root) / key),
+                             get_default_value=Params().get_default_value)
     for raw in (None, b'0', b'1', b'', b'true', b'1\n', b'1'*20):
       path = Path(root) / 'TurnAssist'
       path.unlink(missing_ok=True)
@@ -130,7 +132,8 @@ def test_stock_assist_is_independent_of_tune_and_explicit_off():
 
 def test_explicit_off_survives_repeated_startup_reads():
   with tempfile.TemporaryDirectory() as root:
-    source = SimpleNamespace(get_param_path=lambda key: str(Path(root) / key))
+    source = SimpleNamespace(get_param_path=lambda key: str(Path(root) / key),
+                             get_default_value=Params().get_default_value)
     path = Path(root) / 'TurnAssist'
     assert VehicleStartupPreferences.read(source, enabled=True).turn_assist
     assert not path.exists()

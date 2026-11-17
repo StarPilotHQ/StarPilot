@@ -61,6 +61,7 @@ def native_identity():
 
 
 def enable_fit_worker():
+  # The idle class is below CFS; both retain the same CPU/AS/nice bounds.
   import os
   import resource
   if not sys.platform.startswith('linux'):
@@ -68,7 +69,7 @@ def enable_fit_worker():
   cpu = resource.getrlimit(resource.RLIMIT_CPU)[0]
   memory = resource.getrlimit(resource.RLIMIT_AS)[0]
   if (not 0 < cpu <= 20 or not 0 < memory <= 2 * 1024 * 1024 * 1024 or
-      os.getpriority(os.PRIO_PROCESS, 0) < 10 or os.sched_getscheduler(0) != os.SCHED_OTHER):
+      os.getpriority(os.PRIO_PROCESS, 0) < 10 or os.sched_getscheduler(0) not in (os.SCHED_OTHER, os.SCHED_IDLE)):
     raise ValueError('FLM native primitive worker context')
   global _enabled
   _enabled = True

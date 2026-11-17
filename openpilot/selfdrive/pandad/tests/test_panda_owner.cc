@@ -97,7 +97,7 @@ void test_actual_config_slots_and_owner_handle(cereal::CarParams::SafetyModel mo
     peer->health.flags_pkt |= HEALTH_FLAG_CONTROLS_ALLOWED;
     CHECK(owner_safety.aolOwner() == nullptr);
     peer->health.flags_pkt = 0;
-    peer->health.safety_param_pkt = word;
+    peer->health.safety_param_pkt = 1U;
     CHECK(owner_safety.aolOwner() == nullptr);
     peer->health.safety_param_pkt = 0;
     peer->comms_healthy = false;
@@ -145,9 +145,11 @@ void test_actual_config_slots_and_owner_handle(cereal::CarParams::SafetyModel mo
 
 void test_registered_owners() {
   test_actual_config_slots_and_owner_handle(cereal::CarParams::SafetyModel::HYUNDAI_CANFD, 0x809);
-  for (uint16_t word : {8U, 9U, 10U, 11U, 12U, 13U, 18U, 19U, 32U, 33U, 66U, 67U}) {
-    test_actual_config_slots_and_owner_handle(cereal::CarParams::SafetyModel::FORD, word);
-    test_actual_config_slots_and_owner_handle(cereal::CarParams::SafetyModel::FORD, word | 256U);
+  for (uint16_t word : {0U, 1U, 2U, 3U, 8U, 9U, 10U, 11U, 12U, 13U}) {
+    for (uint16_t bp : {0U, 0x4000U}) {
+      test_actual_config_slots_and_owner_handle(cereal::CarParams::SafetyModel::FORD, word | bp);
+      test_actual_config_slots_and_owner_handle(cereal::CarParams::SafetyModel::FORD, word | bp | 256U);
+    }
   }
 }
 

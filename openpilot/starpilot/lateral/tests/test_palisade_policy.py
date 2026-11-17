@@ -13,7 +13,7 @@ from openpilot.selfdrive.controls.lib.latcontrol_torque import LatControlTorque
 from openpilot.starpilot.lateral.controller_selection import ControllerMode, default_selection, replace_mode, selection_from_bytes
 from openpilot.starpilot.lateral.palisade_policy import PalisadeTorquePolicy, supported_cp
 from openpilot.starpilot.lateral import palisade_shaping as shaping
-from openpilot.starpilot.lateral.torque_shaping import INTERP_SPEEDS, KP_INTERP, KI
+from openpilot.starpilot.lateral.torque_shaping import KP, KI
 
 
 @pytest.mark.parametrize('speed,accel,jerk,ff,threshold,friction,center,output', [
@@ -37,7 +37,7 @@ def test_default_choice_startup_and_repeated_live_factor(vehicle):
   assert default_selection(cp).policy == 'palisade'
   assert isinstance(controller.starpilot_extension.policy, PalisadeTorquePolicy)
   assert controller.torque_params.latAccelFactor == pytest.approx(cp.lateralTuning.torque.latAccelFactor * .98)
-  assert controller.pid._k_p == [INTERP_SPEEDS, KP_INTERP]
+  assert controller.pid._k_p == [[0.], [KP]]
   assert controller.pid._k_i == ([0.], [KI])
   raw_limit = controller.lateral_accel_from_torque(controller.steer_max, cp.lateralTuning.torque)
   assert controller.pid.pos_limit == pytest.approx(raw_limit)

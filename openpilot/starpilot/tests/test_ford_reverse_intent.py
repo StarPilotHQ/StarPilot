@@ -25,7 +25,7 @@ def cp_state():
   with OpenpilotPrefix():
     cp = CarInterface.get_params(CAR.FORD_ESCAPE_MK4, fp, [], False, False, False)
   cp.alternativeExperience = 32
-  assert cp.safetyConfigs[0].safetyParam == 32 and not cp.openpilotLongitudinalControl
+  assert cp.safetyConfigs[0].safetyParam == 0 and not cp.openpilotLongitudinalControl
   cs = structs.CarState(canValid=True, canTimeout=False, vEgo=15.0, gearShifter=structs.CarState.GearShifter.drive)
   cs.cruiseState.available = True
   return cp, cs

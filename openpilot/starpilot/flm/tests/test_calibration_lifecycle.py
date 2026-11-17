@@ -223,7 +223,7 @@ def test_actual_main_source_reader_reuses_lifecycle_for_cache_and_persistence():
     sm.logMonoTime = {'extrinsicsCalibration': BASE}
     sm.recv_time = {'extrinsicsCalibration': BASE / 1e9}
     with mock.patch.object(steerlearnerd, 'Params', return_value=controls.params), \
-         mock.patch.object(steerlearnerd.messaging, 'SubMaster', return_value=sm), \
+         mock.patch.object(steerlearnerd, 'source_receiver', return_value=sm), \
          mock.patch.object(steerlearnerd.messaging, 'sub_sock'), \
          mock.patch.object(steerlearnerd.messaging, 'PubMaster'), \
          mock.patch.object(steerlearnerd, 'run') as run, \

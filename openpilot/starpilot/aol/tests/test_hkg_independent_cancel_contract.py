@@ -58,7 +58,7 @@ def test_classic_long_qualified_profile_keeps_lkas_owned_cancel_intent():
 
 
 @pytest.mark.parametrize('identity', sorted(STOCK_EV_CARS, key=str))
-def test_none_none_mapping_preserves_existing_explicit_gesture_and_cancel_policy(identity):
+def test_default_mapping_preserves_latch_on_cancel_but_honors_deliberate_toggle(identity):
   owner = create_intent(params(identity), AolSettings(True, 0., 0, 0, (0, 0, 0), (0, 0, 0)))
   cs = structs.CarState(canValid=True, gearShifter='drive')
   cs.cruiseState.available = True
@@ -71,7 +71,12 @@ def test_none_none_mapping_preserves_existing_explicit_gesture_and_cancel_policy
   owner.update(cs, now_ns=3, fault_active=False)
   cs.buttonEvents = [structs.CarState.ButtonEvent(type='cancel', pressed=True)]
   owner.update(cs, now_ns=4, fault_active=False)
-  assert not owner.allowed_latch  # Independent continuation was NOT enabled by NONE/NONE.
+  assert owner.allowed_latch
+  cs.buttonEvents = [structs.CarState.ButtonEvent(type='cancel', pressed=False)]
+  owner.update(cs, now_ns=5, fault_active=False)
+  cs.buttonEvents = [structs.CarState.ButtonEvent(type='lkas', pressed=True)]
+  owner.update(cs, now_ns=6, fault_active=False)
+  assert not owner.allowed_latch
 
 
 @pytest.mark.parametrize('configured_cancel', [False, True])

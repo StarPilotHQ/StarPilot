@@ -1,11 +1,33 @@
 """Source-supplied alerts with native compact lane-guidance rendering."""
 
-import pyray as rl
+from dataclasses import replace
+import re
+
+from openpilot.starpilot.ui.raylib import rl
+
+from openpilot.system.ui.lib.multilang import tr_display as tr
+from openpilot.system.ui.lib.display_translation import DisplayText
 
 from openpilot.common.filter_simple import BounceFilter, FirstOrderFilter
 from openpilot.starpilot.ui.onroad_state import AlertSize, OnroadAlert
 from openpilot.selfdrive.ui.mici.onroad.alert_renderer import Alert as NativeAlert, AlertRenderer as NativeAlertRenderer
 from openpilot.starpilot.ui.presentation import BitmapFonts, FontRole, Profile
+
+
+def _wrap_display(text, measure, width):
+  lines, current = [], ""
+  for word in re.findall(r"\S+\s*", text):
+    chunks = (word,) if measure(DisplayText(word.rstrip())) <= width else tuple(word)
+    for chunk in chunks:
+      candidate = current + chunk
+      if current and measure(DisplayText(candidate.rstrip())) > width:
+        lines.append(DisplayText(current.rstrip()))
+        current = chunk.lstrip()
+      else:
+        current = candidate
+  if current.strip():
+    lines.append(DisplayText(current.rstrip()))
+  return lines
 
 
 class AlertRenderer:
@@ -18,8 +40,15 @@ class AlertRenderer:
     self._previous: OnroadAlert | None = None
     self.text_only_alert_names: frozenset[str] = frozenset()
 
+  def _fit_size(self, text, role, size, width, letter_spacing=0):
+    while size > 26 and self.fonts.measure(text, role, size, spacing=size * letter_spacing).width > width:
+      size -= 2
+    return size
+
   def _center(self, text: str, role: FontRole, size: int, rect: rl.Rectangle, y: float,
               color: rl.Color = rl.WHITE, *, letter_spacing: float = 0) -> None:
+    text = DisplayText(tr(text))
+    size = self._fit_size(text, role, size, rect.width, letter_spacing)
     spacing = size * letter_spacing
     lines = text.split('\n')
     height = self.fonts.measure(text, role, size, spacing=spacing).height
@@ -32,6 +61,10 @@ class AlertRenderer:
 
   def render(self, rect: rl.Rectangle, alert: OnroadAlert, *, signal_direction: int = 0) -> None:
     event_name = alert.alert_type.split('/', 1)[0]
+    text1, text2 = alert.text1, alert.text2
+    if event_name == 'personalityChanged' and text1.lower().startswith('driving personality: '):
+      text1, text2 = text1[len('driving personality: '):], 'Driving Personality'
+    alert = replace(alert, text1=DisplayText(tr(text1)), text2=DisplayText(tr(text2)))
     if self.fonts.profile == Profile.COMPACT:
       lane_event = event_name in ('preLaneChangeLeft', 'preLaneChangeRight', 'laneChangeBlocked', 'laneChange',
                                                                     'steerTempUnavailable', 'steerTempUnavailableSilent')
@@ -78,7 +111,7 @@ class AlertRenderer:
       rl.draw_rectangle(int(rect.x), int(rect.y), int(rect.width), solid, color)
       rl.draw_rectangle_gradient_v(int(rect.x), int(rect.y + solid), int(rect.width), int(rect.height - solid),
                                    color, rl.Color(color.r, color.g, color.b, 0))
-      size = 100 if len(alert.text1) > 16 else 110
+      size = self._fit_size(alert.text1, FontRole.BOLD, 100 if len(alert.text1) > 16 else 110, rect.width - 120, -0.02)
       title_h = self.fonts.measure(alert.text1, FontRole.BOLD, size, spacing=size * -0.02).height
       self._center(alert.text1, FontRole.BOLD, size, rl.Rectangle(rect.x + 60, rect.y, rect.width - 120, rect.height),
                    animated_y + (rect.height - title_h) / 2, title_color,
@@ -90,7 +123,7 @@ class AlertRenderer:
     alert_height = 271 if alert.size == AlertSize.SMALL else 420
     y = rect.y + rect.height - alert_height
     color = rl.Color(218, 111, 37, background_alpha) if alert.user_prompt else rl.Color(0, 0, 0, background_alpha)
-    title_size = 60 if alert.size == AlertSize.SMALL else 88
+    title_size = self._fit_size(alert.text1, FontRole.BOLD, 60 if alert.size == AlertSize.SMALL else 88, rect.width - 120, -0.02)
     title_h = self.fonts.measure(alert.text1, FontRole.BOLD, title_size, spacing=title_size * -0.02).height
     plateau_y = round(animated_y + (alert_height - title_h) / 2) - 2
     plateau_h = round(title_h) + 4
@@ -127,8 +160,8 @@ class AlertRenderer:
     rl.draw_rectangle(int(rect.x), int(rect.y), int(rect.width), solid_height, color)
     rl.draw_rectangle_gradient_v(int(rect.x), int(rect.y + solid_height), int(rect.width), int(height - solid_height),
                                  color, rl.Color(color.r, color.g, color.b, 0))
-    text = alert.text1.lower()
-    subtitle = alert.text2.lower()
+    text = tr(alert.text1).lower()
+    subtitle = tr(alert.text2).lower()
     if event_name == 'personalityChanged' and text.startswith('driving personality: '):
       text = text.removeprefix('driving personality: ')
       subtitle = 'driving personality'
@@ -142,17 +175,14 @@ class AlertRenderer:
     if alert.size == AlertSize.FULL:
       # Match word wrapping and line spacing to measured glyph height, not nominal font size.
       available_width = rect.width - 18
-      lines: list[str] = []
-      current = ""
-      for word in text.split():
-        candidate = f"{current} {word}" if current else word
-        if current and self.fonts.measure(candidate, FontRole.DISPLAY, font_size, spacing=spacing).width > available_width:
-          lines.append(current)
-          current = word
-        else:
-          current = candidate
-      if current:
-        lines.append(current)
+      def wrapped(size):
+        return _wrap_display(text, lambda value: self.fonts.measure(value, FontRole.DISPLAY, size, spacing=-0.02 * size).width,
+                             available_width)
+      lines = wrapped(font_size)
+      while font_size > 26 and len(lines) * self.fonts.measure(text, FontRole.DISPLAY, font_size).height * .86 * .9 > rect.height - 12:
+        font_size -= 2
+        lines = wrapped(font_size)
+      spacing = -0.02 * font_size
       y = animated_y - 4
       for line in lines:
         self.fonts.draw(line, FontRole.DISPLAY, font_size, text_x, y, title_color, spacing=spacing)

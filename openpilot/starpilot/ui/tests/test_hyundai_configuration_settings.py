@@ -17,7 +17,7 @@ class HyundaiConfigurationSettingsTests(unittest.TestCase):
     self.assertTrue(configuration_media_supported(cp))
     policy = configuration_wheel_policy(cp)
     assert policy is not None
-    self.assertTrue(policy.fixed_cruise_buttons)
+    self.assertFalse(policy.fixed_cruise_buttons)
     self.assertTrue(policy.distance_pause_only)
     self.assertFalse(policy.runtime_supported)
     self.assertEqual(vars(cp), before)

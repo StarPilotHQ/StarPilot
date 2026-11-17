@@ -114,3 +114,103 @@ def test_rav4_brake_source_gap_does_not_waive_restrictions(fault):
       assert not axis.desiredLateral and sd.aol_last_intent is None
     else:
       assert str(axis.faultReason) != 'availabilityPause'
+
+
+@pytest.mark.parametrize('steering', (False, True))
+def test_corolla_gas_override_source_gap_preserves_lateral_intent(steering):
+  with ExitStack() as cleanup:
+    cleanup.enter_context(OpenpilotPrefix())
+    case = fixture.IoniqAvailabilityTests(methodName='runTest')
+    cleanup.callback(case.doCleanups)
+    cp = CarInterface.get_params(CAR.TOYOTA_COROLLA_TSS2, {0: {}, 1: {}, 2: {}}, [], False, False, False)
+    sd, _, drive = case._authority_callers(True, cp=cp, genuine_events=True)
+    refresh_saved_settings(sd)
+    def state():
+      cs = fixture.car_state()
+      cs.vEgo = cs.vEgoRaw = 30.
+      cs.cruiseState.enabled = True
+      return cs
+    for tick in (0, 1, 2):
+      axis, _, command = drive(tick, observed_state=state(), gas=True, steering=steering,
+        offset_ns=5_328_073 if tick == 2 else 0, state_stamp=BASE if tick == 2 else None,
+        intent_message=intent(BASE, 3) if tick == 2 else None,
+        long_allowed=False, native_request_long=True)
+      assert axis.lateralActive and command.latActive and not axis.longitudinalActive and not command.longActive
+    # Recorded source31.321875ms old, previous output still4.006198ms live.
+    axis, host, command = drive(5, offset_ns=1_321_875, timeout=True,
+      state_stamp=BASE, intent_message=intent(BASE, 3), gas=True, steering=steering,
+      long_allowed=False, native_request_long=True)
+    assert log.OnroadEvent.EventName.controlsMismatch not in sd.events.names, 'COROLLA_GAS_SOURCE_GAP'
+    assert str(axis.faultReason) == 'availabilityPause' and axis.sourceCarStateMonoTime == 0
+    assert axis.desiredLateral and not axis.desiredLongitudinal and not sd.aol_authority_lost
+    assert not command.latActive and not command.longActive and host.enabled
+    assert str(host.state) == 'softDisabling' and log.OnroadEvent.EventName.commIssue in sd.events.names
+    source = BASE + 27_305_261
+    axis, _, command = drive(6, state_stamp=source, intent_message=intent(source, 4), observed_state=state(),
+      gas=True, steering=steering, long_allowed=False, native_request_long=True)
+    assert axis.lateralActive and command.latActive and not command.longActive and not sd.aol_authority_lost
+
+
+def test_corolla_gas_source_pause_reaches_actual_card_without_latch_loss():
+  from openpilot.starpilot.aol.tests.stock_lateral_test_helpers import callers
+  with ExitStack() as cleanup:
+    sd, _, drive, card, receive = callers(cleanup, 'toyota', False)
+    refresh_saved_settings(sd)
+    def state():
+      cs = fixture.car_state()
+      cs.vEgo = cs.vEgoRaw = 30.
+      cs.cruiseState.enabled = True
+      cs.gasPressed = True
+      cs.steeringPressed = True
+      return cs
+    axis, _, command = drive(2, observed_state=state(), gas=True, steering=True,
+      offset_ns=5_328_073, state_stamp=BASE, intent_message=intent(BASE, 3),
+      native_request_long=True, long_allowed=False)
+    assert axis.lateralActive and command.latActive and not command.longActive
+    assert receive(BASE + 5_328_073, state=state()) and card.aol_card_intent.allowed_latch
+    axis, _, command = drive(5, offset_ns=1_321_875, timeout=True, state_stamp=BASE,
+      intent_message=intent(BASE, 3), gas=True, steering=True, native_request_long=True, long_allowed=False)
+    assert str(axis.faultReason) == 'availabilityPause'
+    assert not command.latActive and not command.longActive
+    assert receive(BASE + 31_321_875, state=state()), 'COROLLA_CARD_GAS_SOURCE_PAUSE'
+    assert card.aol_card_intent.allowed_latch
+    source = BASE + 27_305_261
+    axis, _, command = drive(6, state_stamp=source, intent_message=intent(source, 4),
+      observed_state=state(), gas=True, steering=True, native_request_long=True, long_allowed=False)
+    assert axis.lateralActive and command.latActive and not command.longActive
+    assert receive(BASE + 40_000_000, state=state()) and card.aol_card_intent.allowed_latch
+
+
+@pytest.mark.parametrize('fault', ('native_denied', 'native_invalid', 'rx_fault', 'relay_fault',
+                                  'latch_withdrawn', 'missing_anchor', 'epoch_changed', 'dm_lockout'))
+def test_corolla_gas_source_gap_preserves_every_native_and_intent_veto(fault):
+  with ExitStack() as cleanup:
+    cleanup.enter_context(OpenpilotPrefix())
+    case = fixture.IoniqAvailabilityTests(methodName='runTest')
+    cleanup.callback(case.doCleanups)
+    cp = CarInterface.get_params(CAR.TOYOTA_COROLLA_TSS2, {0: {}, 1: {}, 2: {}}, [], False, False, False)
+    sd, _, drive = case._authority_callers(True, cp=cp, genuine_events=True)
+    refresh_saved_settings(sd)
+    cs = fixture.car_state()
+    cs.vEgo = cs.vEgoRaw = 30.
+    cs.cruiseState.enabled = True
+    for tick in (0, 1, 2):
+      axis, _, command = drive(tick, observed_state=cs, gas=True, steering=True,
+        offset_ns=5_328_073 if tick == 2 else 0, state_stamp=BASE if tick == 2 else None,
+        intent_message=intent(BASE, 3) if tick == 2 else None,
+        long_allowed=False, native_request_long=True)
+      assert axis.lateralActive and command.latActive and not command.longActive
+    if fault == 'missing_anchor':
+      sd.aol_ordinary_source_anchor = None
+    elif fault == 'epoch_changed':
+      sd.aol_intent_companion.integrity_epoch += 1
+    elif fault == 'dm_lockout':
+      sd.aol_dm_lateral_inhibit = True
+    axis, _, command = drive(5, offset_ns=1_321_875, timeout=True,
+      state_stamp=BASE, intent_message=intent(BASE, 3, latched=fault != 'latch_withdrawn'),
+      gas=True, steering=True, long_allowed=False, native_request_long=True,
+      allowed=fault != 'native_denied', native_valid=fault != 'native_invalid',
+      panda_fault=fault == 'rx_fault', relay_fault=fault == 'relay_fault')
+    assert not axis.lateralActive and not axis.longitudinalActive
+    assert not command.latActive and not command.longActive
+    assert str(axis.faultReason) != 'availabilityPause'

@@ -117,3 +117,72 @@ def test_ford_stopped_commit_needs_prior_bounded_geometry_and_current_stop_bit()
     detector.step(replace(current, now_mono_s=current.now_mono_s+.05,
                           observed_mono_s=current.observed_mono_s+.05))
     assert not detector.committed, defect
+
+
+def test_clear_stopped_launch_cannot_reacquire_from_lingering_lead_handoff():
+  from openpilot.starpilot.conditional_mode.stop import StopLead
+  detector = prime()
+  detector.step(frame(30, speed=0., standstill=True, horizon=6., model_should_stop=True))
+  assert detector.standstill_committed
+  lead = StopLead(True, 4.8, 1.4, False, .999, False)
+  cleared = False
+  for tick in range(31, 70):
+    current = replace(frame(tick, speed=0., standstill=True, horizon=62.4, model_should_stop=False), lead=lead, longitudinal_launch_active=True)
+    detector.step(current)
+    if not detector.committed:
+      cleared = True
+    if cleared:
+      assert not detector.committed and not detector.standstill_committed
+  assert cleared
+
+
+def test_launch_acquisition_guard_keeps_current_stop_and_forcing_evidence():
+  from openpilot.starpilot.conditional_mode.stop import StopLead
+  lead = StopLead(True, 4.8, 1.4, False, .999, False)
+  for change in ({'model_should_stop': True}, {'forcing_stop': True}, {'model_horizon_m': 10.},
+                 {'longitudinal_stop_active': True}, {'longitudinal_launch_active': False}):
+    detector = StopLightDetector()
+    detector.light_detected = True
+    current = replace(frame(0, speed=0., standstill=True, horizon=62.4, model_should_stop=False), lead=lead, longitudinal_launch_active=True)
+    current = replace(current, **change)
+    detector.step(current)
+    assert detector.committed, change
+
+
+def test_actual_mache_clear_launch_keeps_hold_released(monkeypatch):
+  from opendbc.car.car_helpers import interfaces
+  from opendbc.car.ford.values import CAR
+  from openpilot.cereal import messaging
+  from openpilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPlanner
+  from openpilot.starpilot.longitudinal.tests import test_cem_green_release as green
+  case = green.CemGreenCallerTests(methodName='runTest')
+  case.setUp()
+  case.cp = interfaces[CAR.FORD_MUSTANG_MACH_E_MK1].get_non_essential_params(CAR.FORD_MUSTANG_MACH_E_MK1)
+  case.cp.openpilotLongitudinalControl = True
+  case.cp.pcmCruise = False
+  case.planner = LongitudinalPlanner(case.cp, init_v=4.27)
+  try:
+    case.prime()
+    original = green.serialized_scene
+    def departing(**kwargs):
+      kwargs.update(lead_present=True, lead_distance=4.8, lead_speed=1.4, lead_accel=1.3)
+      payloads = original(**kwargs)
+      event = messaging.new_message('radarState')
+      event.radarState = payloads['radarState']
+      event.radarState.leadOne.radar = False
+      event.radarState.leadOne.modelProb = .999
+      payloads['radarState'] = event.radarState
+      return payloads
+    monkeypatch.setattr(green, 'serialized_scene', departing)
+    cleared = moving = False
+    for _ in range(40):
+      _, _, held, plan = case.cycle(stopped=True, starting=True, horizon=62.4,
+        velocity=[float(i) / 4 for i in range(33)], should_stop=False, desired_accel=.8, lead=True)
+      if not case.owner.mode.projector.stop_detector.committed:
+        cleared = True
+      if cleared:
+        assert not held and not case.owner.mode.projector.stop_detector.committed
+        moving |= not plan.shouldStop and plan.aTarget > .1
+    assert cleared and moving
+  finally:
+    case.doCleanups()

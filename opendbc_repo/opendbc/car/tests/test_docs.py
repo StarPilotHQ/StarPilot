@@ -101,7 +101,10 @@ class TestCarDocs(unittest.TestCase):
           if isinstance(doc, GMCommunityCarDocs):
             self.assertEqual(doc.support_type, SupportType.COMMUNITY)
             self.assertFalse(doc.merged)
-            expected_harness = (CarHarness.custom if "ASCM Harness" in doc.name or "(CC)" in doc.name else
+            expected_harness = (CarHarness.gm if platform == GM.CHEVROLET_BOLT_ACC_2022_2023 else
+                                CarHarness.gmsdgm if platform == GM.BUICK_ENVISION_SDGM else
+                                CarHarness.custom if platform == GM.CHEVROLET_SILVERADO_CC else
+                                CarHarness.custom if "ASCM Harness" in doc.name or "(CC)" in doc.name else
                                 CarHarness.gmsdgm if "SDGM Harness" in doc.name else
                                 CarHarness.gm if "Camera Harness" in doc.name else CarHarness.obd_ii)
             self.assertIn(expected_harness, doc.car_parts.parts)

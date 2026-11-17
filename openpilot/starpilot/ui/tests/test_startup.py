@@ -77,20 +77,29 @@ class TestStartup(unittest.TestCase):
            patch.object(ui.messaging, "PubMaster"), patch.object(ui, "config_realtime_process") as realtime, \
            patch.object(ui, "drop_realtime") as normal, patch.object(ui.os, "setpriority") as nice, \
            patch.object(ui.os, "sched_getscheduler", return_value=0, create=True), \
-           patch.object(ui.os, "SCHED_OTHER", 0, create=True), patch.object(ui.os, "getpriority", return_value=0), \
+           patch.object(ui.os, "SCHED_OTHER", 0, create=True), patch.object(ui.os, "getpriority", return_value=5 if device == "mici" else 0), \
            patch.object(ui.os, "sched_getaffinity", return_value={0}, create=True), \
            patch.object(ui, "set_core_affinity") as affinity:
         ui.main()
-        realtime.assert_called_once_with(0, ui.Priority.UI)
-        if hardware:
-          normal.assert_called_once_with()
-          nice.assert_called_once_with(ui.os.PRIO_PROCESS, 0, 0)
+        if device == "mici":
+          realtime.assert_not_called()
+          self.assertEqual(normal.call_count, 2)
+          self.assertEqual(nice.call_count, 2)
+          self.assertTrue(all(call.args == (ui.os.PRIO_PROCESS, 0, 5) for call in nice.call_args_list))
+          self.assertEqual(set(affinity.call_args_list[0].args[0]), {0, 1, 2, 7})
+          self.assertTrue(all(set(call.args[0]) == {0, 1, 2, 7} for call in affinity.call_args_list[1:]))
+          self.assertEqual(affinity.call_count, 3)
         else:
-          normal.assert_not_called()
-          nice.assert_not_called()
-        self.assertEqual(affinity.call_count, 2 if hardware else 0)
-        if hardware:
-          self.assertTrue(all(call.args == ([6],) for call in affinity.call_args_list))
+          realtime.assert_called_once_with(0, ui.Priority.UI)
+          if hardware:
+            normal.assert_called_once_with()
+            nice.assert_called_once_with(ui.os.PRIO_PROCESS, 0, 0)
+          else:
+            normal.assert_not_called()
+            nice.assert_not_called()
+          self.assertEqual(affinity.call_count, 2 if hardware else 0)
+          if hardware:
+            self.assertTrue(all(call.args == ([6],) for call in affinity.call_args_list))
 
   def test_slc_publisher_gate_is_independent_of_ui_selection(self):
     self.assertTrue(startup.slc_action_transport_enabled({"STARPILOT_UI_DEV": "1"}))

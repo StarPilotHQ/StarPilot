@@ -59,6 +59,8 @@ class WebRTCBaseStream(abc.ABC):
     config.force_media_transport = True
     config.disable_auto_negotiation = True
     config.ice_servers = [IceServer("stun:stun.l.google.com:19302")]
+    # the peers negotiate the smaller of their limits, so this only raises it when both sides allow it
+    config.max_message_size = 16 * 1024 * 1024
     if bind_address is not None:
       config.bind_address = bind_address
 

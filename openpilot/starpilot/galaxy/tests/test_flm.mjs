@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 import { compile } from "../web/vendor/vue/vue.esm-browser.js"
 import { FlmPage } from "../web/js/flm.js"
-import { SURFACE_NAMES, PID_UNSUPPORTED, fullCoordinates, surfaceRows, validTrainingResults, coordinateText } from "../web/js/flm-training-results.js"
+import { SURFACE_NAMES, PID_UNSUPPORTED, fullCoordinates, surfaceRows, validTrainingResults, coordinateText, SURFACE_GROUPS, validLearningPreference, tunerStatus, learningReason } from "../web/js/flm-training-results.js"
 
 const report = () => ({ version: 1, history: [], current: { fresh: true, ageSeconds: .1, enabled: true,
   status: "collecting", reason: "capturing_steering_evidence", progress: { samples: 120, blocks: 3, requiredBlocks: 16 },
@@ -55,53 +55,53 @@ assert.equal(coordinateText(null), "Not reported")
 assert.equal(coordinateText(.005), "+0.005")
 compile(FlmPage.template, { decodeEntities: value => value.replaceAll("&amp;", "&") })
 assert.doesNotMatch(FlmPage.template, /v-html|Analyze selected|GM Trial|Choose Full Logs/)
-assert.match(FlmPage.template, /Currently applied/)
+assert.match(FlmPage.template, /Applied now/)
 assert.match(FlmPage.template, /PID unsupported/)
+assert.deepEqual(SURFACE_GROUPS.flatMap(group => group.names).sort(), [...SURFACE_NAMES].sort())
 const app = readFileSync(new URL("../web/js/app.js", import.meta.url), "utf8")
-assert(app.includes("['/tuning', '/tuning/plots', '/tuning/flm'].includes(route.path)"))
-const analysis = app.match(/<div v-else-if="\['\/tuning', '\/tuning\/plots', '\/tuning\/flm'\]\.includes\(route.path\)"[\s\S]*?<\/div>/)?.[0]
-assert(analysis, 'Existing analysis route and old bookmarks share one page')
-assert.match(analysis, /<PlotsPage /)
-assert.match(analysis, /<FlmPage embedded /)
-assert.doesNotMatch(app, /<FlmPage v-else-if/)
-compile(analysis.replace("v-else-if", "v-if"), { onError: error => { throw error }, decodeEntities: value => value.replaceAll("&amp;", "&") })
-assert.doesNotMatch(app, /Recorded-drive analysis/)
-const settings = readFileSync(new URL("../web/js/settings.js", import.meta.url), "utf8")
-assert.doesNotMatch(settings, /FLMTrainingResults|View FLM training results/)
+assert(app.includes("['/tuning', '/tuning/flm', '/tuning/plots'].includes(route.path)"))
+assert.match(app, /<FlmPage v-else-if/)
+assert.match(app, /:initial-view="route.path === '\/tuning\/plots' \? 'plots' : 'overview'"/)
+assert.doesNotMatch(app, /<FlmPage embedded/)
 const catalog = JSON.parse(readFileSync(new URL("../web/data/catalog.json", import.meta.url), "utf8"))
-assert(catalog.tools.some(tool => tool.path === "/tuning/plots"))
-assert(!catalog.tools.some(tool => tool.path === "/tuning/flm"))
+assert(catalog.tools.some(tool => tool.path === "/tuning" && tool.name === "Tuning and Analysis"))
 assert.equal(catalog.tools.filter(tool => tool.path.startsWith('/tuning')).length, 1)
-const plots = readFileSync(new URL('../web/js/plots.js', import.meta.url), 'utf8')
-assert.doesNotMatch(plots, /href="#\/tuning\/flm"/)
 const driving = readFileSync(new URL('../web/js/driving.js', import.meta.url), 'utf8')
+assert.match(driving, /go\('\/tuning'\)/)
 assert.match(driving, /go\('\/tuning\/plots'\)/)
-assert.doesNotMatch(driving, /\/tuning\/flm/)
-assert.match(FlmPage.template, /<section v-if="!embedded"[^>]*><div class="gx-section__header">.*Live steering response/)
-assert.doesNotMatch(FlmPage.template, /href="#\/tuning\/plots"/)
-const route = readFileSync(new URL("../web/js/route-workspace.js", import.meta.url), "utf8")
-assert.doesNotMatch(route, /Analyze driving logs/)
+assert.doesNotMatch(readFileSync(new URL('../web/js/flm.js', import.meta.url), 'utf8'), /PlotsFeed|api\/plots/)
+for (const view of ['overview', 'tune', 'activity', 'plots']) assert(FlmPage.template.includes(`view === '${view}'`))
+const choice = { version: 1, valid: true, enabled: true, parked: true, vehicle: 'HYUNDAI_IONIQ_6' }
+assert(validLearningPreference(choice))
+assert.equal(tunerStatus({ ...value, preference: choice }, false, true).key, 'parked')
+assert.equal(tunerStatus({ ...value, preference: { ...choice, enabled: false } }, true, true).key, 'off')
+assert.equal(tunerStatus({ ...value, preference: choice }, false, false).key, 'stale')
+assert.equal(tunerStatus({ ...value, preference: choice }, true, true, 'offline').key, 'offline')
+const inactive = report(); inactive.current.reason = 'controller_collection_required'
+assert.equal(tunerStatus(inactive, true).title, 'Waiting for active steering')
+assert.match(learningReason('stale_control'), /arrived late/)
+assert.equal(learningReason('unknown_internal_reason'), "The device's detailed report is available in Activity.")
+for (const invalid of [null, {}, { ...choice, version: true }, { ...choice, valid: false, enabled: true },
+  { ...choice, enabled: 'yes' }, { ...choice, parked: 1 }, { ...choice, vehicle: 'x'.repeat(257) }]) {
+  assert(!validLearningPreference(invalid))
+  assert(!validTrainingResults({ ...value, preference: invalid }))
+}
 
 function instance() {
   const vm = { ...FlmPage.data(), activePage: true, mode: "local", unauthorized: () => vm.auth++, auth: 0,
-    feed: { stop() {} }, poller: { stop() {} } }
+    poller: { stop() {} }, $nextTick: callback => Promise.resolve().then(callback) }
   for (const [name, method] of Object.entries(FlmPage.methods)) vm[name] = method.bind(vm)
   for (const [name, method] of Object.entries(FlmPage.computed)) Object.defineProperty(vm, name, { get: () => method.call(vm) })
   return vm
 }
 const originalFetch = globalThis.fetch, originalDocument = globalThis.document
 try {
-  globalThis.document = { hidden: false, addEventListener() {}, removeEventListener() {} }
-  for (const embedded of [true, false]) {
-    const page = { ...FlmPage.data(), embedded, mode: 'local', unauthorized() {}, load() {} }
-    let plotStarts = 0
-    FlmPage.created.call(page)
-    page.feed.start = () => { plotStarts++ }
-    page.feed.stop = () => {}
-    FlmPage.mounted.call(page)
-    assert.equal(plotStarts, embedded ? 0 : 1, 'Embedded results reuse the existing live plots')
-    FlmPage.beforeUnmount.call(page)
-  }
+  globalThis.document = { getElementById: () => null, hidden: false, addEventListener() {}, removeEventListener() {} }
+  const mounted = instance()
+  mounted.load = () => {}
+  FlmPage.mounted.call(mounted)
+  assert.equal(mounted.feed, undefined, 'Tuner does not start a second raw-plot feed')
+  FlmPage.beforeUnmount.call(mounted)
   const calls = []
   globalThis.fetch = async (url, options) => { calls.push({ url, options }); return { ok: true, json: async () => value } }
   const vm = instance(); await vm.load()
@@ -113,6 +113,18 @@ try {
   vm.now = vm.receivedAt + 2100
   assert(!vm.currentApplied)
   assert(vm.rows.every(row => row.applied === null))
+  vm.report = { ...value, preference: { ...choice, enabled: false, parked: false } }
+  vm.now = vm.receivedAt
+  assert(!vm.currentApplied, 'Authoritative current OFF suppresses earlier RAM application')
+  vm.report = { ...value, preference: choice }
+  assert(!vm.currentApplied, 'Parked report does not claim a current steering correction')
+  vm.report = value
+  const focused = []
+  const event = { key: 'ArrowRight', preventDefault() {}, currentTarget: { parentElement: { querySelectorAll: () =>
+    ['overview', 'tune', 'activity', 'plots'].map(name => ({ focus: () => focused.push(name) })) } } }
+  vm.tabKey(event); await Promise.resolve(); assert.equal(vm.view, 'tune'); assert.deepEqual(focused, ['tune'])
+  event.key = 'End'; vm.tabKey(event); await Promise.resolve(); assert.equal(vm.view, 'plots')
+  event.key = 'Home'; vm.tabKey(event); await Promise.resolve(); assert.equal(vm.view, 'overview')
   globalThis.fetch = async () => { throw new TypeError("offline") }
   await vm.load(); assert(!vm.currentApplied); assert.equal(vm.report, value)
   globalThis.fetch = async () => ({ ok: false, status: 401, json: async () => ({ error: "Sign in" }) })
@@ -126,3 +138,8 @@ try {
   clearTimeout(vm.freshnessTimer)
 } finally { globalThis.fetch = originalFetch; globalThis.document = originalDocument }
 console.log("Auto Learn canonical routing, exact full30 data, missing/stale application, auth and cancellation contracts passed")
+
+assert.doesNotMatch(FlmPage.template, /Steering settings|One change\. A fair comparison\.|Comparable driving windows establish/)
+assert.match(FlmPage.template, /<h2>Your steering<\/h2>/)
+assert.match(FlmPage.template, /<PlotsPage[^>]+:active="view === 'plots'"[^>]+embedded/)
+assert.doesNotMatch(FlmPage.template, /gx-tuner__plots-link/)

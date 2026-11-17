@@ -82,9 +82,9 @@ def available(pid: int, start: int) -> bool:
 
 
 def _command(action: str, branch=None, commit=None, selected_commit=None) -> bytes:
-  if action == 'version' and type(selected_commit) is str and _COMMIT.fullmatch(selected_commit):
+  if action in ('version', 'download-version') and type(selected_commit) is str and _COMMIT.fullmatch(selected_commit):
     base = _command('fast', branch, commit).decode('ascii').split(' ', 1)[1]
-    return f'version {base} {selected_commit}'.encode('ascii')
+    return f'{action} {base} {selected_commit}'.encode('ascii')
   if selected_commit is not None:
     raise UpdaterControlError('Invalid updater version target')
   if action in ('check', 'download') and branch is None and commit is None:
@@ -100,7 +100,7 @@ def _parse(command: bytes):
     return command[:-1].decode('ascii'), None, None
   try:
     parts = command[:-1].decode('ascii').split(' ')
-    if len(parts) == 4 and parts[0] == 'version' and command.endswith(b'\n'):
+    if len(parts) == 4 and parts[0] in ('version', 'download-version') and command.endswith(b'\n'):
       action, branch, commit, selected = parts
       if _command(action, branch, commit, selected) + b'\n' == command:
         return action, branch, commit, selected
@@ -160,7 +160,7 @@ class UpdaterControlServer:
           else:
             parsed = _parse(command)
             action, branch, commit = parsed[:3]
-            if action == 'version':
+            if action in ('version', 'download-version'):
               self.request(action, branch=branch, commit=commit, selected_commit=parsed[3])
             elif action in ('update', 'fast', 'rollback', 'versions'):
               self.request(action, branch=branch, commit=commit)

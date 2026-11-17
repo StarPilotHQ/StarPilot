@@ -14,3 +14,8 @@ inline bool volkswagen_meb_aol_param(uint16_t param) {
          (param == 24U) || (param == 26U) || (param == 28U) || (param == 30U);
 }
 inline constexpr AolSafetyProfile VOLKSWAGEN_MEB_AOL_PROFILE{34U, volkswagen_meb_aol_param, true};
+
+inline bool volkswagen_pq_aol_param(uint16_t param) {
+  return (param == 8U) || (param == 9U);
+}
+inline constexpr AolSafetyProfile VOLKSWAGEN_PQ_AOL_PROFILE{21U, volkswagen_pq_aol_param, true};

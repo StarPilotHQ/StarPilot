@@ -14,7 +14,7 @@ from openpilot.common.params import Params
 from openpilot.starpilot.lateral.lane_change_preferences import KEY, LaneChangePolicy, decode, effective, read_saved, to_value
 from openpilot.starpilot.ui.feature_settings_owner import FeatureSettingsOwner
 from openpilot.starpilot.ui.feature_settings_state import FeaturePage, FeatureSettingsRequest, row_change, row_default
-from openpilot.starpilot.ui.lane_change_feature import AUTO, CLOSE, DELAY, ENABLED, GAP, ONE, PACE, RESET, SPEED, WIDTH
+from openpilot.starpilot.ui.lane_change_feature import AUTO, CLOSE, DELAY, ENABLED, GAP, ONE, PACE, REQUIRE_CRUISE, RESET, SPEED, WIDTH
 from openpilot.starpilot.ui import feature_settings_compact as compact
 from openpilot.starpilot import saved_document
 
@@ -31,6 +31,19 @@ class LaneChangeFeatureTests(unittest.TestCase):
     self.fingerprint = str(self.cp.carFingerprint)
     self.owner = FeatureSettingsOwner(self.params, lambda group: self.parked and group in ("lane_change", "parked_preferences"),
                                       vehicle_fingerprint=lambda: self.fingerprint, vehicle_params=lambda: self.cp)
+
+  def test_cruise_requirement_is_optional_saved_and_resettable_for_stock_and_openpilot_long(self):
+    for openpilot_long in (False, True):
+      self.cp.openpilotLongitudinalControl = openpilot_long
+      row = self.row(REQUIRE_CRUISE)
+      self.assertTrue(row.available)
+      self.assertEqual(row.default_value, "Off")
+      self.assertTrue(self.owner.apply(self.request(row)))
+      self.assertTrue(read_saved(self.params).policy.auto_requires_cruise)
+      reset = row_default(self.row(REQUIRE_CRUISE))
+      assert reset is not None
+      self.assertTrue(self.owner.apply(reset))
+      self.assertFalse(read_saved(self.params).policy.auto_requires_cruise)
 
   def test_default_resets_one_lane_field_without_resetting_other_choices(self):
     row = self.row(AUTO)
@@ -185,7 +198,7 @@ class LaneChangeFeatureTests(unittest.TestCase):
     self.parked = True
     self.assertTrue(self.owner.apply(auto))
     self.assertTrue(read_saved(self.params).policy.auto_lane_change)
-    self.assertEqual(to_value(read_saved(self.params).policy)["version"], 5)
+    self.assertEqual(to_value(read_saved(self.params).policy)["version"], 6)
     self.assertTrue(self.owner.apply(self.request(self.row(DELAY))))
     self.assertEqual(read_saved(self.params).policy.auto_delay_s, 1.1)
     self.assertTrue(self.owner.apply(self.request(self.row(WIDTH))))
@@ -311,7 +324,7 @@ class LaneChangeFeatureTests(unittest.TestCase):
         self.assertIsNone(decode(raw))
         if len(raw) > 512:
           self.assertFalse(self.row(RESET).available)
-    self.assertEqual(to_value(LaneChangePolicy())["version"], 5)
+    self.assertEqual(to_value(LaneChangePolicy())["version"], 6)
     self.assertFalse(decode(b'{"version":1,"enabled":true,"minimumSpeedMps":8.9408,"onePerSignal":false}').auto_lane_change)
     with self.assertRaises(ValueError):
       to_value(LaneChangePolicy(minimum_speed_mps=int("9" * 350)))

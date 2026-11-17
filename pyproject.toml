@@ -34,7 +34,6 @@ dependencies = [
   "comma-deps-acados",
   "comma-deps-ffmpeg",
   "comma-deps-zstd",
-  "comma-deps-zeromq",
   "comma-deps-json11",
   "comma-deps-gcc-arm-none-eabi",
 
@@ -88,8 +87,9 @@ tools = [
 ]
 
 vendored = [
+  "nanobind==3.1.0",
   "jetlink",
-  "msgq-ipc",
+  "msgq-ipc[build]",
   "opendbc",
   "pandacan",
   "rednose",
@@ -125,7 +125,7 @@ quiet-level = 3
 ignore-words-list = "bu,ro,te,ue,alo,hda,ois,nam,nams,ned,som,parm,setts,inout,warmup,bumb,nd,sie,preints,whit,indexIn,ws,uint,grey,deque,stdio,amin,BA,LITE,atEnd,UIs,errorString,arange,FocusIn,od,tim,relA,hist,copyable,jupyter,thead,TGE,abl,lite,ser,assertIn,HomeState,cancelled,CAS,acknowledgement,writeable,noice,FoF,waitFor,centre,centres,KeyPair,aPoint"
 builtin = "clear,rare,informal,code,names,en-GB_to_en-US"
 skip = "openpilot/cereal/gen/cpp/*.capnp.c++, openpilot/cereal/gen/cpp/*.capnp.h, *.po, uv.lock, *.onnx, *.pem, */c_generated_code/*, docs/assets/*, openpilot/tools/plotjuggler/layouts/*, openpilot/selfdrive/assets/offroad/mici_fcc.html, openpilot/starpilot/galaxy/web/vendor/vue/vue.esm-browser.js, openpilot/starpilot/ui/assets/fonts/notices/Unifont-COPYING.txt, openpilot/starpilot/galaxy_bluetooth/vendor/*, openpilot/starpilot/soloist/pulseaudio/licenses/*, openpilot/starpilot/companion/android/LICENSE.gradle"
-ignore-regex = "scale\\.numer"  # codespell:ignore numer
+ignore-regex = "scale\\.numer|\\bHaibin Wen\\b"  # codespell:ignore numer
 
 # https://docs.astral.sh/ruff/configuration/#using-pyprojecttoml
 [tool.ruff]
@@ -159,12 +159,18 @@ extend-exclude = ["openpilot/starpilot/galaxy_bluetooth/vendor"]  # unmodified t
 "openpilot/starpilot/companion/ios/tests/*.py" = ["E501"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
+"openpilot.starpilot.ui.raylib.rl.measure_text_ex".msg = "Use openpilot.system.ui.lib.text_measure"
+"openpilot.starpilot.ui.raylib.rl.is_mouse_button_pressed".msg = "This can miss events. Use Widget._handle_mouse_press"
+"openpilot.starpilot.ui.raylib.rl.is_mouse_button_released".msg = "This can miss events. Use Widget._handle_mouse_release"
+"openpilot.starpilot.ui.raylib.rl.draw_text".msg = "Use a function (such as rl.draw_font_ex) that takes font as an argument"
+"openpilot.starpilot.ui.raylib.rl.draw_texture".msg = "Use rl.draw_texture_ex for float position support"
+
 "time.time".msg = "Use time.monotonic. time.time can skip due to its reference clock, you probably want a monotonic clock"
-"pyray.measure_text_ex".msg = "Use openpilot.system.ui.lib.text_measure"
-"pyray.is_mouse_button_pressed".msg = "This can miss events. Use Widget._handle_mouse_press"
-"pyray.is_mouse_button_released".msg = "This can miss events. Use Widget._handle_mouse_release"
-"pyray.draw_text".msg = "Use a function (such as rl.draw_font_ex) that takes font as an argument"
-"pyray.draw_texture".msg = "Use rl.draw_texture_ex for float position support"
+"raylib_nb.measure_text_ex".msg = "Use openpilot.system.ui.lib.text_measure"
+"raylib_nb.is_mouse_button_pressed".msg = "This can miss events. Use Widget._handle_mouse_press"
+"raylib_nb.is_mouse_button_released".msg = "This can miss events. Use Widget._handle_mouse_release"
+"raylib_nb.draw_text".msg = "Use a function (such as rl.draw_font_ex) that takes font as an argument"
+"raylib_nb.draw_texture".msg = "Use rl.draw_texture_ex for float position support"
 
 [tool.ruff.format]
 quote-style = "preserve"

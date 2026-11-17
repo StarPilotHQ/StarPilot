@@ -40,6 +40,7 @@ def test_input_gap_retains_owned_inline_results_without_restoring_permission(mon
   results = [numerical_probe_from_saved(builder, saved, point, group, name) for point in saved['points']]
   assert actor.probe_token is None  # Normal inline execution has no external child.
   assert actor.tick(collector, source, now_ns=queued + 1, current_native=False, evidence_delay_only=True) is None
+  assert actor.reason == 'qualified_control_output_pair_required'
   assert episode_id in builder.completed
   assert builder.completed[episode_id]['deadline'] == deadline
   assert not builder.ticks and not builder.endpoints and not actor.ingress.monitor.rows

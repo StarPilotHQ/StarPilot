@@ -62,7 +62,7 @@ class TestUiAction(unittest.TestCase):
     self.sample(MONO + 10_000_000)
 
   def configure(self, choice=ModeChoice.CEM, persist=False):
-    self.choice = choice
+    self.choice = ModeChoice.CEM if choice is ModeChoice.CCM else choice
     document = SavedPreferences(mode=choice, cem=CEMOptions(speed_mps=20.0, persist_manual=persist),
                                 ccm=CCMOptions(persist_manual=persist))
     self.params.put('ConditionalModeConfig', json.loads(encode_preferences(document)), block=True)
@@ -135,7 +135,7 @@ class TestUiAction(unittest.TestCase):
       time.sleep(.005)
     self.fail('manual writer did not settle')
 
-  def test_cem_ccm_typed_cycle_and_actual_consumer(self):
+  def test_automatic_and_retired_mode_typed_cycle_and_actual_consumer(self):
     cases = ((choice, effective) for choice in (ModeChoice.CEM, ModeChoice.CCM) for effective in (False, True))
     for index, (choice, effective) in enumerate(cases):
       with self.subTest(choice=choice, effective=effective):
@@ -144,14 +144,14 @@ class TestUiAction(unittest.TestCase):
         self.sample(stamp)
         event = self.request(stamp + 10_000_000, effective=effective)
         proposal, snapshot = self.sample(stamp + 20_000_000, ui_event=event, effective=effective)
-        self.assertEqual(self.owner.manual.code, next_manual_status(choice, 0, effective))
+        self.assertEqual(self.owner.manual.code, next_manual_status(self.choice, 0, effective))
         self.assertEqual(self.owner.manual_state.intent, ManualIntent.FORCE_CHILL if effective else ManualIntent.FORCE_EXPERIMENTAL)
         self.assertIs(proposal.override_experimental, not effective)
         consumer = ModeConsumer()
         arguments: dict[str, Any] = {'now_ns': stamp + 21_000_000, 'now_boot_ns': BOOT + stamp - MONO + 21_000_000,
                      'sample_skew_ns': 1000, 'message_ns': stamp + 21_000_000, 'receipt_ns': stamp + 21_000_000,
                      'drive_id': MONO, 'model_ns': stamp + 20_000_000, 'car_state_ns': stamp + 20_000_000,
-                     'authority': True, 'stock_experimental': False, 'choice': choice,
+                     'authority': True, 'stock_experimental': False, 'choice': self.choice,
                      'settings_fingerprint': settings_fingerprint(snapshot)}
         consumer.sample(None, **arguments)  # Establish its real restart barrier.
         later = stamp + 40_000_000

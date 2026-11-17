@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { compile } from "../web/vendor/vue/vue.esm-browser.js"
 import { snapshot } from "./test_onroad_layout.mjs"
 import { editorSnapshot, projectionPayload } from "../web/js/projection-layout.js"
-import { LayoutWidgetPreview, OnroadLayoutFeed, OnroadLayoutPage, validSnapshot, validDocument } from "../web/js/onroad-layout.js"
+import { LayoutWidgetPreview, OnroadLayoutFeed, OnroadLayoutPage, validSnapshot, validDocument, widgetSize } from "../web/js/onroad-layout.js"
 
 const copy = (v) => JSON.parse(JSON.stringify(v))
 const native = snapshot()
@@ -25,15 +25,15 @@ metadata.widgets.jetlink_status = { label: "Jetlink status", kind: "jetlink_stat
 metadata.widgetOrder = [...(metadata.widgetOrder || Object.keys(native.metadata.profiles.large.widgets)), "jetlink_status", "car_exit"]
 const widgets = Object.fromEntries(Object.entries(metadata.widgets).map(([id, widget]) => [id,
   { ...widget.default, ...(widget.resizable ? { size: widget.resizable.default } : {}) }]))
-const doc = { version: 5, clock24Hour: false, largeUiGammaTrial: false, blindSpotBorder: false, signalBorder: false, blindSpotCamera: false, hidePersonalityAlerts: false, wheelPedalFeedback: false, leadIndicator: false, leadInfo: "Off", speedSources: false, speedSourcesCard: false, speedAlign: "center", canvas: { width: 2880, height: 1080 }, widgets }
+const doc = { version: 7, clock24Hour: false, largeUiGammaTrial: false, blindSpotBorder: false, signalBorder: false, blindSpotCamera: false, hidePersonalityAlerts: false, wheelPedalFeedback: false, leadIndicator: false, leadInfo: "Off", speedSources: false, speedSourcesCard: false, speedAlign: "center", canvas: { width: 2880, height: 1080 }, widgets }
 const raw = { version: 1, document: doc, defaults: copy(doc), metadata,
   screen: { width: 1280, height: 720, margin_width: 0, margin_height: 240 },
   revision: "aa-screen-and-layout", editable: true, valid: true,
   colors: { palette: native.document.palette, widgetColors: native.document.widgetColors.large, roadColors: {} } }
 const data = editorSnapshot(raw)
 assert.deepEqual(editorSnapshot({ ...raw, document: { ...doc, version: 4 }, defaults: { ...doc, version: 4 } }).document,
-  data.document, "version 4 layouts remain readable alongside the backend's version 5")
-for (const bad of [{ version: 6 }, { version: "5" }, { canvas: { width: 1920, height: 1080 } }])
+  data.document, "version 4 layouts remain readable alongside the backend's version 7")
+for (const bad of [{ version: 8 }, { version: "5" }, { canvas: { width: 1920, height: 1080 } }])
   assert.throws(() => editorSnapshot({ ...raw, document: { ...doc, ...bad } }), /does not match/)
 
 assert.equal(validSnapshot(data), true)
@@ -138,6 +138,8 @@ OnroadLayoutPage.methods.setProjectionLeadInfo.call(leadVm, "Both")
 assert.equal(leadVm.state.draft.leadInfo, "Speed")
 assert.equal(leadChanges.length, 2)
 assert.equal(validDocument({ ...native.document, signalBorder: true }, native.metadata), false, "the comma screen keeps its C4 settings")
+assert.match(OnroadLayoutPage.template, /Personality alerts follow the comma screen setting\./)
+assert.doesNotMatch(OnroadLayoutPage.template, /setProjectionDisplay\('hidePersonalityAlerts', value\)/)
 assert.match(OnroadLayoutPage.template, /Red Blind-Spot Border/)
 assert.match(OnroadLayoutPage.template, /Amber Signal Border/)
 const borderChanges = []
@@ -258,7 +260,7 @@ const draft = copy(feed.data.document)
 draft.layouts.large.current_speed.x += 20
 assert.equal(await feed.save(draft), true)
 assert.equal(requests[0].url, "./api/starport/layout")
-assert.equal(requests[1].body.document.version, 5)
+assert.equal(requests[1].body.document.version, 7)
 assert.deepEqual(Object.keys(requests[1].body.document).sort(), ["blindSpotBorder", "blindSpotCamera", "canvas", "clock24Hour", "hidePersonalityAlerts", "largeUiGammaTrial", "leadIndicator", "leadInfo", "signalBorder", "speedAlign", "speedSources", "speedSourcesCard", "version", "wheelPedalFeedback", "widgets"])
 assert.equal(requests[1].body.document.widgets.current_speed.x, 1170)
 assert.equal(requests[1].body.document.speedAlign, "center")
@@ -274,3 +276,44 @@ assert.deepEqual(orderedSnapshot.document.widgetOrder.large, orderedRaw.document
 assert.deepEqual(projectionPayload({revision: raw.revision, document: orderedSnapshot.document}, orderedSnapshot.metadata).document,
   orderedRaw.document)
 console.log('Projection layers survive editor translation and save payload')
+
+// Now playing: big or small, mirroring projection_layout's metadata; layouts saved before the choice are small.
+{
+  const npMetadata = copy(metadata)
+  npMetadata.widgets.now_playing = { label: "Now playing", kind: "now_playing", width: 520, height: 96, colors: {},
+    opacity: { min: 0, max: 100, default: 85 }, collapseToggle: true, sizes: { small: [520, 96], big: [640, 264] },
+    default: { x: 2330, y: 954, enabled: true, opacity: 85, collapse: false, size: "small" } }
+  npMetadata.widgetOrder = [...metadata.widgetOrder.filter(id => id !== "car_exit"), "now_playing", "car_exit"]
+  const npDoc = copy(doc)
+  npDoc.widgets.now_playing = { ...npMetadata.widgets.now_playing.default }
+  const npData = editorSnapshot({ ...raw, metadata: npMetadata, document: npDoc, defaults: copy(npDoc) })
+  assert.equal(validSnapshot(npData), true)
+  const npProfile = npData.metadata.profiles.large
+  assert.deepEqual(widgetSize(npProfile.widgets.now_playing, npData.document.layouts.large.now_playing), [520, 96])
+  assert.deepEqual(widgetSize(npProfile.widgets.now_playing, { ...npData.document.layouts.large.now_playing, size: "big" }), [640, 264])
+  for (const size of ["medium", undefined, 1]) {
+    const broken = copy(npData.document)
+    broken.layouts.large.now_playing.size = size
+    assert.equal(validDocument(broken, npData.metadata), false)
+  }
+  const badSizes = copy(npData)
+  badSizes.metadata.profiles.large.widgets.now_playing.sizes.big = [640]
+  assert.equal(validSnapshot(badSizes), false)
+  const sizeChanges = []
+  const sizeVm = { editable: true, finishColorEdit() {}, recordChange: before => sizeChanges.push(before),
+    state: { draft: copy(npData.document), drag: null, layerDrag: null, notice: "", selected: "now_playing" } }
+  Object.defineProperty(sizeVm, "layout", { get: () => sizeVm.state.draft.layouts.large })
+  sizeVm.selectedWidget = npProfile.widgets.now_playing
+  Object.defineProperty(sizeVm, "selectedPosition", { get: () => sizeVm.layout.now_playing })
+  sizeVm.limitProfile = npProfile
+  OnroadLayoutPage.methods.setWidgetSize.call(sizeVm, "big")
+  const grown = sizeVm.layout.now_playing
+  assert.equal(grown.size, "big")
+  assert.ok(grown.x + 640 <= npProfile.bounds.x + npProfile.bounds.width && grown.y + 264 <= npProfile.bounds.y + npProfile.bounds.height,
+    "a bigger card slides back on screen")
+  assert.equal(sizeChanges.length, 1)
+  assert.equal(validDocument(sizeVm.state.draft, npData.metadata), true)
+  OnroadLayoutPage.methods.setWidgetSize.call(sizeVm, "huge")
+  assert.equal(grown.size, "big")
+  assert.match(OnroadLayoutPage.template, /setWidgetSize\(size\)/)
+}

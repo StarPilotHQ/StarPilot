@@ -117,7 +117,6 @@ class FeatureSettingsCompact:
                 "torque_gain_rebase": "Apply the saved steering response to the selected controller and current vehicle tune? " +
                                      "Friction and other models stay unchanged.",
                 "torque_rebase": f"reapply saved torque values ({row.value}) with the current vehicle tune?",
-                "slc_adopt": "keep these offsets and speed ranges when units change? old saved values remain, but no longer control the offsets",
                 "slc_reset": f"reset speed-limit offsets to zero? {row.value}. " +
                              "saved control may resume if its switch is on; its switch will not change",
                 "curve_reset": "Erase learned curve data? Curve Speed Controller keeps its current On or Off choice.",

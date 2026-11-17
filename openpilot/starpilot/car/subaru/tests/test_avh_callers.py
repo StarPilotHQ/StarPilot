@@ -251,7 +251,8 @@ def test_startup_option_preserves_actual_stock_engage_aol_brake_reverse_recovery
   original = stock.actual_factory
 
   def selected(*args, **kwargs):
-    return original(*args, **kwargs, preferences={'SubaruAvhStartup': True, 'SubaruStopStartOff': True})
+    preferences = {**(kwargs.pop('preferences', None) or {}), 'SubaruAvhStartup': True, 'SubaruStopStartOff': True}
+    return original(*args, **kwargs, preferences=preferences)
 
   with patch.object(stock, 'actual_factory', side_effect=selected):
     stock.test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(CAR.SUBARU_LEGACY_2025, subaru_native_pair, tmp_path)

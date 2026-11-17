@@ -10,8 +10,8 @@ assert.equal(sceneHidesWidget('slc_pending', 'compact', 'speed_limit', signLayou
 assert.equal(sceneHidesWidget('engaged', 'compact', 'speed_limit', signLayout, signWidgets), false)
 for (const scene of ['slc_pending', 'slc_max', 'slc_retained']) {
   for (const profile of ['large', 'compact'])
-    assert.equal(sceneHidesWidget(scene, profile, 'speed_limit_actions'), scene === 'slc_pending')
-  assert.equal(sceneHidesWidget(scene, 'compact', 'speed_limit', signLayout, signWidgets), scene !== 'slc_pending')
+    assert.equal(sceneHidesWidget(scene, profile, 'speed_limit_actions'), true)
+  assert.equal(sceneHidesWidget(scene, 'compact', 'speed_limit', signLayout, signWidgets), false)
 }
 assert.equal(sceneHidesWidget('slc_equal', 'compact', 'speed_limit_actions'), true)
 assert.equal(sceneHidesWidget('slc_pending', 'compact', 'speed_limit', signLayout,

@@ -44,7 +44,7 @@ class TestTeslaScreenSettings(unittest.TestCase):
 
   def test_detected_harness_exposes_preferences_without_granting_native_permission(self):
     page = self.page()
-    self.assertEqual({row['label'] for row in page['rows']}, {'Three-Finger AOL Tap', 'Disengage AOL on Brake', 'Alpha Longitudinal'})
+    self.assertEqual({row['label'] for row in page['rows']}, {'Three-Finger AOL Tap', 'Disengage AOL on Brake', 'Alpha Longitudinal', 'Tesla Co-op Steering'})
     self.assertTrue(all(row['available'] and row['value'] == 'Off' and row['defaultValue'] == 'Off' for row in page['rows']))
     self.assertIn('Vehicle Settings', {row['label'] for row in self.page('hub')['rows']})
     master = next(row for row in self.page('aol')['rows'] if row['label'] == 'Enable Always On Lateral')
@@ -66,7 +66,9 @@ class TestTeslaScreenSettings(unittest.TestCase):
       with self.subTest(options=options):
         cp = vehicle(**options)
         self.context = AuthorityContext(True, cp, cp.to_bytes())
-        self.assertFalse(any('AOL' in row['label'] for row in self.page()['rows']))
+        labels = {row['label'] for row in self.page()['rows']}
+        self.assertNotIn('Three-Finger AOL Tap', labels)
+        self.assertEqual('Disengage AOL on Brake' in labels, options != {'marker': False})
 
   def test_stale_vehicle_or_onroad_change_rejects_saved_intent(self):
     intent = self.intent()

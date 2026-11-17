@@ -1,7 +1,7 @@
 """Preserved Settings vector icon geometry; no application or cache ownership."""
 
 import math
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 def draw_icon_geometry(key: str, x: float, y: float, s: float, color: rl.Color):
   def draw_bezier(p0: rl.Vector2, p1: rl.Vector2, p2: rl.Vector2, thick: float):

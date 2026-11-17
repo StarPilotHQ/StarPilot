@@ -52,11 +52,22 @@ class UpdaterControlTests(unittest.TestCase):
     with self.assertRaises(update_control.UpdaterControlError):
       update_control._command('fast', 'Dom', expected, selected)
 
+  def test_download_version_pins_both_commits_without_becoming_an_install(self):
+    expected, selected = 'a' * 40, 'b' * 40
+    command = update_control._command('download-version', 'Dom', expected, selected)
+    self.assertEqual(update_control._parse(command + b'\n'), ('download-version', 'Dom', expected, selected))
+    self.assertLessEqual(len(update_control._command('download-version', 'x' * 128, expected, selected)) + 1,
+                         update_control.MAX_COMMAND)
+    with self.assertRaises(update_control.UpdaterControlError):
+      update_control._command('download-version', 'Dom', expected, 'HEAD')
+
   def test_server_delivers_fast_identity_and_legacy_callback_shape(self):
     for raw, expected in ((b'update Dom ' + b'a' * 40 + b'\n', mock.call('update', branch='Dom', commit='a' * 40)),
                           (b'fast Dom ' + b'a' * 40 + b'\n', mock.call('fast', branch='Dom', commit='a' * 40)),
                           (b'version Dom ' + b'a' * 40 + b' ' + b'b' * 40 + b'\n',
                            mock.call('version', branch='Dom', commit='a' * 40, selected_commit='b' * 40)),
+                          (b'download-version Dom ' + b'a' * 40 + b' ' + b'b' * 40 + b'\n',
+                           mock.call('download-version', branch='Dom', commit='a' * 40, selected_commit='b' * 40)),
                           (b'versions Dom ' + b'a' * 40 + b'\n', mock.call('versions', branch='Dom', commit='a' * 40)),
                           (b'check\n', mock.call('check')), (b'download\n', mock.call('download'))):
       with self.subTest(raw=raw):
@@ -87,6 +98,16 @@ class UpdaterControlTests(unittest.TestCase):
     request, _, target = helper.current_request()
     self.assertEqual(request, updated.UserRequest.ROLLBACK)
     self.assertEqual(target, ('Dom', 'a' * 40))
+
+  def test_check_requests_background_work_but_versions_only_requests_metadata(self):
+    from openpilot.system.updated import updated
+    callback = mock.Mock()
+    helper = updated.WaitTimeHelper.__new__(updated.WaitTimeHelper)
+    helper.metadata = callback
+    helper._control_request('check')
+    callback.assert_called_with(branch=None, commit=None, download_after=True)
+    helper._control_request('versions', branch='Dom', commit='a' * 40)
+    callback.assert_called_with(branch='Dom', commit='a' * 40, download_after=False)
 
   def test_same_process_control_and_stale_identity(self):
     actions = []

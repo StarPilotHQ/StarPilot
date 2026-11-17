@@ -6,6 +6,29 @@ import select
 import struct
 import time
 
+VERIFY_COLORS = (0xff0000, 0x00ff00, 0x0000ff, 0xffffff)
+
+
+def verification_frame(buffer, width, height):
+  """Find the local page's bands below chrome, allowing sidebars to shift the content viewport."""
+  if len(buffer) != width * height * 4:
+    return False
+  row = bytearray(buffer[(height - 32) * width * 4:(height - 31) * width * 4])
+  # Normalize only the scratch row's unused byte; the sentinel keeps C-level searches pixel-aligned.
+  row[3::4] = b'\x7f' * width
+  cursor = 0
+  for color in VERIFY_COLORS:
+    pixel = color.to_bytes(4, 'little')[:3]
+    start = row.find((pixel + b'\x7f') * 16, cursor)
+    if start < 0:
+      return False
+    x, cursor = start // 4 + 8, start + 64
+    for y in (height - 40, height - 32, height - 24):
+      offset = (y * width + x) * 4
+      if buffer[offset:offset + 3] != pixel:
+        return False
+  return True
+
 
 class Cookie(C.Structure):
   _fields_ = [('sequence', C.c_uint)]
@@ -62,6 +85,9 @@ class X11:
       'get_geometry': (Cookie, ptr, u32), 'configure_window': (Cookie, ptr, u32, u16, ptr),
       'get_window_attributes': (Cookie, ptr, u32),
       'set_input_focus': (Cookie, ptr, u8, u32, u32),
+      'intern_atom': (Cookie, ptr, u8, u16, C.c_char_p),
+      'get_property': (Cookie, ptr, u8, u32, u32, u32, u32, u32),
+      'get_property_value': (ptr, ptr), 'get_property_value_length': (C.c_int, ptr),
     }
     for name, signature in declarations.items():
       setattr(self, name, bind(self.lib, name, *signature))
@@ -106,6 +132,12 @@ class X11:
     self.damage_create(self.connection, self.damage_id, self.screen.root, 3)  # NonEmpty
     self.sync()
     self.keycodes = self.keyboard_mapping(raw[34], raw[35])
+    name = b'_NET_WM_NAME'
+    reply = self.wait(self.intern_atom(self.connection, 0, len(name), name))
+    try:
+      self.title_atom = struct.unpack_from('=I', C.string_at(reply, 12), 8)[0]
+    finally:
+      self.free(reply)
 
   def extension(self, name):
     reply = self.wait(self.query_extension(self.connection, len(name), name))
@@ -191,14 +223,13 @@ class X11:
     """Check known BGRX pixels through GetImage before enabling the browser."""
     gc = self.generate_id(self.connection)
     self.create_gc(self.connection, gc, self.screen.root, 0, None)
-    colors = (0xff0000, 0x00ff00, 0x0000ff, 0xffffff)
-    for i, color in enumerate(colors):
+    for i, color in enumerate(VERIFY_COLORS):
       value, rect = C.c_uint32(color), struct.pack('=hhHH', i * 8, 0, 8, 8)
       self.change_gc(self.connection, gc, 4, C.byref(value))
       self.poly_fill_rectangle(self.connection, self.screen.root, gc, 1, rect)
     self.free_gc(self.connection, gc)
     self.finish(self.wait(self.capture()), buffers[0], False)
-    for i, color in enumerate(colors):
+    for i, color in enumerate(VERIFY_COLORS):
       if bytes(buffers[0][i * 32:i * 32 + 3]) != color.to_bytes(4, 'little')[:3]:
         raise RuntimeError('Reference-frame color check failed')
 
@@ -230,7 +261,17 @@ class X11:
   def motion(self, x, y):
     self.fake_input(self.connection, 6, 0, 0, self.screen.root, x, y, 0)
 
-  def focus_browser(self):
+  def window_title(self, window):
+    reply = self.wait(self.get_property(self.connection, 0, window, self.title_atom, 0, 0, 256))
+    try:
+      length = self.get_property_value_length(reply)
+      if C.string_at(reply, 2)[1] != 8 or not 0 < length <= 1024:
+        return ''
+      return C.string_at(self.get_property_value(reply), length).decode('utf-8', errors='replace')
+    finally:
+      self.free(reply)
+
+  def focus_browser(self, marker=None):
     """Place/focus the initial Firefox window once; never fight transient dialogs with per-frame focus."""
     reply = self.wait(self.query_tree(self.connection, self.screen.root))
     try:
@@ -252,10 +293,13 @@ class X11:
         finally:
           self.free(reply)
         if width >= 320 and height >= 240:
+          if marker is not None and marker not in self.window_title(window):
+            continue
           values = (C.c_uint32 * 4)(0, 0, self.width, self.height)
           self.configure_window(self.connection, window, 15, values)
           self.set_input_focus(self.connection, 1, window, 0)
           self.sync()
+          self.browser_window = window
           return True
       except XError as e:
         if e.code not in (3, 8):  # A startup window can disappear/unmap between the query and focus.

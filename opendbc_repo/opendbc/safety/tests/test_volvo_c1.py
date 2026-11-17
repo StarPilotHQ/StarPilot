@@ -33,8 +33,8 @@ class TestVolvoC1Safety(unittest.TestCase):
   def test_exhaustive_only_assigned_profiles_are_admitted(self):
     for param in range(65536):
       status = lib.set_safety_hooks(36, param)
-      assert status == (0 if param in (0, 1, 2) else -1)
-      if param not in (0, 1, 2):
+      assert status == (0 if param in (0, 1, 2, 5) else -1)
+      if param not in (0, 1, 2, 5):
         lib.set_controls_allowed(True)
         assert not lib.safety_tx_hook(packet(codec.create_c1_cancel(packer)))
 

@@ -5,7 +5,8 @@ import time
 from typing import Protocol
 
 from openpilot.starpilot.ui.feature_settings_state import FeatureSettingsState
-from openpilot.starpilot.ui.models_state import model_action_allowed, model_catalog_rows, model_display_text as _display_text
+from openpilot.starpilot.ui.models_state import (big_none_label, model_action_allowed, model_catalog_rows, model_needs_gpu, model_request,
+                                                model_display_text as _display_text)
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.widgets.scroller import NavScroller
 from openpilot.selfdrive.ui.mici.widgets.button import BigButton, GreyBigButton
@@ -44,6 +45,7 @@ class ModelsCompact:
   def __init__(self, session: ModelSession, clock: Callable[[], float] = time.monotonic):
     self.session = session
     self.clock = clock
+    self.catalog_pages: dict[str, _ModelsPage] = {}
 
   def entry_button(self) -> BigButton:
     button = BigButton("driving model", "small, chestnut and downloads")
@@ -60,8 +62,14 @@ class ModelsCompact:
     return None
 
   def open(self, kind: str = "overview", profile: str = "", model_id: str = "") -> None:
-    page = _ModelsPage(self, kind, profile, model_id)
-    self._populate(page, self.session.model_snapshot(), self._snapshot())
+    page = self.catalog_pages.get(profile) if kind == "catalog" and profile else None
+    if page is None:
+      page = _ModelsPage(self, kind, profile, model_id)
+      if kind == "catalog" and profile:
+        self.catalog_pages[profile] = page
+    state, data = self.session.model_snapshot(), self._snapshot()
+    if state != page.current or data != page.manager:
+      self._populate(page, state, data)
     page.next_refresh = self.clock() + self.REFRESH_SECONDS
     gui_app.push_widget(page)
 
@@ -100,7 +108,8 @@ class ModelsCompact:
              _grey_card("model selection", "takes effect at the next start")]
     for profile, field in (("small", "activeSmallModel"), ("big", "activeBigModel")):
       mid = data.get(field, "")
-      label = next((m.get("label", mid) for m in data["models"] if m["value"] == mid), mid or "none — always use small")
+      label = next((m.get("label", mid) for m in data["models"] if m["value"] == mid),
+                   mid or (big_none_label(data).lower() if profile == "big" else "none — always use small"))
       cards.append(self._button(f"active {profile}", label, lambda p=profile: self.open("catalog", p),
                                 data.get("capabilities", {}).get("select") is True and not data.get("randomizer")))
     cards.append(self._button("model randomizer", "on · choose at each start" if data.get("randomizer") else "off",
@@ -120,13 +129,15 @@ class ModelsCompact:
     profile = page.profile
     cards = [_grey_card(f"active {profile}" if profile else "models", "choose a model" if profile else "browse the catalog")]
     cards.append(self._button("sort and filter", self.SORTS[page.sort_mode], lambda: self._next_sort(page)))
+    jetlink = profile == "big" and data.get("jetlinkBig") is True
     if profile == "big":
-      cards.append(self._button("none", "always use active small", lambda: self._action(page, "active", profile="big"),
-                                model_action_allowed(data, "active", profile="big")))
+      cards.append(self._button("none", big_none_label(data).lower() if jetlink else "always use active small",
+                                lambda: self._action(page, "active", profile="big"), model_action_allowed(data, "active", profile="big")))
     rows = model_catalog_rows(data, page.sort_mode, profile, installed_only=bool(profile))
     for model in rows:
       mid = model["value"]
-      tags = ["installed" if model.get("installed") else model.get("unavailableReason", "download required")]
+      tags = ["runs over jetlink" if jetlink else "installed" if model.get("installed") else
+              model.get("unavailableReason", "download required")]
       if model.get("blacklisted"):
         tags.append("excluded from randomizer")
       tags.append("chestnut" if model.get("requiresGpu") else "small")
@@ -179,40 +190,18 @@ class ModelsCompact:
       return
     data = self._snapshot()
     model = next((m for m in data["models"] if m["value"] == model_id), None) if data else None
-    if data is None or model_id and model is None or not model_action_allowed(data, action, model, profile):
+    needs_gpu = bool(data) and model_needs_gpu(data, action, model)
+    request = model_request(data, action, model_id, profile, allow_gpu=needs_gpu and confirmed) if data else None
+    if request is None:
       gui_app.push_widget(BigDialog("action unavailable", "Turn off the vehicle, then refresh the model list and try again."))
       return
-    needs_gpu = (action == "download" and model and model.get("requiresGpu") and not model.get("gpuAvailable") or
-                 action == "download_all" and any(not m.get("installed") and m.get("downloadAvailable") and m.get("requiresGpu") and
-                                                   not m.get("gpuAvailable") for m in data["models"]))
     if not confirmed and (action == "delete" or needs_gpu):
       question = f"delete {model.get('label', model_id)}?" if action == "delete" and model else "download gpu models? an external gpu is needed to run them"
       gui_app.push_widget(BigConfirmationDialog(question.lower(), gui_app.texture("icons_mici/settings/device/uninstall.png", 64, 64),
                                                 lambda: self._action(page, action, model_id, profile, True), red=action == "delete"))
       return
-    payload: dict = {}
-    if action == "active":
-      payload = {"profile": profile, "model": model_id}
-    elif action == "preferences":
-      favorites = [m["value"] for m in data["models"] if m.get("userFavorite") and m["value"] != model_id]
-      if model and not model.get("userFavorite"):
-        favorites.append(model_id)
-      payload = {"userFavorites": favorites}
-    elif action == "randomizer":
-      payload = {"randomizer": not data.get("randomizer", False)}
-      action = "preferences"
-    elif action == "exclusion":
-      excluded = [m["value"] for m in data["models"] if m.get("blacklisted") and m["value"] != model_id]
-      if model and not model.get("blacklisted"):
-        excluded.append(model_id)
-      payload = {"blacklistedModels": excluded}
-      action = "preferences"
-    elif action in ("download", "delete"):
-      payload = {"model": model_id}
-    if action in ("download", "download_all"):
-      payload["allowGpuWithoutGpu"] = bool(needs_gpu and confirmed)
     try:
-      result = self.session.model_manager_action(action, payload)
+      result = self.session.model_manager_action(*request)
       self._populate(page, self.session.model_snapshot(), self._snapshot())
       if action == "active":
         gui_app.push_widget(BigDialog("selection saved", result.get("message", "Takes effect at the next start.")))

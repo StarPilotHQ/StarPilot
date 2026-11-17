@@ -67,6 +67,7 @@ class ManagerProcess(ABC):
   enabled = True
   name = ""
   shutting_down = False
+  stop_requested_at: float | None = None
 
   @abstractmethod
   def start(self) -> None:
@@ -83,9 +84,12 @@ class ManagerProcess(ABC):
           sig = signal.SIGKILL if self.sigkill else signal.SIGINT
         self.signal(sig)
         self.shutting_down = True
+        self.stop_requested_at = time.monotonic()
 
-        if not block:
-          return None
+      if not block:
+        if retry and self.stop_requested_at is not None and time.monotonic() - self.stop_requested_at >= 5:
+          self.signal(signal.SIGKILL)
+        return None
 
       join_process(self.proc, 5)
 
@@ -100,6 +104,7 @@ class ManagerProcess(ABC):
 
     if self.proc.exitcode is not None:
       self.shutting_down = False
+      self.stop_requested_at = None
       self.proc = None
 
     return ret
@@ -143,7 +148,7 @@ class NativeProcess(ManagerProcess):
   def start(self) -> None:
     # In case we only tried a non blocking stop we need to stop it before restarting
     if self.shutting_down:
-      self.stop()
+      self.stop(block=False)
 
     if self.proc is not None:
       return
@@ -195,7 +200,7 @@ class PythonProcess(ManagerProcess):
   def start(self) -> None:
     # In case we only tried a non blocking stop we need to stop it before restarting
     if self.shutting_down:
-      self.stop()
+      self.stop(block=False)
 
     if self.proc is not None:
       return

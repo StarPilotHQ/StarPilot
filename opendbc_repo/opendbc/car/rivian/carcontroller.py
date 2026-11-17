@@ -1,4 +1,5 @@
 import numpy as np
+from opendbc.car import ACCEL_MAX_TAKEOFF
 from opendbc.can import CANPacker
 from opendbc.car import Bus, structs
 from opendbc.car.lateral import apply_driver_steer_torque_limits
@@ -57,10 +58,10 @@ class CarController(CarControllerBase):
     if self.CP.openpilotLongitudinalControl:
       if self.base_gen1:
         long_active = CC.enabled and CC.longActive and CS.out.gearShifter == structs.CarState.GearShifter.drive
-        accel = float(np.clip(actuators.accel, CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX)) if long_active and not CS.out.gasPressed else 0.0
+        accel = float(np.clip(actuators.accel, CarControllerParams.ACCEL_MIN, ACCEL_MAX_TAKEOFF)) if long_active and not CS.out.gasPressed else 0.0
       else:
         long_active = CC.enabled
-        accel = float(np.clip(actuators.accel, CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX))
+        accel = float(np.clip(actuators.accel, CarControllerParams.ACCEL_MIN, ACCEL_MAX_TAKEOFF))
       can_sends.append(create_longitudinal(self.packer, self.frame, accel, long_active))
     else:
       interface_status = None

@@ -9,6 +9,7 @@ import unittest
 from openpilot.cereal import messaging
 from openpilot.common.params import Params
 from openpilot.starpilot import feature_runtime
+from openpilot.starpilot.speed_limits import planner_host as slc_host
 from openpilot.starpilot.speed_limits.runtime_settings import read_params as read_slc_settings
 from openpilot.selfdrive.controls import plannerd
 from openpilot.starpilot.conditional_mode.tests import test_status_consumer as transport
@@ -98,7 +99,7 @@ class TestCemInputAcquisitionOrder(unittest.TestCase):
       def read(params):
         reads.append(True)
         return read_slc_settings(params)
-      with patch.object(plannerd, 'read_slc_settings', side_effect=read, create=True), \
+      with patch.object(slc_host, 'read_slc_settings', side_effect=read), \
            patch.object(feature_runtime, 'read_slc_settings', side_effect=read):
         runtime, changed = owner.refresh(MONO)
         self.assertTrue(changed)

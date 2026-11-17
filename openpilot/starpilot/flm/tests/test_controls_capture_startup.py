@@ -18,6 +18,8 @@ identity = sys.argv[1]
 cp = interfaces[identity].get_non_essential_params(identity)
 with controls_for(cp, 'standard', True) as controls:
   before = set(sys.modules)
+  assert {'openpilot.starpilot.flm.' + name for name in
+          ('live_trial_wire', 'live_tracking_response')} <= before, 'cold trial dependency left for active Controls'
   for tick in range(30):
     command, state = frame(controls, 400_000_000_000 + tick * 10_000_000, tick)
     controls.publish(command, state)

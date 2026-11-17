@@ -18,7 +18,7 @@ def setup(tmp_path):
 
 
 def mode_row(page):
-  return next(index for index, row in enumerate(page['rows']) if row['label'] == 'Saved driving mode')
+  return next(index for index, row in enumerate(page['rows']) if row['label'] == 'Driving Mode')
 
 
 def test_absent_car_can_save_core_conditional_choice_for_later_drive(tmp_path):
@@ -27,9 +27,9 @@ def test_absent_car_can_save_core_conditional_choice_for_later_drive(tmp_path):
   index = mode_row(page)
   assert page['rows'][index]['available']
   assert not any('Wheel assignment' in row['label'] for row in page['rows'])
-  intent = gateway.preview(page['view'], index, 0, 'session', b'generation', value='Conditional Chill')
+  intent = gateway.preview(page['view'], index, 0, 'session', b'generation', value='Automatic')
   assert gateway.confirm(intent['intent'], 'session', b'generation')
-  assert decode_preferences(Path(params.get_param_path('ConditionalModeConfig')).read_bytes()).mode.value == 'conditional_chill'
+  assert decode_preferences(Path(params.get_param_path('ConditionalModeConfig')).read_bytes()).mode.value == 'conditional_experimental'
   current.parked = False
   page = gateway.page('conditional', 'session', b'generation')
   assert page['rows'][index]['available']
@@ -60,7 +60,7 @@ def test_unsupported_car_can_save_core_but_not_use_stale_context(tmp_path):
 def test_changed_saved_document_rejects_confirm_without_overwrite(tmp_path):
   params, _, gateway = setup(tmp_path)
   page = gateway.page('conditional', 'session', b'generation')
-  intent = gateway.preview(page['view'], mode_row(page), 0, 'session', b'generation', value='Conditional Chill')
+  intent = gateway.preview(page['view'], mode_row(page), 0, 'session', b'generation', value='Automatic')
   path = Path(params.get_param_path('ConditionalModeConfig'))
   path.write_bytes(b'{"version":2}')
   assert not gateway.confirm(intent['intent'], 'session', b'generation')

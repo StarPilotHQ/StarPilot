@@ -186,3 +186,33 @@ console.log('Follow, pinch and double-tap zoom passed')
   globalThis.requestAnimationFrame = originalRaf; globalThis.cancelAnimationFrame = originalCancelRaf
 }
 console.log('Live map theme changes: correct requests, cache disposal, late-response isolation, camera preservation and observer cleanup passed')
+
+{
+  // Switching mapProvider between Mapbox and Google clears cached tiles, appends provider=google, and crops 256px parent tiles.
+  const savedFetch = globalThis.fetch, savedBitmap = globalThis.createImageBitmap
+  globalThis.requestAnimationFrame = fn => { frames.set(++frameId, fn); return frameId }
+  globalThis.cancelAnimationFrame = id => frames.delete(id)
+  const urls = []
+  let closed = 0
+  globalThis.fetch = async url => { urls.push(url); return { ok: true, blob: async () => ({}) } }
+  globalThis.createImageBitmap = async () => ({ width: 256, close() { closed++ } })
+  const switched = new RasterMap(canvas)
+  switched.draw = () => {}
+  switched.update({ mapProvider: 'mapbox', hasGoogleKey: true }, false)
+  await switched.load('1/0/0')
+  assert.ok(urls.at(-1).endsWith('1/0/0.png?theme=dark'))
+  assert.equal(switched.tiles.size, 1)
+  const crop = switched.placeholder(2, 1, 1)
+  assert.deepEqual(crop.slice(1), [128, 128, 128], '256px Google/custom tiles crop using their actual bitmap width')
+  switched.update({ mapProvider: 'google', hasGoogleKey: true }, false)
+  assert.equal(switched.tiles.size, 0, 'switching map provider clears cached tiles from the previous provider')
+  assert.equal(closed, 1)
+  await switched.load('1/0/0')
+  assert.ok(urls.at(-1).endsWith('1/0/0.png?theme=dark&provider=google'))
+  switched.update({ mapProvider: 'google', hasGoogleKey: true, googleMap: { failure: 'Quota reached' } }, false)
+  assert.equal(switched.provider, 'mapbox', 'a Google map failure falls back to Mapbox tiles')
+  switched.close()
+  globalThis.fetch = savedFetch; globalThis.createImageBitmap = savedBitmap
+  globalThis.requestAnimationFrame = originalRaf; globalThis.cancelAnimationFrame = originalCancelRaf
+}
+console.log('Map provider switching: Google tile URL, cache invalidation, fallback, and 256px placeholder cropping passed')

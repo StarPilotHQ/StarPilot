@@ -60,7 +60,7 @@ class TestCalibrationd(OpenpilotTestCase):
 
   def test_calibration_basics(self):
     c = Calibrator(param_put=False)
-    process_messages(c, [0.0, 0.0, 0.0], BLOCK_SIZE * INPUTS_WANTED)
+    process_messages(c, [0.0, 0.0, 0.0], BLOCK_SIZE * (INPUTS_WANTED + 1))
     assert c.valid_blocks == INPUTS_WANTED
     np.testing.assert_allclose(c.rpy, np.zeros(3))
     np.testing.assert_allclose(c.height, HEIGHT_INIT)
@@ -100,7 +100,7 @@ class TestCalibrationd(OpenpilotTestCase):
 
   def test_calibration_auto_reset(self):
     c = Calibrator(param_put=False)
-    process_messages(c, [0.0, 0.0, 0.0], BLOCK_SIZE * INPUTS_NEEDED)
+    process_messages(c, [0.0, 0.0, 0.0], BLOCK_SIZE * (INPUTS_NEEDED + 1))
     assert c.valid_blocks == INPUTS_NEEDED
     np.testing.assert_allclose(c.rpy, [0.0, 0.0, 0.0], atol=1e-3)
     process_messages(c, [0.0, MAX_ALLOWED_PITCH_SPREAD*0.9, MAX_ALLOWED_YAW_SPREAD*0.9], BLOCK_SIZE + 10)
@@ -108,19 +108,69 @@ class TestCalibrationd(OpenpilotTestCase):
     assert c.cal_status == log.ExtrinsicsCalibration.Status.calibrated
 
     c = Calibrator(param_put=False)
-    process_messages(c, [0.0, 0.0, 0.0], BLOCK_SIZE * INPUTS_NEEDED)
+    process_messages(c, [0.0, 0.0, 0.0], BLOCK_SIZE * (INPUTS_NEEDED + 1))
     assert c.valid_blocks == INPUTS_NEEDED
     np.testing.assert_allclose(c.rpy, [0.0, 0.0, 0.0])
     process_messages(c, [0.0, MAX_ALLOWED_PITCH_SPREAD*1.1, 0.0], BLOCK_SIZE + 10)
-    assert c.valid_blocks == 1
+    assert c.valid_blocks == 0
     assert c.cal_status == log.ExtrinsicsCalibration.Status.recalibrating
     np.testing.assert_allclose(c.rpy, [0.0, MAX_ALLOWED_PITCH_SPREAD*1.1, 0.0], atol=1e-2)
 
     c = Calibrator(param_put=False)
-    process_messages(c, [0.0, 0.0, 0.0], BLOCK_SIZE * INPUTS_NEEDED)
+    process_messages(c, [0.0, 0.0, 0.0], BLOCK_SIZE * (INPUTS_NEEDED + 1))
     assert c.valid_blocks == INPUTS_NEEDED
     np.testing.assert_allclose(c.rpy, [0.0, 0.0, 0.0])
     process_messages(c, [0.0, 0.0, MAX_ALLOWED_YAW_SPREAD*1.1], BLOCK_SIZE + 10)
-    assert c.valid_blocks == 1
+    assert c.valid_blocks == 0
     assert c.cal_status == log.ExtrinsicsCalibration.Status.recalibrating
     np.testing.assert_allclose(c.rpy, [0.0, 0.0, MAX_ALLOWED_YAW_SPREAD*1.1], atol=1e-2)
+
+
+class TestCalibrationIdentity(OpenpilotTestCase):
+  def test_only_a_different_verified_real_car_resets_calibration(self):
+    from unittest.mock import patch
+    from opendbc.car.structs import car
+    from openpilot.selfdrive.locationd import calibrationd
+
+    class StartupCaptured(Exception):
+      pass
+
+    params = Params()
+    saved = messaging.new_message('extrinsicsCalibration')
+    saved.extrinsicsCalibration.validBlocks = 8
+    saved.extrinsicsCalibration.rpyCalib = [0., .01, .02]
+    saved.extrinsicsCalibration.height = [1.22]
+    real_calibrator = calibrationd.Calibrator
+    for previous, current, raw_previous, reset in (
+      (('hyundai', 'A'), ('hyundai', 'A'), False, False),
+      (('hyundai', 'A'), ('toyota', 'B'), False, True),
+      (('mock', 'MOCK'), ('toyota', 'B'), False, False),
+      (('toyota', 'B'), ('mock', 'MOCK'), False, False),
+      (None, ('toyota', 'B'), False, False),
+      (('hyundai', 'A'), ('toyota', 'B'), True, False),
+    ):
+      with self.subTest(previous=previous, current=current, raw_previous=raw_previous):
+        params.remove('CarParamsPrevRoute')
+        put_cache(params, 'CalibrationParams', saved, block=True)
+        cp = car.CarParams.new_message(brand=current[0], carFingerprint=current[1])
+        params.put('CarParams', cp.to_bytes(), block=True)
+        if previous is not None:
+          old = car.CarParams.new_message(brand=previous[0], carFingerprint=previous[1])
+          if raw_previous:
+            params.put('CarParamsPrevRoute', old.to_bytes(), block=True)
+          else:
+            put_cache(params, 'CarParamsPrevRoute', old, block=True)
+        captured = []
+
+        def capture(captured=captured, **kwargs):
+          captured.append(real_calibrator(**kwargs))
+          raise StartupCaptured
+
+        with patch.object(calibrationd, 'config_realtime_process'), \
+             patch.object(calibrationd.messaging, 'PubMaster'), \
+             patch.object(calibrationd.messaging, 'SubMaster'), \
+             patch.object(calibrationd, 'Calibrator', side_effect=capture):
+          with self.assertRaises(StartupCaptured):
+            calibrationd.main()
+        self.assertEqual(captured[0].valid_blocks, 0 if reset else 8)
+        self.assertEqual(params.get('CalibrationParams') is None, reset)

@@ -41,7 +41,9 @@ class USBProtection(Protection):
                               initial_value=b''.join(address.to_bytes(8, 'little') for address in addresses))
     self.fresh_records = []
 
-  def protect_call(self, call):
+  def protect_call(self, call, *, fresh_source=False):
+    if fresh_source:
+      raise ValueError('Explicit fresh QCOM host sources are not qualified for the USB guard')
     info, body = call.arg.aux, call.body
     if info.device == ('QCOM',):
       # The already-qualified QCOM transformer accepts a stored CPU program.

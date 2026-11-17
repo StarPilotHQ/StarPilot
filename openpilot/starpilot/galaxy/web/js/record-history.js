@@ -104,7 +104,7 @@ export const LocalRecordingsPage = {
             <p v-if="!routeCards.length" class="gx-recordings__empty">{{ data.routes.length ? 'No drives match your filters.' : 'No saved drives found on this device.' }}</p>
             <article v-for="route in routeCards" :key="route.routeId" class="gx-recordings__row" :class="{'gx-recordings__row--preserved': route.preserved}">
               <button class="gx-recordings__drive" :data-route-id="route.routeId" :aria-label="'Open route ' + (route.displayName || route.date.label)" @click="openRoute(route)">
-                <span class="gx-recordings__name"><span class="gx-row__label">{{ route.displayName !== route.routeId ? route.displayName : route.date.label }}</span><span v-if="route.preserved" class="gx-chip">Preserved</span></span>
+                <span class="gx-recordings__name"><span class="gx-row__label"><span translate="no">{{ route.displayName !== route.routeId ? route.displayName : route.date.label }}</span></span><span v-if="route.preserved" class="gx-chip">Preserved</span></span>
                 <span class="gx-row__desc"><template v-if="route.displayName !== route.routeId">{{ route.date.label }} · </template>~{{ formatDuration(route.segmentCount) }}</span>
               </button>
               <span class="gx-note">{{ route.segmentCount }} {{ route.segmentCount === 1 ? "segment" : "segments" }}</span>

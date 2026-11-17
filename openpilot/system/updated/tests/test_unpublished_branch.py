@@ -24,6 +24,8 @@ class TestUnpublishedBranch(unittest.TestCase):
     self.finalized = self.root / "finalized"
     self.updated = load_updater()
     self.updated.OVERLAY_MERGED = str(self.merged)
+    self.metadata = self.root / "metadata.git"
+    self.updated.METADATA_ROOT = self.metadata
     self.updated.FINALIZED = str(self.finalized)
     self.updated.BASEDIR = str(self.merged)
     self.updated.setup_git_options = Mock()
@@ -35,13 +37,28 @@ class TestUnpublishedBranch(unittest.TestCase):
     self.commands = []
     self.remote_heads = f"{REMOTE}\trefs/heads/another-branch\n"
 
-    def run(command, cwd):
-      self.assertEqual(cwd, str(self.merged))
+    def run(command, cwd, **kwargs):
       self.commands.append(command)
+      if command == ["git", "init", "--bare", str(self.metadata)]:
+        self.assertEqual(cwd, str(self.root))
+        self.metadata.mkdir()
+        (self.metadata / "HEAD").write_text("ref: refs/heads/main\n")
+        return ""
+      if command == ["git", "remote", "get-url", "origin"]:
+        self.assertEqual(cwd, str(self.merged))
+        return "https://example.invalid/updater-test.git"
+      self.assertEqual(cwd, str(self.metadata))
+      if command == ["git", "config", "remote.origin.url", "https://example.invalid/updater-test.git"]:
+        return ""
       if command == ["git", "ls-remote", "--heads", "origin"]:
         return self.remote_heads
-      if command == ["git", "ls-remote", "origin", "HEAD"]:
-        return f"{REMOTE}\tHEAD\n"
+      if command in (
+        ["git", "fetch", "--progress", f"--depth={self.updated.MAX_COMMITS}", "--filter=blob:none", "--no-tags", "--no-recurse-submodules",
+         "origin", f"+{commit}:refs/remotes/origin/{TARGET}"] for commit in (CURRENT, REMOTE)
+      ):
+        return ""
+      if command in (["git", "update-ref", f"refs/starpilot/recent/{TARGET}", commit] for commit in (CURRENT, REMOTE)):
+        return ""
       raise AssertionError(f"Unexpected command: {command}")
 
     self.updated.run = run
@@ -73,7 +90,12 @@ class TestUnpublishedBranch(unittest.TestCase):
     self.assertFalse(self.updater.fetch_update())
     self.assertEqual(self.updater.branches, {"another-branch": REMOTE})
     self.updated.set_consistent_flag.assert_not_called()
-    self.assertNotIn("UpdateAvailable", self.updater.params.values)
+    self.assertIs(self.updater.params.values["UpdateAvailable"], False)
+    self.assertIs(self.updater.params.values["UpdaterFetchAvailable"], False)
+    self.assertIn("UpdaterLastCheckTime", self.updater.params.values)
+    self.assertEqual(self.commands.count(["git", "ls-remote", "--heads", "origin"]), 1)
+    self.assertFalse(any(command[:2] == ["git", "fetch"] for command in self.commands))
+    self.assertNotIn("UpdaterState", self.updater.params.values)
 
   def test_published_same_and_different_commit(self):
     self.remote_heads += f"{CURRENT}\trefs/heads/{TARGET}\n"
@@ -103,7 +125,7 @@ class TestUnpublishedBranch(unittest.TestCase):
     self.updater.check_for_update()
     self.assertTrue(self.updater.update_available)
 
-    def failed_run(command, cwd):
+    def failed_run(command, cwd, **kwargs):
       if command == ["git", "ls-remote", "--heads", "origin"]:
         raise subprocess.CalledProcessError(128, command, output="network failed")
       return f"{REMOTE}\tHEAD\n"

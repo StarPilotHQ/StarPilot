@@ -1,5 +1,5 @@
 import os
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 from collections.abc import Callable
 from typing import Union
 

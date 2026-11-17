@@ -4,7 +4,7 @@ from opendbc.car import structs
 from opendbc.car.ford.aol import qualified
 from openpilot.cereal import log
 from openpilot.starpilot.aol.runtime import AXIS_MAX_AGE_NS
-from openpilot.starpilot.aol.transport_pause import cp_identity, independent_lateral_health
+from openpilot.starpilot.aol.transport_pause import cp_identity, independent_lateral_health, _healthy_transport_native
 
 
 def retained_gas_lateral_native(feedback, sm, cp, cs, axis, now_ns, *, latched, producer):
@@ -122,3 +122,13 @@ def retained_gas_lateral_native(feedback, sm, cp, cs, axis, now_ns, *, latched, 
     return native
   except (AttributeError, KeyError, IndexError, TypeError, ValueError, OverflowError):
     return None
+
+
+def healthy_gas_transport_native(sm, cp, cs, session, now_ns):
+  """Health for bounded intent retention; denied LONG never supplies permission."""
+  if (not qualified(cp, marked_only=True) or not cp.openpilotLongitudinalControl or
+      not cs.gasPressed or cs.brakePressed or cs.regenBraking or not cs.cruiseState.available or
+      cs.doorOpen or cs.seatbeltUnlatched or cs.vehicleSensorsInvalid or cs.steeringDisengage or
+      cs.gearShifter != structs.CarState.GearShifter.drive):
+    return None
+  return _healthy_transport_native(sm, cp, cs, session, now_ns, require_longitudinal=False)

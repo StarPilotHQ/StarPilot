@@ -4,6 +4,28 @@ from dataclasses import dataclass
 import math
 
 from openpilot.common.realtime import DT_MDL
+from openpilot.starpilot.speed_limits.vision.stop_observation import CONTROL_STOP_MAX_AGE_NS
+from openpilot.starpilot.longitudinal.force_stop_braking import STOP_RESERVE_M, distance_target
+
+STANDSTILL_HOLD_NS = 2_000_000_000
+STANDSTILL_CLEAR_NS = 750_000_000
+STOP_COMMIT_TIME_S = .5
+SIGN_CONFIRM_STEP_S = 2 * DT_MDL
+SIGN_MAX_SPEED_MPS = 17.88
+SIGN_MODEL_AGREE_M = 50.0
+SIGN_SEED_M = 27.0
+SIGN_ESTIMATE_HOLD_NS = 2_000_000_000
+# Over a long model path a sign is only believed if stopping at its estimate would be a normal stop.
+SIGN_LONG_PATH_MAX_DECEL = 2.5
+SIGN_APPROACH_DECEL = 1.0
+MODEL_APPROACH_DECEL = .65
+# Stopped behind a car at a sign: the line is assumed one car length past that car's rear.
+QUEUE_LEAD_MAX_M = 8.0
+QUEUE_LEAD_LENGTH_M = 4.5
+# A car still inside this margin past the line may just be moving up the queue, not through the intersection.
+QUEUE_CLEAR_M = 5.0
+QUEUE_SIGN_RECENT_NS = 10_000_000_000
+QUEUE_MAX_SPEED_MPS = 6.0
 
 
 @dataclass(frozen=True)
@@ -14,9 +36,12 @@ class StopTune:
   jerk_scale: float = 0.32
   reanchor_speed_tolerance: float | None = None
   low_speed_hold_mps: float | None = None
+  distance_control: bool = False
 
 
 def vehicle_tune(fingerprint: str) -> StopTune:
+  if fingerprint in ('HYUNDAI_IONIQ_6', 'HYUNDAI_IONIQ_5_PE'):
+    return StopTune(distance_control=True)
   if fingerprint == 'TOYOTA_CAMRY_TSS2':
     return StopTune(handoff_m=4.5, distance_bias_m=6.0)
   if fingerprint == 'HYUNDAI_ELANTRA_2021':
@@ -47,6 +72,13 @@ class StopFrame:
   steering_angle_deg: float
   resume_requested: bool = False
   perception_available: bool = True
+  sign: bool = False
+  dashboard_sign: bool = False
+  vision_distance_m: float | None = None
+  moving_preview: bool = False
+  acceleration_mps2: float | None = None
+  actuator_delay_s: float | None = None
+  vision_source_ns: int = 0
 
 
 @dataclass(frozen=True)
@@ -62,6 +94,8 @@ class StopPlan:
   manual_hold: bool = False
   takeoff_light_observed: bool = False
   takeoff_light: bool = False
+  resume_override: bool = False
+  episode_ns: int = 0
 
 
 class ForceStop:
@@ -75,18 +109,77 @@ class ForceStop:
     self.from_light = False
     self.light_clear_ns = 0
     self.override_until_ns = 0
+    self.resume_until_ns = 0
     self.entry_speed = None
     self.activation_gate = False
     self.stop_seen_ns = 0
     self.standstill_since_ns = 0
+    self.standstill_clear_ns = 0
     self.standstill_reason = None
+    self.sign_confirmed = False
+    self.ranged_stop = False
     self.previously_enabled = False
     self.distance = 0.0
     self.distance_cap = 0.0
+    self.episode_ns = 0
+    self.stop_requested = False
+    self.preview_tracking = False
+    self.queue_sign_ns = 0
+    self.queue_line = None
+    self._clear_sign_estimate()
+
+  def _clear_sign_estimate(self):
+    self.dash_distance = None
+    self.vision_distance = None
+    self.vision_samples = 0
+    self.vision_sample_ns = 0
+    self.sign_evidence_ns = 0
+
+  def _sign_estimate(self, frame: StopFrame, now: int, travel: float) -> float | None:
+    if self.sign_evidence_ns and now - self.sign_evidence_ns > SIGN_ESTIMATE_HOLD_NS:
+      self._clear_sign_estimate()
+    if self.dash_distance is not None:
+      self.dash_distance = max(0.0, self.dash_distance - travel)
+    if self.vision_distance is not None:
+      self.vision_distance = max(0.0, self.vision_distance - travel)
+    vision = frame.vision_distance_m
+    new_vision = (type(frame.vision_source_ns) is int and
+                  (frame.vision_source_ns == 0 or frame.vision_source_ns > self.vision_sample_ns))
+    if vision is not None and math.isfinite(vision) and vision >= 0 and new_vision:
+      if frame.vision_source_ns > 0:
+        self.vision_sample_ns = frame.vision_source_ns
+      self.vision_samples += 1
+      self.vision_distance = vision if self.vision_distance is None else (
+        self.vision_distance + (vision - self.vision_distance) / self.vision_samples)
+    if frame.dashboard_sign or frame.sign and self.vision_distance is None:
+      self.dash_distance = SIGN_SEED_M if self.dash_distance is None else min(self.dash_distance, SIGN_SEED_M)
+    if frame.sign or vision is not None:
+      self.sign_evidence_ns = now
+    estimates = [value for value in (self.dash_distance, self.vision_distance) if value is not None]
+    return sum(estimates) / len(estimates) if estimates else None
+
+  def _queue_step(self, frame: StopFrame, now: int, travel: float, lead_blocked: bool):
+    if frame.sign and lead_blocked:
+      self.queue_sign_ns = now
+    queued_lead = frame.lead_present and frame.lead_speed_mps < 1.0 and frame.lead_distance_m < QUEUE_LEAD_MAX_M
+    arm = frame.standstill and self.queue_sign_ns and now - self.queue_sign_ns <= QUEUE_SIGN_RECENT_NS
+    if queued_lead and (arm or self.queue_line is not None):
+      self.queue_line = frame.lead_distance_m + QUEUE_LEAD_LENGTH_M
+    elif self.queue_line is not None:
+      self.queue_line -= travel
+    if self.queue_line is not None and (frame.pedal_override or frame.resume_requested or self.queue_line <= 0 or
+                                        frame.speed_mps > QUEUE_MAX_SPEED_MPS):
+      self.queue_line = None
+      self.queue_sign_ns = 0
 
   def _clear_standstill(self):
     self.standstill_since_ns = 0
+    self.standstill_clear_ns = 0
     self.standstill_reason = None
+
+  @property
+  def can_commit_next_frame(self) -> bool:
+    return self.timer + SIGN_CONFIRM_STEP_S >= STOP_COMMIT_TIME_S
 
   def step(self, frame: StopFrame, tune: StopTune, offset_ft: int = 0) -> StopPlan:
     now = frame.model_ns
@@ -107,7 +200,10 @@ class ForceStop:
       self.reset()
       return StopPlan()
     available = frame.perception_available
-    if available and (frame.light or frame.raw_model_stopped):
+    sign_estimate = self._sign_estimate(frame, now, max(0.0, speed) * dt)
+    lead = (frame.lead_present and frame.lead_distance_m < tune.lead_veto_m and frame.lead_speed_mps < speed + 2)
+    self._queue_step(frame, now, max(0.0, speed) * dt, lead or frame.tracking_lead)
+    if available and (frame.light or frame.raw_model_stopped) or frame.sign or self.queue_line is not None:
       if not frame.standstill:
         self.stop_seen_ns = now
     if frame.standstill:
@@ -115,13 +211,31 @@ class ForceStop:
     stop_then_turn = bool(self.stop_seen_ns and now - self.stop_seen_ns < 4_000_000_000)
     turn = speed <= 18 * 0.44704 and frame.blinker and abs(frame.steering_angle_deg) >= 25 and not stop_then_turn
     curved = available and abs(curvature) >= .003 and not stop_then_turn
-    lead = (frame.lead_present and frame.lead_distance_m < tune.lead_veto_m and frame.lead_speed_mps < speed + 2)
     model_active = available and horizon < (108.0 if self.activation_gate and frame.light else 100.0)
     self.activation_gate = model_active and frame.light
-    permitted = (available and now >= self.override_until_ns and not frame.driving_in_curve and not turn and
-                 not frame.tracking_lead and not lead)
+    spatial_permitted = available and now >= self.override_until_ns and not frame.driving_in_curve and not turn
+    permitted = spatial_permitted and not frame.tracking_lead and not lead
     model_path = frame.light and model_active and permitted and not curved
-    active = model_path
+    plausible = sign_estimate is None or speed * speed <= 2 * SIGN_LONG_PATH_MAX_DECEL * max(sign_estimate, 1.0)
+    current_range = frame.vision_distance_m
+    ranged_sign = (not frame.standstill and offset_ft == 0 and tune.distance_bias_m == 0 and not frame.dashboard_sign and
+                   type(frame.vision_source_ns) is int and 0 < frame.vision_source_ns <= now and
+                   now - frame.vision_source_ns <= CONTROL_STOP_MAX_AGE_NS and
+                   frame.vision_source_ns == self.vision_sample_ns and current_range is not None and
+                   frame.acceleration_mps2 is not None and frame.acceleration_mps2 < 0 and frame.actuator_delay_s is not None and
+                   0 <= frame.actuator_delay_s <= 2 - DT_MDL and
+                   distance_target(speed, frame.acceleration_mps2, current_range, frame.actuator_delay_s + DT_MDL) >=
+                   max(-SIGN_LONG_PATH_MAX_DECEL, frame.acceleration_mps2))
+    # Retain sufficient existing braking for a confirmed sign, never for a light alone.
+    sign_path = (frame.sign and spatial_permitted and (permitted or ranged_sign) and speed < SIGN_MAX_SPEED_MPS and
+                 (horizon < SIGN_MODEL_AGREE_M or self.forcing and plausible))
+    line_blocked = (self.queue_line is not None and frame.lead_present and
+                    frame.lead_distance_m < self.queue_line + QUEUE_CLEAR_M)
+    queue_path = (self.queue_line is not None and not line_blocked and not frame.standstill and available and
+                  now >= self.override_until_ns and not frame.driving_in_curve and not turn)
+    if sign_path or queue_path:
+      self.sign_confirmed = True
+    active = model_path or sign_path or queue_path
     if model_path:
       self.from_light = True
       self.light_clear_ns = 0
@@ -129,34 +243,49 @@ class ForceStop:
       self.from_light = False
       self.light_clear_ns = 0
     stop_scene = available and (active or frame.raw_model_stopped)
-    # Reopened geometry may withdraw a moving approach; it cannot classify
-    # a stationary hold as a green light.
     go_scene = available and horizon >= 50.0 and not frame.raw_model_stopped and not frame.model_should_stop
+    held_before = self.previously_enabled and self.standstill_reason is not None
     engaged_stopped = not self.previously_enabled and frame.standstill
-    if frame.standstill and (self.forcing or engaged_stopped and stop_scene) and self.standstill_reason is None:
+    if frame.standstill and self.sign_confirmed and self.standstill_reason != 'sign':
+      self.standstill_since_ns = now
+      self.standstill_reason = 'sign'
+      self.distance = 0
+    elif frame.standstill and (self.forcing or engaged_stopped and stop_scene) and self.standstill_reason is None:
       self.standstill_since_ns = now
       self.standstill_reason = 'unclassified'
       self.distance = 0
+    if self.standstill_reason is not None:
+      if not available or stop_scene:
+        self.standstill_clear_ns = 0
+      elif not self.standstill_clear_ns:
+        self.standstill_clear_ns = now
+    hold_expired = self.standstill_reason not in (None, 'sign') and (
+      now - self.standstill_since_ns >= STANDSTILL_HOLD_NS or
+      self.standstill_clear_ns > 0 and now - self.standstill_clear_ns >= STANDSTILL_CLEAR_NS)
+    if held_before and frame.standstill and frame.resume_requested:
+      self.resume_until_ns = now + 6_000_000_000
+    if abs(speed) >= 2.0 or frame.lead_present or frame.tracking_lead:
+      self.resume_until_ns = 0
     driver_release = frame.pedal_override or frame.resume_requested
-    if self.standstill_reason is not None and driver_release:
+    if self.standstill_reason is not None and (driver_release or hold_expired):
       self.override_until_ns = now + 10_000_000_000
       self._clear_standstill()
     held = self.standstill_reason is not None
     if not available and not self.forcing:
       self.timer = 0
     elif active and not frame.standstill:
-      self.timer = min(2.0, self.timer + DT_MDL)
+      self.timer = min(2.0, self.timer + (SIGN_CONFIRM_STEP_S if frame.sign or queue_path else DT_MDL))
     elif turn and not self.forcing and not frame.standstill:
       self.timer = 0
     elif held:
-      self.timer = max(self.timer, .5)
-    elif self.forcing and frame.standstill and not frame.light and not frame.raw_model_stopped:
+      self.timer = max(self.timer, STOP_COMMIT_TIME_S)
+    elif self.forcing and frame.standstill and not frame.sign and not frame.light and not frame.raw_model_stopped:
       self.timer = 0
     else:
       self.timer = max(0, self.timer - DT_MDL * .25)
-    force = self.timer >= .5 or self.forcing and not frame.standstill or held
-    light_cleared = (not held and self.forcing and self.from_light and not frame.standstill and
-                     available and not frame.light and go_scene)
+    force = self.timer >= STOP_COMMIT_TIME_S or self.forcing and not frame.standstill or held
+    light_cleared = (not held and self.forcing and self.from_light and not frame.standstill and not self.sign_confirmed and
+                     available and not frame.light and not frame.sign and go_scene)
     low_speed_hold = (light_cleared and tune.low_speed_hold_mps is not None and self.entry_speed is not None and
                       speed <= tune.low_speed_hold_mps and speed < self.entry_speed - .25)
     if light_cleared and not low_speed_hold:
@@ -176,40 +305,83 @@ class ForceStop:
     offset = max(-20, min(20, offset_ft)) * .3048
     approach = 0.0
     ceiling = None
+    native_stop = False
     if force and not overridden:
+      if sign_path and not permitted:
+        self.ranged_stop = True
       if self.entry_speed is None and not frame.standstill:
         self.entry_speed = speed
+        self.preview_tracking = tune.distance_control and frame.moving_preview
       self.forcing |= not frame.standstill or held
       if held:
         self.distance = 0
         ceiling = 0.0
+        native_stop = True
       else:
-        self.distance = max(0.0, self.distance - speed * dt)
-        if (available and self.distance > max(tune.handoff_m, 40) and not frame.model_should_stop and
+        self.distance -= speed * dt
+        if not tune.distance_control:
+          self.distance = max(0.0,self.distance)
+        if (not tune.distance_control and available and not frame.sign and self.distance > max(tune.handoff_m, 40) and not frame.model_should_stop and
             horizon > self.distance + 3 and (tune.reanchor_speed_tolerance is None or self.entry_speed is None or
                                             speed >= self.entry_speed - tune.reanchor_speed_tolerance)):
           self.distance = horizon
         elif available:
           self.distance = min(self.distance, horizon)
         self.distance_cap = max(0.0, self.distance_cap - speed * dt)
-        self.distance = min(self.distance, self.distance_cap + 15 * min(self.distance_cap / 60, 1))
+        cap = self.distance_cap + 15 * min(self.distance_cap / 60, 1)
+        self.distance = min(self.distance, cap)
+        if available and (not frame.moving_preview or frame.model_should_stop or self.sign_confirmed):
+          self.preview_tracking = False
+        if (self.preview_tracking and available and frame.moving_preview and not self.stop_requested and
+            not self.sign_confirmed and not frame.model_should_stop):
+          # A moving model preview is not a fixed world endpoint to count down.
+          self.distance = self.distance_cap = horizon
+        terminal_distance = self.distance
+        if sign_estimate is not None and (self.sign_confirmed or frame.sign and available and horizon < SIGN_MODEL_AGREE_M):
+          self.distance = min(sign_estimate, cap)
+        if self.queue_line is not None and self.sign_confirmed:
+          self.distance = self.queue_line
+        if (self.ranged_stop and current_range is not None and math.isfinite(current_range) and current_range >= 0 and
+            frame.vision_source_ns == self.vision_sample_ns and frame.sign):
+          self.distance = min(self.distance, max(0., current_range))
+        if self.ranged_stop or tune.distance_control and self.stop_requested:
+          self.distance = min(self.distance, terminal_distance)
         effective = self.distance + offset + tune.distance_bias_m
-        ceiling = math.sqrt(2 * .65 * max(0, effective - tune.handoff_m))
+        decel = SIGN_APPROACH_DECEL if frame.sign else MODEL_APPROACH_DECEL
+        ceiling = math.sqrt(2 * decel * max(0, effective - tune.handoff_m))
+        native_stop = ceiling <= .5
+        if tune.distance_control:
+          ceiling = math.sqrt(2 * decel * max(0, effective - STOP_RESERVE_M))
     else:
       self.forcing = False
       self.entry_speed = None
+      self.preview_tracking = False
+      self.sign_confirmed = False
+      self.ranged_stop = False
       self._clear_standstill()
       self.distance = self.distance_cap = horizon if available else 0.0
       if frame.light and permitted and not curved and not overridden:
         approach = horizon
         effective = approach + offset + tune.distance_bias_m
         if effective > tune.handoff_m:
-          ceiling = math.sqrt(2 * .65 * (effective - tune.handoff_m))
+          ceiling = math.sqrt(2 * MODEL_APPROACH_DECEL * (effective - tune.handoff_m))
     self.previously_enabled = frame.enabled
-    stop_length = self.distance if self.forcing and self.distance > tune.handoff_m else approach
+    self.stop_requested = bool(self.forcing and (self.stop_requested or native_stop))
+    if self.forcing and not self.episode_ns:
+      self.episode_ns = now
+    elif not self.forcing:
+      self.episode_ns = 0
+    stop_length = self.distance if self.forcing else approach
     # The MPC obstacle includes its standing-distance term; adding it at the
     # native boundary avoids moving the actual stop line by that buffer.
-    obstacle = stop_length * .93 + offset + tune.distance_bias_m if stop_length > tune.handoff_m else None
-    return StopPlan(now, ceiling, obstacle, self.forcing, bool(self.forcing and ceiling is not None and ceiling <= .5),
-                    self.distance if self.forcing else 0.0, approach,
-                    tune.jerk_scale if self.forcing or approach > 0 else 1.0, bool(held and self.forcing and not overridden))
+    obstacle = (stop_length * .93 + offset + tune.distance_bias_m
+                if stop_length > 0 and stop_length + max(0.0, offset) > tune.handoff_m else None)
+    if tune.distance_control and self.forcing:
+      obstacle = max(0.0,min(self.distance * .93 + offset + tune.distance_bias_m,
+                             (self.distance + offset + tune.distance_bias_m) * .93))
+    should_stop = self.stop_requested if tune.distance_control else bool(self.forcing and ceiling is not None and ceiling <= .5)
+    return StopPlan(now, ceiling, obstacle, self.forcing, should_stop,
+                    max(0.0,self.distance) if self.forcing else 0.0, approach,
+                    tune.jerk_scale if self.forcing or approach > 0 else 1.0, bool(held and self.forcing and not overridden),
+                    resume_override=now < self.resume_until_ns, episode_ns=self.episode_ns)
+

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui import clip, feature_settings as view, settings_geometry as geometry
 from openpilot.starpilot.ui.feature_settings_state import (
@@ -376,7 +376,7 @@ class FeatureVisualTests(unittest.TestCase):
           with patch.object(view, "feature_scroll", wraps=feature_scroll) as paging, patch.object(view, "draw_settings_header"):
             view.FeatureSettingsView(fonts).render(state, drag)
           if drag:
-            paging.assert_called_once_with(scroll, 1 if drag < 0 else -1, len(rows))
+            paging.assert_called_once_with(scroll, 1 if drag < 0 else -1, len(rows), 5)
           else:
             paging.assert_not_called()
           self.assertEqual(rl.begin_scissor_mode.call_args.args, (left + 25, row_top, 2100 - left, 5 * FEATURE_ROW_HEIGHT))
@@ -489,9 +489,6 @@ class FeatureVisualTests(unittest.TestCase):
                     {"value": "Invalid saved choice"}, {"choices": ()}):
       with self.subTest(changes=changes):
         self.assertIsNone(view._boolean_value(replace(row, **changes)))
-    special = replace(row, key="SLCFallback", value="Off (saved mode 0 or 1)")
-    self.assertIs(view._boolean_value(special), False)
-    self.assertIsNone(view._boolean_value(replace(special, key="other")))
 
   def test_parent_toggle_and_open_have_separate_targets_and_navigation_stays_available(self):
     self.drawing()

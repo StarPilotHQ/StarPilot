@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 
 from openpilot.common.realtime import DT_CTRL
+from openpilot.starpilot.longitudinal.force_stop_braking import eligible as distance_braking_eligible
 from opendbc.car.structs import car
 from openpilot.starpilot.longitudinal.toyota_output_policy import COROLLA, ToyotaOutputPolicy, development_enabled, production_enabled
 from openpilot.starpilot.longitudinal.ioniq6_start import Ioniq6StartPolicy, StartEvidence, eligible as ioniq6_start_eligible
@@ -24,6 +25,7 @@ class LongitudinalContext:
   custom_acceleration: bool | None = None
   profile_max_accel: float | None = None
   faster_takeoffs: bool = False
+  force_stop_braking: bool = False
 
 
 class LongitudinalExtension:
@@ -40,10 +42,14 @@ class LongitudinalExtension:
     self.toyota_stopped_lead = toyota_production and str(CP.carFingerprint) == COROLLA
     self.toyota_output = ToyotaOutputPolicy(CP) if toyota_production or development_enabled(CP) else None
     self.ioniq6_start = Ioniq6StartPolicy() if ioniq6_start_eligible(CP) else None
+    self.force_stop_distance_braking = distance_braking_eligible(CP)
     self.vehicle_target = getattr(self.vehicle_policy, "target", None)
     self.kp = self.vehicle_policy.kp if self.vehicle_policy is not None else 0.0
     self.ki = getattr(self.vehicle_policy, "ki", None)
-    self.ignore_cruise_standstill = bool(getattr(self.vehicle_policy, "ignore_cruise_standstill", False))
+    from opendbc.car.toyota.sng import eligible as toyota_sng_eligible, supported as toyota_resume_supported
+    self.ignore_cruise_standstill = bool(getattr(self.vehicle_policy, "ignore_cruise_standstill", False) or
+      CP.autoResumeSng and toyota_resume_supported(CP) or
+      getattr(startup_preferences, "toyota_sng", False) and toyota_sng_eligible(CP))
 
   def qualify_resume(self, default, *, preferences, inputs):
     if self.resume_policy is None or not preferences.volt_sng:
@@ -157,6 +163,8 @@ class LongitudinalExtension:
 def create_extension(cp, startup_preferences=None):
   extension = LongitudinalExtension(cp, startup_preferences)
   if (extension.vehicle_policy is None and extension.toyota_output is None and extension.ioniq6_start is None and
-      extension.bolt_mode is None and extension.stopping_policy is None and extension.stopping_decel_rate == 1.0):
+      extension.bolt_mode is None and extension.stopping_policy is None and extension.stopping_decel_rate == 1.0 and
+      not extension.ignore_cruise_standstill and not extension.force_stop_distance_braking):
     return None
   return extension
+

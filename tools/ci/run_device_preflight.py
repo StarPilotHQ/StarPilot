@@ -18,7 +18,7 @@ SOURCE = Path(__file__).resolve().parents[2]
 UI = Path("openpilot/starpilot/ui")
 MANIFESTS = ("bitmap-fonts.json", "sora-brand-font.json", "home-assets.json", "settings-assets.json",
              "toggles-assets.json", "onroad-assets.json")
-IMPORTS = ("pyray", "capnp", "numpy", "cv2", "tinygrad", "openpilot.cereal.messaging")
+IMPORTS = ("raylib_nb", "capnp", "numpy", "cv2", "tinygrad", "openpilot.cereal.messaging")
 MAX_MANIFEST = 1 << 20
 MAX_ASSET = 16 << 20
 PROBE_TIMEOUT = 8

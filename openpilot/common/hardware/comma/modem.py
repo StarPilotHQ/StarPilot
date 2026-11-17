@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import fcntl
+import glob
 import json
 import logging
 import os
@@ -69,8 +70,8 @@ INITIAL_STATE: dict[str, object] = {
 
 
 @contextmanager
-def _serial_port(port: str, baudrate: int):
-  fd = os.open(port, os.O_RDWR | os.O_NOCTTY)
+def _serial_port(port: str, baudrate: int, flags: int = 0):
+  fd = os.open(port, os.O_RDWR | os.O_NOCTTY | flags)
   try:
     attrs = termios.tcgetattr(fd)
     attrs[0] = 0
@@ -99,6 +100,20 @@ def _read_line(fd: int, timeout: float) -> bytes:
     data.extend(byte)
     if byte == b"\n":
       return bytes(data)
+
+
+def _answers_at(port: str, timeout: float = 0.3) -> bool:
+  deadline = time.monotonic() + timeout
+  try:
+    with _serial_port(port, 9600, os.O_NONBLOCK) as fd:
+      termios.tcflush(fd, termios.TCIFLUSH)
+      os.write(fd, b"AT\r")
+      while (remaining := deadline - time.monotonic()) > 0:
+        if _read_line(fd, remaining).strip() == b"OK":
+          return True
+  except OSError:
+    pass
+  return False
 
 
 class State(Enum):
@@ -234,8 +249,11 @@ class Modem:
       return "unknown"
 
   @staticmethod
-  def _has_modem_manager() -> bool:
-    return os.path.isfile("/lib/systemd/system/ModemManager.service")
+  def _system_modem_service() -> str | None:
+    for service in ("modem", "ModemManager"):
+      if os.path.isfile(f"/lib/systemd/system/{service}.service"):
+        return service
+    return None
 
   def _is_roaming_allowed(self) -> bool:
     if self.S["iccid"].startswith(WEBBING_ICCID_PREFIX):
@@ -321,12 +339,48 @@ class Modem:
     for c in cmds:
       self._at(c)
 
+  def _sync_ports(self) -> bool:
+    """The modem's nodes come up root only every time it enumerates, and their numbers
+    move if something is holding the old ones. Ask them which are AT ports and link those."""
+    ttys = sorted(glob.glob("/dev/ttyUSB*"), key=lambda p: int(p.removeprefix("/dev/ttyUSB")), reverse=True)
+    subprocess.run(["sudo", "chgrp", "dialout", *ttys], capture_output=True)
+    subprocess.run(["sudo", "chmod", "660", *ttys], capture_output=True)
+
+    fd = os.open(AT_LOCK, os.O_CREAT | os.O_RDWR, 0o666)
+    try:
+      fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+      os.close(fd)
+      return False
+    try:
+      # the AT ports are the highest two, stop there to stay off the GPS and debug ports
+      ports = []
+      for tty in ttys:
+        if _answers_at(tty):
+          ports.append(tty)
+        if len(ports) == 2:
+          break
+    finally:
+      fcntl.flock(fd, fcntl.LOCK_UN)
+      os.close(fd)
+    if len(ports) != 2:
+      logging.warning(f"found AT ports {ports} in {ttys}, retrying")
+      return False
+
+    for link, tty in zip((AT_PORT, PPP_PORT), reversed(ports), strict=True):
+      subprocess.run(["sudo", "ln", "-sfn", os.path.basename(tty), link], capture_output=True)
+    logging.info(f"AT port {ports[1]}, PPP port {ports[0]}")
+    return True
+
   def _do_initializing(self):
-    if not os.path.exists(AT_PORT):
+    if not glob.glob("/dev/ttyUSB*"):
       return State.INITIALIZING
     logging.info("port found, initializing")
     self._ppp.kill()
     self._ppp.cleanup_routes()
+
+    if not self._sync_ports():
+      return State.INITIALIZING
 
     if not self._init_at_channel():
       logging.warning("AT echo still on, retrying")
@@ -543,9 +597,7 @@ class Modem:
     return {}
 
   def _read_cellular_dns(self) -> list[str]:
-    v = self._atv(f"AT+CGCONTRDP={DIAL_CID}", "+CGCONTRDP:")
-    if not v:
-      return []
+    v = self._atv(f"AT+CGCONTRDP={DIAL_CID}", "+CGCONTRDP:") or ""
     # +CGCONTRDP: <cid>,<bearer_id>,<apn>,<local_addr>,<gw_addr>,<dns_prim>,<dns_sec>,...
     fields = [f.strip().strip('"') for f in v.split(",")]
     dns_servers = []
@@ -583,10 +635,9 @@ class Modem:
 
   def run(self):
     logging.info("starting")
+    if service := self._system_modem_service():
+      subprocess.run(["sudo", "systemctl", "mask", "--runtime", "--now", service], capture_output=True, check=True)
     self._publish_state(state=State.INITIALIZING.value)
-    if self._has_modem_manager():
-      subprocess.run(["sudo", "systemctl", "mask", "--runtime", "ModemManager"], capture_output=True)
-      subprocess.run(["sudo", "systemctl", "stop", "ModemManager"], capture_output=True)
     self._ppp.kill()
 
     state = State.INITIALIZING
@@ -620,9 +671,9 @@ class Modem:
       os.remove(STATE_PATH)
     except FileNotFoundError:
       pass
-    if self._has_modem_manager():
-      subprocess.run(["sudo", "systemctl", "unmask", "--runtime", "ModemManager"], capture_output=True)
-      subprocess.run(["sudo", "systemctl", "start", "ModemManager"], capture_output=True)
+    if service := self._system_modem_service():
+      subprocess.run(["sudo", "systemctl", "unmask", "--runtime", service], capture_output=True)
+      subprocess.run(["sudo", "systemctl", "start", service], capture_output=True)
 
 
 def main():

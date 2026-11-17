@@ -124,7 +124,7 @@ def captured_context():
   [
     'retain',
     'settings_off',
-    'unmapped',
+    'default_buttons',
     'configured_cancel',
     'pause',
     'not_latched',
@@ -155,7 +155,7 @@ def test_shared_cancel_retains_only_original_current_reason_qualified_intent(cas
   source = now
   if case == 'settings_off':
     owner.settings = replace(owner.settings, enabled=False)
-  elif case == 'unmapped':
+  elif case == 'default_buttons':
     owner.settings = replace(owner.settings, lkas_action=0)
   elif case == 'configured_cancel':
     owner.settings = replace(owner.settings, cancel_actions=(3, 0, 0))
@@ -216,7 +216,7 @@ def test_shared_cancel_retains_only_original_current_reason_qualified_intent(cas
   before = deepcopy(vars(feedback))
   native_before = asdict(native)
   result = retained_shared_long_cancel_intent(cp, cs, sm, feedback, owner, cancel_source_ns=source, now_ns=now, producer='authority-card')
-  assert result == (case == 'retain')
+  assert result == (case in ('retain', 'default_buttons'))
   assert vars(feedback) == before  # No lease, output, source, baseline or identity renewal.
   assert asdict(native) == native_before
 
@@ -256,3 +256,54 @@ def test_simultaneous_cancel_keeps_default_timestamp_side_effects(opted_in, mapp
   owner.update(cs, now_ns=2, fault_active=False)
   assert not owner.allowed_latch
   assert owner._last_latch_edge_ns == (0 if opted_in and mapped else 2)
+
+
+@pytest.mark.parametrize('identity', (CAR.GENESIS_GV60_EV_1ST_GEN, CAR.HYUNDAI_IONIQ_5,
+                                     CAR.HYUNDAI_KONA_EV_2ND_GEN))
+@pytest.mark.parametrize('fault', ('none', 'no_cancel', 'lat_denied', 'rx', 'heartbeat', 'expired', 'same_health'))
+def test_shared_long_cancel_health_can_precede_native_status(identity, fault):
+  from opendbc.car import gen_empty_fingerprint
+  from opendbc.car.hyundai.canfd_stock_aol import qualified_long
+  from openpilot.starpilot.aol.transport_pause import cp_identity
+
+  cp, cs, sm, feedback, owner, native, now = captured_context()
+  if identity == CAR.GENESIS_GV60_EV_1ST_GEN:
+    fingerprint = gen_empty_fingerprint()
+    fingerprint[0][0x1cf] = 8
+    cp = CarInterface.get_params(identity, fingerprint, [], True, False, False)
+    cp.safetyConfigs[0].safetyParam |= 0x800
+    cp.alternativeExperience = 32
+  else:
+    cp.carFingerprint = identity
+  assert qualified_long(cp, marked_only=True)
+  feedback.cp = cp_identity(cp)
+  config = cp.safetyConfigs[0]
+  slot = replace(native.pandaInventory[0], safetyModel=int(config.safetyModel.raw), safetyParam=config.safetyParam,
+                 controlsAllowed=True)
+  native = replace(native, safetyModel=int(config.safetyModel.raw), safetyParam=config.safetyParam,
+                   longitudinalAllowed=True, pandaInventory=(slot,), sourcePandaStatesMonoTime=now)
+  sm['aolSafetyWire'] = encode_safety(native)
+  pandas = messaging.new_message('pandaStates', 1, valid=True, logMonoTime=now)
+  panda = pandas.pandaStates[0]
+  panda.safetyModel, panda.safetyParam, panda.alternativeExperience = config.safetyModel, config.safetyParam, 32
+  panda.controlsAllowed = True
+  sm['pandaStates'] = pandas.as_reader().pandaStates
+  if fault == 'no_cancel':
+    cs.buttonEvents = []
+  assert not feedback.observe(sm, cp, cs, now, latched=True, cancel_source_ns=now,
+                              intent_producer_session='authority-card')
+  assert bool(feedback.longitudinal_cancel_ns) == (fault != 'no_cancel')
+  original_receipt = feedback.longitudinal_cancel_ns
+  cs.buttonEvents = []
+  pandas.pandaStates[0].controlsAllowed = False
+  pandas.pandaStates[0].safetyRxChecksInvalid = fault == 'rx'
+  pandas.pandaStates[0].heartbeatLost = fault == 'heartbeat'
+  sm['pandaStates'] = pandas.as_reader().pandaStates
+  sm.logMonoTime['pandaStates'] = now + (0 if fault == 'same_health' else 10_000_000)
+  if fault == 'lat_denied':
+    sm['aolSafetyWire'] = encode_safety(replace(native, lateralAllowed=False))
+  later = now + (201_000_000 if fault == 'expired' else 10_000_000)
+  retained = feedback._longitudinal_cancel_current(sm, cp, cs, sm['aolAxisState'], later,
+                                                  latched=True, cancel_source_ns=0)
+  assert (retained is not None) == (fault == 'none')
+  assert feedback.longitudinal_cancel_ns == original_receipt

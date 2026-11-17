@@ -10,11 +10,11 @@ print(json.dumps(dict(document=default_document(), defaults=default_document(), 
                      revision="native", editable=True, valid=True, activeProfile="large", supportedProfiles=["large"])))
 `], { encoding: "utf8" }))
 assert.equal(validSnapshot(data), true)
-for (const version of [11, 12]) {
+for (const version of [11, 12, 13, 14, 15]) {
   assert.equal(validSnapshot({ ...data, document: { ...data.document, version } }), true)
   assert.equal(validSnapshot({ ...data, defaults: { ...data.defaults, version } }), true)
 }
-for (const version of [9, 10, 13]) {
+for (const version of [9, 10, 16]) {
   assert.equal(validSnapshot({ ...data, document: { ...data.document, version } }), false)
   assert.equal(validSnapshot({ ...data, defaults: { ...data.defaults, version } }), false)
 }
@@ -29,6 +29,37 @@ for (const feed of [vm.artFeed, vm.backdropFeed]) {
 vm.state.data = data
 vm.state.draft = structuredClone(data.document)
 vm.state.status = "ready"
+for (const [sidebar, y, height] of [["On", 900, 150], ["Off", 880, 170]]) {
+  vm.state.draft.display = { DeveloperSidebar: sidebar }
+  assert.deepEqual(vm.favoriteZones, [{ id: "favorites_drawer", label: "Quick Select drawer", x:30, y, width:340, height,
+    excludes:data.metadata.profiles.large.inputZones[0].excludes }])
+}
+vm.state.draft = structuredClone(data.document)
+for (const id of ['current_speed', 'cruise_limits', 'steering_wheel', 'driver_monitor'])
+  assert(vm.favoriteZones[0].excludes.includes(id))
+for (const id of ['nav_map', 'pip_left', 'pip_right', 'torque_bar']) assert(!vm.favoriteZones[0].excludes.includes(id))
+assert.deepEqual(vm.quickSelectShelves.map(({x,y,width,height}) => [x,y,width,height]), [[30,842,656,208], [30,378,208,672]])
+assert.equal(vm.quickSelectBlocked, false)
+Object.assign(vm.layout.current_speed, {x:470, y:730})
+assert(vm.quickSelectShelves[0].conflicts.includes('current_speed'))
+assert(!vm.quickSelectShelves[1].conflicts.includes('current_speed'))
+Object.assign(vm.layout.current_speed, {x:50, y:730})
+assert.equal(vm.quickSelectBlocked, true)
+vm.state.draft = structuredClone(data.document)
+const savedLayouts = JSON.parse(JSON.stringify(vm.state.draft.layouts))
+vm.setReduceMotion(true)
+assert.equal(vm.state.draft.reduceMotion, true)
+vm.state.profile = 'compact'
+vm.setReduceMotion(false)
+assert.equal(vm.state.draft.reduceMotion, true)
+vm.state.profile = 'large'
+assert.deepEqual(vm.state.draft.layouts, savedLayouts)
+assert.equal(validDocument(vm.state.draft, data.metadata), true)
+assert.equal(validDocument({...vm.state.draft, reduceMotion: 'true'}, data.metadata), false)
+const malformedShelves = structuredClone(data)
+malformedShelves.metadata.profiles.large.quickSelectShelves[0].width = NaN
+assert.equal(validSnapshot(malformedShelves), false)
+vm.state.draft = structuredClone(data.document)
 assert.equal(data.document.layouts.large.nav_card.enabled, true, "the native turn card stays on after an upgrade")
 assert(!vm.inactiveWidgets.some(widget => widget.id === "nav_card"))
 vm.changePosition("nav_card", 100, 300)
@@ -61,27 +92,32 @@ assert.equal(vm.layout.nav_map.opacity, 35)
 assert.equal(validSnapshot({ ...data, document: vm.state.draft }), true)
 
 // Use actual native geometry for source attachment, bounds, and the transient timer.
-assert.deepEqual(data.metadata.profiles.large.widgets.cruise_limits.sourcesExtent, {inline:108, card:116, actionGap:8})
+assert.deepEqual(data.metadata.profiles.large.widgets.cruise_limits.sourcesExtent, {inline:114, card:122, actionGap:8})
 vm.state.draft = structuredClone(data.document)
 vm.state.selected = "cruise_limits"
 vm.setSpeedSources("speedSources", true)
-assert.equal(vm.layout.speed_limit_actions.y, 359)
+assert.equal(vm.layout.speed_limit_actions.y, 449)
 vm.setSpeedSources("speedSourcesCard", true)
-assert.equal(vm.layout.speed_limit_actions.y, 367)
+assert.equal(vm.layout.speed_limit_actions.y, 457)
 vm.setSpeedSources("speedSources", false)
-assert.equal(vm.layout.speed_limit_actions.y, 267)
+assert.equal(vm.layout.speed_limit_actions.y, 325)
 const overlapping = structuredClone(data.document)
 overlapping.layouts.large.cruise_limits.y = 550
 assert.equal(validDocument(overlapping, data.metadata), false)
-// Keep the expanded confirmation clear of the torque arc while testing the bottom edge.
-vm.layout.cruise_limits.x = 1520
-vm.layout.speed_limit_actions.x = 1544
+// Disable torque while testing source attachment at the lower screen edge.
+vm.layout.torque_bar.enabled = false
+vm.layout.cruise_limits.x = 1300
+vm.layout.speed_limit_actions.x = 1324
 vm.layout.cruise_limits.y = 690
-vm.layout.speed_limit_actions.y = 882
+vm.layout.speed_limit_actions.y = 940
 vm.setSpeedSources("speedSources", true)
-assert.equal(vm.layout.cruise_limits.y, 590)
+assert.equal(vm.layout.cruise_limits.y, 500)
 assert.equal(vm.layout.speed_limit_actions.y, 882)
 assert.equal(validDocument(vm.state.draft, data.metadata), true)
+const beyondNewPromptWidth = JSON.parse(JSON.stringify(vm.state.draft))
+beyondNewPromptWidth.layouts.large.cruise_limits.x = 1430
+assert.equal(validDocument(beyondNewPromptWidth, data.metadata), false)
+
 Object.assign(vm.layout.speed_limit_actions, {x:600, y:500})
 vm.setSpeedSources("speedSources", false)
 assert.deepEqual([vm.layout.speed_limit_actions.x, vm.layout.speed_limit_actions.y], [600, 500])

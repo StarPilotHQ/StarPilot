@@ -215,7 +215,8 @@ def test_declared_proofs_with_controlled_schedule(schedule):
     expected = schedule in ('no_delay', 'expired_at_entry', 'cross_before_guard')
     assert bool(command.latActive) == expected and not command.longActive
     assert native_checks == [schedule != 'expired_invalid_native']
-    assert len(updates) == int(schedule != 'no_delay')
+    expected_updates = 2 if schedule in ('cross_no_pending', 'expired_empty') else int(schedule != 'no_delay')
+    assert updates == [guard] * expected_updates
     assert axis_checks[0]['accepted'] == (schedule not in ('cross_no_pending', 'expired_empty'))
     diagnostic = controls.aol_transition_diagnostic
     assert (diagnostic.pending is None) == expected

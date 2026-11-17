@@ -33,14 +33,14 @@ const std::string VALID_CACHE_PATH = "/data/.openpilot_cache";
 
 const int FONT_SIZE = 160;
 
-extern const uint8_t str_continue[] asm("_binary_selfdrive_ui_installer_continue_openpilot_sh_start");
-extern const uint8_t str_continue_end[] asm("_binary_selfdrive_ui_installer_continue_openpilot_sh_end");
-extern const uint8_t inter_ttf[] asm("_binary_selfdrive_ui_installer_inter_ascii_ttf_start");
-extern const uint8_t inter_ttf_end[] asm("_binary_selfdrive_ui_installer_inter_ascii_ttf_end");
-extern const uint8_t inter_light_ttf[] asm("_binary_selfdrive_assets_fonts_Inter_Light_ttf_start");
-extern const uint8_t inter_light_ttf_end[] asm("_binary_selfdrive_assets_fonts_Inter_Light_ttf_end");
-extern const uint8_t inter_bold_ttf[] asm("_binary_selfdrive_assets_fonts_Inter_Bold_ttf_start");
-extern const uint8_t inter_bold_ttf_end[] asm("_binary_selfdrive_assets_fonts_Inter_Bold_ttf_end");
+extern const uint8_t str_continue[] asm("_binary_openpilot_selfdrive_ui_installer_continue_openpilot_sh_start");
+extern const uint8_t str_continue_end[] asm("_binary_openpilot_selfdrive_ui_installer_continue_openpilot_sh_end");
+extern const uint8_t inter_ttf[] asm("_binary_openpilot_selfdrive_ui_installer_inter_ascii_ttf_start");
+extern const uint8_t inter_ttf_end[] asm("_binary_openpilot_selfdrive_ui_installer_inter_ascii_ttf_end");
+extern const uint8_t inter_light_ttf[] asm("_binary_openpilot_selfdrive_assets_fonts_Inter_Light_ttf_start");
+extern const uint8_t inter_light_ttf_end[] asm("_binary_openpilot_selfdrive_assets_fonts_Inter_Light_ttf_end");
+extern const uint8_t inter_bold_ttf[] asm("_binary_openpilot_selfdrive_assets_fonts_Inter_Bold_ttf_start");
+extern const uint8_t inter_bold_ttf_end[] asm("_binary_openpilot_selfdrive_assets_fonts_Inter_Bold_ttf_end");
 
 Font font_inter;
 Font font_roman;
@@ -209,7 +209,7 @@ void cloneFinished(int exitCode) {
   run(("rm -rf " + INSTALL_PATH).c_str());
   run(util::string_format("mv %s %s", TMP_INSTALL_PATH, INSTALL_PATH.c_str()).c_str());
 
-#ifdef INTERNAL
+#ifdef COMMA_INTERNAL_INSTALLER
   run("mkdir -p /data/params/d/");
 
   // https://github.com/commaci2.keys
@@ -217,6 +217,7 @@ void cloneFinished(int exitCode) {
   std::map<std::string, std::string> params = {
     {"SshEnabled", "1"},
     {"RecordFrontLock", "1"},
+    {"AlwaysOnDMLock", "1"},
     {"GithubSshKeys", ssh_keys},
   };
   for (const auto& [key, value] : params) {

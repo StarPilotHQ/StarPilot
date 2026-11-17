@@ -21,6 +21,20 @@ def historical():
   yield parser.load(str(FIXTURE), imports=[CEREAL_PATH, str(files('opendbc') / 'car')])
 
 
+@pytest.fixture
+def reviewed_navigation_lane(tmp_path):
+  path = tmp_path / 'reviewed-navigation-lane.capnp'
+  path.write_text('''@0xb526ba661d550a59;
+struct Lane @0xee74a80b1d309a72 {
+  active @0 :Bool;
+  directions @1 :List(Text);
+  activeDirection @2 :Text;
+}
+''')
+  parser = capnp.SchemaParser()
+  yield parser.load(str(path)).Lane
+
+
 def compare_node(old, new):
   assert old.schema.node.id == new.schema.node.id
   kind = old.schema.node.which()
@@ -51,13 +65,14 @@ def compare_node(old, new):
     compare_node(getattr(old, child.name), getattr(new, child.name))
 
 
-def test_all_incumbent_custom_type_ids_fields_and_layouts_are_preserved(historical):
+def test_all_incumbent_custom_type_ids_fields_and_layouts_are_preserved(historical, reviewed_navigation_lane):
   assert hashlib.sha256(FIXTURE.read_bytes()).hexdigest() == REVIEW['incumbent_fixture_sha256']
   for name in re.findall(r'^(?:struct|enum) (\w+)', FIXTURE.read_text(), re.MULTILINE):
     old = getattr(historical, name)
     approved = REVIEW['types'].get(hex(old.schema.node.id))
     current_name = approved['after_name'] if approved else name
     compare_node(old, getattr(custom, current_name))
+  compare_node(reviewed_navigation_lane, custom.StarPilotCarControl.Navigation.Lane)
   # Startup capsules have no parent slots; published phone GPS@3 stays occupied.
   assert set(custom.StarPilotCarControl.schema.fields) == {
     'hudControl', 'steeringLimitInfo', 'navigation', 'phoneGps'}
@@ -115,6 +130,146 @@ def test_additive_feedback_survives_incumbent_reader_relay(historical):
     assert recovered.feedbackPublication.to_dict() == expected_feedback
 
 
+def test_additive_steering_limits_preserve_defaults_and_survive_incumbent_relay(historical):
+  original = historical.StarPilotCarState.new_message(
+    pedalMaxRegen=True, pedalLongActive=True, sourceCarStateMonoTime=123456,
+    gps={'latitude': 41.25, 'longitude': -87.5, 'hasFix': True})
+  incumbent = original.to_dict()
+  with custom.StarPilotCarState.from_bytes(original.to_bytes()) as decoded:
+    assert not decoded.steeringLimitInfo.valid
+    assert decoded.steeringLimitInfo.monoTime == 0
+    current = decoded.as_builder()
+  current.feedbackPublication = {'version': 1, 'publicationSequence': 27, 'reportedTorque': 0.25}
+  current.toyotaCruise = {'version': 1, 'status': 'active', 'targetKph': 72., 'sessionId': 'incumbent'}
+  current.steeringLimitInfo = {
+    'valid': True, 'modelLimitErrorDeg': 1.25, 'resumeLimitErrorDeg': 2.5,
+    'cooperativeLimitErrorDeg': 3.75, 'cooperativeOffsetDeg': -0.5,
+    'monoTime': 123456789, 'combinedLimitErrorDeg': 4.0}
+  expected = current.to_dict()
+  with historical.StarPilotCarState.from_bytes(current.to_bytes()) as old:
+    assert old.to_dict() == incumbent
+    relayed = old.as_builder().to_bytes()
+  with custom.StarPilotCarState.from_bytes(relayed) as recovered:
+    assert recovered.to_dict() == expected
+
+
+@pytest.mark.parametrize('detections', [[], [{'confidence': .875, 'x1Pixels': 11, 'y1Pixels': 22,
+                                           'x2Pixels': 111, 'y2Pixels': 222}]])
+def test_additive_vision_stop_signs_preserve_defaults_and_survive_incumbent_relay(historical, detections):
+  old_type = historical.StarPilotModelDataV2.VisionObservation
+  new_type = custom.StarPilotModelDataV2.VisionObservation
+  original = old_type.new_message(
+    producerSessionId='incumbent', status='valid', speedMps=22.5, confidence=.75, supportCount=3,
+    observedMonoTime=123456, validUntilMonoTime=234567, cameraFrameEofBootTime=112233,
+    episode=7, modelId='incumbent-model', frameId=42, stream='road')
+  incumbent = original.to_dict()
+  assert set(incumbent) == set(old_type.schema.fields)
+  with new_type.from_bytes(original.to_bytes()) as decoded:
+    assert not decoded._has('stopSigns')
+    assert decoded.stopSigns.status == 'unknown'
+    assert not decoded.stopSigns.detections
+    current = decoded.as_builder()
+  current.stopSigns = {
+    'status': 'valid', 'observedMonoTime': 123456, 'validUntilMonoTime': 234567,
+    'cameraFrameEofBootTime': 112233, 'frameId': 42, 'imageWidth': 1920, 'imageHeight': 1080,
+    'detections': detections}
+  expected = current.to_dict()
+  with old_type.from_bytes(current.to_bytes()) as old:
+    assert old.to_dict() == incumbent
+    relayed = old.as_builder().to_bytes()
+  with new_type.from_bytes(relayed) as recovered:
+    assert recovered.to_dict() == expected
+
+
+@pytest.mark.parametrize('lanes', [[], [
+  {'active': False, 'directions': ['straight'], 'activeDirection': ''},
+  {'active': True, 'directions': ['straight', 'right'], 'activeDirection': 'right'},
+]])
+def test_additive_navigation_lanes_preserve_defaults_and_survive_incumbent_relay(historical, lanes):
+  original = populated(historical.StarPilotCarControl)
+  original.phoneGps = {'sourceMonoTime': 123456, 'latitude': 41.25, 'longitude': -87.5, 'hasFix': True}
+  incumbent = original.to_dict()
+  with custom.StarPilotCarControl.from_bytes(original.to_bytes()) as decoded:
+    for instruction in (decoded.navigation.instruction, decoded.navigation.nextManeuver):
+      assert not instruction._has('lanes')
+      assert not instruction.lanes
+    current = decoded.as_builder()
+  current.navigation.instruction.lanes = lanes
+  current.navigation.nextManeuver.lanes = list(reversed(lanes))
+  expected = current.to_dict()
+  with historical.StarPilotCarControl.from_bytes(current.to_bytes()) as old:
+    assert old.to_dict() == incumbent
+    relayed = old.as_builder().to_bytes()
+  with custom.StarPilotCarControl.from_bytes(relayed) as recovered:
+    assert recovered.to_dict() == expected
+  instruction = custom.StarPilotCarControl.Navigation.Instruction.new_message()
+  assert not instruction._has('lanes')
+  assert not instruction.lanes
+  lane = custom.StarPilotCarControl.Navigation.Lane.new_message()
+  assert not lane.active
+  assert not lane._has('directions')
+  assert not lane.directions
+  assert lane.activeDirection == ''
+
+
+@pytest.mark.parametrize(('before', 'after'), [
+  ('distanceMeters @3 :Float32;', 'distanceMeters @3 :Float64;'),
+  ('distanceMeters @3 :Float32;', 'distanceMeters @3 :Float32 = 42;'),
+  ('lanes @6 :List(Lane);', 'lanes @6 :List(Text);'),
+  ('lanes @6 :List(Lane);', 'lanes @6 :List(Coordinate);'),
+  ('lanes @6 :List(Lane);', 'lanes @6 :List(Lane) = [(active = true)];'),
+  ('lanes @6 :List(Lane);', 'lanes @6 :List(Lane); unreviewed @7 :Bool;'),
+  ('active @0 :Bool;\n      directions', 'active @0 :Bool = true;\n      directions'),
+  ('directions @1 :List(Text);', 'directions @1 :List(Data);'),
+  ('activeDirection @2 :Text;', 'activeDirection @2 :Data;'),
+  ('activeDirection @2 :Text;', 'activeDirection @2 :Text; unreviewed @3 :Bool;'),
+])
+def test_reviewed_navigation_addition_does_not_allow_other_schema_changes(historical, reviewed_navigation_lane, tmp_path, before, after):
+  source = Path(CEREAL_PATH, 'custom.capnp').read_text()
+  assert source.count(before) == 1
+  path = tmp_path / 'unreviewed-navigation.capnp'
+  path.write_text(source.replace(before, after))
+  parser = capnp.SchemaParser()
+  changed = parser.load(str(path), imports=[CEREAL_PATH, str(files('opendbc') / 'car')])
+  with pytest.raises(AssertionError):
+    compare_node(historical.StarPilotCarControl, changed.StarPilotCarControl)
+    compare_node(reviewed_navigation_lane, changed.StarPilotCarControl.Navigation.Lane)
+
+
+@pytest.mark.parametrize(('before', 'after'), [
+  ('speedMps @2 :Float32;', 'speedMps @2 :Float64;'),
+  ('stopSigns @12 :StopObservation;', 'stopSigns @12 :StarPilotCarState.Gps;'),
+  ('stopSigns @12 :StopObservation;', 'stopSigns @12 :StopObservation; unreviewed @13 :Bool;'),
+])
+def test_reviewed_vision_addition_does_not_allow_other_schema_changes(historical, tmp_path, before, after):
+  source = Path(CEREAL_PATH, 'custom.capnp').read_text()
+  assert source.count(before) == 1
+  path = tmp_path / 'unreviewed-vision.capnp'
+  path.write_text(source.replace(before, after))
+  parser = capnp.SchemaParser()
+  changed = parser.load(str(path), imports=[CEREAL_PATH, str(files('opendbc') / 'car')])
+  with pytest.raises(AssertionError):
+    compare_node(historical.StarPilotModelDataV2, changed.StarPilotModelDataV2)
+
+
+@pytest.mark.parametrize(('before', 'after'), [
+  ('dashboardSpeedLimit @3 :Float32;', 'dashboardSpeedLimit @3 :Float64;'),
+  ('toyotaCruise @38 :ToyotaCruise;', 'toyotaCruise @38 :StarPilotCarControl.SteeringLimitInfo;'),
+  ('steeringLimitInfo @39 :StarPilotCarControl.SteeringLimitInfo;', 'steeringLimitInfo @39 :StarPilotCarState.Gps;'),
+  ('steeringLimitInfo @39 :StarPilotCarControl.SteeringLimitInfo;',
+   'steeringLimitInfo @39 :StarPilotCarControl.SteeringLimitInfo; unreviewed @40 :Bool;'),
+])
+def test_reviewed_steering_addition_does_not_allow_other_schema_changes(historical, tmp_path, before, after):
+  source = Path(CEREAL_PATH, 'custom.capnp').read_text()
+  assert source.count(before) == 1
+  path = tmp_path / 'unreviewed.capnp'
+  path.write_text(source.replace(before, after))
+  parser = capnp.SchemaParser()
+  changed = parser.load(str(path), imports=[CEREAL_PATH, str(files('opendbc') / 'car')])
+  with pytest.raises(AssertionError):
+    compare_node(historical.StarPilotCarState, changed.StarPilotCarState)
+
+
 @pytest.mark.parametrize(('fields', 'compatible'), [
   ('value @0 :UInt32; label @1 :Text;', True),
   ('value @0 :UInt32; label @1 :Text; extra @2 :Bool;', False),
@@ -135,3 +290,44 @@ def test_compiled_compatibility_check_rejects_unreviewed_changes(tmp_path, field
   else:
     with pytest.raises(AssertionError):
       compare_node(old, new)
+
+
+def test_additive_force_stop_fields_preserve_defaults_and_incumbent_relay(historical):
+  old = historical.StarPilotLongitudinalPlan.new_message(
+    version=1, sourcePlanMonoTime=11, modelMonoTime=22, driveStartMonoTime=33, forceStopHolding=True)
+  incumbent = old.to_dict()
+  with custom.StarPilotLongitudinalPlan.from_bytes(old.to_bytes()) as decoded:
+    assert not decoded.forceStopBraking
+    assert decoded.forceStopEpisodeMonoTime == 0
+    assert decoded.departureAlertKind == 0
+    assert decoded.departureAlertMonoTime == 0
+    current = decoded.as_builder()
+  current.forceStopBraking = True
+  current.forceStopEpisodeMonoTime = 44
+  current.departureAlertKind = 2
+  current.departureAlertMonoTime = 55
+  expected = current.to_dict()
+  with historical.StarPilotLongitudinalPlan.from_bytes(current.to_bytes()) as prior:
+    assert prior.to_dict() == incumbent
+    relayed = prior.as_builder().to_bytes()
+  with custom.StarPilotLongitudinalPlan.from_bytes(relayed) as recovered:
+    assert recovered.to_dict() == expected
+
+
+@pytest.mark.parametrize(('before', 'after'), [
+  ('forceStopHolding @4 :Bool;', 'forceStopHolding @4 :Bool = true;'),
+  ('forceStopBraking @5 :Bool;', 'forceStopBraking @5 :UInt8;'),
+  ('forceStopBraking @5 :Bool;', 'forceStopBraking @5 :Bool = true;'),
+  ('forceStopEpisodeMonoTime @6 :UInt64;', 'forceStopEpisodeMonoTime @6 :UInt32;'),
+  ('forceStopEpisodeMonoTime @6 :UInt64;', 'forceStopEpisodeMonoTime @6 :UInt64 = 1;'),
+  ('forceStopEpisodeMonoTime @6 :UInt64;', 'forceStopEpisodeMonoTime @6 :UInt64; unreviewed @9 :Bool;'),
+])
+def test_reviewed_force_stop_addition_rejects_other_changes(historical, tmp_path, before, after):
+  source = Path(CEREAL_PATH, 'custom.capnp').read_text()
+  assert source.count(before) == 1
+  path = tmp_path / 'unreviewed-force-stop.capnp'
+  path.write_text(source.replace(before, after))
+  parser = capnp.SchemaParser()
+  changed = parser.load(str(path), imports=[CEREAL_PATH, str(files('opendbc') / 'car')])
+  with pytest.raises(AssertionError):
+    compare_node(historical.StarPilotLongitudinalPlan, changed.StarPilotLongitudinalPlan)

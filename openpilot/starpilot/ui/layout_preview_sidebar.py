@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.presentation import BitmapFonts, FontRole
 

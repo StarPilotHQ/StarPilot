@@ -133,6 +133,13 @@ class SoftwareLayout(Widget):
     self._download_btn.set_visible(ui_state.is_offroad())
 
     updater_state = ui_state.params.get("UpdaterState") or "idle"
+    fast = ui_state.params.get('UpdaterFastState') or {}
+    check = fast.get('check', {}) if isinstance(fast, dict) else {}
+    checking_metadata = check.get('state') == 'checking'
+    if checking_metadata:
+      updater_state = 'checking...'
+    if check.get('completedAt', 0) >= getattr(self, '_waiting_start_ts', float('inf')) and check.get('state') in ('complete', 'error'):
+      self._waiting_for_updater = False
     failed_count = ui_state.params.get("UpdateFailedCount") or 0
     fetch_available = ui_state.params.get_bool("UpdaterFetchAvailable")
     update_available = ui_state.params.get_bool("UpdateAvailable")
@@ -143,6 +150,14 @@ class SoftwareLayout(Widget):
       self._download_btn.action_item.set_enabled(False)
       # Use the mapping, with a fallback to the original state string
       display_text = STATE_TO_DISPLAY_TEXT.get(updater_state, updater_state)
+      if checking_metadata:
+        display_text = tr('Checking for new versions')
+      elif isinstance(fast, dict) and fast.get('detail'):
+        display_text = fast['detail']
+        if fast.get('background'):
+          display_text = tr('Background download') + ': ' + display_text
+          self._download_btn.action_item.set_text(tr('CHECK'))
+          self._download_btn.action_item.set_enabled(True)
       self._download_btn.action_item.set_value(display_text)
     else:
       if failed_count > 0:
@@ -152,7 +167,7 @@ class SoftwareLayout(Widget):
         self._download_btn.action_item.set_value(tr("update available"))
         self._download_btn.action_item.set_text(tr("DOWNLOAD"))
       else:
-        last_update = ui_state.params.get("LastUpdateTime")
+        last_update = ui_state.params.get("UpdaterLastCheckTime") or ui_state.params.get("LastUpdateTime")
         if last_update:
           formatted = time_ago(last_update)
           self._download_btn.action_item.set_value(tr("up to date, last checked {}").format(formatted))

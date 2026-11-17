@@ -12,10 +12,8 @@ def test_default_saved_and_invalid_values_preserve_manual_requests(tmp_path, raw
   if raw is not None:
     Path(params.get_param_path(AUTOMATIC_DOWNLOADS)).write_bytes(raw)
   assert automatic_downloads(params) is expected
-  assert download_permitted(params, manual=False, check_only=False) is (expected is True)
-  assert download_permitted(params, manual=True, check_only=False)
-  assert not download_permitted(params, manual=False, check_only=True)
-  assert not download_permitted(params, manual=True, check_only=True)
+  assert download_permitted(params, manual=False) is (expected is True)
+  assert download_permitted(params, manual=True)
 
 
 def test_nonregular_and_symlink_preferences_do_not_enable_automatic_downloads(tmp_path):

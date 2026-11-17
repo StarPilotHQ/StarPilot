@@ -1,3 +1,4 @@
+import numpy as np
 
 from unittest.mock import patch
 from dataclasses import replace
@@ -11,8 +12,9 @@ import zlib
 from openpilot.starpilot.ui.layout_preview_renderer import LayoutPreviewRenderer, _Canvas, _DriverMonitorArt, _png_rgba, sample_state
 from openpilot.starpilot.ui.layout_preview_sidebar import SAMPLE_METRICS, metric_rects, render_sidebar
 from openpilot.starpilot.ui.onroad_customization import default_document
+from openpilot.starpilot.ui.onroad_personality import PersonalityWidget
 from openpilot.starpilot.ui.presentation import Profile
-import pyray as rl
+from openpilot.starpilot.ui.raylib import rl
 
 
 class LayoutPreviewRendererTests(unittest.TestCase):
@@ -44,7 +46,7 @@ class LayoutPreviewRendererTests(unittest.TestCase):
     canvas._settle = Mock()
     state = sample_state('engaged', default_document())
     state = replace(state, appearance=replace(state.appearance, show_developer_sidebar=True))
-    pixels = rl.ffi.new('unsigned char[]', 2160 * 1080 * 4)
+    pixels = np.zeros(2160 * 1080 * 4, dtype=np.uint8)
     with ExitStack() as stack:
       for name in ('begin_texture_mode', 'clear_background', 'end_texture_mode', 'image_format', 'image_flip_vertical', 'unload_image'):
         stack.enter_context(patch('openpilot.starpilot.ui.layout_preview_renderer.rl.' + name))
@@ -244,7 +246,7 @@ class LayoutPreviewRendererTests(unittest.TestCase):
     canvas = _Canvas.__new__(_Canvas)
     canvas.profile = Profile.COMPACT
     canvas.viewport = None
-    self.enterContext(patch.object(canvas, 'view', NS(compact_hud=NS(_was_cruise_active=False, _set_speed_alpha=NS(x=0.0),
+    self.enterContext(patch.object(canvas, 'view', NS(personality=PersonalityWidget(), compact_hud=NS(_was_cruise_active=False, _set_speed_alpha=NS(x=0.0),
                                    _wheel_alpha=NS(x=0.0), _wheel_y=NS(x=25.0)),
                      torque_bar=NS(_torque_filter=NS(x=0.0), _alpha_filter=NS(x=0.0))), create=True))
     braking = sample_state("braking", default_document())

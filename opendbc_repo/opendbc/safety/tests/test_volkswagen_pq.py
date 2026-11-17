@@ -101,6 +101,7 @@ class TestVolkswagenPqStockSafety(TestVolkswagenPqSafetyBase):
 
 
 class TestVolkswagenPqLongSafety(TestVolkswagenPqSafetyBase, common.LongitudinalAccelSafetyTest):
+  MAX_ACCEL = 3.0
   SAFETY_MODEL = CarParams.SafetyModel.volkswagenPq
   SAFETY_PARAM = VolkswagenSafetyFlags.LONG_CONTROL
 

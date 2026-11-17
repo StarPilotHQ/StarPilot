@@ -13,7 +13,7 @@ class TestCanFDDashIcons(unittest.TestCase):
     icons = CanFDDashIcons()
     for frame, enabled, lateral, expected in ((0, False, False, 0), (1, False, True, 2),
                                              (2, False, False, 3), (100, False, False, 3),
-                                             (101, False, False, 0), (102, True, False, 2),
+                                             (101, False, False, 0), (102, True, False, 0),
                                              (103, False, True, 2), (104, False, False, 3)):
       self.assertEqual(icons.update(frame, enabled, lateral), expected)
 
@@ -31,7 +31,7 @@ class TestCanFDDashIcons(unittest.TestCase):
         if cluster:
           parser.update([(1_000_000_000 + frame * 10_000_000, cluster)])
           value = parser.vl['LFAHDA_CLUSTER']
-          expected = 2 if command.enabled or command.latActive else 3 if 10 <= frame < 109 else 0
+          expected = 2 if command.latActive else 3 if 10 <= frame < 109 else 0
           self.assertEqual(value['LFA_ICON'], expected)
           self.assertEqual(value['HDA_ICON'], int(command.enabled))
 
@@ -66,3 +66,42 @@ class TestCanFDDashIcons(unittest.TestCase):
           control.latActive = 5 <= tick < 15
           _, messages = ci.apply(control.as_reader(), stamp)
           self.assertFalse(any(message[0] == 0x1E0 for message in messages), tick)
+
+
+  def test_longitudinal_engagement_cannot_hold_or_relight_lateral_icon(self):
+    for alternate in (False, True):
+      for aol in (False, True):
+        with self.subTest(alternate=alternate, aol=aol):
+          cp, cs, controller = controller_fixture(alternate, aol=aol)
+          original = cp.to_dict()
+          parser = CANParser(DBC[cp.carFingerprint][Bus.pt], [('LFAHDA_CLUSTER', 0)], controller.CAN.ECAN)
+          command = structs.CarControl(enabled=True, longActive=True)
+          for frame in range(135):
+            command.latActive = frame < 5 or frame >= 125
+            _, messages = controller.update(command.as_reader(), cs, 1_000_000_000 + frame * 10_000_000)
+            cluster = [message for message in messages if message[0] == 0x1E0]
+            self.assertEqual(len(cluster), int(frame % 5 == 0))
+            if cluster:
+              parser.update([(1_000_000_000 + frame * 10_000_000, cluster)])
+              value = parser.vl['LFAHDA_CLUSTER']
+              expected = 2 if command.latActive else 3 if frame < 104 else 0
+              self.assertEqual(value['LFA_ICON'], expected)
+              self.assertEqual(value['HDA_ICON'], 1)
+          self.assertEqual(cp.to_dict(), original)
+
+
+  def test_cruise_transitions_cannot_invert_lateral_icon_at_standstill(self):
+    for alternate in (False, True):
+      cp, cs, controller = controller_fixture(alternate, aol=True)
+      self.assertEqual(cs.out.vEgo, 0.0)
+      parser = CANParser(DBC[cp.carFingerprint][Bus.pt], [('LFAHDA_CLUSTER', 0)], controller.CAN.ECAN)
+      command = structs.CarControl(latActive=True)
+      for frame in range(40):
+        command.enabled = 10 <= frame < 30
+        command.longActive = command.enabled
+        _, messages = controller.update(command.as_reader(), cs, 1_000_000_000 + frame * 10_000_000)
+        cluster = [message for message in messages if message[0] == 0x1E0]
+        if cluster:
+          parser.update([(1_000_000_000 + frame * 10_000_000, cluster)])
+          self.assertEqual(parser.vl['LFAHDA_CLUSTER']['LFA_ICON'], 2)
+          self.assertEqual(parser.vl['LFAHDA_CLUSTER']['HDA_ICON'], int(command.enabled))

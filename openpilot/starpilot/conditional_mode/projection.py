@@ -87,7 +87,6 @@ class ConditionalOwnerContext:
   committed_turn_scene: ObservedBool | None = None
   red_light: ObservedBool | None = None
   plan_forcing_stop: ObservedBool | None = None
-  slc_experimental: ObservedBool | None = None
   plan_should_stop: ObservedBool | None = None
   plan_allow_throttle: ObservedBool | None = None
 
@@ -221,9 +220,21 @@ def _horizon(model) -> float | None:
     finite = tuple(value for value in parsed if value is not None)
     if any(b < a for a, b in zip(finite, finite[1:], strict=False)):
       return None
-    return finite[-1]
+    return min(finite[-1] + _bend_excess(model, finite), 500.0)
   except (AttributeError, TypeError, ValueError, OverflowError):
     return None
+
+
+def _bend_excess(model, distances: tuple[float, ...]) -> float:
+  """Arc length minus forward reach; a bend alone must not read as a shortening plan."""
+  try:
+    offsets = tuple(model.position.y)
+  except (AttributeError, TypeError, ValueError, OverflowError):
+    return 0.0
+  if len(offsets) != len(distances) or any(_number(value, low=-500.0, high=500.0) is None for value in offsets):
+    return 0.0
+  return sum(math.hypot(x1 - x0, y1 - y0) - (x1 - x0)
+             for x0, x1, y0, y1 in zip(distances, distances[1:], offsets, offsets[1:], strict=False))
 
 
 def _standstill_path_extent(model) -> float | None:
@@ -407,6 +418,7 @@ class SceneProjector:
     selected_t_follow_observed_mono_ns: int | None = None,
     owner_context: ConditionalOwnerContext | None = None,
     signal_options: CEMOptions | None = None,
+    cruise_ceiling_mps: float | None = None,
   ) -> ProjectedScene:
     if (
       type(now_mono_ns) is not int
@@ -442,6 +454,9 @@ class SceneProjector:
     speed = _ego_speed(car) if car is not None and _field(car, 'canValid') is True and _field(car, 'canTimeout') is False else None
     cruise_kph = _number(_field(car, 'vCruise'), high=V_CRUISE_UNSET_KPH) if speed is not None else None
     cruise = cruise_kph * KPH_TO_MPS if cruise_kph is not None and 0 < cruise_kph < V_CRUISE_UNSET_KPH else None
+    if cruise_ceiling_mps is not None:
+      cap = _number(cruise_ceiling_mps, high=V_CRUISE_UNSET_KPH * KPH_TO_MPS)
+      cruise = min(cruise, cap) if cruise is not None and cap is not None and cap > 0 else None
     curvature = _number(_field(controls, 'curvature'), low=-1.0, high=1.0) if controls is not None else None
     raw_curve = abs(speed * speed * curvature) >= FROZEN_CURVE_ACCEL_MPS2 if speed is not None and curvature is not None else None
     horizon = None
@@ -539,7 +554,6 @@ class SceneProjector:
     committed_turn, turn_stamp = owner_bool(context.committed_turn_scene)
     red_light, red_stamp = owner_bool(context.red_light)
     plan_forcing_stop, plan_forcing_stamp = owner_bool(context.plan_forcing_stop)
-    slc_experimental, _ = owner_bool(context.slc_experimental)
     plan_should_stop, plan_should_stop_stamp = owner_bool(context.plan_should_stop)
     plan_allow_throttle, plan_allow_throttle_stamp = owner_bool(context.plan_allow_throttle)
     model_stamp = _source_stamp(sm, 'modelV2') if model_transport_current else None
@@ -632,6 +646,9 @@ class SceneProjector:
       stationary_launch_clear=stationary_launch_clear,
       longitudinal_stop_active=bool(_field(control, 'longActive') is True and _field(selfdrive, 'enabled') is True and
         _field(controls, 'longControlState') == structs.CarControl.Actuators.LongControlState.stopping),
+      longitudinal_launch_active=bool(_field(control, 'enabled') is True and _field(control, 'longActive') is True and
+        _field(selfdrive, 'enabled') is True and _field(controls, 'longControlState') in
+        (structs.CarControl.Actuators.LongControlState.starting, structs.CarControl.Actuators.LongControlState.pid)),
       standstill_path_extent_m=(_standstill_path_extent(model) if model_transport_current and car_valid and
                                 _field(car, 'standstill') is True else None),
     )
@@ -755,7 +772,6 @@ class SceneProjector:
       stop_sign_confirmed=sign,
       committed_stop=self.stop_detector.committed if stop_observation.light_detected is not None else None,
       forcing_stop=forcing,
-      slc_experimental=slc_experimental,
       low_speed_stop_scene=chill_observation.low_speed_stop_scene,
       launch_candidate=chill_observation.launch_candidate,
       launch_forced_exit=True if chill_observation.forced_exit else False if chill_observation.launch_candidate is not None else None,
