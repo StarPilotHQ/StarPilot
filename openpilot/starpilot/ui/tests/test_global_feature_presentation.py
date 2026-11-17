@@ -121,7 +121,7 @@ class TestGlobalFeaturePresentation(unittest.TestCase):
       with self.subTest(candidate=candidate):
         cp = params_for(candidate)
         ui = ui_fake()
-        ui.CP = cp
+        ui.CP, ui.params = cp, self.params
         ui.sm['deviceState'].startedMonoTime = DRIVE
         ui.sm['carState'].canValid, ui.sm['carState'].canTimeout = True, False
         event = messaging.new_message('slcState', valid=True, logMonoTime=NOW)

@@ -141,7 +141,8 @@ class SharedDeviceStateTest(unittest.TestCase):
     # The shared collector includes the other physical-admission services;
     # this display adapter consumes only deviceState and pandaStates.
     self.messages.values.update(carState=SimpleNamespace(), selfdriveState=SimpleNamespace(), carParams=SimpleNamespace(),
-                                peripheralState=SimpleNamespace(pandaType=1, voltage=12640))
+                                peripheralState=SimpleNamespace(pandaType=1, voltage=12640),
+                                lateralDelay=SimpleNamespace(), lateralTorqueParameters=SimpleNamespace(), vehicleParameters=SimpleNamespace())
     self.shared = EvidenceSource(self.messages, mono=self.clock.mono, boot=self.clock.boot)
     self.addCleanup(self.shared.close)
 
@@ -149,7 +150,8 @@ class SharedDeviceStateTest(unittest.TestCase):
     self.clock.now += 100_000_000
     self.messages.publish(self.clock, **state)
     self.messages.values.update(carState=SimpleNamespace(), selfdriveState=SimpleNamespace(), carParams=SimpleNamespace(),
-                                peripheralState=SimpleNamespace(pandaType=1, voltage=12640))
+                                peripheralState=SimpleNamespace(pandaType=1, voltage=12640),
+                                lateralDelay=SimpleNamespace(), lateralTorqueParameters=SimpleNamespace(), vehicleParameters=SimpleNamespace())
     self.messages.alive = dict(self.messages.seen)
     self.shared.poll()
 

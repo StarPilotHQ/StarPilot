@@ -8,6 +8,7 @@ from unittest import mock
 
 from openpilot.starpilot.ui.raylib import rl
 
+from opendbc.car.structs import CarParams
 from opendbc.car.car_helpers import interfaces
 from opendbc.car.hyundai.values import CAR, HyundaiFlags
 from openpilot.cereal import messaging
@@ -66,7 +67,8 @@ class TestTrafficStatus(unittest.TestCase):
 
   def test_no_traffic_wire_remains_absent_with_independent_vehicle_checks(self):
     ui = ui_fake()
-    ui.CP = NS(carFingerprint="", openpilotLongitudinalControl=True, pcmCruise=False)
+    ui.params = self.params
+    ui.CP = CarParams.new_message(carFingerprint="", openpilotLongitudinalControl=True, pcmCruise=False)
     state = RuntimeSnapshotAdapter(ui).build(ShellMode.ONROAD, now_ns=NOW).onroad
     self.assertIsNone(state.traffic_display)
     self.assertFalse(state.traffic_mode)

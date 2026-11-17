@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 
 from openpilot.starpilot.ui.raylib import rl
 
+from opendbc.car.structs import CarParams
 from openpilot.cereal import messaging
 from openpilot.common.params import Params
 from openpilot.starpilot.conditional_mode.consumer import ConsumerResult
@@ -98,7 +99,7 @@ class TestConditionalStatus(unittest.TestCase):
       for service in ui.sm.logMonoTime:
         ui.sm.logMonoTime[service] = NOW
       ui.params = params
-      ui.CP = type('CP', (), {'openpilotLongitudinalControl': True, 'passive': False, 'pcmCruise': True, 'carFingerprint': 'OTHER'})()
+      ui.CP = CarParams.new_message(openpilotLongitudinalControl=True, passive=False, pcmCruise=True, carFingerprint='OTHER')
       ui.sm['deviceState'].startedMonoTime = DRIVE
       ui.sm['carState'].canValid = True
       ui.sm['carState'].canTimeout = False

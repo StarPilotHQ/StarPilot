@@ -2,13 +2,17 @@
 
 from dataclasses import replace
 from datetime import datetime
+import json
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace as NS
 import unittest
 from unittest.mock import Mock, patch
 
 from openpilot.starpilot.ui.raylib import rl
 
+from openpilot.starpilot.conditional_mode.policy import ModeChoice
+from openpilot.starpilot.conditional_mode.preferences import SavedPreferences, encode_preferences
 from openpilot.starpilot.ui import onroad
 from openpilot.starpilot.ui.onroad import axis_status_color, clock_text, driving_mode_description
 from openpilot.starpilot.ui.onroad_customization import MODE_WIDGET
@@ -20,7 +24,7 @@ from openpilot.starpilot.ui.presentation import Profile
 from openpilot.starpilot.ui.preview_shell import reference_onroad
 from openpilot.starpilot.ui.runtime_snapshot import RuntimeSnapshotAdapter
 from openpilot.starpilot.ui.shell import ShellMode
-from openpilot.starpilot.ui.tests.test_runtime_snapshot import NOW, ui_fake
+from openpilot.starpilot.ui.tests.test_runtime_snapshot import NOW, vehicle_ui
 from openpilot.starpilot.ui.tests.test_onroad_torque_draw import record_gpu
 
 
@@ -34,8 +38,8 @@ class TestOnroadAxes(unittest.TestCase):
       self.enterContext(patch('openpilot.starpilot.ui.speed_limit_widget.rl.' + name, new_callable=Mock))
     for name in ('circle', 'arrow', 'outline', 'button'):
       self.enterContext(patch('openpilot.starpilot.ui.speed_limit_shapes.SpeedLimitShapes.' + name, new_callable=Mock))
-    self.ui = ui_fake()
-    self.ui.CP = NS(carFingerprint='', openpilotLongitudinalControl=True, pcmCruise=False)
+    self.ui = vehicle_ui(self.enterContext(TemporaryDirectory()),
+                         carFingerprint='', openpilotLongitudinalControl=True, pcmCruise=False)
     car = self.ui.sm["carState"]
     car.canValid = True
     car.canTimeout = False
@@ -277,7 +281,6 @@ class TestOnroadAxes(unittest.TestCase):
     self.assertTrue(self.state(True, False).longitudinal_overridden)
 
   def test_traffic_returns_after_conditional_stop_without_changing_intent(self):
-    from openpilot.starpilot.conditional_mode.policy import ModeChoice
     from openpilot.starpilot.ui.conditional_status import ConditionalDisplay
 
     traffic = replace(self.state(True, True), traffic_mode=True)
@@ -291,6 +294,8 @@ class TestOnroadAxes(unittest.TestCase):
     self.assertEqual(rgba(axis_status_color(replace(stopping, longitudinal_overridden=True))), (145, 155, 149, 255))
 
   def test_experimental_border_requires_active_combined_axes(self):
+    # These manual ExperimentalMode projections use the explicitly selected stock family.
+    self.ui.params.put('ConditionalModeConfig', json.loads(encode_preferences(SavedPreferences(mode=ModeChoice.STOCK))), block=True)
     combined = replace(self.state(True, True), experimental_enabled=True)
     self.assertEqual(rgba(axis_status_color(combined)), (218, 111, 37, 255))
     self.assertEqual(rgba(axis_status_color(replace(combined, longitudinal_active=False))), (10, 186, 181, 255))
@@ -364,7 +369,8 @@ class TestOnroadAxes(unittest.TestCase):
             self.assertIn(driving_mode_description(state), [call.args[0] for call in view.fonts.draw.call_args_list])
 
   def test_driving_mode_text_uses_active_axes_and_effective_mode(self):
-    from openpilot.starpilot.conditional_mode.policy import ModeChoice
+    # These manual ExperimentalMode projections use the explicitly selected stock family.
+    self.ui.params.put('ConditionalModeConfig', json.loads(encode_preferences(SavedPreferences(mode=ModeChoice.STOCK))), block=True)
     from openpilot.starpilot.ui.conditional_status import ConditionalDisplay
 
     base = self.state(True, True)
@@ -405,7 +411,8 @@ class TestOnroadAxes(unittest.TestCase):
         view.fonts.draw.assert_not_called()
 
   def test_stock_cruise_is_distinct_from_system_long_and_lateral(self):
-    self.ui.CP = NS(carFingerprint='', openpilotLongitudinalControl=False, pcmCruise=True)
+    self.ui.CP.openpilotLongitudinalControl = False
+    self.ui.CP.pcmCruise = True
     self.ui.sm["carState"].cruiseState.enabled = True
     state = self.state(False, False)
     self.assertTrue(state.stock_cruise_active)

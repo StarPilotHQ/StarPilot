@@ -1,5 +1,5 @@
 from dataclasses import replace
-from types import SimpleNamespace as NS
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
@@ -12,7 +12,7 @@ from openpilot.starpilot.ui.runtime_snapshot import RuntimeSnapshotAdapter
 from openpilot.starpilot.ui.runtime_app import visual_border_state
 from openpilot.starpilot.ui.pip_sidecam import Signals
 from openpilot.starpilot.ui.shell import ShellMode
-from openpilot.starpilot.ui.tests.test_runtime_snapshot import NOW, ui_fake
+from openpilot.starpilot.ui.tests.test_runtime_snapshot import NOW, vehicle_ui
 
 
 def state(signals: BorderSignals | None, *, signal_enabled: bool = True, blindspot_enabled: bool = True):
@@ -73,8 +73,8 @@ class TestOnroadBorder(unittest.TestCase):
     draw.assert_not_called()
 
   def test_stale_or_invalid_car_clears_visual_signal(self):
-    ui = ui_fake()
-    ui.CP = NS(openpilotLongitudinalControl=True, carFingerprint="OTHER", pcmCruise=False)
+    ui = vehicle_ui(self.enterContext(TemporaryDirectory()),
+                    openpilotLongitudinalControl=True, carFingerprint="OTHER", pcmCruise=False)
     car = ui.sm['carState']
     car.canValid = True
     car.canTimeout = False
