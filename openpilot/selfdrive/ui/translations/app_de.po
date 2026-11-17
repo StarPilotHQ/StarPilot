@@ -23539,6 +23539,10 @@ msgid "Jaguar F-Type"
 msgstr "Jaguar F-Type"
 
 #: openpilot/starpilot/engine_sound/profiles.py
+msgid "Nissan Super GT"
+msgstr "Nissan Super GT"
+
+#: openpilot/starpilot/engine_sound/profiles.py
 msgid "Supra Turbo"
 msgstr "Supra Turbo"
 

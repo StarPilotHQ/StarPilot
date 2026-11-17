@@ -58,14 +58,18 @@ RACE_REDLINE = 8600.0
 
 
 def _recorded(name: str, label: str, *, cylinders: int, idle: float, redline: float, loops: str = '', pops: float = 0.0,
-              turbo: float = 0.0) -> Profile:
-  """A bundled loop bank (of the same name unless given), geared like the race car but scaled to its own rev range."""
-  scale = redline / RACE_REDLINE
+              turbo: float = 0.0, upshift: float = 0.38, downshift: float = 0.2, gearing: float = 1.0) -> Profile:
+  """A bundled loop bank (of the same name unless given), geared like the race car but scaled to its own rev range.
+
+  upshift and downshift are the light-throttle shift points as shares of redline; full throttle always shifts at 96%.
+  gearing above 1 makes every gear shorter, so road speed turns into more rpm.
+  """
+  scale = redline / RACE_REDLINE * gearing
   return Profile(
     name=name, label=label, loops=loops or name, pops=pops, turbo=turbo,
     idle_rpm=idle, redline_rpm=redline,
     gears=tuple(ratio * scale for ratio in RACE_GEARS),
-    upshift_rpm=(0.38 * redline, 0.96 * redline), downshift_rpm=(0.2 * redline, 0.6 * redline),
+    upshift_rpm=(upshift * redline, 0.96 * redline), downshift_rpm=(downshift * redline, max(0.6, downshift + 0.25) * redline),
     launch_slip_rpm=0.4 * redline, rev_seconds=0.8, rise_seconds=0.08, fall_seconds=0.35, limiter=True,
     partials=_engine_partials(firing=cylinders, count=40, rough=0.25, bright=0.5),
     noise=(0.03, 0.18), gain=(0.7, 1.0),
@@ -81,6 +85,9 @@ PROFILES: dict[str, Profile] = {profile.name: profile for profile in (
   _recorded('hellcat', 'Hellcat', cylinders=8, idle=700.0, redline=4500.0),
   _recorded('jaguar_ftype', 'Jaguar F-Type', cylinders=8, idle=721.0, redline=6500.0, pops=1.0),
   _recorded('lfa', 'LFA', cylinders=10, idle=1000.0, redline=9000.0),
+  # Recorded only at idle and from 3250 rpm up, so it is geared short and shifts like a race car to stay in that range.
+  _recorded('nissan_super_gt', 'Nissan Super GT', cylinders=4, idle=1556.0, redline=7500.0, upshift=0.62, downshift=0.45,
+            gearing=1.2),
   _recorded('supra_turbo', 'Supra Turbo', cylinders=6, idle=800.0, redline=6000.0, turbo=1.0),
 )}
 

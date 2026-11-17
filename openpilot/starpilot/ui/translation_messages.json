@@ -32243,6 +32243,12 @@
       ]
     },
     {
+      "source": "Nissan Super GT",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
       "source": "Supra Turbo",
       "refs": [
         "openpilot/starpilot/engine_sound/profiles.py"

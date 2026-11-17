@@ -112,7 +112,8 @@ def test_drivers_pedal_sets_the_load_even_when_the_car_pulls_hard():
   assert run(model, 1.0, 0.25, 8.0, 2.5, True)[1] == pytest.approx(0.25, abs=0.02)
 
 
-@pytest.mark.parametrize('name', [name for name, profile in PROFILES.items() if profile.gears])
+@pytest.mark.parametrize('name', [name for name, profile in PROFILES.items()
+                                  if profile.gears and profile.upshift_rpm[0] <= 0.4 * profile.redline_rpm])
 def test_light_pedal_shifts_well_below_the_top_of_the_rev_range(name):
   profile = PROFILES[name]
   model = EngineModel(profile)
