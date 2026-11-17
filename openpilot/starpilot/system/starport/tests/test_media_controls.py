@@ -53,7 +53,7 @@ def test_session_sends_media_keys_even_on_the_cars_own_screen(focused):
   session.handle(3, INPUT_EVENT, keys(key(87, False)))
   session.handle(3, INPUT_EVENT, keys(key(88, True)))
   assert session.actions == ['next', 'previous']
-  assert ('media_key', {'action': 'next'}) in session.events
+  assert ('media_key', {'channel': 3, 'action': 'next'}) in session.events
 
 
 class Session:
