@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 import pytest
+from tinygrad import Tensor
 
 from openpilot.starpilot.models import jetlink_adapter
 from openpilot.starpilot.models.jetlink_warp import CatalogWarp
@@ -100,7 +101,9 @@ def test_a_moved_output_is_sent_from_where_it_is_and_any_other_copied_out(copied
 def runner_buffer(device):
   buffer = FakeBuffer(device=device)
   small = CatalogModelState.__new__(CatalogModelState)
-  small.warp_enqueue = NS(captured=NS(ret=output(buffer)))
+  # The production move path admits only a captured Tensor, not an arbitrary output object.
+  tensor = Mock(spec=Tensor, uop=NS(base=NS(buffer=buffer)))
+  small.warp_enqueue = NS(captured=NS(ret=tensor))
   return small, buffer
 
 
@@ -118,6 +121,16 @@ def test_the_runner_moves_a_comma_warps_output():
   cpu.move_warp_output(move)
   move.assert_not_called()
   assert cpu.warp_copied == "a CPU buffer"
+
+
+@pytest.mark.parametrize("captured", [None, NS(ret=None), NS(ret=output(FakeBuffer(device="QCOM")))])
+def test_the_runner_refuses_missing_or_non_tensor_warp_output(captured):
+  small = CatalogModelState.__new__(CatalogModelState)
+  small.warp_enqueue = NS(captured=captured)
+  move = Mock()
+  small.move_warp_output(move)
+  move.assert_not_called()
+  assert small.warp_copied == "warp has no captured Tensor output"
 
 
 def test_the_move_comes_before_warmup_links_the_warp():
