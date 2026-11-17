@@ -309,3 +309,19 @@ def test_native_evidence_fields_keep_all_actual_scalar_and_list_values():
       assert str(actual) == str(original)
     else:
       assert actual == original
+
+
+@pytest.mark.parametrize('revision', ['selected-steering-compatibility-v1:' + 'a' * 64, 'x' * 192])
+def test_complete_controller_revision_survives_both_evidence_readers(revision):
+  from openpilot.starpilot.flm.offroad_control_metadata import read_control_metadata
+
+  original = replace(row_with_fields(), controller_revision=revision)
+  event = packet(wire.write_control, original).as_reader()
+  assert wire.read_control(event) == original
+  assert read_control_metadata(event).controller_revision == revision
+
+
+@pytest.mark.parametrize('revision', ['', 'x' * 193, 'é' * 97])
+def test_controller_revision_keeps_its_explicit_wire_bound(revision):
+  with pytest.raises(ValueError, match='bounded string'):
+    packet(wire.write_control, replace(row_with_fields(), controller_revision=revision))

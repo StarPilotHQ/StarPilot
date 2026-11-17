@@ -215,7 +215,7 @@ def write_control(parent, evidence):
     'policy': _string(evidence.policy),
     'baselineRevision': evidence.baseline_revision,
     'baselineValues': evidence.baseline_values,
-    'controllerRevision': _string(evidence.controller_revision),
+    'controllerRevision': _string(evidence.controller_revision, 192),
     'replaySnapshot': _named_pairs(evidence.replay_snapshot),
     'replayInputs': _named_pairs(evidence.replay_inputs),
     'snapshotSequence': evidence.snapshot_sequence,
