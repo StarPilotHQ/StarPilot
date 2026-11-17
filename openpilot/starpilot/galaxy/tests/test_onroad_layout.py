@@ -164,6 +164,18 @@ class TestOnroadLayoutDisplay(unittest.TestCase):
     self.assertEqual(rows['DeveloperSidebar']['choices'], ['Off', 'On'])
     self.assertEqual(snapshot['display']['values']['DeveloperSidebar'], 'Off')
     self.assertEqual(snapshot['display']['defaults']['DeveloperSidebar'], 'Off')
+    self.assertEqual(rows['UseVienna']['group'], 'Speed limits')
+    self.assertEqual(rows['UseVienna']['choices'], ['Off', 'On'])
+    self.assertEqual(snapshot['display']['defaults']['UseVienna'], 'Off')
+
+  def test_use_vienna_saves_through_onroad_layout(self):
+    saved = self.save(UseVienna='On')
+    self.assertEqual(saved['failed'], [])
+    self.assertTrue(self.params.get_bool('UseVienna'))
+    self.assertEqual(saved['display']['values']['UseVienna'], 'On')
+    saved = self.save(saved, UseVienna='Off')
+    self.assertEqual(saved['failed'], [])
+    self.assertFalse(self.params.get_bool('UseVienna'))
 
   def test_developer_sidebar_saves_to_its_own_param_and_rejects_stale_drafts(self):
     self.params.put_bool('DeveloperSidebar', True, block=True)

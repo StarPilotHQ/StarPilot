@@ -52,17 +52,21 @@ class AppearanceSettingsTests(unittest.TestCase):
   def test_absent_defaults_are_read_only_and_match_both_views(self):
     self.assertEqual(onroad_appearance(self.params), OnroadAppearance())
     self.assertEqual(tuple(row.key for row in self.owner.snapshot(Profile.LARGE).rows),
-                     ("DeveloperSidebar", "HidePersonalityAlerts", "ShowBrakeStatus", "BlindSpotMetrics", "SignalMetrics", "ReduceMotion"))
+                     ("DeveloperSidebar", "HidePersonalityAlerts", "ShowBrakeStatus", "BlindSpotMetrics", "SignalMetrics",
+                      "UseVienna", "ReduceMotion"))
     self.assertEqual(tuple(row.key for row in self.owner.snapshot(Profile.COMPACT).rows),
                      ("CameraView", "DriverCamera", "StockConfidenceBallWidget", "HidePersonalityAlerts", "ShowBrakeStatus",
-                      "HideLeadMarker", "LeadInfo", "SignalMetrics", "BlindSpotMetrics"))
+                      "HideLeadMarker", "LeadInfo", "SignalMetrics", "BlindSpotMetrics", "UseVienna"))
     # Widget visibility, the stopped timer and Rainbow Road moved into the onroad layout.
     for profile in Profile:
       self.assertFalse(set(RETIRED_DISPLAY_KEYS) & {row.key for row in self.owner.snapshot(profile).rows})
     for key in ("HideSpeed", "HideMaxSpeed", "HideSteeringWheel", "DriverCamera", "StoppedTimer",
-                "StockConfidenceBallWidget", "EnableTorqueBarWidget", "RainbowPath", "HideLeadMarker", "SignalMetrics", "BlindSpotMetrics"):
+                "StockConfidenceBallWidget", "EnableTorqueBarWidget", "RainbowPath", "HideLeadMarker", "SignalMetrics",
+                "BlindSpotMetrics", "UseVienna"):
       self.assertIsNone(read_visibility(self.params, key).raw)
       self.assertEqual(self.params.get_type(key).name, "BOOL")
+    self.assertEqual(self.row("UseVienna").value, "Off")
+    self.assertEqual(self.row("UseVienna", Profile.COMPACT).label, "Vienna Signs")
     self.assertEqual(self.row("SignalMetrics").value, "Off")
     self.assertEqual(self.row("BlindSpotMetrics").value, "On")
     self.assertEqual((self.row("StockConfidenceBallWidget", Profile.COMPACT).label,
@@ -72,6 +76,21 @@ class AppearanceSettingsTests(unittest.TestCase):
     self.assertEqual(self.row("CameraView", Profile.COMPACT).value, "Standard")
     self.assertEqual(self.row("DriverCamera", Profile.COMPACT).value, "Off")
     self.assertIn("border highlights apply to C4 only", self.owner.snapshot(Profile.LARGE).subtitle)
+
+  def test_use_vienna_toggles_sign_preference_and_requires_parked(self):
+    self.assertFalse(onroad_appearance(self.params).use_vienna_sign)
+    request = row_change(self.row("UseVienna"))
+    assert request is not None
+    self.parked = False
+    self.assertFalse(self.owner.apply(request))
+    self.parked = True
+    self.assertTrue(self.owner.apply(request))
+    self.assertTrue(onroad_appearance(self.params).use_vienna_sign)
+    self.assertFalse(self.owner.apply(request))
+    compact_request = row_change(self.row("UseVienna", Profile.COMPACT))
+    assert compact_request is not None
+    self.assertTrue(self.owner.apply(compact_request))
+    self.assertFalse(onroad_appearance(self.params).use_vienna_sign)
 
   def test_developer_sidebar_saved_choice_defaults_repair_and_source_guard(self):
     self.assertFalse(onroad_appearance(self.params).show_developer_sidebar)

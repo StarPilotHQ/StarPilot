@@ -103,7 +103,7 @@ BOOL_DEFAULTS = {
   "SubaruRedneckCruise": False,
   "ReverseCruise": False, "ToyotaAutoHold": False, "SNGHack": False, "JeepBrakeHold": False, "VoltSNG": False, "GMAutoHold": False, "VoltOnePedalMode": False,
   "RemapCancelToDistance": False, "LongPitch": True, "DisableOpenpilotLongitudinal": False,
-  "SpeedLimitController": False, "ShowSpeedLimits": True,
+  "SpeedLimitController": False, "ShowSpeedLimits": True, "UseVienna": False,
   "SLCOnEngage": False,
   WHEEL_OVERRIDE_KEY: False,
   "PauseLateralOnSignal": False,
@@ -1180,6 +1180,8 @@ class FeatureSettingsOwner:
                                    reason="Start SET at the SLC limit plus offset. RES restores your previous SET"))
       rows.append(self._bool_row("ShowSpeedLimits", "Show speed limit signs", self.authority("preferences"),
                                  reason="Display signs independently of Speed Limit Controller; does not change cruise speed"))
+      rows.append(self._bool_row("UseVienna", "Vienna Signs", self.authority("preferences"),
+                                 reason="Draw speed-limit signs in the round European Vienna style instead of the rectangular US style"))
       rows.extend(policy_rows(self._value, self._readable, allowed=allowed))
       if cp is not None and not cp.pcmCruise:
         rows.append(self._bool_row(WHEEL_OVERRIDE_KEY, "Override speed limit with +", allowed and control == "1",
@@ -1377,7 +1379,7 @@ class FeatureSettingsOwner:
                                    default_value=str(round(max(low, min(high, default_curve[index])), 4))))
     fingerprint = self.vehicle_fingerprint()
     rows = [replace(row, vehicle_fingerprint=None if row.key in GLOBAL_BOOL_PREFERENCES or
-                    row.key in (PLANNER_SELECTION_KEY, "ShowSpeedLimits", "AlwaysAllowUploads") or
+                    row.key in (PLANNER_SELECTION_KEY, "ShowSpeedLimits", "UseVienna", "AlwaysAllowUploads") or
                     row.key.startswith('conditional:') and not row.key.startswith(BUTTON_PREFIX) else fingerprint)
             for row in rows]
     subtitle = (
@@ -1558,7 +1560,7 @@ class FeatureSettingsOwner:
       source_key = key
       long_key = (key in ("CustomPersonalities", "ForceStops", "ForceStopDistanceOffset", *DRIVE_MODE_KEYS) or "Personality" in key or
                   key.endswith(("Follow", "FollowHigh")) or "Jerk" in key)
-      if key in ("ShowSpeedLimits", "AlwaysAllowUploads", *SOURCE_PRIORITY_KEYS) or (key == "ForceStops" and request.value == "Off"):
+      if key in ("ShowSpeedLimits", "UseVienna", "AlwaysAllowUploads", *SOURCE_PRIORITY_KEYS) or (key == "ForceStops" and request.value == "Off"):
         group = "preferences"
       elif key in LANE_LIVE_KEYS and not self.authority("lane"):
         group = "lane_live"
@@ -1568,7 +1570,7 @@ class FeatureSettingsOwner:
       return False
     try:
       profile_master_source = self._raw("CustomPersonalities") if source_key == PERSONALITY_PROFILES_PARAM else None
-      if ((request.vehicle_fingerprint is not None if key in ("ShowSpeedLimits", "AlwaysAllowUploads") else
+      if ((request.vehicle_fingerprint is not None if key in ("ShowSpeedLimits", "UseVienna", "AlwaysAllowUploads") else
            not request.vehicle_fingerprint or self.vehicle_fingerprint() != request.vehicle_fingerprint) or
           not self.authority(group) or self._raw(source_key) != request.expected or
           not self._readable(source_key)):
@@ -1739,7 +1741,7 @@ class FeatureSettingsOwner:
         from openpilot.starpilot.lateral.lane_runtime import runtime_supported
         if not runtime_supported(self.vehicle_params()):
           return False
-      if ((request.vehicle_fingerprint is not None if key in ("ShowSpeedLimits", "AlwaysAllowUploads") else
+      if ((request.vehicle_fingerprint is not None if key in ("ShowSpeedLimits", "UseVienna", "AlwaysAllowUploads") else
            self.vehicle_fingerprint() != request.vehicle_fingerprint) or
           not self.authority(group) or self._raw(source_key) != request.expected or
           key == "reset_profiles" and not self.authority("parked_preferences") or
