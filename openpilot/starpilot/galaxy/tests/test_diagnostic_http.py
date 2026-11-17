@@ -109,7 +109,7 @@ class DiagnosticHTTPTest(unittest.TestCase):
       return SimpleNamespace(title=page, rows=[SimpleNamespace(label='Visible preference', value='On', source=b'private')])
     gateway._state = Mock(side_effect=state)
     result = gateway.diagnostics()
-    self.assertEqual(len(pages), 8)
+    self.assertEqual(pages, ['torque', 'torque/developer', 'lane', 'lane_change', 'aol', 'conditional', 'profiles', 'slc', 'curve'])
     self.assertEqual(result['vehicle']['fingerprint'], 'TEST_CAR')
     self.assertEqual(result['sections'][0]['rows'], [{'label': 'Visible preference', 'value': 'On'}])
     self.assertNotIn('private', json.dumps(result))

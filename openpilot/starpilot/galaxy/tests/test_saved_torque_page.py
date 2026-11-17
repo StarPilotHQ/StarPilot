@@ -32,22 +32,31 @@ class TestSavedTorquePage(unittest.TestCase):
   def page(self, name='torque'):
     return self.gateway.page(name, 'session', b'generation')
 
-  def test_retained_tune_restores_full_flat_page_and_can_save(self):
+  def test_retained_tune_restores_normal_and_developer_pages_and_can_save(self):
     page = self.page()
     rows = {row['label']: row for row in page['rows']}
     self.assertEqual(set(rows), {'Turn Signal Guidance', 'Steering Controller', 'Turn Assist', 'Prep My Vehicle for Tuning',
-                                'Use StarPilot Auto Learn', 'Lat Accel', 'Friction', 'Highway Smoothing'})
+                                'Use StarPilot Auto Learn', 'Highway Smoothing'})
+    developer = self.page('torque/developer')
+    advanced = {row['label']: row for row in developer['rows']}
+    self.assertEqual(set(advanced), {'Lat Accel', 'Friction', 'Actuator delay'})
     for label in ('Lat Accel', 'Friction'):
-      self.assertTrue(rows[label]['resetAvailable'], label)
-      self.assertEqual(rows[label]['defaultValue'], 'Vehicle/learned')
+      self.assertTrue(advanced[label]['resetAvailable'], label)
+      self.assertEqual(advanced[label]['defaultValue'], 'Vehicle/learned')
+      self.assertNotIn(label, rows)
+    self.assertTrue(advanced['Actuator delay']['available'])
     aol_rows = {row['label']: row for row in self.page('aol')['rows']}
     for label in ('Pause steering below', 'Steering resume delay', 'Pause only while signaling'):
       self.assertNotIn(label, rows)
       self.assertTrue(aol_rows[label]['available'], label)
     self.assertIn('Saved vehicle settings', page['subtitle'])
+    self.assertIn('Saved vehicle settings', developer['subtitle'])
     self.assertFalse(any(row['page'] for row in page['rows']))
-    for label in ('Steering Controller', 'Turn Assist', 'Prep My Vehicle for Tuning', 'Lat Accel', 'Friction'):
+    self.assertFalse(any(row['page'] for row in developer['rows']))
+    for label in ('Steering Controller', 'Turn Assist', 'Prep My Vehicle for Tuning'):
       self.assertTrue(rows[label]['available'], label)
+    for label in ('Lat Accel', 'Friction'):
+      self.assertTrue(advanced[label]['available'], label)
     learning = rows['Use StarPilot Auto Learn']
     self.assertTrue(learning['available'])
     self.assertEqual(learning['value'], 'Off')
@@ -65,7 +74,7 @@ class TestSavedTorquePage(unittest.TestCase):
     self.assertEqual(preference.source, 'scope')
     self.assertTrue(self.params.get_bool('ForceAutoTuneOff'))
     self.assertTrue(learning_allowed(self.params, cp), 'Scoped On allows native refinement with either selected controller')
-    page = self.page()
+    page = self.page('torque/developer')
 
     index = next(i for i, row in enumerate(page['rows']) if row['label'] == 'Friction')
     intent = self.gateway.preview(page['view'], index, 1, 'session', b'generation')
@@ -85,7 +94,7 @@ class TestSavedTorquePage(unittest.TestCase):
       self.assertIsNone(self.gateway._context('torque').cp)
 
   def test_pending_edit_is_revoked_when_offroad_context_ends(self):
-    page = self.page()
+    page = self.page('torque/developer')
     index = next(i for i, row in enumerate(page['rows']) if row['label'] == 'Friction')
     intent = self.gateway.preview(page['view'], index, 1, 'session', b'generation')
     self.offroad.return_value = False

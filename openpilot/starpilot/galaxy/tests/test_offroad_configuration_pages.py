@@ -109,7 +109,8 @@ class TestOffroadConfigurationPages(unittest.TestCase):
       'lane_change': ('Allow lane changes', 'Minimum lane-change speed', 'Automatic Lane Changes', 'Lane Change Speed'),
       'slc': ('Speed Limit Controller', 'Confirm limits'),
       'profiles': ('Enhanced Stops', 'Selected Acceleration Profile', 'Selected Deceleration Profile'),
-      'torque': ('Steering Controller', 'Turn Assist', 'Lat Accel', 'Friction'),
+      'torque': ('Steering Controller', 'Turn Assist'),
+      'torque/developer': ('Lat Accel', 'Friction', 'Actuator delay'),
       'wheel': ('Short press', 'Hold', 'Distance long press', 'MODE press', 'Star button'),
     }
     for selection in (None, 'HYUNDAI_IONIQ_6'):

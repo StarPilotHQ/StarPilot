@@ -136,6 +136,8 @@ class TestVehicleConfiguration(unittest.TestCase):
     self.addCleanup(gateway.close)
     with patch.object(context, 'offroad', return_value=True):
       page = gateway.page('torque', 'local', b'generation')
+      self.assertFalse(any(row['label'] in ('Lat Accel', 'Friction', 'Actuator delay') for row in page['rows']))
+      page = gateway.page('torque/developer', 'local', b'generation')
       friction = next(i for i, row in enumerate(page['rows']) if row['label'] == 'Friction')
       self.assertTrue(page['rows'][friction]['available'])
       self.assertTrue(any(row['label'] == 'Lat Accel' and row['available'] for row in page['rows']))
