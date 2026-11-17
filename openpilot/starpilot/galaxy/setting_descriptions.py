@@ -6,7 +6,10 @@ This presentation catalog supplies the purpose before any genuine prerequisite.
 from openpilot.starpilot.ui.long_profile_feature import CATEGORY_HELP, VALUE_HELP
 from openpilot.starpilot.ui.feature_settings_state import SLC_OFFSET_KEYS
 
+from openpilot.starpilot.longitudinal.enhanced_stop_hold import KEY as HOLD_KEY, DESCRIPTION as HOLD_DESCRIPTION
+
 DESCRIPTIONS = {
+  HOLD_KEY: HOLD_DESCRIPTION,
   'GreenLightAlert': 'Chimes once when the model’s traffic-light stop prediction clears while you remain stopped.',
   'LeadDepartingAlert': 'Chimes once when the tracked vehicle ahead starts moving while you remain stopped.',
   'DriveModeProfiles': 'Matches acceleration and deceleration profiles to the vehicle’s Eco, Normal or Sport drive mode.',

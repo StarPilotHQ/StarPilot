@@ -1,6 +1,7 @@
 from collections.abc import Callable
 
 from openpilot.common.params import Params
+from openpilot.starpilot.longitudinal.enhanced_stop_hold import KEY as HOLD_KEY, LABEL as HOLD_LABEL, DESCRIPTION as HOLD_DESCRIPTION
 from openpilot.starpilot.car.hyundai.aol import ioniq6_alpha_long_available
 from openpilot.starpilot.car.ford.longitudinal_preferences import release_long_available as ford_release_long_available
 from opendbc.car.volkswagen.meb_modes import MEB_CARS, settings_capable as meb_settings_capable
@@ -93,6 +94,11 @@ class DeveloperLayout(Widget):
       enabled=lambda: ui_state.is_offroad(),
     )
 
+    self._always_hold_toggle = toggle_item(
+      lambda: tr(HOLD_LABEL), description=lambda: tr(HOLD_DESCRIPTION),
+      initial_state=self._params.get_bool(HOLD_KEY), callback=self._on_always_hold, enabled=ui_state.is_offroad,
+    )
+
     self._ui_debug_toggle = toggle_item(
       lambda: tr("UI Debug Mode"),
       description="",
@@ -118,6 +124,7 @@ class DeveloperLayout(Widget):
       self._long_maneuver_toggle,
       self._lat_maneuver_toggle,
       self._alpha_long_toggle,
+      self._always_hold_toggle,
       self._ui_debug_toggle,
       self._cellular_disabled_toggle,
     ], line_separator=True, spacing=0)
@@ -167,12 +174,18 @@ class DeveloperLayout(Widget):
       ("LongitudinalManeuverMode", self._long_maneuver_toggle),
       ("LateralManeuverMode", self._lat_maneuver_toggle),
       ("AlphaLongitudinalEnabled", self._alpha_long_toggle),
+      (HOLD_KEY, self._always_hold_toggle),
       ("ShowDebugInfo", self._ui_debug_toggle),
       ("CellularDisabled", self._cellular_disabled_toggle),
     ):
       value = (not stock_long_requested(self._params) if key == "AlphaLongitudinalEnabled" and meb_settings_capable(ui_state.CP)
                else self._params.get_bool(key))
       item.action_item.set_state(value)
+
+  def _on_always_hold(self, state: bool):
+    if ui_state.is_offroad():
+      self._params.put_bool(HOLD_KEY, state, block=True)
+    self._always_hold_toggle.action_item.set_state(self._params.get_bool(HOLD_KEY))
 
   def _on_enable_ui_debug(self, state: bool):
     self._params.put_bool("ShowDebugInfo", state, block=True)

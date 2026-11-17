@@ -75,6 +75,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"QOLLongitudinal", {PERSISTENT, BOOL}},
     {"ReverseCruise", {PERSISTENT, BOOL, "0"}},
     {"ForceStops", {PERSISTENT, BOOL, "0"}},
+    {"AlwaysHoldEnhancedStops", {PERSISTENT, BOOL, "0"}},
     {"DriveModeProfiles", {PERSISTENT, BOOL, "0"}},
     {"DriveModeAcceleration", {PERSISTENT, BOOL, "1"}},
     {"DriveModeDeceleration", {PERSISTENT, BOOL, "1"}},

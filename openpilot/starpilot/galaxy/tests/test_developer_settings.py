@@ -97,6 +97,31 @@ class DeveloperSettingsTest(unittest.TestCase):
     self.addCleanup(patch.stop)
     self.flag = flag
 
+  def test_always_hold_default_registry_exact_save_and_parked_authority(self):
+    from openpilot.common.params import Params, ParamKeyType
+    from openpilot.starpilot.longitudinal.enhanced_stop_hold import KEY as HOLD_KEY, LABEL, DESCRIPTION, selected as hold_selected
+    params = Params(str(self.params.root.parent / "hold-params"))
+    self.assertTrue(params.check_key(HOLD_KEY))
+    self.assertEqual(params.get_type(HOLD_KEY), ParamKeyType.BOOL)
+    self.assertIs(params.get_default_value(HOLD_KEY), False)
+    owner = DeveloperSettingsOwner(params, lambda: self.parked)
+    row = next(row for row in owner.snapshot().rows if row.key == HOLD_KEY)
+    self.assertEqual((row.label, row.value, row.reason), (LABEL, "Off", DESCRIPTION))
+    self.assertTrue(owner.apply(FeatureSettingsRequest(HOLD_KEY, row.source, "On")))
+    self.assertTrue(hold_selected(params))
+    self.assertFalse(owner.apply(FeatureSettingsRequest(HOLD_KEY, row.source, "Off")))
+    self.parked = False
+    self.assertFalse(next(row for row in owner.snapshot().rows if row.key == HOLD_KEY).available)
+    self.assertFalse(owner.apply(FeatureSettingsRequest(HOLD_KEY, b"1", "Off")))
+    self.parked = True
+    self.assertTrue(owner.apply(FeatureSettingsRequest(HOLD_KEY, b"1", "Off")))
+    self.assertFalse(hold_selected(params))
+    path = Path(params.get_param_path(HOLD_KEY))
+    for raw in (b"", b"true", b"1\n", b"1" * 9):
+      path.write_bytes(raw)
+      self.assertFalse(hold_selected(params))
+      self.assertFalse(owner.apply(FeatureSettingsRequest(HOLD_KEY, raw, "On")))
+
   def test_default_off_strict_selection_and_vehicle_admission(self):
     self.assertEqual(self.owner.snapshot().rows[0].value, "Off")
     self.assertFalse(selected(self.params, self.cp))

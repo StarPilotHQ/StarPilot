@@ -1,6 +1,7 @@
 """Galaxy-only, next-drive developer preferences."""
 
 from openpilot.starpilot.longitudinal.voacc import KEY, DESCRIPTION
+from openpilot.starpilot.longitudinal.enhanced_stop_hold import KEY as HOLD_KEY, LABEL as HOLD_LABEL, DESCRIPTION as HOLD_DESCRIPTION
 from openpilot.starpilot.ui.calibration_reset import calibration_reset
 from openpilot.starpilot.saved_document import commit_exact
 from openpilot.starpilot.saved_source import read_saved
@@ -118,6 +119,12 @@ class DeveloperSettingsOwner:
                      raw, ("Off", "On") if valid else (), available=parked and valid,
                      reason=(DESCRIPTION if parked else "Park the vehicle to change this setting.") if valid else
                             "Invalid saved value", default_value="Off")
+    hold_raw, hold_readable = read_saved(self.params, HOLD_KEY, 8)
+    hold_valid = hold_readable and hold_raw in (None, b"0", b"1")
+    hold_row = FeatureRow(HOLD_KEY, HOLD_LABEL, ("On" if hold_raw == b"1" else "Off") if hold_valid else "Invalid saved value",
+                          hold_raw, ("Off", "On") if hold_valid else (), available=parked and hold_valid,
+                          reason=(HOLD_DESCRIPTION if parked else "Park the vehicle to change this setting.") if hold_valid else
+                                 "Invalid saved value", default_value="Off")
     rhd_raw, rhd_readable = read_saved(self.params, "IsRhdDetected", 8)
     reset_available = self._driver_monitoring_reset_allowed() and rhd_readable
     reset_reason = (DRIVER_MONITORING_RESET_DESCRIPTION if reset_available else
@@ -133,7 +140,7 @@ class DeveloperSettingsOwner:
     starport_rows = self._starport_rows(parked)
     summary = "Changes apply next drive."
     return FeatureSettingsState("developer", "Developer driving options", summary,
-                                (row, reset_row, calibration_row, *starport_rows), parked)
+                                (row, hold_row, reset_row, calibration_row, *starport_rows), parked)
 
   def apply(self, request):
     if request.key == CALIBRATION_RESET:
@@ -174,10 +181,10 @@ class DeveloperSettingsOwner:
       return self._apply_experiment_rule(request)
     if request.key == STARPORT_NEW_SETUP_KEY:
       return self._apply_new_setup(request)
-    if request.key != KEY or request.value not in ("Off", "On") or request.expected not in (None, b"0", b"1"):
+    if request.key not in (KEY, HOLD_KEY) or request.value not in ("Off", "On") or request.expected not in (None, b"0", b"1"):
       return False
     result = commit_exact(self.params, key=request.key, max_bytes=8, raw=b"1" if request.value == "On" else b"0",
-                          expected=request.expected, authorized=self.authorized, temp_prefix=".voacc-")
+                          expected=request.expected, authorized=self.authorized, temp_prefix=".developer-")
     return result.committed and result.verified
 
   def _apply_starport(self, request, field, command):

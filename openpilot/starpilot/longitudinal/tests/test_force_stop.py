@@ -215,6 +215,46 @@ class ForceStopTests(unittest.TestCase):
       self.assertFalse(plan.forcing)
       self.assertIsNone(plan.speed_ceiling_mps)
 
+  def test_always_hold_waits_for_driver_after_light_clears_or_lead_departs(self):
+    for action in ('pedal_override', 'resume_requested'):
+      with self.subTest(action=action):
+        self.owner.reset()
+        for tick in range(15):
+          self.owner.step(frame(tick, horizon_m=30., always_hold=True), self.tune)
+        for tick in range(15, 415):
+          plan = self.owner.step(frame(tick, speed_mps=.01 if tick > 200 else 0., horizon_m=190., light=False,
+                                       standstill=tick <= 200, lead_present=True, tracking_lead=True,
+                                       lead_distance_m=50., lead_speed_mps=10., always_hold=True), self.tune)
+          self.assertTrue(plan.manual_hold)
+          self.assertTrue(plan.should_stop)
+          self.assertEqual(plan.speed_ceiling_mps, 0.)
+        released = self.owner.step(frame(415, speed_mps=0., horizon_m=190., light=False, standstill=True,
+                                         always_hold=True, **{action: True}), self.tune)
+        self.assertFalse(released.manual_hold)
+        self.assertFalse(released.forcing)
+        self.assertFalse(released.should_stop)
+
+  def test_always_hold_does_not_acquire_an_idle_stop_or_change_the_approach(self):
+    from dataclasses import replace
+    from openpilot.starpilot.longitudinal.force_stop import ForceStop
+    baseline = ForceStop()
+    for tick in range(80):
+      current = frame(tick, horizon_m=30., always_hold=True)
+      self.assertEqual(self.owner.step(current, self.tune), baseline.step(replace(current, always_hold=False), self.tune))
+    self.owner.reset()
+    for tick in range(100):
+      plan = self.owner.step(frame(tick, speed_mps=0., horizon_m=190., light=False, standstill=True, always_hold=True), self.tune)
+      self.assertFalse(plan.manual_hold)
+      self.assertFalse(plan.forcing)
+
+  def test_always_hold_preserves_disabled_and_invalid_source_reset(self):
+    for changes in ({'enabled': False}, {'model_ns': 0}):
+      with self.subTest(changes=changes):
+        self.owner.reset()
+        self.assertTrue(self.owner.step(frame(0, speed_mps=0., horizon_m=30., standstill=True, always_hold=True), self.tune).manual_hold)
+        self.assertFalse(self.owner.step(frame(1, speed_mps=0., horizon_m=30., standstill=True,
+                                               always_hold=True, **changes), self.tune).manual_hold)
+
   def test_standstill_hold_expires_after_two_seconds_without_rearming(self):
     for tick in range(40):
       plan = self.owner.step(frame(tick, speed_mps=0., horizon_m=30., raw_model_stopped=True, standstill=True), self.tune)

@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from openpilot.common.params import Params
+from openpilot.starpilot.longitudinal.enhanced_stop_hold import KEY as HOLD_KEY, LABEL as HOLD_LABEL, DESCRIPTION as HOLD_DESCRIPTION
 from openpilot.common.time_helpers import system_time_valid
 from openpilot.system.ui.widgets.scroller import NavScroller
 from openpilot.selfdrive.ui.mici.widgets.button import BigButton, BigToggle, BigParamControl, BigCircleParamControl, GreyBigButton
@@ -112,6 +113,8 @@ class DeveloperLayoutMici(NavScroller):
                                         toggle_callback=self._on_alpha_long_enabled,
                                         description="Use alpha openpilot longitudinal control instead of stock ACC. This may disable Automatic Emergency " +
                                                     "Braking (AEB).")
+    self._always_hold_toggle = BigToggle(HOLD_LABEL, initial_state=ui_state.params.get_bool(HOLD_KEY),
+                                           toggle_callback=self._on_always_hold, description=HOLD_DESCRIPTION)
     self._navigation_toggle = BigParamControl("navigation (alpha)", "NavigationEnabled",
                                               description="Turn-by-turn navigation with a route map. Set a destination from comma connect.")
     self._debug_mode_toggle = BigParamControl("ui debug mode", "ShowDebugInfo",
@@ -128,6 +131,7 @@ class DeveloperLayoutMici(NavScroller):
       self._cloud_provider_btn,
       self._joystick_toggle,
       self._alpha_long_toggle,
+      self._always_hold_toggle,
       self._debug_mode_toggle,
       self._navigation_toggle,
       self._cellular_off_toggle,
@@ -139,11 +143,12 @@ class DeveloperLayoutMici(NavScroller):
       ("SshEnabled", self._ssh_toggle),
       ("JoystickDebugMode", self._joystick_toggle),
       ("AlphaLongitudinalEnabled", self._alpha_long_toggle),
+      (HOLD_KEY, self._always_hold_toggle),
       ("ShowDebugInfo", self._debug_mode_toggle),
       ("NavigationEnabled", self._navigation_toggle),
       ("CellularDisabled", self._cellular_off_toggle),
     )
-    onroad_blocked_toggles = (self._adb_toggle, self._joystick_toggle)
+    onroad_blocked_toggles = (self._adb_toggle, self._joystick_toggle, self._always_hold_toggle)
     release_blocked_toggles = (self._joystick_toggle, self._alpha_long_toggle, self._navigation_toggle)
 
     # Hide non-release toggles on release builds
@@ -191,6 +196,11 @@ class DeveloperLayoutMici(NavScroller):
       value = (not stock_long_requested(ui_state.params) if key == "AlphaLongitudinalEnabled" and meb_settings_capable(ui_state.CP)
                else ui_state.params.get_bool(key))
       item.set_checked(value)
+
+  def _on_always_hold(self, state: bool):
+    if ui_state.is_offroad():
+      ui_state.params.put_bool(HOLD_KEY, state, block=True)
+    self._always_hold_toggle.set_checked(ui_state.params.get_bool(HOLD_KEY))
 
   def _on_joystick_debug_mode(self, state: bool):
     ui_state.params.put_bool("JoystickDebugMode", state, block=True)

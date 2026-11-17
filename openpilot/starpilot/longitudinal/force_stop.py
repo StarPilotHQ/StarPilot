@@ -79,6 +79,7 @@ class StopFrame:
   acceleration_mps2: float | None = None
   actuator_delay_s: float | None = None
   vision_source_ns: int = 0
+  always_hold: bool = False
 
 
 @dataclass(frozen=True)
@@ -252,14 +253,14 @@ class ForceStop:
       self.distance = 0
     elif frame.standstill and (self.forcing or engaged_stopped and stop_scene) and self.standstill_reason is None:
       self.standstill_since_ns = now
-      self.standstill_reason = 'unclassified'
+      self.standstill_reason = 'manual' if frame.always_hold else 'unclassified'
       self.distance = 0
     if self.standstill_reason is not None:
       if not available or stop_scene:
         self.standstill_clear_ns = 0
       elif not self.standstill_clear_ns:
         self.standstill_clear_ns = now
-    hold_expired = self.standstill_reason not in (None, 'sign') and (
+    hold_expired = self.standstill_reason not in (None, 'sign', 'manual') and (
       now - self.standstill_since_ns >= STANDSTILL_HOLD_NS or
       self.standstill_clear_ns > 0 and now - self.standstill_clear_ns >= STANDSTILL_CLEAR_NS)
     if held_before and frame.standstill and frame.resume_requested:

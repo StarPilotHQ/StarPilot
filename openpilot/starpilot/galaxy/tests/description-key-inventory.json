@@ -9,6 +9,7 @@
   "AggressiveJerkSpeedDecrease",
   "AlphaLongitudinalEnabled",
   "AlwaysAllowUploads",
+  "AlwaysHoldEnhancedStops",
   "AlwaysOnLateral",
   "AolBrakePauseSpeedMps",
   "BlindSpotMetrics",

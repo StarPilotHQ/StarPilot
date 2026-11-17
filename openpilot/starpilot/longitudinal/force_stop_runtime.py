@@ -10,6 +10,7 @@ from openpilot.starpilot.conditional_mode.stop import (
   FROZEN_RAW_STOP_DISTANCE_M, STOP_MODEL_RELEASE_MARGIN_M, StopFrame as LightFrame, StopLead, StopLightDetector,
 )
 from openpilot.starpilot.lead_tracking import LeadDetector
+from openpilot.starpilot.longitudinal.enhanced_stop_hold import selected as always_hold_selected
 from openpilot.starpilot.longitudinal.force_stop import ForceStop, StopFrame, StopPlan, vehicle_tune
 from openpilot.starpilot.model_geometry import road_curvature, standstill_clear_horizon, standstill_release_speed
 from openpilot.starpilot.saved_source import read_saved
@@ -62,6 +63,7 @@ class ForceStopRuntime:
     self.sources = None
     self.next_refresh_ns = 0
     self.enabled = False
+    self.always_hold = False
     self.takeoff_preferences_valid = False
     self.offset = 0
     self.options = CEMOptions()
@@ -111,6 +113,7 @@ class ForceStopRuntime:
       if identity != self.identity or drive_id != self.drive_id:
         self.reset()
         self.identity, self.drive_id = identity, drive_id
+        self.always_hold = always_hold_selected(self.params)
       offset = now_boot_ns - now_ns
       if self.clock_offset is None or abs(offset - self.clock_offset) > 1_000_000:
         self.clock_offset = offset
@@ -201,7 +204,7 @@ class ForceStopRuntime:
                         raw_curve[1] if raw_curve is not None else False, curvature[0] if curvature is not None else None,
                         bool(car.leftBlinker or car.rightBlinker), float(car.steeringAngleDeg), resume_requested=resume_requested,
                         perception_available=perception_available, sign=dashboard_sign or vision_fresh,
-                        dashboard_sign=dashboard_sign, vision_distance_m=vision_distance,
+                        dashboard_sign=dashboard_sign, vision_distance_m=vision_distance, always_hold=self.always_hold,
                         acceleration_mps2=float(car.aEgo), actuator_delay_s=float(cp.longitudinalActuatorDelay),
                         vision_source_ns=int(vision_sign) if vision_fresh else 0,
                         moving_preview=bool(perception_available and not model.action.shouldStop and
