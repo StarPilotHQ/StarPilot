@@ -61,6 +61,7 @@ class CANFDLfaStatus:
     self.camera_integrity = False
     self.camera_healthy_ns = 0
     self.camera_fault_since_ns = 0
+    self.camera_fault_same_batch_healthy = False
     self.request_active = False
     self.request_since_ns = 0
     self.display_fault_since_ns = 0
@@ -117,9 +118,12 @@ class CANFDLfaStatus:
         body = bytes(data)
         if self._ownership_warning(body):
           if not self.camera_fault_since_ns:
+            self.camera_fault_same_batch_healthy = (self.camera_healthy_ns == stamp and self.observed_ns == stamp and
+                                                    self.body is not None and self.body[2] == (counter - 1) % 256)
             self.camera_fault_since_ns = stamp
         else:
           self.camera_fault_since_ns = 0
+          self.camera_fault_same_batch_healthy = False
           indication = (body[4] >> 6) | ((body[5] & 1) << 2)
           self.camera_healthy_ns = stamp if indication < 4 and not (body[6] & 0xF0 or body[7] >> 4 == 15) else 0
         self.body, self.observed_ns = body, stamp
@@ -154,7 +158,8 @@ class CANFDLfaStatus:
         self.display_last_active_ns = now_ns
         return True
       qualified = (self.eps_active and 0 < self.request_since_ns <= self.eps_active_since_ns <= self.camera_fault_since_ns and
-                   0 < self.camera_fault_since_ns - self.camera_healthy_ns <= MAX_AGE_NS and
+                   ((0 < self.camera_fault_since_ns - self.camera_healthy_ns <= MAX_AGE_NS) or
+                    (self.camera_fault_since_ns == self.camera_healthy_ns and self.camera_fault_same_batch_healthy)) and
                    self.camera_fault_since_ns - self.eps_active_since_ns <= OWNERSHIP_RESPONSE_NS)
       if qualified:
         self.display_fault_since_ns = self.camera_fault_since_ns
