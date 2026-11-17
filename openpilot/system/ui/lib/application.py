@@ -276,6 +276,7 @@ class GuiApplication:
     self._last_mouse_event: MouseEvent = MouseEvent(MousePos(0, 0), 0, False, False, False, 0.0)
 
     self._should_render = True
+    self._frame_overlays: list[Callable[[float, float], None]] = []
 
     # Debug variables
     self._mouse_history: deque[MousePosWithTime] = deque(maxlen=MOUSE_THREAD_RATE)
@@ -326,6 +327,15 @@ class GuiApplication:
   @property
   def target_fps(self):
     return self._target_fps
+
+  def add_frame_overlay(self, callback: Callable[[float, float], None]) -> None:
+    """Draw over every finished frame: callback(width, height) runs after the widgets, before the frame is shown."""
+    if callback not in self._frame_overlays:
+      self._frame_overlays.append(callback)
+
+  def remove_frame_overlay(self, callback) -> None:
+    if callback in self._frame_overlays:
+      self._frame_overlays.remove(callback)
 
   def add_render_prepare(self, callback, cleanup):
     self._render_prepare[callback] = cleanup
@@ -726,6 +736,9 @@ class GuiApplication:
         # Only render top widgets
         for widget in self._nav_stack[-self._nav_stack_widgets_to_render:]:
           widget.render(rl.Rectangle(0, 0, self.width, self.height))
+
+        for overlay in tuple(self._frame_overlays):
+          overlay(self.width, self.height)
 
         frame_time = rl.get_frame_time()
         cpu_time = time.monotonic() - frame_start

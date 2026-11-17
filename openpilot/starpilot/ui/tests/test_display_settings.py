@@ -33,7 +33,7 @@ class DisplaySettingsTests(unittest.TestCase):
     self.params_root = temporary.name
     self.params = Params(temporary.name)
     self.parked = True
-    self.owner = DisplayOwner(self.params, lambda: self.parked)
+    self.owner = DisplayOwner(self.params, lambda: self.parked, burn_in_capable=True)   # as on a comma 4
 
   def row(self, key, profile=Profile.LARGE):
     return next(row for row in self.owner.snapshot(profile).rows if row.key == key)
@@ -387,6 +387,73 @@ class DisplaySettingsTests(unittest.TestCase):
     self.parked = True
     self.assertTrue(self.owner.apply(request))
     self.assertFalse(read_preferences(self.params, large=True).turn_off_screen)
+
+  def test_burn_in_protection_rows_are_on_the_comma_4_only(self):
+    from unittest.mock import patch as replace_attribute
+    from openpilot.starpilot.ui.display_preferences import STATIC_DIM, STATIC_DIM_STRENGTH
+    both = {STATIC_DIM, STATIC_DIM_STRENGTH}
+    self.assertEqual(tuple(row.key for row in self.owner.snapshot(Profile.COMPACT).rows)[-2:], (STATIC_DIM, STATIC_DIM_STRENGTH))
+    self.assertFalse(both & {row.key for row in self.owner.snapshot(Profile.LARGE).rows})   # never on the large layout
+    for device, shown in (("mici", True), ("tici", False), ("tizi", False), ("pc", False)):
+      with replace_attribute("openpilot.common.hardware.HARDWARE.get_device_type", return_value=device):
+        owner = DisplayOwner(self.params, lambda: True)
+      self.assertEqual(both <= {row.key for row in owner.snapshot(Profile.COMPACT).rows}, shown, device)
+      self.assertFalse(both & {row.key for row in owner.snapshot(Profile.LARGE).rows}, device)
+      self.assertEqual(owner.apply(row_change(self.row(STATIC_DIM, Profile.COMPACT))), shown, device)   # cannot be switched on elsewhere
+      if shown:
+        self.assertTrue(owner.apply(row_change(self.row(STATIC_DIM, Profile.COMPACT))))                  # back off
+
+  def test_dim_static_pixels_is_independent_default_off_and_its_strength_follows_the_switch(self):
+    from openpilot.starpilot.ui.display_preferences import STATIC_DIM, STATIC_DIM_STRENGTH, STATIC_DIM_STRENGTH_DESCRIPTION
+    from openpilot.starpilot.ui.feature_settings_state import FeatureSettingsRequest
+    switch, strength = self.row(STATIC_DIM, Profile.COMPACT), self.row(STATIC_DIM_STRENGTH, Profile.COMPACT)
+    self.assertEqual((switch.label, switch.value, switch.default_value, switch.choices), ("Burn In Protection", "Off", "Off", ("Off", "On")))
+    self.assertTrue(switch.available)
+    self.assertEqual(switch.reason, "Dims any static areas of the display to reduce burn in on the comma screen.")
+    self.assertEqual((strength.label, strength.value, strength.default_value, strength.unit, strength.step, strength.minimum, strength.maximum),
+                     ("Static Pixel Dimming", "40", "40", "%", 5.0, 5.0, 50.0))
+    self.assertFalse(strength.available)                       # grayed while the switch is off
+    self.assertEqual(strength.reason, "Saved; Burn In Protection is off")
+    saved = read_preferences(self.params, large=False)
+    self.assertEqual((saved.static_dim, saved.static_dim_strength, saved.enabled), (False, 40, False))
+
+    request = self.request(STATIC_DIM, Profile.COMPACT)
+    self.assertTrue(self.owner.apply(request))
+    self.assertFalse(self.owner.apply(request))                # the displayed source is stale
+    self.assertTrue(read_preferences(self.params, large=False).static_dim)
+    self.assertFalse(read_preferences(self.params, large=False).enabled)   # works without Custom Display Settings
+    strength = self.row(STATIC_DIM_STRENGTH, Profile.COMPACT)
+    self.assertTrue(strength.available)
+    self.assertEqual(strength.reason, STATIC_DIM_STRENGTH_DESCRIPTION)
+    self.assertIn("Higher means more dimming", strength.reason)
+    self.assertEqual(row_change(strength, 1).value, "45.0")    # the slider moves in steps of 5
+    for value, accepted in (("50%", True), ("5", True), ("45", True), ("60", False), ("55%", False), ("0", False), ("42", False),
+                            ("lots", False), ("35", True)):
+      row = self.row(STATIC_DIM_STRENGTH, Profile.COMPACT)
+      request = FeatureSettingsRequest(row.key, row.source, value, dependencies=row.dependencies)
+      self.assertEqual(self.owner.apply(request), accepted, value)
+    self.assertEqual(read_preferences(self.params, large=False).static_dim_strength, 35)
+    self.assertEqual(Params(self.params_root).get(STATIC_DIM_STRENGTH), 35)
+
+    row = self.row(STATIC_DIM_STRENGTH, Profile.COMPACT)
+    self.parked = False
+    self.assertFalse(self.owner.apply(FeatureSettingsRequest(row.key, row.source, "30", dependencies=row.dependencies)))
+    self.parked = True
+    self.assertTrue(self.owner.apply(self.request(STATIC_DIM, Profile.COMPACT)))   # switch off
+    self.assertFalse(self.owner.apply(FeatureSettingsRequest(row.key, row.source, "30", dependencies=row.dependencies)))
+    saved = read_preferences(self.params, large=False)
+    self.assertEqual((saved.static_dim, saved.static_dim_strength), (False, 35))
+
+  def test_invalid_dim_static_pixels_choices_fail_off_and_can_be_repaired(self):
+    from openpilot.starpilot.ui.display_preferences import STATIC_DIM, STATIC_DIM_STRENGTH
+    Path(self.params.get_param_path(STATIC_DIM)).write_bytes(b"1")
+    Path(self.params.get_param_path(STATIC_DIM_STRENGTH)).write_bytes(b"60")   # outside 5-50
+    saved = read_preferences(self.params, large=False)
+    self.assertEqual((saved.static_dim, saved.static_dim_strength), (True, 40))
+    row = self.row(STATIC_DIM_STRENGTH, Profile.COMPACT)
+    self.assertEqual((row.value, row.repair_value), ("Invalid saved choice", "40%"))
+    self.assertTrue(self.owner.apply(self.request(STATIC_DIM_STRENGTH, Profile.COMPACT)))
+    self.assertEqual(self.row(STATIC_DIM_STRENGTH, Profile.COMPACT).value, "40")
 
   def test_invalid_screen_off_fails_off_and_can_be_repaired(self):
     Path(self.params.get_param_path(SCREEN_OFF)).write_bytes(b"2")
