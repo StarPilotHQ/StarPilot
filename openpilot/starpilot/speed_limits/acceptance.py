@@ -178,7 +178,7 @@ def float32(value: float) -> float:
 
 
 def number(value: object, *, positive: bool = False) -> TypeGuard[int | float]:
-  if type(value) not in (int, float):
+  if type(value) is not int and type(value) is not float:
     return False
   try:
     # A saved or decoded value can be an int too large for math.isfinite.
@@ -190,7 +190,7 @@ def number(value: object, *, positive: bool = False) -> TypeGuard[int | float]:
 # The only predicate that admits a negative, since offsets may be below zero. Not
 # built on number(), whose own guard must stay a single call on the per-frame path.
 def finite(value: object) -> TypeGuard[int | float]:
-  if type(value) not in (int, float):
+  if type(value) is not int and type(value) is not float:
     return False
   try:
     return math.isfinite(value)
