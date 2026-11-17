@@ -80,8 +80,11 @@ FF_ROLL_OFFSET_FADE_V = [0.0, 1.0]
 
 # Envision C4 self-constraint
 ENVISION_MAX_TORQUE_RATE = 5.0  # normalized torque units per second; output_torque is -1..1, NOT Nm
-ENVISION_CENTER_DEADBAND_LAT_ACCEL = 0.3  # m/s^2
-ENVISION_CENTER_MIN_SCALE = 0.6  # dimensionless
+# Narrow center band (0.18 m/s^2) with mild damping (0.80) suppresses straight-line
+# micro-chatter without starving turn-in torque or draining integral bias needed for
+# road crown / minor wheel-speed deltas.
+ENVISION_CENTER_DEADBAND_LAT_ACCEL = 0.18  # m/s^2
+ENVISION_CENTER_MIN_SCALE = 0.80  # dimensionless
 # 1.0 = verified default, matches the version road-tested for hundreds of km.
 # i *= center_scale every frame, same rate as output taper, so the integrator
 # cannot wind up in the center band. <1.0 is a future A/B knob, not enabled.
@@ -753,9 +756,9 @@ class LatControlTorque(LatControl):
       #    NOT Nm. GM CarController STEER_DELTA_UP/DOWN is much stricter, so this
       #    only smooths LatControl's internal prev_output_torque and logs; it does
       #    not change the final CAN command.
-      # 2) Center taper. Hard gate at deadband; inside the band scale output and
-      #    integrator by the same factor each frame, so the integrator is drained
-      #    at the same rate as the output and cannot accumulate across frames.
+      # 2) Narrow center taper (0.18 m/s^2, min scale 0.80). Scales output and
+      #    integrator by the same factor inside the straight-line band to filter
+      #    surface chatter without delaying corner entry or dumping steady-state bias.
       # 3) Unwind damping: only when unwinding, driver holding wheel, and <90 km/h.
       # =========================================================================
       if self.is_envision:
