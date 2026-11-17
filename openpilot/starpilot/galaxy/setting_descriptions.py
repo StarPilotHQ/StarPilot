@@ -53,6 +53,8 @@ DESCRIPTIONS = {
   'torque_prepare_firestar': 'Prepares steering settings for a tuning-request recording. Turning it off restores the previous settings.',
   'SteerLatAccel': 'Sets the legacy lateral-acceleration-to-torque conversion. Review the vehicle-specific tuning profile before applying it.',
   'SteerFriction': 'Sets legacy steering friction compensation. Review the vehicle-specific tuning profile before applying it.',
+  'steering_delay': 'Accounts for the time between a steering request and the car’s response.',
+  'steering_delay_reset': 'Restores automatic actuator delay for this vehicle without changing other steering settings.',
   'UseStarPilotLongitudinalPlanner': 'Selects the StarPilot acceleration, braking and following planner. Off selects the upstream planner.',
   'CustomCruise': 'Sets how much a short cruise-button press changes the set speed.',
   'CustomCruiseLong': 'Sets how much holding a cruise button changes the set speed.',
@@ -423,6 +425,8 @@ def description(row):
   if base is None:
     return row.reason
   suffix = INITIALIZATION.get(row.key, '')
+  if row.key == 'steering_delay':
+    suffix = row.reason.strip()
   if row.key.startswith('lane_change:') and row.key not in ('lane_change:close_gap', 'lane_change:close_gap_seconds', 'lane_change:reset'):
     suffix = 'Changes apply when the current signal and maneuver end; turning assistance off cancels it after the preference refresh.'
   if row.key.startswith('torque:surface:'):

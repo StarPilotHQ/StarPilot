@@ -387,6 +387,8 @@
   "sounds:auto:RefuseVolume",
   "sounds:auto:WarningImmediateVolume",
   "sounds:auto:WarningSoftVolume",
+  "steering_delay",
+  "steering_delay_reset",
   "torque:automatic_delay:value",
   "torque:factor:mode",
   "torque:factor:reset",
