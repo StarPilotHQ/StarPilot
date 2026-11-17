@@ -24,8 +24,8 @@ class DelayFeature:
       default_key='steering_delay_reset', default_value='Automatic',
       reason=('Vehicle/controller changed; saved delay is paused. Reset uses automatic delay.' if selected.source == 'changed' else
               'Saved delay is unreadable; no override applied.' if not selected.valid else
-              'Manual total delay, including 0.2 s. Reset restores automatic delay.' if selected.value is not None else
-              'Automatic delay. Shown value is the vehicle default, including 0.2 s.'))
+              'Manual actuator delay. Reset restores automatic delay.' if selected.value is not None else
+              'Automatic delay. Shown value is the vehicle default.'))
 
   def apply(self, request):
     row = self.row()

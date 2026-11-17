@@ -196,10 +196,12 @@ class TestGmGeometryRuntime(unittest.TestCase):
       owner=FeatureSettingsOwner(saved,lambda _:True,vehicle_fingerprint=lambda:cp.carFingerprint,vehicle_params=lambda:cp)
       def rows():
         return {row.key:row for row in owner.snapshot('torque/developer',parked=True,system_long=True,lateral_context=True,metric=False).rows}
-      row=rows()['torque:learning:value']
-      request=FeatureSettingsRequest(row.key,row.source,'Force auto',vehicle_fingerprint=cp.carFingerprint,
-                                    capability=row.capability,dependencies=row.dependencies,related_source=row.related_source)
-      self.assertTrue(owner.apply(request))
+      for learning in ('source', 'force_auto', 'force_off'):
+        stored(saved, profile(cp, learning))
+        before = Path(saved.get_param_path(DOCUMENT_KEY)).read_bytes()
+        self.assertNotIn('torque:learning:value', rows())
+        self.assertEqual(Path(saved.get_param_path(DOCUMENT_KEY)).read_bytes(), before)
+      stored(saved, profile(cp, 'force_auto'))
       self.assertTrue(read_geometry(saved,cp).force_auto)
       ratio=rows()['torque:ratio:value']
       self.assertIn('temporarily ignored',ratio.reason)

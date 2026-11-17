@@ -259,12 +259,6 @@ class TorqueFeature:
     dependencies = self._dependents("ForceAutoTuneOff", SELECTION_KEY)
     selected = read_geometry(self.params, cp)
     rows = []
-    learning_labels = {"source": "Selected controller", "force_auto": "Force auto", "force_off": "Force off"}
-    rows.append(FeatureRow("torque:learning:value", "Automatic torque learning", learning_labels[geometry.learning], raw,
-                           choices=tuple(learning_labels.values()), available=allowed, capability=capability,
-                           related_source=token, dependencies=dependencies,
-                           reason="Chooses vehicle learning or a manual override. Force off takes priority; " +
-                                  "Force auto temporarily ignores saved factor, friction and ratio."))
     rows.append(FeatureRow("torque:automatic_delay:value", "Steering delay source", "Learned" if geometry.automatic_delay else "Vehicle/custom", raw,
                            choices=("Learned", "Vehicle/custom"), available=allowed, capability=capability,
                            related_source=token, dependencies=dependencies,

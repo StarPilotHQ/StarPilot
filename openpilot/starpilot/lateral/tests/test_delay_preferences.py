@@ -56,6 +56,7 @@ class TestSteeringDelay(unittest.TestCase):
         self.assertEqual(index, max(scalar) + 1)
       self.assertAlmostEqual(float(rows[index].value), self.cp.steerActuatorDelay + .2, places=2)
       self.assertEqual(rows[index].unit, 's')
+      self.assertNotIn('0.2', rows[index].reason)
       self.assertTrue(rows[index].available)
       self.assertEqual(self.owner.snapshot('torque/developer', parked=True, system_long=False,
         lateral_context=True, metric=False).title, 'Developer Parameters')
