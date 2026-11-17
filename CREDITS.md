@@ -1,5 +1,9 @@
 # Source provenance
 
+## Phone companions and Galaxy contributions
+
+[dirwin31](https://github.com/dirwin31/StarPilotAndroid) developed the Android companion and contributed StarPort setup, wireless adapter compatibility, connectivity fixes and diagnostics ([PR #273](https://github.com/StarPilotHQ/StarPilot/pull/273)). [natehuby76](https://github.com/natehuby76/StarPilotBT) developed the iOS companion and contributed Galaxy Bluetooth pairing, local Wi-Fi discovery and UI fixes, including the C4 menu reset ([PR #246](https://github.com/StarPilotHQ/StarPilot/pull/246)). Their work helped make phone integration and everyday use more reliable. The apps are maintained separately under their respective licenses.
+
 ## Jetlink external inference
 
 The comma-side Jetlink client and USB transport in `jetlink_repo` are by Zeph Leggett and the [Jetlink contributors](https://github.com/zoompilot/jetlink). They are vendored from revision `9cfde98eec1d7cc714d800504944cf1a3944513d` under the MIT license, retained in [jetlink_repo/LICENSE](jetlink_repo/LICENSE). StarPilot's adapter (`openpilot/starpilot/models/jetlink_adapter.py`) builds on Jetlink's openpilot layer and owns its param names, Always On Lateral rule, model runner reset, settings and alerts. Companion applications and inference servers remain distributed by Jetlink.

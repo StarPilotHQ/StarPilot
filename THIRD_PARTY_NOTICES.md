@@ -118,21 +118,20 @@ SOFTWARE.
 
 `openpilot/starpilot/soloist/pulseaudio/` contains unmodified AArch64 binaries from Ubuntu 24.04 packages: PulseAudio 16.1 (LGPL-2.1-or-later), libltdl (LGPL-2.1-or-later), libtdb (LGPL-3.0-or-later), libsoxr (LGPL-2.1-or-later), liborc and speexdsp (BSD-style). The complete copyright and license notices are in that directory's `licenses/`, package hashes in `PACKAGES.sha512`, and the corresponding source is available from Ubuntu's archive for the exact versions listed in its README. The libraries are dynamically linked and may be replaced with `update.sh`.
 
-## Galaxy Android companion tunnel
+## Comma-side phone internet tunnel
 
 `openpilot/starpilot/galaxy/bin/hev-socks5-tunnel_linux_arm64` is the upstream
 [hev-socks5-tunnel 2.18.0](https://github.com/heiher/hev-socks5-tunnel/releases/tag/2.18.0)
 static Linux ARM64 release, under the MIT license. Its notice is retained in
-`openpilot/starpilot/galaxy/bin/LICENSE.hev-socks5-tunnel`; the adjacent SHA-256
-file pins the downloaded artifact. The Android companion uses the Kotlin
-standard library (Apache-2.0) and the Gradle wrapper (Apache-2.0); no third-party
-UI framework is bundled.
+[LICENSE.hev-socks5-tunnel](openpilot/starpilot/galaxy/bin/LICENSE.hev-socks5-tunnel);
+the adjacent SHA-256 file pins the downloaded artifact.
 
-## Galaxy Bluetooth companion source snapshot
+## Comma-side Galaxy Bluetooth bridge
 
-The Galaxy Bluetooth phone bridge and iOS app from https://github.com/StarPilotHQ/StarPilot
-(natehuby76, PRs #224/#225) are included under `openpilot/starpilot/galaxy_bluetooth/`
-and `openpilot/starpilot/companion/ios/`, with their license files (`UPSTREAM-LICENSE`, `openpilot/starpilot/companion/ios/UPSTREAM-GALAXY-LICENSE`).
+The Galaxy Bluetooth phone bridge from [StarPilotHQ/StarPilot](https://github.com/StarPilotHQ/StarPilot)
+(natehuby76, PRs #224/#225) is included under `openpilot/starpilot/galaxy_bluetooth/`,
+with its license in [UPSTREAM-LICENSE](openpilot/starpilot/galaxy_bluetooth/UPSTREAM-LICENSE).
+
 The bridge runs on openpilot's Python with PyCryptodome 3.23.0 (BSD/public-domain
 components, from opendbc). Its other dependencies are vendored unmodified, as
 pure-Python sources, in `openpilot/starpilot/galaxy_bluetooth/vendor/`:

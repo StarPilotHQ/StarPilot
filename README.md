@@ -5,8 +5,8 @@
 [![Discord](https://img.shields.io/discord/1387432184121393333?label=Discord)](https://firestar.link/discord)
 [![Last Updated](https://img.shields.io/github/last-commit/StarPilotHQ/StarPilot/StarPilot)](https://github.com/StarPilotHQ/StarPilot)
 [![Wiki](https://img.shields.io/badge/Wiki-StarPilot-blue?logo=wiki)](https://wiki.firestar.link)
-[![iOS App Store](https://img.shields.io/badge/iOS-App_Store-black?logo=apple&logoColor=white)](https://apps.apple.com/ca/app/starpilot-bt/id6821039119)
-[![Android Beta](https://img.shields.io/badge/Android-Join_Beta-green?logo=android&logoColor=white)](https://groups.google.com/g/galaxy-starpilot-android-beta)
+[![App Store](https://img.shields.io/badge/App_Store-black?logo=apple&logoColor=white)](https://apps.apple.com/ca/app/starpilot-bt/id6821039119)
+[![Google Play](https://img.shields.io/badge/Google_Play-green?logo=googleplay&logoColor=white)](https://play.google.com/store/apps/details?id=com.starpilot.galaxy)
 
 **StarPilot** is a custom fork of [comma.ai's openpilot](https://comma.ai/openpilot),
 an open source driver assistance system.
@@ -55,7 +55,11 @@ installation guides, and software configuration.
 Auto tuning system to adapt openpilot to *your* car's unique lateral characteristics.
 * Galaxy: StarPilot's portal to configure your comma device using your phone from anywhere.
 Download models, change settings, update software, diagnostics, manage dashcam video, and more.
-* Navigation - Display routes and give the driving model hints on taking exits and turns.
+* Android and iOS companion apps - Access Galaxy over Wi-Fi, Firestar Link (HTTPS), or Bluetooth.
+* StarPort - Project StarPilot onto compatible Android Auto head units for a larger driving display.
+* Customizable driving display - Driving map and navigation widgets, plus music controls and Jetlink status in StarPort.
+* Spotify Connect and phone audio - Play through compatible car speakers over StarPort or Bluetooth.
+* Navigation - Mapbox or Google maps and routing, with route guidance for exits and turns.
 * Always On Lateral (full time steering assist)
 * Lane Centering - Enable to center between detected lane lines,
 with graceful fallback to model E2E lateral outputs and safety breakout
