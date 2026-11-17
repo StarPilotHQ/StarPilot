@@ -109,6 +109,15 @@ def identity_for(CP, controller, params, conversion_version):
                                      profile.geometry is not None and (profile.geometry.ratio.mode == 'custom' or
                                                                       profile.geometry.full_delay.mode == 'custom'))
     baseline = serialize_document({str(CP.carFingerprint): profile}).hex() if profile is not None else None
+  from openpilot.starpilot.lateral.delay_preferences import KEY as DELAY_KEY, LIMIT as DELAY_LIMIT, read_delay
+  delay_raw, delay_readable = read_saved(params, DELAY_KEY, DELAY_LIMIT)
+  if not delay_readable:
+    return None, False, False
+  if delay_raw is not None:
+    delay = read_delay(params, CP, snapshot=(delay_raw, True))
+    if not delay.valid:
+      return None, False, False
+    baseline = (baseline, delay.value)
   firmware = sorted((str(fw.ecu), int(fw.address), int(fw.subAddress), bytes(fw.fwVersion).hex()) for fw in CP.carFw)
   identity = {'vehicle': str(CP.carFingerprint), 'brand': str(CP.brand), 'controller': str(controller),
               'policy': capability['policy'], 'profile': capability['profile'], 'conversionVersion': conversion_version,

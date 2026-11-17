@@ -294,7 +294,7 @@ class TestGmManualTorque(unittest.TestCase):
       saved.put_bool('AdvancedLateralTune',True,block=True)
       owner=FeatureSettingsOwner(saved,lambda _:True,vehicle_fingerprint=lambda:cp.carFingerprint,vehicle_params=lambda:cp)
       def rows():
-        return {r.key:r for r in owner.snapshot('torque',parked=True,system_long=True,lateral_context=True,metric=False).rows}
+        return {r.key:r for r in owner.snapshot('torque/developer',parked=True,system_long=True,lateral_context=True,metric=False).rows}
       factor=rows()['torque:factor:value']
       self.assertFalse(factor.available)
       self.assertIn('fixed torque conversion',factor.reason)

@@ -12,9 +12,10 @@ from openpilot.starpilot.ui.layout_preview_sidebar import metric_rects
 
 class TestLiveDeveloperSidebar(unittest.TestCase):
   def observe(self, owner, **changes):
-    values = {'drive': 10, 'car': NS(aEgo=-1.), 'delay': NS(lateralDelay=.15),
+    values = {'drive': 10, 'car': NS(aEgo=-1.), 'delay': NS(lateralDelay=.15, status='estimated'),
               'torque': NS(useParams=True, frictionCoefficientFiltered=.12, latAccelFactorFiltered=2.5),
-              'parameters': NS(steerRatio=16.8, stiffnessFactor=.9), 'metric': True}
+              'parameters': NS(steerRatio=16.8, stiffnessFactor=.9), 'metric': True,
+              'applied': NS(version=1, factor=2.5, friction=.12, manualFactor=False, manualFriction=False, learned=True)}
     return owner.observe(**(values | changes))
 
   def test_original_default_order_real_values_and_drive_reset(self):
@@ -30,16 +31,16 @@ class TestLiveDeveloperSidebar(unittest.TestCase):
     self.assertEqual(self.observe(owner, metric=False)[0].value, '-3.28 ft/s²')
 
   def test_missing_nonfinite_sources_and_explicit_cp_fallback(self):
-    rows = self.observe(DeveloperMetrics(), car=None, delay=None, torque=None, parameters=None)
+    rows = self.observe(DeveloperMetrics(), car=None, delay=None, torque=None, parameters=None, applied=None)
     self.assertTrue(all(row.value == '—' for row in rows))
     rows = self.observe(DeveloperMetrics(), car=NS(aEgo=float('nan')), delay=NS(lateralDelay=float('inf')))
     self.assertEqual(rows[0].value, '—')
     self.assertEqual(rows[2].value, '—')
     cp = NS(steerActuatorDelay=.2, lateralTuning=NS(which=lambda: 'torque', torque=NS(friction=.13, latAccelFactor=2.)))
-    rows = self.observe(DeveloperMetrics(), delay=None, torque=None, cp=cp)
+    rows = self.observe(DeveloperMetrics(), delay=None, torque=None, cp=cp, applied=None)
     self.assertEqual(rows[2].label, 'BASE DELAY')
-    self.assertEqual(rows[2].value, '0.20000')
-    self.assertEqual(rows[3].value, '0.13000')
+    self.assertEqual(rows[2].value, '0.40000 s')
+    self.assertEqual(rows[3].value, '—', 'no applied controller telemetry is available')
 
   def test_live_render_uses_given_metrics_inside_shifted_rail(self):
     fonts = Mock()
@@ -53,6 +54,21 @@ class TestLiveDeveloperSidebar(unittest.TestCase):
     self.assertNotIn('SAMPLE DATA', [call.args[0] for call in fonts.draw.call_args_list])
     self.assertTrue(all(frame.x <= r.x and r.x + r.width <= frame.x + frame.width for r in metric_rects(frame, 7)))
 
+  def test_delay_override_reset_unestimated_and_missing_sources(self):
+    owner = DeveloperMetrics()
+    manual = NS(value=.6)
+    locked = self.observe(owner, delay=NS(lateralDelay=.6, status='estimated'), delay_selection=manual)
+    self.assertEqual((locked[2].label, locked[2].value), ('LOCKED DELAY', '0.60000 s'))
+    waiting = self.observe(owner, delay=NS(lateralDelay=.53, status='estimated'), delay_selection=manual)
+    self.assertEqual(waiting[2].label, 'ACTUATOR DELAY', 'a stored target is not an applied acknowledgment')
+    missing = self.observe(owner, delay=None, delay_selection=manual, cp=NS(steerActuatorDelay=.2), applied=None)
+    self.assertEqual(missing[2].value, '—')
+    self.assertEqual(missing[3].value, '—')
+    reset = self.observe(owner, delay=NS(lateralDelay=.53, status='estimated'), delay_selection=NS(value=None))
+    self.assertEqual((reset[2].label, reset[2].value), ('LEARNED DELAY', '0.53000 s'))
+    initial = self.observe(owner, delay=NS(lateralDelay=.4, status='unestimated'), delay_selection=NS(value=None))
+    self.assertEqual(initial[2].label, 'ACTUATOR DELAY', 'a vehicle default is not a learned estimate')
+
   def test_snapshot_current_stale_and_previous_drive_observations(self):
     from openpilot.starpilot.ui.tests.test_runtime_snapshot import NOW, RuntimeSnapshotAdapter, ui_fake
     from openpilot.starpilot.ui.shell import ShellMode
@@ -64,6 +80,7 @@ class TestLiveDeveloperSidebar(unittest.TestCase):
     ui.sm.put('lateralDelay', NS(lateralDelay=.12))
     ui.sm.put('lateralTorqueParameters', NS(useParams=True, frictionCoefficientFiltered=.15, latAccelFactorFiltered=2.4))
     ui.sm.put('vehicleParameters', NS(steerRatio=17., stiffnessFactor=1.1))
+    ui.sm.put('starpilotLateralState', NS(torqueTuning=NS(version=1, factor=2.4, friction=.15, manualFactor=False, manualFriction=False, learned=True)))
     adapter = RuntimeSnapshotAdapter(ui)
     rows = adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad.developer_metrics
     self.assertEqual(rows[0].value, '4.92 ft/s²')
@@ -71,13 +88,13 @@ class TestLiveDeveloperSidebar(unittest.TestCase):
     for service in ('lateralDelay', 'lateralTorqueParameters'):
       ui.sm.logMonoTime[service] = NOW - 300_000_000
     rows = adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad.developer_metrics
-    self.assertEqual(rows[2].value, '0.12000')
+    self.assertEqual(rows[2].value, '0.12000 s')
     self.assertEqual(rows[3].value, '0.15000')
-    for service in ('carState', 'lateralDelay', 'lateralTorqueParameters', 'vehicleParameters'):
+    for service in ('carState', 'lateralDelay', 'lateralTorqueParameters', 'vehicleParameters', 'starpilotLateralState'):
       ui.sm.logMonoTime[service] = NOW - 600_000_000
     rows = adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad.developer_metrics
     self.assertTrue(all(row.value == '—' for row in rows))
-    for service in ('carState', 'lateralDelay', 'lateralTorqueParameters', 'vehicleParameters'):
+    for service in ('carState', 'lateralDelay', 'lateralTorqueParameters', 'vehicleParameters', 'starpilotLateralState'):
       ui.sm.logMonoTime[service] = NOW
       ui.sm.recv_frame[service] = ui.started_frame
     rows = adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad.developer_metrics

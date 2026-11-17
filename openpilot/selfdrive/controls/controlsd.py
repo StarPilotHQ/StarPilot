@@ -828,6 +828,8 @@ class Controls:
       valid=bool(CS.canValid and self.sm.all_checks(['modelV2'])),
       inactive_reason=getattr(self, 'lane_centering_inactive_reason', 'inactive'),
     )
+    from openpilot.starpilot.lateral.applied_tuning import write_applied_tuning
+    write_applied_tuning(feedback.starpilotLateralState, self.LaC, getattr(self, 'torque_host', None))
     automatic = getattr(self, 'global_learning', None)
     if automatic is not None:
       try:

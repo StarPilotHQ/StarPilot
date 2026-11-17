@@ -172,18 +172,18 @@ class TestGmGeometryRuntime(unittest.TestCase):
       self.assertTrue((learner.kf.x==state).all() and (learner.kf.P==p).all())
       self.assertAlmostEqual(lag.initial_lag, cp.steerActuatorDelay+.2)
       stored(saved, edit(cp,profiles,'learning','force_auto'))
-      owner.last_read_ns = None
+      owner.last_read_ns = owner.delay_read_ns = None
       self.assertIs(owner.parameters(original),original,'ForceAuto suppresses custom ratio')
       self.assertAlmostEqual(owner.delay(delay).lateralDelay.lateralDelay,.7,msg='full delay independent')
       stored(saved, edit(cp,profiles,'learning','force_off'))
-      owner.last_read_ns = None
+      owner.last_read_ns = owner.delay_read_ns = None
       off = owner.parameters(original)
       self.assertAlmostEqual(off.vehicleParameters.steerRatio,ratio,delta=1e-5)
       self.assertEqual(off.vehicleParameters.stiffnessFactor,1.)
       reset = edit(cp,profiles,'ratio',FieldChoice('source',ratio))
       reset = edit(cp,reset,'full_delay',FieldChoice('source',.7))
       stored(saved, reset)
-      owner.last_read_ns = None
+      owner.last_read_ns = owner.delay_read_ns = None
       self.assertIs(owner.parameters(original),original)
       self.assertAlmostEqual(owner.delay(delay).lateralDelay.lateralDelay,cp.steerActuatorDelay+.2)
       self.assertEqual(original.as_reader().as_builder().to_bytes(),raw)
@@ -195,7 +195,7 @@ class TestGmGeometryRuntime(unittest.TestCase):
       saved=Params()
       owner=FeatureSettingsOwner(saved,lambda _:True,vehicle_fingerprint=lambda:cp.carFingerprint,vehicle_params=lambda:cp)
       def rows():
-        return {row.key:row for row in owner.snapshot('torque',parked=True,system_long=True,lateral_context=True,metric=False).rows}
+        return {row.key:row for row in owner.snapshot('torque/developer',parked=True,system_long=True,lateral_context=True,metric=False).rows}
       row=rows()['torque:learning:value']
       request=FeatureSettingsRequest(row.key,row.source,'Force auto',vehicle_fingerprint=cp.carFingerprint,
                                     capability=row.capability,dependencies=row.dependencies,related_source=row.related_source)
@@ -234,7 +234,7 @@ class TestGmGeometryRuntime(unittest.TestCase):
                                    vehicle_params=lambda: cp)
 
       def rows():
-        return {row.key: row for row in owner.snapshot('torque', parked=True, system_long=True,
+        return {row.key: row for row in owner.snapshot('torque/developer', parked=True, system_long=True,
                                                        lateral_context=True, metric=False).rows}
 
       def apply_value(key, value):
@@ -246,11 +246,11 @@ class TestGmGeometryRuntime(unittest.TestCase):
 
       ratio = cp.steerRatio * 1.1
       apply_value('torque:ratio:value', str(ratio))
-      apply_value('torque:full_delay:value', '.7')
+      apply_value('steering_delay', '.7')
       stored_profile = parse_document(Path(saved.get_param_path(DOCUMENT_KEY)).read_bytes())[identity]
       self.assertEqual(stored_profile.geometry.ratio, FieldChoice('custom', ratio))
-      self.assertEqual(stored_profile.geometry.full_delay, FieldChoice('custom', .7))
-      self.assertFalse(stored_profile.geometry.automatic_delay)
+      self.assertEqual(stored_profile.geometry.full_delay, FieldChoice())
+      self.assertTrue(stored_profile.geometry.automatic_delay)
       parameters = messaging.new_message('vehicleParameters', valid=True)
       parameters.vehicleParameters.steerRatio = cp.steerRatio
       delay = messaging.new_message('lateralDelay', valid=True)
@@ -258,23 +258,22 @@ class TestGmGeometryRuntime(unittest.TestCase):
       publisher = GeometryPublicationOwner(saved, cp)
       self.assertAlmostEqual(publisher.parameters(parameters).vehicleParameters.steerRatio, ratio, delta=1e-5)
       self.assertAlmostEqual(publisher.delay(delay).lateralDelay.lateralDelay, .7, delta=1e-5)
-      for field in ('ratio', 'full_delay'):
-        row = rows()[f'torque:{field}:value']
-        self.assertEqual(row.default_key, f'torque:{field}:mode')
+      for field in ('ratio', 'delay'):
+        row = rows()['steering_delay' if field == 'delay' else 'torque:ratio:value']
         request = row_default(row)
         self.assertIsNotNone(request, field)
         assert request is not None
         self.assertEqual(request.key, row.default_key)
         self.assertTrue(owner.apply(request), field)
-      publisher.last_read_ns = None
+      publisher.last_read_ns = publisher.delay_read_ns = None
       self.assertIs(publisher.parameters(parameters), parameters, 'source ratio withdraws custom projection')
-      self.assertAlmostEqual(publisher.delay(delay).lateralDelay.lateralDelay, cp.steerActuatorDelay + .2, delta=1e-5)
+      self.assertIs(publisher.delay(delay), delay, 'reset restores the actual learned publication')
       source = parse_document(Path(saved.get_param_path(DOCUMENT_KEY)).read_bytes())[identity]
       self.assertEqual(source.geometry.ratio, FieldChoice('source', ratio))
-      self.assertEqual(source.geometry.full_delay, FieldChoice('source', .7))
-      self.assertFalse(source.geometry.automatic_delay)
+      self.assertEqual(source.geometry.full_delay, FieldChoice())
+      self.assertTrue(source.geometry.automatic_delay)
       apply_value('torque:ratio:value', str(ratio))
-      apply_value('torque:full_delay:value', '.7')
+      apply_value('steering_delay', '.7')
       before = parse_document(Path(saved.get_param_path(DOCUMENT_KEY)).read_bytes())
       changed = cp.as_reader().as_builder()
       changed.steerActuatorDelay += .01

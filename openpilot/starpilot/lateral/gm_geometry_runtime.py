@@ -49,6 +49,8 @@ class GeometryPublicationOwner:
     self.params, self.CP = params, CP
     self.last_read_ns = None
     self.selected = GeometrySelection()
+    self.delay_read_ns = None
+    self.delay_selected = None
 
   def selection(self):
     now = time.monotonic_ns()
@@ -75,9 +77,13 @@ class GeometryPublicationOwner:
     return message
 
   def delay(self, original):
-    profile = self.selection().profile
-    if profile is None or profile.automatic_delay:
-      return original
-    message = original.as_reader().as_builder()
-    message.lateralDelay.lateralDelay = profile.full_delay.custom_value if profile.full_delay.mode == 'custom' else profile.basis[1]
-    return message
+    from openpilot.starpilot.lateral.delay_preferences import read_delay
+    now = time.monotonic_ns()
+    if self.delay_read_ns is None or not 0 <= now - self.delay_read_ns < 1_000_000_000:
+      self.delay_selected = read_delay(self.params, self.CP)
+      self.delay_read_ns = now
+    if self.delay_selected.value is not None:
+      message = original.as_reader().as_builder()
+      message.lateralDelay.lateralDelay = self.delay_selected.value
+      return message
+    return original

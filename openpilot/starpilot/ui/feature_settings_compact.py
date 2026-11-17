@@ -11,7 +11,7 @@ from typing import Protocol
 from openpilot.starpilot.ui.vehicle_bool import VEHICLE_BOOL_KEYS, confirmation_question as vehicle_question
 from openpilot.starpilot.ui.feature_settings_state import (
   FeaturePage, FeatureRow, FeatureSettingsRequest, FeatureSettingsState,
-  FEATURE_CONFIRM_ACTIONS, CONDITIONAL_CONFIRM_ACTIONS, is_long_confirm_action, row_change, value_text, value_reason,
+  FEATURE_CONFIRM_ACTIONS, CONDITIONAL_CONFIRM_ACTIONS, is_long_confirm_action, row_change, row_default, value_text, value_reason,
 )
 from openpilot.starpilot.ui.lane_change_feature import KEYS as LANE_CHANGE_KEYS, RESET as LANE_CHANGE_RESET
 from openpilot.starpilot.ui.long_profile_feature import long_confirm_question
@@ -91,6 +91,14 @@ class FeatureSettingsCompact:
           refresh()
 
       button.set_click_callback(clicked)
+      result.append(button)
+    if row.key == 'steering_delay':
+      button = BigButton('actuator delay — automatic', 'restore automatic delay learning')
+      def reset_delay():
+        request = row_default(row)
+        if request is not None and self.session.feature_request(request):
+          refresh()
+      button.set_click_callback(reset_delay)
       result.append(button)
     return result
 

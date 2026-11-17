@@ -41,7 +41,8 @@ from openpilot.starpilot.ui.vasm_owner import ANNOTATION as VASM_ANNOTATION, RES
 
 PAGES = frozenset(("hub", "localization", "developer", "vehicle", "slc", "lane", "lane_change", "profiles", "personalities",
                    "traffic", "aggressive", "standard", "relaxed",
-                   "curve", "torque", "tuning", "torque/bluepilot", "aol", "wheel", "appearance", "display", "data", "power", "sounds", "pip", "sentry", "vasm",
+                   "curve", "torque", "torque/developer", "tuning", "torque/bluepilot", "aol", "wheel", "appearance", "display",
+                   "data", "power", "sounds", "pip", "sentry", "vasm",
                    "conditional", "conditional/cem",
                    *(f"{name}/{category}" for name in ("traffic", "aggressive", "standard", "relaxed")
                      for category in ("acceleration", "braking", "following"))))
@@ -52,7 +53,7 @@ TTL = 60.0
 
 # Android Auto lists binary controls only.
 CAR_CONTROL_SECTIONS = (
-  ("lateral", "Lateral (Steering)", ("aol", "lane_change", "torque", "lane", "vehicle")),
+  ("lateral", "Lateral (Steering)", ("aol", "lane_change", "lane", "torque", "torque/developer")),
   ("longitudinal", "Longitudinal (Speed & Following)",
    ("profiles", "conditional", "curve", "slc", "aggressive", "standard", "relaxed", "traffic")),
   ("wheel", "Wheel Controls", ("wheel",)),
@@ -525,7 +526,7 @@ class SettingsGateway:
     with self.lock:
       ctx = self.context.sample()
       sections = []
-      for page in ("torque", "lane", "lane_change", "aol", "conditional", "profiles", "slc", "curve"):
+      for page in ("torque", "torque/developer", "lane", "lane_change", "aol", "conditional", "profiles", "slc", "curve"):
         state = self._state(page, ctx)
         sections.append({"title": state.title,
                          "rows": [{"label": row.label, "value": row.value} for row in state.rows[:64]]})
@@ -674,7 +675,7 @@ class SettingsGateway:
                                       system_long=_qualified(ctx, "long"),
                                       lateral_context=_qualified(ctx, "lane") or (page == "lane" and _qualified(ctx, "lane_live")),
                                       metric=ctx.metric, configure_while_driving=True)
-    if page == "torque":
+    if page in ("torque", "torque/developer"):
       state = replace(state, rows=tuple(row for row in state.rows if row.key not in ("torque:factor:reset", "torque:friction:reset")))
     if ctx.editing_saved_vehicle:
       from opendbc.car.values import PLATFORMS

@@ -193,7 +193,7 @@ class Ioniq6TorqueSourceTests(unittest.TestCase):
       cp = cp_for(HYUNDAI.HYUNDAI_IONIQ_6)
       owner = FeatureSettingsOwner(params, lambda _: True, vehicle_fingerprint=lambda: str(cp.carFingerprint),
                                    vehicle_params=lambda: cp)
-      page = owner.snapshot('torque', parked=True, system_long=False, lateral_context=True, metric=False)
+      page = owner.snapshot('torque/developer', parked=True, system_long=False, lateral_context=True, metric=False)
       friction = next(row for row in page.rows if row.key == 'torque:friction:value')
       self.assertTrue(friction.available)
       request = row_change(friction)

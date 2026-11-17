@@ -60,6 +60,7 @@ class FeaturePage(StrEnum):
   TRAFFIC = "traffic"
   CURVE = "curve"
   TORQUE = "torque"
+  DEVELOPER_LATERAL = "torque/developer"
   TUNING = "tuning"
   BLUEPILOT = "torque/bluepilot"
   AOL = "aol"

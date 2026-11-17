@@ -48,7 +48,7 @@ class TestSettingsDefaults(TestCase):
     _, cp = ioniq_candidate()
     self.context.value = AuthorityContext(True, cp, cp.as_reader().as_builder().to_bytes())
     for label in ('Lat Accel', 'Friction'):
-      page = self.page('torque')
+      page = self.page('torque/developer')
       self.assertFalse(any('Reset to Default' in row['label'] for row in page['rows']))
       index = next(i for i, row in enumerate(page['rows']) if row['label'] == label)
       row = page['rows'][index]
@@ -56,10 +56,10 @@ class TestSettingsDefaults(TestCase):
       direction = -1 if previous >= row['maximum'] else 1
       intent = self.gateway.preview(page['view'], index, direction, self.session, self.generation)
       self.assertTrue(self.confirm(intent))
-      row, intent = self.reset('torque', label)
+      row, intent = self.reset('torque/developer', label)
       self.assertEqual(row['defaultValue'], 'Vehicle/learned')
       self.assertTrue(self.confirm(intent))
-      restored = next(row for row in self.page('torque')['rows'] if row['label'] == label)
+      restored = next(row for row in self.page('torque/developer')['rows'] if row['label'] == label)
       self.assertAlmostEqual(float(restored['value']), previous)
 
   def test_tuning_preparation_switch_saves_state_and_restores_preferences(self):

@@ -261,7 +261,7 @@ class SettingsGatewayTest(unittest.TestCase):
     lateral = next(section for section in hub["sections"] if section["id"] == "lateral")
     self.assertEqual(next(page for page in lateral["pages"] if page["id"] == "aol")["title"], self.page("aol")["title"])
     self.assertEqual([row["page"] for row in hub["rows"]],
-                     ["curve", "slc", "lane", "lane_change", "profiles", "conditional", "torque", "aol", "wheel",
+                     ["aol", "lane_change", "lane", "torque", "torque/developer", "curve", "slc", "profiles", "conditional", "wheel",
                      "vehicle", "personalities"])
     self.assertEqual([row["page"] for row in self.page("personalities")["rows"]],
                      ["aggressive", "standard", "relaxed", "traffic"])
@@ -964,7 +964,7 @@ class SettingsGatewayTest(unittest.TestCase):
     self.params.put(LEARNING_KEY, replace_preference(None, self.context.value.cp, False), block=True)
     legacy = read_saved(self.params, "ForceAutoTuneOff", 1)[0]
     self.context.value = AuthorityContext(True, torque_vehicle, torque_vehicle.as_reader().as_builder().to_bytes())
-    page = self.page("torque")
+    page = self.page("torque/developer")
     factor = next(i for i, row in enumerate(page["rows"]) if row["label"] == "Lat Accel")
     self.assertTrue(page["rows"][factor]["action"])
     previous = float(page["rows"][factor]["value"])

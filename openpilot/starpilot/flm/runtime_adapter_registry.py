@@ -246,6 +246,7 @@ def read_source(cp, params, *, now_ns, cp_sha256=None, calibration=(), vehicle_s
           'OpenpilotEnabledToggle',
           'SafeMode',
           'TurnAssist',
+          'SteeringDelayPreferences',
           *LEGACY_KEYS,
         )
       )
@@ -315,6 +316,9 @@ def read_source(cp, params, *, now_ns, cp_sha256=None, calibration=(), vehicle_s
             float(tune.latAccelOffset),
             float(tune.friction) if legacy.friction is None else legacy.friction,
           )
+    from openpilot.starpilot.lateral.delay_preferences import read_delay
+    if raw_by_key['SteeringDelayPreferences'] is not None and not read_delay(params, cp, snapshot=(raw_by_key['SteeringDelayPreferences'], True)).valid:
+      raise ValueError('invalid steering delay baseline')
     if not preference.enabled or manual:
       # Honor an independently parsed explicit OFF/manual even when physical
       # calibration is unavailable. This cannot authorize collection or output.
@@ -336,9 +340,11 @@ def read_source(cp, params, *, now_ns, cp_sha256=None, calibration=(), vehicle_s
     ):
       raise ValueError('invalid calibration lifecycle')
     frame_identity = calibration if not calibration_generation else ('live_vehicle_frame_v2', calibration_generation)
-    epoch = digest((tuple((key, None if raw is None else raw.hex()) for key, raw in snapshots), frame_identity, unit))
+    identity_settings = tuple((key, None if raw is None else raw.hex()) for key, raw in snapshots
+                              if key != 'SteeringDelayPreferences' or raw is not None)
+    epoch = digest((identity_settings, frame_identity, unit))
     persistent_epoch = (
-      digest(('persistent_vehicle_source_v1', cp_sha256, tuple((key, None if raw is None else raw.hex()) for key, raw in snapshots), vin))
+      digest(('persistent_vehicle_source_v1', cp_sha256, identity_settings, vin))
       if is_valid_vin(vin) and vin != VIN_UNKNOWN and calibration_generation
       else ''
     )

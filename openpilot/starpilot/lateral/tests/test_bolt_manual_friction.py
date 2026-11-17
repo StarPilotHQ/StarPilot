@@ -105,7 +105,7 @@ class TestBoltManualFriction(unittest.TestCase):
       settings.put(DOCUMENT_KEY, document, block=True)
       owner = FeatureSettingsOwner(settings, lambda _: True, vehicle_fingerprint=lambda: cp.carFingerprint,
                                    vehicle_params=lambda: cp)
-      state = owner.snapshot('torque', parked=True, system_long=True, lateral_context=True, metric=False)
+      state = owner.snapshot('torque/developer', parked=True, system_long=True, lateral_context=True, metric=False)
       self.assertFalse(any(row.key.startswith('torque:factor') for row in state.rows))
       original = owner._raw(DOCUMENT_KEY)
       request = FeatureSettingsRequest('torque:factor:mode', original, 'Custom', vehicle_fingerprint=cp.carFingerprint,
@@ -114,7 +114,7 @@ class TestBoltManualFriction(unittest.TestCase):
       self.assertEqual(owner._raw(DOCUMENT_KEY), original)
       document['vehicles'][str(cp.carFingerprint)]['factor'] = {'mode': 'custom', 'customValue': profile(cp)[0][0]}
       settings.put(DOCUMENT_KEY, document, block=True)
-      state = owner.snapshot('torque', parked=True, system_long=True, lateral_context=True, metric=False)
+      state = owner.snapshot('torque/developer', parked=True, system_long=True, lateral_context=True, metric=False)
       reset = next(row for row in state.rows if row.key == 'torque_reset_profile')
       request = FeatureSettingsRequest(reset.key, reset.source, '', confirmation=True,
                                        vehicle_fingerprint=cp.carFingerprint, capability=reset.capability, dependencies=reset.dependencies)
@@ -124,7 +124,7 @@ class TestBoltManualFriction(unittest.TestCase):
       Path(settings.get_param_path(DOCUMENT_KEY)).write_bytes(malformed)
       self.assertFalse(runtime_enabled(cp, settings))
       self.assertEqual(owner._raw(DOCUMENT_KEY), malformed)
-      invalid = owner.snapshot('torque', parked=True, system_long=True, lateral_context=True, metric=False)
+      invalid = owner.snapshot('torque/developer', parked=True, system_long=True, lateral_context=True, metric=False)
       self.assertTrue(any(row.key == 'torque_reset' for row in invalid.rows))
       self.assertEqual(owner._raw(DOCUMENT_KEY), malformed)
 
