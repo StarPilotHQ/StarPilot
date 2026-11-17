@@ -7,6 +7,9 @@ on:
       - Domathon
       - Dom
       - StarPilot
+      - stable
+      - testing
+      - dev
   pull_request:
   workflow_call:
     inputs:

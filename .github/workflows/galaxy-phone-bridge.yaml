@@ -2,7 +2,7 @@ name: Galaxy phone bridge
 
 on:
   push:
-    branches: [Dom, StarPilot, secretgood-ios-integration]
+    branches: [Dom, StarPilot, stable, testing, dev, secretgood-ios-integration]
     paths:
       - 'openpilot/starpilot/galaxy_bluetooth/**'
       - '.github/workflows/galaxy-phone-bridge.yaml'

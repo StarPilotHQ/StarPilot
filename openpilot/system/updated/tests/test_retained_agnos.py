@@ -143,8 +143,10 @@ class TestRetainedAgnos(unittest.TestCase):
     marker = repo / '.git/starpilot-retain-agnos'
     launcher = ROOT / 'launch_chffrplus.sh'
     text = launcher.read_text()
-    audited = next(iter(load_updater().TRUSTED_LEGACY_RELEASES['StarPilot']))
-    self.assertIn(f'TRUSTED_LEGACY_STARPILOT_COMMIT="{audited}"', text)
+    audited = load_updater().TRUSTED_LEGACY_RELEASES
+    declared = set(re.findall(r'TRUSTED_LEGACY_(?:STARPILOT_COMMIT|STABLE_MIGRATION)="([0-9a-f]{40})"', text))
+    self.assertEqual(declared, set().union(*audited.values()))
+    trusted = shell_function(launcher, 'trusted_legacy_commit')
     check = shell_function(launcher, 'staged_os_is_compatible').replace('/VERSION', str(version))
     activate = shell_function(launcher, 'maybe_activate_legacy_agnos')
     verifier = self.root / 'verifier'
@@ -153,7 +155,7 @@ class TestRetainedAgnos(unittest.TestCase):
     verifier.chmod(0o755)
     manifest = self.root / 'agnos.json'
     manifest.write_text('[]')
-    common = f'TRUSTED_LEGACY_STARPILOT_COMMIT={commit}\n{check}\n{activate}\n'
+    common = f'TRUSTED_LEGACY_STARPILOT_COMMIT={commit}\nTRUSTED_LEGACY_STABLE_MIGRATION=other-migration\n{trusted}\n{check}\n{activate}\n'
     def admission():
       return subprocess.run(['bash', '-c', common + f'staged_os_is_compatible {shlex.quote(str(repo))}'], check=False).returncode
     self.assertNotEqual(admission(), 0)  # Missing marker is not a modern update.
@@ -165,6 +167,12 @@ class TestRetainedAgnos(unittest.TestCase):
     marker.unlink()
     marker.write_text('20.2.1\n')
     self.assertEqual(admission(), 0)
+    migration_common = common.replace(f'TRUSTED_LEGACY_STARPILOT_COMMIT={commit}', 'TRUSTED_LEGACY_STARPILOT_COMMIT=other')
+    migration_common = migration_common.replace('TRUSTED_LEGACY_STABLE_MIGRATION=other-migration', f'TRUSTED_LEGACY_STABLE_MIGRATION={commit}')
+    self.assertEqual(subprocess.run(['bash', '-c', migration_common + f'staged_os_is_compatible {shlex.quote(str(repo))}']).returncode, 0)
+    marker.write_text('wrong\n')
+    self.assertNotEqual(subprocess.run(['bash', '-c', migration_common + f'staged_os_is_compatible {shlex.quote(str(repo))}']).returncode, 0)
+    marker.write_text('20.2.1\n')
     version.write_text('changed\n')
     self.assertNotEqual(admission(), 0)  # Manual reboot must recheck the OS.
     shell = common + f'sudo() {{ echo reboot >> {shlex.quote(str(log))}; }}\n' + \
