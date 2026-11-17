@@ -234,14 +234,22 @@ class ModelTurnAssist:
           new_desired_curvature * math.copysign(1.0, self.turn_hold_curvature) < -CURVATURE_HOLD_OPPOSITE_RELEASE):
         self.turn_hold_curvature = 0.0
         self.turn_hold_done = True
+      handoff_path_curvature = 0.0
+      if (self.turn_hold_curvature != 0.0 and _plan_positions_are_finite(model_v2) and
+          get_plan_reach(model_v2) >= CURVATURE_HOLD_REACH_MIN):
+        plan_curvature = get_plan_spatial_curvature(model_v2) * math.copysign(1.0, self.turn_hold_curvature)
+        handoff_path_curvature = min(plan_curvature * CURVATURE_HOLD_PLAN_SCALE, CURVATURE_HOLD_PLAN_CAP)
       if CC.latActive and self.turn_hold_curvature != 0.0 and (
           new_desired_curvature * math.copysign(1.0, self.turn_hold_curvature) >= CURVATURE_HOLD_HANDOFF_FRAC * abs(self.turn_hold_curvature)):
         self.turn_hold_handoff_t += DT_CTRL
-        if self.turn_hold_handoff_t > CURVATURE_HOLD_HANDOFF_TIME:
-          self.turn_hold_curvature = 0.0
-          self.turn_hold_done = True
-      else:
+      elif self.turn_hold_curvature == 0.0 or self.turn_hold_handoff_t <= CURVATURE_HOLD_HANDOFF_TIME:
         self.turn_hold_handoff_t = 0.0
+      # Keep earned handoff eligibility while the near path still needs the turn.
+      if CC.latActive and self.turn_hold_curvature != 0.0 and self.turn_hold_handoff_t > CURVATURE_HOLD_HANDOFF_TIME and (
+          handoff_path_curvature <= 0.0 or
+          new_desired_curvature * math.copysign(1.0, self.turn_hold_curvature) >= CURVATURE_HOLD_HANDOFF_FRAC * handoff_path_curvature):
+        self.turn_hold_curvature = 0.0
+        self.turn_hold_done = True
       if blinker_dir == 0.0:
         self.turn_hold_done = False
       elif (CC.latActive and CS.steeringPressed and (CS.steeringTorque * blinker_dir < 0.0) and
