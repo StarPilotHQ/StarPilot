@@ -27,6 +27,14 @@ STARPORT_TALL_HEVC_KEY = "StarPortTallHevc"
 STARPORT_TALL_HEVC_DESCRIPTION = ("Experimental test for a car that only takes H.265. Uses the car's 1080x1920 screen mode instead of " +
                                   "720x1280 when it offers one. Needs Allow H.265 video on. H.264 cars are not affected. " +
                                   "Applies from the next StarPort connection.")
+STARPORT_UNACKED_VIDEO_KEY = "StarPortUnackedVideo"
+STARPORT_UNACKED_VIDEO_DESCRIPTION = ("Experimental. For a car that shows video but never acknowledges it, so the picture freezes " +
+                                      "and reconnects every few seconds. Sends video without waiting for acknowledgments, on " +
+                                      "H.264 or H.265. Applies from the next StarPort connection.")
+STARPORT_PATIENT_TCP_KEY = "StarPortPatientConnect"
+STARPORT_PATIENT_TCP_DESCRIPTION = ("Experimental. For a wireless adapter that hands over its Wi-Fi but then refuses the connection, " +
+                                    "as if it is still starting up. Keeps trying for up to a minute instead of about 15 seconds. " +
+                                    "Applies from the next StarPort connection.")
 STARPORT_EXPERIMENTS_KEY = "StarPortHeadUnitExperiments"
 STARPORT_EXPERIMENTS_DESCRIPTION = ("Shows experimental fixes for specific cars and dongles, each with its own switch. Turn off to use the " +
                                     "standard connection for every car. Applies from the next StarPort connection.")
@@ -73,6 +81,16 @@ class DeveloperSettingsOwner:
       tall_hevc = bool(status.get("tall_hevc"))
       rows.append(FeatureRow(STARPORT_TALL_HEVC_KEY, "H.265 at 1080x1920", "On" if tall_hevc else "Off", b"1" if tall_hevc else b"0",
                              ("Off", "On"), available=parked, reason=STARPORT_TALL_HEVC_DESCRIPTION if parked else held,
+                             default_value="Off"))
+      unacked_video = bool(status.get("unacked_video"))
+      rows.append(FeatureRow(STARPORT_UNACKED_VIDEO_KEY, "Unacknowledged video", "On" if unacked_video else "Off",
+                             b"1" if unacked_video else b"0",
+                             ("Off", "On"), available=parked, reason=STARPORT_UNACKED_VIDEO_DESCRIPTION if parked else held,
+                             default_value="Off"))
+      patient_tcp = bool(status.get("patient_tcp"))
+      rows.append(FeatureRow(STARPORT_PATIENT_TCP_KEY, "Wait longer for the adapter", "On" if patient_tcp else "Off",
+                             b"1" if patient_tcp else b"0",
+                             ("Off", "On"), available=parked, reason=STARPORT_PATIENT_TCP_DESCRIPTION if parked else held,
                              default_value="Off"))
       experiments = bool(status.get("head_unit_experiments"))
       chosen = set(status.get("head_unit_experiment_rules") or ())
@@ -146,6 +164,10 @@ class DeveloperSettingsOwner:
       return self._apply_starport(request, "keyframe_test", "set_keyframe_test")
     if request.key == STARPORT_TALL_HEVC_KEY:
       return self._apply_starport(request, "tall_hevc", "set_tall_hevc")
+    if request.key == STARPORT_UNACKED_VIDEO_KEY:
+      return self._apply_starport(request, "unacked_video", "set_unacked_video")
+    if request.key == STARPORT_PATIENT_TCP_KEY:
+      return self._apply_starport(request, "patient_tcp", "set_patient_tcp")
     if request.key == STARPORT_EXPERIMENTS_KEY:
       return self._apply_starport(request, "head_unit_experiments", "set_head_unit_experiments")
     if request.key.startswith(STARPORT_EXPERIMENT_PREFIX):

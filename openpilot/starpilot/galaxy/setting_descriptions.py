@@ -117,6 +117,8 @@ DESCRIPTIONS = {
   'StarPortAllowHevc': 'Lets a car that offers only H.265 video receive H.265; a car with an H.264 mode keeps H.264.',
   'StarPortKeyframeTest': 'Sends every H.265 frame as a keyframe and logs the car\'s acknowledgments, to diagnose H.265-only cars.',
   'StarPortTallHevc': 'Uses the car\'s 1080x1920 H.265 screen mode instead of 720x1280, to diagnose H.265-only cars. Needs Allow H.265 video on.',
+  'StarPortUnackedVideo': 'Sends video without waiting for the car\'s acknowledgments, on H.264 or H.265, for cars that show video but never acknowledge it.',
+  'StarPortPatientConnect': 'Keeps trying for up to a minute when a wireless adapter hands over its Wi-Fi but refuses the connection.',
   'StarPortHeadUnitExperiments': 'Shows experimental fixes for specific cars and dongles, each with its own switch. Off is the standard connection.',
   'StarPortDedicatedWifi': "Joins the car's Wi-Fi on a second interface so the comma stays on its home Wi-Fi or phone hotspot.",
   'TeslaWakeOnCAN': 'Wakes comma when the Tesla wakes up, before you press the brake.',
@@ -191,6 +193,8 @@ INITIALIZATION = {
   'StarPortAllowHevc': 'Applies from the next StarPort connection.',
   'StarPortKeyframeTest': 'Applies from the next StarPort connection.',
   'StarPortTallHevc': 'Applies from the next StarPort connection.',
+  'StarPortUnackedVideo': 'Applies from the next StarPort connection.',
+  'StarPortPatientConnect': 'Applies from the next StarPort connection.',
   'StarPortHeadUnitExperiments': 'Applies from the next StarPort connection.',
   'StarPortDedicatedWifi': 'Applies from the next StarPort connection.',
   'LateralControllerSelection': ('Applies when driving processes next start: the controller class, vehicle policy and ' +

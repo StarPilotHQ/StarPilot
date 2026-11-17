@@ -9,13 +9,14 @@ from openpilot.starpilot.system.starport.quirk_state import MATCH_FIELDS, QuirkS
 
 EXPERIMENTAL, VALIDATED = "experimental", "validated"
 
-# Actions a rule's ladder may use. Each opens or sends one thing, and nothing else.
+# Actions a rule's ladder may use. Each opens or sends one thing, or changes one thing about how video is sent, and nothing else.
 OPEN_BLUETOOTH = "open_bluetooth"          # open the car's Bluetooth channel, without a pairing request
 OPEN_PHONE_STATUS = "open_phone_status"    # open the car's phone-status channel
 OPEN_SENSORS = "open_sensors"              # open the car-data channel (driving status and night only)
 OPEN_VENDOR = "open_vendor"                # open the car's vendor channel; nothing is sent on it
 REQUEST_BT_PAIRING = "request_bt_pairing"  # send the Bluetooth pairing request with this comma's own address
-ACTIONS = (OPEN_BLUETOOTH, OPEN_PHONE_STATUS, OPEN_SENSORS, OPEN_VENDOR, REQUEST_BT_PAIRING)
+UNACKED_VIDEO = "unacked_video"            # send video without waiting for acknowledgments; the car's pings show it is there
+ACTIONS = (OPEN_BLUETOOTH, OPEN_PHONE_STATUS, OPEN_SENSORS, OPEN_VENDOR, REQUEST_BT_PAIRING, UNACKED_VIDEO)
 
 # ServiceDiscoveryResponse field numbers (JSON turns them into strings).
 SDR_LABELS = {"2": "car_make", "3": "car_model", "4": "car_year", "7": "head_unit_make", "8": "head_unit_model",
@@ -53,6 +54,15 @@ RULES: tuple[Rule, ...] = (
                          ("2026-10-12 sessions 5-8", "2026-11-08 sessions 1, 2, 4")),
        ladder=(OPEN_BLUETOOTH, OPEN_PHONE_STATUS, OPEN_SENSORS, OPEN_VENDOR, REQUEST_BT_PAIRING),
        summary="This car's screen keeps ending after about 25 seconds."),
+  Rule(id="polestar_ps2_aar_301433653", label="2022 Polestar 2 (AAR.301433653 build)",
+       match={"car_make": "Polestar", "car_model": "PS2", "car_year": "2022", "head_unit_make": "VolvoCars",
+              "head_unit_model": "Polestar [AAR]",
+              "head_unit_software_version": "AAR.301433653 (6.1 (aareceiver_20260609.02_RC11 RELEASE PROD 1004961323)) 1"},
+       transports=(WIRELESS, WIRED), status=EXPERIMENTAL,
+       evidence=Evidence("The car shows every frame but never acknowledges one, so the comma gives up after 2.5 s; unacked it ran 100 s.",
+                         ("2026-11-16 sessions 1-15",)),
+       ladder=(UNACKED_VIDEO,),
+       summary="This car shows a still picture for a few seconds, then reconnects, over and over."),
 )
 
 
@@ -106,7 +116,8 @@ def validate_rules(rules: tuple[Rule, ...] = RULES) -> list[str]:
     if set(rule.match) != set(MATCH_FIELDS):
       problems.append(f"{rule.id}: match must name exactly {MATCH_FIELDS}")
     for key, value in rule.match.items():
-      if not value.strip() or any(char in value for char in "*?[]|^$\\"):
+      # Brackets are allowed: the Polestar 2 reports its model as "Polestar [AAR]".
+      if not value.strip() or any(char in value for char in "*?|^$\\"):
         problems.append(f"{rule.id}: {key} must be a plain, non-empty string")
     if not rule.evidence.failure or not rule.evidence.sessions:
       problems.append(f"{rule.id}: evidence is required")
