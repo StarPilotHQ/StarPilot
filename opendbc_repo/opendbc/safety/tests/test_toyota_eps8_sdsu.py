@@ -126,7 +126,9 @@ def test_ordinary_cruise_and_stock_cancel_only(word):
     assert case.native.get_controls_allowed()
     assert bool(case.accel()) == (not word & 0x200)
     assert case.accel(0, 1)
-    for value in (-3.501, 2.001):
+    for value in (-3.5, 3.5):
+      assert bool(case.accel(value)) == (not word & 0x200)
+    for value in (-3.501, 3.501):
       assert not case.accel(value)
     for _ in range(25):
       case.tick(status=None)

@@ -68,7 +68,9 @@ def test_original_prius_advert_six_independent_rx_and_limits(stock, experience):
     for _ in range(50):
       case.tick(ad=False)
     active(case, stock, experience)
-    for accel in (-3.501, 2.001):
+    for accel in (-3.5, 3.5):
+      assert bool(case.tx('ACC_CONTROL', {'ACCEL_CMD': accel})) == (not stock)
+    for accel in (-3.501, 3.501):
       assert not case.tx('ACC_CONTROL', {'ACCEL_CMD': accel})
     assert not case.tx('STEERING_LTA', {'STEER_REQUEST': 1})
     assert not case.native.safety_tx_hook(libsafety_py.make_CANPacket(0x750, 0, bytes.fromhex('0f02280100000000')))
