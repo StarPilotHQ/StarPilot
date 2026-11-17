@@ -193,6 +193,7 @@ class RetentionDrive:
     car.vCruise = car.vCruiseCluster = 70 * MPH * 3.6
     self.sm['slcDashboardObservation'].speedMps = 70 * MPH
     self.ui = ui_fake()
+    self.ui.params = params
     self.ui.CP = self.cp
     self.ui.sm['carState'].canValid, self.ui.sm['carState'].canTimeout = True, False
     self.ui.sm['carControl'].enabled = self.ui.sm['selfdriveState'].enabled = True
