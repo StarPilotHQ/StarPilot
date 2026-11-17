@@ -287,3 +287,30 @@ def test_enrollment_then_galaxy_custom_strength_persists_across_startups(gateway
     retire_settings(gateway.params)
     assert slider(gateway)[2]['value'] == '70'
     assert read_gain(gateway.params) == pytest.approx(.37)
+
+
+@pytest.mark.parametrize('saved_mode', [b'1', b'2', b'3'])
+def test_ford_all_controllers_expose_and_save_highway_smoothing(gateway, saved_mode):
+  from opendbc.car.car_helpers import interfaces
+  from opendbc.car.ford.values import CAR
+  from openpilot.starpilot.car.ford.controller_selection import KEY as FORD_MODE
+  from openpilot.starpilot.feature_capabilities import lateral_supported
+  from openpilot.starpilot.lateral.controller_selection import turn_assist_supported
+  cp = interfaces[CAR.FORD_MUSTANG_MACH_E_MK1].get_non_essential_params(CAR.FORD_MUSTANG_MACH_E_MK1)
+  gateway.context.value = AuthorityContext(True, cp, cp.as_reader().as_builder().to_bytes())
+  gateway.params.put(FORD_MODE, int(saved_mode), block=True)
+  assert lateral_supported(cp) and not turn_assist_supported(cp)
+  page, index, row = slider(gateway)
+  assert row['available']
+  intent = gateway.gateway.preview(page['view'], index, 0, gateway.session, gateway.generation, value=70)
+  assert gateway.gateway.confirm(intent['intent'], gateway.session, gateway.generation)
+  assert read_gain(gateway.params) == pytest.approx(.37)
+  assert read_saved(gateway.params, FORD_MODE, 16)[0] == saved_mode
+
+
+@pytest.mark.parametrize('flag', ['passive', 'dashcamOnly', 'notCar'])
+def test_smoothing_still_requires_real_controllable_vehicle(gateway, flag):
+  _, cp = ioniq_candidate()
+  setattr(cp, flag, True)
+  gateway.context.value = AuthorityContext(True, cp, cp.as_reader().as_builder().to_bytes())
+  assert not any(row['label'] == 'Highway Smoothing' for row in gateway.page('torque')['rows'])

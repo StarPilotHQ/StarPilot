@@ -812,9 +812,9 @@ class FeatureSettingsOwner:
     return result.committed and result.verified
 
   def _highway_smoothing_capability(self) -> tuple | None:
-    from openpilot.starpilot.lateral.controller_selection import turn_assist_supported
+    from openpilot.starpilot.feature_capabilities import lateral_supported
     cp = self.vehicle_params()
-    if cp is None or not turn_assist_supported(cp):
+    if cp is None or not lateral_supported(cp):
       return None
     return (cp.carFingerprint, cp.lateralTuning.which(), str(cp.steerControlType), cp.passive, cp.dashcamOnly, cp.notCar,
             tuple((str(config.safetyModel), int(config.safetyParam)) for config in cp.safetyConfigs))
