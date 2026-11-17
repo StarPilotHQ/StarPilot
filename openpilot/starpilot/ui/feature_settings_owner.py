@@ -154,8 +154,10 @@ class FeatureSettingsOwner:
                configuration_longitudinal: Callable[[], bool] = lambda: False,
                configuration_vehicle: Callable[[], bool] = lambda: False,
                galaxy: Callable[[], bool] = lambda: False,
-               maps_available: Callable[[], bool] | None = None):
+               maps_available: Callable[[], bool] | None = None,
+               learning_messages: Callable[[], object | None] = lambda: None):
     self.params = params
+    self.learning_messages = learning_messages
     self._galaxy = galaxy
     self._snapshot_reads: ContextVar[dict[tuple[str, int], tuple[bytes | None, bool]] | None] = ContextVar(
       "feature_snapshot_reads", default=None)
@@ -1123,7 +1125,11 @@ class FeatureSettingsOwner:
         numeric_rows = tuple(row for row in numeric_rows if not row.key.startswith(('torque:full_delay:', 'torque:automatic_delay:')))
         end = max((i for i, row in enumerate(numeric_rows) if row.key.startswith(('torque:factor:', 'torque:friction:'))), default=-1) + 1
         numeric_rows = numeric_rows[:end] + (delay_row,) + numeric_rows[end:]
-      rows.extend(numeric_rows)
+      from openpilot.starpilot.ui.learned_steering import learned_references
+      references = learned_references(self)
+      fields = {'steering_delay', 'torque:factor:value', 'torque:friction:value', 'torque:ratio:value'}
+      rows.extend(replace(row, learned_value=references.get(row.key, 'Learned · —')) if row.key in fields else row
+                  for row in numeric_rows)
     elif page == FeaturePage.AOL:
       title = "Always On Lateral"
       rows.extend(self._lateral_pause_rows(configurable))

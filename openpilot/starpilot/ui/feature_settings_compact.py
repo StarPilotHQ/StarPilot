@@ -75,7 +75,9 @@ class FeatureSettingsCompact:
       label = row.label.lower() + (" set " + row.repair_value.lower() if row.repair_value else
                                    " −" if direction < 0 else " +" if row.step else "")
       detail = value_text(row) if row.key == "LaneCenteringStrength" else (row.value + " " + row.unit).strip()
-      if value_reason(row):
+      if row.learned_value:
+        detail += " · " + row.learned_value
+      elif value_reason(row):
         detail += " · " + value_reason(row)
       button = BigButton(label, detail)
 

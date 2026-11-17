@@ -16,7 +16,8 @@
 .gx-settings__save-status--animated { max-width: calc(100vw - 32px); margin: 0; text-align: center; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 220ms ease, visibility 0s 220ms; }
 .gx-settings__save-status--animated.is-visible { opacity: 1; visibility: visible; transition-delay: 0s; }
 @media (prefers-reduced-motion: reduce) { .gx-settings__save-status--animated { transition: none; } }
-.gx-slider-header { display: flex; align-items: baseline; gap: var(--sp-2); min-height: 24px; }
+.gx-slider-header { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-2); min-height: 24px; }
+.gx-setting-learned { color: var(--text-secondary); font-size: var(--fs-xs); font-weight: var(--fw-medium); }
 .gx-slider-hint { color: var(--text-muted); font-size: var(--fs-xs); }
 .gx-row__readout { max-width: 55%; text-align: right; white-space: normal !important; overflow-wrap: anywhere; }
 .gx-switch input:focus-visible + .gx-switch__track { outline: 2px solid var(--secondary); outline-offset: 4px; }

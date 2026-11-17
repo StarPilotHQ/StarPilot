@@ -243,6 +243,7 @@ export const GalaxySettingRow = {
       </label>
       <div v-else-if="control === 'slider'" class="gx-slider-row" :class="{ 'is-fine-scrubbing': isFineScrubbing }">
         <div class="gx-slider-header" :class="{ 'gx-slider-header--preview': testAlert && row.previewSound }"><span class="gx-row__value">{{ displayValue }}</span>
+          <span v-if="row.learnedValue" class="gx-setting-learned">{{ row.learnedValue }}</span>
           <span v-if="interacting" class="gx-slider-hint">{{ isFineScrubbing ? 'Fine scrubbing' : 'Hold to fine scrub' }}</span>
           <span class="gx-slider-actions">
           <button v-if="testAlert && row.previewSound" type="button" class="gx-btn gx-btn--tonal gx-alert-preview"
@@ -259,7 +260,7 @@ export const GalaxySettingRow = {
           @pointerdown="onSliderPointerDown" @pointermove="onSliderPointerMove" @pointerup="onSliderPointerEnd"
           @pointercancel="onSliderCancel" @lostpointercapture="onSliderCancel" @keydown="beginInteract">
         <p v-if="soundError || testingSound" class="gx-alert-preview-note" role="status" aria-live="polite">{{ soundError || 'Playing on your comma…' }}</p>
-        <div class="gx-slider-meta"><span>{{ bounds.min }} to {{ bounds.numericMax ?? bounds.max }} {{ presentedRow.unit }}<template v-if="bounds.auto"> · Auto at right</template></span><span>Step: {{ bounds.step }} {{ presentedRow.unit }}</span></div>
+        <div class="gx-slider-meta"><span>{{ Number(bounds.min.toPrecision(7)) }} to {{ Number((bounds.numericMax ?? bounds.max).toPrecision(7)) }} {{ presentedRow.unit }}<template v-if="bounds.auto"> · Auto at right</template></span><span>Step: {{ Number(bounds.step.toPrecision(7)) }} {{ presentedRow.unit }}</span></div>
       </div>
       <GalaxySelect v-else-if="control === 'select'" class="gx-field" :aria-label="row.label" :value="currentValue" :disabled="dimmed" @change="onSelect">
         <option v-for="choice in row.choices" :key="choice" :value="choice">{{ choice }}</option>

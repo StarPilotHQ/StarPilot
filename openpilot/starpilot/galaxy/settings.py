@@ -185,7 +185,8 @@ class LiveContextSource:
       return None
     if self.messages is None:
       from openpilot.cereal import messaging
-      self.messages = messaging.SubMaster(["deviceState", "pandaStates", "carState", "selfdriveState", "carParams"])
+      self.messages = messaging.SubMaster(["deviceState", "pandaStates", "carState", "selfdriveState", "carParams",
+                                          "lateralDelay", "lateralTorqueParameters", "vehicleParameters"])
     return cast(Callable[[], object], self.messages.snapshot)() if hasattr(self.messages, "snapshot") else self.messages
 
   def close(self) -> None:
@@ -409,7 +410,7 @@ def _session_key(token: str) -> bytes:
 def _projection(row: FeatureRow) -> dict:
   return {"label": row.label, "value": row.value, "choices": list(row.choices), "step": row.step,
           "minimum": row.minimum, "maximum": row.maximum, "unit": row.unit,
-          "available": row.available, "reason": description(row),
+          "available": row.available, "reason": description(row), "learnedValue": row.learned_value,
           "page": row.page if row.page in PAGES else "", "action": bool(row.key and row.available and not row.page),
           "confirm": bool(row.key in CONFIRM_ACTIONS or is_long_confirm_action(row.key) or
                           row.key in (PIP_RESET, PIP_EDITOR, VASM_RESET, VASM_ANNOTATION) or row.key.startswith(PIP_FORMAT_PREFIX)),
@@ -555,6 +556,7 @@ class SettingsGateway:
       fresh = self.context.sample() if live else ctx
       return fresh.cp_raw == ctx.cp_raw and _qualified(fresh, group)
     return FeatureSettingsOwner(self.params, authorized,
+                                learning_messages=lambda: self.context._messages() if isinstance(self.context, LiveContextSource) else None,
                                 vehicle_fingerprint=lambda: getattr(current().cp, "carFingerprint", None),
                                 vehicle_params=lambda: current().cp,
                                 vision_development=lambda: diagnostic_choice_enabled(os.environ, current().cp),
