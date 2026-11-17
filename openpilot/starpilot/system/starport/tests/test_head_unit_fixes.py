@@ -31,6 +31,25 @@ def test_validate_rejects_missing_evidence():
   assert hf.validate_rules((bad,))
 
 
+POLESTAR = {"car_make": "Polestar", "car_model": "PS2", "car_year": "2022", "head_unit_make": "VolvoCars",
+            "head_unit_model": "Polestar [AAR]",
+            "head_unit_software_version": "AAR.301433653 (6.1 (aareceiver_20260609.02_RC11 RELEASE PROD 1004961323)) 1"}
+
+
+def test_a_bracketed_head_unit_model_is_allowed():
+  """Brackets are literal in an exact match, so they cannot widen a rule."""
+  rule = next(r for r in hf.RULES if r.match["head_unit_model"] == "Polestar [AAR]")
+  assert hf.validate_rules((rule,)) == []
+  assert hf.matches(rule, POLESTAR)
+  assert not hf.matches(rule, {**POLESTAR, "head_unit_model": "Polestar [AAX]"})
+
+
+@pytest.mark.parametrize("wildcard", ["AAR.*", "AAR.?01433653", "a|b", "^AAR", "AAR$"])
+def test_wildcards_are_still_rejected(wildcard):
+  bad = replace(RULE, match={**RULE.match, "head_unit_software_version": wildcard})
+  assert hf.validate_rules((bad,))
+
+
 @pytest.mark.parametrize("build", ["W46E-V164.3.1-MIHS21A-127", "W48E-V167.3.1-MIHS21A-131", "W59E-V176.5.2-MIHS21A-193", "<ip>", ""])
 def test_other_builds_do_not_match(build):
   labels = {**BOLT, "head_unit_software_version": build}

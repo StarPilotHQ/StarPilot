@@ -151,6 +151,8 @@ DEFAULT_CONFIG = {
   "dedicated_wifi_interface": True,   # join the car on its own aa0 station so wlan0 stays on home Wi-Fi
   "allow_hevc": False,         # offer H.265 when the car offers no usable H.264 mode (Galaxy Developer > StarPort)
   "tall_hevc": False,          # H.265 only: use the car's 1080x1920 mode when offered (Galaxy Developer > StarPort)
+  "unacked_video": False,      # any codec: send video without waiting for the car's acknowledgments (Galaxy Developer > StarPort)
+  "patient_tcp": False,        # wireless: keep retrying a refused projection connection for a minute (Galaxy Developer > StarPort)
   "keyframe_test": False,      # H.265 sessions only: every frame a keyframe, plus ack and frame logging (Galaxy Developer > StarPort)
   "device_name": "StarPilot",
   "version_status": 0,         # WifiVersionResponse status (0 = success) for receivers that negotiate a version
@@ -205,6 +207,8 @@ def load_config(path: Path | None = None) -> dict:
   config["allow_hevc"] = config["allow_hevc"] is True
   config["keyframe_test"] = config["keyframe_test"] is True
   config["tall_hevc"] = config["tall_hevc"] is True
+  config["unacked_video"] = config["unacked_video"] is True
+  config["patient_tcp"] = config["patient_tcp"] is True
   config["head_unit_experiments"] = config["head_unit_experiments"] is True
   config["head_unit_experiment_rules"] = sorted({str(rule)[:64] for rule in config["head_unit_experiment_rules"]
                                                  if isinstance(rule, str)})[:16]

@@ -45,6 +45,15 @@ def test_portrait_frames_pass_every_size_check(tmp_path):
     consumer.close()
 
 
+def test_the_tall_hevc_mode_is_accepted_by_the_screen_profile():
+  """Whatever mode choose_video_mode selects must pass validate_screen."""
+  mode = choose_video_mode(POLESTAR, True, True)
+  assert (mode.width, mode.height, mode.codec) == (1080, 1920, CODEC_H265)
+  validate_screen({"version": 1, "width": mode.width, "height": mode.height,
+                   "margin_width": mode.margin_width, "margin_height": mode.margin_height,
+                   "fps": mode.fps, "config_index": mode.config_index})
+
+
 @pytest.mark.parametrize("encoder", [HardwareH264Encoder, HardwareHevcEncoder])
 def test_hardware_encoders_accept_portrait_and_reject_oversized(encoder, tmp_path):
   with pytest.raises(ValueError, match="Hardware encoder supports"):
