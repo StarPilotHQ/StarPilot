@@ -341,6 +341,12 @@ class TestProjectionOnroad(unittest.TestCase):
                                'placements': {'left': (10, 20, 600, 600)}})])
     self.assertEqual(view.onroad.alert.text_only_alert_names, projection.BUBBLE_REDUNDANT_ALERTS)
 
+    layouts['pip_left'].update(width=300, height=300)
+    layouts['pip_right'].update(enabled=True, width=750, height=750)
+    view._pip_layer('content', SimpleNamespace(customization={}))
+    self.assertEqual(calls[-1][-1]['placements'], {'left': (10, 20, 300, 300), 'right': (30, 40, 750, 750)})
+    calls.pop()
+
     saved.enabled = False
     view.apply_layout({'blindSpotCamera': False, 'widgets': {}})
     view._pip_read_ns = None

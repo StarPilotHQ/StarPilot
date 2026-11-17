@@ -384,7 +384,7 @@ class TestProjectionLayout(unittest.TestCase):
     before = copy.deepcopy(base)
     document = default_layout(SCREEN)
     converted = projection_customization(document, base)
-    own = (*PROJECTION_WIDGETS, 'jetlink_status')
+    own = (*PROJECTION_WIDGETS, 'jetlink_status', 'pip_left', 'pip_right')
     native = {key: value for key, value in converted['layouts']['large'].items() if key not in own}
     self.assertEqual(native, {key: value for key, value in base['layouts']['large'].items() if key not in own})
     shift = document['canvas']['width'] - 1860
@@ -598,3 +598,35 @@ class TestNowPlayingWidget(unittest.TestCase):
     order = layout_metadata(SCREEN)['widgetOrder']
     self.assertIn('now_playing', order)
     self.assertEqual(order[-1], CAR_EXIT)
+
+
+def test_resize_migrates_and_roundtrips_without_touching_native_layout():
+  for viewport in ((1860, 1080), (2880, 1080), (1860, 2160)):
+    original = default_layout_for_viewport(viewport)
+    legacy = copy.deepcopy(original)
+    for key in ('nav_card', 'pip_left', 'pip_right'):
+      legacy['widgets'][key].pop('width')
+      legacy['widgets'][key].pop('height')
+    assert validate_layout_for_viewport(legacy, viewport) == original
+    for factor in (.5, 1, 1.5):
+      doc = copy.deepcopy(original)
+      for key in ('nav_card', 'pip_left', 'pip_right'):
+        at = doc['widgets'][key]
+        at.update(x=30, y=30, width=round(at['width'] * factor), height=round(at['height'] * factor))
+      assert validate_layout_for_viewport(doc, viewport) == doc
+      assert validate_layout_for_viewport(json.loads(json.dumps(doc)), viewport) == doc
+      base = default_document()
+      before = copy.deepcopy(base)
+      projected = projection_customization(doc, base)
+      assert base == before
+      for key in ('nav_card', 'pip_left', 'pip_right'):
+        assert projected['layouts']['large'][key]['width'] == doc['widgets'][key]['width']
+
+
+def test_resize_rejects_distortion_and_invalid_sizes():
+  import pytest
+  for width, height in ((True, 300), (0, 0), (9999, 9999), (300, 700)):
+    doc = default_layout_for_viewport((1860, 1080))
+    doc['widgets']['pip_left'].update(x=30, y=30, width=width, height=height)
+    with pytest.raises(ValueError):
+      validate_layout_for_viewport(doc, (1860, 1080))

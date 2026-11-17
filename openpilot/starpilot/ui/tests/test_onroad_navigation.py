@@ -368,3 +368,24 @@ def test_compact_navigation_widget_visibility_placement_and_touch():
   assert not card.press(100, 20, observed)
   placed.update(enabled=True, x=50, y=10)
   assert (card.bounds(observed).x, card.bounds(observed).y) == (50, 10)
+
+
+@pytest.mark.parametrize('scale', [.5, 1, 1.5, 2])
+def test_projection_navigation_resize_scales_draw_and_touch_together(scale):
+  card, observed = NavigationCard(Mock(profile=Profile.LARGE)), replace(state(), viewport_width=1860)
+  placed = observed.customization['layouts']['large']['nav_card']
+  placed.update(x=100, y=500, width=round(NAV_CARD_SIZE[0] * scale), height=round(NAV_CARD_SIZE[1] * scale))
+  bounds = card.bounds(observed)
+  assert (bounds.width, bounds.height) == (placed['width'], placed['height'])
+  assert card.press(bounds.x + bounds.width - 1, bounds.y + bounds.height - 1, observed)
+  card.release(bounds.x + bounds.width - 1, bounds.y + bounds.height - 1, observed)
+  collapsed = card.bounds(observed)
+  assert collapsed.width == collapsed.height == 112 * scale
+  assert collapsed.x + collapsed.width == bounds.x + bounds.width
+  card.collapsed = False
+  with patch.object(card, '_render_card') as draw, patch.object(rl, 'rl_push_matrix'), \
+       patch.object(rl, 'rl_pop_matrix'), patch.object(rl, 'rl_translatef'), patch.object(rl, 'rl_scalef'):
+    card.render(observed)
+  drawn = draw.call_args.args[1]
+  assert drawn.width == NAV_CARD_SIZE[0]
+  assert drawn.height == pytest.approx(placed['height'] / scale)

@@ -62,8 +62,9 @@ class NavigationCard:
       return None
     x, y = (placed["x"], placed["y"]) if placed is not None else (1230, 355)
     x += state.viewport_width - 1860
-    width, height = NAV_CARD_SIZE
-    return rl.Rectangle(x + width - 112, y, 112, 112) if self.collapsed else rl.Rectangle(x, y, width, height)
+    width, height = (placed.get('width', NAV_CARD_SIZE[0]), placed.get('height', NAV_CARD_SIZE[1])) if placed else NAV_CARD_SIZE
+    icon_size = 112 * width / NAV_CARD_SIZE[0]
+    return rl.Rectangle(x + width - icon_size, y, icon_size, icon_size) if self.collapsed else rl.Rectangle(x, y, width, height)
 
   def press(self, x, y, state):
     self.cancel()
@@ -132,6 +133,19 @@ class NavigationCard:
     if rect is None:
       self.cancel()
       return
+    scale = rect.width / (112 if self.collapsed else NAV_CARD_SIZE[0]) if self.fonts.profile != Profile.COMPACT else 1
+    if scale != 1:
+      rl.rl_push_matrix()
+      try:
+        rl.rl_translatef(rect.x, rect.y, 0)
+        rl.rl_scalef(scale, scale, 1)
+        self._render_card(state, rl.Rectangle(0, 0, rect.width / scale, rect.height / scale))
+      finally:
+        rl.rl_pop_matrix()
+    else:
+      self._render_card(state, rect)
+
+  def _render_card(self, state, rect):
     nav = state.navigation
     compact = self.fonts.profile == Profile.COMPACT
     rl.draw_rectangle_rounded(rect, .2, 8, rl.Color(15, 13, 23, 255 if compact else 245))

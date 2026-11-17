@@ -183,7 +183,7 @@ export const LayoutWidgetPreview = {
       <template v-if="native || art?.url && art.sprites?.sprites?.[widget.id]">
         <svg v-if="art?.url && art.sprites?.sprites?.[widget.id]"
           :x="art.sprites.sprites[widget.id].offsetX || 0" :y="art.sprites.sprites[widget.id].offsetY || 0"
-          :width="art.sprites.sprites[widget.id].width" :height="art.sprites.sprites[widget.id].height"
+          :width="widget.aspectRatio ? widget.width : art.sprites.sprites[widget.id].width" :height="widget.aspectRatio ? widget.height : art.sprites.sprites[widget.id].height"
           :viewBox="[art.sprites.sprites[widget.id].x, art.sprites.sprites[widget.id].y, art.sprites.sprites[widget.id].width, art.sprites.sprites[widget.id].height].join(' ')"
           preserveAspectRatio="xMinYMin meet" data-preview-source="runtime">
           <image :href="art.url" :width="art.sprites.width" :height="art.sprites.height" />
@@ -325,12 +325,12 @@ export const LayoutWidgetPreview = {
         <text x="18" y="118" font-size="16" fill="#ebe1ff">2.4 mi · 6 min</text>
         <text :x="widget.width - 18" y="118" text-anchor="end" font-size="16" fill="#ebe1ff">ETA 3:51 PM</text>
       </g>
-      <g v-else-if="widget.kind === 'nav_card'">
-        <rect x="1" y="1" :width="widget.width - 2" :height="widget.height - 2" rx="39" fill="#0f0d17f5" stroke="#a07edcbe" stroke-width="2" />
+      <svg v-else-if="widget.kind === 'nav_card'" :width="widget.width" :height="widget.height" viewBox="0 0 560 255">
+        <rect x="1" y="1" :width="560 - 2" :height="253" rx="39" fill="#0f0d17f5" stroke="#a07edcbe" stroke-width="2" />
         <text v-if="!googleRoutes" x="24" y="66" font-size="54" font-weight="700" fill="white">500 ft</text>
         <text v-if="!googleRoutes" x="24" y="100" font-size="30" font-weight="600" fill="#ded6f4">Turn right onto Las Vegas Blvd</text>
         <template v-if="!googleRoutes">
-        <g v-for="(lane, i) in [['S', 0], ['S', 0], ['S', 0], ['R', 1], ['R', 1]]" :key="i" :transform="'translate(' + ((widget.width - 320) / 2 + i * 66) + ' 116)'">
+        <g v-for="(lane, i) in [['S', 0], ['S', 0], ['S', 0], ['R', 1], ['R', 1]]" :key="i" :transform="'translate(' + ((560 - 320) / 2 + i * 66) + ' 116)'">
           <rect width="56" height="44" rx="13" :fill="lane[1] ? '#4e3e80' : '#222030'" />
           <g transform="translate(28 22)" fill="none" :stroke="lane[1] ? '#ffffff' : '#70688a'" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
             <path v-if="lane[0] === 'S'" d="M0 13 V-12 M-8 -4 L0 -12 L8 -4" />
@@ -342,12 +342,12 @@ export const LayoutWidgetPreview = {
           <g transform="translate(24 28)" fill="none" stroke="white" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 56 V28 Q12 18 22 18 H48 M34 4 L48 18 L34 32" /></g>
           <text x="104" y="66" font-size="54" font-weight="700" fill="white">500 ft</text>
           <text x="104" y="100" font-size="30" font-weight="600" fill="#ded6f4">Las Vegas Blvd</text>
-          <text :x="widget.width - 24" y="150" text-anchor="end" font-size="27" font-weight="500" fill="#d6d2e2">2.4 mi | 6 min</text>
+          <text :x="560 - 24" y="150" text-anchor="end" font-size="27" font-weight="500" fill="#d6d2e2">2.4 mi | 6 min</text>
         </template>
-        <rect x="24" y="171" :width="widget.width - 48 - 190" height="6" rx="3" fill="#a07edc3c" />
-        <rect x="24" y="171" :width="(widget.width - 48 - 190) * .35" height="6" rx="3" fill="#b296ff" />
-        <text :x="widget.width - 24" y="182" text-anchor="end" font-size="22" font-weight="600" fill="#ebe1ff">ETA 3:51 PM</text>
-      </g>
+        <rect x="24" y="171" :width="560 - 48 - 190" height="6" rx="3" fill="#a07edc3c" />
+        <rect x="24" y="171" :width="(560 - 48 - 190) * .35" height="6" rx="3" fill="#b296ff" />
+        <text :x="560 - 24" y="182" text-anchor="end" font-size="22" font-weight="600" fill="#ebe1ff">ETA 3:51 PM</text>
+      </svg>
       <g v-else-if="widget.kind === 'nav_map'">
         <defs>
           <radialGradient id="gx-nav-map-fade" cx=".5" cy=".55" r=".75"><stop offset=".55" stop-color="white" /><stop offset="1" stop-color="white" stop-opacity="0" /></radialGradient>
