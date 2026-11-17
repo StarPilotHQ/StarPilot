@@ -32,12 +32,12 @@ export const RouteCleanup = {
       <p class="gx-note">Remove all saved driving routes and their logs. This does not reset settings or software.</p>
       <GxNotice v-if="error" tone="danger">{{ error }}</GxNotice>
       <GxNotice v-if="notice" tone="success">{{ notice }}</GxNotice>
-      <div class="gx-actions"><button type="button" class="gx-btn gx-recordings__danger" @click="confirmOpen=true" :disabled="busy">Delete all driving routes</button></div>
+      <div class="gx-actions"><button type="button" class="gx-btn gx-btn--danger" @click="confirmOpen=true" :disabled="busy">Delete all driving routes</button></div>
       <GxDialog v-if="confirmOpen" labelledby="gx-route-cleanup-title" :alert="true" @close="!busy && (confirmOpen=false)">
         <h3 id="gx-route-cleanup-title">Delete all driving routes?</h3>
         <p>This permanently removes every saved route, including preserved routes and their logs. Settings and software are not changed.</p>
         <div class="gx-actions"><button type="button" class="gx-btn gx-btn--tonal" @click="confirmOpen=false" :disabled="busy">Cancel</button>
-          <button type="button" class="gx-btn gx-recordings__danger" @click="removeAll" :disabled="busy">Delete routes</button></div>
+          <button type="button" class="gx-btn gx-btn--danger" @click="removeAll" :disabled="busy">Delete routes</button></div>
       </GxDialog>
     </section>`,
 }

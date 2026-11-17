@@ -1,3 +1,4 @@
+import { GxCollapse } from './disclosure.js'
 import { isMapLink } from "./share-destination.js"
 import { GxNotice } from "./notice.js"
 import { BluetoothNotice, bluetoothConnection } from "./bluetooth-notice.js"
@@ -308,7 +309,7 @@ export const FavoriteChoices = {
 
 export const NavigationPage = {
   name: "NavigationPage",
-  components: { GxNotice, BluetoothNotice, MapOperationsPanel, NavigationMap, OfflineRoadMapsPanel, FavoriteChoices, GalaxySelect, ChoiceGroup, SourceCompare },
+  components: { GxCollapse, GxNotice, BluetoothNotice, MapOperationsPanel, NavigationMap, OfflineRoadMapsPanel, FavoriteChoices, GalaxySelect, ChoiceGroup, SourceCompare },
   props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
     go: { type: Function, default: null }, initialTab: { type: String, default: "route" }, tabs: { type: Array, required: true } },
   data() { return { bluetooth: bluetoothConnection(), data: null, results: [], busy: false, error: "", stale: false, tab: this.initialTab, gpsGuide: "android", query: "", token: "", googleKey: "", googleTest: null, mapboxOpen: false, googleOpen: false, searched: false,
@@ -573,16 +574,16 @@ export const NavigationPage = {
           </div>
         </section>
 
-        <section class="gx-card gx-starport-step" :class="{ 'gx-starport-step--done': data?.hasKey }">
-          <div class="gx-starport-step__head">
-            <span class="gx-starport-step__num" aria-hidden="true"><i v-if="data?.hasKey" class="bi bi-check-lg"></i><template v-else>1</template></span>
+        <section class="gx-card gx-step" :class="{ 'gx-step--done': data?.hasKey }">
+          <div class="gx-step__head">
+            <span class="gx-step__num" aria-hidden="true"><i v-if="data?.hasKey" class="bi bi-check-lg"></i><template v-else>1</template></span>
             <div>
               <div class="gx-navigation__step-title"><h3>Mapbox key</h3><span class="gx-starport-pill" :class="data?.hasKey ? 'gx-starport-pill--ready' : 'gx-starport-pill--soon'" role="status">{{ !data ? 'Loading…' : data.hasKey ? 'Key saved' : 'Needs a key' }}</span></div>
               <p>Required, with or without Google. Finds places, saves offline roads, plans routes and backs up Google.</p>
             </div>
             <button v-if="data?.hasKey" type="button" class="gx-btn gx-btn--tonal" :aria-expanded="mapboxOpen" aria-controls="navigation-mapbox" @click="mapboxOpen = !mapboxOpen">{{ mapboxOpen ? 'Hide' : 'Manage' }}</button>
           </div>
-          <div id="navigation-mapbox" v-show="!data?.hasKey || mapboxOpen" class="gx-starport-step__body">
+          <GxCollapse><div id="navigation-mapbox" v-show="!data?.hasKey || mapboxOpen" class="gx-step__body">
             <details class="gx-starport-wiki gx-navigation__guide" :open="!data?.hasKey"><summary>Setup your mapbox key</summary>
               <ol><li><strong>Create an account.</strong> Sign up free at <a href="https://account.mapbox.com/auth/signup/" target="_blank" rel="noopener noreferrer">Mapbox ↗</a>, or sign in if you already have one.</li>
                 <li><strong>Open your tokens.</strong> Go to <a href="https://account.mapbox.com/access-tokens/" target="_blank" rel="noopener noreferrer">Access tokens ↗</a>. The <strong>Default public token</strong> is the one you need. It starts with <strong>pk.</strong></li>
@@ -601,12 +602,12 @@ export const NavigationPage = {
               <p>Use the public token that starts with pk. A secret token isn't needed, and URL-restricted tokens may be rejected. Galaxy keeps the token on your comma and never shows it again.</p>
               <p>Typing suggestions, address lookups and offline road maps stop just short of their free monthly allowances and resume on the 1st. Routes, full searches and map views are counted but not limited. Saved places and recents skip search entirely.</p>
             </details>
-          </div>
+          </div></GxCollapse>
         </section>
 
-        <section class="gx-card gx-starport-step" :class="{ 'gx-starport-step--done': data?.hasGoogleKey }">
-          <div class="gx-starport-step__head">
-            <span class="gx-starport-step__num" aria-hidden="true"><i v-if="data?.hasGoogleKey" class="bi bi-check-lg"></i><template v-else>2</template></span>
+        <section class="gx-card gx-step" :class="{ 'gx-step--done': data?.hasGoogleKey }">
+          <div class="gx-step__head">
+            <span class="gx-step__num" aria-hidden="true"><i v-if="data?.hasGoogleKey" class="bi bi-check-lg"></i><template v-else>2</template></span>
             <div>
               <div class="gx-navigation__step-title"><h3>Google key</h3><span class="gx-starport-pill" :class="data?.hasGoogleKey ? 'gx-starport-pill--ready' : ''" role="status">{{ data?.hasGoogleKey ? (googleWorking ? 'Key saved · ' + googleWorking : 'Key saved') : 'Optional' }}</span></div>
               <p>Added on top of the Mapbox key. Unlocks Google's street &amp; traffic map, live-traffic routes and place search.</p>
@@ -614,7 +615,7 @@ export const NavigationPage = {
             <button type="button" class="gx-btn gx-btn--tonal" :aria-expanded="googleOpen" aria-controls="navigation-google" @click="googleOpen = !googleOpen">{{ googleOpen ? 'Hide' : data?.hasGoogleKey ? 'Manage' : 'Add key' }}</button>
           </div>
           <GxNotice v-if="data?.hasGoogleKey && !data?.hasKey" tone="warn">Google isn't used until the Mapbox key above is added too.</GxNotice>
-          <div id="navigation-google" v-show="googleOpen" class="gx-starport-step__body">
+          <GxCollapse><div id="navigation-google" v-show="googleOpen" class="gx-step__body">
             <details class="gx-starport-wiki gx-navigation__guide" :open="!data?.hasGoogleKey"><summary>Setup your google key</summary>
               <ol><li><strong>Create a project.</strong> Sign in to <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener noreferrer">Google Cloud ↗</a> and create a project.</li>
                 <li><strong>Turn on billing.</strong> Open <a href="https://console.cloud.google.com/billing" target="_blank" rel="noopener noreferrer">Google Cloud Billing ↗</a>. Google asks for a card and puts a temporary $50 hold on it, like a gas station does. It is not a charge and it drops off on its own. StarPilot blocks Google at 99% of the free usage, so you won't be charged.</li>
@@ -645,15 +646,15 @@ export const NavigationPage = {
               <p>The comma stops at 99% of Google's free allowance: 100,000 map tiles a month (15,000 a day), 10,000 routes, 5,000 traffic routes, 5,000 place searches (shared places included) and 10,000 typing suggestions. Every route and reroute uses live traffic, and one more request every 7½ minutes corrects the arrival time.</p>
               <p>Past 20 reroutes in an hour, or when traffic routes run out, routes ignore traffic. Past both limits the comma uses Mapbox until they reset. Google routes have no lane arrows. Place search uses Google when Google gives directions, and Mapbox if Google can't answer.</p>
             </details>
-          </div>
+          </div></GxCollapse>
         </section>
 
-        <section class="gx-card gx-starport-step">
-          <div class="gx-starport-step__head">
-            <span class="gx-starport-step__num" aria-hidden="true">3</span>
+        <section class="gx-card gx-step">
+          <div class="gx-step__head">
+            <span class="gx-step__num" aria-hidden="true">3</span>
             <div><h3>Choose your sources</h3><p>Google choices need both keys. Each one falls back to Mapbox if it can't work.</p></div>
           </div>
-          <div class="gx-starport-step__body">
+          <div class="gx-step__body">
             <ChoiceGroup label="Map picture" :model-value="data?.mapProvider || 'mapbox'" :options="mapChoices" :disabled="!available || !data"
               @update:model-value="reportSave(() => client.action('configure', {patch: {mapProvider: $event}}))" />
             <ChoiceGroup label="Directions" :model-value="data?.routeProvider || 'mapbox'" :options="routeChoices" :disabled="!available || !data"
@@ -695,12 +696,12 @@ export const NavigationPage = {
           </div>
         </section>
 
-        <section class="gx-card gx-starport-step">
-          <div class="gx-starport-step__head">
-            <span class="gx-starport-step__num" aria-hidden="true"><i class="bi bi-send"></i></span>
+        <section class="gx-card gx-step">
+          <div class="gx-step__head">
+            <span class="gx-step__num" aria-hidden="true"><i class="bi bi-send"></i></span>
             <div><h3>Ways to send a destination</h3><p>Start a trip from Galaxy or share a place straight from your phone.</p></div>
           </div>
-          <div class="gx-starport-step__body">
+          <div class="gx-step__body">
             <ul class="gx-starport-list" aria-label="Ways to set a destination">
               <li v-for="way in destinationWays" :key="way.title" class="gx-starport-row"><i class="bi" :class="way.icon" aria-hidden="true"></i>
                 <span class="gx-starport-row__text"><strong>{{ way.title }}</strong><small>{{ way.detail }}</small></span></li>

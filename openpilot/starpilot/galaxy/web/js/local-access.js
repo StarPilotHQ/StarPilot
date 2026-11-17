@@ -64,9 +64,9 @@ export const LocalAccess = {
     <div class="gx-section__header"><i class="bi bi-router" aria-hidden="true"></i><span class="gx-section__title">Local access</span></div>
     <GxNotice v-if="state.error" tone="danger">{{ state.error }}</GxNotice>
     <template v-else-if="state.data?.available">
-      <p>Connect your phone to the Galaxy hotspot, or put your phone and comma on the same Wi-Fi or Ethernet network, then open a local address:</p>
+      <p>Connect your phone to the Galaxy hotspot or the same network as your comma, then open an address below. No Internet or Galaxy password needed.</p>
       <ul class="gx-stack"><li v-for="address in state.data.addresses" :key="address.interface + address.url"><a :href="address.url" target="_blank" rel="noopener" class="gx-btn gx-btn--tonal gx-wrap">{{ address.label }} · {{ address.url }}</a></li></ul>
-      <p class="gx-note">For local access, type or paste the full http:// address into a new browser tab and bookmark it. The public Galaxy link uses the Internet tunnel, independently of hotspot access. If your browser or phone asks for local-network permission, allow access to this comma.</p>
+      <p class="gx-note">Use the full http:// address and bookmark it. Allow local-network access if prompted. Your Firestar Link uses Internet instead.</p>
     </template>
     <p v-else-if="state.data" class="gx-note" role="status">{{ state.data.reason || 'The comma has no local network address available.' }}</p>
   </section>`,

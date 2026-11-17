@@ -1,3 +1,4 @@
+import { installDisclosureMotion } from './disclosure.js'
 import { startLocalization } from "./localization.js"
 import { rememberInstallPrompt } from "./install-app.js"
 import { toggleHaptic } from "./haptics.js"
@@ -13,6 +14,8 @@ import { route, navigate, navigateBack, ensureBackEntry, setRouteLeaveGuard, sta
 import { loadCatalog } from "./startup.js"
 import { Tools } from "./tools.js"
 window.addEventListener("beforeinstallprompt", rememberInstallPrompt)
+installDisclosureMotion()
+
 const Logs = page(() => import("./logs.js").then((module) => module.Logs))
 const SoftwarePage = page(() => import("./software-status.js").then((module) => module.SoftwarePage))
 const NavigationPage = page(() => import("./navigation.js").then((module) => module.NavigationPage))

@@ -436,7 +436,7 @@ export const SpotifyPage = {
         </template>
       </GxNotice>
 
-      <section v-if="setup" class="gx-card gx-starport-step" aria-labelledby="gx-music-source-title">
+      <section v-if="setup" class="gx-card gx-step" aria-labelledby="gx-music-source-title">
         <h3 id="gx-music-source-title">Music Source</h3>
         <label class="gx-stack"><span>Play music from</span>
           <select class="gx-field" :value="setup.preferences.source || 'spotify'" :disabled="busy" @change="chooseSource">
@@ -481,7 +481,7 @@ export const SpotifyPage = {
         <small v-if="phoneSource && !setup.parked" class="gx-note">Put the car in Park or use offroad mode to change the phone.</small>
       </section>
 
-      <section v-if="setup && setupDone && !phoneSource" class="gx-card gx-starport-step gx-starport-home gx-spotify-now" aria-labelledby="gx-spotify-now-title">
+      <section v-if="setup && setupDone && !phoneSource" class="gx-card gx-step gx-starport-home gx-spotify-now" aria-labelledby="gx-spotify-now-title">
         <div class="gx-spotify-now__main">
           <div class="gx-spotify-now__text">
             <h3 id="gx-spotify-now-title" class="gx-truncate"><span translate="no">{{ track?.title || setup.preferences.deviceName }}</span></h3>
@@ -516,13 +516,13 @@ export const SpotifyPage = {
         </div>
       </section>
 
-      <ol v-if="setup" v-show="phoneSource || !setupDone || showSetup" id="gx-spotify-steps" class="gx-starport__steps">
-        <li v-if="!phoneSource" class="gx-card gx-starport-step" :class="{ 'gx-starport-step--done': installed }">
-          <div class="gx-starport-step__head">
-            <span class="gx-starport-step__num" aria-hidden="true"><i v-if="installed" class="bi bi-check-lg"></i><template v-else>1</template></span>
+      <ol v-if="setup" v-show="phoneSource || !setupDone || showSetup" id="gx-spotify-steps" class="gx-steps">
+        <li v-if="!phoneSource" class="gx-card gx-step" :class="{ 'gx-step--done': installed }">
+          <div class="gx-step__head">
+            <span class="gx-step__num" aria-hidden="true"><i v-if="installed" class="bi bi-check-lg"></i><template v-else>1</template></span>
             <div><h3>Spotify Soloist</h3><p>Spotify’s player for devices like your comma. You download it from Spotify, then upload it here.</p></div>
           </div>
-          <div class="gx-starport-step__body">
+          <div class="gx-step__body">
             <div class="gx-starport-status">
               <span class="gx-starport-pill" :class="'gx-starport-pill--' + release.level" role="status">{{ release.label }}</span>
               <div class="gx-actions gx-starport-status__actions">
@@ -537,12 +537,12 @@ export const SpotifyPage = {
           </div>
         </li>
 
-        <li v-if="!phoneSource" class="gx-card gx-starport-step" :class="{ 'gx-starport-step--done': setup.keyPresent }">
-          <div class="gx-starport-step__head">
-            <span class="gx-starport-step__num" aria-hidden="true"><i v-if="setup.keyPresent" class="bi bi-check-lg"></i><template v-else>2</template></span>
+        <li v-if="!phoneSource" class="gx-card gx-step" :class="{ 'gx-step--done': setup.keyPresent }">
+          <div class="gx-step__head">
+            <span class="gx-step__num" aria-hidden="true"><i v-if="setup.keyPresent" class="bi bi-check-lg"></i><template v-else>2</template></span>
             <div><h3>Your API Key</h3><p>Spotify gives each person their own key. Creating one needs Spotify Premium.</p></div>
           </div>
-          <div class="gx-starport-step__body">
+          <div class="gx-step__body">
             <template v-if="setup.keyPresent && !keyEditing">
               <span class="gx-starport-pill gx-starport-pill--ok" role="status">Key saved on this comma</span>
               <div class="gx-actions">
@@ -567,12 +567,12 @@ export const SpotifyPage = {
           </div>
         </li>
 
-        <li class="gx-card gx-starport-step" :class="{ 'gx-starport-step--done': outputChosen }">
-          <div class="gx-starport-step__head">
-            <span class="gx-starport-step__num" aria-hidden="true"><i v-if="outputChosen" class="bi bi-check-lg"></i><template v-else>3</template></span>
+        <li class="gx-card gx-step" :class="{ 'gx-step--done': outputChosen }">
+          <div class="gx-step__head">
+            <span class="gx-step__num" aria-hidden="true"><i v-if="outputChosen" class="bi bi-check-lg"></i><template v-else>3</template></span>
             <div><h3>Where Music Plays</h3><p>Send music from the comma to your car speakers through StarPort (Android Auto), or to a Bluetooth car stereo or speaker. Alerts keep playing from the comma itself.</p></div>
           </div>
-          <div class="gx-starport-step__body">
+          <div class="gx-step__body">
             <label class="gx-stack"><span>Send audio to</span>
               <select class="gx-field" :value="setup.preferences.output === 'bluetooth' ? setup.preferences.outputAddress : setup.preferences.output" :disabled="busy || !setup.parked" @change="chooseOutput">
                 <option value="" disabled>Choose an audio output…</option>
@@ -590,12 +590,12 @@ export const SpotifyPage = {
           </div>
         </li>
 
-        <li v-if="!phoneSource" class="gx-card gx-starport-step" :class="{ 'gx-starport-step--done': setupDone && setup.enabled && player?.loggedIn }">
-          <div class="gx-starport-step__head">
-            <span class="gx-starport-step__num" aria-hidden="true"><i v-if="setupDone && setup.enabled && player?.loggedIn" class="bi bi-check-lg"></i><template v-else>4</template></span>
+        <li v-if="!phoneSource" class="gx-card gx-step" :class="{ 'gx-step--done': setupDone && setup.enabled && player?.loggedIn }">
+          <div class="gx-step__head">
+            <span class="gx-step__num" aria-hidden="true"><i v-if="setupDone && setup.enabled && player?.loggedIn" class="bi bi-check-lg"></i><template v-else>4</template></span>
             <div><h3>Connect Spotify</h3><p>Turn it on, then pick <strong><span translate="no">{{ setup.preferences.deviceName }}</span></strong> in the Spotify app’s device list.</p></div>
           </div>
-          <div class="gx-starport-step__body">
+          <div class="gx-step__body">
             <GalaxySettingRow :row="switchRow('Spotify', setup.enabled, 'Runs Spotify on your comma. Turn off to stop playing; your setup stays saved.')"
               :index="0" :busy="busy" :save-value="(index, value) => setEnabled(value === 'On')" />
             <p v-if="setup.enabled" class="gx-note" role="status">{{ statusText }}</p>
@@ -609,7 +609,7 @@ export const SpotifyPage = {
         </li>
       </ol>
 
-      <section v-if="setup && !phoneSource && (setupDone ? showSetup : setup.release.installed)" class="gx-card gx-starport-step" aria-labelledby="gx-spotify-manage-title">
+      <section v-if="setup && !phoneSource && (setupDone ? showSetup : setup.release.installed)" class="gx-card gx-step" aria-labelledby="gx-spotify-manage-title">
         <h3 id="gx-spotify-manage-title">Storage and Account</h3>
         <label class="gx-stack"><span>Music cache</span>
           <select class="gx-field" :value="setup.preferences.cacheMb" :disabled="busy" @change="saveCache">
@@ -689,14 +689,14 @@ export const SpotifyPage = {
               <h3 id="gx-spotify-install-title">{{ setup.release.installed ? 'Install a Newer Soloist' : 'Install Spotify Soloist' }}</h3>
               <p class="gx-note">{{ setup.release.installed ? release.label + '. Your settings and Spotify sign-in stay as they are.' : 'Download it from Spotify, then send it to your comma.' }}</p>
             </div>
-            <ol class="gx-starport-sheet__steps">
-              <li class="gx-starport-step-card" :class="{ 'gx-starport-sheet__step--muted': installState !== 'choose' }">
-                <div class="gx-starport-step-card__head">
-                  <span class="gx-starport-step__num gx-starport-step-card__num">1</span>
-                  <div class="gx-starport-step-card__title"><strong>Download Soloist</strong>
+            <ol class="gx-steps gx-steps--compact">
+              <li class="gx-step-card" :class="{ 'gx-starport-sheet__step--muted': installState !== 'choose' }">
+                <div class="gx-step-card__head">
+                  <span class="gx-step__num gx-step-card__num">1</span>
+                  <div class="gx-step-card__title"><strong>Download Soloist</strong>
                     <small>From Spotify’s Downloads page, to this {{ onPhone ? 'phone' : 'computer' }}</small></div>
                 </div>
-                <div class="gx-starport-step-card__body">
+                <div class="gx-step-card__body">
                   <a class="gx-btn gx-btn--tonal" :href="setup.links.download" target="_blank" rel="noopener noreferrer" @click="markDownloadStarted">
                     <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i> Open Spotify Downloads</a>
                   <ol class="gx-note gx-starport-mirror-steps">
@@ -705,13 +705,13 @@ export const SpotifyPage = {
                   </ol>
                 </div>
               </li>
-              <li class="gx-starport-step-card" :class="{ 'gx-starport-sheet__step--muted': installState !== 'choose' }">
-                <div class="gx-starport-step-card__head">
-                  <span class="gx-starport-step__num gx-starport-step-card__num">2</span>
-                  <div class="gx-starport-step-card__title"><strong>Choose the downloaded file</strong>
+              <li class="gx-step-card" :class="{ 'gx-starport-sheet__step--muted': installState !== 'choose' }">
+                <div class="gx-step-card__head">
+                  <span class="gx-step__num gx-step-card__num">2</span>
+                  <div class="gx-step-card__title"><strong>Choose the downloaded file</strong>
                     <small>{{ downloadStarted && downloadsHint ? downloadsHint : 'The file you just downloaded' }}</small></div>
                 </div>
-                <div class="gx-starport-step-card__body">
+                <div class="gx-step-card__body">
                   <label class="gx-btn gx-btn--tonal gx-starport-file" :class="{ 'gx-starport-file--disabled': installState !== 'choose' }">
                     <input type="file" :accept="onPhone ? undefined : '.gz,.tgz,application/gzip'" aria-label="Soloist .tar.gz download" :disabled="installState !== 'choose'" @change="chooseArchive" />
                     <i class="bi bi-folder2-open"></i> {{ archiveFile ? 'Choose a Different File' : 'Choose File' }}
@@ -723,12 +723,12 @@ export const SpotifyPage = {
                   <small v-if="archiveError" class="gx-starport-bad" role="alert">{{ archiveError }}</small>
                 </div>
               </li>
-              <li class="gx-starport-step-card">
-                <div class="gx-starport-step-card__head">
-                  <span class="gx-starport-step__num gx-starport-step-card__num">3</span>
-                  <div class="gx-starport-step-card__title"><strong>Install</strong><small>Send it to your comma and check it with Spotify</small></div>
+              <li class="gx-step-card">
+                <div class="gx-step-card__head">
+                  <span class="gx-step__num gx-step-card__num">3</span>
+                  <div class="gx-step-card__title"><strong>Install</strong><small>Send it to your comma and check it with Spotify</small></div>
                 </div>
-                <div class="gx-starport-step-card__body">
+                <div class="gx-step-card__body">
                   <button v-if="installState === 'choose'" class="gx-btn gx-starport-cta" :disabled="!!uploadReason" @click="upload">Install</button>
                   <small v-if="installState === 'choose' && uploadReason && archiveFile && !archiveError" class="gx-note" role="status">{{ uploadReason }}</small>
                   <div v-if="installState === 'uploading'" role="status" aria-live="polite" class="gx-stack">

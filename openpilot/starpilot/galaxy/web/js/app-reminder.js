@@ -1,12 +1,11 @@
+import { APP_DOWNLOADS } from "./app-downloads.js"
+export { APP_DOWNLOADS } from "./app-downloads.js"
 import { reactive } from "../vendor/vue/vue.esm-browser.js"
 import { GxDialog } from "./dialog.js"
 
 export const HIDE_APP_REMINDER = "galaxy-hide-app-download-reminder"
 export const DISMISSED_APP_REMINDER = "galaxy-app-download-reminder-dismissed"
-export const APP_DOWNLOADS = {
-  ios: { href: "https://firestar.link/iOS", label: "Download for iOS", icon: "bi-apple", name: "StarPilot BT for iPhone" },
-  android: { href: "https://firestar.link/android", label: "Get the Android app", icon: "bi-google-play", name: "Galaxy for Android" },
-}
+
 
 export function appDownloadPlatform(target = globalThis) {
   // Native bridges exist before page scripts run on both companion apps.
@@ -69,5 +68,5 @@ export const AppReminderSettings = {
     <div class="gx-row"><div class="gx-row__info"><span class="gx-row__label">Hide app download reminder</span><small>Saved for this browser.</small></div>
       <label class="gx-switch"><input type="checkbox" role="switch" aria-label="Hide app download reminder" :checked="pref.hidden"
         @change="pref.set($event.target.checked)"><span class="gx-switch__track"></span><span class="gx-switch__thumb"></span></label></div>
-    <p v-if="pref.error" class="gx-note" role="alert">{{ pref.error }}</p></section>`,
+    <p v-if="pref.error" class="gx-note gx-inset" role="alert">{{ pref.error }}</p></section>`,
 }

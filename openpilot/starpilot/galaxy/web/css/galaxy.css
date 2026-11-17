@@ -1364,23 +1364,74 @@ input[type="checkbox"]:disabled { opacity: .4; cursor: not-allowed; }
 .gx-summary > div { display: flex; flex-direction: column; min-width: 0; text-align: center; }
 .gx-summary dt { color: var(--text-muted); font-size: var(--fs-xs); line-height: 1.35; overflow-wrap: anywhere; }
 .gx-summary dd { order: -1; margin: 0 0 var(--sp-1); font-size: var(--fs-lg); font-weight: var(--fw-bold); color: var(--primary); overflow-wrap: anywhere; }
-/* Android Auto setup layout; controls reuse shared Galaxy styles. */
-.gx-starport__steps { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-4); }
-.gx-starport__steps > .gx-card { margin-bottom: 0; }
-.gx-starport-step { padding: var(--panel-padding); display: grid; gap: var(--sp-4); min-width: 0; }
-.gx-starport-step__head { display: flex; align-items: flex-start; gap: var(--sp-4); min-width: 0; }
-.gx-starport-step__head h3 { margin: 2px 0 var(--sp-1); font-size: var(--fs-lg); }
-.gx-starport-step__head p { margin: 0; color: var(--text-muted); line-height: 1.45; }
-.gx-starport-step__head > .gx-btn { margin-left: auto; flex: none; }
-.gx-starport-step__num { flex: 0 0 auto; display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--radius-full);
+/* Shared setup steps: Galaxy access, navigation, music and StarPort. */
+.gx-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-4); }
+.gx-steps > .gx-card { margin-bottom: 0; }
+.gx-step { padding: var(--panel-padding); display: grid; gap: var(--sp-4); min-width: 0; }
+.gx-step__head { display: flex; align-items: flex-start; gap: var(--sp-4); min-width: 0; }
+.gx-step__head h3 { margin: 2px 0 var(--sp-1); font-size: var(--fs-lg); }
+.gx-step__head p { margin: 0; color: var(--text-muted); line-height: 1.45; }
+.gx-step__head > .gx-btn { margin-left: auto; flex: none; }
+.gx-step__num { flex: 0 0 auto; display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--radius-full);
 background: var(--primary-container); color: var(--on-primary-container); font-weight: var(--fw-bold); }
-.gx-starport-step--done .gx-starport-step__num { background: var(--success); color: var(--background); }
+.gx-step--done .gx-step__num { background: var(--success); color: var(--background); }
+.gx-step__body { display: grid; gap: var(--sp-3); min-width: 0; padding-left: calc(36px + var(--sp-4)); }
+.gx-step__body > p { margin: 0; line-height: 1.45; }
+.gx-step__body > p:has(> .gx-spinner) { display: flex; align-items: center; gap: var(--sp-2); }
+.gx-step__body > .gx-driving__actions { margin-block: 0; }
+.gx-steps--compact { gap: var(--sp-3); }
+.gx-step-card {
+display: grid;
+gap: var(--sp-3);
+padding: var(--sp-3) var(--sp-4);
+border-radius: var(--radius-md);
+background: var(--surface-container);
+border: 1px solid var(--outline);
+transition: border-color var(--motion-fast);
+}
+.gx-step-card:focus-within {
+border-color: var(--primary);
+}
+.gx-step-card__head {
+display: flex;
+align-items: center;
+gap: var(--sp-3);
+}
+.gx-step-card__num {
+width: 28px;
+height: 28px;
+font-size: var(--fs-sm);
+}
+.gx-step-card__title {
+display: grid;
+gap: 1px;
+}
+.gx-step-card__title strong {
+font-size: var(--fs-sm);
+font-weight: var(--fw-bold);
+color: var(--on-surface);
+}
+.gx-step-card__title small {
+font-size: var(--fs-xs);
+color: var(--on-surface-variant);
+}
+.gx-step-card__body {
+display: grid;
+gap: var(--sp-2);
+padding-left: 40px;
+}
+@media (max-width: 500px) {
+.gx-step-card__body { padding-left: 0; }
+.gx-step-card { padding: var(--sp-3); }
+}
+@media (max-width: 600px) {
+.gx-step { padding: var(--sp-4); }
+.gx-step__body { padding-left: 0; }
+}
+
+/* StarPort-specific status and setup controls. */
 .gx-starport-home { margin-bottom: 0; }
-.gx-starport-step__num.gx-starport-home__icon--live { background: var(--success); color: var(--background); }
-.gx-starport-step__body { display: grid; gap: var(--sp-3); min-width: 0; padding-left: calc(36px + var(--sp-4)); }
-.gx-starport-step__body > p { margin: 0; line-height: 1.45; }
-.gx-starport-step__body > p:has(> .gx-spinner) { display: flex; align-items: center; gap: var(--sp-2); }
-.gx-starport-step__body > .gx-driving__actions { margin-block: 0; }
+.gx-step__num.gx-starport-home__icon--live { background: var(--success); color: var(--background); }
 .gx-starport-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); }
 .gx-starport-status__actions { margin-left: auto; }
 .gx-starport-pill { display: inline-flex; align-items: center; gap: var(--sp-2); width: fit-content; max-width: 100%; margin: 0; padding: 6px 14px;
@@ -1471,57 +1522,6 @@ letter-spacing: -0.01em;
 .gx-starport-sheet__dialog .gx-note {
 line-height: 1.45;
 }
-.gx-starport-sheet__steps {
-list-style: none;
-margin: 0;
-padding: 0;
-display: grid;
-gap: var(--sp-3);
-}
-.gx-starport-step-card {
-display: grid;
-gap: var(--sp-3);
-padding: var(--sp-3) var(--sp-4);
-border-radius: var(--radius-md);
-background: var(--surface-container);
-border: 1px solid var(--outline);
-transition: border-color var(--motion-fast);
-}
-.gx-starport-step-card:focus-within {
-border-color: var(--primary);
-}
-.gx-starport-step-card__head {
-display: flex;
-align-items: center;
-gap: var(--sp-3);
-}
-.gx-starport-step-card__num {
-width: 28px;
-height: 28px;
-font-size: var(--fs-sm);
-}
-.gx-starport-step-card__title {
-display: grid;
-gap: 1px;
-}
-.gx-starport-step-card__title strong {
-font-size: var(--fs-sm);
-font-weight: var(--fw-bold);
-color: var(--on-surface);
-}
-.gx-starport-step-card__title small {
-font-size: var(--fs-xs);
-color: var(--on-surface-variant);
-}
-.gx-starport-step-card__body {
-display: grid;
-gap: var(--sp-2);
-padding-left: 40px;
-}
-@media (max-width: 500px) {
-.gx-starport-step-card__body { padding-left: 0; }
-.gx-starport-step-card { padding: var(--sp-3); }
-}
 .gx-starport-sheet__step--muted { opacity: .7; }
 .gx-starport-file { position: relative; }
 .gx-starport-file input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
@@ -1568,8 +1568,6 @@ border-top: 1px solid var(--outline-variant);
 .gx-starport-trademark { display: block; font-size: var(--fs-xs); opacity: .75; line-height: 1.35; }
 @media (prefers-reduced-motion: reduce) { .gx-spinner, .gx-starport-checks .gx-starport-check--active::before { animation: none; } }
 @media (max-width: 600px) {
-.gx-starport-step { padding: var(--sp-4); }
-.gx-starport-step__body { padding-left: 0; }
 .gx-starport-status__actions { margin-left: 0; width: 100%; }
 .gx-starport-status__actions .gx-btn { flex: 1 1 auto; }
 .gx-starport-row { flex-wrap: wrap; }
@@ -1607,7 +1605,7 @@ border-top: 1px solid var(--outline-variant);
 .gx-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gx-device-picker__row { display: flex; align-items: center; gap: var(--sp-1); }
 .gx-device-picker__form { padding: var(--sp-2); display: grid; gap: var(--sp-2); }
-.gx-tunnel__qr { display: block; width: min(250px, 100%); background: white; padding: var(--sp-2); border-radius: var(--radius-sm); }
+.gx-tunnel__qr { display: block; margin-inline: auto; width: min(250px, 100%); background: white; padding: var(--sp-2); border-radius: var(--radius-sm); }
 .gx-plots__hint { min-height: 2.8em; }
 .gx-tabs > button { min-height: var(--touch-target); padding: var(--sp-2) var(--sp-4); }
 .gx-tabs > button[aria-pressed="true"], .gx-tabs > button[aria-selected="true"], .gx-chip--selected { background: var(--primary); color: var(--on-primary); }
@@ -1684,7 +1682,7 @@ progress { max-width: 100%; accent-color: var(--primary); }
 .gx-replay__player:fullscreen .gx-replay__video { min-height: 0; flex: 1; }
 }
 .gx-spotify-now { display: grid; gap: var(--sp-3); }
-.gx-spotify > .gx-starport-step > h3 { margin: 0; font-size: var(--fs-lg); }
+.gx-spotify > .gx-step > h3 { margin: 0; font-size: var(--fs-lg); }
 .gx-spotify-now__main { display: flex; gap: var(--sp-3); align-items: center; justify-content: center; min-width: 0; }
 .gx-spotify-now__text { min-width: 0; }
 .gx-spotify-now__text h3, .gx-spotify-now__text p { margin: 0; }
@@ -1883,3 +1881,18 @@ progress { max-width: 100%; accent-color: var(--primary); }
 .gx-app-download__get { width: 100%; min-height: 48px; }
 .gx-app-download > .gx-app-download__platform { margin-top: -8px; font-size: .75rem; }
 .gx-app-download > .gx-btn--text { background: transparent; border-color: transparent; box-shadow: none; color: var(--text-muted); min-height: 44px; }
+
+/* Shared disclosure motion. Native focus, keyboard and open state stay intact. */
+.gx-select-menu {
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity var(--motion-base), transform var(--motion-base), display var(--motion-base) allow-discrete, overlay var(--motion-base) allow-discrete;
+}
+.gx-select-menu[open] { opacity: 1; transform: translateY(0); }
+.gx-select-menu:not([open]) { pointer-events: none; }
+@starting-style {
+  .gx-select-menu[open] { opacity: 0; transform: translateY(-4px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gx-select-menu { transition: none; }
+}

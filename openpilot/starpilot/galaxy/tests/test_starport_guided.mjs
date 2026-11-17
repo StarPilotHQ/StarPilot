@@ -270,7 +270,7 @@ console.log("StarPort guided setup: Bluetooth-first hint passed")
   assert.match(guidedBlock, /beginPairing/)         // Find car / Find adapter
   assert.match(guidedBlock, /@click="connect"/)      // the Connect button
   assert.match(guidedBlock, /Stuck pairing\?/)       // the pairing help stays
-  assert.match(template, /<ol v-if="setup && !newSetup" id="gx-starport-steps"/)   // the classic step 2, with its dropdown
+  assert.match(template, /<ol v-if="setup && !newSetup" id="gx-steps"/)   // the classic step 2, with its dropdown
   const home = template.slice(template.indexOf("gx-starport-home\" aria-labelledby"))
   assert.match(home, /<template v-if="!newSetup">\s*<GalaxySettingRow :row="carTypeRow"/)
   assert.match(StarPortGuidedSetup.template, /gx-guided__steps/)
