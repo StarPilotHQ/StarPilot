@@ -929,6 +929,9 @@ html.gx-maker-open, html.gx-maker-open body { touch-action: manipulation; }
 .gx-hotspot__field { flex: 1 1 160px; max-width: 240px; }
 .gx-hotspot__details { padding: var(--sp-3) var(--sp-4); }
 @media (max-width: 600px) {
-  .gx-hotspot__field { max-width: none; }
-  .gx-hotspot__controls { justify-content: stretch; }
+  .gx-hotspot__row { flex-direction: column; align-items: stretch; }
+  .gx-hotspot__row > .gx-row__info, .gx-hotspot__controls { flex: none; }
+  .gx-hotspot__row .gx-row__desc { overflow-wrap: anywhere; }
+  .gx-hotspot__field { min-width: 0; max-width: none; }
+  .gx-hotspot__controls { justify-content: flex-start; }
 }

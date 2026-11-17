@@ -101,7 +101,7 @@ export const GalaxyHotspot = {
           <button class="gx-btn" type="button" :disabled="!dirty || busy || !snapshot.editable || !passwordValid" @click="save">{{ busy ? 'Saving…' : 'Save hotspot' }}</button>
         </div>
       </div>
-      <div class="gx-row">
+      <div class="gx-row gx-hotspot__row">
         <div class="gx-row__info">
           <span class="gx-row__label">Local Galaxy address</span>
           <span class="gx-row__desc">Join {{ snapshot.config.ssid }} (keep connected if warned of no Internet), then open or bookmark this link.</span>
