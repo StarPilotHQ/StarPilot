@@ -103,3 +103,116 @@ def test_cellular_switch_uses_the_existing_setting_and_changes_need_park(tmp_pat
   with pytest.raises(PermissionError):
     made.apply({'action': 'pauseHotspot', 'value': False}, lambda: False)
   assert changes(calls) == [] and network_prefs.read_prefs(tmp_path)['pauseHotspot'] is True
+
+
+def test_scan_join_connect_and_forget(tmp_path):
+  calls = []
+
+  def run(argv, **_kwargs):
+    calls.append(argv[1:])
+    if 'wifi' in argv and 'list' in argv:
+      return SimpleNamespace(returncode=0, stdout='Home:80:WPA2\nGuest\\: Wi-Fi:72:\nOffice:65:WPA2\nCorp:50:WPA2 802.1X\nTheGalaxy-1234:90:WPA2\n', stderr='')
+    if 'connect' in argv or 'up' in argv or 'delete' in argv or 'modify' in argv or 'reapply' in argv:
+      return SimpleNamespace(returncode=0, stdout='', stderr='')
+    return SimpleNamespace(returncode=0, stdout=details('-1') if 'connection.uuid' in ' '.join(argv) else LISTING, stderr='')
+
+  params = Mock()
+  params.get_bool.return_value = False
+  made = NetworkSettings(tmp_path, NetworkManagerCli(run), params, link=lambda: {'link': 'wifi'})
+  scanned = made.apply({'action': 'scan'}, lambda: True)
+  assert scanned['available'] == [
+    {'ssid': 'Guest: Wi-Fi', 'signal': 72, 'security': 'open'},
+    {'ssid': 'Office', 'signal': 65, 'security': 'wpa'},
+    {'ssid': 'Corp', 'signal': 50, 'security': 'unsupported'},
+  ]
+  assert ['-t', '-f', 'SSID,SIGNAL,SECURITY', 'device', 'wifi', 'list', '--rescan', 'yes'] in calls
+
+  made.apply({'action': 'join', 'ssid': 'Office', 'password': 'correct-password', 'hidden': False}, lambda: True)
+  assert ['--wait', '15', 'device', 'wifi', 'connect', 'Office', 'ifname', 'wlan0', 'password', 'correct-password'] in calls
+
+  made.apply({'action': 'connect', 'uuid': PHONE}, lambda: True)
+  assert ['--wait', '15', 'connection', 'up', 'uuid', PHONE, 'ifname', 'wlan0'] in calls
+
+  made.apply({'action': 'forget', 'uuid': PHONE}, lambda: True)
+  assert ['connection', 'delete', 'uuid', PHONE] in calls
+
+  with pytest.raises(ValueError):
+    made.apply({'action': 'join', 'ssid': 'Office', 'password': 'short'}, lambda: True)
+
+
+def test_join_pauses_the_hotspot_and_cleans_up_a_failed_profile(tmp_path, monkeypatch):
+  calls, events = [], []
+  iface = tmp_path / 'galaxy0'
+  iface.touch()
+  monkeypatch.setattr(network_prefs.hotspot, 'request_pause', lambda seconds: (events.append('pause'), iface.unlink()))
+  monkeypatch.setattr(network_prefs.hotspot, 'clear_pause', lambda: events.append('resume'))
+  new, tried = 'dddddddd-dddd-dddd-dddd-dddddddddddd', []
+
+  def run(argv, **_kwargs):
+    calls.append(argv[1:])
+    if 'connect' in argv:
+      events.append('join')
+      tried.append(True)
+      return SimpleNamespace(returncode=4, stdout='', stderr='Secrets were required')
+    if 'wifi' in argv or 'delete' in argv:
+      return SimpleNamespace(returncode=0, stdout='', stderr='')
+    extra = f'\n\nconnection.uuid:{new}\n802-11-wireless.ssid:Office\n802-11-wireless.mode:infrastructure\n' if tried else ''
+    if 'connection.uuid' in ' '.join(argv):
+      return SimpleNamespace(returncode=0, stdout=details() + extra, stderr='')
+    return SimpleNamespace(returncode=0, stdout=LISTING + (f'{new}:802-11-wireless:yes:0:no:Office\n' if tried else ''), stderr='')
+
+  made = NetworkSettings(tmp_path, NetworkManagerCli(run), Mock(), link=lambda: {'link': 'wifi'}, hotspot_iface=iface, sleep=lambda _s: None)
+  with pytest.raises(ValueError):
+    made.apply({'action': 'join', 'ssid': 'Office', 'password': 'wrong-password'}, lambda: True)
+  assert events == ['pause', 'join', 'resume']
+  assert ['connection', 'delete', 'uuid', new] in calls
+
+
+def test_join_refuses_when_the_hotspot_stays_up(tmp_path, monkeypatch):
+  iface, calls, events = tmp_path / 'galaxy0', [], []
+  iface.touch()
+  monkeypatch.setattr(network_prefs.hotspot, 'request_pause', lambda seconds: events.append('pause'))
+  monkeypatch.setattr(network_prefs.hotspot, 'clear_pause', lambda: events.append('resume'))
+  ticks = iter(range(0, 100, 5))
+  made = NetworkSettings(tmp_path, NetworkManagerCli(fake_run(calls)), Mock(), link=lambda: {'link': 'wifi'},
+                         clock=lambda: next(ticks), hotspot_iface=iface, sleep=lambda _s: None)
+  with pytest.raises(ValueError):
+    made.apply({'action': 'connect', 'uuid': PHONE}, lambda: True)
+  assert events == ['pause', 'resume'] and not any('up' in call for call in calls)
+
+
+def test_a_hotspot_client_gets_an_answer_before_the_join_runs(tmp_path, monkeypatch):
+  calls, jobs, events = [], [], []
+  monkeypatch.setattr(network_prefs.hotspot, 'request_pause', lambda seconds: events.append('pause'))
+  monkeypatch.setattr(network_prefs.hotspot, 'clear_pause', lambda: events.append('resume'))
+  made = NetworkSettings(tmp_path, NetworkManagerCli(fake_run(calls)), Mock(), link=lambda: {'link': 'wifi'},
+                         hotspot_iface=tmp_path / 'galaxy0', sleep=lambda _s: None, spawn=jobs.append)
+  accepted = made.apply({'action': 'connect', 'uuid': PHONE}, lambda: True, background=True)
+  assert accepted['lastJoin'] == {'ssid': 'Phone: 5G', 'state': 'joining', 'error': ''}
+  assert not any('up' in call for call in calls)
+  with pytest.raises(FileExistsError):
+    made.apply({'action': 'forget', 'uuid': PHONE}, lambda: True)
+  jobs.pop()()
+  assert ['--wait', '15', 'connection', 'up', 'uuid', PHONE, 'ifname', 'wlan0'] in calls
+  assert made.snapshot(True)['lastJoin'] == {'ssid': 'Phone: 5G', 'state': 'joined', 'error': ''}
+
+
+def test_a_failed_background_join_keeps_the_reason(tmp_path):
+  jobs = []
+
+  def run(argv, **kwargs):
+    if 'connect' in argv:
+      return SimpleNamespace(returncode=4, stdout='', stderr='Secrets were required')
+    return fake_run([])(argv, **kwargs)
+
+  made = NetworkSettings(tmp_path, NetworkManagerCli(run), Mock(), link=lambda: {'link': 'wifi'},
+                         hotspot_iface=tmp_path / 'galaxy0', sleep=lambda _s: None, spawn=jobs.append)
+  made.apply({'action': 'join', 'ssid': 'Office', 'password': 'wrong-password'}, lambda: True, background=True)
+  jobs.pop()()
+  last = made.snapshot(True)['lastJoin']
+  assert last['state'] == 'failed' and 'password' in last['error']
+
+
+def test_only_hotspot_addresses_count_as_hotspot_clients():
+  assert network_prefs.via_hotspot('172.31.254.23')
+  assert not network_prefs.via_hotspot('192.168.1.20') and not network_prefs.via_hotspot('127.0.0.1') and not network_prefs.via_hotspot('bad')

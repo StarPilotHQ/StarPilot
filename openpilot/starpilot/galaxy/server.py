@@ -1839,8 +1839,10 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
           self.json(401, {'error': 'Sign in to Galaxy'})
           return
         try:
+          from openpilot.starpilot.galaxy.network_prefs import via_hotspot
           with effect_lock:
-            result = network_owner().apply(payload, lambda: self.settings_session() == identity and parked())
+            result = network_owner().apply(payload, lambda: self.settings_session() == identity and parked(),
+                                           background=via_hotspot(self.client_address[0]))
         except PermissionError:
           self.json(409, {'error': 'Park before changing network settings.'})
         except FileExistsError as error:

@@ -913,6 +913,13 @@ html.gx-maker-open, html.gx-maker-open body { touch-action: manipulation; }
 .gx-sentry-status--warning .gx-status-dot { background: var(--warning); }
 .gx-networks > .gx-card { margin-bottom: 0; }
 .gx-networks__caption { margin: 0; padding: var(--sp-2) var(--sp-4) var(--sp-3); border-top: 1px solid var(--outline); }
+.gx-networks__header-btn { min-height: 36px; padding: 0 var(--sp-3); }
+.gx-networks__scan { border-top: 1px solid var(--outline); background: rgba(255, 255, 255, 0.015); }
+.gx-networks__subhead { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4) var(--sp-2); }
+.gx-networks__link-btn { border: 0; padding: 0; background: none; font: inherit; font-size: var(--fs-sm); cursor: pointer; }
+.gx-networks__join-row { flex-wrap: wrap; background: rgba(255, 255, 255, 0.02); }
+.gx-networks__join-form { flex: 1 1 280px; justify-content: flex-end; }
+.gx-networks__field { flex: 1 1 160px; max-width: 240px; }
 .gx-networks__toggle { border: 0; padding: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .gx-networks__toggle:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; border-radius: var(--radius-sm); }
 .gx-networks__details { background: rgba(255, 255, 255, 0.015); box-shadow: inset 3px 0 var(--primary); }
@@ -921,6 +928,6 @@ html.gx-maker-open, html.gx-maker-open body { touch-action: manipulation; }
 .gx-hotspot__field { flex: 1 1 160px; max-width: 240px; }
 .gx-hotspot__details { padding: var(--sp-3) var(--sp-4); }
 @media (max-width: 600px) {
-  .gx-hotspot__field { max-width: none; }
-  .gx-hotspot__controls { justify-content: stretch; }
+  .gx-networks__field, .gx-hotspot__field { max-width: none; }
+  .gx-networks__join-form, .gx-hotspot__controls { justify-content: stretch; }
 }

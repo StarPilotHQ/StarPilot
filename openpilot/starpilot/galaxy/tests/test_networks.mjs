@@ -35,6 +35,31 @@ assert.deepEqual(sent.at(-1), { action: 'order', uuids: [second, first] })
 assert.equal(vm.move(0, -1), undefined)
 await vm.setNetwork(value.networks[1], 'whileDriving', false)
 assert.deepEqual(sent.at(-1), { action: 'network', uuid: second, setting: 'whileDriving', value: false })
+await vm.openScan()
+assert.equal(vm.adding, true)
+assert.deepEqual(sent.at(-1), { action: 'scan' })
+await vm.selectAvailable({ ssid: 'Cafe', signal: 75, security: 'open' })
+assert.deepEqual(sent.at(-1), { action: 'join', ssid: 'Cafe', password: '' })
+vm.selectAvailable({ ssid: 'Office', signal: 80, security: 'wpa' })
+assert.equal(vm.joiningSsid, 'Office')
+vm.joinPassword = 'my-wifi-password'
+await vm.submitJoin()
+assert.deepEqual(sent.at(-1), { action: 'join', ssid: 'Office', password: 'my-wifi-password', hidden: false })
+assert.equal(vm.joiningSsid, '')
+const sentBeforeForget = sent.length
+assert.equal(await vm.forgetSaved(value.networks[0]), false)
+assert.equal(sent.length, sentBeforeForget)
+await vm.forgetSaved(value.networks[0])
+assert.deepEqual(sent.at(-1), { action: 'forget', uuid: value.networks[0].uuid })
+assert.equal(vm.forgetUuid, null)
+assert.equal(validNetworks({ ...value, lastJoin: { ssid: 'Office', state: 'joining', error: '' } }), true)
+assert.equal(validNetworks({ ...value, lastJoin: { ssid: 'Office', state: 'maybe', error: '' } }), false)
+vm.adopt({ ...value, lastJoin: { ssid: 'Office', state: 'joining', error: '' } })
+vm.joining = vm.snapshot.lastJoin.state === 'joining'
+const sentWhileJoining = sent.length
+assert.equal(await vm.send({ action: 'scan' }), false)
+assert.equal(sent.length, sentWhileJoining)
+vm.joining = false
 vm.adopt({ ...value, editable: false })
 const before = sent.length
 assert.equal(await vm.send({ action: 'cellular', value: false }), false)
