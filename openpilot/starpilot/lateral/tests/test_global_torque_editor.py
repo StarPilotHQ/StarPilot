@@ -36,8 +36,11 @@ def test_generic_saved_editor_reaches_actual_controls(identity):
     assert production_supported_cp(cp)
     owner = FeatureSettingsOwner(params, lambda _: True, vehicle_fingerprint=lambda: identity,
                                  vehicle_params=lambda: cp, galaxy=lambda: True)
+    developer = next(row for row in owner.snapshot('hub', parked=True, system_long=True,
+                     lateral_context=True, metric=False).rows if row.page == 'torque/developer')
+    assert developer.available and developer.label == 'Developer Parameters'
     def rows():
-      return {row.key: row for row in owner.snapshot('torque', parked=True, system_long=True,
+      return {row.key: row for row in owner.snapshot(developer.page, parked=True, system_long=True,
               lateral_context=True, metric=False).rows}
     for field, value in [('factor', float(cp.lateralTuning.torque.latAccelFactor) * 1.1),
                          ('friction', float(cp.lateralTuning.torque.friction) + 0.01)]:
