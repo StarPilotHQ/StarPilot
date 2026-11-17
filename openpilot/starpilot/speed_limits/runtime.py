@@ -411,7 +411,7 @@ class Runtime:
         current_way_id=self.map_source.way_id, higher_seconds=self.settings.advance_higher_seconds,
         lower_seconds=self.settings.advance_lower_seconds,
         speed_mps=float(car_state.vEgo) if ego_valid else None,
-        standstill=bool(getattr(car_state, 'standstill', False)) or str(getattr(car_state, 'gearShifter', '')) == 'reverse',
+        standstill=bool(car_state.standstill) or str(car_state.gearShifter) == 'reverse',
         can_offer=self.settings.enabled and authority.can_control and not host.force_decel,
         confirmation_active=authority.can_control, now_ns=now_ns, pending=self.state.acceptance.pending, live=current,
         current_unresolved=current_unresolved)
@@ -507,7 +507,7 @@ class Runtime:
           frame.authority.can_control and not frame.host.force_decel and state.hasAcceptedAdjustedLimit and not state.acceptedIsPreview):
         state.wheelAdoptMonoTime = request.wheel_observed_ns
         state.wheelAdoptTargetMps = state.acceptedAdjustedLimit
-    receipt = getattr(self, '_ui_receipt', None)
+    receipt = self._ui_receipt
     if receipt is not None:
       message.slcState.actionSequenceId, message.slcState.actionStatus = receipt
     return Output(result, message, action_result)

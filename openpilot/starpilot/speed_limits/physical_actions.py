@@ -11,12 +11,12 @@ STATE_MAX_AGE_NS = int(2e9 / SERVICE_LIST['slcState'].frequency)
 
 
 def adoption_speed(state):
-  boundary = str(getattr(state, 'upcomingBoundaryId', ''))
+  boundary = str(state.upcomingBoundaryId)
   if not boundary:
     return float(state.speedLimit) if number(state.speedLimit, positive=True) else None
   if len(boundary) != 64 or any(c not in '0123456789abcdef' for c in boundary):
     return None
-  speed = getattr(state, 'upcomingSpeedLimit', 0.0)
+  speed = state.upcomingSpeedLimit
   return float(speed) if number(speed, positive=True) else None
 
 
@@ -26,7 +26,7 @@ def source_matches(state, observation, producer_session: str, now_ns: int) -> bo
   # Card can have a newer packet for the same episode before the planner publishes again.
   return (str(state.source) == 'dashboard' and str(state.observationKind) == 'valid' and
           str(state.sourceProducerSessionId) == producer_session and producer_session != '' and
-          getattr(observation.status, 'value', observation.status) == 'valid' and int(state.sourceEpisode) > 0 and
+          observation.status == 'valid' and int(state.sourceEpisode) > 0 and
           int(state.sourceEpisode) == int(observation.episode) and
           0 < observed_ns <= state.frameMonoTime and observed_ns <= observation.observed_ns <= now_ns and
           observed_ns < expiry_ns and observation.observed_ns < observation.valid_until_ns and
