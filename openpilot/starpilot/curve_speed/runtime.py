@@ -159,7 +159,7 @@ class Runtime:
     target = self.pending_target
     selected = applied and self.pending_cap and target is not None
     at_cap = bool(selected and self.pending_ego >= target - ACTIVE_OFF_DELTA)
-    self.was_controlling = at_cap and target < self.pending_cruise - 1.0
+    self.was_controlling = at_cap and target is not None and target < self.pending_cruise - 1.0
     outbid = self.pending_cap and not selected
     released = not self.pending_cap and target is not None and target > self.pending_cruise - ACTIVE_OFF_DELTA
     if target is None:
