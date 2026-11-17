@@ -2,7 +2,6 @@
 import hashlib
 import json
 import math
-import struct
 from dataclasses import dataclass
 
 from openpilot.starpilot.speed_limits import acceptance as acc
@@ -11,13 +10,7 @@ from openpilot.starpilot.speed_limits.map_source import copy_frame as copy_frame
 
 
 _LEGACY_KPH_TO_MPS = .277778
-
-
-def _float32(value: float) -> float:
-  return struct.unpack('f', struct.pack('f', value))[0]
-
-
-_MAX_LEGACY_SPEED = _float32(250 * _LEGACY_KPH_TO_MPS)
+_MAX_LEGACY_SPEED = acc.float32(250 * _LEGACY_KPH_TO_MPS)
 
 
 def repair_legacy_map_speed(speed_mps: float) -> float:
@@ -25,8 +18,8 @@ def repair_legacy_map_speed(speed_mps: float) -> float:
   if not 1 <= speed_mps <= _MAX_LEGACY_SPEED:
     return speed_mps
   posted_kph = round(speed_mps / _LEGACY_KPH_TO_MPS)
-  if speed_mps == _float32(posted_kph * _LEGACY_KPH_TO_MPS):
-    return _float32(posted_kph / 3.6)
+  if speed_mps == acc.float32(posted_kph * _LEGACY_KPH_TO_MPS):
+    return acc.float32(posted_kph / 3.6)
   return speed_mps
 
 

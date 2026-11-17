@@ -3,6 +3,7 @@ from typing import TypeGuard
 
 
 import math
+import struct
 from dataclasses import dataclass, replace
 from enum import Enum
 
@@ -169,6 +170,11 @@ def token(value: object) -> bool:
 
 def integer(value: object, minimum: int = 0) -> TypeGuard[int]:
   return type(value) is int and value >= minimum
+
+
+def float32(value: float) -> float:
+  # Readings and targets cross the wire as Float32; compare in that precision.
+  return struct.unpack('f', struct.pack('f', value))[0]
 
 
 def number(value: object, *, positive: bool = False) -> TypeGuard[int | float]:

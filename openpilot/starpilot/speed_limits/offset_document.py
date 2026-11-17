@@ -51,7 +51,7 @@ def validate(value: object) -> OffsetDocument | NeedsReview:
     return NEEDS_REVIEW
   if isinstance(value, OffsetDocument):
     value = {'version': 1, 'bounds_mps': value.bounds_mps, 'offsets_mps': value.offsets_mps}
-  if not isinstance(value, dict) or type(value) is not dict:
+  if type(value) is not dict:
     raise ValueError('invalid SLC offset document version')
   data = cast(dict[str, object], value)
   if type(data.get('version')) is not int or data['version'] != 1:

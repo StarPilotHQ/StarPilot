@@ -579,8 +579,7 @@ class Runtime:
       ('pedal' if frame.pedal_pressed else 'persistent') if state.driverOverrideActive else 'none')
     shown = result.state.acceptance.presentation
     ego = frame.ego_pair
-    ego_delta = (max(0.0, ego.cluster_mps - ego.raw_mps)
-                 if ego.status is sd.DomainStatus.VALID and ego.cluster_mps is not None and ego.raw_mps is not None else 0.0)
+    ego_delta = ego.delta_mps if ego.status is sd.DomainStatus.VALID else 0.0
     if self.last_received is not None:
       state.lastReceivedSpeedLimit = self.last_received.speed_mps
       state.lastReceivedSource = self.last_received.source

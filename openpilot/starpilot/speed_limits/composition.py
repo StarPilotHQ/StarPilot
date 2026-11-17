@@ -156,8 +156,7 @@ def step(state: State, frame: Frame) -> Result:
       ego.status is sd.DomainStatus.VALID and ego.session_id == state.session_id and ego.timestamp_ns == frame.now_ns and
       acc.number(ego.raw_mps) and acc.number(ego.cluster_mps)):
     assert ego.raw_mps is not None and ego.cluster_mps is not None
-    target = sd.adjusted_limit(candidate.speed_mps, frame.offset_schedule,
-                               minimum_target_mps=max(0.0, ego.cluster_mps - ego.raw_mps))
+    target = sd.adjusted_limit(candidate.speed_mps, frame.offset_schedule, minimum_target_mps=ego.delta_mps)
     matches_set = target is not None and sd.set_speed_matches(
       target, host.driver_v_cruise_kph, host.selected_cluster_kph, frame.is_metric)
   acceptance = acc.step(base.acceptance, selected.observation, frame.authority, frame.acceptance_policy,
