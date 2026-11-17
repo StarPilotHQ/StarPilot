@@ -130,7 +130,7 @@ class WheelFeature:
       rows.append(FeatureRow(PREFIX + key, label, selected or "Invalid saved action", raw, choices,
                              available=readable and self.owner.authority("preferences"),
                              reason=("LKAS also toggles AOL independently of its saved extra action." if ford_role else
-                                     "Neither LKAS nor MAIN is assigned Toggle AOL, so both retain the default AOL toggle." if implicit_toggle else
+                                     "With neither button assigned Toggle AOL, LKAS retains its default AOL toggle." if implicit_toggle else
                                      "Bookmark on release. Available while Left Paddle Longitudinal Pause is Off." if key == PADDLE_KEY else
                                      "Off adds no action to the vehicle's existing button behavior. " +
                                      "Axis pause and AOL assignments apply after restarting. Other actions can apply this drive. " +
