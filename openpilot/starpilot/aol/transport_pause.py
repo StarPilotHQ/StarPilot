@@ -58,8 +58,10 @@ def _healthy_transport_native(sm, cp, cs, session, now_ns, native=None, *, requi
 def _newer_combined_intent_native(sm, cp, cs, axis, now_ns):
   # FULL before ACK: intent only; output needs native proof/original deadlines.
   from opendbc.car.volkswagen.long_aol import qualified as volkswagen_long_qualified
+  from openpilot.starpilot.car.hyundai.aol import early_native_long_withdrawal_supported
   if (not axis.nativeAcknowledged or not axis.desiredLateral or not axis.lateralActive or
-      not axis.desiredLongitudinal or not (cs.cruiseState.enabled or volkswagen_long_qualified(cp, marked_only=True)) or
+      not axis.desiredLongitudinal or not (cs.cruiseState.enabled or volkswagen_long_qualified(cp, marked_only=True) or
+        cp.brand == 'hyundai' and early_native_long_withdrawal_supported(cp)) or
       cs.brakePressed or cs.gasPressed or cs.accFaulted):
     return None
   native = _healthy_transport_native(sm, cp, cs, str(axis.sessionId), now_ns, require_longitudinal=False)
