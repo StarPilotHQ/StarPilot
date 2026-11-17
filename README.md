@@ -5,13 +5,13 @@
 [![Discord](https://img.shields.io/discord/1387432184121393333?label=Discord)](https://firestar.link/discord)
 [![Last Updated](https://img.shields.io/github/last-commit/StarPilotHQ/StarPilot/StarPilot)](https://github.com/StarPilotHQ/StarPilot)
 [![Wiki](https://img.shields.io/badge/Wiki-StarPilot-blue?logo=wiki)](https://wiki.firestar.link)
-[![App Store](https://img.shields.io/badge/App_Store-black?logo=apple&logoColor=white)](https://apps.apple.com/ca/app/starpilot-bt/id6821039119)
-[![Google Play](https://img.shields.io/badge/Google_Play-green?logo=googleplay&logoColor=white)](https://play.google.com/store/apps/details?id=com.starpilot.galaxy)
+[![App Store](https://img.shields.io/badge/App_Store-black?logo=apple&logoColor=white)](https://firestar.link/ios)
+[![Google Play](https://img.shields.io/badge/Google_Play-green?logo=googleplay&logoColor=white)](https://firestar.link/android)
 
 **StarPilot** is a custom fork of [comma.ai's openpilot](https://comma.ai/openpilot),
 an open source driver assistance system.
 
-**This is the StarPilot 7.0 development branch (`SecretGoodStarPilot`). Feature migration,
+**This is the StarPilot 7.0 development branch (`Dom`). Feature migration,
 vehicle qualification, and Auto Learn validation are still in progress.**
 
 Openpilot provides
