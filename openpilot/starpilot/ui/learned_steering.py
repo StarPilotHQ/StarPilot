@@ -53,7 +53,7 @@ def _cached(owner, key):
 
 
 def learned_references(owner, *, now_ns=None):
-  """Prefer fresh estimates; retained caches are explicitly labelled as historical."""
+  """Prefer fresh estimates; retained caches are explicitly labeled as historical."""
   cp, result = owner.vehicle_params(), {}
   now = time.monotonic_ns() if now_ns is None else now_ns
   try:

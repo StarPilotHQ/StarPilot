@@ -127,3 +127,13 @@ assert.equal(vm.layout.stopped_timer.enabled, true)
 assert.equal(validDocument(vm.state.draft, data.metadata), true)
 assert.deepEqual(clampPlacement(vm.profile, "speed_limit_actions", 146, 44, vm.layout), {x:146, y:44})
 console.log("Native Big widgets: real metadata, optional add/move/remove, map resize/opacity and undo passed")
+
+// C4 has the same independent native navigation switch; StarPort is another document.
+const compact = structuredClone(data)
+compact.activeProfile = "compact"
+compact.supportedProfiles = ["compact"]
+assert.equal(validSnapshot(compact), true)
+assert.equal(compact.document.layouts.compact.nav_card.enabled, true)
+compact.document.layouts.compact.nav_card.enabled = false
+assert.equal(validDocument(compact.document, compact.metadata), true)
+assert.equal(compact.document.layouts.large.nav_card.enabled, true)

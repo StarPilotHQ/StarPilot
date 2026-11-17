@@ -135,6 +135,8 @@
   "TrafficJerkSpeedDecrease",
   "TruckTuning",
   "TurnAssist",
+  "TurnByTurn:compact",
+  "TurnByTurn:large",
   "TurnOffCommaScreen",
   "UseStarPilotLongitudinalPlanner",
   "UseVOACC",

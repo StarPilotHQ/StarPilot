@@ -51,7 +51,11 @@ class NavigationCard:
 
   def _placed(self, state):
     if self.fonts.profile == Profile.COMPACT:
-      return rl.Rectangle(244, 18, 72, 72) if self.collapsed else rl.Rectangle(96, 16, 368, 142)
+      placed = state.customization["layouts"]["compact"].get("nav_card")
+      if placed is not None and not placed["enabled"]:
+        return None
+      x, y = (placed["x"], placed["y"]) if placed is not None else (96, 16)
+      return rl.Rectangle(x + 148, y + 2, 72, 72) if self.collapsed else rl.Rectangle(x, y, 368, 142)
     # The card follows the right edge; legacy callers without a placement keep its fixed spot.
     placed = state.customization["layouts"]["large"].get("nav_card")
     if placed is not None and not placed["enabled"]:

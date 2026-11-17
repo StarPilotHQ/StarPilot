@@ -143,9 +143,9 @@ def test_renderer_dispatches_each_widget_in_saved_order(profile, viewport):
     projection['widgetOrder'] = order
     document = projection_customization(projection, document)
     view.projection_exit_layer = lambda state: seen.append(CAR_EXIT)
+  view.navigation = NS(render=lambda *args: seen.append('nav_card'))
   if profile == 'large':
     view.map_layer = lambda *args: seen.append('nav_map')
-    view.navigation = NS(render=lambda *args: seen.append('nav_card'))
     view.navigation_favorites = NS(render=lambda key, state: seen.append(key))
     view.projection_exit_layer = lambda state: seen.append(CAR_EXIT)
     view.now_playing = NS(render=lambda state: seen.append('now_playing'))

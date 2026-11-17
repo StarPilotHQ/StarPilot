@@ -115,11 +115,11 @@ export function overlapsReserved(profile, id, x, y, layout = null) {
   if (!actions || profile.protectedWidget !== "speed_limit_actions") return false
   if (id === "speed_limit_actions") return Object.entries(profile.widgets).some(([key, other]) => {
     const at = positions[key]
-    return key !== id && key !== "speed_limit" && key !== "stopped_timer" && other.layer !== "underlay" && at &&
+    return key !== id && key !== "speed_limit" && key !== "stopped_timer" && key !== "nav_card" && other.layer !== "underlay" && at &&
       at.enabled && Number.isFinite(at.x) && Number.isFinite(at.y) &&
       intersects(at.x, at.y, ...widgetSize(other, at))
   })
-  if (id === "speed_limit" || id === "stopped_timer") return false
+  if (id === "speed_limit" || id === "stopped_timer" || id === "nav_card") return false
   const at = positions.speed_limit_actions
   if (!at || !Number.isFinite(at.x) || !Number.isFinite(at.y)) return true
   return intersects(at.x, at.y, actions.width, actions.height)

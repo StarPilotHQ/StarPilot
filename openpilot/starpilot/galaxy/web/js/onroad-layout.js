@@ -317,6 +317,14 @@ export const LayoutWidgetPreview = {
         <text :x="widget.width - 70" y="52" text-anchor="end" font-size="34" font-weight="600" fill="#f5f2fc">24.6</text>
         <text :x="widget.width - 30" y="52" text-anchor="end" font-size="22" fill="#b8b2c8">ms</text>
       </g>
+      <g v-else-if="widget.kind === 'nav_card' && profile === 'compact'">
+        <rect x="1" y="1" :width="widget.width - 2" :height="widget.height - 2" rx="20" fill="#0f0d17" stroke="#a07edcbe" stroke-width="2" />
+        <path d="M42 78 V42 Q42 32 52 32 H78 M64 18 L78 32 L64 46" fill="none" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" />
+        <text x="104" y="46" font-size="28" font-weight="700" fill="white">500 ft</text>
+        <text x="104" y="74" font-size="18" font-weight="600" fill="#ded6f4">Turn right onto Main St</text>
+        <text x="18" y="118" font-size="16" fill="#ebe1ff">2.4 mi · 6 min</text>
+        <text :x="widget.width - 18" y="118" text-anchor="end" font-size="16" fill="#ebe1ff">ETA 3:51 PM</text>
+      </g>
       <g v-else-if="widget.kind === 'nav_card'">
         <rect x="1" y="1" :width="widget.width - 2" :height="widget.height - 2" rx="39" fill="#0f0d17f5" stroke="#a07edcbe" stroke-width="2" />
         <text v-if="!googleRoutes" x="24" y="66" font-size="54" font-weight="700" fill="white">500 ft</text>

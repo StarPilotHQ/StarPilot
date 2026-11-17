@@ -342,6 +342,7 @@ class OnroadView:
         if state.stopped_duration_s is not None:
           submit(STOPPED_TIMER_WIDGET, lambda: self._stopped_timer(state, state.stopped_duration_s))
     else:
+      submit("nav_card", lambda: self.navigation.render(state))
       if state.alert.size == AlertSize.NONE and not driver_camera:
         submit("speed_limit", lambda: self.compact_hud._speed_limit_sign(state))
         submit("max_speed", lambda: self.compact_hud.render_max_speed(state))
@@ -538,8 +539,8 @@ class OnroadView:
           self.extra_overlays(frame, state)
         if monitor_layer := getattr(self, "driver_monitor_layer", None):
           monitor_layer(frame, state)
-      self.navigation.render(state)
       if not ordered:
+        self.navigation.render(state)
         self._driving_mode(state)
         self._clock(state)
         self._weather(state)

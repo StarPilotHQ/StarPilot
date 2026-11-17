@@ -1067,3 +1067,17 @@ def test_jetlink_status_is_an_opt_in_big_widget_with_background_opacity():
     document["layouts"]["large"]["jetlink_status"]["opacity"] = bad
     with pytest.raises(ValueError):
       validate_document(document)
+
+
+def test_compact_navigation_upgrade_preserves_saved_layout_and_order():
+  import copy
+  older = default_document()
+  older['layouts']['compact']['clock']['enabled'] = True
+  del older['layouts']['compact']['nav_card']
+  older['widgetOrder'] = {'compact': [key for key in reversed(DEFAULT_WIDGET_ORDER['compact']) if key != 'nav_card']}
+  original = copy.deepcopy(older)
+  upgraded = validate_document(older)
+  assert older == original
+  assert upgraded['layouts']['compact']['nav_card'] == default_document()['layouts']['compact']['nav_card']
+  assert upgraded['widgetOrder']['compact'] == older['widgetOrder']['compact'] + ['nav_card']
+  assert {k: v for k, v in upgraded['layouts']['compact'].items() if k != 'nav_card'} == older['layouts']['compact']

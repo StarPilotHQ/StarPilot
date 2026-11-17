@@ -355,3 +355,16 @@ def test_lane_strip_shows_near_the_turn_and_replaces_the_then_chip():
     rounded.reset_mock()
     card.render(replace(state(), navigation=replace(nav, distance_m=900., then_distance_m=1200.)))
     assert rounded.call_count == 1 + 1 + 1, 'too far for lanes: the card, the Then chip and the progress track'
+
+
+def test_compact_navigation_widget_visibility_placement_and_touch():
+  card, observed = NavigationCard(Mock(profile=Profile.COMPACT)), state()
+  placed = observed.customization['layouts']['compact']['nav_card']
+  rect = card.bounds(observed)
+  assert (rect.x, rect.y, rect.width, rect.height) == (96, 16, 368, 142)
+  assert card.press(100, 20, observed)
+  placed['enabled'] = False
+  assert card.bounds(observed) is None
+  assert not card.press(100, 20, observed)
+  placed.update(enabled=True, x=50, y=10)
+  assert (card.bounds(observed).x, card.bounds(observed).y) == (50, 10)

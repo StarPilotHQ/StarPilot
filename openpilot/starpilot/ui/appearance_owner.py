@@ -87,8 +87,15 @@ class AppearanceOwner:
                 for key, value in DEFAULTS.items()}
     defaults.update(CameraView='Standard', LeadInfo='Off')
     rows = tuple(replace(row, default_value=defaults[row.key]) if row.key in defaults else row for row in rows)
+    raw, document = self._motion_source()
+    # Galaxy edits this same switch in its per-screen widget editor.
+    if not include_large:
+      rows += (FeatureRow(f"TurnByTurn:{profile}", "Turn-by-turn",
+                          ("On" if document["layouts"][str(profile)]["nav_card"]["enabled"] else "Off") if document is not None else "Unavailable",
+                          source=raw, choices=("Off", "On"), available=parked and document is not None, default_value="On",
+                          reason="On the comma screen only; StarPort has its own layout" if document is not None else
+                                 "Repair the saved layout in Colors & Layout"),)
     if profile == Profile.LARGE:
-      raw, document = self._motion_source()
       rows += (FeatureRow('ReduceMotion', 'Reduce Quick Select motion',
                           ('On' if document.get('reduceMotion') else 'Off') if document is not None else 'Unavailable', source=raw,
                           choices=('Off', 'On'), available=parked and document is not None, default_value='Off',
@@ -98,6 +105,15 @@ class AppearanceOwner:
                                 rows=tuple(rows), parked=parked)
 
   def apply(self, request: FeatureSettingsRequest) -> bool:
+    if request.key in ('TurnByTurn:large', 'TurnByTurn:compact'):
+      raw, document = self._motion_source()
+      if document is None or request.expected != raw or request.value not in ('Off', 'On'):
+        return False
+      document['layouts'][request.key.split(':')[1]]['nav_card']['enabled'] = request.value == 'On'
+      result = commit_exact(self.params, key=PARAM_KEY, max_bytes=MAX_BYTES,
+                            raw=json.dumps(document, separators=(',', ':')).encode(), expected=raw,
+                            authorized=self.parked, temp_prefix='.appearance-')
+      return result.committed and result.verified
     if request.key == 'ReduceMotion':
       raw, document = self._motion_source()
       if document is None or request.expected != raw or request.value not in ('Off', 'On'):
