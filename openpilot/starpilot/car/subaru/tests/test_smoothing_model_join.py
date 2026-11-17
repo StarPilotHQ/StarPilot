@@ -27,7 +27,7 @@ def common_join():
         assert len(statements) == 3
         assert sum(isinstance(call, ast.Call) and ast.unparse(call.func) == 'model.get_action_from_model'
                    for call in ast.walk(statements[0])) == 1
-        assert ast.unparse(statements[1]) == 'filter_action(action, prev_action, v_ego, subaru_tau)'
+        assert ast.unparse(statements[1]) == 'filter_action(action, prev_action, v_ego, subaru_tau + volkswagen_tau)'
         assert ast.unparse(statements[2]) == 'prev_action = action'
         matches.append(ast.Module(body=statements, type_ignores=[]))
   assert len(matches) == 1
@@ -54,7 +54,7 @@ def test_actual_common_join_once_and_acceleration_unchanged(owner, tau, monkeypa
            SimpleNamespace(get_action_from_model=function))
   paired_action = function(outputs, previous, .2, .2, 2.) if owner == 'laboratory' else None
   scope = {'model': model, 'LaboratoryPair': LaboratoryPair, 'laboratory_action': paired_action, 'model_output': outputs, 'prev_action': previous,
-           'lat_action_t': .2, 'long_action_t': .2, 'v_ego': 2., 'subaru_tau': tau, 'filter_action': filter_action}
+           'lat_action_t': .2, 'long_action_t': .2, 'v_ego': 2., 'subaru_tau': tau, 'volkswagen_tau': 0., 'filter_action': filter_action}
   exec(common_join(), scope)
   action = scope['action']
   alpha = 1. - math.exp(-.05 / tau) if tau > 0. else 1.
