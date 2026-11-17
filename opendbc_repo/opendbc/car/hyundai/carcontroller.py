@@ -44,6 +44,7 @@ from opendbc.car.vehicle_model import VehicleModel
 
 EV9_OP_LONG_ANGLE_TARGET_MAX = 140.0
 PE_OP_LONG_ANGLE_TARGET_MAX = 175.0
+DIRECT_ANGLE_MAX_RATE = 2.2
 
 VisualAlert = structs.CarControl.HUDControl.VisualAlert
 LongCtrlState = structs.CarControl.Actuators.LongControlState
@@ -473,7 +474,7 @@ class CarController(CarControllerBase):
                                          active, self.params, self.ev9_legacy_envelope)
       if active:
         delta = min(get_max_angle_delta_vm(safety_speed, self.ev9_legacy_envelope, self.params),
-                    self.params.ANGLE_LIMITS.MAX_ANGLE_RATE)
+                    self.params.ANGLE_LIMITS.MAX_ANGLE_RATE, DIRECT_ANGLE_MAX_RATE)
         angle = float(np.clip(angle, self.apply_angle_last - delta, self.apply_angle_last + delta))
       # Exact typed EV9 safety envelope is an additional bound, not a new tune.
       self.apply_angle_last = apply_steer_angle_limits_vm(angle, self.apply_angle_last, safety_speed, measured,
