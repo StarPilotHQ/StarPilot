@@ -59,9 +59,9 @@ class TestOffroadConfigurationPages(unittest.TestCase):
             if name == 'developer':
               # gated by Park, not by the vehicle
               expected, current = ([row for row in rows if row[0] != 'New pairing experience'] for rows in (expected, current))
-              self.assertEqual([row[0] for row in expected], ['Use VOACC'])
-              self.assertEqual([row[1] for row in expected], [False])
-              self.assertEqual([row[1] for row in current], [True])
+              self.assertEqual([row[0] for row in expected], ['Use VOACC', 'Always Hold Enhanced Stops'])
+              self.assertEqual([row[1] for row in expected], [False, False])
+              self.assertEqual([row[1] for row in current], [True, True])
               expected = [(row[0], True, *row[2:]) for row in expected]
             if name == 'profiles':
               # Saved configuration uses the native catalog; this preference is Galaxy-only.
