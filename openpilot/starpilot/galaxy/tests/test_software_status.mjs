@@ -318,7 +318,7 @@ const page = (selectedTarget = 'Dom', availableBranches = ['StarPilot', 'Dom', '
     data: { installed: { ...installed, branch: installedBranch } }, actionDisabled: false,
     draftBranch: '', draftTouched: false, dialog: null, version: '', calls: [],
     async loadVersions() { this.calls.push(this.draftBranch) } }
-  for (const key of ['branchOptions', 'previousVersion', 'otherBranches'])
+  for (const key of ['branchOptions', 'previousVersion', 'primaryBranches', 'otherBranches'])
     Object.defineProperty(state, key, {get:()=>SoftwarePage.computed[key].call(state)})
   return state
 }
@@ -748,6 +748,11 @@ await SoftwarePage.methods.onPrimaryBranchChange.call(branchLayout)
 assert.equal(branchLayout.draftBranch, '')
 assert.deepEqual(branchLayout.calls, [], 'opening Other does not refresh metadata without a branch')
 assert.deepEqual(branchLayout.otherBranches.map(branch => branch.name), ['beta'])
+const pendingChannels = page('Dom', ['Dom', 'StarPilot', 'dev'])
+SoftwarePage.methods.syncDraftBranch.call(pendingChannels, 'Dom')
+assert.deepEqual(pendingChannels.primaryBranches, ['StarPilot', 'Dom'])
+assert.equal(pendingChannels.primaryChoice, 'Dom', 'unpublished channel names do not displace working primary choices')
+assert.deepEqual(pendingChannels.otherBranches.map(branch => branch.name), ['dev'])
 const legacyChannels = page('Dom', ['Dom', 'StarPilot', 'dev', 'testing', 'stable'])
 SoftwarePage.methods.syncDraftBranch.call(legacyChannels, 'Dom')
 assert.equal(legacyChannels.primaryChoice, 'other:')
