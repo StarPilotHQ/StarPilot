@@ -105,6 +105,10 @@ static bool hyundai_daw_tx(const CANPacket_t *msg) {
 }
 
 static bool hyundai_daw_fwd(const CANPacket_t *msg) {
+  // Forwarding precedes the RX hook; observe this physical classic frame first.
+  if ((hyundai_daw_len == 6U) && (msg->bus == 2U) && (msg->addr == 0x53EU) && (GET_LEN(msg) == 6U)) {
+    hyundai_daw_rx(msg);
+  }
   const uint32_t now = microsecond_timer_get();
   bool blocked = (msg->bus == 2U) && (msg->addr == 0x53EU) && (GET_LEN(msg) == 6U) && (hyundai_daw_addr == 0x53EU) &&
                  (hyundai_daw_len == 6U) && hyundai_daw_seen && hyundai_daw_sent &&
