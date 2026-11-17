@@ -104,6 +104,7 @@ export const FlmPage = {
     connectionLabel() {
       if (this.loading && !this.report) return 'Connecting…'
       if (!this.choiceLive && !this.live) return this.state.key === 'offline' ? 'Connection interrupted' : 'Waiting for device'
+      if (this.preference?.controller !== undefined && this.preference.controller !== 'torque') return 'Connected'
       return this.preference?.valid ? 'Connected · Auto Learn ' + (this.preference.enabled ? 'on' : 'off') : 'Connected'
     },
 
@@ -111,6 +112,7 @@ export const FlmPage = {
     current() { return this.report?.current },
     preference() { return validLearningPreference(this.report?.preference) ? this.report.preference : null },
     choiceLive() { return !this.error && !!this.preference && Math.max(0, this.now - this.receivedAt) <= 2000 },
+    nonTorqueController() { return this.choiceLive && ['pid', 'angle', 'curvature'].includes(this.preference?.controller) },
     reportFresh() { return !this.error && !!this.current?.fresh && this.current.ageSeconds + Math.max(0, this.now - this.receivedAt) / 1000 <= 2 },
     live() { return this.reportFresh &&
       !(this.choiceLive && (this.preference.enabled === false || this.preference.parked === true)) },
@@ -314,6 +316,7 @@ export const FlmPage = {
     <header class="gx-page-header gx-settings__header gx-tuner__heading"><div><h2>Your steering</h2><p>{{ vehicle }}</p></div></header>
     <GxState v-if="mode !== 'local'">Connect to your device to see its steering tune.</GxState>
     <template v-else>
+      <p v-if="nonTorqueController" class="gx-tuner__caption" data-autotune-scope="torque-only">Autotune is available for torque steering only. Live plots remain available.</p>
       <GxNotice v-if="error && view !== 'plots'" tone="danger">{{ error }}</GxNotice>
       <div v-if="view !== 'plots'" class="gx-tuner__connection" role="status"><span class="gx-tuner__status-dot" :data-tone="connectionTone" aria-hidden="true"></span><span>{{ connectionLabel }}</span><span class="gx-tuner__connection-state">{{ currentApplied ? 'Learned tune in use' : preference?.parked ? 'Parked' : live ? 'Driving · use not confirmed' : 'State not confirmed' }}</span></div>
       <GxDialog v-if="manualResetRequested && manualState.pending" labelledby="manual-tune-confirm-title" @close="cancelManualReset"><h3 id="manual-tune-confirm-title">Reset manual tune?</h3><p>{{ manualState.pending.question }}</p><div class="gx-dialog__actions"><button type="button" class="gx-btn gx-btn--tonal" @click="cancelManualReset">Cancel</button><button type="button" class="gx-btn" @click="confirmManualReset">Reset</button></div></GxDialog>

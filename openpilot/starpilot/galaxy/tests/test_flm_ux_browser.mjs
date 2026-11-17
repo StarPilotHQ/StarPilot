@@ -17,6 +17,7 @@ const targetIndex = SURFACE_NAMES.indexOf('highway_center_taper_max')
 const running = child => child.exitCode === null && child.signalCode === null
 assert.equal(running({ exitCode: null, signalCode: 'SIGTERM' }), false, 'A signal-reaped child must not be awaited for a second exit')
 let scenario = 'ideas', parked = true, saveError = false, reportError = false, pending = null
+let steeringController = 'torque'
 let backupReject = false, backupRecovery = false, manualRecovered = false
 const tuneBackup = { format: 'starpilot-flm-tune', version: 1, vehicle: 'DECLARED_UI_CAR', metric: false,
   controllerMode: 'starpilot', cpSha256: 'a'.repeat(64), createdAt: '2026-11-16T03:00:00Z', checksum: 'declared-ui-checksum',
@@ -31,7 +32,7 @@ function report() {
   const rows = SURFACE_NAMES.map(name => [name, saved && name === 'highway_center_taper_max' ? .005 : 0])
   const start = 1_000_000_000, points = Array.from({ length: 24 }, (_, i) =>
     [start + i * 80_000_000, .17 * Math.cos(i / 6), .17 * Math.cos((i - 2) / 6)])
-  const value = { version: 1, history: [], vehicle: scenario === 'wrong-car' ? 'OTHER_DECLARED_CAR' : 'DECLARED_UI_CAR', preference: { version: 1, valid: true, enabled: true, parked, vehicle: 'DECLARED_UI_CAR' },
+  const value = { version: 1, history: [], vehicle: scenario === 'wrong-car' ? 'OTHER_DECLARED_CAR' : 'DECLARED_UI_CAR', preference: { version: 1, valid: true, enabled: true, parked, vehicle: 'DECLARED_UI_CAR', controller: steeringController },
     current: { fresh: true, ageSeconds: 0, enabled: application, status: 'collecting', reason: 'no_new_native_feasible_training_step',
       progress: { samples: 71357, blocks: 197, requiredBlocks: 6 }, fit: null,
       application: { applied: application, reason: application ? 'current_controller_application' : 'saved_configuration_is_not_current_application' },
@@ -259,6 +260,27 @@ try {
   await command(`/session/${session}/goog/cdp/execute`, { cmd: 'Emulation.setEmulatedMedia', params: { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] } })
   await command(`/session/${session}/url`, { url: `http://127.0.0.1:${server.address().port}/__fixture` })
   await until(() => execute('return window.fixtureReady && window.flm.report && !window.flm.request'))
+  await viewport(416)
+  for (const controller of ['torque', 'angle', 'pid', null, 'torque']) {
+    steeringController = controller
+    await execute('return window.flm.load()')
+    await until(() => execute('return !window.flm.request && window.flm.preference?.controller === arguments[0]', controller))
+    const nonTorque = ['angle', 'pid', 'curvature'].includes(controller)
+    assert.equal(await execute('return !!document.querySelector("[data-autotune-scope=torque-only]")'), nonTorque)
+    assert.equal(await execute('return window.flm.preference.controller'), controller)
+    if (nonTorque) {
+      await execute('window.scrollTo({top:0,behavior:"instant"})')
+      assert.equal(await execute('return document.querySelector("[data-autotune-scope=torque-only]").textContent'), 'Autotune is available for torque steering only. Live plots remain available.')
+      assert(await execute('return document.querySelector("[data-autotune-scope=torque-only]").getBoundingClientRect().top >= document.querySelector(".gx-appbar").getBoundingClientRect().bottom'))
+      assert.equal(await execute('return window.flm.connectionLabel'), 'Connected')
+      await layout('controller/' + controller);await capture('controller-' + controller + '-416')
+    }
+    await click('#tuner-tab-plots')
+    assert.equal(await execute('return window.flm.view'), 'plots')
+    assert(await execute('return !!document.querySelector("#tuner-panel-plots")'))
+    await click('#tuner-tab-overview')
+    checks.push('controller/' + (controller ?? 'unknown') + '/plots-available')
+  }
   for (const width of [320, 416, 720, 1280]) {
     await viewport(width, width === 720 ? 480 : 900)
     for (const theme of ['dark', 'light']) {

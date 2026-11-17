@@ -144,6 +144,7 @@ def choice_fixture(tmp_path, *, parked=True, enabled=True):
   from openpilot.starpilot.lateral.learning_preferences import KEY, replace_preference
   params = ChoiceParams(tmp_path)
   cp = car.CarParams.new_message(brand='hyundai', carFingerprint='HYUNDAI_IONIQ_6')
+  cp.lateralTuning.init('torque').latAccelFactor = 3.0
   params.put('IsOffroad', b'1' if parked else b'0')
   params.put(KEY, replace_preference(None, cp, enabled))
   if parked:
@@ -161,7 +162,7 @@ def test_choice_is_independent_of_a_missing_or_stopped_learner(tmp_path, parked,
   snapshot = FlmTrainingResults(tmp_path / 'missing-report', params=params).snapshot()
   assert snapshot['current'] is None
   assert snapshot['preference'] == {'version': 1, 'valid': True, 'enabled': enabled, 'parked': parked,
-                                    'vehicle': 'HYUNDAI_IONIQ_6'}
+                                    'vehicle': 'HYUNDAI_IONIQ_6', 'controller': 'torque'}
   assert before == {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in tmp_path.iterdir()}
 
 
@@ -169,6 +170,33 @@ def test_scoped_on_is_not_overridden_by_legacy_off(tmp_path):
   params, _cp = choice_fixture(tmp_path)
   params.put('ForceAutoTuneOff', b'1')
   assert FlmTrainingResults(tmp_path / 'missing', params=params).snapshot()['preference']['enabled'] is True
+
+
+@pytest.mark.parametrize('parked', [True, False])
+def test_controller_projection_follows_current_or_parked_cp_without_writing_preferences(tmp_path, parked):
+  from openpilot.starpilot.schema_cache import put_cache
+
+  params, cp = choice_fixture(tmp_path, parked=parked)
+  other = cp.as_reader().as_builder()
+  other.steerControlType = 'angle'
+  if parked:
+    params.put('CarParams', other.to_bytes())
+  else:
+    put_cache(params, 'CarParamsPersistent', other)
+  source = FlmTrainingResults(tmp_path / 'missing', params=params)
+  for kind in ('torque', 'pid', 'angle', 'curvature'):
+    cp = cp.as_reader().as_builder()
+    cp.steerControlType = kind if kind in ('angle', 'curvature') else 'torque'
+    cp.lateralTuning.init('pid' if kind == 'pid' else 'torque')
+    if parked:
+      put_cache(params, 'CarParamsPersistent', cp)
+    else:
+      params.put('CarParams', cp.to_bytes())
+    before = {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in tmp_path.iterdir()}
+    assert source.snapshot()['preference']['controller'] == kind
+    assert before == {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in tmp_path.iterdir()}
+  params.put('IsOffroad', b'unknown')
+  assert source.snapshot()['preference'].get('controller') is None
 
 
 def saved_route(cp, *, revision='earlier-controller'):

@@ -39,7 +39,7 @@ class TestControllerFeature(unittest.TestCase):
     self.cp = interfaces[HYUNDAI.HYUNDAI_IONIQ_6].get_non_essential_params(HYUNDAI.HYUNDAI_IONIQ_6)
     self.permitted = True
     self.owner = FeatureSettingsOwner(self.params, lambda group: self.permitted and group == 'preferences',
-                                      vehicle_fingerprint=lambda: str(self.cp.carFingerprint),
+                                      vehicle_fingerprint=lambda: str(self.cp.carFingerprint) if self.cp is not None else None,
                                       vehicle_params=lambda: self.cp)
 
   def row(self, key=DOCUMENT_KEY):
@@ -85,21 +85,46 @@ class TestControllerFeature(unittest.TestCase):
     self.assertIsNone(self.params.get('ForceAutoTuneOff'))
     self.assertIsNone(self.params.get(DOCUMENT_KEY))
 
-  def test_stock_pid_torque_uses_same_scoped_learning_preference_only(self):
+  def test_stock_pid_keeps_learning_preference_without_exposing_a_toggle(self):
     self.cp = interfaces[HONDA.HONDA_CIVIC].get_non_essential_params(HONDA.HONDA_CIVIC)
     self.assertEqual(self.cp.lateralTuning.which(), 'pid')
     original = self.cp.as_reader().as_builder().to_bytes()
     self.assertIsNone(self.row())  # No torque-only controller/manual editor.
-    learning = self.require_row('ForceAutoTuneOff')
-    self.assertEqual((learning.label, learning.value), ('Use StarPilot Auto Learn', 'On'))
-    self.assertTrue(learning.available)
-    self.assertEqual(_projection(learning)['choices'], ['Off', 'On'])
-    self.assertTrue(self.owner.apply(required_change(learning)))
-    self.assertFalse(read_preference(self.params, self.cp).enabled)
+    self.assertIsNone(self.row('ForceAutoTuneOff'))
+    self.assertTrue(read_preference(self.params, self.cp).enabled)
     self.assertIsNone(self.params.get('ForceAutoTuneOff'))
     self.assertIsNone(self.params.get(DOCUMENT_KEY))
     self.assertEqual(self.cp.as_reader().as_builder().to_bytes(), original)
-    self.assertFalse(self.owner.apply(required_change(learning)))  # Original expected bytes are stale.
+
+  def test_controller_changes_hide_stale_learning_actions_without_changing_saved_values(self):
+    from openpilot.starpilot.lateral.learning_preferences import replace_preference
+
+    torque = self.cp
+    self.params.put(LEARNING_KEY, replace_preference(None, torque, False), block=True)
+    request = required_change(self.require_row('ForceAutoTuneOff'))
+    before = Path(self.params.get_param_path(LEARNING_KEY)).read_bytes()
+    for cp in (None, interfaces[HONDA.HONDA_CIVIC].get_non_essential_params(HONDA.HONDA_CIVIC)):
+      self.cp = cp
+      for parked in (True, False):
+        state = self.owner.snapshot('torque', parked=parked, system_long=False, lateral_context=False, metric=False)
+        self.assertFalse(any(row.key == 'ForceAutoTuneOff' for row in state.rows))
+      self.assertFalse(self.owner.apply(request))
+      self.assertEqual(Path(self.params.get_param_path(LEARNING_KEY)).read_bytes(), before)
+    self.cp = torque
+    self.assertEqual(self.require_row('ForceAutoTuneOff').value, 'Off')
+
+  def test_displayed_controller_matches_the_actual_factory_dispatch(self):
+    from openpilot.selfdrive.controls.lib.lateral_controller_factory import create_lateral_controller
+    from openpilot.starpilot.ui.controller_feature import steering_controller
+
+    for vehicle, expected in (('HYUNDAI_IONIQ_6', 'torque'), ('HONDA_CIVIC', 'pid'),
+                              ('NISSAN_LEAF', 'angle'), ('FORD_FOCUS_MK4', 'angle')):
+      with self.subTest(vehicle=vehicle):
+        cp = interfaces[vehicle].get_non_essential_params(vehicle).as_reader()
+        actual = create_lateral_controller(cp, interfaces[vehicle](cp), .01, mode=ControllerMode.STANDARD)
+        self.assertEqual(type(actual).__name__, {'torque': 'LatControlTorque', 'pid': 'LatControlPID',
+                                                'angle': 'LatControlAngle', 'curvature': 'LatControlCurvature'}[expected])
+        self.assertEqual(steering_controller(cp), expected)
 
   def test_learning_capability_rejects_unknown_angle_and_passive_cp(self):
     original = self.cp.as_reader().as_builder()

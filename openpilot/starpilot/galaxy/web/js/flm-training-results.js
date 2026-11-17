@@ -191,6 +191,7 @@ export function validLearningPreference(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value) && value.version === 1 &&
     typeof value.valid === "boolean" && [true, false, null].includes(value.enabled) &&
     [true, false, null].includes(value.parked) && (value.vehicle === null || text(value.vehicle, 256)) &&
+    (value.controller === undefined || [null, 'torque', 'pid', 'angle', 'curvature'].includes(value.controller)) &&
     (value.valid ? typeof value.enabled === "boolean" && typeof value.parked === "boolean" && value.vehicle !== null : value.enabled === null)
 }
 
