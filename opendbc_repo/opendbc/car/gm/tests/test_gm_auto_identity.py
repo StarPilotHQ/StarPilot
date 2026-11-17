@@ -62,7 +62,8 @@ class TestGMAutoIdentity(unittest.TestCase):
     from opendbc.car.gm.fingerprints import FINGERPRINTS
     from opendbc.car.gm.interface import CarInterface
     from opendbc.car.gm.values import (CAR, DBC, GMFlags, ORDINARY_CC_WORD, MALIBU_CC_F1_WORD,
-                                     MALIBU_CC_F1_STOCK_WORD, is_ordinary_cc_profile, control_flags)
+                                     MALIBU_CC_F1_STOCK_WORD, GMSafetyFlags, is_ordinary_cc_profile,
+                                     is_ordinary_cc_stock_profile, control_flags)
     from opendbc.car import structs
     from openpilot.starpilot.vehicle_preferences import VehicleStartupPreferences
     from opendbc.car.gm.tests.test_cc_gateway_stock import pt_frames
@@ -93,10 +94,12 @@ class TestGMAutoIdentity(unittest.TestCase):
           preferences = VehicleStartupPreferences(disable_bolt_long=True)
           preferences.prepare(disabled, fingerprints=fp)
           preferences.finalize(disabled)
-          self.assertTrue(is_ordinary_cc_profile(disabled), identity)
+          self.assertTrue((is_ordinary_cc_profile if f1 else is_ordinary_cc_stock_profile)(disabled), identity)
           self.assertFalse(disabled.openpilotLongitudinalControl)
-          self.assertEqual(disabled.pcmCruise, f1)
-          self.assertEqual(disabled.safetyConfigs[0].safetyParam, MALIBU_CC_F1_STOCK_WORD if f1 else expected_word)
+          self.assertTrue(disabled.pcmCruise)
+          self.assertFalse(disabled.autoResumeSng)
+          self.assertEqual(control_flags(disabled), expected_flags if f1 else 0)
+          self.assertEqual(disabled.safetyConfigs[0].safetyParam, MALIBU_CC_F1_STOCK_WORD if f1 else GMSafetyFlags.NO_ACC)
           ci = CarInterface(cp)
           packer = CANPacker(DBC[car][Bus.pt])
           for tick in range(40):
