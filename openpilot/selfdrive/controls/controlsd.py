@@ -80,6 +80,8 @@ class Controls:
     self.subaru_smoothing = read_frozen(self.CP, self.params)
     from openpilot.starpilot.car.volkswagen.model_smoothing import ControlSmoothing
     self.volkswagen_smoothing = ControlSmoothing(self.CP)
+    from openpilot.starpilot.car.hyundai.model_smoothing import seconds as kona_smoothing
+    self.kona_smoothing = kona_smoothing(self.CP)
 
     self.CI = interfaces[self.CP.carFingerprint](self.CP)
     self.hyundai_lateral_fault = LateralFaultLatch(self.CP.carFingerprint)
@@ -532,6 +534,7 @@ class Controls:
     self.lane_centering_applied = 0.0
     self.lane_centering_inactive_reason = 'inactive'
     self.last_lane_centering_result = None
+    kona_tau = getattr(self, "kona_smoothing", 0.)
     lane_delay = None
     if lane_centering is None and self.lane_centering_host is not None:
       now_ns = int(self.sm.logMonoTime['carState']) if os.getenv('REPLAY') == '1' else time.monotonic_ns()
@@ -546,6 +549,8 @@ class Controls:
     else:
       lane_now_ns = int(self.sm.logMonoTime['carState']) if os.getenv('REPLAY') == '1' else time.monotonic_ns()
       lane_delay = current_delay(self.sm, lane_now_ns)
+      if lane_delay is not None:
+        lane_delay += kona_tau
       result = self.lane_centering_controller.update(
         LaneCenteringInput(
           model=model_v2,
@@ -591,7 +596,7 @@ class Controls:
       self.lane_centering_applied = self.desired_curvature - baseline_curvature
     from openpilot.starpilot.car.subaru.smoothing import seconds as subaru_smooth_seconds, control_maximum
 
-    lat_delay = self.sm["lateralDelay"].lateralDelay + LAT_SMOOTH_SECONDS + subaru_smooth_seconds(CS.vEgo, control_maximum(self))
+    lat_delay = self.sm["lateralDelay"].lateralDelay + LAT_SMOOTH_SECONDS + subaru_smooth_seconds(CS.vEgo, control_maximum(self)) + kona_tau
     if getattr(self, "volkswagen_smoothing", None) is not None:
       lat_delay += self.volkswagen_smoothing.seconds(int(self.sm.logMonoTime["modelV2"]), time.monotonic_ns())
 

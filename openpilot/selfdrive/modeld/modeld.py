@@ -49,6 +49,7 @@ from openpilot.starpilot.lateral.lane_change_status_wire import (
 )
 from openpilot.starpilot.models.receipt import ModelReceiptOwner
 from openpilot.starpilot.car.volkswagen.model_smoothing import seconds as volkswagen_smoothing
+from openpilot.starpilot.car.hyundai.model_smoothing import seconds as kona_smoothing
 from openpilot.starpilot.models.status import ModelVariant
 from openpilot.starpilot.models.startup import report_load_timeout, wait_for_chestnut_power
 from openpilot.starpilot.models.recovery import STARTUP_FALLBACK_EXIT
@@ -374,6 +375,7 @@ def main(demo=False):
   cloudlog.info("modeld got CarParams: %s", CP.brand)
   from openpilot.starpilot.car.subaru.smoothing import read_frozen, seconds as subaru_smooth_seconds, filter_action
   subaru_smoothing = read_frozen(CP, params)
+  kona_tau = kona_smoothing(CP)
 
   st = time.monotonic()
   cloudlog.warning("loading model")
@@ -564,7 +566,7 @@ def main(demo=False):
     v_ego = max(sm["carState"].vEgo, 0.)
     subaru_tau = subaru_smooth_seconds(v_ego, subaru_smoothing)
     volkswagen_tau = volkswagen_smoothing(CP, receipt_owner.load)
-    lat_delay = sm["lateralDelay"].lateralDelay + LAT_SMOOTH_SECONDS + subaru_tau + volkswagen_tau
+    lat_delay = sm["lateralDelay"].lateralDelay + LAT_SMOOTH_SECONDS + subaru_tau + volkswagen_tau + kona_tau
     if sm.updated["extrinsicsCalibration"] and sm.seen['narrowRoadCameraState'] and sm.seen['deviceState']:
       device_from_calib_euler = np.array(sm["extrinsicsCalibration"].rpyCalib, dtype=np.float32)
       dc = DEVICE_CAMERAS[(str(sm['deviceState'].deviceType), str(sm['narrowRoadCameraState'].sensor))]
@@ -660,7 +662,7 @@ def main(demo=False):
         action = laboratory_action
       else:
         action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego)
-      filter_action(action, prev_action, v_ego, subaru_tau + volkswagen_tau)
+      filter_action(action, prev_action, v_ego, subaru_tau + volkswagen_tau + kona_tau)
       prev_action = action
       fill_model_msg(modelv2_send, model_output, action,
                      publish_state, meta_main.frame_id, meta_extra.frame_id, frame_id,
