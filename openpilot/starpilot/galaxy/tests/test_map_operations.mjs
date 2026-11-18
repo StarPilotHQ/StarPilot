@@ -178,3 +178,15 @@ await lateStart
 assert.equal(expiredConflict.client.actionError, '')
 assert.equal(expiredConflict.client.active, false)
 console.log('Map operation conflicts: distinct reasons and expired response isolation passed')
+
+// A new provider can expose provinces; an older provider remains valid.
+const ontario = { ...region, token: 'ca_province.ON', name: 'Ontario', groups: 99 }
+const provinceCatalog = { ...largeCatalog, regions: [...largeCatalog.regions, ontario] }
+assert.equal(validCatalog(provinceCatalog), true)
+assert.equal(validCatalog({ ...provinceCatalog, regions: [{ ...ontario, token: 'ca_province.ON.extra' }] }), false)
+const findRegions = (search) => MapOperationsPanel.computed.regions.call({ search, catalog: provinceCatalog })
+assert.equal(findRegions('Ontario').some((r) => r.token === 'ca_province.ON'), true)
+assert.equal(findRegions('Canada').some((r) => r.token === 'ca_province.ON'), true)
+assert.equal(MapOperationsPanel.computed.canadianRegions.call({ regions: findRegions('Canada') }).length, 1)
+assert.equal(MapOperationsPanel.computed.otherRegions.call({ regions: findRegions('Canada') })[0].token, 'nation.CA')
+assert.equal(MapOperationsPanel.computed.canadianRegions.call({ regions: largeCatalog.regions }).length, 0)
