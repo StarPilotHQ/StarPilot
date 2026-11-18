@@ -3,7 +3,7 @@ import { ONROAD_LAYOUT_TEMPLATE } from "./onroad-layout-template.js"
 import { GxState } from "./state.js"
 import { guardUnload } from "./unload-guard.js"
 import { PollTimer, connectionError } from "./polling.js"
-import { reactive, watch } from "../vendor/vue/vue.esm-browser.js"
+import { nextTick, reactive, watch } from "../vendor/vue/vue.esm-browser.js"
 import { LayoutPreviewFeed, PREVIEW_SCENES, PreviewQueue, previewScene, sceneHidesWidget } from "./layout-preview.js"
 import { LEAD_INFO, PROJECTION_WORDMARK, editorSnapshot, projectionPayload } from "./projection-layout.js"
 import { GalaxySelect } from "./galaxy-select.js"
@@ -55,6 +55,8 @@ let makerPagesOpen = 0
 // Screen pixels a pointer may wobble before a press on a preview widget becomes a drag.
 const DRAG_SLOP = 6
 const CAMERA_IDS = ["pip_left", "pip_right"]
+// A finger on a widget that is not armed waits this long before it grabs, so swipes scroll past.
+const HOLD_MS = 220
 
 export class OnroadLayoutFeed {
   constructor({ publish, projection = false, unauthorized = () => { }, fetcher = (...args) => fetch(...args),
@@ -406,7 +408,7 @@ export const OnroadLayoutPage = {
       status: "idle", data: null, draft: null, needsReload: false, error: "", notice: "",
       profile: "large", scene: "general", selected: null, layerDrag: null, drag: null, discard: null, leavePresentation: null, removeConfirm: null, pipUnlocked: false, pipUnlockConfirm: false, colorError: "", placementError: "",
       inspectorPanel: ["widgets", "edit", "road", "display"].includes(props.initialPanel) && !props.projection ? props.initialPanel : "widgets", showFavoriteZones: false, showEditingAids: loadAidsPreference(),
-      aboutOpen: false, tipsOpen: false, moreOpen: false, widgetsHelpOpen: false, stuck: { leaveBar: false, pinned: false, sections: false }, openColor: null, art: { status: "idle", error: "", url: null, sprites: null }, backdrop: { status: "idle", error: "", url: null },
+      aboutOpen: false, tipsOpen: false, moreOpen: false, widgetsHelpOpen: false, stuck: { leaveBar: false, pinned: false, sections: false }, shrunk: false, touchArmed: null, openColor: null, art: { status: "idle", error: "", url: null, sprites: null }, backdrop: { status: "idle", error: "", url: null },
       hiddenPreviewWidgets: loadPreviewVisibility(props.projection), sceneHiddenPreviewWidgets: {}, snapEnabled: loadSnapPreference(), snapGuides: [], history: { undo: [], redo: [], group: null }
     })
     let deferred = null
@@ -438,8 +440,8 @@ export const OnroadLayoutPage = {
       if (update.data) {
         if (!state.data && update.data.activeProfile) state.profile = update.data.activeProfile
         if (!update.data.metadata.profiles[state.profile]) state.profile = Object.keys(update.data.metadata.profiles)[0]
-        if (!Object.hasOwn(update.data.metadata.profiles[state.profile].widgets, state.selected) ||
-            update.data.metadata.profiles[state.profile].widgets[state.selected]?.hidden === true)
+        if ((!state.data || state.selected != null) && (!Object.hasOwn(update.data.metadata.profiles[state.profile].widgets, state.selected) ||
+            update.data.metadata.profiles[state.profile].widgets[state.selected]?.hidden === true))
           state.selected = Object.keys(update.data.metadata.profiles[state.profile].widgets)[0] || null
         state.colorError = ""
         state.placementError = ""
@@ -481,6 +483,16 @@ export const OnroadLayoutPage = {
     watch(() => props.mode, (mode) => {
       if (mode !== "local") { backdropFeed.stop(); artFeed.stop() }
     })
+    // Coming back to Widgets returns to where the list was left.
+    let widgetsScroll = null
+    watch(() => state.inspectorPanel, (panel, previous) => {
+      if (typeof window === "undefined") return
+      if (previous === "widgets") widgetsScroll = window.scrollY
+      if (panel === "widgets" && widgetsScroll != null) {
+        const y = widgetsScroll
+        nextTick(() => window.scrollTo(0, y))
+      }
+    }, { flush: "sync" })
     return { state, feed, backdropFeed, artFeed, scenes: PREVIEW_SCENES, projectionWordmark: PROJECTION_WORDMARK }
   },
   computed: {
@@ -676,11 +688,19 @@ export const OnroadLayoutPage = {
     // Double-tap zoom stays off across the whole page, app bar included, while a maker page is open.
     if (makerPagesOpen++ === 0) document.documentElement.classList.add("gx-maker-open")
     this.observePinned()
+    this._onOutsideClick = (event) => {
+      const target = event.target
+      if (!target?.closest || target.closest(".gx-layout__workspace, .gx-select-menu, [role='listbox'], [role='dialog'], dialog, .gx-dialog")) return
+      this.deselectWidget()
+    }
+    document.addEventListener("click", this._onOutsideClick)
   },
   updated() { this.observePinned() },
   beforeUnmount() { this.cancelDrag(); this.feed.stop(); this.backdropFeed.stop(); this.artFeed.stop(); this._stopUnloadGuard(); this._pinObserver?.disconnect(); this.unwatchRelease(); this._closeFloating?.()
     if (--makerPagesOpen === 0) document.documentElement.classList.remove("gx-maker-open")
     if (this._onPinScroll) window.removeEventListener("scroll", this._onPinScroll, { capture: true })
+    this._touchHost?.removeEventListener("touchmove", this._touchGuard)
+    if (this._onOutsideClick) document.removeEventListener("click", this._onOutsideClick)
   },
   methods: {
     previewShift(id) {
@@ -740,7 +760,30 @@ export const OnroadLayoutPage = {
     },
     selectWidget(id) {
       this.state.selected = id
+      this.state.touchArmed = id
       this.state.inspectorPanel = "edit"
+      this.revealEditPanel()
+    },
+    // Tapping empty preview space or anywhere outside the editor lets go of the selected widget.
+    deselectWidget() {
+      if (this.state.drag || this.state.layerDrag || (this.state.selected == null && this.state.touchArmed == null)) return
+      this.finishColorEdit()
+      this.state.selected = null
+      this.state.touchArmed = null
+    },
+    previewClick(event) {
+      if (!event.target?.closest?.(".gx-layout__widget")) this.deselectWidget()
+    },
+    // On narrow screens a picked widget brings its edit controls up to just under the pinned tabs.
+    revealEditPanel() {
+      if (typeof window === "undefined") return
+      const align = () => {
+        const tabs = this.$refs.sections, panel = this.$refs.editPanel
+        if (!tabs || !panel || getComputedStyle(tabs).position !== "sticky") return
+        const gap = panel.getBoundingClientRect().top - tabs.getBoundingClientRect().bottom - 8
+        if (gap < 0) window.scrollBy(0, gap)
+      }
+      this.$nextTick(() => { align(); setTimeout(align, 220) })
     },
     toggleColor(key) {
       this.finishColorEdit()
@@ -775,6 +818,7 @@ export const OnroadLayoutPage = {
     },
     // Narrow screens pin the save bar and preview; the editor tabs stick just below their measured height.
     observePinned() {
+      this.guardPreviewTouch()
       if (typeof ResizeObserver === "undefined" || !this.$el?.style) return
       this._pinObserver ||= new ResizeObserver(() => {
         for (const [name, ref] of [["--layout-bar-h", "leaveBar"], ["--layout-pin-h", "pinned"]])
@@ -783,6 +827,8 @@ export const OnroadLayoutPage = {
       // Page-colored fills only appear while a piece is actually pinned, so they never show over the backdrop otherwise.
       if (!this._onPinScroll) {
         this._onPinScroll = () => {
+          const y = window.scrollY
+          if (y > 24 !== this.state.shrunk && (y > 24 || y < 8)) this.state.shrunk = y > 24
           for (const ref of ["leaveBar", "pinned", "sections"]) {
             const element = this.$refs[ref], style = element && getComputedStyle(element)
             const stuck = style?.position === "sticky" && element.getBoundingClientRect().top <= (parseFloat(style.top) || 0) + 1
@@ -800,6 +846,27 @@ export const OnroadLayoutPage = {
           this._pinned = { ...this._pinned, [ref]: element }
         }
       }
+    },
+    // Once a drag owns the finger, the page must not scroll under it.
+    guardPreviewTouch() {
+      const preview = this.$refs.preview
+      if (preview === this._touchHost) return
+      this._touchGuard ||= (event) => { if (this.state.drag?.touch && event.cancelable) event.preventDefault() }
+      this._touchHost?.removeEventListener("touchmove", this._touchGuard)
+      preview?.addEventListener?.("touchmove", this._touchGuard, { passive: false })
+      this._touchHost = preview
+    },
+    clearPendingTouch() {
+      if (this._pendingTouch) clearTimeout(this._pendingTouch.timer)
+      this._pendingTouch = null
+    },
+    promotePendingTouch() {
+      const pending = this._pendingTouch
+      if (!pending) return
+      this._pendingTouch = null
+      this.state.touchArmed = pending.id
+      try { navigator.vibrate?.(10) } catch { }
+      this.startDrag(pending.id, { ...pending, button: 0, preventDefault() { } })
     },
     layerFixed(id) { return this.profile.widgets[id]?.frontmost || this.camerasLocked && this.cameraIds.includes(id) },
     toggleCameraLock() {
@@ -985,6 +1052,7 @@ export const OnroadLayoutPage = {
       this.finishColorEdit()
       this.state.profile = profile
       this.state.pipUnlocked = false
+      this.state.touchArmed = null
       this.state.selected = Object.keys(this.profile.widgets)[0] || null
       this.state.placementError = ""
       if (!this.availableScenes.some(scene => scene.id === this.state.scene)) this.state.scene = "general"
@@ -1177,6 +1245,14 @@ export const OnroadLayoutPage = {
     startDrag(id, event, fromTray = false) {
       if (!this.editable || event.button > 0 || this.state.drag || !Object.hasOwn(this.profile.widgets, id)) return
       if (fromTray && this.profile.widgets[id].available === false) return
+      // Soft lock: a finger grabs only an armed widget at once; others need a tap first or a short hold.
+      if (event.pointerType === "touch" && !fromTray && this.state.touchArmed !== id) {
+        this.clearPendingTouch()
+        this._pendingTouch = { id, pointerId: event.pointerId, pointerType: "touch", clientX: event.clientX, clientY: event.clientY }
+        this._pendingTouch.timer = setTimeout(() => this.promotePendingTouch(), HOLD_MS)
+        try { this.$refs.preview?.setPointerCapture?.(event.pointerId) } catch { }
+        return
+      }
       if (fromTray && this.sceneHidden(id)) this.state.scene = "general"
       const point = previewPoint(event, this.$refs.preview.getBoundingClientRect(), this.profile)
       if (!point) return
@@ -1286,6 +1362,11 @@ export const OnroadLayoutPage = {
       this.state.notice = ""
     },
     moveDrag(event) {
+      const pending = this._pendingTouch
+      if (pending?.pointerId === event.pointerId) {
+        if (Math.hypot(event.clientX - pending.clientX, event.clientY - pending.clientY) >= DRAG_SLOP) this.clearPendingTouch()
+        return
+      }
       const drag = this.state.drag
       if (!drag || drag.pointerId !== event.pointerId) return
       const rect = this.$refs.preview.getBoundingClientRect(), point = previewPoint(event, rect, this.profile)
@@ -1333,16 +1414,30 @@ export const OnroadLayoutPage = {
       if (drag.fromTray) this.layout[drag.id].enabled = drag.inside
     },
     endDrag(event) {
+      if (this._pendingTouch?.pointerId === event.pointerId) {
+        const { id } = this._pendingTouch
+        this.clearPendingTouch()
+        this.state.touchArmed = id
+        this.state.selected = id
+        this.finishColorEdit()
+        this.state.inspectorPanel = "edit"
+        this.revealEditPanel()
+        return
+      }
       const drag = this.state.drag
       if (!drag || drag.pointerId !== event.pointerId) return
       this.moveDrag(event)
       if (drag.fromTray && !drag.inside) Object.assign(this.layout[drag.id], drag.before)
       const before = drag.historyBefore, position = this.layout[drag.id]
-      if (!drag.fromTray && !drag.resize && !drag.moved) this.state.inspectorPanel = "edit"
+      if (!drag.fromTray && !drag.resize && !drag.moved) {
+        this.state.inspectorPanel = "edit"
+        this.revealEditPanel()
+      }
       this.releaseDrag()
       this.recordChange(before)
     },
     releaseDrag() {
+      this.clearPendingTouch()
       const id = this.state.drag?.pointerId
       this.state.snapGuides = []
       this.state.drag = null

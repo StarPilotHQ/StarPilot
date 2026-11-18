@@ -112,7 +112,7 @@ Object.defineProperties(vm, {
   selectedPosition: { get: () => vm.state.draft.layouts.large[vm.state.selected] },
   ...Object.fromEntries(["cameraIds", "camerasOnTop", "camerasLocked"].map(name => [name, { get: () => OnroadLayoutPage.computed[name].call(vm) }])),
 })
-for (const name of ["watchRelease", "unwatchRelease", "recordChange", "resizeBox", "boxInput", "opacityInput", "setWidgetBackground", "undo", "redo", "startResize", "moveDrag", "endDrag", "releaseDrag", "changePosition", "add", "remove", "requestRemove", "reorderLayer", "startLayerDrag", "setFavoriteDisplay", "layerFixed", "toggleCameraLock", "confirmCameraUnlock", "cancelCameraUnlock"])
+for (const name of ["watchRelease", "unwatchRelease", "recordChange", "resizeBox", "boxInput", "opacityInput", "setWidgetBackground", "undo", "redo", "startResize", "moveDrag", "endDrag", "releaseDrag", "changePosition", "add", "remove", "requestRemove", "reorderLayer", "startLayerDrag", "setFavoriteDisplay", "layerFixed", "toggleCameraLock", "confirmCameraUnlock", "cancelCameraUnlock", "clearPendingTouch"])
   vm[name] = OnroadLayoutPage.methods[name].bind(vm)
 const pointer = (x, y) => ({ clientX: x, clientY: y, pointerId: 7, button: 0, preventDefault() {}, stopPropagation() {} })
 vm.startResize("nav_map", pointer(1950 + 860, 625 + 410))

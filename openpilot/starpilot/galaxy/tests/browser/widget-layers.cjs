@@ -66,6 +66,7 @@ const projection = JSON.parse(execFileSync(process.env.PYTHON || 'python3', ['-c
     assert.equal(await page.getByRole('button', {name:/Move .* (forward|backward)/}).count(), 0)
     const client = await page.context().newCDPSession(page)
     await client.send('Emulation.setTouchEmulationEnabled', {enabled:true})
+    await page.emulateMedia({reducedMotion:'reduce'})
     await page.setViewportSize({width:390,height:844})
     await rows.first().evaluate(row => row.scrollIntoView({block:'center'}))
     const touchRows = await rows.evaluateAll(elements => {
@@ -74,7 +75,7 @@ const projection = JSON.parse(execFileSync(process.env.PYTHON || 'python3', ['-c
         .slice(0, 2).map(row => ({ id: row.dataset.layerId, box: row.getBoundingClientRect().toJSON(),
           grip: row.querySelector('.gx-layout__row-grip').getBoundingClientRect().toJSON() }))
     })
-    assert.equal(touchRows.length, 2, 'two widget rows remain visible while scrolling')
+    assert.equal(touchRows.length, 2, 'two rows are visible below the pinned preview and tabs')
     const handle = touchRows[0].grip, target = touchRows[1].box
     const beforeTouch = await page.evaluate(() => window.editor.state.draft.widgetOrder.large
       .filter(id => window.editor.state.draft.layouts.large[id].enabled))

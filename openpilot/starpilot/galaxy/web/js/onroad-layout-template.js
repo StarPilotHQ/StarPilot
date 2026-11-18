@@ -1,5 +1,5 @@
 export const ONROAD_LAYOUT_TEMPLATE = `
-    <section class="gx-settings gx-layout" aria-label="Colors and layout" :aria-busy="busy || undefined">
+    <section class="gx-settings gx-layout" aria-label="Colors and layout" :aria-busy="busy || undefined" :class="{'is-shrunk': state.shrunk}">
       <div class="gx-settings__header gx-page-header"><div><h2>{{ projection ? 'StarPort Layout' : 'Colors & Layout' }}</h2></div>
         <button class="gx-icon-btn gx-layout__info" type="button" :aria-expanded="state.aboutOpen" aria-controls="gx-layout-about" aria-label="About this editor" title="About this editor" @click="state.aboutOpen = !state.aboutOpen"><i class="bi bi-info-circle" aria-hidden="true"></i></button>
       </div>
@@ -64,14 +64,14 @@ export const ONROAD_LAYOUT_TEMPLATE = `
                 <button v-if="!projection && profile.inputZones?.length" class="gx-icon-btn gx-layout__bar-toggle" type="button" :aria-pressed="state.showFavoriteZones" aria-label="Show Favorite tap areas" title="Show Favorite tap areas" @click="state.showFavoriteZones = !state.showFavoriteZones"><i class="bi bi-grid-3x3-gap" aria-hidden="true"></i></button>
                 <button class="gx-icon-btn gx-layout__bar-toggle" type="button" :aria-expanded="state.tipsOpen" aria-controls="gx-layout-tips" aria-label="Preview tips and display behavior" title="Preview tips and display behavior" @click="state.tipsOpen = !state.tipsOpen"><i class="bi bi-question-circle" aria-hidden="true"></i></button>
               </div>
-              <p class="gx-note">{{ state.scene === 'general' ? 'Arrange all enabled widgets with sample readings. Use a driving scene to check when they appear.' : 'Eyes follow this driving scene. Choose General edit to arrange widgets hidden here.' }}</p>
+              <p class="gx-note gx-layout__scene-note">{{ state.scene === 'general' ? 'Arrange all enabled widgets with sample readings. Use a driving scene to check when they appear.' : 'Eyes follow this driving scene. Choose General edit to arrange widgets hidden here.' }}</p>
               <div class="gx-layout__stage">
               <span v-if="state.backdrop.status === 'unavailable'" class="gx-layout__stage-chip gx-layout__stage-chip--bottom" role="status">{{ nativeBackdropReady ? 'The comma screen could not refresh. Showing the last one.' : 'The comma screen is unavailable. Showing a sketch.' }}</span>
               <span v-if="state.art.status === 'unavailable'" class="gx-layout__stage-chip gx-layout__stage-chip--bottom" :class="{'gx-layout__stage-chip--second': state.backdrop.status === 'unavailable'}" role="status">{{ state.art.url ? 'Widget preview could not refresh. Showing the last preview.' : 'Widget preview unavailable. Placement controls remain available.' }}</span>
               <span v-if="state.showEditingAids && state.snapGuides.length && !snapInBar" class="gx-layout__stage-chip gx-layout__stage-chip--start" :class="{'gx-layout__stage-chip--with-tap-areas': !projection && state.showFavoriteZones && state.profile !== 'compact'}" aria-hidden="true">{{ snapSummary }}</span>
               <span v-if="!projection && state.showFavoriteZones && state.showEditingAids && state.profile !== 'compact'" class="gx-layout__stage-chip" aria-hidden="true"><i class="bi bi-grid-3x3-gap"></i>Tap areas</span>
               <svg ref="preview" class="gx-layout__preview" :style="{'--layout-glow': state.profile === 'compact' ? '4px' : '14px'}" :viewBox="'0 0 ' + profile.width + ' ' + profile.height" :width="profile.width" :height="profile.height"
-                @pointermove="moveDrag" @pointerup="endDrag" @pointercancel="cancelDrag" @lostpointercapture="cancelDrag"
+                @pointermove="moveDrag" @pointerup="endDrag" @pointercancel="cancelDrag" @lostpointercapture="cancelDrag" @click="previewClick"
                 role="group" :aria-label="projection ? 'StarPort layout preview' : (state.profile === 'large' ? 'Big' : 'Small') + ' layout preview'">
                 <g id="gx-layout-stage">
                 <image v-if="nativeBackdropReady" :href="state.backdrop.url" :width="profile.width" :height="profile.height" preserveAspectRatio="none" data-preview-source="device-backdrop" />
@@ -132,7 +132,7 @@ export const ONROAD_LAYOUT_TEMPLATE = `
                     <text :x="zone.x + zone.width / 2" :y="zone.y + zone.height - 8" text-anchor="middle" :font-size="state.profile === 'large' ? 20 : 10" fill="#d8c8ff">{{ zone.label }}</text>
                   </g>
                 </g>
-                <g v-for="widget in renderWidgets" :key="widget.id" class="gx-layout__widget" :class="{'is-selected': state.drag?.id === widget.id, 'is-editing': state.showEditingAids && state.inspectorPanel === 'edit' && state.selected === widget.id}"
+                <g v-for="widget in renderWidgets" :key="widget.id" class="gx-layout__widget" :class="{'is-selected': state.drag?.id === widget.id, 'is-armed': state.touchArmed === widget.id, 'is-editing': state.showEditingAids && state.inspectorPanel === 'edit' && state.selected === widget.id}"
                   :transform="'translate(' + previewX(widget.id) + ' ' + layout[widget.id].y + ')'" tabindex="0" role="button"
                   :aria-label="widget.label + ', x ' + previewX(widget.id) + ', y ' + layout[widget.id].y +
                     (widget.frontmost ? '. Arrow keys move; Shift moves ten pixels; required and always frontmost widget.' :
@@ -239,7 +239,7 @@ export const ONROAD_LAYOUT_TEMPLATE = `
               </div>
               <button class="gx-btn gx-btn--tonal gx-layout__reset" type="button" :disabled="!editAvailable || !!state.drag" @click="resetLayout">Reset this layout</button>
               </div>
-              <div v-show="state.inspectorPanel === 'edit'" class="gx-layout__panel">
+              <div v-show="state.inspectorPanel === 'edit'" ref="editPanel" class="gx-layout__panel gx-layout__edit">
                 <label class="gx-layout__widget-picker"><span class="gx-layout__picker-head">Selected widget<span v-if="selectedWidget && selectedPosition.enabled" class="gx-note">{{ selectedSize[0] }} × {{ selectedSize[1] + (selectedWidget.box ? 0 : selectedWidget.visualInsetTop || 0) }} px</span></span><GalaxySelect class="gx-field gx-field--full" :value="state.selected" :disabled="!!state.drag" @change="state.selected = $event.target.value">
                   <option v-for="widget in widgets" :key="widget.id" :value="widget.id">{{ widget.label }}{{ layout[widget.id].enabled ? '' : ' · Inactive' }}</option>
                 </GalaxySelect></label>
