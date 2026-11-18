@@ -66,7 +66,7 @@ export function driveSummary(feed) {
   if (!data) return null
   const isMetric = data.isMetric
   const last = data.lastDrive
-  const analysisStatus = () => ({ analysisLabel: "Incomplete recording" })
+  const analysisStatus = (drive) => ({ analysisLabel: drive.partial ? "Recorded portion only" : "Incomplete recording" })
   const maximum = Math.max(1, ...data.week.days.map((day) => day.distanceMeters ?? 0))
   const models = data.models
   const modelTotal = models.reduce((sum, model) => sum + (model.distanceMeters ?? 0), 0)
@@ -82,7 +82,8 @@ export function driveSummary(feed) {
   })
   return {
     analysis: data.analysis,
-    last: last && { ...analysisStatus(last), routeId: last.routeId, date: driveDate(last.startTime, last.endTime), complete: last.complete,
+    partialRoutes: data.coverage?.partialRoutes ?? 0,
+    last: last && { ...analysisStatus(last), routeId: last.routeId, date: driveDate(last.startTime, last.endTime), complete: last.complete, partial: !!last.partial,
       distance: distance(last.distanceMeters, isMetric), duration: duration(last.durationSeconds), engaged: percent(last.engagedPercent),
       aol: percent(last.aolPercent), aolDuration: duration(last.aolSeconds),
       average: measure(last.distanceMeters === null || !(last.durationSeconds > 0) ? null : last.distanceMeters / last.durationSeconds * (isMetric ? 3.6 : 2.236936), isMetric ? " km/h" : " mph"),
@@ -97,7 +98,7 @@ export function driveSummary(feed) {
       days: data.week.days.map((day) => ({ date: day.date, label: dayLabel(day.date),
         distance: distance(day.distanceMeters, isMetric), height: day.distanceMeters === null ? 0 : day.distanceMeters / maximum * 100 })) },
     recent: data.recentDrives.slice(0, 5).map((drive) => ({ ...analysisStatus(drive), routeId: drive.routeId, date: driveDate(drive.startTime, drive.endTime),
-      complete: drive.complete, ignored: drive.ignored, distance: distance(drive.distanceMeters, isMetric),
+      complete: drive.complete, partial: !!drive.partial, ignored: drive.ignored, distance: distance(drive.distanceMeters, isMetric),
       duration: duration(drive.durationSeconds), engaged: percent(drive.engagedPercent), aol: percent(drive.aolPercent), model: modelLabel(drive.model) })),
     records: data.records.map((record) => ({ id: record.id, label: record.label, display: recordDisplay(record, isMetric) })),
     models: recordedModels,
@@ -226,6 +227,7 @@ export const Home = {
             <i class="bi bi-hourglass-split"></i> {{ driving.analysis.running ? 'Updating drive history' : driving.analysis.state === 'waitingParked' ? 'Drive history will update when parked' : 'Drive history queued' }}{{ driving.analysis.pending ? ' · ' + driving.analysis.pending + ' remaining' : '' }}
           </p>
           <div class="gx-home__section-title"><span></span>Your driving</div>
+          <p v-if="driving.partialRoutes" class="gx-home__subtle">Totals include recorded portions of {{ counted(driving.partialRoutes, "incomplete drive") }}. Personal records use complete drives.</p>
           <div class="gx-home__totals">
             <section class="gx-card"><h2>Saved History</h2><strong>{{ driving.totals.distance }}</strong><span>{{ counted(driving.totals.drives, "drive") }}</span></section>
             <section class="gx-card"><h2>Time on the Road</h2><strong>{{ driving.totals.duration }}</strong><span>{{ driving.totals.engaged }} engaged</span><span>{{ driving.totals.aol }} AOL steering only · {{ driving.totals.aolDrives }}/{{ driving.totals.drives }} drives measured</span></section>
@@ -250,8 +252,8 @@ export const Home = {
             <p v-if="!driving.recent.length" class="gx-home__subtle">No saved drives yet.</p>
             <div v-for="drive in driving.recent" :key="drive.routeId" class="gx-home__drive" :class="{ 'is-ignored': drive.ignored }">
               <div><strong>{{ drive.date }}</strong><small>{{ drive.model }}</small></div>
-              <div><strong>{{ drive.complete ? drive.distance : drive.analysisLabel }}</strong><small>{{ drive.duration }} · {{ drive.engaged }} engaged</small><small>{{ drive.aol }} AOL steering only</small></div>
-              <div><small>{{ drive.ignored ? 'Excluded from totals' : drive.complete ? 'Included in totals' : drive.analysisLabel }}</small>
+              <div><strong>{{ drive.complete || drive.partial ? drive.distance : drive.analysisLabel }}</strong><small v-if="drive.partial">{{ drive.analysisLabel }}</small><small>{{ drive.duration }} · {{ drive.engaged }} engaged</small><small>{{ drive.aol }} AOL steering only</small></div>
+              <div><small>{{ drive.ignored ? 'Excluded from totals' : drive.complete ? 'Included in totals' : drive.partial ? 'Recorded portion included in totals' : drive.analysisLabel }}</small>
                 <button type="button" class="gx-home__link" :inert="drives.busy" :aria-busy="drives.busy || undefined" @click="ignoreDrive(drive)">
                   {{ drive.ignored ? 'Include in stats' : 'Ignore drive stats' }}</button></div>
             </div>

@@ -10,6 +10,8 @@ import zstandard as zstd
 from openpilot.starpilot.models.catalog import BY_ID
 from openpilot.starpilot.galaxy import drive_analysis
 from openpilot.starpilot.galaxy.drive_analysis import analyze_route
+from openpilot.starpilot.galaxy.drive_history import DriveHistory
+from openpilot.starpilot.galaxy.drive_stats import DriveStatsOwner
 
 
 ROUTE = '2026-09-25--12-00-00'
@@ -44,6 +46,236 @@ def selection(*segments):
 
 
 class DriveAnalysisTest(unittest.TestCase):
+  def test_dashboard_recovers_prefix_before_locked_and_empty_tail_without_changing_logs(self):
+    first = write(self.root, 0, [*self.sample(BASE, 10, True), *self.sample(BASE + 500_000_000, 10, True),
+                                 event('sentinel', BASE + 500_000_000, type='endOfSegment')], kind='qlog')
+    tail = write(self.root, 1, self.sample(BASE + 1_000_000_000, 10, True), lock=True, kind='qlog')
+    (self.root / f'{ROUTE}--2').mkdir()
+    selected = DriveHistory(self.root).snapshot()['routes'][0]
+    self.assertEqual([segment['segmentName'] for segment in selected['segments']], [first['segmentName']])
+    original = {path: path.read_bytes() for path in self.root.rglob('*') if path.is_file()}
+    strict = analyze_route(self.root, selected, permitted=lambda: True)
+    self.assertFalse(strict['complete'])
+    self.assertFalse(strict['partial'])
+    observed = drive_analysis.analyze_recorded_route(self.root, selected, permitted=lambda: True)
+    self.assertTrue(observed['partial'], observed)
+    self.assertFalse(observed['complete'])
+    self.assertEqual((observed['distanceMeters'], observed['durationSeconds']), (5, .5))
+    self.assertIn('final segment unreadable', observed['reason'])
+    self.assertEqual(original, {path: path.read_bytes() for path in self.root.rglob('*') if path.is_file()})
+    self.assertTrue((self.root / tail['segmentName'] / 'rlog.lock').exists())
+
+  def test_video_only_and_zero_byte_tails_keep_only_observed_prefix(self):
+    for kind in ('video', 'zero'):
+      with self.subTest(kind=kind):
+        root = self.root / kind
+        root.mkdir()
+        write(root, 0, [*self.sample(BASE, 10, True), *self.sample(BASE + 500_000_000, 10, True)], kind='qlog')
+        tail = root / f'{ROUTE}--1'
+        tail.mkdir()
+        (tail / ('fcamera.hevc' if kind == 'video' else 'qlog.zst')).touch()
+        selected = DriveHistory(root).snapshot()['routes'][0]
+        observed = drive_analysis.analyze_recorded_route(root, selected, permitted=lambda: True)
+        self.assertTrue(observed['partial'], observed)
+        self.assertEqual(observed['distanceMeters'], 5)
+
+  def test_locked_interior_is_not_bridged_and_changing_omitted_tail_cannot_publish(self):
+    first = write(self.root, 0, [*self.sample(BASE, 10, True), *self.sample(BASE + 500_000_000, 10, True)])
+    tail = write(self.root, 1, self.sample(BASE + 1_000_000_000, 10, True), lock=True)
+    last = write(self.root, 2, self.sample(BASE + 1_500_000_000, 10, True))
+    route = DriveHistory(self.root).snapshot()['routes'][0]
+    observed = drive_analysis.analyze_recorded_route(self.root, route, permitted=lambda: True)
+    self.assertFalse(observed['partial'])
+    self.assertFalse(observed['complete'])
+    (self.root / last['segmentName'] / 'rlog.zst').unlink()
+    (self.root / last['segmentName']).rmdir()
+    decode = drive_analysis.decode_segment
+
+    def mutate(*args, **kwargs):
+      events = decode(*args, **kwargs)
+      (self.root / tail['segmentName'] / 'rlog.lock').unlink()
+      return events
+
+    with mock.patch.object(drive_analysis, 'decode_segment', side_effect=mutate):
+      observed = drive_analysis.analyze_recorded_route(self.root, selection(first), permitted=lambda: True)
+    self.assertFalse(observed['partial'])
+    self.assertFalse(observed['complete'])
+    self.assertIn('source changed', observed['reason'])
+
+  def test_home_power_retries_old_failure_and_repaired_tail_replaces_partial_totals(self):
+    write(self.root, 0, [*self.sample(BASE, 10, True), *self.sample(BASE + 500_000_000, 10, True),
+                         event('sentinel', BASE + 500_000_000, type='endOfSegment')], kind='qlog')
+    tail = write(self.root, 1, [*self.sample(BASE + 1_000_000_000, 10, True),
+                               *self.sample(BASE + 1_500_000_000, 10, True),
+                               event('sentinel', BASE + 1_500_000_000, type='endOfRoute')], lock=True, kind='qlog')
+    store = self.root / 'state' / 'stats.json'
+    permitted = [False]
+    owner = DriveStatsOwner(root=self.root, store=store, permitted=lambda: permitted[0])
+    self.addCleanup(owner.close)
+    owner._run()  # Ignition switched power vanished before offroad work.
+    self.assertEqual(owner.snapshot()['totals']['drives'], 0)
+    owner.close()
+    owner = DriveStatsOwner(root=self.root, store=store, permitted=lambda: True)
+    self.addCleanup(owner.close)
+    # A previously exhausted cache entry must retry after this policy upgrade.
+    from openpilot.starpilot.galaxy import drive_stats
+    selected = DriveHistory(self.root).snapshot()['routes'][0]
+    signature, _ = drive_stats._route_signature(self.root, selected)
+    owner._failures[ROUTE] = dict(owner._failure(signature, None, 'Route segments changed or are incomplete'),
+                                  analysisVersion=drive_analysis.ANALYSIS_VERSION - 1,
+                                  attempts=drive_stats.MAX_RETRY_ATTEMPTS)
+    owner._run()
+    snapshot = owner.snapshot()
+    self.assertEqual(snapshot['totals']['distanceMeters'], 5)
+    self.assertEqual(snapshot['totals']['drives'], 1)
+    self.assertEqual(snapshot['coverage']['partialRoutes'], 1)
+    self.assertEqual(snapshot['records'], [])
+    self.assertEqual(snapshot['analysis']['failed'], 0)
+    owner.close()
+    owner = DriveStatsOwner(root=self.root, store=store, permitted=lambda: True)
+    self.addCleanup(owner.close)
+    self.assertEqual(owner.snapshot()['totals']['distanceMeters'], 5)
+    # Simulate an actual source repair; production code never removes this lock.
+    (self.root / tail['segmentName'] / 'rlog.lock').unlink()
+    owner._run()
+    snapshot = owner.snapshot()
+    self.assertEqual(snapshot['totals']['distanceMeters'], 15)
+    self.assertEqual(snapshot['totals']['drives'], 1)
+    self.assertEqual(snapshot['coverage']['partialRoutes'], 0)
+    self.assertTrue(snapshot['lastDrive']['complete'])
+    self.assertTrue(snapshot['records'])
+    # A newly acquired lock hides the source from history, but does not mean
+    # the logger deleted old completed logs. Recompute the available prefix.
+    (self.root / tail['segmentName'] / 'rlog.lock').touch()
+    owner._run()
+    snapshot = owner.snapshot()
+    self.assertEqual(snapshot['totals']['distanceMeters'], 5)
+    self.assertEqual(snapshot['coverage']['partialRoutes'], 1)
+    self.assertFalse(snapshot['lastDrive']['complete'])
+
+  def test_cancellation_during_optional_model_metadata_never_publishes_stats(self):
+    first = write(self.root, 0, [*self.sample(BASE, 10, True), *self.sample(BASE + 500_000_000, 10, True),
+                                 event('drivingModelData', BASE + 500_000_000, big=False),
+                                 event('sentinel', BASE + 500_000_000, type='endOfRoute')], kind='qlog')
+    permitted = [True]
+
+    def cancel(*args):
+      permitted[0] = False
+      return []
+
+    with mock.patch.object(drive_analysis, '_rlog_model_loads', side_effect=cancel):
+      observed = drive_analysis.analyze_recorded_route(self.root, selection(first), permitted=lambda: permitted[0])
+    self.assertFalse(observed['complete'])
+    self.assertFalse(observed['partial'])
+    self.assertIn('cancelled', observed['reason'])
+
+  def test_dashboard_keeps_only_intact_prefix_and_strict_reader_still_refuses(self):
+    samples = [*self.sample(BASE, 10, True), *self.sample(BASE + 500_000_000, 10, True)]
+    first = write(self.root, 0, samples + [event('sentinel', BASE + 500_000_000, type='endOfSegment')], kind='qlog')
+    tail = write(self.root, 1, self.sample(BASE + 1_000_000_000, 10, True), kind='qlog')
+    path = self.root / tail['segmentName'] / 'qlog.zst'
+    path.write_bytes(path.read_bytes()[:-3])
+    route = selection(first, tail)
+    strict = analyze_route(self.root, route, permitted=lambda: True)
+    self.assertFalse(strict['complete'])
+    self.assertFalse(strict['partial'])
+    observed = drive_analysis.analyze_recorded_route(self.root, route, permitted=lambda: True)
+    self.assertFalse(observed['complete'])
+    self.assertTrue(observed['partial'], observed)
+    self.assertEqual(observed['distanceMeters'], 5)
+    self.assertEqual(observed['durationSeconds'], .5)
+    self.assertIn('final segment unreadable', observed['reason'])
+    # A damaged interior source must never bridge a gap into a partial result.
+    last = write(self.root, 2, self.sample(BASE + 1_500_000_000, 10, True), kind='qlog')
+    broken_middle = drive_analysis.analyze_recorded_route(self.root, selection(first, tail, last), permitted=lambda: True)
+    self.assertFalse(broken_middle['partial'])
+
+  def test_unclosed_but_intact_dashboard_coverage_is_labeled_and_cancel_never_succeeds(self):
+    segment = write(self.root, 0, [*self.sample(BASE, 10, True), *self.sample(BASE + 500_000_000, 10, True)])
+    selected = selection(segment)
+    observed = drive_analysis.analyze_recorded_route(self.root, selected, permitted=lambda: True)
+    self.assertTrue(observed['partial'])
+    self.assertFalse(observed['complete'])
+    cancelled = drive_analysis.analyze_recorded_route(self.root, selected, permitted=lambda: False)
+    self.assertFalse(cancelled['partial'])
+    self.assertFalse(cancelled['complete'])
+
+  def test_cancelled_tail_decode_is_not_mislabeled_as_damaged_tail(self):
+    first = write(self.root, 0, [*self.sample(BASE, 10, True), *self.sample(BASE + 500_000_000, 10, True)])
+    last = write(self.root, 1, self.sample(BASE + 1_000_000_000, 10, True))
+    decode = drive_analysis.decode_segment
+    calls = 0
+
+    def cancelled(*args, **kwargs):
+      nonlocal calls
+      calls += 1
+      if calls == 2:
+        raise drive_analysis.LogDecodeCancelled('declared transient cancellation')
+      return decode(*args, **kwargs)
+
+    with mock.patch.object(drive_analysis, 'decode_segment', side_effect=cancelled):
+      result = drive_analysis.analyze_recorded_route(self.root, selection(first, last), permitted=lambda: True)
+    self.assertFalse(result['partial'])
+    self.assertFalse(result['complete'])
+    self.assertIn('cancellation', result['reason'])
+
+  def test_corrupt_tail_aol_totals_replace_on_repair_and_ignore(self):
+    samples = []
+    for index in range(4):
+      stamp = BASE + index * 500_000_000
+      samples.append([*self.sample(stamp, 10, False), event('carControl', stamp, enabled=False, latActive=True)])
+    write(self.root, 0, [*samples[0], *samples[1]], kind='qlog')
+    tail = write(self.root, 1, [*samples[2], *samples[3],
+                               event('sentinel', BASE + 1_500_000_000, type='endOfRoute')], kind='qlog')
+    path = self.root / tail['segmentName'] / 'qlog.zst'
+    intact = path.read_bytes()
+    path.write_bytes(intact[:-3])
+    owner = DriveStatsOwner(root=self.root, store=self.root / 'stats.json', permitted=lambda: True)
+    self.addCleanup(owner.close)
+    owner._run()
+    snapshot = owner.snapshot()
+    self.assertEqual(snapshot['totals']['aolSeconds'], .5)
+    self.assertEqual(snapshot['totals']['drives'], 1)
+    self.assertEqual(snapshot['coverage']['partialRoutes'], 1)
+    owner.ignore(ROUTE, True, lambda: True)
+    self.assertEqual(owner.snapshot()['coverage']['partialRoutes'], 0)
+    owner.ignore(ROUTE, False, lambda: True)
+    owner._run()
+    self.assertEqual(owner.snapshot()['totals']['aolSeconds'], .5)
+    path.write_bytes(intact)
+    owner._run()
+    snapshot = owner.snapshot()
+    self.assertEqual(snapshot['totals']['aolSeconds'], 1.5)
+    self.assertEqual(snapshot['totals']['drives'], 1)
+    self.assertEqual(snapshot['coverage']['partialRoutes'], 0)
+
+  def test_cumulative_byte_limit_keeps_per_segment_decode_and_bounded_total(self):
+    first = write(self.root, 0, [*self.sample(BASE, 10, True), *self.sample(BASE + 500_000_000, 10, True)])
+    tail = write(self.root, 1, [*self.sample(BASE + 1_000_000_000, 10, True),
+                               *self.sample(BASE + 1_500_000_000, 10, True),
+                               event('sentinel', BASE + 1_500_000_000, type='endOfRoute')])
+    selected = selection(first, tail)
+    total = sum((self.root / part['segmentName'] / 'rlog.zst').stat().st_size for part in (first, tail))
+    decode = drive_analysis.decode_segment
+    sizes = []
+    def bounded(data, *args, **kwargs):
+      sizes.append(len(data))
+      return decode(data, *args, **kwargs)
+    with mock.patch.object(drive_analysis, 'decode_segment', side_effect=bounded), \
+         mock.patch.object(drive_analysis, 'MAX_ROUTE_COMPRESSED_BYTES', total):
+      result = drive_analysis.analyze_recorded_route(self.root, selected, permitted=lambda: True)
+    self.assertTrue(result['complete'], result)
+    self.assertEqual(sum(sizes), total)
+    self.assertEqual(len(sizes), 2)
+    self.assertLess(max(sizes), total)
+    with mock.patch.object(drive_analysis, 'MAX_ROUTE_COMPRESSED_BYTES', total - 1):
+      result = drive_analysis.analyze_recorded_route(self.root, selected, permitted=lambda: True)
+    self.assertFalse(result['complete'])
+    self.assertFalse(result['partial'])
+    self.assertIn('analysis limit', result['reason'])
+    self.assertGreater(drive_analysis.MAX_ROUTE_COMPRESSED_BYTES, 274.9 * 1024 * 1024)
+    self.assertLessEqual(drive_analysis.MAX_ROUTE_COMPRESSED_BYTES, 1024 ** 3)
+
   def setUp(self):
     self.temp = tempfile.TemporaryDirectory()
     self.addCleanup(self.temp.cleanup)
