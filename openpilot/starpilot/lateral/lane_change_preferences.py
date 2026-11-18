@@ -188,9 +188,11 @@ class LiveLaneChangePolicy:
   """
   REFRESH_NS = 1_000_000_000
 
-  def __init__(self, params, *, now_ns=0):
+  def __init__(self, params, *, now_ns=0, settings_reader=None):
     self.params = params
-    saved = read_saved(params)
+    self.settings_reader = settings_reader
+    saved = read_saved(params) if settings_reader is None else settings_reader()
+    self.saved = saved
     self.requested = effective(saved) if saved.readable and saved.valid else self._disabled()
     self.applied = self.requested
     self.last_read_ns = now_ns if type(now_ns) is int and now_ns > 0 else 0
@@ -204,8 +206,14 @@ class LiveLaneChangePolicy:
       self.last_read_ns = 0
       self.requested = self.applied = self._disabled()
       return self.applied
-    if not self.last_read_ns or now_ns - self.last_read_ns >= self.REFRESH_NS:
-      saved = read_saved(self.params)
+    if self.settings_reader is not None:
+      saved = self.settings_reader()
+      refresh = not self.last_read_ns or saved is not self.saved
+    else:
+      refresh = not self.last_read_ns or now_ns - self.last_read_ns >= self.REFRESH_NS
+      saved = read_saved(self.params) if refresh else self.saved
+    if refresh:
+      self.saved = saved
       self.requested = effective(saved) if saved.readable and saved.valid else self._disabled()
       self.last_read_ns = now_ns
     if not self.requested.enabled:
