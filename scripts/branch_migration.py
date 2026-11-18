@@ -82,7 +82,7 @@ def migrate(repo, params, checkpoint=lambda step: None):
       return 'manual branch selection'
     target = params / 'UpdaterTargetBranch'
     saved = target.read_bytes() if target.exists() else b''
-    if saved not in (b'', plan['source'].encode(), plan['destination'].encode()):
+    if pending.exists() and saved not in (b'', plan['source'].encode(), plan['destination'].encode()):
       return 'manual updater selection'
     if not params.is_dir() or target.is_symlink():
       raise ValueError('Updater Params directory is unavailable or unsafe')

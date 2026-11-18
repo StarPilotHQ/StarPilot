@@ -148,12 +148,23 @@ class BranchMigrationTest(unittest.TestCase):
     self.assertEqual(runtime.migrate(repo, params), 'not migration release')
     self.assertEqual(self.git(repo, 'symbolic-ref', '--short', 'HEAD'), 'StarPilot')
 
-  def test_manual_updater_target_is_preserved(self):
+  def test_fresh_source_install_replaces_a_stale_previous_channel_target(self):
     _, repo, params, _ = self.fixture()
+    (params / 'UpdaterTargetBranch').write_text('StarPilot')
+    self.assertEqual(runtime.migrate(repo, params), 'migrated to testing')
+    self.assertEqual((params / 'UpdaterTargetBranch').read_text(), 'testing')
+    self.assertEqual(self.git(repo, 'symbolic-ref', '--short', 'HEAD'), 'testing')
+
+  def test_manual_target_selected_after_an_interruption_is_preserved(self):
+    _, repo, params, _ = self.fixture()
+    def stop(step):
+      if step == 'pending':
+        raise RuntimeError('interrupted')
+    with self.assertRaises(RuntimeError):
+      runtime.migrate(repo, params, stop)
     (params / 'UpdaterTargetBranch').write_text('dev')
     self.assertEqual(runtime.migrate(repo, params), 'manual updater selection')
     self.assertEqual((params / 'UpdaterTargetBranch').read_text(), 'dev')
-    self.assertEqual(self.git(repo, 'symbolic-ref', '--short', 'HEAD'), 'Dom')
 
   def test_existing_different_destination_is_not_overwritten(self):
     _, repo, params, migration = self.fixture()
