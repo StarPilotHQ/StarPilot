@@ -81,7 +81,7 @@ from openpilot.starpilot.ui.onroad_favorites import OnroadFavorites
 from openpilot.starpilot.ui.onroad_dm import DriverMonitorLayer
 from openpilot.starpilot.favorites.owner import FavoritesOwner
 from openpilot.starpilot.controllers.cruise_action import CruiseActionPublisher, ui_authority as cruise_action_authority
-from openpilot.starpilot.controllers.wheel_actions import WheelConsumer
+from openpilot.starpilot.controllers.wheel_actions import ENGINE_SOUND_ACTIONS, WheelConsumer
 from openpilot.starpilot.ui.wheel_input import onroad_action_context
 from openpilot.starpilot.system.starport.projection_bookmark import BookmarkReceiver
 from openpilot.starpilot.system.starport.projection_slc_action import SlcActionReceiver
@@ -575,12 +575,15 @@ class StarShellSession:
       command = self._wheel_consumer.accept(event, ui_state.params, ui_state.CP, ui_state.sm, now_ns=now_ns)
       if command is None or command.action == 0:
         continue
-      authorized = (self._bookmark_authority() if command.action == 8 else
+      authorized = (self._bookmark_authority() if command.action in (8, *ENGINE_SOUND_ACTIONS) else
                     self._favorite_authority(allow_personality_notice=command.action == 1))
       if not authorized:
         continue
-      actions = self._native_favorite_actions()
       try:
+        if command.action in ENGINE_SOUND_ACTIONS:
+          self._engine_sound_action(command.action == ENGINE_SOUND_ACTIONS[0], now_ns)
+          continue
+        actions = self._native_favorite_actions()
         if command.action == 1:
           if self._wheel_personality is not None:
             self._wheel_personality()
@@ -602,6 +605,18 @@ class StarShellSession:
             self.favorites_owner.invoke(slot.request)
       except (OSError, RuntimeError, ValueError, TypeError):
         pass
+
+  def _engine_sound_action(self, toggle: bool, now_ns: int) -> None:
+    from openpilot.starpilot.engine_sound import settings as engine_sound
+    params = ui_state.params
+    if toggle:
+      enabled = engine_sound.toggle(params)
+      profile = engine_sound.profile_name(params)
+    else:
+      profile = engine_sound.next_profile(params)
+      enabled = engine_sound.enabled(params)
+    if enabled is not None and profile is not None:
+      self.adapter.engine_sound_notice.show(toggle, enabled, profile, now_ns)
 
   def _conditional_action_owner(self):
     if self.conditional_actions is None:

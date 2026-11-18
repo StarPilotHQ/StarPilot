@@ -3,7 +3,9 @@ import hashlib
 from openpilot.starpilot.aol.vehicle import policy_for
 from openpilot.starpilot.conditional_mode.manual import ioniq6_media_eligible
 from openpilot.starpilot.feature_capabilities import lateral_supported
-from openpilot.starpilot.controllers.wheel_actions import ACTIONS, DEFAULTS, KEYS, PADDLE_KEY, button_reported, eligible, paddle_bookmark_available
+from openpilot.starpilot.conditional_mode.manual import ACTION_COUNT
+from openpilot.starpilot.controllers.wheel_actions import (ACTIONS, DEFAULTS, ENGINE_SOUND_ACTIONS, KEYS, PADDLE_KEY, button_reported, eligible,
+                                                           paddle_bookmark_available)
 from openpilot.starpilot.saved_document import commit_exact
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.ui.feature_settings_state import FeatureRow
@@ -79,7 +81,7 @@ class WheelFeature:
         return ()
     if key in KEYS[8:] and not media:
       return ()
-    codes = {0, 8, 11, 12, 13}
+    codes = {0, 8, 11, 12, 13, *ENGINE_SOUND_ACTIONS}
     if self.owner.longitudinal_available():
       codes.update((1, 2, 5, 10, 14))
       codes.add(6)
@@ -115,7 +117,7 @@ class WheelFeature:
       if not choices:
         continue
       raw, readable = read_saved(self.owner.params, key, 8)
-      number = DEFAULTS.get(key, 0) if raw is None else int(raw) if raw in tuple(str(i).encode() for i in range(15)) else -1
+      number = DEFAULTS.get(key, 0) if raw is None else int(raw) if raw in tuple(str(i).encode() for i in range(ACTION_COUNT)) else -1
       selected = next((name for name, code in ACTIONS.items() if code == number), None)
       implicit_toggle = False
       if cp.brand == 'hyundai' and policy.explicit_latch and key in KEYS[:2]:

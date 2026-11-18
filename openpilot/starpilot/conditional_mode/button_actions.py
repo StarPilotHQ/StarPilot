@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from opendbc.car.gm.profiles import profiles_supported as gm_profiles_supported
 import hashlib
 
-from openpilot.starpilot.conditional_mode.manual import EXPERIMENTAL_MODE_ACTION, TRAFFIC_MODE_ACTION, ioniq6_media_eligible
+from openpilot.starpilot.conditional_mode.manual import ACTION_COUNT, EXPERIMENTAL_MODE_ACTION, TRAFFIC_MODE_ACTION, ioniq6_media_eligible
 from openpilot.starpilot.conditional_mode.preferences import MAX_DOCUMENT_BYTES, PreferenceError, decode_preferences
 from openpilot.starpilot.saved_document import WriteResult, commit_exact
 from openpilot.starpilot.saved_source import read_saved
@@ -22,7 +22,7 @@ SAFE_KEY = "SafeMode"
 MAX_SCALAR_BYTES = 8
 CHOICES = {"Off": b"0", "Cycle conditional mode": str(EXPERIMENTAL_MODE_ACTION).encode(),
            "Toggle traffic mode": str(TRAFFIC_MODE_ACTION).encode(), "Switchback Mode": b"7"}
-_CANONICAL_ACTIONS = frozenset(str(value).encode() for value in range(15))
+_CANONICAL_ACTIONS = frozenset(str(value).encode() for value in range(ACTION_COUNT))
 
 
 @dataclass(frozen=True)

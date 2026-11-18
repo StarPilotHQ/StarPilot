@@ -30,6 +30,7 @@ from openpilot.starpilot.parked_evidence import ParkedEvidence, RESUME_SKEW_NS, 
 from openpilot.starpilot.ui.conditional_status import ConditionalDisplayProjector, ConditionalPerceptionProjector, configured_choice
 from openpilot.starpilot.ui.traffic_status import TrafficDisplayProjector
 from openpilot.starpilot.ui.drive_mode_notice import DriveModeNotice
+from openpilot.starpilot.ui.engine_sound_notice import EngineSoundNotice
 from openpilot.starpilot.controllers.mode_actions import SwitchbackStatusOwner
 from openpilot.starpilot.ui.wheel_feedback import observe_wheel_acceleration
 from openpilot.starpilot.ui.torque_feedback import observe_torque_feedback
@@ -338,6 +339,7 @@ class RuntimeSnapshotAdapter:
     self._traffic_profile_valid = False
     self._personality_notice = PersonalityNotice()
     self._drive_mode_notice = DriveModeNotice(ui_state.params)
+    self.engine_sound_notice = EngineSoundNotice()
     self._stopped_timer = StoppedTimer()
     self._replay_stopped_history = False
     self._developer_metrics = DeveloperMetrics()
@@ -735,6 +737,7 @@ class RuntimeSnapshotAdapter:
       drive_mode_source, display_car, cp=cp, drive_frame=after,
       event_ns=int(sm.logMonoTime['starpilotCarState']) if drive_mode_source is not None else 0, now_ns=now_ns,
       native_alert=alert, traffic_active=bool(traffic is not None and traffic.state == 'active'))
+    alert = self.engine_sound_notice.update(alert, now_ns)
     onroad = OnroadState(weather_location=weather_location, developer_metrics=developer_metrics, stop_sign_observed_ns=stop_observed_ns,
                          engaged=display_lat_active or display_long_active or longitudinal_overridden, camera_available=started,
                          speed_mps=raw_speed, cruise_kph=cruise, speed_limit=observation,

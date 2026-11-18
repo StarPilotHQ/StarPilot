@@ -53,7 +53,7 @@ def context(tmp_path):
 
 def test_exact_catalog_and_missing_vs_saved_off(context):
   params, _ = context
-  assert sorted(ACTIONS.values()) == list(range(15))
+  assert sorted(ACTIONS.values()) == list(range(17))
   assert len(KEYS) == 15
   assert capture(params)['DistanceButtonControl'] == 1
   assert capture(params)['LongDistanceButtonControl'] == 5
@@ -62,7 +62,7 @@ def test_exact_catalog_and_missing_vs_saved_off(context):
   assert capture(params)['DistanceButtonControl'] == 0
 
 
-@pytest.mark.parametrize('key,code', [('DistanceButtonControl', code) for code in (1, 2, 5, 6, 7, 8, 11, 12, 13, 14)])
+@pytest.mark.parametrize('key,code', [('DistanceButtonControl', code) for code in (1, 2, 5, 6, 7, 8, 11, 12, 13, 14, 15, 16)])
 def test_real_distance_short_delivers_once_and_claims_serialized_release(context, key, code):
   params, cp = context
   params.put(key, code, block=True)

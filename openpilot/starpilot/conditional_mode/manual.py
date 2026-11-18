@@ -23,6 +23,7 @@ from openpilot.starpilot.saved_source import read_saved
 
 EXPERIMENTAL_MODE_ACTION = 5
 TRAFFIC_MODE_ACTION = 6
+ACTION_COUNT = 17
 VERY_LONG_PRESS = 5 * CRUISE_LONG_PRESS
 MEDIA_LONG_NS = CRUISE_LONG_PRESS * 10_000_000  # Convert 100 Hz ticks to source-packet nanoseconds.
 MEDIA_VERY_LONG_NS = VERY_LONG_PRESS * 10_000_000
@@ -106,7 +107,7 @@ def _action(params, key: str) -> int | None:
   if raw is None:
     return 0
   # Registered INT defaults and Params::put values are canonical decimal.
-  if raw not in tuple(str(value).encode() for value in range(15)):
+  if raw not in tuple(str(value).encode() for value in range(ACTION_COUNT)):
     return None
   return int(raw)
 
