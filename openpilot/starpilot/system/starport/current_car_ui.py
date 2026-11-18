@@ -166,7 +166,7 @@ def run(frames_path: str, touch_path: str | None = None, control_path: str | Non
   from openpilot.starpilot.system.starport.projection_control import DEFAULT_CONTROL_SOCKET, NATIVE_FOCUS, ProjectionControlSender
   from openpilot.starpilot.system.starport.projection_bookmark import BookmarkSender, request_bookmark
   from openpilot.starpilot.system.starport.projection_onroad import ProjectionOnroad
-  from openpilot.starpilot.system.starport.touch import TouchReceiver, DEFAULT_TOUCH_SOCKET
+  from openpilot.starpilot.system.starport.touch import TOUCH_SETUP_DOT, TouchReceiver, DEFAULT_TOUCH_SOCKET
   from openpilot.starpilot.ui.raylib import rl
   from openpilot.system.ui.lib.application import gui_app
   from openpilot.selfdrive.ui.ui_state import ui_state
@@ -269,6 +269,10 @@ def run(frames_path: str, touch_path: str | None = None, control_path: str | Non
     in_flight_camera = None
 
     async_failures = 0
+    touch_setup_until = 0.0
+    touch_done_until = 0.0
+    setup_dot = ((TOUCH_SETUP_DOT[0] * geometry.width - left) / geometry.scale,
+                 (TOUCH_SETUP_DOT[1] * geometry.height - top) / geometry.scale)
 
     def publish_readback() -> None:
       """Hand the frame read back last to starportd.
@@ -374,11 +378,22 @@ def run(frames_path: str, touch_path: str | None = None, control_path: str | Non
           rl.rl_translatef(left, top, 0)
           rl.rl_scalef(geometry.scale, geometry.scale, 1.0)
           layout.render()
+          if now < touch_setup_until:
+            layout.draw_touch_setup(*setup_dot)
+          elif now < touch_done_until:
+            layout.draw_touch_setup(*setup_dot, done=True)
         finally:
           rl.rl_pop_matrix()
       finally:
         rl.end_texture_mode()
-      layout.handle_touches(projected_touches(touch.drain(), geometry))
+      touches = []
+      for event in touch.drain():
+        if event.kind == 'setup':
+          touch_setup_until = now + 7.0 if event.x else 0.0
+          touch_done_until = now + 3.0 if event.y else 0.0
+        else:
+          touches.append(event)
+      layout.handle_touches(projected_touches(touches, geometry))
       if output is not None:
         gpu_nv12.compose_rgba(content.texture, output, request.margin_w, request.margin_h,
                               content_left=request.content_left, content_top=request.content_top)

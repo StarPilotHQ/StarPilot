@@ -27,6 +27,8 @@ ACTION_POINTER_UP = 6
 MAX_INPUT_BYTES = 16 * 1024
 MAX_KEYCODES = 256
 DEFAULT_TOUCH_SOCKET = "/tmp/starpilot-starport-touch.sock"
+TOUCH_SETUP_DOT = (0.93, 0.90)  # where the car view asks for the one setup tap, normalized in the visible area
+TOUCH_SETUP_REACH = 0.12
 MEDIA_KEYS = {85: "play_pause", 87: "next", 88: "previous", 126: "play", 127: "pause"}
 
 
@@ -94,11 +96,36 @@ class TouchMapper:
     self.pointer: int | None = None
     self.content_space = bool(margin_width or margin_height) and self._same_shape(self.content_width, self.content_height) \
       and not self._same_shape(video_width, video_height)
+    # Some head units report visible-video pixels, not their advertised touch size.
+    self.content_pixels = self.content_space
+    self.units_switched = False
+    self.calibrating = False
+    self.calibrated: str | None = None
+    self.key = f"{self.touch_width}x{self.touch_height}@{video_width}x{video_height}-{margin_width}x{margin_height}"
 
   def _same_shape(self, width: int, height: int) -> bool:
     return abs(self.touch_width * height / (self.touch_height * width) - 1) < 0.02
 
+  def _check_units(self, locations) -> None:
+    if self.content_pixels and any(x > self.content_width or y > self.content_height for _, x, y in locations):
+      self.content_pixels = False
+      self.units_switched = True
+
+  def _calibrate(self, x: int, y: int) -> None:
+    """Read the setup tap both ways; the reading nearer the dot names the units."""
+    dx, dy = TOUCH_SETUP_DOT
+    pixels = ((x / self.content_width - dx) ** 2 + (y / self.content_height - dy) ** 2) ** 0.5
+    panel = ((x / self.touch_width - dx) ** 2 + (y / self.touch_height - dy) ** 2) ** 0.5
+    exceeded = x > self.content_width or y > self.content_height
+    units = "touchscreen" if exceeded or panel < pixels else "pixels"
+    if (panel if units == "touchscreen" else pixels) > TOUCH_SETUP_REACH:
+      return  # not a tap on the dot: keep asking
+    self.content_pixels = units == "pixels"
+    self.calibrating, self.calibrated = False, units
+
   def _video_point(self, x: int, y: int) -> tuple[float, float]:
+    if self.content_pixels:
+      return self.left + x, self.top + y
     if self.content_space:
       return self.left + x * self.content_width / self.touch_width, self.top + y * self.content_height / self.touch_height
     return x * self.video_width / self.touch_width, y * self.video_height / self.touch_height
@@ -136,6 +163,11 @@ class TouchMapper:
     index = int(one(fields, 2, 0) or 0)
     if not locations:
       return []
+    if self.calibrating:
+      if action == ACTION_PRESS:
+        self._calibrate(locations[0][1], locations[0][2])
+      return []
+    self._check_units(locations)
     events: list[TouchEvent] = []
     if action == ACTION_PRESS and self.pointer is None:
       pointer, x, y = locations[0]
@@ -229,7 +261,7 @@ class TouchReceiver:
         kind, x, y = str(raw["kind"]), float(raw["x"]), float(raw["y"])
       except (ValueError, KeyError, TypeError):
         continue
-      if kind in ("down", "move", "up", "cancel") and 0.0 <= x <= 1.0 and 0.0 <= y <= 1.0:
+      if kind in ("down", "move", "up", "cancel", "setup") and 0.0 <= x <= 1.0 and 0.0 <= y <= 1.0:
         events.append(TouchEvent(kind, x, y))
     return events
 

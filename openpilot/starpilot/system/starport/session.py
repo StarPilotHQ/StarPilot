@@ -750,6 +750,8 @@ class ProjectionSession(Session):
     self.audio = None  # MediaAudio, attached by the supervisor when Spotify plays through Android Auto
     self.input_events = 0
     self.touch: TouchMapper | None = None
+    self.touch_units: dict[str, str] = {}  # touch geometry -> saved "pixels" or "touchscreen"
+    self.on_touch_units: Callable[[str, str], None] | None = None
     self.touch_events: deque[TouchEvent] = deque(maxlen=128)
     self.keys = KeyTracker()
     self.media_control: Callable[[str], None] | None = None  # non-blocking; set by the supervisor
@@ -816,13 +818,19 @@ class ProjectionSession(Session):
       if self.mode is not None:
         self.touch = TouchMapper(config, self.mode.width, self.mode.height, self.mode.margin_width, self.mode.margin_height,
                                  content_left=self.mode.content_left, content_top=self.mode.content_top)
+        if self.touch.content_space:
+          saved = self.touch_units.get(self.touch.key)
+          self.touch.content_pixels = saved != "touchscreen"
+          self.touch.calibrating = saved is None
       self.event("input_opened", channel=channel["id"], keycodes=list(config.keycodes),
                  touch=f"{config.touch_width}x{config.touch_height}", display_id=channel.get("display_id"),
                  mapping={"touch_width": self.touch.touch_width, "touch_height": self.touch.touch_height,
                           "video_width": self.touch.video_width, "video_height": self.touch.video_height,
                           "content_left": self.touch.left, "content_top": self.touch.top,
                           "content_width": self.touch.content_width, "content_height": self.touch.content_height,
-                          "content_space": self.touch.content_space} if self.touch is not None else None)
+                          "content_space": self.touch.content_space,
+                          "content_pixels": self.touch.content_pixels, "key": self.touch.key,
+                          "touch_setup": self.touch.calibrating} if self.touch is not None else None)
     except (TimeoutError, ValueError) as error:
       self.event("input_unavailable", channel=channel["id"], error=str(error))
 
@@ -982,10 +990,22 @@ class ProjectionSession(Session):
         disposition = "no_mapper" if self.touch is None else "unfocused" if not self.focused else "no_touch_event"
         if self.touch is not None and self.focused:
           try:
+            switched, calibrating = self.touch.units_switched, self.touch.calibrating
             mapped = self.touch.decode(data)
+            units = "touchscreen" if self.touch.units_switched and not switched else \
+              self.touch.calibrated if calibrating and not self.touch.calibrating else None
+            if units is not None:
+              self.event("touch_units_switched" if switched != self.touch.units_switched else "touch_setup_done",
+                         channel=channel, units=units, key=self.touch.key)
+              if self.on_touch_units is not None:
+                self.on_touch_units(self.touch.key, units)
+              if calibrating:
+                mapped = [TouchEvent("setup", 0.0, 1.0)]  # setup done: show the confirmation
             self.touch_events.extend(mapped)
             if mapped:
               disposition = "queued"
+            elif calibrating:
+              disposition = "touch_setup"
           except ValueError as error:
             disposition = "invalid"
             self.event("input_invalid", channel=channel, kind=kind, error=str(error))

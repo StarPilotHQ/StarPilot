@@ -6,6 +6,7 @@ from openpilot.starpilot.system.starport.frame_source import FrameConsumer, Fram
 from openpilot.starpilot.system.starport.hw_encoder import HardwareH264Encoder, HardwareHevcEncoder
 from openpilot.starpilot.system.starport.projection_geometry import projection_geometry
 from openpilot.starpilot.system.starport.session import CODEC_H265, choose_video_mode
+from openpilot.starpilot.system.starport.tests.test_touch import packet
 from openpilot.starpilot.system.starport.touch import InputConfig, TouchMapper
 
 
@@ -64,11 +65,23 @@ def test_hardware_encoders_accept_portrait_and_reject_oversized(encoder, tmp_pat
 
 def test_touch_reported_over_the_visible_area_maps_to_the_whole_picture():
   mapper = TouchMapper(InputConfig((), 1152, 1182), 720, 1280, 0, 541)
-  assert mapper.content_space
+  assert mapper.content_space and mapper.content_pixels
+  assert [(e.kind, e.x, e.y) for e in mapper.decode(packet(0, 1000, 1000))] == [('down', pytest.approx(1000 / 1152), pytest.approx(1000 / 1182))]
+  assert mapper.units_switched and not mapper.content_pixels
   assert mapper._normalize(0, 0) == (0, 0)
   assert mapper._normalize(1152, 1182) == (1, 1)
   assert mapper._normalize(576, 591) == pytest.approx((0.5, 0.5))
   assert mapper._inside(0, 0) and mapper._inside(1151, 1181)
+
+
+def test_ford_touch_in_visible_video_pixels():
+  # Mach-E advertises 1200x1244 but its taps span the 695x720 visible video.
+  mapper = TouchMapper(InputConfig((), 1200, 1244), 1280, 720, 585, 0, content_left=292, content_top=0)
+  for x, y in ((18, 23), (675, 22), (679, 707), (19, 698), (357, 373)):
+    down = mapper.decode(packet(0, x, y))
+    assert [(e.kind, e.x, e.y) for e in down] == [('down', pytest.approx(x / 695), pytest.approx(y / 720))]
+    mapper.decode(packet(1, x, y))
+  assert mapper.content_pixels and not mapper.units_switched
 
 
 def test_touch_reported_over_the_whole_frame_is_unchanged():
