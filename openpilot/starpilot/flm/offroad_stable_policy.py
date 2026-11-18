@@ -1269,6 +1269,49 @@ def _current_stable_direction_reversal_count(values: np.ndarray, min_step: float
   return int(np.sum(np.sign(significant[1:]) != np.sign(significant[:-1])))
 
 
+def _tracking_oscillation_windows(samples: list[FLMSample], eligibility: list[bool]) -> list[dict[str, Any]]:
+  """Catch sustained highway wobble when the requested path oscillates too."""
+  def excursions(series, threshold):
+    previous, count = 0, 0
+    for value in series:
+      side = 1 if value >= threshold else -1 if value <= -threshold else 0
+      if side:
+        count += int(previous != 0 and side != previous)
+        previous = side
+    return count
+
+  events = []
+  for start in range(0, len(samples) - 49, 10):
+    window = samples[start:start + 50]
+    if not all(eligibility[start:start + 50]) or any(s.saturated or s.v_ego < 25.0 for s in window):
+      continue
+    if window[-1].t - window[0].t < 4.5 or any(b.t - a.t > .15 for a, b in zip(window, window[1:], strict=False)):
+      continue
+    desired = np.array([s.desired_la for s in window])
+    if float(np.mean(np.abs(desired))) > .35:
+      continue
+    # Existing straight/curve detectors stay intact; this fills their gentle-demand gap.
+    if (float(np.mean(np.abs(desired))) <= .18 and float(np.ptp(desired)) <= .18
+        and _current_stable_direction_reversal_count(desired, .008) <= 3):
+      continue
+    errors = np.array([s.actual_la - s.desired_la for s in window])
+    angles = np.array([s.steering_angle_deg for s in window])
+    outputs = np.array([s.output for s in window])
+    angles -= np.linspace(angles[0], angles[-1], len(window))
+    outputs -= np.linspace(outputs[0], outputs[-1], len(window))
+    error_cycles, angle_cycles, output_cycles = excursions(errors, .11), excursions(angles, .14), excursions(outputs, .0125)
+    if min(error_cycles, angle_cycles, output_cycles) < 6:
+      continue
+    events.append({
+      'startIdx': start, 'endIdx': start + 49, 'peakIdx': start + int(np.argmax(np.abs(errors))),
+      'peakScore': min(1.5, float(np.ptp(errors)) + .03 * error_cycles),
+      'route': window[0].route, 'segment': window[0].segment, 'speedBand': 'highway', 'direction': 'center', 'supportCount': 50,
+      'metrics': {'detector': 'sustained_tracking_oscillation', 'trackingErrorP2P': round(float(np.ptp(errors)), 4),
+                  'trackingErrorExcursions': error_cycles, 'steeringExcursions': angle_cycles, 'outputExcursions': output_cycles},
+    })
+  return events
+
+
 def _current_stable_build_event_summaries(samples: list[FLMSample]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
   eligibility = _current_stable_analysis_eligibility_mask(samples)
   active_samples = [sample for sample, allowed in zip(samples, eligibility, strict=True) if allowed]
@@ -1414,6 +1457,7 @@ def _current_stable_build_event_summaries(samples: list[FLMSample]) -> tuple[lis
         }
       )
   summaries: list[dict[str, Any]] = []
+  straight_windows.extend(_tracking_oscillation_windows(samples, eligibility))
   for bucket, mask in base_masks.items():
     events = _current_stable_group_masked_events(samples, mask, score_map[bucket])
     if events:
