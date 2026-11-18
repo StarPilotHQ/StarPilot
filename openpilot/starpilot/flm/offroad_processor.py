@@ -172,10 +172,11 @@ def _control_reconstructible(control, stamp):
   if not control.limited:
     return True
   inputs = dict(getattr(control, 'replay_inputs', ()))
-  from openpilot.starpilot.flm.route_recording import SCHEMAS
+  from openpilot.starpilot.flm.route_recording import schema_base
 
   schema = getattr(control, 'stage_schema_revision', '')
-  return bool(SCHEMAS.get(schema, schema) == 'torque-selected-stage-snapshot-v1' and inputs.get('active') == 1.0 and inputs.get('safety_limited') in (0.0, 1.0))
+  return bool((schema_base(schema) or schema) == 'torque-selected-stage-snapshot-v1'
+              and inputs.get('active') == 1.0 and inputs.get('safety_limited') in (0.0, 1.0))
 
 
 def continuous_control_window(window, timeline, metadata_for, expected):

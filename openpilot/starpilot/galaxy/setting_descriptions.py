@@ -54,7 +54,7 @@ DESCRIPTIONS = {
   'TurnAssist': 'Uses steering-angle feedback to assist rolling low-speed turns above the vehicle minimum steering speed.',
   'LateralControllerSelection': 'Chooses the stock steering controller or the vehicle-specific StarPilot controller.',
   'ForceAutoTuneOff': ('StarPilot’s FLM tuning will attempt to automatically correct torque profiles as you drive. ' +
-                       'On allows automatic learning; Off disables it. Nonzero manual FLM overrides pause Auto Learn.'),
+                       'On allows automatic learning; Off disables it. Manual FLM overrides lock only the settings you change.'),
   'torque_prepare_firestar': 'Prepares steering settings for a tuning-request recording. Turning it off restores the previous settings.',
   'SteerLatAccel': 'Sets the legacy lateral-acceleration-to-torque conversion. Review the vehicle-specific tuning profile before applying it.',
   'SteerFriction': 'Sets legacy steering friction compensation. Review the vehicle-specific tuning profile before applying it.',
@@ -354,6 +354,13 @@ FLM_DESCRIPTIONS = {
     'Higher fades it more; lower keeps more. The fade can be limited by Curvy unwind floor relief. No effect with ' +
     'FF gain at zero.'),
 }
+FLM_DESCRIPTIONS.update({
+  'friction_threshold_' + speed: (
+    'Shapes small steering corrections at ' + label + '. Higher makes compensation build more gradually; ' +
+    'lower makes it respond sooner. Auto Learn can refine an accepted finding.')
+  for speed, label in (('crawl', 'crawling speeds'), ('low', 'low speeds'), ('mid', 'medium speeds'),
+                       ('fast', 'higher speeds'), ('highway', 'highway speeds'))
+})
 
 
 def purpose(row):

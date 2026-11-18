@@ -24,8 +24,8 @@ def configuration_data(cp, ci, controller, params, *, manual_status):
   from openpilot.starpilot.lateral.torque_settings import DOCUMENT_KEY, LEGACY_KEYS, MAX_DOCUMENT_BYTES, parse_document, interpret_legacy
   from openpilot.starpilot.saved_source import read_saved
 
-  if manual_status != 'not_configured' or not is_valid_vin(str(cp.carVin)) or str(cp.carVin) == VIN_UNKNOWN:
-    raise ValueError('Known vehicle and no manual coordinates required')
+  if manual_status not in ('not_configured', 'configured') or not is_valid_vin(str(cp.carVin)) or str(cp.carVin) == VIN_UNKNOWN:
+    raise ValueError('Known vehicle and valid manual coordinate settings required')
   descriptor = selected_descriptor(cp, ci, controller)
   if descriptor is None or descriptor.domain not in ('torque', 'torque_pid'):
     raise ValueError('Actual registered torque controller required')
@@ -64,8 +64,11 @@ def configuration_data(cp, ci, controller, params, *, manual_status):
   if document is not None:
     profile = parse_document(document).get(str(cp.carFingerprint))
     if profile is not None:
-      if profile.flm is not None or profile.manual_coordinates is not None or profile.geometry is not None and profile.geometry.learning == 'force_off':
+      if profile.flm is not None or profile.geometry is not None and profile.geometry.learning == 'force_off':
         raise ValueError('Manual or explicitly disabled tuning selected')
+      if profile.manual_coordinates is not None:
+        from openpilot.starpilot.flm.manual_coordinates import selected_manual
+        selected_manual(cp, params)
       if cp.lateralTuning.which() == 'torque':
         tune = cp.lateralTuning.torque
         if profile.basis != (float(tune.latAccelFactor), float(tune.latAccelOffset), float(tune.friction)):
@@ -147,7 +150,7 @@ def fixed_manual_numeric(controller, values):
 class RouteEffects:
   """Exact cold-start configuration, guarded by existing per-frame stages."""
 
-  def __init__(self, scope, values, numeric, *, previous=None, fixed_numeric=None):
+  def __init__(self, scope, values, numeric, *, previous=None, fixed_numeric=None, revision=None):
     scope.validate()
     if type(values) is not tuple or tuple(name for name, _ in values) != tuple(NAMES):
       raise ValueError('Ordered full route map required')
@@ -158,7 +161,9 @@ class RouteEffects:
       raise ValueError('Full previous route map required')
     self.quality_stopped = False
     self.quality_markers = frozenset(stop_marker(scope.key(), dict(values), r) for r in STOP_REASONS)
-    self.source = RouteSurfaceEffects(dict(values[:1]), scope.baseline_revision, accumulated=dict(values))
+    from openpilot.starpilot.flm.offroad_surface import REVISION
+    self.revision = REVISION if revision is None else revision
+    self.source = RouteSurfaceEffects(dict(values[:1]), scope.baseline_revision, accumulated=dict(values), revision=self.revision)
     self.original_effect_anchor = self.source.original_effect_anchor
     self.enabled = True
     self.frame_allowed = False
@@ -176,7 +181,7 @@ class RouteEffects:
       self.frame_allowed = False
       self.quality_stopped = True
       self.values = self.previous
-      self.source = RouteSurfaceEffects(dict(self.values[:1]), self.scope.baseline_revision, accumulated=dict(self.values))
+      self.source = RouteSurfaceEffects(dict(self.values[:1]), self.scope.baseline_revision, accumulated=dict(self.values), revision=self.revision)
       self.original_effect_anchor = self.source.original_effect_anchor
       self.status = 'quality_guard_returned_to_prior_accepted_map'
 
@@ -277,18 +282,29 @@ def configure(cp, ci, controller, params, *, manual_status):
     controller.route_flm_scope = scope
     controller.route_flm_scope_key = scope.key()
     row, status = startup_row(params, scope)
-    if row is None:
+    from openpilot.starpilot.flm.manual_coordinates import selected_manual
+    from openpilot.starpilot.flm.offroad_surface import revision_for_manual
+    manual = selected_manual(cp, params)
+    locked = {} if manual is None else {name: value for name, value in manual.values if name in manual.locked}
+    starting = {} if manual is None else manual.starting_values
+    if row is None and not starting:
       return None, status
-    if row['state'] == 'ready_for_next_drive':
+    if row is not None and row['state'] == 'ready_for_next_drive':
       from openpilot.starpilot.flm.offroad_cache import directory_for_params
 
       if os.path.lexists(directory_for_params(params) / ('trial-' + row['analysis_sha256'] + '.json')):
         return None, 'provisional_trial_already_started'
-    values = tuple((n, float(row['values'][n])) for n in NAMES)
-    previous = tuple((n, float(row['previous'][n])) for n in NAMES)
+    current = dict.fromkeys(NAMES, 0.0) | starting if row is None else dict(row['values'])
+    prior = current if row is None else dict(row['previous'])
+    if any(current[name] != value or prior[name] != value for name, value in locked.items()):
+      raise ValueError('Automatic configuration conflicts with a manually locked coordinate')
+    values = tuple((n, float(current[n])) for n in NAMES)
+    previous = tuple((n, float(prior[n])) for n in NAMES)
     fixed = None if not fixed_manual else fixed_manual_numeric(controller, fixed_manual)
-    return RouteEffects(scope, values, numeric, previous=previous, fixed_numeric=fixed), 'configured_pending_actual_stage'
+    return RouteEffects(scope, values, numeric, previous=previous, fixed_numeric=fixed, revision=revision_for_manual(manual)), 'configured_pending_actual_stage'
   except (AttributeError, KeyError, TypeError, ValueError, UnicodeError, OSError, OverflowError):
+    controller.route_flm_scope = None
+    controller.route_flm_scope_key = ''
     return None, 'configuration_unavailable'
 
 

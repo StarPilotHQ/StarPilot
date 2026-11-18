@@ -40,7 +40,7 @@ class TorqueFeature:
     raw = self._raw(DOCUMENT_KEY)
     profile = None if raw is None else parse_document(raw).get(str(cp.carFingerprint))
     saved = None if profile is None else profile.manual_coordinates
-    return context(cp, selection.mode, recovered=bool(saved is not None and saved.compatibility))
+    return context(cp, selection.mode, recovered=bool(saved is not None and saved.route_format))
 
   def _manual_compatible(self, saved):
     if saved is None or not saved.compatibility:
@@ -70,20 +70,25 @@ class TorqueFeature:
       common = {"source": raw, "capability": capability, "related_source": token,
         "dependencies": self._dependents(SELECTION_KEY, *TORQUE_NUMBERS, "ForceAutoTuneOff")}
       reason = ("Parked only. Saved for the next drive; zero restores this stage's original baseline. " +
-                "Manual overrides pause Auto Learn and are not learned results.") if matches else (
+                "Only changed settings are locked; the other settings continue Auto Learn.") if matches else (
                 "Vehicle tune, controller or effect definition changed. Reset this manual tune before editing.")
       rows = []
       for name in NAMES:
         low, high = coordinate_bounds(name)
         rows.append(FeatureRow("torque:surface:" + name, name.replace("_", " ").capitalize(),
           f"{100 * values[name]:.4f}", step=.25, minimum=100 * low, maximum=100 * high, unit="%",
-          available=allowed and matches, reason=reason, default_value="0", **common))
-      if saved is not None and saved.compatibility:
+          available=allowed and matches,
+          reason='Accepted finding. Auto Learn remains enabled for this setting.' if saved is not None and name in (saved.automatic or ()) else reason,
+          accepted_finding_value=values[name] if saved is not None and name in (saved.automatic or ()) else None,
+          default_value="0", **common))
+      if saved is not None and saved.route_format:
         from openpilot.starpilot.flm.offroad_surface import CURVE_NAMES
         for name in CURVE_NAMES:
           rows.append(FeatureRow('torque:surface:' + name, name.replace('_', ' ').capitalize(),
             f'{100 * values[name]:.4f}', unit='%', available=False,
-            reason='Saved by explicit manual recovery. Auto Learn is paused. Reset manual tune to remove these values.', **common))
+            accepted_finding_value=values[name] if name in (saved.automatic or ()) else None,
+            reason=('Accepted finding. Auto Learn remains enabled for this setting.' if name in (saved.automatic or ()) else
+                    'This setting stays locked; other settings can learn.' if name in saved.locked else 'Auto Learn is enabled for this setting.'), **common))
       if saved is not None:
         rows.append(FeatureRow("torque:surface:reset", "Reset manual tune", "Reset", choices=("Reset",),
           available=allowed, reason="Remove manual overrides, including any restored speed adjustments. Auto Learn history is preserved.", **common))
@@ -109,7 +114,8 @@ class TorqueFeature:
       raise ValueError("Manual tune context changed")
     values = dict(saved.values) if saved is not None else dict.fromkeys(NAMES, 0.)
     values[name] = float(request.value) / 100
-    manual = ManualCoordinates(current, tuple((n, values[n]) for n in values), '' if saved is None else saved.compatibility).validate()
+    automatic = None if saved is None or saved.automatic is None else tuple(n for n in saved.automatic if n != name)
+    manual = ManualCoordinates(current, tuple((n, values[n]) for n in values), '' if saved is None else saved.compatibility, automatic).validate()
     return {**profiles, fingerprint: replace(prior, manual_coordinates=manual if any(values.values()) else None)}
 
   def _factor_editable(self, fingerprint: str) -> bool:

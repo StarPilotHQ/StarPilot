@@ -1723,6 +1723,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
                       '/api/connect/proxy', '/api/connect/provider', '/api/auth/login', '/api/auth/logout', '/api/settings/preview', '/api/settings/confirm',
                       '/api/settings/recovery/preview', '/api/settings/recovery/confirm',
                       '/api/settings/flm-backup/preview', '/api/settings/flm-backup/confirm',
+                      '/api/settings/flm-finding/accept',
                       '/api/settings/reset-default', '/api/settings/restore', '/api/recordings/action',
                       '/api/replay/start', '/api/replay/control', '/api/replay/stop',
                       '/api/replay/export-start',
@@ -1800,6 +1801,24 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
           self.json(409 if authorized() else 401, {'error': str(error) if authorized() else 'Sign in to Galaxy'})
         except (SettingsUnavailable, OSError, RuntimeError, ValueError, TypeError):
           self.json(503, {'error': 'Tune restore is unavailable. Refresh the saved tune before retrying.'})
+        else:
+          self.json(200 if authorized() else 401, result if authorized() else {'error': 'Sign in to Galaxy'})
+        return
+      if path == '/api/settings/flm-finding/accept':
+        identity = self.settings_session()
+        if identity is None:
+          self.json(401, {'error': 'Sign in to Galaxy'})
+          return
+        from openpilot.starpilot.galaxy.flm_acceptance import accept_finding
+        def authorized():
+          return self.settings_session() == identity
+        try:
+          with effect_lock:
+            result = accept_finding(feature_settings(), training_results_source, payload, authorized=authorized)
+        except (ValueError, SettingsChanged) as error:
+          self.json(409 if authorized() else 401, {'error': str(error) if authorized() else 'Sign in to Galaxy'})
+        except (SettingsUnavailable, OSError, RuntimeError, TypeError, KeyError):
+          self.json(503, {'error': 'Could not confirm this finding was saved. Refresh the saved settings before trying again.'})
         else:
           self.json(200 if authorized() else 401, result if authorized() else {'error': 'Sign in to Galaxy'})
         return

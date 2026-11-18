@@ -202,7 +202,7 @@ class StatusReport:
       details['Actual route control timestamp'] = value['actual_control_ns']
       details['Native delivery is not asserted by this status'] = True
     from openpilot.starpilot.flm.fullrate_collector import ControlEvidence
-    from openpilot.starpilot.flm.offroad_surface import REVISION
+    from openpilot.starpilot.flm.offroad_surface import current_revision
 
     control = value.get('actual_control')
     applied = False
@@ -214,7 +214,7 @@ class StatusReport:
       and control.active
       and not (control.manual or control.override or control.fault or control.limited or control.saturated)
       and 0 < control.control_ns <= now <= control.control_ns + 100_000_000
-      and control.route_effect_revision == REVISION
+      and current_revision(control.route_effect_revision)
       and len(control.route_configuration_scope) == 64
       and not control.route_configuration_scope.strip('0123456789abcdef')
     ):

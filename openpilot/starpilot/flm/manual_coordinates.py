@@ -40,13 +40,30 @@ class ManualCoordinates:
   context: tuple[str, str, str]
   values: tuple[tuple[str, float], ...]
   compatibility: str = ''
+  automatic: tuple[str, ...] | None = None
+
+  @property
+  def route_format(self):
+    return bool(self.compatibility) or self.automatic is not None
+
+  @property
+  def locked(self):
+    # Zero has always meant Default in the editor, including older documents.
+    return tuple(name for name, value in self.values if value != 0 and name not in (self.automatic or ()))
+
+  @property
+  def starting_values(self):
+    return {name: value for name, value in self.values if value != 0}
 
   def validate(self):
     from openpilot.starpilot.flm.offroad_surface import ROUTE_NAMES, route_bounds, RouteSurfaceEffects
-    recovered = bool(self.compatibility)
+    recovered = self.route_format
     names = ROUTE_NAMES if recovered else NAMES
-    if recovered and (type(self.compatibility) is not str or len(self.compatibility) != 64 or self.compatibility.strip('0123456789abcdef')):
+    if type(self.compatibility) is not str or self.compatibility and (len(self.compatibility) != 64 or self.compatibility.strip('0123456789abcdef')):
       raise ValueError('Recovered manual tune needs its selected steering identity')
+    if self.automatic is not None and (type(self.automatic) is not tuple or
+        self.automatic != tuple(name for name in ROUTE_NAMES if name in self.automatic)):
+      raise ValueError('Accepted findings need unique ordered route coordinates')
     if (type(self.context) is not tuple or len(self.context) != 3
         or any(type(v) is not str for v in self.context)
         or any(len(self.context[i]) != 64 or self.context[i].strip('0123456789abcdef') for i in (0, 2))
@@ -64,27 +81,38 @@ class ManualCoordinates:
     # Validate the complete composed surface as well as each individual value.
     from openpilot.starpilot.flm.canonical_surface_adapter import CanonicalSurfaceEffects
     effects = RouteSurfaceEffects if recovered else CanonicalSurfaceEffects
-    effects(dict(self.values[:1]), self.digest(), accumulated=dict(self.values))
+    kwargs = {}
+    if self.automatic is not None:
+      from openpilot.starpilot.flm.offroad_surface import revision_for_manual
+      kwargs['revision'] = revision_for_manual(self)
+    effects(dict(self.values[:1]), self.digest(), accumulated=dict(self.values), **kwargs)
     return self
 
   def digest(self):
     payload = (self.context, self.values, self.compatibility) if self.compatibility else (self.context, self.values)
+    if self.automatic is not None:
+      payload = (payload, self.automatic)
     return hashlib.sha256(json.dumps(payload, separators=(',', ':'), allow_nan=False).encode()).hexdigest()
 
   def document(self):
     self.validate()
-    return dict(context=list(self.context), values=dict(self.values), **({'compatibility': self.compatibility} if self.compatibility else {}))
+    return dict(context=list(self.context), values=dict(self.values), **({'compatibility': self.compatibility} if self.compatibility else {}),
+                **({'automatic': list(self.automatic)} if self.automatic is not None else {}))
 
   @classmethod
   def from_document(cls, value):
-    if (type(value) is not dict or set(value) not in ({'context', 'values'}, {'context', 'values', 'compatibility'}) or type(value['context']) is not list
+    if (type(value) is not dict or not {'context', 'values'} <= set(value) <= {'context', 'values', 'compatibility', 'automatic'}
+        or type(value['context']) is not list
         or type(value['values']) is not dict):
       raise ValueError('Invalid manual coordinate document')
     from openpilot.starpilot.flm.offroad_surface import ROUTE_NAMES
-    names = ROUTE_NAMES if value.get('compatibility') else NAMES
+    if 'automatic' in value and type(value['automatic']) is not list:
+      raise ValueError('Accepted finding coordinates must be a list')
+    names = ROUTE_NAMES if value.get('compatibility') or 'automatic' in value else NAMES
     if set(value['values']) != set(names):
       raise ValueError('Complete manual coordinates required')
-    return cls(tuple(value['context']), tuple((n, value['values'][n]) for n in names), value.get('compatibility', '')).validate()
+    automatic = tuple(value['automatic']) if 'automatic' in value else None
+    return cls(tuple(value['context']), tuple((n, value['values'][n]) for n in names), value.get('compatibility', ''), automatic).validate()
 
 
 class ManualEffects:
@@ -97,8 +125,12 @@ class ManualEffects:
     profile.validate()
     self.profile = profile
     from openpilot.starpilot.flm.offroad_surface import RouteSurfaceEffects
-    effects = RouteSurfaceEffects if profile.compatibility else CanonicalSurfaceEffects
-    self.source = effects(dict(profile.values[:1]), profile.digest(), accumulated=dict(profile.values))
+    effects = RouteSurfaceEffects if profile.route_format else CanonicalSurfaceEffects
+    kwargs = {}
+    if profile.automatic is not None:
+      from openpilot.starpilot.flm.offroad_surface import revision_for_manual
+      kwargs['revision'] = revision_for_manual(profile)
+    self.source = effects(dict(profile.values[:1]), profile.digest(), accumulated=dict(profile.values), **kwargs)
     self.original_effect_anchor = self.source.original_effect_anchor
 
   def compatible(self, cp, ci, controller, params=None):
@@ -147,8 +179,27 @@ def load(cp, controller, params=None):
       return None, 'not_configured'
     tune = cp.lateralTuning.torque
     if (profile.basis != (float(tune.latAccelFactor), float(tune.latAccelOffset), float(tune.friction))
-        or profile.flm is not None or manual.context != context(cp, controller, recovered=bool(manual.compatibility))):
+        or profile.flm is not None or manual.context != context(cp, controller, recovered=manual.route_format)):
       return None, 'context_changed'
     return ManualEffects(manual), 'configured'
   except (AttributeError, KeyError, TypeError, ValueError, OverflowError, UnicodeError):
     return None, 'invalid'
+
+
+def selected_manual(cp, params):
+  from openpilot.starpilot.lateral.controller_selection import read_selection
+  from openpilot.starpilot.lateral.torque_settings import DOCUMENT_KEY, MAX_DOCUMENT_BYTES, parse_document
+  from openpilot.starpilot.saved_source import read_saved
+
+  raw, readable = read_saved(params, DOCUMENT_KEY, MAX_DOCUMENT_BYTES)
+  if not readable:
+    raise ValueError('Unreadable manual coordinate settings')
+  if raw is None:
+    return None
+  profile = parse_document(raw).get(str(cp.carFingerprint))
+  if profile is None or profile.manual_coordinates is None:
+    return None
+  owner, status = load(cp, read_selection(params, cp).mode, params)
+  if status not in ('configured', 'not_configured'):
+    raise ValueError('Manual coordinate settings require review: ' + status)
+  return None if owner is None else owner.profile

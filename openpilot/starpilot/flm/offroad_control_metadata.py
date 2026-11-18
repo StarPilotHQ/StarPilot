@@ -7,7 +7,7 @@ replay vectors or assert that they are valid.
 
 from dataclasses import dataclass
 import math
-from openpilot.starpilot.flm.route_recording import SCHEMAS, CONFIGURED_SCHEMAS, decode_configuration, configuration_values
+from openpilot.starpilot.flm.route_recording import schema_base, configured_schema, decode_configuration, configuration_values
 
 
 @dataclass(frozen=True)
@@ -43,7 +43,7 @@ class RecordedControlMetadata:
 
 def _inhibited_inputs(row, schema):
   # Only two original flags are needed here; full replay stays a separate check.
-  configured = schema in CONFIGURED_SCHEMAS
+  configured = configured_schema(schema)
   if not configured and (not row.limited or schema.split('@', 1)[0] != 'torque-selected-stage-snapshot-v1'):
     return ()
   from openpilot.starpilot.flm.native_refinement_wire import EXTENDED_INPUTS
@@ -85,7 +85,7 @@ def read_control_metadata(event):
   ):
     raise ValueError('Finite original controller context required')
   schema = str(row.stageSchemaRevision)
-  if schema in SCHEMAS:
+  if schema_base(schema) is not None:
     _, coordinates, route_revision, scope, configured = decode_configuration(schema, tuple((str(v.name), float(v.value)) for v in row.stageValues))
   else:
     if '@route-' in schema or len(row.stageValues) > 40 or any(str(v.name).startswith('route.') for v in row.stageValues):

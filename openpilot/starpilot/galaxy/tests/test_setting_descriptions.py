@@ -131,10 +131,11 @@ def test_actual_owner_projections_have_no_uncovered_setting(tmp_path):
 
 def test_manual_coordinate_purposes_preserve_startup_and_context_warnings():
   from openpilot.starpilot.flm.canonical_surface_adapter import NAMES
-  startup = "Parked only. Saved for the next drive; zero restores this stage's original baseline. Manual overrides pause Auto Learn."
+  from openpilot.starpilot.flm.offroad_surface import ROUTE_NAMES
+  startup = "Parked only. Saved for the next drive; zero restores this stage's original baseline. Only changed settings are locked."
   changed = "Vehicle tune, controller or effect definition changed. Reset this manual tune before editing."
-  assert set(FLM_DESCRIPTIONS) == set(NAMES)
-  assert len(set(FLM_DESCRIPTIONS.values())) == len(NAMES)
+  assert set(FLM_DESCRIPTIONS) == set(ROUTE_NAMES)
+  assert len(set(FLM_DESCRIPTIONS.values())) == len(ROUTE_NAMES)
   for name in NAMES:
     row = FeatureRow('torque:surface:' + name, 'Manual correction', '0', reason=startup)
     assert 'higher' in purpose(row).lower() and 'lower' in purpose(row).lower()

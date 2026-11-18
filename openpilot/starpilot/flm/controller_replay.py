@@ -755,14 +755,14 @@ class ControllerReplay:
         trace = None
         _verify_only = True
       if frame.route_effect_revision:
-        from openpilot.starpilot.flm.offroad_surface import REVISION as ROUTE_REVISION, replay_source
+        from openpilot.starpilot.flm.offroad_surface import current_revision, replay_source
         from openpilot.starpilot.flm.route_recording import _valid
 
-        if frame.route_effect_revision != ROUTE_REVISION or recorded_effect is not None or frame.live_applied_coordinates:
+        if not current_revision(frame.route_effect_revision) or recorded_effect is not None or frame.live_applied_coordinates:
           raise ValueError('Distinct explicit route replay policy required')
-        _valid(frame.route_applied_coordinates, frame.route_configuration_scope)
+        _valid(frame.route_applied_coordinates, frame.route_configuration_scope, frame.route_effect_revision)
         if any(value for _, value in frame.route_applied_coordinates):
-          recorded_effect = replay_source(dict(frame.route_applied_coordinates), self.baseline_revision)
+          recorded_effect = replay_source(dict(frame.route_applied_coordinates), self.baseline_revision, revision=frame.route_effect_revision)
         _verify_only = True
       actual, _ = _run(
         self.actual,

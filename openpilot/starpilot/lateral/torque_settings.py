@@ -167,7 +167,7 @@ def parse_document(raw: bytes) -> dict[str, PlatformProfile]:
   except (RecursionError, OverflowError) as exc:
     raise ValueError("Malformed torque document") from exc
   if not isinstance(document, dict) or set(document) != {"schemaVersion", "vehicles"} or \
-     type(document["schemaVersion"]) is not int or document["schemaVersion"] not in (1, 2, 3, 4, 5) or \
+     type(document["schemaVersion"]) is not int or document["schemaVersion"] not in (1, 2, 3, 4, 5, 6) or \
      not isinstance(document["vehicles"], dict) or len(document["vehicles"]) > len(PLATFORMS):
     raise ValueError("Malformed torque document")
   profiles: dict[str, PlatformProfile] = {}
@@ -179,7 +179,7 @@ def parse_document(raw: bytes) -> dict[str, PlatformProfile]:
       expected |= {"geometry"}
     if document["schemaVersion"] >= 4 and isinstance(value, dict) and "flm" in value:
       expected |= {"flm"}
-    if document["schemaVersion"] == 5 and isinstance(value, dict) and "manualCoordinates" in value:
+    if document["schemaVersion"] >= 5 and isinstance(value, dict) and "manualCoordinates" in value:
       expected |= {"manualCoordinates"}
     if fingerprint not in PLATFORMS or not isinstance(value, dict) or set(value) != expected:
       raise ValueError("Malformed torque profile")
@@ -214,6 +214,8 @@ def parse_document(raw: bytes) -> dict[str, PlatformProfile]:
     if "manualCoordinates" in value:
       from openpilot.starpilot.flm.manual_coordinates import ManualCoordinates
       manual = ManualCoordinates.from_document(value["manualCoordinates"])
+      if manual.automatic is not None and document['schemaVersion'] < 6:
+        raise ValueError('Accepted findings require their explicit document version')
       if flm is not None:
         raise ValueError("Only one manual surface may be selected")
     profiles[fingerprint] = PlatformProfile(basis, _choice(value["factor"]), _choice(value["friction"]), gain, gain_basis, geometry, flm, manual)
@@ -222,7 +224,8 @@ def parse_document(raw: bytes) -> dict[str, PlatformProfile]:
 
 def serialize_document(profiles: dict[str, PlatformProfile]) -> bytes:
   vehicles: dict[str, dict] = {}
-  version = (5 if any(p.manual_coordinates is not None for p in profiles.values())
+  version = (6 if any(p.manual_coordinates is not None and p.manual_coordinates.automatic is not None for p in profiles.values())
+             else 5 if any(p.manual_coordinates is not None for p in profiles.values())
     else 4 if any(p.flm is not None for p in profiles.values())
     else 3 if any(p.geometry is not None for p in profiles.values())
     else 2 if any(p.gain_basis is not None for p in profiles.values()) else 1)

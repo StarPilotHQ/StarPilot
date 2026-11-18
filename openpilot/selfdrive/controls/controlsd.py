@@ -224,7 +224,7 @@ class Controls:
 
       manual_effects, manual_status = load_manual_coordinates(self.CP, self.lateral_controller_selection.mode, self.params)
     self.torque_learning_allowed = bool(
-      manual_status == 'not_configured' and learning_allowed(self.params, self.CP, selection=self.lateral_controller_selection)
+      manual_status in ('not_configured', 'configured') and learning_allowed(self.params, self.CP, selection=self.lateral_controller_selection)
     )
     return manual_effects, manual_status
 

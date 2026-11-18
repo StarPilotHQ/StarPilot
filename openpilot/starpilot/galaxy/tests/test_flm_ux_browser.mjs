@@ -22,6 +22,7 @@ let backupReject = false, backupRecovery = false, manualRecovered = false
 const tuneBackup = { format: 'starpilot-flm-tune', version: 1, vehicle: 'DECLARED_UI_CAR', metric: false,
   controllerMode: 'starpilot', cpSha256: 'a'.repeat(64), createdAt: '2026-11-16T03:00:00Z', checksum: 'declared-ui-checksum',
   manual: [{ page: 'tuning', key: 'torque:surface:highway_center_taper_max', value: '0.5' }], learned: {} }
+const acceptedFindings = new Set()
 const manual = Object.fromEntries(SURFACE_NAMES.map(name => [name, 0]))
 const hints = [['highway_center_taper_max', .005], ['friction_threshold_low', .002],
   ['friction_threshold_mid', .004], ['friction_threshold_fast', .005], ['friction_threshold_highway', .006]]
@@ -36,7 +37,7 @@ function report() {
     current: { fresh: true, ageSeconds: 0, enabled: application, status: 'collecting', reason: 'no_new_native_feasible_training_step',
       progress: { samples: 71357, blocks: 197, requiredBlocks: 6 }, fit: null,
       application: { applied: application, reason: application ? 'current_controller_application' : 'saved_configuration_is_not_current_application' },
-      details: { 'Completed drive analyzed': 'declared-ui-drive', 'Recorded steering observations': 71357,
+      details: { 'Completed drive analyzed': 'declared-ui-drive', 'Recorded steering observations': 71357, 'Offroad assessment hash': 'a'.repeat(64), 'Original completed route hash': 'b'.repeat(64),
         'Analysis decision': scenario === 'saved' ? 'bounded_trial_configured_for_next_drive' : 'no_new_native_feasible_training_step',
         'Automatic configuration changed': saved, 'Saved route adjustment count': saved ? 1 : 0,
         'Recorded coordinate recommendations': scenario === 'none' ? [] : hints.map(([name, target], index) => [name, 0,
@@ -99,13 +100,14 @@ function settings() {
   return { page: 'tuning', title: 'Manual tuning', view: 'declared-ui-view', parked,
     rows: [...SURFACE_NAMES.map(coordinate => ({ coordinate, label: coordinate,
       // This highlighted dial uses the published help; other fixture rows stay generic.
-      reason: coordinate === 'highway_center_taper_max' ? 'Adds straight-ahead softening at highway speeds. Higher softens small corrections more; lower keeps more steering response. This changes steering feel, not your target position in the lane. Parked only. Manual overrides pause Auto Learn.' :
-        'Shapes small steering corrections at this stage. Higher and lower values change the controller response. Parked only. Manual overrides pause Auto Learn.',
+      reason: coordinate === 'highway_center_taper_max' ? 'Adds straight-ahead softening at highway speeds. Higher softens small corrections more; lower keeps more steering response. This changes steering feel, not your target position in the lane. Parked only. Manual overrides lock only the changed setting.' :
+        'Shapes small steering corrections at this stage. Higher and lower values change the controller response. Parked only. Manual overrides lock only the changed setting.',
+      ...(acceptedFindings.has(coordinate) ? {acceptedFindingValue: manual[coordinate] / 100} : {}),
       value: manual[coordinate].toFixed(4), minimum: -25, maximum: 25, step: .25, unit: '%', defaultValue: 0,
       resetAvailable: parked, available: parked, action: true })),
     ...(manualRecovered ? ['crawl','low','mid','fast','highway'].map((speed, index) => ({ coordinate: 'friction_threshold_' + speed,
       label: 'Recovered speed correction', value: [0,0,.36,.48,.48][index].toFixed(4), unit: '%', available: false, action: false,
-      reason: 'Saved by explicit manual recovery. Auto Learn is paused.' })) : []),
+      reason: 'Saved by explicit manual recovery. These values stay locked.' })) : []),
     { label: 'Reset all manual overrides', reason: 'Remove the thirty manual overrides.', value: 'Reset', confirm: true, available: parked, action: true }] }
 }
 const stylesheetLinks = [...(await readFile(join(root, 'index.html'), 'utf8')).matchAll(/<link[^>]*rel="stylesheet"[^>]*>/g)].map(row => row[0].replaceAll('href="./', 'href="/')).join('\n')
@@ -134,11 +136,17 @@ const server = createServer(async (req, res) => {
       let raw = ''; for await (const chunk of req) raw += chunk
       const body = JSON.parse(raw); requests.push({ path: pathname, body })
       if (!parked || saveError) return json({ error: 'Declared save refusal' }, 503)
+      if (pathname === '/api/settings/flm-finding/accept') {
+        const hint = hints.find(([name, target]) => body.parameter === name && body.target === target)
+        if (!hint || body.assessment !== 'a'.repeat(64)) return json({ error: 'Finding changed' }, 409)
+        acceptedFindings.add(body.parameter);manual[body.parameter] = body.target * 100
+        return json({ status: 'saved', parameter: body.parameter, value: body.target, learning: 'automatic', for_next_drive: true })
+      }
       if (pathname === '/api/settings/flm-backup/preview') {
         backupRecovery = body.mode === 'recovery'
         return backupReject ? json({ error: 'No Auto Learn setup matches the current controller.' }, 409) :
-          json({ intent: 'declared-backup-intent', question: backupRecovery ? 'Recover these values as your manual tune? Auto Learn pauses until you reset the manual tune.' :
-            'Restore these manual slider values? Manual overrides pause Auto Learn.', count: 1,
+          json({ intent: 'declared-backup-intent', question: backupRecovery ? 'Recover these values as your manual tune? Other settings can keep learning.' :
+            'Restore these manual slider values? Manual overrides lock only the changed setting.', count: 1,
             changes: [['Highway center taper', '0', '0.5']] })
       }
       if (pathname === '/api/settings/flm-backup/confirm') {
@@ -309,7 +317,7 @@ try {
         await show('.gx-tuner__idea-grid');await capture(`${theme}-${width}-finding`)
         await show('.gx-tuner__groups');await capture(`${theme}-${width}-categories`)
       }
-      await click('.gx-tuner__idea-grid .gx-btn')
+      await click('.gx-tuner__idea-grid .gx-btn--tonal')
       assert.equal(await execute('return document.activeElement.id'), 'tuner-dial-highway_center_taper_max')
       assert.equal(await execute('return document.querySelector("#tuner-dial-highway_center_taper_max input").value'), '0')
       await layout(`${width}/${theme}/dial`)
@@ -567,10 +575,10 @@ try {
   await layout('backup/manual-recovery');await capture('backup-manual-recovery')
   await click('dialog[aria-labelledby=flm-restore-title] .gx-actions button:last-child')
   await until(() => execute('return !document.querySelector("dialog[open]")'))
-  await until(() => execute('return document.querySelector("[data-role=flm-backup]").textContent.includes("Auto Learn is paused")'))
+  await until(() => execute('return document.querySelector("[data-role=flm-backup]").textContent.includes("Manual values stay locked")'))
   await until(() => execute('return !!document.querySelector("#tuner-recovered-title")'))
   await show('#tuner-recovered-title');await layout('backup/recovered-manual-values');await capture('backup-recovered-manual-values')
-  assert(await execute('return document.querySelector("#tuner-recovered-title").parentElement.textContent.includes("Auto Learn paused")'))
+  assert(await execute('return document.querySelector("#tuner-recovered-title").parentElement.textContent.includes("Manually selected values stay locked")'))
   checks.push('backup/explicit-manual-recovery-without-auto-qualification')
   await change('applied', { parked: false });await click('#tuner-tab-tune')
   await click('[data-role=flm-backup] summary')
@@ -578,6 +586,49 @@ try {
   await capture('backup-driving-locked')
   checks.push('backup/real-download/local-file/preview/confirmed-restore/incompatible/driving-lockout')
   assert.deepEqual(errors, [])
+  manualRecovered = false
+  await viewport(416);await change('ideas');await click('#tuner-tab-tune')
+  await until(() => execute('return window.flm.canAcceptFindings'))
+  const beforeAcceptance = requests.length
+  await click('[data-action=accept-finding]')
+  await until(() => execute('return !!document.querySelector("#accept-finding-title")'))
+  assert.equal(requests.length, beforeAcceptance, 'Opening the finding review does not save it')
+  assert(await execute('return document.querySelector("[role=dialog]").contains(document.activeElement)'))
+  await layout('finding/accept-review-mobile');await capture('finding-accept-review-mobile')
+  await click('dialog[aria-labelledby=accept-finding-title] .gx-dialog__actions button:first-child')
+  assert.equal(requests.length, beforeAcceptance, 'Cancel leaves the tune unchanged')
+  await click('[data-action=accept-finding]')
+  await click('dialog[aria-labelledby=accept-finding-title] .gx-dialog__actions button:last-child')
+  await until(() => execute('return !!window.flm.findingNotice && !window.flm.findingBusy'))
+  assert.equal(requests.at(-1).path, '/api/settings/flm-finding/accept')
+  assert.equal(requests.at(-1).body.parameter, 'highway_center_taper_max')
+  assert(acceptedFindings.has('highway_center_taper_max'))
+  assert.equal(await execute('return window.flm.offroad.saved'), false, 'User acceptance does not fabricate an automatic save')
+  assert(await execute('return document.querySelector("[data-action=accept-finding]").disabled'))
+  assert(await execute('return document.querySelector("[data-coordinate=highway_center_taper_max]").textContent.includes("Accepted for next drive")'))
+  await execute('window.flm.acceptedFindingNames=[]')
+  assert(await execute('return window.flm.findingAccepted(window.flm.review.manual[0])'), 'Saved acceptance survives clearing local UI state')
+  await layout('finding/accepted-learning-on');await capture('finding-accepted-learning-on')
+  await click('.gx-tuner__curve-summary > details > summary')
+  await click('[data-coordinate=friction_threshold_mid] [data-action=accept-finding]')
+  saveError = true
+  const beforeFailure = requests.length
+  await click('dialog[aria-labelledby=accept-finding-title] .gx-dialog__actions button:last-child')
+  await until(() => execute('return !!window.flm.findingError && !window.flm.findingBusy'))
+  assert.equal(requests.length, beforeFailure + 1, 'A failed or unknown write is not retried')
+  assert(!acceptedFindings.has('friction_threshold_mid'))
+  await show('[data-role=finding-error]');await capture('finding-accept-error')
+  await change('ideas', { parked: false });await click('#tuner-tab-tune')
+  assert(await execute('return [...document.querySelectorAll("[data-action=accept-finding]")].every(e=>e.disabled)'))
+  await capture('finding-driving-locked')
+  await viewport(1280, 900);await change('ideas');await click('#tuner-tab-tune')
+  await execute('window.flm.findingError=""')
+  await click('.gx-tuner__curve-summary > details > summary')
+  await click('[data-coordinate=friction_threshold_low] [data-action=accept-finding]')
+  await layout('finding/accept-review-desktop');await capture('finding-accept-review-desktop')
+  await click('dialog[aria-labelledby=accept-finding-title] .gx-dialog__actions button:first-child')
+  checks.push('finding/explicit-accept/cancel/learning-on/no-auto-qualification/error/no-retry/driving-lockout')
+
   console.log(`Real Chromium FLM UI: ${checks.length} responsive/theme/state checks, 5 findings/7 destinations, parked save/reset, driving lockout, errors and retained evidence passed`)
 } catch (error) {
   failure = error.stack

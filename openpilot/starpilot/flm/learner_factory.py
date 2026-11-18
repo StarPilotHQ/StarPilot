@@ -74,15 +74,16 @@ def collection_keys(evidence):
 def _frame(evidence):
   if getattr(evidence, 'route_effect_revision', ''):
     from dataclasses import replace
-    from openpilot.starpilot.flm.route_recording import SCHEMAS, _valid
-    from openpilot.starpilot.flm.offroad_surface import REVISION as ROUTE_REVISION
+    from openpilot.starpilot.flm.route_recording import schema_base, _valid
+    from openpilot.starpilot.flm.offroad_surface import current_revision
 
-    if evidence.stage_schema_revision not in SCHEMAS or evidence.route_effect_revision != ROUTE_REVISION:
+    base = schema_base(evidence.stage_schema_revision)
+    if base is None or not current_revision(evidence.route_effect_revision):
       raise ValueError('Explicit route recording schema required')
-    _valid(evidence.route_applied_coordinates, evidence.route_configuration_scope)
+    _valid(evidence.route_applied_coordinates, evidence.route_configuration_scope, evidence.route_effect_revision)
     original = replace(
       evidence,
-      stage_schema_revision=SCHEMAS[evidence.stage_schema_revision],
+      stage_schema_revision=base,
       route_applied_coordinates=(),
       route_effect_revision='',
       route_configuration_scope='',

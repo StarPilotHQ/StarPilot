@@ -116,6 +116,7 @@ class FeatureRow:
   default_reset_available: bool = False
   collapsed: bool = False  # a heading whose rows are hidden until it is opened
   learned_value: str = field(default='', compare=False, repr=False)
+  accepted_finding_value: float | None = None
 
 
 @dataclass(frozen=True)

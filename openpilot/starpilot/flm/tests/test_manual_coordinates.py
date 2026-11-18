@@ -274,8 +274,8 @@ def test_next_startup_loads_new_saved_values_without_mutating_running_profile(tm
   assert dict(following.profile.values)['center_taper_max'] == .02
 
 
-@pytest.mark.parametrize('saved,expected', [(False, True), (True, False)])
-def test_actual_controls_startup_holds_native_learning_only_for_manual_tune(tmp_path, cp, monkeypatch, saved, expected):
+@pytest.mark.parametrize('saved', [False, True])
+def test_actual_controls_startup_keeps_learning_with_individual_manual_settings(tmp_path, cp, monkeypatch, saved):
   from openpilot.selfdrive.controls import controlsd
   params = PrivateParams(tmp_path)
   if saved:
@@ -287,7 +287,7 @@ def test_actual_controls_startup_holds_native_learning_only_for_manual_tune(tmp_
   monkeypatch.setattr(owner, 'params', params, raising=False)
   owner.lateral_controller_selection = default_selection(cp)
   effects, status = owner._configure_manual_tune()
-  assert owner.torque_learning_allowed is expected
+  assert owner.torque_learning_allowed
   assert (effects is not None) is saved
   assert status == ('configured' if saved else 'not_configured')
   assert (tmp_path / 'd' / 'ForceAutoTuneOff').read_bytes() == b'0'
