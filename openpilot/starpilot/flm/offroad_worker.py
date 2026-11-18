@@ -18,7 +18,7 @@ from openpilot.starpilot.flm.offroad_cache import AssessmentCache, MAX_CHECKPOIN
 from openpilot.starpilot.flm.offroad_checks import qualify
 from openpilot.starpilot.flm.offroad_processor import analyze_latest, CompletedAssessment
 from openpilot.starpilot.flm.offroad_route import latest_route, logger_marker, route_inventory, source_revisions, RouteInputError, LOCAL_ID
-from openpilot.starpilot.flm.offroad_runtime import current_configuration as _current_configuration
+from openpilot.starpilot.flm.offroad_runtime import current_configuration as _current_configuration, VehicleIdentityUnavailable
 from openpilot.starpilot.flm.offroad_store import RouteScope, RouteStorage, KEY, MAX_BYTES, MAX_ROUTE_STEP, NAMESPACE
 from openpilot.starpilot.flm.offroad_surface import REVISION, current_revision, revision_for_manual
 from openpilot.starpilot.flm.offroad_tracking import TrackingEstimate, compare_observed
@@ -705,6 +705,10 @@ class OffroadWorker:
       self.evidence_bank = EvidenceBank(self.cache.directory)
 
   def _history_identity(self, cp):
+    try:
+      scope = self.scope_for(cp, self.params)
+    except VehicleIdentityUnavailable:
+      return None
     settings = []
     for key in SETTINGS:
       if key == KEY:
@@ -713,7 +717,7 @@ class OffroadWorker:
       if not okay:
         raise ValueError('Unreadable evidence history setting')
       settings.append((key, None if raw is None else hashlib.sha256(raw).hexdigest()))
-    return _digest((self.scope_for(cp, self.params).document(), settings))
+    return _digest((scope.document(), settings))
 
   def _snapshot(self, route):
     values = []
@@ -806,11 +810,15 @@ class OffroadWorker:
     state = {}
 
     def prior(cp):
-      scope = self.scope_for(cp, self.params)
+      try:
+        scope = self.scope_for(cp, self.params)
+      except VehicleIdentityUnavailable as error:
+        scope = None
+        state['review_identity'] = error.review_key
       raw, okay = read_saved(self.params, KEY, MAX_BYTES)
       if not okay:
         raise ValueError('Unreadable automatic tuning history')
-      row = decode(raw).get(NAMESPACE, {}).get(scope.key())
+      row = None if scope is None else decode(raw).get(NAMESPACE, {}).get(scope.key())
       state.update(scope=scope, raw=raw, row=row)
       from openpilot.starpilot.flm.manual_coordinates import selected_manual
       manual = selected_manual(cp, self.params)
@@ -849,9 +857,16 @@ class OffroadWorker:
       prior(assessment.cp)
     scope, row, expected = state['scope'], state['row'], state['raw']
 
+    def settings_current():
+      try:
+        current_scope = self.scope_for(assessment.cp, self.params)
+        return scope is not None and current_scope == scope
+      except VehicleIdentityUnavailable as error:
+        return scope is None and error.review_key == state.get('review_identity')
+
     def authorized():
       if not (
-        self.permitted() and self.scope_for(assessment.cp, self.params) == scope
+        self.permitted() and settings_current()
         and logger_marker(self.params) == self.pending_logger and source_revisions(self.root, route) == revisions
         and latest_route(self.params, self.root, permitted=self.permitted, inventory_only=True) == latest
       ):
@@ -885,10 +900,26 @@ class OffroadWorker:
                       partial_segments=[len(assessment.receipt.decoded_segments), len(assessment.receipt.segments)],
                       omitted_segments=[list(row) for row in assessment.receipt.omitted_segments])
     report = assessment.report()
-    report.update(policy=POLICY, current_scope=scope.document(), road_improvement_confirmed=False)
+    report.update(policy=POLICY, road_improvement_confirmed=False)
+    if scope is not None:
+      report['current_scope'] = scope.document()
     locked = state.get('locked', {})
     current = dict(ZERO) | state.get('starting', {}) if row is None else dict(row['values'])
     recorded['recommendations'] = recorded_recommendations(assessment, current, report)
+
+    if scope is None:
+      recommendations = [r for r in recorded['recommendations'] if r['parameter'] not in locked]
+      report['vehicle_identity'] = 'unavailable'
+      result = {**recorded, 'status': 'collecting', 'reason': 'vehicle_identity_unavailable', 'vehicle_identity': 'unavailable',
+                'configuration_changed': False, 'actual_application_proven': False, 'road_improvement_confirmed': False,
+                'saved_adjustments': 0, 'manual_locked_parameters': list(locked), 'recommendations': recommendations,
+                'recommendation_count': len(recommendations),
+                'assessment_sha256': self.cache.put({'kind': 'identity_review', 'assessment': report})}
+      if not authorized() or read_saved(self.params, KEY, MAX_BYTES) != (expected, True):
+        raise RouteInputCancelled('Recording or settings changed before identity-limited review')
+      self.cache.checkpoint({'input_fingerprint': self._snapshot(route), 'result': result})
+      self.pending_failure_data = None
+      return result  # No fit, persistent evidence, trial resolution, profile load or Params write.
 
     choices = []
     for group in assessment.groups:

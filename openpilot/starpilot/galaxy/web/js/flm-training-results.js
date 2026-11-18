@@ -257,6 +257,7 @@ const REASONS = {
   accepted_target_currently_acknowledged: "The controller acknowledged the accepted correction.",
 }
 export function learningReason(reason) {
+  if (reason === 'vehicle_identity_unavailable') return 'This drive was reviewed on its own. Automatic saving is waiting for the car to identify itself.'
   if (reason === "Assessment cache full") return "FLM ran out of space in its review history. The latest analysis could not be saved; this does not mean your saved tune was erased."
   if (Object.hasOwn(REASONS, reason)) return REASONS[reason]
   const pattern = /^observed_(understeer|oversteer|late_turn_in|early_turn_in|unwind_too_slow|unwind_too_fast|low_speed_unwillingness|center_chatter|notchy_mid_curve)_(left|right|center)$/.exec(reason)

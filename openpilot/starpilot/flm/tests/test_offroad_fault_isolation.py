@@ -636,3 +636,144 @@ class TestPartialDriveReview(unittest.TestCase):
         walk_partial_route(root, inventory, permitted=lambda: True, consume=lambda n, events: first.write_bytes(b'changed'))
       with self.assertRaises(RouteInputCancelled):
         walk_partial_route(root, inventory, permitted=lambda: False, consume=lambda *args: None)
+
+
+class TestUnidentifiedVehicleReview(unittest.TestCase):
+  """Declared Sonata recordings; no historical identity or accepted tune is invented."""
+
+  @staticmethod
+  def setup(directory, *, vin='00000000000000000', counter=18):
+    import math
+    from opendbc.car.car_helpers import interfaces
+    from opendbc.car.hyundai.values import CAR
+    from openpilot.starpilot.lateral.learning_preferences import replace_preference
+    from openpilot.starpilot.lateral.controller_selection import ControllerMode, replace_mode
+
+    root = Path(directory)
+    params = Params(str(root / 'params'))
+    cp = interfaces[CAR.HYUNDAI_SONATA_HYBRID].get_non_essential_params(CAR.HYUNDAI_SONATA_HYBRID)
+    cp.carVin = vin
+    params.put_bool('OpenpilotEnabledToggle', True, block=True)
+    params.put('SteeringLearningPreferences', replace_preference(None, cp, True), block=True)
+    params.put('LateralControllerSelection', json.loads(replace_mode(None, cp, ControllerMode.STARPILOT)), block=True)
+    route = f'{counter:08x}--aaaaaaaaaa'
+    folder = root / 'logs' / (route + '--0')
+    folder.mkdir(parents=True)
+    messages = [log.Event.new_message(logMonoTime=1_000_000_000, valid=True, carParams=cp).to_bytes()]
+    for index in range(1201):
+      stamp = 1_000_000_000 + index * 10_000_000
+      event = log.Event.new_message(logMonoTime=stamp, valid=True)
+      state = event.init('carState')
+      state.vEgo, state.canValid = 20., True
+      messages.append(event.to_bytes())
+      event = log.Event.new_message(logMonoTime=stamp, valid=True)
+      control = event.init('carControl')
+      control.latActive, control.actuators.torque = True, .1
+      messages.append(event.to_bytes())
+      event = log.Event.new_message(logMonoTime=stamp, valid=True)
+      torque = event.init('controlsState').lateralControlState.init('torqueState')
+      torque.active = True
+      torque.desiredLateralAccel = .6 + .05 * math.sin(index / 75)
+      torque.actualLateralAccel = .75 * torque.desiredLateralAccel
+      messages.append(event.to_bytes())
+    event = log.Event.new_message(logMonoTime=13_010_000_000, valid=True)
+    event.init('clocks').wallTimeNanos = 1_800_000_000_000_000_000 + counter * 1_000_000_000
+    messages.append(event.to_bytes())
+    event = log.Event.new_message(logMonoTime=13_010_000_000, valid=True)
+    event.init('sentinel').type = 'endOfRoute'
+    messages.append(event.to_bytes())
+    (folder / 'rlog.bz2').write_bytes(bz2.compress(b''.join(messages)))
+    params.put('CurrentRoute', route, block=True)
+    params.put('RouteCount', counter + 1, block=True)
+    return params, cp, root / 'logs'
+
+  def test_actual_sonata_configuration_has_precise_identity_refusal_and_stable_review_guard(self):
+    from openpilot.common.prefix import OpenpilotPrefix
+    from openpilot.starpilot.flm.offroad_runtime import current_scope, configure, _current_controller, VehicleIdentityUnavailable
+
+    with OpenpilotPrefix(), tempfile.TemporaryDirectory() as directory:
+      params, cp, _ = self.setup(directory)
+      with self.assertRaises(VehicleIdentityUnavailable) as first:
+        current_scope(cp, params)
+      self.assertEqual(str(first.exception), 'vehicle_identity_unavailable')
+      with self.assertRaises(VehicleIdentityUnavailable) as second:
+        current_scope(cp, params)
+      self.assertEqual(first.exception.review_key, second.exception.review_key)
+      params.put('AutoSteeringLearningReset', '1', block=True)
+      with self.assertRaises(VehicleIdentityUnavailable) as changed:
+        current_scope(cp, params)
+      self.assertNotEqual(first.exception.review_key, changed.exception.review_key)
+      ci, controller = _current_controller(cp, params)
+      owner, status = configure(cp, ci, controller, params, manual_status='not_configured')
+      self.assertIsNone(owner)
+      self.assertEqual(status, 'configuration_unavailable')
+      cp.carVin = 'KMHL341JBLU000001'
+      self.assertIsNotNone(current_scope(cp, params))
+      params.put_bool('OpenpilotEnabledToggle', False, block=True)
+      with self.assertRaisesRegex(ValueError, 'Main controls disabled'):
+        current_scope(cp, params)
+
+  def test_original_unknown_vin_route_is_reviewed_without_pooling_fitting_or_touching_saved_profiles(self):
+    from openpilot.common.prefix import OpenpilotPrefix
+    from openpilot.starpilot.flm.offroad_store import RouteStorage
+    from openpilot.starpilot.flm.offroad_history import EvidenceBank
+
+    with OpenpilotPrefix(), tempfile.TemporaryDirectory() as directory:
+      params, _, root = self.setup(directory)
+      cache = Path(directory) / 'cache'
+      saved = fixtures.TestSavedSetupCapacity.row(1)
+      self.assertTrue(RouteStorage(params).save(saved, expected=None, authorized=lambda: True))
+      original = params.get(KEY)
+      with patch.object(EvidenceBank, 'retain', side_effect=AssertionError('Unidentified cars must never be pooled')):
+        worker = OffroadWorker(params, root, cache, permitted=lambda: True,
+                               checker=lambda *a, **k: self.fail('An unidentified car must never enter automatic qualification'))
+        result = worker.run_once()
+      self.assertEqual(result['reason'], 'vehicle_identity_unavailable')
+      self.assertEqual(result['analysis_counts']['recorded_tracking'], 1201)
+      self.assertGreater(result['analysis_counts']['diagnostic_whole_windows'], 0)
+      self.assertTrue(result['recorded_tracking']['points'])
+      self.assertGreater(result['recommendation_count'], 0)
+      self.assertFalse(result['configuration_changed'])
+      self.assertFalse(result['actual_application_proven'])
+      self.assertEqual(result['skipped_routes'], [])
+      self.assertEqual(params.get(KEY), original)
+      doc = worker.cache.get(result['assessment_sha256'])
+      self.assertEqual(doc['kind'], 'identity_review')
+      self.assertNotIn('current_scope', doc['assessment'])
+      with patch.object(worker, 'assessor', side_effect=AssertionError('An unchanged recording must reuse its checkpoint')):
+        self.assertEqual(worker.run_once()['assessment_sha256'], result['assessment_sha256'])
+      self.assertEqual(params.get(KEY), original)
+      # A second physical car could have exactly the same unknown-VIN CP.
+      # The new route must still be reviewed alone, not counted as confirmation.
+      self.setup(directory, counter=19)
+      with patch.object(EvidenceBank, 'retain', side_effect=AssertionError('Same-model unidentified drives cannot be pooled')):
+        second = worker.run_once()
+      self.assertEqual(second['completed_route'], '00000013--aaaaaaaaaa')
+      self.assertEqual(second['analysis_counts']['recorded_tracking'], 1201)
+      self.assertEqual(second['analysis_counts'].get('evidence_drives', 0), 0)
+      self.assertEqual(worker.cache.get(result['assessment_sha256']), doc)
+      self.assertEqual(params.get(KEY), original)
+
+  def test_invalid_cached_vin_is_queried_again_instead_of_reusing_an_empty_identity(self):
+    from opendbc.car import car_helpers
+    from opendbc.car.hyundai.values import CAR
+    fresh_vin = 'KMHL341JBLU000001'
+    cases = (('', 1, {}), ('invalid', 1, {}), ('00000000000000000', 1, {}), (fresh_vin, 0, {}),
+             ('', 0, {'REPLAY': '1'}), ('invalid', 0, {'SKIP_FW_QUERY': '1'}))
+    for cached_vin, expected_queries, environment in cases:
+      with self.subTest(vin=cached_vin, environment=environment), patch.dict(os.environ, environment, clear=True):
+        cp = car_helpers.interfaces[CAR.HYUNDAI_SONATA_HYBRID].get_non_essential_params(CAR.HYUNDAI_SONATA_HYBRID)
+        cp.carVin = cached_vin
+        cp.carFw = [{'ecu': 'engine', 'fwVersion': b'declared-version', 'address': 0x7e0}]
+        with (patch.object(car_helpers, 'normal_bus_query_brand', return_value=None),
+              patch.object(car_helpers, 'honda_normal_bus_topology', return_value=False),
+              patch.object(car_helpers, 'chrysler_normal_bus_topology', return_value=False),
+              patch.object(car_helpers, 'get_vin', return_value=(0x7e8, 0, fresh_vin)) as query,
+              patch.object(car_helpers, 'get_present_ecus', return_value=set()),
+              patch.object(car_helpers, 'get_fw_versions_ordered', return_value=[]),
+              patch.object(car_helpers, 'match_fw_to_car', return_value=(True, {CAR.HYUNDAI_SONATA_HYBRID})),
+              patch.object(car_helpers, 'can_fingerprint', return_value=(CAR.HYUNDAI_SONATA_HYBRID, {})),
+              patch.object(car_helpers, 'automatic_bolt_candidate', side_effect=lambda candidate, *a: candidate)):
+          result = car_helpers.fingerprint(lambda wait_for_one=False: [], lambda *a: None, lambda *a: None, cp)
+        self.assertEqual(query.call_count, expected_queries)
+        self.assertEqual(result[2], fresh_vin if expected_queries or cached_vin == fresh_vin else '00000000000000000')

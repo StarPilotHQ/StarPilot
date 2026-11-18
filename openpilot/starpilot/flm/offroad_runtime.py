@@ -11,6 +11,12 @@ from openpilot.starpilot.flm.offroad_store import RouteScope, startup_row
 from openpilot.starpilot.flm.offroad_surface import RouteSurfaceEffects, STOP_REASONS, stop_marker
 
 
+class VehicleIdentityUnavailable(ValueError):
+  def __init__(self, review_key):
+    super().__init__('vehicle_identity_unavailable')
+    self.review_key = review_key
+
+
 def configuration_data(cp, ci, controller, params, *, manual_status):
   from opendbc.car.vin import VIN_UNKNOWN, is_valid_vin
   from openpilot.starpilot.flm.runtime_adapter_registry import (
@@ -24,8 +30,8 @@ def configuration_data(cp, ci, controller, params, *, manual_status):
   from openpilot.starpilot.lateral.torque_settings import DOCUMENT_KEY, LEGACY_KEYS, MAX_DOCUMENT_BYTES, parse_document, interpret_legacy
   from openpilot.starpilot.saved_source import read_saved
 
-  if manual_status not in ('not_configured', 'configured') or not is_valid_vin(str(cp.carVin)) or str(cp.carVin) == VIN_UNKNOWN:
-    raise ValueError('Known vehicle and valid manual coordinate settings required')
+  if manual_status not in ('not_configured', 'configured'):
+    raise ValueError('Valid manual coordinate settings required')
   descriptor = selected_descriptor(cp, ci, controller)
   if descriptor is None or descriptor.domain not in ('torque', 'torque_pid'):
     raise ValueError('Actual registered torque controller required')
@@ -107,11 +113,15 @@ def configuration_data(cp, ci, controller, params, *, manual_status):
   epoch = digest(('persistent_vehicle_source_v1', descriptor.cp_sha256, tuple((k, None if raw[k] is None else raw[k].hex()) for k in keys
     if k != 'SteeringDelayPreferences' or raw[k] is not None), str(cp.carVin)))
   numeric = baseline_values(controller)
+  if tuple((key, read_saved(params, key, MAX_DOCUMENT_BYTES)) for key in keys) != snapshots:
+    raise ValueError('Steering settings changed during startup')
+  if not is_valid_vin(str(cp.carVin)) or str(cp.carVin) == VIN_UNKNOWN:
+    # This key guards a read-only review; it is never a persistent vehicle scope.
+    raise VehicleIdentityUnavailable(digest(('unidentified_route_review_v1', descriptor.cp_sha256, descriptor.controller_revision,
+                                            baseline_revision(descriptor, numeric), epoch, reset)))
   scope = RouteScope(
     descriptor.cp_sha256, descriptor.controller_revision, baseline_revision(descriptor, numeric), epoch, reset, descriptor.controller_mode, descriptor.domain
   ).validate()
-  if tuple((key, read_saved(params, key, MAX_DOCUMENT_BYTES)) for key in keys) != snapshots:
-    raise ValueError('Steering settings changed during startup')
   return scope, numeric, fixed_manual
 
 

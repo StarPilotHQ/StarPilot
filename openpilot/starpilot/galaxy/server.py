@@ -1411,6 +1411,8 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
           self.json(400, {'error': 'Unexpected FLM log query'})
           return
         filename, body = training_results_source.download()
+        from openpilot.starpilot.galaxy.flm_diagnostics import with_dashboard_diagnostics
+        body = with_dashboard_diagnostics(body, drive_stats_source, getattr(server, 'drive_stats_authority', None))
         if self.require_session():
           self.attachment(filename, body, 'application/json; charset=utf-8')
       elif path == '/api/flm/training-results':

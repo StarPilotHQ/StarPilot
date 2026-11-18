@@ -114,6 +114,8 @@ class StatusReport:
       return value if type(value) is int and 0 <= value < 2**63 else 0
 
     details: dict[str, Any] = {'Analysis runs while parked': True, 'Next-drive trial is reversible': True, 'Physical road improvement proven': False}
+    if value.get('vehicle_identity') == 'unavailable':
+      details['Recorded vehicle identity'] = 'unavailable'
     if self.diagnostics is not None and self.diagnostics.error:
       details['Diagnostic persistence error'] = self.diagnostics.error
     if value.get('skipped_routes'):
