@@ -386,9 +386,6 @@ export const FlmPage = {
     <GxState v-if="mode !== 'local'">Connect to your device to see its steering tune.</GxState>
     <template v-else>
       <p v-if="nonTorqueController" class="gx-tuner__caption" data-autotune-scope="torque-only">Autotune is available for torque steering only. Live plots remain available.</p>
-      <GxNotice v-if="error && view !== 'plots'" tone="danger">{{ error }}</GxNotice>
-      <GxNotice v-if="findingError" tone="danger" data-role="finding-error">{{ findingError }}</GxNotice>
-      <GxNotice v-if="findingNotice" tone="success" data-role="finding-saved">{{ findingNotice }}</GxNotice>
       <GxDialog v-if="findingDraft" labelledby="accept-finding-title" @close="!findingBusy && (findingDraft = null)"><h3 id="accept-finding-title">Accept this finding?</h3>
         <p>{{ parameterLabel(findingDraft.parameter) }}: {{ dialPercent(findingDraft.target) }}</p><p>Use this value for your next drive. Auto Learn can keep improving this setting.</p>
         <div class="gx-dialog__actions"><button type="button" class="gx-btn gx-btn--tonal" :disabled="findingBusy" @click="findingDraft = null">Cancel</button>
@@ -398,6 +395,9 @@ export const FlmPage = {
       <nav class="gx-tuner__tabs" role="tablist" aria-label="Tuner views">
         <button v-for="tab in ['overview', 'tune', 'activity', 'plots']" :key="tab" type="button" role="tab" :id="'tuner-tab-' + tab" :aria-controls="'tuner-panel-' + tab" :aria-selected="view === tab" :tabindex="view === tab ? 0 : -1" @click="selectView(tab)" @keydown="tabKey">{{ tab === 'overview' ? 'Overview' : tab === 'tune' ? 'Your tune' : tab === 'activity' ? 'Activity' : 'Live plots' }}</button>
       </nav>
+      <GxNotice v-if="error && view !== 'plots'" tone="danger">{{ error }}</GxNotice>
+      <GxNotice v-if="findingError" tone="danger" data-role="finding-error">{{ findingError }}</GxNotice>
+      <GxNotice v-if="findingNotice" tone="success" data-role="finding-saved">{{ findingNotice }}</GxNotice>
       <section v-if="analysisProgress && view !== 'plots'" class="gx-card gx-tuner__analysis" aria-labelledby="flm-analysis-heading" data-role="analysis-progress">
         <div><h3 id="flm-analysis-heading" aria-live="polite">{{ analysisProgress.label }}</h3><p>{{ analysisProgress.detail }}</p></div>
         <div class="gx-tuner__analysis-track" :class="{ 'is-indeterminate': analysisProgress.percent === null }" role="progressbar" :aria-label="analysisProgress.percent === null ? analysisProgress.label : 'Sections read in the current recording'" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="analysisProgress.percent ?? undefined" :aria-valuetext="analysisProgress.detail"><span :style="analysisProgress.percent === null ? {} : { width: analysisProgress.percent + '%' }"></span></div>

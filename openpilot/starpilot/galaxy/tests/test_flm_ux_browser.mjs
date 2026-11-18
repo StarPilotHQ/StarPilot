@@ -683,8 +683,16 @@ try {
     if (progress.indeterminate) assert.equal(progress.animation, 'none', 'Reduced motion disables the waiting animation')
     assert.equal(await execute('return window.flm.review.count'), 5, 'Scan progress preserves earlier findings')
     await layout('analysis/' + phase + '/' + width);await tabsClear('analysis/' + phase + '/' + width + '/tabs')
+    if (width === 720) {
+      assert(await execute('return !!document.querySelector("[data-role=finding-error]")'), 'The error is retained, not hidden to make tabs reachable')
+      await clickVisible('#tuner-tab-tune');assert.equal(await execute('return window.flm.view'), 'tune')
+      await clickVisible('#tuner-tab-overview');assert.equal(await execute('return window.flm.view'), 'overview')
+      await tabsClear('analysis/landscape/error-retained/native-tab-clicks')
+    }
     await capture('analysis-' + phase + '-' + width)
   }
+  await viewport(416);await change('analysis-checking');await execute('window.flm.findingError=""')
+  await layout('analysis/checking/clean-mobile');await capture('analysis-checking-clean-416')
   await change('ideas')
   assert.equal(await execute('return !!document.querySelector("[data-role=analysis-progress]")'), false, 'Finished analysis removes processing progress')
   assert.deepEqual(errors, [])
