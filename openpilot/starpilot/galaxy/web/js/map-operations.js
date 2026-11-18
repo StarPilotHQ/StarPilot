@@ -5,7 +5,7 @@ import { requestJson } from "./startup.js"
 // One parked map operation belongs to the local owner, not to this browser tab.
 const STATES = new Set(["idle", "transferring", "validating", "selecting", "completed", "canceled", "failed", "interrupted", "unavailable"])
 const GENERATION = /^(?:|[0-9a-f]{64})$/
-const TOKEN = /^(?:nation|us_state)\.[A-Za-z0-9_-]+$/
+const TOKEN = /^(?:nation|us_state|ca_province)\.[A-Za-z0-9_-]+$/
 const ERROR_LABELS = {
   canceled: "Canceled", interrupted: "Interrupted", selection_changed: "The saved selection changed",
   not_parked: "Parked availability was lost", package_unavailable: "The map package is unavailable",
@@ -290,8 +290,10 @@ export const MapOperationsPanel = {
     regions() {
       const query = this.search.trim().toLocaleLowerCase()
       return (this.catalog?.regions || []).filter((item) => !query ||
-        `${item.name} ${item.token}`.toLocaleLowerCase().includes(query))
+        `${item.token.startsWith("ca_province.") ? "Canada " : ""}${item.name} ${item.token}`.toLocaleLowerCase().includes(query))
     },
+    canadianRegions() { return this.regions.filter((item) => item.token.startsWith("ca_province.")) },
+    otherRegions() { return this.regions.filter((item) => !item.token.startsWith("ca_province.")) },
     running() { return ["transferring", "validating", "selecting"].includes(this.operation?.state) },
   },
   methods: {
@@ -335,15 +337,23 @@ export const MapOperationsPanel = {
             <button v-if="running" type="button" class="gx-btn gx-btn--tonal" @click="client.cancel()">Cancel operation</button>
           </template>
           <div class="gx-map-manager__picker"><label for="map-region-search">Search regions</label>
-            <input id="map-region-search" class="gx-field" type="search" v-model="search" placeholder="Country or US state"></div>
+            <input id="map-region-search" class="gx-field" type="search" v-model="search" placeholder="Country, province, territory or US state"></div>
           <p v-if="!catalog && setup?.packageReady && !error" role="status">Loading map catalog…</p>
           <template v-if="catalog"><p class="gx-note">{{ regions.length }} regions shown · Up to {{ formatBytes(catalog.maxTransferBytes) }} transfer · {{ formatBytes(catalog.maxNewDiskBytes) }} new storage.</p>
             <div class="gx-map-manager__regions">
-              <div v-for="region in regions" :key="region.token" class="gx-map-manager__region">
-                <div><strong>{{ region.name }}</strong><small>{{ region.token }} · {{ region.groups }} groups</small>
+              <div v-for="region in otherRegions" :key="region.token" class="gx-map-manager__region">
+                <div><strong>{{ region.token === 'nation.CA' ? 'Canada — All Canada' : region.name }}</strong><small>{{ region.token }} · {{ region.groups }} groups</small>
                   <small v-if="!region.available">Unavailable: {{ region.unavailable.replaceAll('_', ' ') }}</small></div>
                 <button type="button" class="gx-btn gx-btn--tonal" :disabled="running || !region.available || !operation" @click="reviewRegion(region)">Review…</button>
               </div>
+              <details v-if="canadianRegions.length" :open="search.trim() ? true : undefined">
+                <summary>Canada — Provinces and territories</summary>
+                <div v-for="region in canadianRegions" :key="region.token" class="gx-map-manager__region">
+                  <div><strong>{{ region.name }}</strong><small>{{ region.groups }} groups</small>
+                    <small v-if="!region.available">Unavailable: {{ region.unavailable.replaceAll('_', ' ') }}</small></div>
+                  <button type="button" class="gx-btn gx-btn--tonal" :disabled="running || !region.available || !operation" @click="reviewRegion(region)">Review…</button>
+                </div>
+              </details>
             </div></template>
         </template>
       </div>

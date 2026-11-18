@@ -253,6 +253,15 @@ class TestMapSnapshotOperationOwner(unittest.TestCase):
       with self.assertRaises(ops.OperationError):
         ops._catalog()
 
+  def test_canadian_province_tokens(self):
+    for code in ('AB', 'BC', 'MB', 'NB', 'NL', 'NS', 'NT', 'NU', 'ON', 'PE', 'QC', 'SK', 'YT'):
+      self.assertIsNotNone(ops.TOKEN.fullmatch(f'ca_province.{code}'))
+    self.assertIsNone(ops.TOKEN.fullmatch('ca_province.ON.extra'))
+    rows = [{**REGION, 'token': 'ca_province.ON'}]
+    completed = subprocess.CompletedProcess([], 0, json.dumps(rows).encode(), b'')
+    with patch.object(ops.subprocess, 'run', return_value=completed):
+      self.assertEqual(ops._catalog()[0]['token'], 'ca_province.ON')
+
   def test_boolean_version_is_not_v1(self):
     owner = self.owner(lambda *args: GEN_A)
     with self.assertRaises(ops.OperationError) as caught:
