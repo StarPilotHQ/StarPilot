@@ -275,6 +275,7 @@ RELEASE_TARGETS = (
   "openpilot/selfdrive/controls/tests/test_subaru_planner_fcw.py",
   "opendbc_repo/opendbc/car/subaru/tests/test_supported_firmware.py",
   "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_impreza2025_automatic_full_stack",
+  "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_jacobw_aol_continues_through_admission_angle",
   "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_main_during_temporary_eps_waits_for_clear",
   "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_stopped_feedback_gap_retains_only_armed_intent",
   "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_repeat_main_with_brake_and_signal_pause",
