@@ -216,7 +216,7 @@ def honda_eps_recovery_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
   """
   from opendbc.car.honda.stock_aol import qualified
   from opendbc.car import structs
-  from openpilot.starpilot.aol.transport_pause import _configured_transport_native
+  from openpilot.starpilot.aol.transport_pause import _configured_transport_native, stock_lateral_user_event
 
   source = getattr(self, 'honda_eps_source_ns', 0)
   previous = self.signature
@@ -244,7 +244,7 @@ def honda_eps_recovery_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
       previous[14:16] != (producer, self.availability_epoch) or
       not cs.canValid or cs.canTimeout or (cs.steerFaultTemporary and not axis.desiredLateral) or cs.steerFaultPermanent or
       cs.accFaulted or cs.doorOpen or cs.seatbeltUnlatched or cs.vehicleSensorsInvalid or cs.steeringDisengage or
-      (cs.brakePressed and not cs.steerFaultTemporary) or cs.regenBraking or cs.buttonEvents or not cs.cruiseState.available or cs.cruiseState.enabled or
+      (cs.brakePressed and not cs.steerFaultTemporary) or cs.regenBraking or cs.buttonEvents or not cs.cruiseState.available or cs.cruiseState.enabled and not cp.pcmCruise or
       cs.gearShifter not in (structs.CarState.GearShifter.drive, structs.CarState.GearShifter.sport,
                             structs.CarState.GearShifter.low, structs.CarState.GearShifter.brake) or
       str(axis.faultReason) != 'none' or
@@ -261,7 +261,9 @@ def honda_eps_recovery_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
   event_ns = int(sm.logMonoTime['onroadEvents'])
   brake_release = bool(known_eps and not cs.brakePressed and
     event_ns == self.temporary_eps_event_ns == getattr(self, 'honda_eps_brake_event_ns', 0))
+  stock_user = stock_lateral_user_event(cp) if not cs.cruiseState.enabled else None
   events = tuple(e for e in sm['onroadEvents'] if not (
+    e.name == stock_user and e.userDisable and not e.softDisable and not e.immediateDisable) and not (
     (cs.steerFaultTemporary and cs.brakePressed or brake_release) and
     e.name == log.OnroadEvent.EventName.pedalPressed and e.userDisable and
     not e.softDisable and not e.immediateDisable))
@@ -283,3 +285,4 @@ def honda_eps_recovery_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
     if cs.steerFaultTemporary and cs.brakePressed:
       self.honda_eps_brake_event_ns = event_ns
   return retained
+

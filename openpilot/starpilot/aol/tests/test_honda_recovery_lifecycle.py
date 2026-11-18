@@ -70,6 +70,22 @@ class TestHondaCurrentCaller(unittest.TestCase):
     self.run_current_caller(candidate=CAR.HONDA_CIVIC_2022, word=10, alpha=True, hybrid=True,
                             eps_pedal='brake', eps_end=82, eps_repeat=(85, 88))
 
+  def test_classic_stock_repeated_eps_with_gas_before_native_refresh(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC_BOSCH, word=0,
+                            eps_pedal='gas', eps_end=82, eps_repeat=(85, 88))
+
+  def test_classic_stock_repeated_eps_with_brake_before_native_refresh(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC_BOSCH, word=0,
+                            eps_pedal='brake', eps_end=82, eps_repeat=(85, 88))
+
+  def test_nidec_stock_repeated_eps_with_gas_before_native_refresh(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC, word=0,
+                            eps_pedal='gas', eps_end=82, eps_repeat=(85, 88))
+
+  def test_nidec_stock_repeated_eps_with_brake_before_native_refresh(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC, word=0,
+                            eps_pedal='brake', eps_end=82, eps_repeat=(85, 88))
+
   def test_diagnostic_during_recovered_reverse(self):
     self.run_current_caller(candidate=CAR.HONDA_CIVIC_BOSCH, word=0, fault='diagnostic')
 
@@ -487,3 +503,4 @@ class TestHondaCurrentCaller(unittest.TestCase):
       finally:
         pandad.close()
         card.vehicle_startup.close()
+
