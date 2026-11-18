@@ -60,7 +60,7 @@ function githubCommitsUrl(remote, commitsUrl, branch) {
   return `${base}/commits/${encodeURIComponent(normalizedBranch)}/`
 }
 
-const CORE_UPDATE_BRANCHES = ["StarPilot", "Dom"]
+const CORE_UPDATE_BRANCHES = ["stable", "testing"]
 const REBOOT_PENDING_STORAGE_KEY = "galaxy-update-reboot-pending"
 const LOCAL_DEVICE_SCOPE = "local"
 const DEVICE_SLUG_RE = /^[A-Za-z0-9]{16}$/
@@ -177,11 +177,11 @@ export const SystemTools = {
   computed: {
     primaryBranchValue() {
       if (this.otherBranchesOpen) return "other:"
-      return ["StarPilot", "Dom"].includes(this.targetBranch) ? this.targetBranch : ""
+      return CORE_UPDATE_BRANCHES.includes(this.targetBranch) ? this.targetBranch : ""
     },
     otherBranches() {
-      const branches = this.branches.filter(branch => !["StarPilot", "Dom"].includes(branch))
-      if (this.currentBranch && !["StarPilot", "Dom"].includes(this.currentBranch) && !branches.includes(this.currentBranch)) {
+      const branches = this.branches.filter(branch => !CORE_UPDATE_BRANCHES.includes(branch))
+      if (this.currentBranch && !CORE_UPDATE_BRANCHES.includes(this.currentBranch) && !branches.includes(this.currentBranch)) {
         branches.unshift(this.currentBranch)
       }
       return branches
@@ -200,7 +200,7 @@ export const SystemTools = {
     },
     updateInProgress() { return !!this.fastStatus?.running || this.statusRebooting || this.rebootPending },
     statusPollingNeeded() { return this.statusUnavailable || !this.fastStatus || this.updateInProgress || this.rebootPending },
-    versionChoices() { return this.targetBranch === "StarPilot" ? releaseVersions(this.versionCommits) : this.versionCommits },
+    versionChoices() { return ["StarPilot", "stable"].includes(this.targetBranch) ? releaseVersions(this.versionCommits) : this.versionCommits },
     installVersionBlocked() {
       return this.branchSwitchBlocked || this.branchBusy || !this.branches.includes(this.targetBranch) ||
         (this.versionMode === "earlier" && (this.versionLoading || !/^[a-f0-9]{40}$/.test(this.selectedCommit) || !this.versionChoices.some(commit => commit.sha === this.selectedCommit)))
@@ -238,7 +238,7 @@ export const SystemTools = {
         this.branchListError = ""
         if (!this.targetBranch) {
           this.targetBranch = this.currentBranch
-          this.otherBranchesOpen = !!this.targetBranch && !["StarPilot", "Dom"].includes(this.targetBranch)
+          this.otherBranchesOpen = !!this.targetBranch && !CORE_UPDATE_BRANCHES.includes(this.targetBranch)
         }
         this.isOnroad = !!data?.isOnroad
       } catch (e) {
@@ -253,7 +253,7 @@ export const SystemTools = {
         this.branches = [...new Set([current, ...CORE_UPDATE_BRANCHES].filter(Boolean))]
         this.branchListFallback = true
         if (!this.targetBranch) {
-          this.targetBranch = current || "Dom"
+          this.targetBranch = current || "stable"
           this.otherBranchesOpen = !!this.targetBranch && !CORE_UPDATE_BRANCHES.includes(this.targetBranch)
         }
         showSnackbar("Could not refresh the full branch list. Standard branches are still available.", "error")
@@ -397,7 +397,7 @@ export const SystemTools = {
       if (!branch || !this.branches.includes(branch) || this.branchBusy || this.branchSwitchBlocked) return
       if (branch === this.targetBranch) return
       this.targetBranch = branch
-      this.otherBranchesOpen = !["StarPilot", "Dom"].includes(branch)
+      this.otherBranchesOpen = !CORE_UPDATE_BRANCHES.includes(branch)
       this.resetVersions()
     },
     resetVersions() {
@@ -433,7 +433,7 @@ export const SystemTools = {
       this.versionLoading = true
       this.versionError = ""
       const originalCount = this.versionChoices.length
-      const budget = more && branch === "StarPilot" ? 4 : 1
+      const budget = more && ["StarPilot", "stable"].includes(branch) ? 4 : 1
       try {
         for (let scanned = 0; scanned < budget; scanned++) {
           const data = await api.getUpdateVersions(branch, {page, head, signal: controller.signal})
@@ -483,7 +483,7 @@ export const SystemTools = {
       this.branchBusy = true
       try {
         const selected = this.versionCommits.find(item => item.sha === commit)
-        const version = commit === "latest" ? "Latest" : `${versionTitle(selected, branch === "StarPilot")}\nCommit: ${commit}`
+        const version = commit === "latest" ? "Latest" : `${versionTitle(selected, ["StarPilot", "stable"].includes(branch))}\nCommit: ${commit}`
         const policy = commit === "latest" ? "This uses the normal branch updater, including any required OS update during startup. Your automatic-update setting is unchanged." : "Automatic updates will be paused for this earlier version."
         const recovery = commit === "latest"
           ? "This replaces the current software. Settings and statistics are kept. Local code changes may be overwritten; standard Rollback saves the previous committed version."
@@ -724,8 +724,8 @@ export const SystemTools = {
                 <GalaxySelect id="gx-primary-branch" class="gx-field gx-field--full" aria-label="Target branch"
                   :value="primaryBranchValue" :disabled="branchSwitchBlocked || branchBusy" @change="onPrimaryBranchSelect">
                   <option value="" disabled>Select a branch</option>
-                  <option value="StarPilot" data-collapsed-label="StarPilot" data-description="Stable releases. Recommended for most users.">StarPilot — Release</option>
-                  <option value="Dom" data-collapsed-label="Dom" data-description="Latest features and fixes under development. Updates regularly and may introduce bugs.">Dom — Development</option>
+                  <option value="stable" data-collapsed-label="Stable" data-description="Stable releases. Recommended for most users.">Stable — Release</option>
+                  <option value="testing" data-collapsed-label="Testing" data-description="Latest features and fixes under development. Updates regularly and may introduce bugs.">Testing — Development</option>
                   <option value="other:">Other branches…</option>
                 </GalaxySelect>
                 <div v-if="otherBranchesOpen" style="margin-top:var(--sp-3); padding-left:var(--sp-3); border-left:2px solid var(--outline-variant);">
@@ -747,7 +747,7 @@ export const SystemTools = {
                   </GalaxySelect>
                   <template v-if="versionMode === 'earlier'">
                     <VersionHistoryPicker id="gx-version-commit" :value="selectedCommit" :commits="versionCommits"
-                      :release-branch="targetBranch === 'StarPilot'" :loading="versionLoading" :has-more="versionHasMore" :error="versionError" :notice="versionNotice"
+                      :release-branch="['StarPilot', 'stable'].includes(targetBranch)" :loading="versionLoading" :has-more="versionHasMore" :error="versionError" :notice="versionNotice"
                       :disabled="branchSwitchBlocked || branchBusy" @change="selectedCommit = $event.target.value"
                       @loadmore="loadVersions(versionCommits.length > 0 && versionHasMore)" />
                   </template>

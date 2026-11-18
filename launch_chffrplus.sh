@@ -4,6 +4,10 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null && pwd )"
 
 source "$DIR/launch_env.sh"
 
+if [ -f "$DIR/scripts/branch-migration.json" ]; then
+  python3 "$DIR/scripts/branch_migration.py" --repo "$DIR" || echo "Branch migration deferred; keeping installed software."
+fi
+
 export SP_BOOT_TIMING_LOG="${SP_BOOT_TIMING_LOG:-/tmp/starpilot_boot_timing.log}"
 : > "$SP_BOOT_TIMING_LOG" 2>/dev/null || true
 SP_LAUNCH_LAST_SECONDS=$SECONDS

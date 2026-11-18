@@ -6,7 +6,7 @@ on:
       target_ref:
         description: "Branch to build and publish back to"
         type: string
-        default: "master"
+        default: "stable"
         required: true
       jobs:
         description: "Optional parallel job count passed to ./build"
@@ -46,6 +46,12 @@ jobs:
           else
             echo "BUILD_BRANCH=${TARGET_REF}" >> "$GITHUB_ENV"
           fi
+
+          branch="${TARGET_REF#refs/heads/}"
+          git check-ref-format --branch "$branch"
+          case "$branch" in
+            Dom|StarPilot) echo "Compatibility bridges cannot receive build commits." >&2; exit 1 ;;
+          esac
 
       - name: Checkout target branch
         uses: actions/checkout@v6

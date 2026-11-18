@@ -1,0 +1,21 @@
+name: Testing docs (manual)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    name: Queue Testing qualification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const branch = await github.rest.repos.getBranch({...context.repo, branch: 'testing'});
+            await github.rest.actions.createWorkflowDispatch({...context.repo, workflow_id: 'docs.yaml', ref: 'testing'});
+            core.notice('Queued docs.yaml on Testing (observed head ' + branch.data.commit.sha + '). Check that workflow for qualification results; this job only dispatches it.');

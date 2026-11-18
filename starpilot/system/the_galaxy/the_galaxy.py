@@ -8345,9 +8345,9 @@ def setup(app):
     build_metadata = get_build_metadata()
 
     short_branch = build_metadata.channel
-    if short_branch == "StarPilot":
+    if short_branch in ("StarPilot", "stable"):
       galaxy_label = "Stable"
-    elif short_branch == "Dom":
+    elif short_branch in ("Dom", "testing"):
       galaxy_label = "Testing"
     else:
       galaxy_label = "Experimental"

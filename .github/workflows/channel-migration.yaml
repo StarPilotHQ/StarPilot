@@ -1,0 +1,46 @@
+name: Legacy channel migration contracts
+
+on:
+  push:
+    branches: [StarPilot, stable, review/nov17-stable-channel-config, review/nov17-stable-channel-final]
+  pull_request:
+    paths:
+      - 'scripts/branch_migration.py'
+      - 'scripts/tests/test_stable_workflows.mjs'
+      - '.github/workflows/**'
+      - 'starpilot/system/the_galaxy/assets/mobile/js/views/SystemTools.js'
+      - 'starpilot/system/the_galaxy/tests/test_branch_selector.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: Legacy channel migration contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node starpilot/system/the_galaxy/tests/test_branch_selector.mjs "$PWD"
+      - run: node scripts/tests/test_stable_workflows.mjs "$PWD"
+      - run: python3 -m unittest discover -s scripts/tests -p test_stable_build_targets.py -v
+
+  dispatch_smoke:
+    name: Verify Testing dispatch routing
+    if: github.event_name == 'push' && github.ref == 'refs/heads/review/nov17-stable-channel-final'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const branch = await github.rest.repos.getBranch({...context.repo, branch: 'testing'});
+            await github.rest.actions.createWorkflowDispatch({...context.repo, workflow_id: 'docs.yaml', ref: 'testing'});
+            core.notice('Queued docs.yaml on Testing (observed head ' + branch.data.commit.sha + '). Check that workflow for qualification results; this job only dispatches it.');
