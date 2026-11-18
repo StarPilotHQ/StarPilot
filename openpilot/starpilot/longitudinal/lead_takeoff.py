@@ -6,6 +6,8 @@ This does not modify MPC costs, obstacles, trajectories or ordinary following.
 from dataclasses import dataclass
 import math
 
+from opendbc.car.toyota.values import CAR as TOYOTA, ToyotaFlags
+
 BREAKAWAY_MIN_DISTANCE = 3.75
 BREAKAWAY_MIN_LEAD_SPEED = .6
 
@@ -44,6 +46,7 @@ class Frame:
   follow_seconds: float
   leads: tuple[Lead, ...]
   blocked: bool = False
+  maximum_breakaway: bool = True
 
 
 def confident(lead, speed):
@@ -149,7 +152,8 @@ class LeadTakeoff:
     result = max(target, bounded)
     # Modern stop threshold is .1 m/s²: a lower saved/physical cap cannot prove release.
     output_stop = False if bounded >= .1 else should_stop
-    if (f.standstill and not output_stop and lead.distance >= BREAKAWAY_MIN_DISTANCE and
+    # Gas Highlander TSS2 keeps the departure floor instead of a maximum-accel pulse.
+    if (f.maximum_breakaway and f.standstill and not output_stop and lead.distance >= BREAKAWAY_MIN_DISTANCE and
         lead.speed >= BREAKAWAY_MIN_LEAD_SPEED and lead.speed - f.speed >= .25 and lead.acceleration >= -.2):
       result = max(result, f.acceleration_max)
     if self.previous_should_stop and not output_stop and release_ready:
@@ -185,6 +189,8 @@ def project(sm, cp, *, now_ns, drive_id, stop_plan, acceleration_max, mpc_accel,
     return Frame(now_ns, int(sm.logMonoTime['modelV2']), drive_id, bool(eligible), bool(car.standstill),
                  float(car.vEgo), float(model.action.desiredAcceleration), float(mpc_accel), float(acceleration_max),
                  float(follow_seconds), leads, bool(blocked or not light_current or stop_plan.takeoff_light or
-                                                  stop_plan.forcing or stop_plan.should_stop or conflict))
+                                                  stop_plan.forcing or stop_plan.should_stop or conflict),
+                 maximum_breakaway=(getattr(cp, "carFingerprint", "") != TOYOTA.TOYOTA_HIGHLANDER_TSS2 or
+                                    bool(getattr(cp, "flags", 0) & ToyotaFlags.HYBRID)))
   except (AttributeError, IndexError, KeyError, TypeError, ValueError, OverflowError, RuntimeError):
     return None
