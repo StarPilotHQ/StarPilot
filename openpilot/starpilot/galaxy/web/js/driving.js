@@ -1,3 +1,4 @@
+import { WikiHelp } from './wiki-help.js'
 import { GxState } from "./state.js"
 import { MenuTile } from "./menu-tile.js"
 export const DRIVING_PAGES = Object.freeze({
@@ -34,13 +35,13 @@ export function drivingPage(path) {
 }
 
 export const DrivingPage = {
-  components: { GxState, MenuTile },
+  components: { WikiHelp, GxState, MenuTile },
   props: { mode: { type: String, required: true }, go: { type: Function, required: true } },
   data: () => ({ groups: DRIVING_GROUPS }),
   template: `
     <section class="gx-driving" aria-label="Driving features">
       <header class="gx-settings__header gx-page-header"><div><h2>Driving Settings</h2>
-        <p>Choose how StarPilot steers and controls speed.</p></div></header>
+        <p>Choose how StarPilot steers and controls speed.</p></div><WikiHelp /></header>
       <GxState v-if="mode !== 'local'">Local driving settings are unavailable in preview.</GxState>
       <template v-else>
         <section v-for="group in groups" :key="group.title" class="gx-driving__group">

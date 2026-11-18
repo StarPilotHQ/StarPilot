@@ -1,3 +1,4 @@
+import { WikiHelp } from './wiki-help.js'
 import { MenuTile } from "./menu-tile.js"
 import { GxNotice } from "./notice.js"
 import { GalaxySelect } from "./galaxy-select.js"
@@ -66,7 +67,7 @@ export class CameraSnapshotFeed {
 
 export const CamerasPage = {
   name: "CamerasPage",
-  components: { GxNotice, BluetoothNotice, GalaxySelect, MenuTile, WhiteBalanceSwitch, BalancedImage },
+  components: { WikiHelp, GxNotice, BluetoothNotice, GalaxySelect, MenuTile, WhiteBalanceSwitch, BalancedImage },
   props: { mode: { type: String, required: true }, go: { type: Function, required: true },
     tools: { type: Array, required: true },
     unauthorized: { type: Function, required: true } },
@@ -83,7 +84,7 @@ export const CamerasPage = {
   watch: { mode() { this.snapshots.stop() } },
   template: `
     <div class="gx-view gx-settings" aria-label="Cameras & Monitoring">
-      <h2>Cameras &amp; Monitoring</h2>
+      <header class="gx-settings__header gx-page-header"><div><h2>Cameras &amp; Monitoring</h2></div><WikiHelp /></header>
       <div class="gx-grid">
         <MenuTile v-for="tool in tools" :key="tool.path" :icon="tool.icon" :title="tool.name" :description="tool.description"
           :disabled="tool.availability === 'local-only' && mode !== 'local'" @select="go(tool.path)" />

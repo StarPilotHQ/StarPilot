@@ -1,10 +1,10 @@
 import { APP_DOWNLOADS, AppStoreLinks } from '../web/js/app-downloads.js'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { installHelp, InstallApp, rememberInstallPrompt, isIosDevice, isAndroidDevice } from '../web/js/install-app.js'
 assert.match(installHelp({ secure: true, agent: 'iPhone' }), /Share.*Add to Home Screen/)
 assert.match(installHelp({ secure: false, agent: 'Android' }), /web app.*https:\/\/galaxy\.firestar\.link/)
 assert.match(installHelp({ secure: true, agent: 'Android' }), /Install app/)
-assert.equal(APP_DOWNLOADS.android.href, 'https://play.google.com/store/apps/details?id=com.starpilot.galaxy')
 assert.match(installHelp({ secure: true, agent: 'Chrome' }), /Install app/)
 const events = new Map()
 let modeListener
@@ -46,7 +46,10 @@ assert.equal(prompted, 2)
 InstallApp.beforeUnmount.call(late)
 
 // Store metadata lives outside the web installer.
-assert.equal(APP_DOWNLOADS.ios.href, 'https://apps.apple.com/ca/app/starpilot-bt/id6821039119')
+const readme = readFileSync(new URL('../../../../README.md', import.meta.url), 'utf8')
+for (const app of Object.values(APP_DOWNLOADS)) {
+  assert.ok(readme.includes(`](${app.href})`), `${app.label} download must match the README`)
+}
 assert.match(AppStoreLinks.template, /app.href/)
 assert.doesNotMatch(InstallApp.template, /Google Play|App Store|offline app|app\.apk/)
 const android = { ...InstallApp.data() }

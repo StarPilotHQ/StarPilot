@@ -22,7 +22,7 @@ assert.match(StarPortPage.template, /Cancel Search \/ Pairing/)
 assert.equal(StarPortPage.computed.deviceChosen.call({ pairing: { ...pairing, state: "pairing" } }), true)
 assert.equal(StarPortPage.computed.deviceChosen.call({ pairing: { ...pairing, state: "failed" } }), false)
 assert.doesNotMatch(StarPortPage.template, /:row="wiredRow"/)
-assert.match(StarPortPage.template, /Read the Android Auto troubleshooting guide/)
+assert.match(StarPortPage.template, /<WikiHelp \/>/)
 assert.doesNotMatch(StarPortPage.template, /v-html|autoaccept/i)
 const app = readFileSync(new URL("../web/js/app.js", import.meta.url), "utf8")
 assert.match(app, /StarPortPage v-else-if="route\.path === '\/starport'"/)
@@ -228,7 +228,7 @@ assert.equal(uploadCalls.length, beforeDeniedEnable, "failed enable never upload
 console.log("Android Auto: APK/XAPK/APKM uploads in either road state, enable/upload sequencing, explicit blockers and feed boundaries passed")
 assert.match(StarPortPage.template, /<section[^>]*:inert="busy"[^>]*:aria-busy="busy \|\| undefined"/)
 assert.match(StarPortPage.template, /@click="openInstall">Update/)
-assert.match(StarPortPage.template, /<header class="gx-page-header">/)
+assert.match(StarPortPage.template, /<header class="gx-settings__header gx-page-header">/)
 const removePage = page({ ...setup, enabled: false, parked: false })
 removePage.runtime = { running: true }
 removePage.feed = { async removePackage() { return true } }

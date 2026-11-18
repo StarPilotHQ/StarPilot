@@ -1,3 +1,4 @@
+import { WikiHelp } from './wiki-help.js'
 import { GxDialog } from "./dialog.js"
 import { requestJson } from "./startup.js"
 import { GxNotice } from "./notice.js"
@@ -252,7 +253,7 @@ export class SpotifyFeed {
 }
 
 export const SpotifyPage = {
-  components: { GxNotice, GxDialog, GalaxySettingRow },
+  components: { WikiHelp, GxNotice, GxDialog, GalaxySettingRow },
   props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true } },
   data: () => ({
     setup: null, busy: false, error: "", uploadProgress: null, now: Date.now(),
@@ -418,10 +419,10 @@ export const SpotifyPage = {
   },
   template: `
     <section class="gx-driving gx-spotify" aria-label="Spotify" :aria-busy="busy || undefined">
-      <header class="gx-page-header">
+      <header class="gx-settings__header gx-page-header"><div>
         <h2>Spotify & Phone Audio</h2>
         <p>Play Spotify on your comma, or send music from your phone through the comma to your car.</p>
-      </header>
+      </div><WikiHelp /></header>
       <GxNotice tone="danger" v-if="error && setup">{{ error }}</GxNotice>
       <GxNotice v-if="!setup" :busy="!error" :tone="error ? 'danger' : 'info'">{{ error || "Checking Spotify setup… Reconnecting automatically…" }}</GxNotice>
 

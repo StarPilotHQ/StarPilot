@@ -1,3 +1,4 @@
+import { WikiHelp } from './wiki-help.js'
 import { SystemMaintenance } from "./system-maintenance.js"
 import { DriveStatePanel } from "./drive-state.js"
 import { GxDialog } from "./dialog.js"
@@ -364,7 +365,7 @@ export class SoftwareStatusFeed {
 }
 
 export const SoftwarePage = {
-  components: { DriveStatePanel, GxDialog, GxState, GxNotice, GalaxySelect, GalaxySettingRow, SystemMaintenance },
+  components: { WikiHelp, DriveStatePanel, GxDialog, GxState, GxNotice, GalaxySelect, GalaxySettingRow, SystemMaintenance },
   name: "SoftwarePage",
   props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true }, restarting: { type: Function, default: () => {} },
     preparing: { type: Function, default: () => {} }, cancelPreparation: { type: Function, default: () => {} } },
@@ -678,7 +679,7 @@ export const SoftwarePage = {
   },
   template: `
     <div class="gx-view gx-stack" :inert="busy" :aria-busy="busy || undefined">
-      <h2>Software &amp; Updates</h2>
+      <header class="gx-settings__header gx-page-header"><div><h2>Software &amp; Updates</h2></div><WikiHelp /></header>
       <GxState v-if="mode !== 'local'">Software updates are unavailable in preview.</GxState>
       <template v-else>
         <section class="gx-card gx-panel gx-stack gx-software-card">

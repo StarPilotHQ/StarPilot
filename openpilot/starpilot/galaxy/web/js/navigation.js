@@ -1,3 +1,4 @@
+import { WikiHelp } from './wiki-help.js'
 import { GxCollapse } from './disclosure.js'
 import { isMapLink } from "./share-destination.js"
 import { GxNotice } from "./notice.js"
@@ -309,7 +310,7 @@ export const FavoriteChoices = {
 
 export const NavigationPage = {
   name: "NavigationPage",
-  components: { GxCollapse, GxNotice, BluetoothNotice, MapOperationsPanel, NavigationMap, OfflineRoadMapsPanel, FavoriteChoices, GalaxySelect, ChoiceGroup, SourceCompare },
+  components: { WikiHelp, GxCollapse, GxNotice, BluetoothNotice, MapOperationsPanel, NavigationMap, OfflineRoadMapsPanel, FavoriteChoices, GalaxySelect, ChoiceGroup, SourceCompare },
   props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
     go: { type: Function, default: null }, initialTab: { type: String, default: "route" }, tabs: { type: Array, required: true } },
   data() { return { bluetooth: bluetoothConnection(), data: null, results: [], busy: false, error: "", stale: false, tab: this.initialTab, gpsGuide: "android", query: "", token: "", googleKey: "", googleTest: null, mapboxOpen: false, googleOpen: false, searched: false,
@@ -539,7 +540,7 @@ export const NavigationPage = {
   template: `
     <div class="gx-view gx-navigation" :inert="busy || searchPending" :aria-busy="busy || searchPending || undefined">
       <header class="gx-settings__header gx-page-header"><div><h2>Navigation</h2>
-        <p>Pick a destination, save maps for offline use, and choose where maps, directions and position come from.</p></div></header>
+        <p>Pick a destination, save maps for offline use, and choose where maps, directions and position come from.</p></div><WikiHelp /></header>
       <ul v-if="sources.length" class="gx-navigation__sources" aria-label="Current sources">
         <li v-for="source in sources" :key="source.label"><a class="gx-navigation__chip" href="#/navigation/setup" @click.prevent="selectTab('setup')"><i class="bi" :class="source.icon" aria-hidden="true"></i><span>{{ source.label }}: {{ source.value }}</span></a></li>
       </ul>

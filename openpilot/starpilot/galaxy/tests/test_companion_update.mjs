@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { APP_DOWNLOADS } from '../web/js/app-downloads.js'
 import { createRenderer, nextTick } from '../web/vendor/vue/vue.esm-browser.js'
 import { CompanionUpdates, newerCompanionVersion } from '../web/js/companion-updates.js'
 
@@ -48,7 +49,7 @@ let mounted = await mount()
 try {
   assert.ok(banner(mounted.host))
   assert.match(text(mounted.host), /Version 1.1.5 is available.*Installed: 1.1.4/s)
-  assert.ok(all(mounted.host).some(item => item.type === 'a' && item.props.href === 'https://play.google.com/store/apps/details?id=com.starpilot.galaxy'))
+  assert.ok(all(mounted.host).some(item => item.type === 'a' && item.props.href === APP_DOWNLOADS.android.href))
   mounted.vm.dismissUpdate()
   await nextTick()
   assert.equal(banner(mounted.host), undefined)

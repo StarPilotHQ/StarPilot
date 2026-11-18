@@ -1,3 +1,4 @@
+import { WikiHelp } from './wiki-help.js'
 import { GxCollapse } from './disclosure.js'
 import { GxState } from "./state.js"
 import { GxDialog } from "./dialog.js"
@@ -559,7 +560,7 @@ export function connectionProgress(runtime, { wired = false, app = "", selected 
 }
 
 export const StarPortPage = {
-  components: { GxCollapse, GxState, GxIconButton, GxNotice, BluetoothNotice, GxDialog, GalaxySettingRow, StarPortGuidedSetup },
+  components: { WikiHelp, GxCollapse, GxState, GxIconButton, GxNotice, BluetoothNotice, GxDialog, GalaxySettingRow, StarPortGuidedSetup },
   props: {
     mode: { type: String, required: true }, localAccess: { type: Boolean, required: true },
     unauthorized: { type: Function, required: true }
@@ -893,10 +894,10 @@ export const StarPortPage = {
   },
   template: `
     <section class="gx-driving" aria-label="StarPort setup" :inert="busy" :aria-busy="busy || undefined">
-      <header class="gx-page-header">
+      <header class="gx-settings__header gx-page-header"><div>
         <h2>StarPort</h2>
         <p>Show the StarPilot driving view on your car’s screen. Choose your device, follow the setup steps, then connect.</p>
-      </header>
+      </div><WikiHelp /></header>
       <GxNotice tone="info" title="Supported setups">StarPort officially supports your car’s built-in Android Auto, the AAWireless and Motorola MA1 wireless adapters, and the Open Headunit and HeadunitPad tablet apps. Other adapters and apps may work, but they aren’t tested and may not connect reliably.</GxNotice>
       <GxNotice tone="warn" v-if="!wired && !app && runtime?.dedicated_wifi_interface === false">StarPort uses the comma’s Wi-Fi to connect to your car and disconnects it from your current Wi-Fi network. Use the Galaxy hotspot for local access during projection. Remote Galaxy access requires Internet on the comma.</GxNotice>
       <GxNotice tone="danger" v-if="error && setup">{{ error }}</GxNotice>
@@ -1013,11 +1014,10 @@ export const StarPortPage = {
       <section v-if="setup" class="gx-card gx-step" aria-labelledby="gx-starport-help-title">
         <div class="gx-step__head">
           <span class="gx-step__num" aria-hidden="true"><i class="bi bi-question-circle"></i></span>
-          <div><h3 id="gx-starport-help-title">Still having trouble?</h3><p>Our wiki has detailed help for pairing, connection status, other phones, wireless adapters, and screen problems.</p></div>
+          <div><h3 id="gx-starport-help-title">Still having trouble?</h3><p>Our wiki (click book icon at the top right corner) has detailed help for pairing, connection status, other phones, wireless adapters, and screen problems.</p></div>
         </div>
         <div class="gx-step__body">
           <div class="gx-driving__actions gx-actions">
-            <a class="gx-btn" href="https://wiki.firestar.link/exclusive/android-auto/" target="_blank" rel="noopener noreferrer">Read the Android Auto troubleshooting guide</a>
             <a class="gx-btn gx-btn--tonal" href="#/logs/starport"><i class="bi bi-journal-text"></i> Connection Logs</a>
           </div>
         </div>

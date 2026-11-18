@@ -1,3 +1,4 @@
+import { WikiHelp } from './wiki-help.js'
 import { GxCollapse } from './disclosure.js'
 import { requestJson } from "./startup.js"
 import { GxDialog } from "./dialog.js"
@@ -294,7 +295,7 @@ export class SettingsFeed {
 
 export const SettingsPage = {
   emits: ["nested"],
-  components: { GxCollapse, AppReminderSettings, GxDialog, GxState, GalaxySettingRow, OnroadLayoutPage, FavoritesPage, SoundPacks, CloudProviderPage, ReverseProxySettings, GxNotice, VehicleControlsPage },
+  components: { WikiHelp, GxCollapse, AppReminderSettings, GxDialog, GxState, GalaxySettingRow, OnroadLayoutPage, FavoritesPage, SoundPacks, CloudProviderPage, ReverseProxySettings, GxNotice, VehicleControlsPage },
   props: {
     mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
     initialPage: { type: String, default: "hub" }, title: { type: String, default: "Toggles" },
@@ -477,7 +478,7 @@ export const SettingsPage = {
     <OnroadLayoutPage ref="layoutEditor" v-if="state.layoutOpen" :mode="mode" :unauthorized="unauthorized" :initial-panel="state.layoutPanel" @target="openLayoutTarget" @close="closeLayout" />
     <FavoritesPage ref="favoritesEditor" v-else-if="state.favoritesOpen" :mode="mode" :unauthorized="unauthorized" @close="closeFavorites" />
     <section v-else class="gx-settings" :aria-label="title || state.data?.title || 'Settings'" :inert="busy" :aria-busy="busy || undefined">
-      <div v-if="title && (initialPage !== 'hub' || atSectionRoot)" class="gx-settings__header gx-page-header"><h2>{{ title }}</h2></div>
+      <div v-if="title && (initialPage !== 'hub' || atSectionRoot)" class="gx-settings__header gx-page-header"><h2>{{ title }}</h2><WikiHelp :page="state.data?.page === 'hub' ? activeSection.id : (state.data?.page || initialPage)" /></div>
         <div v-if="mode === 'local' && initialPage === 'hub' && atSectionRoot" class="gx-settings-tabs" aria-label="Settings sections">
           <button v-for="section in sections" :key="section.id" type="button" class="gx-chip" :aria-pressed="section.id === activeSection.id" @click="selectSection(section)">{{ section.label }}</button>
         </div>
@@ -494,8 +495,7 @@ export const SettingsPage = {
       <p class="gx-page-description" v-else-if="state.data?.page === 'torque/developer'">Adjust supported steering parameters.</p>
       <p class="gx-page-description" v-else-if="state.data?.page === 'lane'">Choose lane-centering behavior and alerts.</p>
       <p class="gx-page-description" v-else-if="state.data?.page === 'curve'">Set how the vehicle slows for curves ahead.</p>
-      <div v-else-if="state.data?.page === 'slc'"><p class="gx-page-description">Control how speed limits change your set speed.</p>
-        <a class="gx-btn gx-btn--tonal" href="https://wiki.firestar.link/exclusive/speed-limit-controller/#vision-speed-limits" target="_blank" rel="noopener noreferrer"><i class="bi bi-book" aria-hidden="true"></i> Vision speed limits guide</a></div>
+      <p class="gx-page-description" v-else-if="state.data?.page === 'slc'">Control how speed limits change your set speed.</p>
       <p class="gx-page-description" v-else-if="state.data?.page === 'wheel'">Assign what the steering-wheel controls do.</p>
       <p class="gx-page-description" v-else-if="['aggressive','standard','relaxed'].includes(state.data?.page)">Adjust acceleration, braking and following for this driving style.</p>
       <GxState v-if="mode !== 'local'">Local settings are unavailable in preview.</GxState>
@@ -524,6 +524,7 @@ export const SettingsPage = {
                   <strong class="gx-sentry-status__label"><span class="gx-status-dot" aria-hidden="true"></span>{{ sentryStatus.label }}</strong>
                   <span class="gx-sentry-status__detail">{{ sentryStatus.detail }}</span>
                 </div>
+                <WikiHelp v-if="title && initialPage === 'hub' && !atSectionRoot" :page="state.data.page" />
                 <button v-if="state.data.page !== 'hub' && state.data.rows.length" type="button" class="gx-icon-btn" :aria-label="state.searchOpen ? 'Close page search' : 'Search within this page'" :aria-pressed="state.searchOpen" @click="togglePageSearch"><i class="bi" :class="state.searchOpen ? 'bi-x-lg' : 'bi-search'" aria-hidden="true"></i></button>
                 </div>
               <div v-if="state.searchOpen && !cardIndex" class="gx-settings__search"><input ref="pageSearch" v-model="state.query" class="gx-field" type="search" aria-label="Search within this page" placeholder="Search within…"></div>

@@ -1,9 +1,10 @@
+import { WikiHelp } from './wiki-help.js'
 import { GxDialog } from "./dialog.js"
 import { GxNotice } from "./notice.js"
 import { GxState } from "./state.js"
 
 export const SettingsRecoveryPage = {
-  components: { GxDialog, GxNotice, GxState },
+  components: { WikiHelp, GxDialog, GxNotice, GxState },
   props: { mode: { type: String, default: "local" }, unauthorized: Function },
   data() { return { snapshot: null, selected: [], pending: null, busy: false, error: "", result: "", timer: null } },
   mounted() { if (this.mode !== "local") return; this.refresh(); this.timer = setInterval(() => { if (!this.pending && !this.busy) this.refresh() }, 10000) },
@@ -44,7 +45,7 @@ export const SettingsRecoveryPage = {
   },
   template: `<section class="gx-settings" :inert="busy" :aria-busy="busy || undefined">
     <header class="gx-settings__header gx-page-header"><div><h2>Show Non-Default Values</h2>
-      <p>Review saved settings that differ from this vehicle’s StarPilot defaults.</p></div></header>
+      <p>Review saved settings that differ from this vehicle’s StarPilot defaults.</p></div><WikiHelp /></header>
     <GxState v-if="mode !== 'local'">Connect to local Galaxy to review saved settings.</GxState>
     <template v-else>
     <GxNotice v-if="snapshot && snapshot.resettableCount < snapshot.count" tone="warn">Some settings are unavailable for this vehicle. Their saved values remain unchanged.</GxNotice>

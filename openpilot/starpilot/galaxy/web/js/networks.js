@@ -1,3 +1,4 @@
+import { WikiHelp } from './wiki-help.js'
 import { requestJson } from "./startup.js"
 import { GxNotice } from "./notice.js"
 import { GxState } from "./state.js"
@@ -27,7 +28,7 @@ export const choiceRow = (label, value, choices, reason = '') => ({ label, value
 
 export const NetworksPage = {
   name: "NetworksPage",
-  components: { GxNotice, GxState, GalaxySettingRow, GalaxyHotspot, GxDialog },
+  components: { WikiHelp, GxNotice, GxState, GalaxySettingRow, GalaxyHotspot, GxDialog },
   props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true } },
   data: () => ({ snapshot: null, busy: false, error: '', openUuid: null, adding: false, joiningSsid: '', joinPassword: '',
     hiddenOpen: false, hiddenSsid: '', showJoinPassword: false, forgetUuid: null, timer: null, controller: null, generation: 0, active: false }),
@@ -174,7 +175,7 @@ export const NetworksPage = {
     },
   },
   template: `<section class="gx-driving gx-networks" aria-label="Networks">
-    <header class="gx-settings__header gx-page-header"><div><h2>Networks</h2><p>Wi-Fi priority, cellular data, and local hotspot access.</p></div></header>
+    <header class="gx-settings__header gx-page-header"><div><h2>Networks</h2><p>Wi-Fi priority, cellular data, and local hotspot access.</p></div><WikiHelp /></header>
     <GxState v-if="mode !== 'local'">Connect to your comma to manage its networks.</GxState>
     <GxState v-else-if="!snapshot && !error" loading>Loading network settings…</GxState>
     <template v-if="snapshot">

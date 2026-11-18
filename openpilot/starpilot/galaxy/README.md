@@ -33,6 +33,21 @@ it labels its sample System Monitor data and cannot edit a device.
 
 StarPort log uploads use the built-in developer Discord webhook.
 
+## Wiki help links
+
+Maintain wiki destinations in `web/js/wiki-links.js`: `WIKI_LINKS` uses Galaxy routes,
+and `SETTINGS_WIKI_LINKS` uses settings API page IDs because toggles also navigate
+without changing the URL. Values are paths relative to `https://wiki.firestar.link/`,
+including optional section anchors. Only add destinations with substantial guidance for
+that feature, rather than brief overview mentions. Routes match explicitly; nested settings
+can inherit their mapped settings parent. Driving settings reuse the settings page mappings.
+Unmapped routes and settings pages hide the link without falling back to a generic guide.
+
+Existing page headers use the shared `<WikiHelp />` book link. For a new page, register
+`WikiHelp` from `./wiki-help.js`, place it after the title/description in the page header,
+and add its destination to the mapping. Settings pass their active page ID with `:page`.
+No docs build, sync, or network lookup is required; update this file when a wiki URL changes.
+
 ## Pages and owners
 
 | Page | Current source and operations |

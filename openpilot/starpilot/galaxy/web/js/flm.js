@@ -1,3 +1,4 @@
+import { WikiHelp } from './wiki-help.js'
 import { GxState } from "./state.js"
 import { GxNotice } from "./notice.js"
 import { GxDialog } from "./dialog.js"
@@ -44,7 +45,7 @@ const PARAMETER_LABELS = {
 
 export const FlmPage = {
   name: "FlmPage",
-  components: { GxState, GxNotice, GxDialog, PlotGraph, PlotsPage, GalaxySettingRow, FlmBackup },
+  components: { WikiHelp, GxState, GxNotice, GxDialog, PlotGraph, PlotsPage, GalaxySettingRow, FlmBackup },
   props: { initialView: { type: String, default: "overview" }, mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
     go: { type: Function, default: path => { window.location.hash = path } } },
   data: () => ({ report: null, error: "", loading: false, request: null, receivedAt: 0, now: 0, bluetooth: bluetoothConnection(),
@@ -348,7 +349,7 @@ export const FlmPage = {
     },
   },
   template: `<div class="gx-view gx-tuner" :style="{ '--tuner-header-offset': headerOffset + 'px' }">
-    <header class="gx-page-header gx-settings__header gx-tuner__heading"><div><h2>Your steering</h2><p>{{ vehicle }}</p></div></header>
+    <header class="gx-page-header gx-settings__header gx-tuner__heading"><div><h2>Your steering</h2><p>{{ vehicle }}</p></div><WikiHelp /></header>
     <GxState v-if="mode !== 'local'">Connect to your device to see its steering tune.</GxState>
     <template v-else>
       <p v-if="nonTorqueController" class="gx-tuner__caption" data-autotune-scope="torque-only">Autotune is available for torque steering only. Live plots remain available.</p>

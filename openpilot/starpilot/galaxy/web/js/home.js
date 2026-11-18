@@ -1,3 +1,4 @@
+import { WikiHelp } from './wiki-help.js'
 import { displayLocale } from "./localization.js"
 import { GxState } from "./state.js"
 import { GxNotice } from "./notice.js"
@@ -146,7 +147,7 @@ export function homeSummary(monitor, model, software) {
 
 export const Home = {
   name: "Home",
-  components: { GxState, GxNotice, LocalAccess, WeatherVitals },
+  components: { WikiHelp, GxState, GxNotice, LocalAccess, WeatherVitals },
   props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
     go: { type: Function, required: true } },
   data: () => ({
@@ -200,9 +201,8 @@ export const Home = {
   },
   template: `
     <div class="gx-view gx-home">
-      <div class="gx-home__hero">
-        <div><h1>Dashboard</h1><p class="gx-note">Your saved drives and current device</p></div>
-
+      <div class="gx-home__hero gx-page-header">
+        <div><h1>Dashboard</h1><p class="gx-note">Your saved drives and current device</p></div><WikiHelp />
       </div>
       <GxState v-if="mode !== 'local'">Dashboard information is available on your device.</GxState>
       <template v-else>

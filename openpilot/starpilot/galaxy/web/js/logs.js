@@ -1,3 +1,4 @@
+import { WikiHelp } from './wiki-help.js'
 import { GxState } from "./state.js"
 import { GxNotice } from "./notice.js"
 import { TroubleshootPage, TmuxPage } from "./diagnostic-tools.js"
@@ -11,7 +12,7 @@ import { BluetoothNotice, bluetoothConnection } from "./bluetooth-notice.js"
 
 export const Logs = {
   name: "Logs",
-  components: { GxState, GxNotice, BluetoothNotice, SystemMonitor, TroubleshootPage, TmuxPage, MenuTile },
+  components: { WikiHelp, GxState, GxNotice, BluetoothNotice, SystemMonitor, TroubleshootPage, TmuxPage, MenuTile },
   props: {
     path: { type: String, required: true }, mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
     tools: { type: Array, required: true }
@@ -61,7 +62,7 @@ export const Logs = {
   },
   template: `
     <div class="gx-view">
-      <h2 v-if="path === '/logs'">Logs & Diagnostics</h2>
+      <header v-if="path === '/logs'" class="gx-settings__header gx-page-header"><div><h2>Logs & Diagnostics</h2></div><WikiHelp /></header>
       <p v-if="path === '/logs'" class="gx-note">Logs, diagnostics, drive state, and help.</p>
       <div v-if="path === '/logs'" class="gx-grid">
         <MenuTile v-for="tool in tools" :key="tool.path" :icon="tool.icon" :title="tool.name"
@@ -70,10 +71,7 @@ export const Logs = {
           :disabled="mode !== 'local' && tool.availability === 'local-only'" @select="go(tool.path)" />
       </div>
       <section v-else-if="path === '/logs/help'" class="gx-settings">
-        <header class="gx-settings__header gx-page-header"><div><h2>Help & Community</h2><p>Guides and help from the community.</p></div></header>
-        <section class="gx-card"><div class="gx-section__header"><i class="bi bi-book" aria-hidden="true"></i><span class="gx-section__title">Wiki</span></div>
-          <div class="gx-panel"><p class="gx-note">Find setup guides, feature explanations, and troubleshooting steps for StarPilot and Android Auto.</p>
-            <a class="gx-btn gx-btn--tonal" href="https://wiki.firestar.link/" target="_blank" rel="noopener noreferrer">Open the Wiki</a></div></section>
+        <header class="gx-settings__header gx-page-header"><div><h2>Help & Community</h2><p>Guides and help from the community.</p></div><WikiHelp path="/logs/help" /></header>
         <section class="gx-card"><div class="gx-section__header"><i class="bi bi-discord" aria-hidden="true"></i><span class="gx-section__title">Discord</span></div>
           <div class="gx-panel"><p class="gx-note">Ask the community for help, share what you have tried, and follow StarPilot announcements.</p>
             <a class="gx-btn gx-btn--tonal" href="https://firestar.link/discord" target="_blank" rel="noopener noreferrer">Join Discord</a></div></section>
@@ -83,7 +81,7 @@ export const Logs = {
       <template v-else-if="path === '/logs/monitor'"><SystemMonitor :mode="mode" :unauthorized="unauthorized" /></template>
       <template v-else-if="path === '/logs/crashes' && mode === 'local'">
 
-        <h2>Crash Reports</h2>
+        <header class="gx-settings__header gx-page-header"><div><h2>Crash Reports</h2></div><WikiHelp /></header>
         <p class="gx-note">Local reports saved when a process stops unexpectedly.</p>
         <GxNotice tone="danger" v-if="crashes.error">{{ crashes.error }}</GxNotice>
         <div class="gx-crash-controls"><button type="button" class="gx-btn" :disabled="crashes.deleting" @click="crashFeed.remove(null)">Delete All</button><span>{{ crashes.scanIncomplete ? 'At least ' : '' }}{{ crashes.reportCount }} reports · {{ crashes.storageIncomplete ? 'At least ' : '' }}{{ storedSize(crashes.storageBytes) }} stored</span><input class="gx-field" type="search" v-model="search" placeholder="Search report names" aria-label="Search crash reports"></div>
@@ -100,7 +98,7 @@ export const Logs = {
       </template>
       <section v-else-if="path === '/logs/starport' && mode === 'local'" class="gx-settings gx-starport-logs" aria-labelledby="gx-starport-logs-title">
         <header class="gx-settings__header gx-page-header"><div><h2 id="gx-starport-logs-title">StarPort Logs</h2>
-          <p>The last 20 connection sessions, newest first. The archive includes every session, a readable report for each, StarPort settings, the car view's renderer logs, and a snapshot of the device (Wi-Fi, Bluetooth and kernel logs, build, CPU load). Hardware addresses are masked.</p></div></header>
+          <p>The last 20 connection sessions, newest first. The archive includes every session, a readable report for each, StarPort settings, the car view's renderer logs, and a snapshot of the device (Wi-Fi, Bluetooth and kernel logs, build, CPU load). Hardware addresses are masked.</p></div><WikiHelp /></header>
         <BluetoothNotice v-if="bluetooth" feature="Log downloads">Log summaries remain available.</BluetoothNotice>
         <div class="gx-settings__controls gx-actions"><a v-if="!bluetooth" class="gx-btn" :href="bundleUrl()" download><i class="bi bi-file-earmark-zip" aria-hidden="true"></i><span>Download all logs</span><span class="gx-starport-logs__format">ZIP</span></a><button type="button" class="gx-btn gx-btn--tonal" @click="starportFeed.load()"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i><span>Refresh</span></button></div>
         <section v-if="logSend.available" class="gx-card gx-panel gx-starport-send" aria-labelledby="gx-starport-send-title">

@@ -421,6 +421,8 @@ transition: background-color var(--motion-fast), transform var(--motion-fast);
 width: var(--touch-target);
 }
 .gx-icon-btn:hover { background: var(--glass-bg-hover); }
+.gx-home__hero.gx-page-header { flex-direction: row; }
+.gx-icon-btn.gx-wiki-help { flex: none; color: var(--on-surface-variant); text-decoration: none; }
 .gx-icon-btn:active { transform: scale(0.9); }
 .gx-icon-btn i,
 .gx-appbar .bi,

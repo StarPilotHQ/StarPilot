@@ -1,3 +1,4 @@
+import { WikiHelp } from './wiki-help.js'
 import { GxState } from "./state.js"
 import { SettingsPage } from "./settings.js"
 import { GxNotice } from "./notice.js"
@@ -53,7 +54,7 @@ export class SentryEventsFeed extends SnapshotFeed {
 
 export const SentryEventsPage = {
   name: "SentryEventsPage",
-  components: { GxState, GxNotice, BluetoothNotice, SentryNotifications, SettingsPage, BalancedImage },
+  components: { WikiHelp, GxState, GxNotice, BluetoothNotice, SentryNotifications, SettingsPage, BalancedImage },
   props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
     go: { type: Function, required: true } },
   data: () => ({ bluetooth: bluetoothConnection(), status: "idle", data: null, error: "", deleting: false }),
@@ -69,7 +70,7 @@ export const SentryEventsPage = {
   template: `
     <div class="gx-view gx-home" aria-label="Sentry motion events">
       <header class="gx-settings__header gx-page-header"><div><h2>Sentry</h2>
-        <p>Review motion events, configure motion monitoring, and manage notifications. Timestamps use the device clock and may be inaccurate.</p></div></header>
+        <p>Review motion events, configure motion monitoring, and manage notifications. Timestamps use the device clock and may be inaccurate.</p></div><WikiHelp /></header>
 
       <SettingsPage :mode="mode" :unauthorized="unauthorized" initial-page="sentry" title="" />
       <SentryNotifications :mode="mode" :unauthorized="unauthorized" />

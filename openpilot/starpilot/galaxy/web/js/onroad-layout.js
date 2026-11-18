@@ -1,3 +1,4 @@
+import { WikiHelp } from './wiki-help.js'
 import { GxCollapse } from './disclosure.js'
 import { ONROAD_LAYOUT_TEMPLATE } from "./onroad-layout-template.js"
 import { GxState } from "./state.js"
@@ -397,7 +398,7 @@ export const LayoutWidgetPreview = {
 }
 
 export const OnroadLayoutPage = {
-  components: { GxCollapse, GxState, LayoutWidgetPreview, GalaxySelect, GxNotice, GxDialog, GalaxySettingRow },
+  components: { WikiHelp, GxCollapse, GxState, LayoutWidgetPreview, GalaxySelect, GxNotice, GxDialog, GalaxySettingRow },
   props: {
     projection: { type: Boolean, default: false }, mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
     initialPanel: { type: String, default: "widgets" }

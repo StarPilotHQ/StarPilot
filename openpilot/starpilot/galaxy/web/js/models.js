@@ -1,3 +1,4 @@
+import { WikiHelp } from './wiki-help.js'
 import { GxDialog } from "./dialog.js"
 import { GxState } from "./state.js"
 import { GxNotice } from "./notice.js"
@@ -523,7 +524,7 @@ const ModelDownloadProgress = {
 
 export const ModelsPage = {
   name: "ModelsPage",
-  components: { GxDialog, GxState, GalaxySelect, GxNotice, ModelDownloadProgress },
+  components: { WikiHelp, GxDialog, GxState, GalaxySelect, GxNotice, ModelDownloadProgress },
   props: {
     mode: { type: String, required: true },
     unauthorized: { type: Function, required: true },
@@ -897,7 +898,8 @@ export const ModelsPage = {
 
       <template v-else>
         <header class="gx-settings__header gx-page-header"><div><h2>Models</h2>
-          <p>Choose what drives your car, pair models, and manage downloads.</p></div></header>
+          <p>Choose what drives your car, pair models, and manage downloads.</p></div>
+        <WikiHelp /></header>
         <GxNotice v-if="message" tone="info">{{ message }}</GxNotice>
         <GxNotice v-if="error" tone="danger" title="Models">{{ error }}</GxNotice>
         <GxNotice v-if="status.isOnroad" tone="warn">Selections apply next onroad cycle. Park before downloading models or changing Jetlink.</GxNotice>

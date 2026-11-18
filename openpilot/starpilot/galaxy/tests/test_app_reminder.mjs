@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { APP_DOWNLOADS as downloads } from '../web/js/app-downloads.js'
 import { appDownloadPlatform, APP_DOWNLOADS, appReminderPreference, reminderHidden, reminderDismissed,
   HIDE_APP_REMINDER, DISMISSED_APP_REMINDER, AppDownloadReminder } from '../web/js/app-reminder.js'
 
@@ -14,8 +15,7 @@ for (const userAgent of ['Macintosh Safari', 'Windows Chrome', 'Linux x86_64 Fir
 assert.equal(appDownloadPlatform({ ...android, StarPilotApp: {} }), null)
 assert.equal(appDownloadPlatform({ ...iphone, webkit: { messageHandlers: { galaxyDiagnostics: {} } } }), null)
 assert.equal(appDownloadPlatform({ ...iphone, webkit: {} }), 'ios', 'Safari itself must not be mistaken for the native app')
-assert.equal(APP_DOWNLOADS.ios.href, 'https://apps.apple.com/ca/app/starpilot-bt/id6821039119')
-assert.equal(APP_DOWNLOADS.android.href, 'https://play.google.com/store/apps/details?id=com.starpilot.galaxy')
+assert.equal(APP_DOWNLOADS, downloads, 'Reminders use the shared store metadata')
 const values = new Map()
 const target = { localStorage: { getItem: k => values.get(k), setItem: (k, v) => values.set(k, v) },
   sessionStorage: { getItem: k => values.get(k), setItem: (k, v) => values.set(k, v) } }

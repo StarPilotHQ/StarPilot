@@ -1,3 +1,4 @@
+import { WikiHelp } from './wiki-help.js'
 import { AppStoreLinks } from './app-downloads.js'
 import { InstallApp } from './install-app.js'
 import { RemoteAccess } from './remote-access.js'
@@ -5,12 +6,12 @@ import { CompanionUpdates } from './companion-updates.js'
 
 export const GalaxyPage = {
   name: 'GalaxyPage',
-  components: { AppStoreLinks, InstallApp, RemoteAccess, CompanionUpdates },
+  components: { WikiHelp, AppStoreLinks, InstallApp, RemoteAccess, CompanionUpdates },
   props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true } },
   data: () => ({ url: '' }),
   template: `<div class="gx-settings gx-tunnel">
     <header class="gx-settings__header gx-page-header"><div><h2>Galaxy Access & Install</h2>
-      <p>Set up your link, then choose how to open Galaxy.</p></div></header>
+      <p>Set up your link, then choose how to open Galaxy.</p></div><WikiHelp /></header>
     <ol class="gx-steps">
       <RemoteAccess title="Set up remote access" :mode="mode" :unauthorized="unauthorized" @link="url = $event" />
       <li class="gx-card gx-step" aria-label="Get the app">

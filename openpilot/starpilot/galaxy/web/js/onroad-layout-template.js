@@ -1,7 +1,7 @@
 export const ONROAD_LAYOUT_TEMPLATE = `
     <section class="gx-settings gx-layout" aria-label="Colors and layout" :aria-busy="busy || undefined" :class="{'is-shrunk': state.shrunk}">
       <div class="gx-settings__header gx-page-header"><div><h2>{{ projection ? 'StarPort Layout' : 'Colors & Layout' }}</h2></div>
-        <button class="gx-icon-btn gx-layout__info" type="button" :aria-expanded="state.aboutOpen" aria-controls="gx-layout-about" aria-label="About this editor" title="About this editor" @click="state.aboutOpen = !state.aboutOpen"><i class="bi bi-info-circle" aria-hidden="true"></i></button>
+        <div class="gx-actions"><WikiHelp /><button class="gx-icon-btn gx-layout__info" type="button" :aria-expanded="state.aboutOpen" aria-controls="gx-layout-about" aria-label="About this editor" title="About this editor" @click="state.aboutOpen = !state.aboutOpen"><i class="bi bi-info-circle" aria-hidden="true"></i></button></div>
       </div>
       <GxNotice v-if="mode === 'local' && state.data && !state.data.editable && !(projection && state.data.reason)" tone="warn">Park the vehicle and reload to edit. If it stays unavailable, reload saved settings.</GxNotice>
       <div class="gx-layout__targets">
