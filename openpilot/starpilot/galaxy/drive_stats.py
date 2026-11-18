@@ -533,6 +533,22 @@ class DriveStatsOwner:
       return {identifier: self._records[identifier]['startTime'] for identifier in route_ids
               if identifier in self._records and self._records[identifier].get('startTime') is not None}
 
+  def diagnostics(self) -> dict:
+    """Existing worker/cache state only; no routes, locations or new instrumentation."""
+    with self._lock:
+      reasons = defaultdict(int)
+      for failed in self._failures.values():
+        reason = failed['reason']
+        safe = reason in SOURCE_LIMITATIONS or reason in ('OSError', 'ValueError', 'RuntimeError', 'FileNotFoundError',
+                                                       'PermissionError', 'TimeoutError', 'RouteInputError', 'KeyError')
+        reasons[reason if safe else 'route_analysis_error'] += 1
+      return {'status': 'readable', 'scheduler_running': self._scheduler is not None and self._scheduler.is_alive(),
+              'worker_running': self._worker is not None and self._worker.is_alive(),
+              'analysis_permitted': self._allowed(), 'scanned': self._scanned, 'scan_incomplete': self._scan_incomplete,
+              'pending': self._pending, 'cached_routes': len(self._records),
+              'complete_routes': sum(r['complete'] for r in self._records.values()), 'failed_routes': len(self._failures),
+              'cache_corrupt': self._corrupt, 'failure_reasons': dict(reasons)}
+
   def snapshot(self, timezone: str = "UTC") -> dict:
     with self._lock:
       result = self._snapshot_locked(timezone)

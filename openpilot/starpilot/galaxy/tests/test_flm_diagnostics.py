@@ -102,3 +102,38 @@ class TestDiagnostics(unittest.TestCase):
         server.shutdown()
         thread.join(timeout=2)
         server.server_close()
+
+
+class TestIdentityAndDashboardDiagnostics(unittest.TestCase):
+  def test_identity_refusal_explains_review_without_claiming_automatic_learning(self):
+    report = {'current': {'status': 'collecting', 'reason': 'vehicle_identity_unavailable', 'details': {
+      'Recorded vehicle identity': 'unavailable', 'Recorded steering observations': 1201}}}
+    result = json.loads(download(report, None)[1])
+    self.assertEqual(result['current']['analysis']['Recorded vehicle identity'], 'unavailable')
+    self.assertIn('no saved tune was loaded', result['current']['explanation'])
+    self.assertEqual(result['saved_profiles'], [])
+
+  def test_dashboard_export_shows_existing_failures_and_permission_without_route_or_private_data(self):
+    from openpilot.starpilot.galaxy.drive_stats import DriveStatsOwner
+    from openpilot.starpilot.galaxy.flm_diagnostics import with_dashboard_diagnostics
+    with tempfile.TemporaryDirectory() as directory:
+      root = Path(directory)
+      owner = DriveStatsOwner(root=root, store=root / 'stats.json', permitted=lambda: False)
+      try:
+        owner._scanned = True
+        owner._failures = {'private-route-location': {'reason': 'End of route was not recorded'},
+                           'secret-route': {'reason': 'private-secret path /data/secret'}}
+        authority = SimpleNamespace(status=lambda: {'allowed': False, 'reason': 'Vehicle status unavailable'}, effective=lambda: None)
+        body = with_dashboard_diagnostics(download({}, None)[1], owner, authority)
+        data = json.loads(body)['dashboard_statistics']
+        self.assertEqual(data['failed_routes'], 2)
+        self.assertFalse(data['analysis_permitted'])
+        self.assertFalse(data['vehicle_permission']['allowed'])
+        self.assertEqual(data['failure_reasons'], {'End of route was not recorded': 1, 'route_analysis_error': 1})
+        self.assertNotIn(b'private-route', body)
+        self.assertNotIn(b'private-secret', body)
+        self.assertIsNone(owner._scheduler)
+        self.assertFalse(owner.store.exists())
+        self.assertEqual(json.loads(with_dashboard_diagnostics(download({}, None)[1], None))['dashboard_statistics']['status'], 'not_started')
+      finally:
+        owner.close()

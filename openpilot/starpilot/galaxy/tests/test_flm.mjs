@@ -156,7 +156,8 @@ assert.doesNotMatch(FlmPage.template, /gx-tuner__plots-link/)
 const acceptanceContext = { mode: 'local', preference: { valid: true, enabled: true, parked: true, controller: 'torque' },
   current: { fresh: true }, error: '', manualBusy: false }
 assert.equal(FlmPage.computed.canAcceptFindings.call(acceptanceContext), true)
-for (const change of [{ manualBusy: true }, { current: { fresh: false } }, { mode: 'remote' },
+for (const change of [{ current: { fresh: true, reason: 'vehicle_identity_unavailable' } },
+  { manualBusy: true }, { current: { fresh: false } }, { mode: 'remote' },
   ...['parked', 'enabled', 'valid'].map(key => ({ preference: { ...acceptanceContext.preference, [key]: false } })),
   { preference: { ...acceptanceContext.preference, controller: 'pid' } }])
   assert.equal(FlmPage.computed.canAcceptFindings.call({ ...acceptanceContext, ...change }), false)

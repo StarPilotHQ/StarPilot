@@ -36,6 +36,11 @@ def _explanation(reason):
     'more_independent_eligible_tracking_required': 'Analysis needs more independent, eligible steering evidence before proposing a change.',
     'recorded_tracking_suggestion_not_yet_qualified_for_automatic_application':
       'Analysis produced suggestions; the evidence required for automatic saving is not complete.',
+    'vehicle_identity_unavailable': 'This recording was reviewed on its own. A physical vehicle identity was unavailable, so no saved tune was loaded, ' +
+      'no cross-drive evidence was combined and no adjustment was saved automatically.',
+    'Known vehicle and no manual coordinates required': 'This older build rejected its vehicle/settings identity before route analysis. In the parked ' +
+      'analysis path, missing or invalid recorded vehicle identity causes this refusal; it does not establish route corruption.',
+    'Valid manual coordinate settings required': 'Saved manual steering settings require review; existing choices were preserved.',
     'partial_drive_provisional_only': 'Intact portions were analyzed. This partial recording can provide suggestions, not automatic changes.',
     'bounded_trial_configured_for_next_drive': 'A bounded adjustment was saved for the next drive.',
     'no_consistent_adjustment_in_completed_drive': 'The analyzed evidence did not support a consistent adjustment.',
@@ -73,7 +78,7 @@ def diagnostics(report, params):
     'Recorded steering observations', 'Retained control windows', 'Retained tracking windows', 'Recorded drive coverage',
     'Drives in steering evidence history', 'Saved route adjustment count', 'Saved route configuration state',
             'Recorded coordinate recommendations', 'Recorded suggestion sources', 'Controller and encoder check windows', 'Automatic tune refusal reasons',
-            'Drive analysis is partial', 'Partial drive segments', 'Omitted recorded segments') if key in details}
+            'Recorded vehicle identity', 'Drive analysis is partial', 'Partial drive segments', 'Omitted recorded segments') if key in details}
   result['current']['skipped_drives'] = _result({'skipped_routes': details.get('Skipped recorded drives', [])})['skipped_drives']
   if params is None:
     result['storage'] = {'status': 'unavailable'}
@@ -164,3 +169,23 @@ def download(report, params):
     return _reason(value) if type(value) is str else value
 
   return 'starpilot-flm-logs.json', json.dumps(clean(diagnostics(report, params)), indent=2, allow_nan=False).encode()
+
+
+def with_dashboard_diagnostics(body, owner, authority=None):
+  """Attach privacy-limited existing dashboard state without starting its analyzer."""
+  summary = {'status': 'not_started'}
+  if owner is not None:
+    try:
+      summary = owner.diagnostics()
+    except (AttributeError, OSError, RuntimeError, ValueError, TypeError):
+      summary = {'status': 'unavailable'}
+  if authority is not None:
+    try:
+      state = authority.status()
+      summary['vehicle_permission'] = {'allowed': state['allowed'], 'reason': _reason(state.get('reason') or 'available'),
+                                       'effective_started': authority.effective()}
+    except (AttributeError, OSError, RuntimeError, ValueError, TypeError, KeyError):
+      summary['vehicle_permission'] = {'allowed': False, 'reason': 'Vehicle status unavailable'}
+  result = json.loads(body)
+  result['dashboard_statistics'] = summary
+  return json.dumps(result, indent=2, allow_nan=False).encode()

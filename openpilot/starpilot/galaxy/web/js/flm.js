@@ -86,7 +86,8 @@ export const FlmPage = {
     document.removeEventListener("visibilitychange", this.visibility)
   },
   computed: {
-    canAcceptFindings() { return this.mode === 'local' && this.preference?.valid === true && this.preference.enabled === true &&
+    canAcceptFindings() { return this.current?.reason !== 'vehicle_identity_unavailable' && this.mode === 'local' &&
+      this.preference?.valid === true && this.preference.enabled === true &&
       this.preference.parked === true && this.preference.controller === 'torque' && this.current?.fresh === true && !this.error && !this.manualBusy },
     manualRows() { return (this.manualState.data?.rows || []).map((row, index) => ({ row, index })).filter(({ row }) => this.selectedGroup.names.includes(row.coordinate)) },
     recoveredManualCurve() { return (this.manualState.data?.rows || []).filter(row => FRICTION_NAMES.includes(row.coordinate)) },

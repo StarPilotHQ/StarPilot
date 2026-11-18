@@ -59,6 +59,8 @@ def accept_finding(settings, reports, payload, *, authorized):
     if not directory.exists():
       raise ValueError('The original drive review is unavailable. Refresh the findings.')
     document = AssessmentCache(directory).get(assessment)
+    if document.get('kind') == 'identity_review':
+      raise ValueError('The vehicle must identify itself before a finding from this review can be accepted.')
     route = document['assessment']['route']
     if (document.get('kind') not in ('completed_assessment', 'partial_assessment') or
         route['cp_sha256'] != car_params_digest(cp) or route['source_sha256'] != found[1]):

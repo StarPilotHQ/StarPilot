@@ -476,6 +476,8 @@ def analyze_latest(params, root, previous, *, permitted, selected_route=None, ev
   from openpilot.starpilot.flm.offroad_history import combine
 
   identity = history_identity(collected.state['cp'])
+  if identity is None:
+    return single  # Review this recording without pooling unidentified physical cars.
   skips = []
   try:
     history = evidence_bank.retain(collected, route, identity, permitted=permitted)
