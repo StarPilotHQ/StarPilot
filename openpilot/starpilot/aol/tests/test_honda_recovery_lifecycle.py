@@ -70,6 +70,26 @@ class TestHondaCurrentCaller(unittest.TestCase):
     self.run_current_caller(candidate=CAR.HONDA_CIVIC_2022, word=10, alpha=True, hybrid=True,
                             eps_pedal='brake', eps_end=82, eps_repeat=(85, 88))
 
+  def test_classic_stock_repeated_eps_with_gas_before_native_refresh(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC_BOSCH, word=0,
+                            eps_pedal='gas', eps_end=82, eps_repeat=(85, 88))
+
+  def test_classic_stock_repeated_eps_with_brake_before_native_refresh(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC_BOSCH, word=0,
+                            eps_pedal='brake', eps_end=82, eps_repeat=(85, 88))
+
+  def test_nidec_stock_repeated_eps_with_gas_before_native_refresh(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC, word=0,
+                            eps_pedal='gas', eps_end=82, eps_repeat=(85, 88))
+
+  def test_nidec_stock_repeated_eps_with_brake_before_native_refresh(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC, word=0,
+                            eps_pedal='brake', eps_end=82, eps_repeat=(85, 88))
+
+  def test_classic_stock_brake_held_across_short_eps_recovery(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC_BOSCH, word=0,
+                            eps_pedal='brake', eps_end=82, eps_brake_end=95)
+
   def test_diagnostic_during_recovered_reverse(self):
     self.run_current_caller(candidate=CAR.HONDA_CIVIC_BOSCH, word=0, fault='diagnostic')
 
@@ -77,7 +97,7 @@ class TestHondaCurrentCaller(unittest.TestCase):
     self.run_current_caller(candidate=CAR.HONDA_CIVIC_BOSCH, word=0, fault='relay')
 
   def run_current_caller(self, *, candidate, word, fault=None, alternate_brake=False, alpha=False, speed_mps=12.5,
-                         pedal=False, host_scenario=None, serialized=False, eps_pedal=None, hybrid=False, eps_end=95, eps_repeat=None):
+                         pedal=False, host_scenario=None, serialized=False, eps_pedal=None, hybrid=False, eps_end=95, eps_repeat=None, eps_brake_end=None):
     safety = libsafety_py.libsafety
     with (
       OpenpilotPrefix(),
@@ -184,7 +204,7 @@ class TestHondaCurrentCaller(unittest.TestCase):
             cruise_button=2 if host_scenario == 'cancel' and tick == 40 else
               3 if tick == 20 or host_scenario == 'long_reengage' and tick == 130 else 0,
             cruise=int(21 <= tick < 50 and not cancelled or reengage),
-            brake=50 <= tick < 55 or eps_pedal == 'brake' and eps_active,
+            brake=50 <= tick < 55 or eps_pedal == 'brake' and (eps_active or eps_brake_end is not None and 80 <= tick < eps_brake_end),
             eps=(2 if eps_pedal else 6) if eps_active else 0,
             gas=20 if eps_pedal == 'gas' and eps_active else 0,
             steering_torque=1301 if eps_pedal and 80 <= tick < 95 else 0,
@@ -487,3 +507,4 @@ class TestHondaCurrentCaller(unittest.TestCase):
       finally:
         pandad.close()
         card.vehicle_startup.close()
+
