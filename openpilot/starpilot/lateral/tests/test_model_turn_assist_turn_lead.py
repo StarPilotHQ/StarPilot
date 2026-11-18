@@ -22,7 +22,7 @@ def step(assist, desired, speed=4.0):
 
 class TestTurnLeadByCar(unittest.TestCase):
   def test_base_package_applies_lead_and_seeds_hold(self):
-    # Ioniq 6 configuration: turn lead on, no high-speed preview.
+    # Ioniq 6 configuration: turn lead on.
     assist = ModelTurnAssist()
     out = step(assist, 0.002)
     self.assertGreater(out, 0.01)
@@ -32,10 +32,10 @@ class TestTurnLeadByCar(unittest.TestCase):
     self.assertAlmostEqual(assist.turn_hold_curvature, 0.0008, places=6)
 
   def test_gv70_gets_no_lead_and_no_lead_seeded_hold(self):
-    # GV70 configuration: turn lead off, high-speed preview on (inert
-    # at this speed). Desired curvature passes through unchanged and
-    # the hold is seeded only by the hold path itself.
-    assist = ModelTurnAssist(turn_lead=False, gv70_high_speed_preview=True)
+    # GV70 configuration: turn lead off. Desired curvature passes
+    # through unchanged and the hold is seeded only by the hold path
+    # itself.
+    assist = ModelTurnAssist(turn_lead=False)
     self.assertEqual(step(assist, 0.002), 0.002)
     # One frame of hold-path ratchet only (the lead would have seeded
     # 0.0008, as in the base-package test above).
@@ -44,7 +44,7 @@ class TestTurnLeadByCar(unittest.TestCase):
       self.assertEqual(step(assist, 0.002), 0.002)
 
   def test_gv70_no_lead_at_higher_lead_speed(self):
-    assist = ModelTurnAssist(turn_lead=False, gv70_high_speed_preview=True)
+    assist = ModelTurnAssist(turn_lead=False)
     self.assertEqual(step(assist, 0.002, speed=5.0), 0.002)
     self.assertEqual(assist.turn_hold_curvature, 0.0)
 

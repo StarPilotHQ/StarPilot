@@ -180,9 +180,9 @@ def test_shared_assist_actual_torque_factories(brand, candidate):
 
 
 @pytest.mark.parametrize('brand,candidate,expected', [
-  ('hyundai', 'HYUNDAI_IONIQ_6', (True, True, False)),
-  ('hyundai', 'GENESIS_GV70_ELECTRIFIED_1ST_GEN', (True, False, True)),
-  ('toyota', 'TOYOTA_COROLLA_TSS2', (False, False, False)),
+  ('hyundai', 'HYUNDAI_IONIQ_6', (True, True)),
+  ('hyundai', 'GENESIS_GV70_ELECTRIFIED_1ST_GEN', (True, False)),
+  ('toyota', 'TOYOTA_COROLLA_TSS2', (False, False)),
 ])
 def test_model_turn_assist_features_by_policy(brand, candidate, expected):
   from importlib import import_module
@@ -190,7 +190,7 @@ def test_model_turn_assist_features_by_policy(brand, candidate, expected):
   car = getattr(import_module(f'opendbc.car.{brand}.values').CAR, candidate)
   cp = interfaces[car].get_non_essential_params(car)
   features = model_turn_assist_features(cp)
-  assert (features.supported, features.turn_lead, features.high_speed_preview) == expected
+  assert (features.supported, features.turn_lead) == expected
 
 
 def test_model_turn_assist_features_denied_without_turn_assist_support():
@@ -198,7 +198,7 @@ def test_model_turn_assist_features_denied_without_turn_assist_support():
   cp = interfaces[CAR.GENESIS_GV70_ELECTRIFIED_1ST_GEN].get_non_essential_params(CAR.GENESIS_GV70_ELECTRIFIED_1ST_GEN)
   cp.notCar = True
   features = model_turn_assist_features(cp)
-  assert (features.supported, features.turn_lead, features.high_speed_preview) == (False, False, False)
+  assert (features.supported, features.turn_lead) == (False, False)
 
 
 def test_g70_assist_preserves_vehicle_output_cap():
