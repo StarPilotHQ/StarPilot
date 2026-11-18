@@ -13,6 +13,11 @@ from openpilot.system.ui.lib.wrap_text import wrap_text
 from openpilot.system.ui.widgets import Widget
 from openpilot.system.ui.widgets.html_render import HtmlRenderer
 from openpilot.selfdrive.selfdrived.alertmanager import OFFROAD_ALERTS
+from openpilot.starpilot.drive_state.evidence import PhysicalSource
+from openpilot.starpilot.ui.actuation_recovery import acknowledge, KEY
+from openpilot.selfdrive.ui.ui_state import ui_state
+from openpilot.system.ui.widgets import DialogResult
+from openpilot.system.ui.widgets.confirm_dialog import ConfirmDialog, alert_dialog
 
 
 class AlertColors:
@@ -88,6 +93,7 @@ class AbstractAlert(Widget, ABC):
   def __init__(self, has_reboot_btn: bool = False):
     super().__init__()
     self.params = Params()
+    self._actuation_physical = PhysicalSource(ui_state.sm)
     self.has_reboot_btn = has_reboot_btn
     self.dismiss_callback: Callable | None = None
 
@@ -97,9 +103,19 @@ class AbstractAlert(Widget, ABC):
         self.dismiss_callback()
 
     def excessive_actuation_callback():
-      self.params.remove("Offroad_ExcessiveActuation")
-      if self.dismiss_callback:
-        self.dismiss_callback()
+      expected = self.params.get(KEY)
+      def confirmed(result):
+        if result != DialogResult.CONFIRM:
+          return
+        if acknowledge(self.params, self._actuation_physical, expected):
+          if self.dismiss_callback:
+            self.dismiss_callback()
+        else:
+          gui_app.push_widget(alert_dialog(tr("Turn off the vehicle ignition and try again.")))
+      gui_app.push_widget(ConfirmDialog(
+        tr("Acknowledge the previous drive's excessive actuation alert? This does not fix its cause. " +
+           "Do not re-engage until the cause has been checked."),
+        tr("Acknowledge Excessive Actuation"), callback=confirmed))
 
     self.dismiss_btn = ActionButton(lambda: tr("Close"))
 

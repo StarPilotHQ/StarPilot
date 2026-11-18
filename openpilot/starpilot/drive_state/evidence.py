@@ -22,7 +22,7 @@ class PhysicalSource:
   def allowed(self) -> bool:
     return self.status()['allowed']
 
-  def status(self, *, updating_offroad=False, require_park=False):
+  def status(self, *, updating_offroad=False, require_park=False, require_ignition_off=False):
     def result(allowed, reason=None):
       return {'allowed': bool(allowed), 'reason': reason}
     with self.lock:
@@ -66,6 +66,8 @@ class PhysicalSource:
         if len(pandas) == 0 or any(str(p.pandaType) == 'unknown' for p in pandas):
           return result(False, 'No recognized Panda is reporting vehicle status')
         ignition = any(p.ignitionLine or p.ignitionCan for p in pandas)
+        if require_ignition_off and ignition:
+          return result(False, 'Turn off the vehicle ignition before acknowledging excessive actuation')
         if not require_park and (not ignition or updating_offroad and all(str(p.safetyModel) == 'noOutput' and not p.controlsAllowed for p in pandas)):
           safe = all(str(p.safetyModel) == 'noOutput' and not p.controlsAllowed for p in pandas)
           return result(safe, None if safe else 'Panda must confirm noOutput safety and controls disabled')

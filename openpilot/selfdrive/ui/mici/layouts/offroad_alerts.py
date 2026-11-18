@@ -17,6 +17,11 @@ from openpilot.system.ui.widgets.scroller import Scroller
 from openpilot.system.ui.lib.application import gui_app, FontWeight, TextAlignment, TextAlignmentVertical
 from openpilot.system.ui.lib.multilang import tr
 
+from openpilot.starpilot.drive_state.evidence import PhysicalSource
+from openpilot.starpilot.ui.actuation_recovery import acknowledge, KEY
+from openpilot.selfdrive.ui.ui_state import ui_state
+from openpilot.selfdrive.ui.mici.widgets.dialog import BigConfirmationDialog, BigDialog
+
 REFRESH_INTERVAL = 5.0  # seconds
 
 
@@ -206,6 +211,7 @@ class MiciOffroadAlerts(Scroller):
     # Create vertical scroller
     super().__init__(horizontal=False, spacing=12, pad=0)
     self.params = Params()
+    self._actuation_physical = PhysicalSource(ui_state.sm)
     self.sorted_alerts: list[AlertData] = []
     self.alert_items: list[AlertItem] = []
 
@@ -258,8 +264,18 @@ class MiciOffroadAlerts(Scroller):
 
       # Create alert item widget
       alert_item = AlertItem(alert_data)
+      if key == KEY:
+        alert_item.set_click_callback(self._acknowledge_actuation)
       self.alert_items.append(alert_item)
       self._scroller.add_widget(alert_item)
+
+  def _acknowledge_actuation(self):
+    expected = self.params.get(KEY)
+    def confirmed():
+      if not acknowledge(self.params, self._actuation_physical, expected):
+        gui_app.push_widget(BigDialog(tr("Unable to acknowledge"), tr("Turn off the vehicle ignition and try again.")))
+    gui_app.push_widget(BigConfirmationDialog(tr("Clear alert"),
+      gui_app.texture("icons_mici/offroad_alerts/red_warning.png", 64, 64), confirmed, red=True))
 
   def _params_worker(self):
     drop_realtime()
@@ -312,6 +328,8 @@ class MiciOffroadAlerts(Scroller):
         widget = next(w for w in self._scroller.items if w.alert_data is alert_data)
         self._scroller.items.remove(widget)
         self._scroller.items.insert(0, widget)
+      if alert_data.key == KEY and text:
+        text = text.split(".", 1)[0] + ". " + tr("Turn ignition off, then tap to acknowledge. Have the cause checked before re-engaging.")
       alert_data.text = text
       alert_data.visible = bool(text)
 
