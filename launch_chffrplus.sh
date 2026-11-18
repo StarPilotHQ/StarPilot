@@ -77,7 +77,7 @@ function update_is_ready {
 # every boot before swapping trees, including manual reboots.
 # Keep this in sync with TRUSTED_LEGACY_RELEASES in updated.py.
 TRUSTED_LEGACY_STARPILOT_COMMIT="c2e5e469ee8fefc3cffb514dc2e1a1fb82a421d6"
-TRUSTED_LEGACY_STABLE_MIGRATION="7ab42497b4590153c88560c7e2c2f3ff8317c6d4"
+TRUSTED_LEGACY_STABLE_MIGRATION="18d4f5fbcec2c72366562f6ab92c13ff571493a0"
 
 function trusted_legacy_commit {
   [ "$1" = "$TRUSTED_LEGACY_STARPILOT_COMMIT" ] || [ "$1" = "$TRUSTED_LEGACY_STABLE_MIGRATION" ]
