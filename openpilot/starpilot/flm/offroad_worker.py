@@ -681,6 +681,7 @@ class OffroadWorker:
     on_analysis=None,
     on_assessment=None,
     on_recommendations=None,
+    on_progress=None,
     prior_provider=None,
     stable_prior_provider=None,
   ):
@@ -696,6 +697,7 @@ class OffroadWorker:
     self.on_analysis = on_analysis
     self.on_assessment = on_assessment
     self.on_recommendations = on_recommendations
+    self.on_progress = on_progress
     self.prior_provider = prior_provider
     self.stable_prior_provider = stable_prior_provider
     self.evidence_bank = None
@@ -833,6 +835,8 @@ class OffroadWorker:
     if self.on_analysis is not None:
       self.on_analysis()
     options: dict[str, Any] = {} if self.evidence_bank is None else {'evidence_bank': self.evidence_bank, 'history_identity': self._history_identity}
+    if self.on_progress is not None and self.assessor is RECORDED_ASSESSOR:
+      options['on_progress'] = self.on_progress
     if route != latest:
       options['selected_route'] = route
     try:

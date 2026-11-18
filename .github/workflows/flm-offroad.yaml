@@ -75,6 +75,7 @@ jobs:
             openpilot/starpilot/flm/tests/test_offroad_coordinate_policy.py \
             openpilot/starpilot/flm/tests/test_offroad_retained_trials.py \
             openpilot/starpilot/flm/tests/test_offroad_process_lifecycle.py \
+            openpilot/starpilot/flm/tests/test_offroad_analysis_progress.py \
             openpilot/starpilot/flm/tests/test_route_recording_clocks.py \
             openpilot/starpilot/flm/tests/test_configured_route_recording.py \
             openpilot/starpilot/flm/tests/test_observed_maneuvers.py \
@@ -82,6 +83,7 @@ jobs:
             openpilot/starpilot/flm/tests/test_offroad_equal_native_output.py \
             openpilot/starpilot/flm/tests/test_offroad_fault_isolation.py \
             openpilot/starpilot/galaxy/tests/test_drive_history.py \
+            openpilot/starpilot/galaxy/tests/test_flm_acceptance.py \
             --json-output ci-results/flm-offroad.json
           .venv/bin/python -m pytest -q --import-mode=importlib \
             openpilot/starpilot/flm/tests/test_observed_maneuvers.py \

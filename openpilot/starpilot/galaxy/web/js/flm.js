@@ -12,6 +12,7 @@ import { PlotGraph, PlotsPage, chartGeometry } from "./plots.js"
 import { validTrainingResults, readable, detailText, surfaceRows, coordinateText, trackingView, measurementText, validTrackingValues, trackingPlotView, sourceSeconds, validLearningPreference, SURFACE_GROUPS, tunerStatus, learningReason, sourceCaptureCounts, historyTitle, offroadView, FRICTION_NAMES, offroadCoordinateEvidence, recommendationText } from "./flm-training-results.js"
 
 import { reviewModel, dialPercent, ideaStatus, ideaExplanation, ideaValue, ideaHeading, curvePointLabel, ideaDetails } from "./flm-review.js"
+import { parkedAnalysisProgress } from './flm-training-results.js'
 
 const VIEWS = ["overview", "tune", "activity", "plots"]
 const GROUP_DESCRIPTIONS = {
@@ -50,7 +51,7 @@ export const FlmPage = {
     go: { type: Function, default: path => { window.location.hash = path } } },
   data: () => ({ report: null, error: "", loading: false, request: null, receivedAt: 0, now: 0, bluetooth: bluetoothConnection(),
     manualState: { status: "idle", data: null, pending: null, error: "" }, manualResetRequested: false, manualWrite: null,
-    findingDraft: null, findingBusy: false, findingError: '', findingNotice: '', acceptedFindingNames: [],
+    findingDraft: null, findingBusy: false, findingPhase: '', findingError: '', findingNotice: '', acceptedFindingNames: [], reportRead: null,
     headerOffset: 88, view: "overview", group: "balance", showAllHistory: false, groups: SURFACE_GROUPS }),
   watch: {
     initialView(view) { this.selectView(view) }, mode() { this.syncManualControls() },
@@ -87,9 +88,11 @@ export const FlmPage = {
     document.removeEventListener("visibilitychange", this.visibility)
   },
   computed: {
-    canAcceptFindings() { return this.current?.reason !== 'vehicle_identity_unavailable' && this.mode === 'local' &&
+    canReviewFindings() { return this.current?.reason !== 'vehicle_identity_unavailable' && this.mode === 'local' &&
       this.preference?.valid === true && this.preference.enabled === true &&
-      this.preference.parked === true && this.preference.controller === 'torque' && this.current?.fresh === true && !this.error && !this.manualBusy },
+      this.preference.parked === true && this.preference.controller === 'torque' && !this.manualBusy },
+    canAcceptFindings() { return this.canReviewFindings && this.reportFresh && this.choiceLive && !this.error },
+    analysisProgress() { return parkedAnalysisProgress(this.report) },
     manualRows() { return (this.manualState.data?.rows || []).map((row, index) => ({ row, index })).filter(({ row }) => this.selectedGroup.names.includes(row.coordinate)) },
     recoveredManualCurve() { return (this.manualState.data?.rows || []).filter(row => FRICTION_NAMES.includes(row.coordinate)) },
     manualActions() { return (this.manualState.data?.rows || []).map((row, index) => ({ row, index })).filter(({ row }) => row.confirm) },
@@ -186,17 +189,20 @@ export const FlmPage = {
   },
   methods: {
     reviewFinding(idea) {
-      if (!this.canAcceptFindings || this.findingBusy || !Number.isFinite(idea.target) ||
+      if (!this.canReviewFindings || this.findingBusy || !Number.isFinite(idea.target) ||
           !this.review.findings.some(row => row.parameter === idea.parameter && row.target === idea.target)) return
       const assessment = this.current?.details?.['Offroad assessment hash']
       if (!/^[0-9a-f]{64}$/.test(assessment || '')) { this.findingError = 'Refresh the drive review before accepting a finding.'; return }
       this.findingError = '';this.findingDraft = { parameter: idea.parameter, target: idea.target, assessment }
     },
     async acceptFinding() {
-      if (!this.findingDraft || this.findingBusy || !this.canAcceptFindings) return
+      if (!this.findingDraft || this.findingBusy || !this.canReviewFindings) return
       const draft = { ...this.findingDraft }
-      this.findingBusy = true;this.findingError = '';this.findingNotice = ''
+      this.findingBusy = true;this.findingPhase = 'checking';this.findingError = '';this.findingNotice = ''
+      this.poller?.stop()
       try {
+        await this.freshFinding(draft)
+        this.findingPhase = 'saving'
         const result = await requestJson('./api/settings/flm-finding/accept', { request: { method: 'POST',
           headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(draft) } })
         if (result.status !== 'saved' || result.parameter !== draft.parameter || result.value !== draft.target || result.learning !== 'automatic')
@@ -207,10 +213,32 @@ export const FlmPage = {
         if (this.manualFeed?.active) await this.manualFeed.load('tuning')
       } catch (error) {
         if (error.status === 401) this.unauthorized()
-        this.findingError = error.status ? error.message : 'Could not confirm this finding was saved. Refresh the saved settings before trying again.'
+        this.findingError = this.findingPhase === 'checking' ? error.message : error.status ? error.message :
+          'Could not confirm this finding was saved. Refresh the saved settings before trying again.'
         this.findingDraft = null
-      } finally { this.findingBusy = false }
+      } finally {
+        this.findingBusy = false;this.findingPhase = ''
+        if (this.activePage && this.mode === 'local') this.poller?.start()
+      }
     },
+    async freshFinding(draft) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (!this.activePage || this.mode !== 'local') throw new Error('Connect to the parked device before accepting a finding.')
+        const read = await this.load()
+        if (!read) throw new Error('Could not refresh the device report. No change was sent. Reconnect and try again.')
+        if (!this.activePage || this.mode !== 'local') throw new Error('Connect to the parked device before accepting a finding.')
+        if (read) {
+          if (this.current?.details?.['Offroad assessment hash'] !== draft.assessment ||
+              !this.review.findings.some(row => row.parameter === draft.parameter && row.target === draft.target))
+            throw new Error('The drive findings changed. Review the latest finding before accepting it.')
+          if (!this.canReviewFindings) throw new Error('The vehicle or settings changed. Review this finding again while parked.')
+          if (this.canAcceptFindings) return
+        }
+        if (attempt < 2) await this.waitFindingRefresh()
+      }
+      throw new Error('A fresh device report is not available yet. Your tune has not changed. Try again when the connection is ready.')
+    },
+    waitFindingRefresh() { return new Promise(resolve => setTimeout(resolve, 1000)) },
     backupRestored() { this.manualWrite = null;this.manualResetRequested = false;this.manualFeed?.load('tuning');return this.load() },
     dialPercent, ideaStatus, ideaValue, ideaHeading, curvePointLabel, ideaDetails, readable, detailText, coordinateText, measurementText, sourceSeconds, learningReason, historyTitle, recommendationText,
     findingAccepted(idea) { return this.acceptedFindingNames.includes(idea.parameter) ||
@@ -325,24 +353,30 @@ export const FlmPage = {
       this.selectView(VIEWS[next])
       event.currentTarget.parentElement.querySelectorAll('[role="tab"]')[next]?.focus()
     },
-    async load() {
+    load() {
+      if (!this.reportRead) this.reportRead = this.readReport().finally(() => { this.reportRead = null })
+      return this.reportRead
+    },
+    async readReport() {
       this.now = Date.now()
-      if (!this.activePage || this.mode !== "local" || this.request || document.hidden) return
+      if (!this.activePage || this.mode !== "local" || this.request || document.hidden) return false
       const controller = new AbortController()
       this.request = controller; this.loading = true
       try {
         const value = await requestJson("./api/flm/training-results", { request: { signal: controller.signal } })
-        if (this.request !== controller || !this.activePage) return
+        if (this.request !== controller || !this.activePage) return false
         if (!validTrainingResults(value)) throw new Error("The device returned an unsupported training report.")
         if (this.report?.current?.details?.['Offroad assessment hash'] !== value.current?.details?.['Offroad assessment hash']) this.acceptedFindingNames = []
         this.report = value; this.error = ""; this.receivedAt = this.now = Date.now()
         clearTimeout(this.freshnessTimer)
         const age = value.current?.fresh ? value.current.ageSeconds * 1000 : 0
         this.freshnessTimer = setTimeout(() => { this.now = Date.now() }, Math.max(0, 2000 - age) + 1)
+        return true
       } catch (error) {
-        if (this.request !== controller || !this.activePage) return
+        if (this.request !== controller || !this.activePage) return false
         if (error.status === 401 || ["access_unavailable", "setup_required"].includes(error.code)) this.unauthorized()
         else this.error = connectionError(error, "Live update unavailable. Reconnecting automatically…")
+        return false
       } finally {
         if (this.request === controller) { this.request = null; this.loading = false }
       }
@@ -353,18 +387,22 @@ export const FlmPage = {
     <GxState v-if="mode !== 'local'">Connect to your device to see its steering tune.</GxState>
     <template v-else>
       <p v-if="nonTorqueController" class="gx-tuner__caption" data-autotune-scope="torque-only">Autotune is available for torque steering only. Live plots remain available.</p>
-      <GxNotice v-if="error && view !== 'plots'" tone="danger">{{ error }}</GxNotice>
-      <GxNotice v-if="findingError" tone="danger" data-role="finding-error">{{ findingError }}</GxNotice>
-      <GxNotice v-if="findingNotice" tone="success" data-role="finding-saved">{{ findingNotice }}</GxNotice>
       <GxDialog v-if="findingDraft" labelledby="accept-finding-title" @close="!findingBusy && (findingDraft = null)"><h3 id="accept-finding-title">Accept this finding?</h3>
         <p>{{ parameterLabel(findingDraft.parameter) }}: {{ dialPercent(findingDraft.target) }}</p><p>Use this value for your next drive. Auto Learn can keep improving this setting.</p>
         <div class="gx-dialog__actions"><button type="button" class="gx-btn gx-btn--tonal" :disabled="findingBusy" @click="findingDraft = null">Cancel</button>
-        <button type="button" class="gx-btn" :disabled="findingBusy || !canAcceptFindings" @click="acceptFinding">{{ findingBusy ? 'Saving…' : 'Accept finding' }}</button></div></GxDialog>
+        <button type="button" class="gx-btn" :disabled="findingBusy || !canReviewFindings" @click="acceptFinding">{{ findingPhase === 'checking' ? 'Checking…' : findingBusy ? 'Saving…' : 'Accept finding' }}</button></div></GxDialog>
       <div v-if="view !== 'plots'" class="gx-tuner__connection" role="status"><span class="gx-tuner__status-dot" :data-tone="connectionTone" aria-hidden="true"></span><span>{{ connectionLabel }}</span><span class="gx-tuner__connection-state">{{ currentApplied ? 'Learned tune in use' : preference?.parked ? 'Parked' : live ? 'Driving · use not confirmed' : 'State not confirmed' }}</span></div>
       <GxDialog v-if="manualResetRequested && manualState.pending" labelledby="manual-tune-confirm-title" @close="cancelManualReset"><h3 id="manual-tune-confirm-title">Reset manual tune?</h3><p>{{ manualState.pending.question }}</p><div class="gx-dialog__actions"><button type="button" class="gx-btn gx-btn--tonal" @click="cancelManualReset">Cancel</button><button type="button" class="gx-btn" @click="confirmManualReset">Reset</button></div></GxDialog>
       <nav class="gx-tuner__tabs" role="tablist" aria-label="Tuner views">
         <button v-for="tab in ['overview', 'tune', 'activity', 'plots']" :key="tab" type="button" role="tab" :id="'tuner-tab-' + tab" :aria-controls="'tuner-panel-' + tab" :aria-selected="view === tab" :tabindex="view === tab ? 0 : -1" @click="selectView(tab)" @keydown="tabKey">{{ tab === 'overview' ? 'Overview' : tab === 'tune' ? 'Your tune' : tab === 'activity' ? 'Activity' : 'Live plots' }}</button>
       </nav>
+      <GxNotice v-if="error && view !== 'plots'" tone="danger">{{ error }}</GxNotice>
+      <GxNotice v-if="findingError" tone="danger" data-role="finding-error">{{ findingError }}</GxNotice>
+      <GxNotice v-if="findingNotice" tone="success" data-role="finding-saved">{{ findingNotice }}</GxNotice>
+      <section v-if="analysisProgress && view !== 'plots'" class="gx-card gx-tuner__analysis" aria-labelledby="flm-analysis-heading" data-role="analysis-progress">
+        <div><h3 id="flm-analysis-heading" aria-live="polite">{{ analysisProgress.label }}</h3><p>{{ analysisProgress.detail }}</p></div>
+        <div class="gx-tuner__analysis-track" :class="{ 'is-indeterminate': analysisProgress.percent === null }" role="progressbar" :aria-label="analysisProgress.percent === null ? analysisProgress.label : 'Sections read in the current recording'" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="analysisProgress.percent ?? undefined" :aria-valuetext="analysisProgress.detail"><span :style="analysisProgress.percent === null ? {} : { width: analysisProgress.percent + '%' }"></span></div>
+      </section>
       <section v-if="view === 'overview'" id="tuner-panel-overview" role="tabpanel" aria-labelledby="tuner-tab-overview" class="gx-tuner__panel">
         <section class="gx-card gx-tuner__drive" :data-tone="review.tone" aria-label="Drive review">
           <div class="gx-tuner__drive-mark" aria-hidden="true"><i class="bi" :class="review.tone === 'saved' ? 'bi-check2-circle' : review.count ? 'bi-lightbulb' : 'bi-speedometer2'"></i></div>
@@ -395,8 +433,8 @@ export const FlmPage = {
         </section>
         <section v-if="offroad" class="gx-card gx-tuner__findings" :class="{ 'gx-tuner__findings--paired': review.manualGroups.length === 1 && review.curve.length > 0 }" aria-labelledby="tuner-suggestions-title"><div class="gx-tuner__section-heading"><div><p class="gx-tuner__eyebrow">SUGGESTIONS FROM RECENT DRIVING</p><h3 id="tuner-suggestions-title">{{ review.count ? 'Suggestions · needs more evidence' : 'No new suggestions' }}</h3><p v-if="review.findings.some(idea => findingAccepted(idea))">Accepted findings stay eligible for Auto Learn. Review the other suggested values below.</p><p v-else-if="review.count">These suggestions are not saved. Auto Learn needs more evidence before saving them automatically.</p><p v-else>No additional suggestions were reported for this drive.</p></div><span class="gx-tuner__badge" :data-tone="review.count ? 'review' : 'neutral'">{{ review.count ? 'Review only' : 'No new change' }}</span></div>
           <p v-if="review.count" class="gx-tuner__caption">{{ review.manual.length }} steering {{ review.manual.length === 1 ? 'finding' : 'findings' }} · {{ review.curve.length }} speed-range {{ review.curve.length === 1 ? 'finding' : 'findings' }}<template v-if="review.other.length"> · {{ review.other.length }} earlier grouped findings</template>. Viewing an idea does not change your tune.</p>
-          <div v-if="review.manual.length" class="gx-tuner__idea-grid"><template v-for="area in review.manualGroups" :key="area.id"><template v-if="area.findings.length === 1"><article v-for="idea in area.findings" :key="idea.parameter" class="gx-tuner__idea" :data-coordinate="idea.parameter"><h4>{{ ideaHeading(idea.parameter) }}</h4><span class="gx-tuner__badge" data-tone="review">{{ findingAccepted(idea) ? 'Accepted for next drive' : idea.target === null ? 'Conflicting findings' : 'Not saved' }}</span><p>{{ ideaExplanation(idea) }}</p><button type="button" class="gx-btn" :disabled="!canAcceptFindings || findingBusy || findingAccepted(idea)" @click="reviewFinding(idea)" data-action="accept-finding">{{ findingAccepted(idea) ? 'Accepted · Auto Learn on' : 'Accept finding' }}</button><button type="button" class="gx-btn gx-btn--tonal" @click="reviewSetting(idea.parameter)">View setting<i class="bi bi-arrow-right" aria-hidden="true"></i></button><details class="gx-tuner__disclosure"><summary>Evidence &amp; exact values</summary><p>{{ parameterLabel(idea.parameter) }}. {{ ideaHelp(idea.parameter) }}</p><dl class="gx-tuner__exact-values"><template v-for="value in ideaDetails(idea)" :key="value.label"><dt>{{ value.label }}</dt><dd>{{ value.value }}</dd></template></dl><p>{{ amount(idea.windows) }} recorded windows.</p><p>{{ learningReason(idea.reason) }}</p></details></article></template><article v-else class="gx-tuner__idea"><span class="gx-tuner__badge" data-tone="review">{{ area.findings.length }} steering findings</span><h4>{{ area.label }}</h4><p>Review the findings for each setting below.</p><details class="gx-tuner__disclosure"><summary>Review {{ area.findings.length }} findings</summary><section v-for="idea in area.findings" :key="idea.parameter" class="gx-tuner__grouped-idea" :data-coordinate="idea.parameter"><h4>{{ parameterLabel(idea.parameter) }}</h4><p>{{ ideaExplanation(idea) }}</p><span class="gx-tuner__badge" data-tone="review">{{ findingAccepted(idea) ? 'Accepted for next drive' : ideaStatus(idea) }}</span><button type="button" class="gx-btn" :disabled="!canAcceptFindings || findingBusy || findingAccepted(idea)" @click="reviewFinding(idea)" data-action="accept-finding">{{ findingAccepted(idea) ? 'Accepted · Auto Learn on' : 'Accept finding' }}</button><button type="button" class="gx-btn gx-btn--tonal" @click="reviewSetting(idea.parameter)">View setting</button><details><summary>Evidence &amp; exact values</summary><p>{{ ideaHelp(idea.parameter) }}</p><dl class="gx-tuner__exact-values"><template v-for="value in ideaDetails(idea)" :key="value.label"><dt>{{ value.label }}</dt><dd>{{ value.value }}</dd></template></dl><p>{{ amount(idea.windows) }} recorded windows. {{ learningReason(idea.reason) }}</p></details></section></details></article></template></div>
-          <article v-if="review.curve.length" class="gx-tuner__idea gx-tuner__curve-summary"><span class="gx-tuner__badge" data-tone="review">{{ review.curve.length }} speed-range findings · suggested changes</span><h4>Small steering corrections at different speeds</h4><p>Auto Learn manages this curve; your manual sliders are separate.</p><button type="button" class="gx-btn gx-btn--tonal" @click="reviewSetting(review.curve[0].parameter)">Review speed settings<i class="bi bi-arrow-right" aria-hidden="true"></i></button><details class="gx-tuner__disclosure"><summary>See all {{ review.curve.length }} findings</summary><div v-for="idea in review.curve" :key="idea.parameter" class="gx-tuner__curve-point" :data-coordinate="idea.parameter"><span>{{ curvePointLabel(idea.parameter) }}</span><small>{{ findingAccepted(idea) ? 'Accepted for next drive' : ideaStatus(idea) }}</small><button type="button" class="gx-btn" :disabled="!canAcceptFindings || findingBusy || findingAccepted(idea)" @click="reviewFinding(idea)" data-action="accept-finding">{{ findingAccepted(idea) ? 'Accepted · Auto Learn on' : 'Accept finding' }}</button><dl class="gx-tuner__exact-values"><template v-for="value in ideaDetails(idea)" :key="value.label"><dt>{{ value.label }}</dt><dd>{{ value.value }}</dd></template></dl></div></details></article>
+          <div v-if="review.manual.length" class="gx-tuner__idea-grid"><template v-for="area in review.manualGroups" :key="area.id"><template v-if="area.findings.length === 1"><article v-for="idea in area.findings" :key="idea.parameter" class="gx-tuner__idea" :data-coordinate="idea.parameter"><h4>{{ ideaHeading(idea.parameter) }}</h4><span class="gx-tuner__badge" data-tone="review">{{ findingAccepted(idea) ? 'Accepted for next drive' : idea.target === null ? 'Conflicting findings' : 'Not saved' }}</span><p>{{ ideaExplanation(idea) }}</p><button type="button" class="gx-btn" :disabled="!canReviewFindings || findingBusy || findingAccepted(idea)" @click="reviewFinding(idea)" data-action="accept-finding">{{ findingAccepted(idea) ? 'Accepted · Auto Learn on' : 'Accept finding' }}</button><button type="button" class="gx-btn gx-btn--tonal" @click="reviewSetting(idea.parameter)">View setting<i class="bi bi-arrow-right" aria-hidden="true"></i></button><details class="gx-tuner__disclosure"><summary>Evidence &amp; exact values</summary><p>{{ parameterLabel(idea.parameter) }}. {{ ideaHelp(idea.parameter) }}</p><dl class="gx-tuner__exact-values"><template v-for="value in ideaDetails(idea)" :key="value.label"><dt>{{ value.label }}</dt><dd>{{ value.value }}</dd></template></dl><p>{{ amount(idea.windows) }} recorded windows.</p><p>{{ learningReason(idea.reason) }}</p></details></article></template><article v-else class="gx-tuner__idea"><span class="gx-tuner__badge" data-tone="review">{{ area.findings.length }} steering findings</span><h4>{{ area.label }}</h4><p>Review the findings for each setting below.</p><details class="gx-tuner__disclosure"><summary>Review {{ area.findings.length }} findings</summary><section v-for="idea in area.findings" :key="idea.parameter" class="gx-tuner__grouped-idea" :data-coordinate="idea.parameter"><h4>{{ parameterLabel(idea.parameter) }}</h4><p>{{ ideaExplanation(idea) }}</p><span class="gx-tuner__badge" data-tone="review">{{ findingAccepted(idea) ? 'Accepted for next drive' : ideaStatus(idea) }}</span><button type="button" class="gx-btn" :disabled="!canReviewFindings || findingBusy || findingAccepted(idea)" @click="reviewFinding(idea)" data-action="accept-finding">{{ findingAccepted(idea) ? 'Accepted · Auto Learn on' : 'Accept finding' }}</button><button type="button" class="gx-btn gx-btn--tonal" @click="reviewSetting(idea.parameter)">View setting</button><details><summary>Evidence &amp; exact values</summary><p>{{ ideaHelp(idea.parameter) }}</p><dl class="gx-tuner__exact-values"><template v-for="value in ideaDetails(idea)" :key="value.label"><dt>{{ value.label }}</dt><dd>{{ value.value }}</dd></template></dl><p>{{ amount(idea.windows) }} recorded windows. {{ learningReason(idea.reason) }}</p></details></section></details></article></template></div>
+          <article v-if="review.curve.length" class="gx-tuner__idea gx-tuner__curve-summary"><span class="gx-tuner__badge" data-tone="review">{{ review.curve.length }} speed-range findings · suggested changes</span><h4>Small steering corrections at different speeds</h4><p>Auto Learn manages this curve; your manual sliders are separate.</p><button type="button" class="gx-btn gx-btn--tonal" @click="reviewSetting(review.curve[0].parameter)">Review speed settings<i class="bi bi-arrow-right" aria-hidden="true"></i></button><details class="gx-tuner__disclosure"><summary>See all {{ review.curve.length }} findings</summary><div v-for="idea in review.curve" :key="idea.parameter" class="gx-tuner__curve-point" :data-coordinate="idea.parameter"><span>{{ curvePointLabel(idea.parameter) }}</span><small>{{ findingAccepted(idea) ? 'Accepted for next drive' : ideaStatus(idea) }}</small><button type="button" class="gx-btn" :disabled="!canReviewFindings || findingBusy || findingAccepted(idea)" @click="reviewFinding(idea)" data-action="accept-finding">{{ findingAccepted(idea) ? 'Accepted · Auto Learn on' : 'Accept finding' }}</button><dl class="gx-tuner__exact-values"><template v-for="value in ideaDetails(idea)" :key="value.label"><dt>{{ value.label }}</dt><dd>{{ value.value }}</dd></template></dl></div></details></article>
           <details v-if="review.other.length" id="tuner-earlier-findings" class="gx-tuner__disclosure"><summary>{{ review.other.length }} earlier grouped findings</summary><p>This older report does not identify a single dial or absolute target for these findings. They are not changes to apply.</p><p v-for="(idea, index) in review.other" :key="index">{{ readable(idea.parameter) }} · {{ recommendationText(idea) }} · {{ amount(idea.windows) }} recorded windows.</p></details>
         </section>
         </div>
