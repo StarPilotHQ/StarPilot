@@ -909,6 +909,39 @@ class SettingsGatewayTest(unittest.TestCase):
     self.assertTrue(self.gateway.confirm(intent["intent"], self.session, self.generation))
     self.assertEqual(json.loads(required_raw(self.params, "LongitudinalPersonalityProfiles", 65536))["selectedAccelerationProfile"], "standard")
 
+  def test_global_profile_display_keeps_fresh_legacy_and_saved_values(self):
+    from openpilot.starpilot.longitudinal.profile_document import default_personality_profiles, profile_document
+
+    fresh = self.page("profiles")
+    rows = {row["label"]: row for row in fresh["rows"]}
+    self.assertEqual(rows["Selected Acceleration Profile"]["value"], "StarPilot Default")
+    self.assertEqual(rows["Selected Deceleration Profile"]["value"], "Comfort")
+    for name in ("Selected Acceleration Profile", "Selected Deceleration Profile"):
+      self.assertEqual(rows[name]["displayScale"], "selected-profile")
+    self.assertIsNone(self.params.get("LongitudinalPersonalityProfiles"))
+    for acceleration, braking in (("dom_default", "dom_default"), ("standard", "eco"), ("sport_plus", "sport")):
+      with self.subTest(acceleration=acceleration, braking=braking):
+        document = profile_document(default_personality_profiles(False), enabled=False,
+                                    selected_acceleration_profile=acceleration, selected_deceleration_profile=braking)
+        self.params.put("LongitudinalPersonalityProfiles", document, block=True)
+        path = Path(self.params.get_param_path("LongitudinalPersonalityProfiles"))
+        before = path.read_bytes()
+        page = self.page("profiles")
+        self.assertEqual(path.read_bytes(), before)
+        for label, field in (("Selected Acceleration Profile", "selectedAccelerationProfile"),
+                             ("Selected Deceleration Profile", "selectedDecelerationProfile")):
+          index = next(i for i, row in enumerate(page["rows"]) if row["label"] == label)
+          intent = self.gateway.preview(page["view"], index, 0, self.session, self.generation, value="Sport")
+          self.assertTrue(self.gateway.confirm(intent["intent"], self.session, self.generation))
+          saved = json.loads(path.read_bytes())
+          self.assertEqual(saved[field], "sport")
+          other = "selectedDecelerationProfile" if field == "selectedAccelerationProfile" else "selectedAccelerationProfile"
+          self.assertEqual(saved[other], document[other])
+          reopened = self.page("profiles")
+          self.assertEqual(reopened["rows"][index]["value"], "Sport")
+          document = saved
+          page = reopened
+
   def test_traffic_saved_controls_and_explicit_follow_repair_use_shared_gateway(self):
     from openpilot.starpilot.longitudinal.profile_runtime import read_traffic_settings
 

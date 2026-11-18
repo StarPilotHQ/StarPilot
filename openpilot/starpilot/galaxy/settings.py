@@ -415,7 +415,8 @@ def _projection(row: FeatureRow) -> dict:
           "confirm": bool(row.key in CONFIRM_ACTIONS or is_long_confirm_action(row.key) or
                           row.key in (PIP_RESET, PIP_EDITOR, VASM_RESET, VASM_ANNOTATION) or row.key.startswith(PIP_FORMAT_PREFIX)),
           "repairValue": row.repair_value, "defaultValue": row.default_value, "resetAvailable": row_default(row) is not None,
-          "displayScale": "lane-strength" if row.key == "LaneCenteringStrength" else None,
+          "displayScale": ("lane-strength" if row.key == "LaneCenteringStrength" else
+                           "selected-profile" if row.key in ("profile:global_acceleration", "profile:global_braking") else None),
           **({"coordinate": row.key.removeprefix("torque:surface:")} if row.key.startswith("torque:surface:") and row.key != "torque:surface:reset" else {}),
           **({"acceptedFindingValue": row.accepted_finding_value} if row.accepted_finding_value is not None else {}),
           "heading": is_heading(row.key), "collapsed": bool(row.collapsed),
