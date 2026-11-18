@@ -38,5 +38,20 @@ scrolls.length = 0
 openEditPanel.call(editor(700, "static"))
 assert.deepEqual(scrolls, [], "wide screens without pinned tabs never scroll")
 
+const unselected = editor(108)
+unselected.activeWidgets = [{ id: "current_speed" }]
+openEditPanel.call(unselected)
+assert.equal(unselected.state.selected, "current_speed", "Edit restores a widget after deselection")
+
+let delayedAlign
+globalThis.setTimeout = (fn) => { delayedAlign = fn }
+const switched = editor(500)
+openEditPanel.call(switched)
+switched.state.inspectorPanel = "widgets"
+scrolled = 0
+scrolls.length = 0
+delayedAlign()
+assert.deepEqual(scrolls, [], "a delayed alignment leaves the Widgets scroll position alone")
+
 assert.match(ONROAD_LAYOUT_TEMPLATE, /@click="openEditPanel\(\)"><span>Edit/)
 globalThis.setTimeout = realTimeout

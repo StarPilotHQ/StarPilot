@@ -71,6 +71,7 @@ const projection = JSON.parse(execFileSync(process.env.PYTHON || 'python3', ['-c
     await page.emulateMedia({reducedMotion:'reduce'})
     await page.setViewportSize({width:390,height:844})
     await rows.first().evaluate(row => row.scrollIntoView({block:'center'}))
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve)))))
     const touchRows = await rows.evaluateAll(elements => {
       const top = document.querySelector('.gx-layout__sections').getBoundingClientRect().bottom
       return elements.filter(row => row.getBoundingClientRect().top > top && row.getBoundingClientRect().bottom < innerHeight)
@@ -176,9 +177,11 @@ const projection = JSON.parse(execFileSync(process.env.PYTHON || 'python3', ['-c
         const saveButton = page.getByRole('button', {name:'Save changes', exact:true})
         assert.equal(await saveButton.isVisible(), true)
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
+        await page.evaluate(() => window.editor.deselectWidget())
         await page.getByRole('button', {name:/^Edit(?: widget)?$/}).click()
         assert.equal(await page.getByRole('combobox', {name:/^Selected widget/}).isVisible(), true)
         assert.equal(await page.getByLabel('X', {exact:true}).isVisible(), true)
+        if (width <= 768) assert.equal(await page.locator('.gx-layout__edit').evaluate(el => getComputedStyle(el).gap), '8px')
         assert.equal(await page.locator('svg.gx-layout__preview .gx-layout__remove').count(), 0)
         await page.getByRole('button', {name:'Widgets', exact:true}).click()
         await rows.filter({has:page.locator('.gx-layout__remove')}).first().locator('.gx-layout__remove').click()

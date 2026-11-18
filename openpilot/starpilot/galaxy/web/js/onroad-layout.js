@@ -55,7 +55,7 @@ let makerPagesOpen = 0
 // Screen pixels a pointer may wobble before a press on a preview widget becomes a drag.
 const DRAG_SLOP = 6
 const CAMERA_IDS = ["pip_left", "pip_right"]
-// A finger on a widget that is not armed waits this long before it grabs, so swipes scroll past.
+// Let swipes scroll before an unarmed widget grabs.
 const HOLD_MS = 220
 
 export class OnroadLayoutFeed {
@@ -568,7 +568,7 @@ export const OnroadLayoutPage = {
         .slice().reverse().map(id => this.widgets.find(widget => widget.id === id)).filter(widget => widget && this.layout[widget.id].enabled)
     },
     cameraIds() { return CAMERA_IDS.filter(id => Object.hasOwn(this.profile?.widgets || {}, id)) },
-    // Side cameras in the unbroken run of front slots, under only the always-frontmost controls.
+    // Cameras directly below the frontmost controls.
     camerasOnTop() {
       const order = orderedWidgetIds(this.state.draft, this.state.data.metadata, this.state.profile)
         .filter(id => !this.profile.widgets[id]?.frontmost)
@@ -576,7 +576,6 @@ export const OnroadLayoutPage = {
       for (let index = order.length - 1; index >= 0 && this.cameraIds.includes(order[index]); index--) top.push(order[index])
       return top
     },
-    // Each side camera locks on its own; a locked one stays in front of every unlocked widget.
     lockedCameraIds() { return this.camerasOnTop.filter(id => !this.state.pipUnlocked[id]) },
     listWidgets() { return this.state.layerDrag ? this.state.layerDrag.rows.map(id => this.widgets.find(widget => widget.id === id)) : this.layerWidgets },
     selectionBox() {
@@ -692,7 +691,8 @@ export const OnroadLayoutPage = {
     this.observePinned()
     this._onOutsideClick = (event) => {
       const target = event.target
-      if (!target?.closest || target.closest(".gx-layout__workspace, .gx-select-menu, [role='listbox'], [role='dialog'], dialog, .gx-dialog")) return
+      if (event.composedPath().includes(this.$el) || !target?.closest ||
+          target.closest(".gx-select-menu, [role='listbox'], [role='dialog'], dialog, .gx-dialog")) return
       this.deselectWidget()
     }
     document.addEventListener("click", this._onOutsideClick)
@@ -776,6 +776,7 @@ export const OnroadLayoutPage = {
       if (!event.target?.closest?.(".gx-layout__widget")) this.deselectWidget()
     },
     openEditPanel() {
+      if (this.state.selected == null) this.state.selected = this.activeWidgets?.[0]?.id || this.widgets?.[0]?.id || null
       this.state.inspectorPanel = "edit"
       this.revealEditPanel()
     },
@@ -783,6 +784,7 @@ export const OnroadLayoutPage = {
     revealEditPanel() {
       if (typeof window === "undefined") return
       const align = () => {
+        if (this.state.inspectorPanel !== "edit") return
         const tabs = this.$refs.sections, panel = this.$refs.editPanel
         if (!tabs || !panel || getComputedStyle(tabs).position !== "sticky") return
         const gap = panel.getBoundingClientRect().top - tabs.getBoundingClientRect().bottom - 8
@@ -1256,7 +1258,7 @@ export const OnroadLayoutPage = {
     startDrag(id, event, fromTray = false) {
       if (!this.editable || event.button > 0 || this.state.drag || !Object.hasOwn(this.profile.widgets, id)) return
       if (fromTray && this.profile.widgets[id].available === false) return
-      // Soft lock: a finger grabs only an armed widget at once; others need a tap first or a short hold.
+      // Unarmed widgets need a tap or hold before dragging.
       if (event.pointerType === "touch" && !fromTray && this.state.touchArmed !== id) {
         this.clearPendingTouch()
         this._pendingTouch = { id, pointerId: event.pointerId, pointerType: "touch", clientX: event.clientX, clientY: event.clientY }

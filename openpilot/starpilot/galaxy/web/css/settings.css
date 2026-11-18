@@ -712,10 +712,10 @@ input[type="range"].gx-slider:active::-moz-range-thumb {
     margin: -14px -14px 0; padding: 10px 14px; background: var(--layout-solid); border-bottom: 1px solid var(--glass-border); border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
   .gx-layout__widget-list { gap: 6px; }
   .gx-layout__layer { padding: 2px; }
-  /* Scrolled down, the pinned preview shrinks to leave more room for the widget list. */
+  /* Shrink the pinned preview while scrolling. */
   .gx-layout__preview-card .gx-layout__preview { transition: max-width 180ms ease; }
   .gx-layout.is-shrunk .gx-layout__preview-card .gx-layout__preview { max-width: min(72%, calc(var(--layout-pin-max) * .72 * var(--layout-ratio, 2))); }
-  /* Keeps the page height steady so the shrink never pulls the scroll back to the top. */
+  /* Preserve scroll space while the preview shrinks. */
   .gx-layout.is-shrunk .gx-layout__workspace { padding-bottom: calc(var(--layout-pin-h, 0px) * .4); }
   .gx-layout.is-shrunk .gx-layout__scene-note { display: none; }
   .gx-layout.is-shrunk .gx-layout__preview-bar .gx-field { min-height: 34px; }
@@ -780,7 +780,7 @@ input[type="range"].gx-slider:active::-moz-range-thumb {
 
 /* Narrow editors keep each widget's Edit controls compact so less scrolling is needed. */
 @container (max-width: 1040px) {
-  .gx-layout__edit { gap: 8px; }
+  .gx-layout__inspector .gx-layout__edit { gap: 8px; }
   .gx-layout__inspector .gx-select.gx-field { padding-block: 0; }
   .gx-layout__edit .gx-row { min-height: 48px; padding: 6px 12px; }
   .gx-layout__edit .gx-layout__coordinates { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 8px; row-gap: 6px; }
