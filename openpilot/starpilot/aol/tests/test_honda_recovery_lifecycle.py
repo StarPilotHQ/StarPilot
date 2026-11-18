@@ -62,6 +62,14 @@ class TestHondaCurrentCaller(unittest.TestCase):
     self.run_current_caller(candidate=CAR.HONDA_CIVIC_2022, word=10, alpha=True, hybrid=True,
                             eps_pedal='gas', eps_end=82)
 
+  def test_radarless_alpha_repeated_eps_before_native_refresh(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC_2022, word=10, alpha=True, hybrid=True,
+                            eps_pedal='gas', eps_end=82, eps_repeat=(85, 88))
+
+  def test_radarless_alpha_repeated_eps_with_brake_before_native_refresh(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC_2022, word=10, alpha=True, hybrid=True,
+                            eps_pedal='brake', eps_end=82, eps_repeat=(85, 88))
+
   def test_diagnostic_during_recovered_reverse(self):
     self.run_current_caller(candidate=CAR.HONDA_CIVIC_BOSCH, word=0, fault='diagnostic')
 
@@ -69,7 +77,7 @@ class TestHondaCurrentCaller(unittest.TestCase):
     self.run_current_caller(candidate=CAR.HONDA_CIVIC_BOSCH, word=0, fault='relay')
 
   def run_current_caller(self, *, candidate, word, fault=None, alternate_brake=False, alpha=False, speed_mps=12.5,
-                         pedal=False, host_scenario=None, serialized=False, eps_pedal=None, hybrid=False, eps_end=95):
+                         pedal=False, host_scenario=None, serialized=False, eps_pedal=None, hybrid=False, eps_end=95, eps_repeat=None):
     safety = libsafety_py.libsafety
     with (
       OpenpilotPrefix(),
@@ -171,13 +179,14 @@ class TestHondaCurrentCaller(unittest.TestCase):
             card.aol_card_intent.settings = read_settings(saved)
             sd.aol_settings = read_settings(saved)
           # SET press/release is the real first ordinary native grant, preceding engaged HB.
+          eps_active = 80 <= tick < eps_end or eps_repeat is not None and eps_repeat[0] <= tick < eps_repeat[1]
           incoming = stream.frames(
             cruise_button=2 if host_scenario == 'cancel' and tick == 40 else
               3 if tick == 20 or host_scenario == 'long_reengage' and tick == 130 else 0,
             cruise=int(21 <= tick < 50 and not cancelled or reengage),
-            brake=50 <= tick < 55 or eps_pedal == 'brake' and 80 <= tick < eps_end,
-            eps=(2 if eps_pedal else 6) if 80 <= tick < eps_end else 0,
-            gas=20 if eps_pedal == 'gas' and 80 <= tick < eps_end else 0,
+            brake=50 <= tick < 55 or eps_pedal == 'brake' and eps_active,
+            eps=(2 if eps_pedal else 6) if eps_active else 0,
+            gas=20 if eps_pedal == 'gas' and eps_active else 0,
             steering_torque=1301 if eps_pedal and 80 <= tick < 95 else 0,
             gear=2 if 110 <= tick < 125 else None,
             lkas=0, speed_kph=speed_mps * 3.6,
@@ -271,9 +280,9 @@ class TestHondaCurrentCaller(unittest.TestCase):
           self.assertAlmostEqual(cs.vEgoRaw, speed_mps, places=5)
           self.assertFalse(cs.standstill or cs.seatbeltUnlatched)
           self.assertFalse(cs.steerFaultPermanent)
-          self.assertEqual(cs.steerFaultTemporary, 80 <= tick < eps_end)
+          self.assertEqual(cs.steerFaultTemporary, eps_active)
           self.assertEqual(cs.gearShifter, structs.CarState.GearShifter.reverse if 110 <= tick < 125 else structs.CarState.GearShifter.drive)
-          self.assertEqual(cs.brakePressed, 50 <= tick < 55 or eps_pedal == 'brake' and 80 <= tick < eps_end)
+          self.assertEqual(cs.brakePressed, 50 <= tick < 55 or eps_pedal == 'brake' and eps_active)
           self.assertTrue(cs.cruiseState.available)
           self.assertEqual(cs.cruiseState.enabled, 21 <= tick < 50 and not cancelled or reengage)
           intent = decode_intent(published['aolIntentWire'].aolIntentWire)
@@ -406,7 +415,7 @@ class TestHondaCurrentCaller(unittest.TestCase):
             self.assertTrue(command.latActive, row)
             self.assertTrue(any(t.get('accepted') and t.get('request') and t.get('torque') for t in row['TX']), row)
             self.assertTrue(intent.allowedLatch, row)
-          if eps_pedal and 82 <= tick < eps_end:
+          if eps_pedal and tick >= 82 and eps_active:
             self.assertTrue(cs.steerFaultTemporary and cs.steeringPressed, row)
             self.assertTrue(cs.brakePressed if eps_pedal == 'brake' else cs.gasPressed, row)
             self.assertTrue(card.aol_card_intent.allowed_latch, row)
@@ -417,7 +426,7 @@ class TestHondaCurrentCaller(unittest.TestCase):
             self.assertFalse(command.latActive or command.longActive, row)
             self.assertFalse(row['permission'] & 1, row)
           if eps_end == 82 and 82 <= tick < 90:
-            self.assertFalse(cs.steerFaultTemporary, row)
+            self.assertEqual(cs.steerFaultTemporary, eps_active, row)
             self.assertTrue(intent.allowedLatch, row)
             self.assertFalse(command.latActive or command.longActive, row)
           if eps_end == 82 and tick == 95:

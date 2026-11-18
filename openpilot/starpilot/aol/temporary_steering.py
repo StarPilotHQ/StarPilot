@@ -74,11 +74,14 @@ def temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
                       structs.CarState.GearShifter.low, structs.CarState.GearShifter.brake) and
     cs.cruiseState.available and not cs.accFaulted and not cs.doorOpen and
     not cs.vehicleSensorsInvalid and not cs.steeringDisengage and not cs.buttonEvents)
+  honda_brake_release = bool(honda_eps and not cs.brakePressed and
+    0 < event_ns == self.temporary_eps_event_ns == getattr(self, 'honda_eps_brake_event_ns', 0) and
+    0 < getattr(self, 'honda_eps_source_ns', 0) <= now_ns <= self.honda_eps_source_ns + SAFETY_MAX_AGE_NS)
   # Seatbelt blocks normal LONG, not admitted LAT intent. Keep warnings/native/output checks.
   events = tuple(event for event in sm['onroadEvents'] if not (
     stock_eps_user and event.name == stock_user and event.userDisable and
     not event.softDisable and not event.immediateDisable) and not (
-    (subaru_brake or honda_eps and cs.brakePressed) and
+    (subaru_brake or honda_eps and (cs.brakePressed or honda_brake_release)) and
     event.name == log.OnroadEvent.EventName.pedalPressed and event.userDisable and
     not event.softDisable and not event.immediateDisable) and not (
     self.lateral_only_baseline and cs.seatbeltUnlatched and not axis.desiredLongitudinal and
@@ -184,6 +187,8 @@ def temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
     self.volkswagen_eps_source_ns = int(axis.sourceCarStateMonoTime)
   if subaru_brake and cs.brakePressed:
     self.subaru_eps_brake_event_ns = event_ns
+  if honda_eps and cs.brakePressed and (matched_withdrawal or held_original):
+    self.honda_eps_brake_event_ns = event_ns
   if honda_eps and matched_withdrawal:
     self.honda_eps_source_ns = int(axis.sourceCarStateMonoTime)
   if cs.steerFaultTemporary and matched_withdrawal:
@@ -203,7 +208,7 @@ def temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
 
 
 def honda_eps_recovery_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, latched, producer):
-  """Join a cleared physical EPS sample to its still-withdrawn producer proof.
+  """Join physical EPS transitions to their still-withdrawn producer proof.
 
   Only existing intent survives, for at most the original native lease window
   after the observed EPS source. Neither native permission nor output is granted.
@@ -215,39 +220,66 @@ def honda_eps_recovery_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
 
   source = getattr(self, 'honda_eps_source_ns', 0)
   previous = self.signature
+  first_native_eps = bool(cs.steerFaultTemporary and axis.desiredLateral and
+    previous is not None and previous[5] == 'none' and previous[9] and previous[11] and previous[13] and
+    0 < previous[8] <= previous[2] <= now_ns <= previous[4] and
+    now_ns - previous[8] <= SAFETY_MAX_AGE_NS)
+  known_eps = bool(source and self.temporary_eps_event_ns)
+  if first_native_eps and (not known_eps or self.lateral_source_ns > source):
+    source = previous[8]
+    known_eps = False
+  event_successor = bool(known_eps and previous is not None and
+    self.temporary_eps_event_ns <= previous[6] <= axis.faultEventMonoTime and
+    0 < axis.faultEventMonoTime <= stamp and now_ns - axis.faultEventMonoTime <= AXIS_MAX_AGE_NS)
   if (cp.brand != 'honda' or not qualified(cp, marked_only=True) or
       not latched or self.failed or self.paused or self.pending_event or self.retention_started_ns or
       not self.lateral_only_baseline or not self.lateral_inventory or not self.lateral_baseline_ns or
       not 0 < source <= now_ns or now_ns - source > SAFETY_MAX_AGE_NS or
-      not self.temporary_eps_event_ns or previous is None or
-      previous[5] != 'none' or previous[9] or previous[10] or previous[12] or
-      previous[6] != self.temporary_eps_event_ns or
+      not (known_eps or first_native_eps) or previous is None or
+      previous[5] != 'none' or (previous[9] and not first_native_eps) or previous[10] or previous[12] or
+      (previous[6] != self.temporary_eps_event_ns and not (first_native_eps or event_successor)) or
       not self.session or str(axis.sessionId) != self.session or
       not producer or producer != self.availability_producer or
       str(axis.intentProducerSessionId) != producer or int(axis.intentIntegrityEpoch) != self.availability_epoch or
       previous[14:16] != (producer, self.availability_epoch) or
-      not cs.canValid or cs.canTimeout or cs.steerFaultTemporary or cs.steerFaultPermanent or
+      not cs.canValid or cs.canTimeout or (cs.steerFaultTemporary and not axis.desiredLateral) or cs.steerFaultPermanent or
       cs.accFaulted or cs.doorOpen or cs.seatbeltUnlatched or cs.vehicleSensorsInvalid or cs.steeringDisengage or
-      cs.brakePressed or cs.regenBraking or cs.buttonEvents or not cs.cruiseState.available or cs.cruiseState.enabled or
+      (cs.brakePressed and not cs.steerFaultTemporary) or cs.regenBraking or cs.buttonEvents or not cs.cruiseState.available or cs.cruiseState.enabled or
       cs.gearShifter not in (structs.CarState.GearShifter.drive, structs.CarState.GearShifter.sport,
                             structs.CarState.GearShifter.low, structs.CarState.GearShifter.brake) or
-      str(axis.faultReason) != 'none' or str(axis.mode) != 'off' or not axis.nativeAcknowledged or
-      axis.lateralActive or axis.longitudinalActive or axis.desiredLongitudinal or
+      str(axis.faultReason) != 'none' or
+      str(axis.mode) != ('lateralOnly' if first_native_eps and axis.lateralActive else 'off') or
+      not axis.nativeAcknowledged or
+      (axis.lateralActive and not first_native_eps) or axis.longitudinalActive or axis.desiredLongitudinal or
       not source <= axis.sourceCarStateMonoTime <= stamp <= now_ns or
       axis.sourceCarStateMonoTime < previous[8] or stamp < previous[2] or
       now_ns - axis.sourceCarStateMonoTime > AXIS_MAX_AGE_NS or
-      axis.faultEventMonoTime != self.temporary_eps_event_ns or
+      axis.faultEventMonoTime < previous[6] or
+      (axis.faultEventMonoTime != self.temporary_eps_event_ns and not (first_native_eps or event_successor)) or
       not sm.seen['onroadEvents'] or not sm.valid['onroadEvents'] or not sm.alive['onroadEvents']):
     return False
-  events = sm['onroadEvents']
   event_ns = int(sm.logMonoTime['onroadEvents'])
-  if (event_ns != self.temporary_eps_event_ns or not 0 < event_ns <= stamp or
+  brake_release = bool(known_eps and not cs.brakePressed and
+    event_ns == self.temporary_eps_event_ns == getattr(self, 'honda_eps_brake_event_ns', 0))
+  events = tuple(e for e in sm['onroadEvents'] if not (
+    (cs.steerFaultTemporary and cs.brakePressed or brake_release) and
+    e.name == log.OnroadEvent.EventName.pedalPressed and e.userDisable and
+    not e.softDisable and not e.immediateDisable))
+  if (event_ns != axis.faultEventMonoTime or not 0 < event_ns <= stamp or
       now_ns - event_ns > 1_500_000_000 or
       any(e.immediateDisable or e.userDisable or e.softDisable and
           e.name != log.OnroadEvent.EventName.steerTempUnavailable for e in events)):
     return False
   native = _configured_transport_native(sm, cp, self.session, now_ns, allow_restricted_lateral=True)
-  return bool(native is not None and native.pandaInventory and native.requestedLateral and
-    not native.lateralAllowed and not native.requestedLongitudinal and not native.longitudinalAllowed and
+  retained = bool(native is not None and native.pandaInventory and (native.requestedLateral or known_eps) and
+    (not native.lateralAllowed or first_native_eps and axis.lateralActive and native.requestedLateral) and
+    not native.requestedLongitudinal and not native.longitudinalAllowed and
     native.observedMonoTime >= self.lateral_native_ns and
     self.lateral_inventory == (native.pandaSerial, tuple(p.hardwareSerial for p in native.pandaInventory)))
+  if retained:
+    if first_native_eps and not known_eps:
+      self.honda_eps_source_ns = source
+    self.temporary_eps_event_ns = event_ns
+    if cs.steerFaultTemporary and cs.brakePressed:
+      self.honda_eps_brake_event_ns = event_ns
+  return retained
