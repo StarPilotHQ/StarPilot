@@ -44,7 +44,7 @@ def test_stop_graphic_preserves_informational_and_control_distinction(effective)
   sample = state(effective=effective)
   data = gauge_data(sample)
   assert data is not None and data.indicator_type is IndicatorType.STOP_LIGHT
-  assert data.text == 'STOP' and not data.is_numeric and data.unit == ''
+  assert data.text == ('STOP' if effective else 'DETECTED') and not data.is_numeric and data.unit == ''
   assert stop_active(sample) is effective
   assert sample.longitudinal_active is effective
 

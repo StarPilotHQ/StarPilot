@@ -108,6 +108,7 @@ class ProjectedScene:
   slower_source_observed_mono_s: float | None = None
   chill_source_observed_mono_s: float | None = None
   chill_observation: ChillSceneObservation | None = None
+  perceived_stop: bool = False
 
 
 def paired_clocks_ns() -> tuple[int, int, int] | None:
@@ -314,6 +315,8 @@ class SceneProjector:
     self.curve_detector = CurveDetector()
     self.lead_detector = LeadDetector()
     self.stop_detector = StopLightDetector()
+    # Display-only state must survive AOL without warming the control detector.
+    self.perception_stop_detector = StopLightDetector()
     self.slower_lead_detector = SlowerLeadDetector()
     self.chill_detector = ChillSceneDetector()
     self.signal_lane_tracker = SignalLaneTracker()
@@ -329,6 +332,7 @@ class SceneProjector:
     self.curve_detector.reset()
     self.lead_detector.reset()
     self.stop_detector.invalidate()
+    self.perception_stop_detector.reset()
     self.slower_lead_detector.reset()
     self.chill_detector.reset()
     self.signal_lane_tracker.reset()
@@ -665,6 +669,13 @@ class SceneProjector:
       stop_observation = StopObservation(None, None, None, None)
     else:
       stop_observation = self.stop_detector.step(stop_frame)
+    # Independent informational scene. Never consumed by policy or actuation.
+    # Reuse the already projected frame, with all existing lead/turn/freshness gates.
+    if safe_mode is not False:
+      self.perception_stop_detector.reset()
+      perceived_stop = False
+    else:
+      perceived_stop = self.perception_stop_detector.step(stop_frame).light_detected is True
     # Dashboard/pedal evidence is decisive only while stopped. The detector
     # checks both then; stale values cannot become a false hold observation.
 
@@ -808,4 +819,5 @@ class SceneProjector:
       slower_stamp_ns,
       chill_stamp,
       chill_observation,
+      perceived_stop,
     )

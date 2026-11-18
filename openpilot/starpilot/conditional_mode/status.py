@@ -115,6 +115,7 @@ class StatusPublisher:
       'status': proposal.status,
       'reason': decision.reason.value if decision is not None else '',
       'statusCode': decision.status_code if decision is not None else 0,
+      'perceivedStop': proposal.projected is not None and proposal.projected.perceived_stop is True,
     }
     return event
 
