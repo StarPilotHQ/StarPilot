@@ -623,6 +623,19 @@ class SceneProjector:
     launch_horizon = stop_horizon if stop_horizon is not None else (
       _standstill_clear_horizon(model) if model_transport_current else None)
     stationary_launch_clear = _stationary_launch_clear(model, car, lead, launch_horizon)
+    # Qualify a stationary launch release and keep it valid after clearing; never acquire a stop or
+    # qualify spatial/lead geometry from this bounded launch prefix.
+    if (not stationary_launch_clear and model_transport_current and car_valid and
+        control is not None and selfdrive is not None and control.enabled and control.longActive and selfdrive.enabled and
+        lead is not None and radar is not None):
+      from openpilot.starpilot.conditional_mode.launch_geometry import qualified_launch_horizon
+      try:
+        launch = qualified_launch_horizon(model, car, any(item.present for item in (radar.leadOne, radar.leadTwo)))
+      except (AttributeError, TypeError, ValueError, OverflowError):
+        launch = None
+      if launch is not None:
+        launch_horizon, stationary_launch_clear = launch, True
+
     if stationary_launch_clear:
       # Continue a proven stationary launch after its stop commitment clears.
       # This bounded geometry cannot acquire a stop or qualify curve/lead data.
