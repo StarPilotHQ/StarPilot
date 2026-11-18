@@ -13,6 +13,7 @@ NOW = 10_000_000_000
 
 def dispatch(cache, params):
   spec = importlib.util.find_spec('openpilot.selfdrive.car.card')
+  assert spec is not None and spec.origin is not None
   tree = ast.parse(Path(spec.origin).read_text())
   cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'Car')
   method = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == 'state_update')

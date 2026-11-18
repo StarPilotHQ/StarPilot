@@ -794,7 +794,7 @@ class BluetoothOwnerTest(unittest.TestCase):
     adapter = {'Powered': ('b', True), 'Alias': ('s', 'BlueZ 5.72')}
     objects = {'/org/bluez/hci0': {'org.bluez.Adapter1': adapter}}
 
-    def call(path, interface, member, signature=None, body=()):
+    def call(path, interface, member, signature=None, body: tuple = ()):
       calls.append((path, interface, member, signature, body))
       if member == 'Set':
         adapter['Alias'] = body[2]
@@ -810,7 +810,6 @@ class BluetoothOwnerTest(unittest.TestCase):
     self.assertEqual(calls.count(rename), 1)
 
     adapter['Alias'] = ('s', 'BlueZ 5.72')
-    bluez.set_pairing_visibility = BlueZ.set_pairing_visibility.__get__(bluez)
     router = Mock()
     router.send_and_get_reply.return_value.header.message_type = MessageType.method_return
     bluez.router = router
