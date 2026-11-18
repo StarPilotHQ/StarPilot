@@ -41,7 +41,7 @@ from openpilot.starpilot.aol.vehicle import native_bootstrap_supported
 from opendbc.car.gm.steering_authority import monitored_profile
 from openpilot.starpilot.car.gm.steering_companion import SteeringCompanion
 from openpilot.starpilot.car.hyundai.aol import qualified_ioniq6
-from opendbc.car.gm.values import GMFlags, is_volt_ascm_longitudinal
+from opendbc.car.gm.values import GMFlags, is_volt_ascm_longitudinal, malibu_hybrid_profile
 from openpilot.starpilot.aol.intent import read_settings
 from openpilot.starpilot.aol.intent_companion import IntentCompanion
 from openpilot.starpilot.aol.transport_pause import AvailabilityPause, TransportPause, availability_only, cp_identity, healthy_transport
@@ -108,6 +108,8 @@ class SelfdriveD:
     self.ordinary_axis_ack_required = axis_policy_for(self.CP).ordinary_axis_ack_required
     self.aol_cruise_main_required = axis_policy_for(self.CP).cruise_main_required
     self.axis_transport_required = self.aol_replay or self.ordinary_axis_ack_required
+    hybrid = malibu_hybrid_profile(self.CP) if self.CP.brand == 'gm' else None
+    self.hybrid_input_reconcile = bool(hybrid is not None and hybrid.pedal and hybrid.longitudinal)
     self.nostalgia_enabled = nostalgia_saved_enabled(self.params)
     self.nostalgia_paddle_cancel = False
     self.aol_session_id = uuid.uuid4().hex
@@ -565,7 +567,8 @@ class SelfdriveD:
     from openpilot.starpilot.car.hyundai.aol import source_deadline_supported
     input_proof = getattr(self, 'aol_step_input_proof', None)
     reconcile_input = bool(input_proof is not None and not REPLAY and self.aol_replay and self.axis_transport_required and
-                           (source_deadline_supported(self.CP) or self.ford_source_deadline_supported()) and
+                           (source_deadline_supported(self.CP) or self.ford_source_deadline_supported() or
+                            getattr(self, 'hybrid_input_reconcile', False)) and
                            input_proof[0] == self.aol_session_id and
                            (input_proof[8] or input_proof[9]))
     self.aol_event_input_reconcile = reconcile_input
