@@ -100,9 +100,11 @@ function report() {
     value.current.details['Earlier analysis shown while updating'] = true
     value.current.details['Parked analysis progress'] = [phase, phase === 'preparing' ? null : phase === 'reading' ? 23 : 101, phase === 'preparing' ? null : 101]
   }
-  if (freshReports.length) freshOverride = freshReports.shift()
-  if (freshOverride !== null) { value.current.fresh = freshOverride;value.current.ageSeconds = freshOverride ? 0 : 5 }
-  lastReportFresh = value.current.fresh
+  if (value.current) {
+    if (freshReports.length) freshOverride = freshReports.shift()
+    if (freshOverride !== null) { value.current.fresh = freshOverride;value.current.ageSeconds = freshOverride ? 0 : 5 }
+  }
+  lastReportFresh = value.current?.fresh === true
   assert(validTrainingResults(value), 'Browser fixtures must pass the real report validator')
   return value
 }
