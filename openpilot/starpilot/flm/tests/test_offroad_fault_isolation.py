@@ -642,7 +642,7 @@ class TestUnidentifiedVehicleReview(unittest.TestCase):
   """Declared Sonata recordings; no historical identity or accepted tune is invented."""
 
   @staticmethod
-  def setup(directory, *, vin='00000000000000000', counter=18):
+  def setup(directory, *, vin='00000000000000000', counter=18, firmware=None):
     import math
     from opendbc.car.car_helpers import interfaces
     from opendbc.car.hyundai.values import CAR
@@ -653,6 +653,8 @@ class TestUnidentifiedVehicleReview(unittest.TestCase):
     params = Params(str(root / 'params'))
     cp = interfaces[CAR.HYUNDAI_SONATA_HYBRID].get_non_essential_params(CAR.HYUNDAI_SONATA_HYBRID)
     cp.carVin = vin
+    if firmware is not None:
+      cp.init('carFw', 1)[0].fwVersion = firmware
     params.put_bool('OpenpilotEnabledToggle', True, block=True)
     params.put('SteeringLearningPreferences', replace_preference(None, cp, True), block=True)
     params.put('LateralControllerSelection', json.loads(replace_mode(None, cp, ControllerMode.STARPILOT)), block=True)

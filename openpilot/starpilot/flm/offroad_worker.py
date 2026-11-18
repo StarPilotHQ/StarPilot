@@ -43,6 +43,7 @@ SETTINGS = tuple(
       'OpenpilotEnabledToggle',
       'SafeMode',
       'TurnAssist',
+      'SteeringDelayPreferences',
       *LEGACY_KEYS,
       KEY,
     )
@@ -728,6 +729,10 @@ class OffroadWorker:
       if not okay:
         raise ValueError('Unreadable automatic tuning setting')
       values.append((key, None if raw is None else hashlib.sha256(raw).hexdigest()))
+    # Registration recovery/change must invalidate an old review checkpoint,
+    # without turning an unreadable optional identity into a corrupt recording.
+    device, readable = read_saved(self.params, 'DongleId', 128)
+    values.append(('device_registration', (readable, None if device is None else hashlib.sha256(device).hexdigest())))
     return _digest((POLICY, self.source_revision, route, source_revisions(self.root, route), values))
 
   def _skip_route(self, route_id, reason):

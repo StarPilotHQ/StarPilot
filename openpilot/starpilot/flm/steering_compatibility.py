@@ -9,7 +9,7 @@ import hashlib
 
 REVISION = 'selected-steering-compatibility-v1'
 FLM = (
-  'steering_compatibility', 'runtime_adapter_registry', 'canonical_surface_adapter', 'offroad_surface',
+  'steering_compatibility', 'vehicle_identity', 'runtime_adapter_registry', 'canonical_surface_adapter', 'offroad_surface',
   'offroad_runtime', 'offroad_store', 'torque_stages', 'pid_stages', 'selected_effects', 'manual_coordinates',
   'live', 'torque_surface', 'global_runtime', 'adaptive_profile', 'torque_adapter', 'learning_wire', 'native_refinement_wire',
 )

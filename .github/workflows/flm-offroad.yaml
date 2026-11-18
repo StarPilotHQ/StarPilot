@@ -82,6 +82,7 @@ jobs:
             openpilot/starpilot/flm/tests/test_pid_coordinate_proposals.py \
             openpilot/starpilot/flm/tests/test_offroad_equal_native_output.py \
             openpilot/starpilot/flm/tests/test_offroad_fault_isolation.py \
+            openpilot/starpilot/flm/tests/test_device_vehicle_identity.py \
             openpilot/starpilot/galaxy/tests/test_drive_history.py \
             openpilot/starpilot/galaxy/tests/test_flm_acceptance.py \
             --json-output ci-results/flm-offroad.json
