@@ -788,6 +788,57 @@ class BluetoothOwnerTest(unittest.TestCase):
     self.assertIn(('/org/bluez/hci0', 'org.bluez.Adapter1', 'RemoveDevice', 'o',
                    ('/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF',)), calls)
 
+  def test_bluez_replaces_default_adapter_name_with_hostname(self):
+    bluez = BlueZ.__new__(BlueZ)
+    calls = []
+    adapter = {'Powered': ('b', True), 'Alias': ('s', 'BlueZ 5.72')}
+    objects = {'/org/bluez/hci0': {'org.bluez.Adapter1': adapter}}
+
+    def call(path, interface, member, signature=None, body=()):
+      calls.append((path, interface, member, signature, body))
+      if member == 'Set':
+        adapter['Alias'] = body[2]
+      return (objects,) if member == 'GetManagedObjects' else ()
+
+    self.enterContext(patch.object(bluez, '_call', call))
+    self.enterContext(patch('openpilot.starpilot.bluetooth.owner.socket.gethostname', return_value='comma-5eb343c'))
+    rename = ('/org/bluez/hci0', 'org.freedesktop.DBus.Properties', 'Set', 'ssv',
+              ('org.bluez.Adapter1', 'Alias', ('s', 'comma-5eb343c')))
+    self.assertEqual(bluez.snapshot()['adapterName'], 'comma-5eb343c')
+    self.assertEqual(calls.count(rename), 1)
+    self.assertEqual(bluez.snapshot()['adapterName'], 'comma-5eb343c')
+    self.assertEqual(calls.count(rename), 1)
+
+    adapter['Alias'] = ('s', 'BlueZ 5.72')
+    bluez.set_pairing_visibility = BlueZ.set_pairing_visibility.__get__(bluez)
+    router = Mock()
+    router.send_and_get_reply.return_value.header.message_type = MessageType.method_return
+    bluez.router = router
+    bluez.set_pairing_visibility('/org/bluez/hci0', pairable=True, discoverable=True)
+    self.assertEqual(calls.count(rename), 2)
+    bluez.set_pairing_visibility('/org/bluez/hci0', pairable=False, discoverable=False)
+    self.assertEqual(calls.count(rename), 2)
+
+  def test_bluez_keeps_custom_adapter_name_and_reports_rename_failure(self):
+    bluez = BlueZ.__new__(BlueZ)
+    calls = []
+    objects = {'/org/bluez/hci0': {'org.bluez.Adapter1': {'Alias': ('s', 'My comma')}}}
+
+    def call(path, interface, member, signature=None, body=()):
+      calls.append(member)
+      if member == 'Set':
+        raise BluetoothRejected('org.bluez.Error.Failed')
+      return (objects,) if member == 'GetManagedObjects' else ()
+
+    self.enterContext(patch.object(bluez, '_call', call))
+    self.enterContext(patch('openpilot.starpilot.bluetooth.owner.socket.gethostname', return_value='comma-5eb343c'))
+    self.assertEqual(bluez.snapshot()['adapterName'], 'My comma')
+    self.assertNotIn('Set', calls)
+    objects['/org/bluez/hci0']['org.bluez.Adapter1']['Alias'] = ('s', 'BlueZ 5.72')
+    with self.assertRaises(BluetoothRejected):
+      bluez.snapshot()
+    self.assertIn('Set', calls)
+
   def test_each_bluez_close_releases_router_and_underlying_connection(self):
     closed = []
 
