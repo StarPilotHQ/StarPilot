@@ -518,3 +518,18 @@ assert.equal(fullSave.requests.length, 3)
 assert.equal(fullSave.manager.data, null)
 assert.match(fullSave.updates.at(-1).error, /Invalid Model Manager/)
 fullSave.manager.stop()
+
+// Bound rendered catalog rows, not CSS-only hiding, and preserve full search/filter results.
+const catalogRows = Array.from({ length: 40 }, (_, value) => ({ value: String(value) }))
+assert.equal(ModelsPage.data().showAllModels, false)
+assert.deepEqual(ModelsPage.computed.visibleModels.call({ sorted: catalogRows, showAllModels: false }), catalogRows.slice(0, 15))
+assert.deepEqual(ModelsPage.computed.visibleModels.call({ sorted: catalogRows, showAllModels: true }), catalogRows)
+assert.deepEqual(ModelsPage.computed.visibleModels.call({ sorted: [catalogRows[39]], showAllModels: false }), [catalogRows[39]])
+assert.deepEqual(ModelsPage.computed.visibleModels.call({ sorted: [], showAllModels: false }), [])
+for (const key of ["sortMode", "userFilter", "communityFilter", "tab", "pairableFilter", "search"]) {
+  const state = { showAllModels: true }
+  ModelsPage.watch[key].call(state)
+  assert.equal(state.showAllModels, false)
+}
+assert.match(ModelsPage.template, /v-for="m in visibleModels"/)
+assert.match(ModelsPage.template, /:aria-expanded="showAllModels"/)
