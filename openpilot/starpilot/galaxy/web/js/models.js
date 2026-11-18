@@ -531,7 +531,7 @@ export const ModelsPage = {
   },
   data() {
     return {
-      polarisAbout: false, loading: true, error: "", message: "", trackingProgress: false, busy: "", selectionUncertain: true, disposed: false,
+      showAllModels: false, polarisAbout: false, loading: true, error: "", message: "", trackingProgress: false, busy: "", selectionUncertain: true, disposed: false,
       sortMode: "release_date", userFilter: "all", communityFilter: "all", tab: readTab(), pairableFilter: false, search: "", failureDismissed: false,
       models: [], currentModel: "", activeSmallModel: "", activeBigModel: "", capabilities: {},
       summary: { installed: 0, missing: 0, total: 0 }, status: { isOnroad: true },
@@ -587,6 +587,7 @@ export const ModelsPage = {
         .sort((a, b) => (MODEL_SORTS[this.sortMode]?.(a, b) || 0) ||
           (a.label || a.value).localeCompare(b.label || b.value, undefined, { sensitivity: "base", numeric: true }))
     },
+    visibleModels() { return this.showAllModels ? this.sorted : this.sorted.slice(0, 15) },
     progressInfo() {
       const info = describeProgress(this.status, this.models)
       if (this.status.downloading === true) return this.status.refreshing === true && !this.status.downloadProgress ? { ...info, indeterminate: true, title: "Checking the model catalog" } : info
@@ -634,6 +635,12 @@ export const ModelsPage = {
     labLocked() { return !this.lab || this.lab.download?.downloading },
   },
   watch: {
+    sortMode() { this.showAllModels = false },
+    userFilter() { this.showAllModels = false },
+    communityFilter() { this.showAllModels = false },
+    tab() { this.showAllModels = false },
+    pairableFilter() { this.showAllModels = false },
+    search() { this.showAllModels = false },
     "status.downloading"(value) { if (value) this.failureDismissed = false },
     loading(value) { if (!value) this.focusLaboratory() },
   },
@@ -1048,7 +1055,7 @@ export const ModelsPage = {
 
           <div v-if="!sorted.length" class="gx-empty">No models match these filters. <button type="button" class="gx-btn gx-btn--tonal" @click="clearFilters">Show all models</button></div>
           <ul v-else class="gx-model-list" aria-label="Models">
-            <li class="gx-model-item" :class="{'gx-model-item--pair': driveMode === 'pair', 'gx-model-card--polaris': isPolaris(m), 'gx-model-card--selected': rowState(m) === 'active'}" v-for="m in sorted" :key="m.value">
+            <li class="gx-model-item" :class="{'gx-model-item--pair': driveMode === 'pair', 'gx-model-card--polaris': isPolaris(m), 'gx-model-card--selected': rowState(m) === 'active'}" v-for="m in visibleModels" :key="m.value">
               <template v-if="driveMode === 'pair'">
                 <div class="gx-model-item__row gx-model-item__row--pair">
                   <div class="gx-model-item__ver">
@@ -1190,6 +1197,9 @@ export const ModelsPage = {
               </div>
             </li>
           </ul>
+          <button v-if="sorted.length > 15" type="button" class="gx-btn gx-btn--tonal" :aria-expanded="showAllModels" @click="showAllModels = !showAllModels">
+            {{ showAllModels ? "Show fewer models" : "Show " + (sorted.length - 15) + " more models" }}
+          </button>
         </section>
 
       </template>
