@@ -1,4 +1,12 @@
 /* A driving report first; exact tuning evidence remains available on demand. */
+.gx-tuner__analysis { display: grid;gap: 12px;padding: 16px 20px; }
+.gx-tuner__analysis h3 { font-size: 16px;line-height: 1.4;margin: 0 0 4px; }
+.gx-tuner__analysis p { font-size: 13px;line-height: 1.5;color: var(--on-surface-variant);margin: 0; }
+.gx-tuner__analysis-track { height: 5px;overflow: hidden;border-radius: 8px;background: var(--tuner-raised); }
+.gx-tuner__analysis-track > span { display: block;height: 100%;border-radius: inherit;background: var(--primary);transition: width .25s ease; }
+.gx-tuner__analysis-track.is-indeterminate > span { width: 28%;animation: flm-analysis-progress 2.4s ease-in-out infinite; }
+@keyframes flm-analysis-progress { from { transform: translateX(-100%); } to { transform: translateX(360%); } }
+@media (prefers-reduced-motion: reduce) { .gx-tuner__analysis-track.is-indeterminate > span { animation: none;width: 100%;opacity: .35; } }
 .gx-tuner { --tuner-panel: #151426;--tuner-raised: #1d1b32;--tuner-review: #ffd08a;--tuner-review-bg: #2c251f;--tuner-saved: #79e4d9;--tuner-border: #3a374e;gap: 16px;padding-bottom: max(32px, env(safe-area-inset-bottom)); }
 [data-theme="light"] .gx-tuner { --tuner-panel: #fff;--tuner-raised: #f4f2fa;--tuner-review: #865000;--tuner-review-bg: #fff5e3;--tuner-saved: #076c63;--tuner-border: #d9d5e4; }
 .gx-tuner .gx-card { background: var(--tuner-panel);box-shadow: none;border-color: var(--tuner-border); }

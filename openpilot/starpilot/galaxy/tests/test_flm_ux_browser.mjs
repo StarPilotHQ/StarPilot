@@ -18,6 +18,7 @@ const running = child => child.exitCode === null && child.signalCode === null
 assert.equal(running({ exitCode: null, signalCode: 'SIGTERM' }), false, 'A signal-reaped child must not be awaited for a second exit')
 let scenario = 'ideas', parked = true, saveError = false, reportError = false, pending = null
 let steeringController = 'torque'
+let freshReports = [], freshOverride = null, lastReportFresh = true
 let backupReject = false, backupRecovery = false, manualRecovered = false
 const tuneBackup = { format: 'starpilot-flm-tune', version: 1, vehicle: 'DECLARED_UI_CAR', metric: false,
   controllerMode: 'starpilot', cpSha256: 'a'.repeat(64), createdAt: '2026-11-16T03:00:00Z', checksum: 'declared-ui-checksum',
@@ -93,6 +94,15 @@ function report() {
     if (scenario === 'earlier-saved-no-report') value.current = null
   }
   if (scenario === 'history-unavailable') value.savedHistory = { status: 'unavailable', historicalOnly: true, profiles: [] }
+  if (scenario.startsWith('analysis-')) {
+    const phase = scenario.slice('analysis-'.length)
+    value.current.status = 'fitting';value.current.reason = 'analyzing_last_completed_drive'
+    value.current.details['Earlier analysis shown while updating'] = true
+    value.current.details['Parked analysis progress'] = [phase, phase === 'preparing' ? null : phase === 'reading' ? 23 : 101, phase === 'preparing' ? null : 101]
+  }
+  if (freshReports.length) freshOverride = freshReports.shift()
+  if (freshOverride !== null) { value.current.fresh = freshOverride;value.current.ageSeconds = freshOverride ? 0 : 5 }
+  lastReportFresh = value.current.fresh
   assert(validTrainingResults(value), 'Browser fixtures must pass the real report validator')
   return value
 }
@@ -138,7 +148,7 @@ const server = createServer(async (req, res) => {
       if (!parked || saveError) return json({ error: 'Declared save refusal' }, 503)
       if (pathname === '/api/settings/flm-finding/accept') {
         const hint = hints.find(([name, target]) => body.parameter === name && body.target === target)
-        if (!hint || body.assessment !== 'a'.repeat(64)) return json({ error: 'Finding changed' }, 409)
+        if (!lastReportFresh || !hint || body.assessment !== 'a'.repeat(64)) return json({ error: 'Finding changed' }, 409)
         acceptedFindings.add(body.parameter);manual[body.parameter] = body.target * 100
         return json({ status: 'saved', parameter: body.parameter, value: body.target, learning: 'automatic', for_next_drive: true })
       }
@@ -217,7 +227,7 @@ async function clickVisible(selector) {
 }
 async function change(name, options = {}) {
   await until(() => execute('return !window.flm.request'))
-  scenario = name;parked = options.parked ?? true;saveError = false;reportError = false
+  scenario = name;parked = options.parked ?? true;saveError = false;reportError = false;freshReports = [];freshOverride = null
   await execute('window.flm.manualFeed?.stop();window.flm.view="overview";window.flm.syncManualControls();window.scrollTo(0,0);return window.flm.load()')
   await until(() => execute('return window.flm.report && !window.flm.request'))
 }
@@ -628,6 +638,54 @@ try {
   await layout('finding/accept-review-desktop');await capture('finding-accept-review-desktop')
   await click('dialog[aria-labelledby=accept-finding-title] .gx-dialog__actions button:first-child')
   checks.push('finding/explicit-accept/cancel/learning-on/no-auto-qualification/error/no-retry/driving-lockout')
+
+  // A heartbeat expiring during a parked scan must not turn review into a timing game.
+  await viewport(416);await change('ideas');await click('#tuner-tab-tune')
+  await click('.gx-tuner__curve-summary > details > summary')
+  const flickerButton = '[data-coordinate=friction_threshold_fast] [data-action=accept-finding]'
+  await execute('window.flm.poller.stop()')
+  const beforeRefresh = requests.length
+  for (const fresh of [false, true, false, true, false]) {
+    freshOverride = fresh;await execute('return window.flm.load()')
+    assert.equal(await execute('return window.flm.canAcceptFindings'), fresh, 'Write gate follows genuine freshness')
+    assert.equal(await execute('return document.querySelector(arguments[0]).disabled', flickerButton), false, 'Read-only review stays usable across polling')
+  }
+  await click(flickerButton)
+  assert.equal(requests.length, beforeRefresh)
+  freshReports = [false, true]
+  await click('dialog[aria-labelledby=accept-finding-title] .gx-dialog__actions button:last-child')
+  await until(() => execute('return window.flm.findingPhase === "checking"'))
+  assert.equal(requests.length, beforeRefresh, 'No save before fresh authority arrives')
+  await capture('finding-refresh-checking')
+  await until(() => execute('return !window.flm.findingBusy'))
+  assert.equal(requests.length, beforeRefresh + 1, 'One explicit confirmation sends exactly one save after refresh')
+  assert.equal(requests.at(-1).body.parameter, 'friction_threshold_fast')
+  assert(acceptedFindings.has('friction_threshold_fast'))
+  await execute('window.flm.poller.stop()')
+  const lowButton = '[data-coordinate=friction_threshold_low] [data-action=accept-finding]'
+  freshOverride = false;await execute('return window.flm.load()')
+  await click(lowButton)
+  const beforeStale = requests.length
+  await click('dialog[aria-labelledby=accept-finding-title] .gx-dialog__actions button:last-child')
+  await until(() => execute('return !window.flm.findingBusy && !!window.flm.findingError'))
+  assert.equal(requests.length, beforeStale, 'Persistent stale reports never reach a write')
+  assert(!acceptedFindings.has('friction_threshold_low'))
+  await show('[data-role=finding-error]');await capture('finding-refresh-unavailable')
+  checks.push('finding/polling-stale-fresh/no-flicker/fresh-confirmation/one-write/stale-no-write')
+  for (const [width, height, phase] of [[320, 844, 'reading'], [416, 844, 'checking'], [720, 480, 'preparing'], [1280, 900, 'verifying']]) {
+    await viewport(width, height);await change('analysis-' + phase)
+    const progress = await execute('const e=document.querySelector("[data-role=analysis-progress]"),p=e.querySelector("[role=progressbar]");return {text:e.textContent,now:p.getAttribute("aria-valuenow"),indeterminate:p.classList.contains("is-indeterminate"),animation:getComputedStyle(p.firstElementChild).animationName}')
+    assert.equal(progress.indeterminate, ['checking','preparing'].includes(phase))
+    assert.equal(progress.now === null, progress.indeterminate, 'Unknown work has no invented percentage')
+    assert.match(progress.text, phase === 'preparing' ? /Preparing drive analysis/ : phase === 'reading' ? /23 of 101 sections read/ : /101 of 101 sections read/)
+    if (progress.indeterminate) assert.equal(progress.animation, 'none', 'Reduced motion disables the waiting animation')
+    assert.equal(await execute('return window.flm.review.count'), 5, 'Scan progress preserves earlier findings')
+    await layout('analysis/' + phase + '/' + width);await tabsClear('analysis/' + phase + '/' + width + '/tabs')
+    await capture('analysis-' + phase + '-' + width)
+  }
+  await change('ideas')
+  assert.equal(await execute('return !!document.querySelector("[data-role=analysis-progress]")'), false, 'Finished analysis removes processing progress')
+  assert.deepEqual(errors, [])
 
   console.log(`Real Chromium FLM UI: ${checks.length} responsive/theme/state checks, 5 findings/7 destinations, parked save/reset, driving lockout, errors and retained evidence passed`)
 } catch (error) {

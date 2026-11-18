@@ -97,7 +97,7 @@ for (const invalid of [null, {}, { ...choice, version: true }, { ...choice, vali
 
 function instance() {
   const vm = { ...FlmPage.data(), activePage: true, mode: "local", unauthorized: () => vm.auth++, auth: 0,
-    poller: { stop() {} }, $nextTick: callback => Promise.resolve().then(callback) }
+    poller: { stop() {}, start() {} }, $nextTick: callback => Promise.resolve().then(callback) }
   for (const [name, method] of Object.entries(FlmPage.methods)) vm[name] = method.bind(vm)
   for (const [name, method] of Object.entries(FlmPage.computed)) Object.defineProperty(vm, name, { get: () => method.call(vm) })
   return vm
@@ -140,6 +140,7 @@ try {
   let resolve
   globalThis.fetch = () => new Promise(done => { resolve = done })
   const closed = instance(), pending = closed.load()
+  assert.equal(closed.load(), pending, "Confirmation and polling share an in-flight read")
   FlmPage.beforeUnmount.call(closed)
   resolve({ ok: true, json: async () => value }); await pending
   assert.equal(closed.report, null)
@@ -152,44 +153,71 @@ assert.match(FlmPage.template, /<h2>Your steering<\/h2>/)
 assert.match(FlmPage.template, /<PlotsPage[^>]+:active="view === 'plots'"[^>]+embedded/)
 assert.doesNotMatch(FlmPage.template, /gx-tuner__plots-link/)
 
-// An explicit acceptance uses its own endpoint; slider editing remains manual.
+// Reviewing survives heartbeat gaps; writing still requires fresh matching authority.
 const acceptanceContext = { mode: 'local', preference: { valid: true, enabled: true, parked: true, controller: 'torque' },
   current: { fresh: true }, error: '', manualBusy: false }
-assert.equal(FlmPage.computed.canAcceptFindings.call(acceptanceContext), true)
-for (const change of [{ current: { fresh: true, reason: 'vehicle_identity_unavailable' } },
-  { manualBusy: true }, { current: { fresh: false } }, { mode: 'remote' },
+assert.equal(FlmPage.computed.canReviewFindings.call(acceptanceContext), true)
+assert.equal(FlmPage.computed.canReviewFindings.call({ ...acceptanceContext, current: { fresh: false } }), true)
+for (const change of [{ current: { reason: 'vehicle_identity_unavailable' } }, { manualBusy: true }, { mode: 'remote' },
   ...['parked', 'enabled', 'valid'].map(key => ({ preference: { ...acceptanceContext.preference, [key]: false } })),
   { preference: { ...acceptanceContext.preference, controller: 'pid' } }])
-  assert.equal(FlmPage.computed.canAcceptFindings.call({ ...acceptanceContext, ...change }), false)
+  assert.equal(FlmPage.computed.canReviewFindings.call({ ...acceptanceContext, ...change }), false)
+const authority = { canReviewFindings: true, reportFresh: true, choiceLive: true, error: '' }
+assert.equal(FlmPage.computed.canAcceptFindings.call(authority), true)
+for (const change of [{ canReviewFindings: false }, { reportFresh: false }, { choiceLive: false }, { error: 'offline' }])
+  assert.equal(FlmPage.computed.canAcceptFindings.call({ ...authority, ...change }), false)
 const acceptanceFetch = globalThis.fetch
 try {
   const idea = { parameter: 'ff_gain_left', target: .005 }
-  const vm = { ...FlmPage.data(), canAcceptFindings: true, review: { findings: [idea] },
-    current: { details: { 'Offroad assessment hash': 'a'.repeat(64) } },
-    manualFeed: { active: false }, parameterLabel: name => name, unauthorized: () => {} }
-  vm.reviewFinding = FlmPage.methods.reviewFinding.bind(vm)
-  vm.acceptFinding = FlmPage.methods.acceptFinding.bind(vm)
+  function accepting() {
+    const vm = { ...FlmPage.data(), activePage: true, mode: 'local', canReviewFindings: true, canAcceptFindings: true,
+      review: { findings: [idea] }, current: { details: { 'Offroad assessment hash': 'a'.repeat(64) } },
+      manualFeed: { active: false }, parameterLabel: name => name, unauthorized: () => {},
+      load: async () => true, waitFindingRefresh: async () => {}, poller: { stop() {}, start() {} } }
+    for (const name of ['reviewFinding', 'acceptFinding', 'freshFinding']) vm[name] = FlmPage.methods[name].bind(vm)
+    vm.reviewFinding(idea)
+    return vm
+  }
   const calls = []
   globalThis.fetch = async (url, options) => {
     calls.push({ url, options })
     return { ok: true, json: async () => ({ status: 'saved', parameter: idea.parameter, value: idea.target, learning: 'automatic', for_next_drive: true }) }
   }
-  vm.reviewFinding(idea)
+  const vm = accepting()
   assert.equal(calls.length, 0, 'Reviewing acceptance never writes')
+  let reads = 0
+  vm.canAcceptFindings = false
+  vm.load = async () => { vm.canAcceptFindings = ++reads === 2;return true }
   await vm.acceptFinding()
+  assert.equal(reads, 2, 'Confirmation waits for a fresh report rather than a fast click')
   assert.equal(calls.length, 1)
   assert.equal(calls[0].url, './api/settings/flm-finding/accept')
   assert.deepEqual(JSON.parse(calls[0].options.body), { parameter: idea.parameter, target: idea.target, assessment: 'a'.repeat(64) })
   assert.equal(vm.findingDraft, null)
   assert.match(vm.findingNotice, /Auto Learn stays on/)
-  vm.reviewFinding(idea)
+  for (const fail of ['stale', 'changed-assessment', 'changed-target', 'driving', 'read-error', 'closed']) {
+    const item = accepting();let attempts = 0
+    item.load = async () => {
+      attempts++
+      if (fail === 'stale') item.canAcceptFindings = false
+      if (fail === 'changed-assessment') item.current.details['Offroad assessment hash'] = 'b'.repeat(64)
+      if (fail === 'changed-target') item.review.findings = [{ ...idea, target: .01 }]
+      if (fail === 'driving') item.canReviewFindings = false
+      return fail !== 'read-error'
+    }
+    if (fail === 'closed') item.activePage = false
+    await item.acceptFinding()
+    assert.equal(calls.length, 1, fail + ': no write without matching fresh authority')
+    assert(item.findingError)
+    assert.equal(attempts, fail === 'stale' ? 3 : fail === 'closed' ? 0 : 1)
+  }
+  const unknown = accepting()
   globalThis.fetch = async () => { calls.push('failed');throw new TypeError('offline') }
-  await vm.acceptFinding()
+  await unknown.acceptFinding()
   assert.equal(calls.length, 2, 'An unknown write outcome is not retried automatically')
-  assert.equal(vm.findingNotice, '')
-  assert.match(vm.findingError, /Could not confirm/)
-  vm.canAcceptFindings = false
-  vm.reviewFinding(idea)
-  assert.equal(vm.findingDraft, null)
+  assert.equal(unknown.findingNotice, '')
+  assert.match(unknown.findingError, /Could not confirm/)
+  unknown.canReviewFindings = false;unknown.reviewFinding(idea)
+  assert.equal(unknown.findingDraft, null)
 } finally { globalThis.fetch = acceptanceFetch }
-console.log('Accept finding keeps learning enabled, requires parked authority, and preserves uncertain write outcomes')
+console.log('Accept finding survives stale polling, refreshes exact authority, refuses changed/driving/offline data and never retries a write')
