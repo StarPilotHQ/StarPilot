@@ -618,12 +618,14 @@ class LongitudinalMpc:
 
     self.a_prev = np.interp(T_IDXS + self.dt, T_IDXS, self.a_solution)
 
+    status = self.solution_status
     t = time.monotonic()
     if self.solution_status != 0:
       if t > self.last_cloudlog_t + 5.0:
         self.last_cloudlog_t = t
         cloudlog.warning(f"Long mpc reset, solution_status: {self.solution_status}")
       self.reset()
+    return status
 
 
 if __name__ == "__main__":
