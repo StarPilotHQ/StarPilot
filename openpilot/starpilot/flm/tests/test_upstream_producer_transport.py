@@ -10,7 +10,7 @@ from openpilot.starpilot.flm import producer_clock_equivalence as clock
 
 APPROVED = {
   'starpilot/car/volkswagen/model_smoothing.py': 'dd5d0ddaf77fe05960b673557b1b9f649d303ddfdad77a5185c7b3156fc6bbd2',
-  'selfdrive/modeld/modeld.py': '1b8d96ca9f7ac267d180732a6646b128bcbaec9ac79f80814030ec84197fd9d5',
+  'selfdrive/modeld/modeld.py': '58dc00dcfc6a497469ce71698f71650abcc5c995b299d560b576d291422eed3b',
   'starpilot/car/hyundai/model_smoothing.py': '28b1b8c64dd2d8e83f1bc71d39de7f797741d0911b39b7184a6e2d7d34d75243',
   'visionipc/visionipc_py.cc': '6c131c4f5eccb9f822f1aaae63733f26b1427c52340b61c9cdaf6cd4aee2f89d',
   'visionipc/visionipc_server.cc': 'a4325a5171eacb931eb271d06a992d2f27216040df113d92099f62cdfa67d81a',
