@@ -52,7 +52,7 @@ def reference_models_page(scene: str) -> FeatureSettingsState:
           "activeSmallModel": "rdf4", "activeBigModel": "", "randomizer": False, "summary": {"installed": 2, "total": 101},
           "capabilities": dict.fromkeys(("select", "download", "downloadAll", "cancel", "refresh", "favorites", "delete",
                                           "randomizer", "exclusions"), True),
-          "models": [model("rdf4", "Regret Driven Framework V4 👀📡", installed=True, selectable=True, builtin=True),
+          "models": [model("cheddar", "Cheddar", installed=True, selectable=True, builtin=True),
                      model("wd40", "WD40", installed=True, selectable=True, userFavorite=True, communityFavorite=True),
                      model("tr16", "TR16 👀📡"), model("cinque", "Cinque Terre", requiresGpu=True)]}
   page = {"settings_models": "models", "settings_models_catalog": "models:catalog", "settings_models_pick": "models:pick:small"}[scene]

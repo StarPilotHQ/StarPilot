@@ -42,7 +42,7 @@ class TestModelParts(unittest.TestCase):
       f.seek(1017)
       self.assertEqual(f.read(), self.data[1017:])
 
-  def test_release_package_contains_only_rdf_and_fresh_driver_monitoring(self):
+  def test_release_package_contains_only_cheddar_and_fresh_driver_monitoring(self):
     from tools.laptop_device_build import package_model_chunks
 
     source, destination = self.root / 'source', self.root / 'release'
@@ -51,15 +51,15 @@ class TestModelParts(unittest.TestCase):
     dm.write_bytes(b'old dm')
     parts.package_file(dm, dm)
     dm.write_bytes(b'new dm')
-    rdf = source / 'rdf43_driving_tinygrad.pkl'
-    rdf.write_bytes(b'verified rdf')
+    rdf = source / 'cheddar_driving_tinygrad.pkl'
+    rdf.write_bytes(b'verified cheddar')
     parts.package_file(rdf, rdf)
     rdf.unlink()
     (source / 'driving_tinygrad.pkl').write_bytes(b'obsolete stock')
     with patch.object(sys, 'argv', ['package-models', '--source', str(source), '--destination', str(destination)]):
       package_model_chunks.main()
     self.assertEqual(parts.materialize_file_chunked(destination / dm.name).read_bytes(), b'new dm')
-    self.assertEqual(parts.materialize_file_chunked(destination / rdf.name).read_bytes(), b'verified rdf')
+    self.assertEqual(parts.materialize_file_chunked(destination / rdf.name).read_bytes(), b'verified cheddar')
     self.assertEqual({path.name for path in destination.glob('*.chunkmanifest')},
                      {dm.name + '.chunkmanifest', rdf.name + '.chunkmanifest'})
 
@@ -140,11 +140,17 @@ class TestModelParts(unittest.TestCase):
         f.seek(251)
         return f.read(19)
     modules = {'tinygrad': types.SimpleNamespace(Context=lambda **kwargs: contextlib.nullcontext()),
-               'tinygrad_repo.examples.openpilot.helpers': types.SimpleNamespace(load_pickle=load_pickle)}
+               'tinygrad_repo.examples.openpilot.helpers': types.SimpleNamespace(load_pickle=load_pickle),
+               'openpilot.starpilot.models.runtime_bridge.runtime': types.SimpleNamespace(
+                 selected_legacy=lambda: True, load_oob=lambda path, chestnut: load_pickle(path, out_of_band=True))}
     with patch.object(parts, 'CHUNK_SIZE', 256), patch.dict(sys.modules, modules):
       resolved = namespace['modeld_pkl_path'](False)
       self.assertTrue(resolved.is_file())  # actual receipt capture happens after this resolver
       self.assertEqual(namespace['load_oob'](self.target), self.data[251:270])
+      self.assertEqual(captured, [resolved])
+      with patch.object(modules['openpilot.starpilot.models.runtime_bridge.runtime'], 'selected_legacy', return_value=False):
+        with self.assertRaisesRegex(RuntimeError, 'Prepare the model runtime'):
+          namespace['load_oob'](self.target)
       self.assertEqual(captured, [resolved])
     self.assertFalse((self.target.parent / 'big_driving_tinygrad.pkl').exists())
 

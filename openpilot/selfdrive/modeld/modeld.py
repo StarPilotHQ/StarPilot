@@ -393,11 +393,11 @@ def main(demo=False):
                                                  selection.small_id, selection.small_sha256, coherent_warp=coherent_warp)
         return selected, prepared, False
       except Exception:
-        cloudlog.exception("selected small model load failed, using shipped RDFv4")
+        cloudlog.exception("selected small model load failed, using shipped Cheddar")
     from openpilot.starpilot.models.manager import shipped_default
     path = shipped_default()
     if path is None:
-      raise RuntimeError("Shipped RDFv4 is missing or corrupt")
+      raise RuntimeError("Shipped Cheddar is missing or corrupt")
     fallback, prepared = load_verified_model(cam_w, cam_h,
                                              path, BY_ID[DEFAULT_SMALL].version, False,
                                              DEFAULT_SMALL, DEFAULT_SMALL_SHA256, coherent_warp=coherent_warp)

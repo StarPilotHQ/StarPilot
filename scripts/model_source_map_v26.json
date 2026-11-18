@@ -491,5 +491,10 @@
   "mountaindewv1": {
     "source_id": "mountaindewv1",
     "input_format": "supercombo"
+  },
+  "cheddar": {
+    "source_id": "cheddar",
+    "input_format": "supercombo",
+    "ref": "b3ab22efe1be5d6c0ad46503f0985b26f8b7a36f"
   }
 }
