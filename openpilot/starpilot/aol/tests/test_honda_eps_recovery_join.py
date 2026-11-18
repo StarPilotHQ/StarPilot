@@ -132,3 +132,174 @@ def test_recovery_rejects_higher_sequence_with_rolled_back_source():
   change(sm, 'aolAxisState', lambda a: setattr(a, 'sequence', a.sequence + 1))
   change(sm, 'aolAxisState', lambda a: setattr(a, 'sourceCarStateMonoTime', stamp))
   assert observe(case, stamp + 20_000_000)
+
+
+_cleared_recovery_case = recovery_case
+
+
+def pending_request_case(*, first=False, requested=True, new_event=False):
+  if first:
+    cp, state, feedback, _, _ = baseline()
+    stamp = NOW + 10_000_000
+    sm, native = eps_sample(cp, stamp, withdrawn=False)
+    change(sm, 'aolAxisState', lambda a: setattr(a, 'lateralActive', False))
+    change(sm, 'aolAxisState', lambda a: setattr(a, 'mode', 'off'))
+  else:
+    cp, state, feedback, sm, native, stamp = _cleared_recovery_case()
+    event = sm.messages['aolAxisState'].as_builder()
+    event.logMonoTime = stamp + 10_000_000
+    axis = event.aolAxisState
+    axis.sequence += 1
+    axis.observedMonoTime = axis.sourceCarStateMonoTime = stamp + 10_000_000
+    axis.validUntilMonoTime = stamp + 40_000_000
+    axis.desiredLateral = True
+    if new_event:
+      axis.faultEventMonoTime = stamp + 10_000_000
+      events = sm.messages['onroadEvents'].as_builder()
+      events.logMonoTime = axis.faultEventMonoTime
+      sm.messages['onroadEvents'] = events.as_reader()
+      sm.logMonoTime['onroadEvents'] = int(events.logMonoTime)
+    sm.messages['aolAxisState'] = event.as_reader()
+    sm.logMonoTime['aolAxisState'] = int(event.logMonoTime)
+    native = native_change(sm, native, requestedLateral=requested)
+  state.steerFaultTemporary = state.steeringPressed = True
+  return cp, state, feedback, sm, native, stamp
+
+
+@pytest.mark.parametrize('first,requested,new_event', [(True, True, False),
+  (False, True, False), (False, False, False), (False, False, True)])
+def test_native_first_and_repeated_eps_retain_only_current_latched_intent(first, requested, new_event):
+  case = pending_request_case(first=first, requested=requested, new_event=new_event)
+  _, state, feedback, _, native, stamp = case
+  leases = feedback.lateral_baseline_ns, feedback.lateral_source_ns, feedback.lateral_native_ns
+  assert not observe(case, stamp + 10_000_000)
+  assert not feedback.failed
+  assert not output(state, native).lateral_active
+  assert leases == (feedback.lateral_baseline_ns, feedback.lateral_source_ns, feedback.lateral_native_ns)
+
+
+@pytest.mark.parametrize('first', [False, True])
+@pytest.mark.parametrize('fault', ['regen', 'permanent', 'can', 'timeout', 'door', 'belt',
+  'sensor', 'disengage', 'main', 'reverse', 'user_event', 'hard_event', 'wrong_session', 'wrong_producer',
+  'wrong_epoch', 'wrong_profile', 'native_stale', 'native_missing', 'native_fault', 'native_rx',
+  'native_heartbeat', 'native_inventory', 'native_long', 'axis_stale', 'no_eps_source', 'expired_source'])
+def test_pending_eps_request_preserves_all_independent_vetoes(first, fault, monkeypatch):
+  import sys
+  def case_for_fault():
+    case = pending_request_case(first=first, requested=first)
+    if first and fault == 'expired_source':
+      previous = list(case[2].signature)
+      previous[4] = case[5] - 1
+      case[2].signature = tuple(previous)
+    if first and fault == 'no_eps_source':
+      previous = list(case[2].signature)
+      previous[9] = False
+      case[2].signature = tuple(previous)
+    return case
+  monkeypatch.setattr(sys.modules[__name__], 'recovery_case', case_for_fault)
+  test_recovery_join_does_not_bypass_independent_vetoes(fault)
+
+
+def braked_eps_case():
+  cp, state, feedback, _, _ = baseline()
+  state.steerFaultTemporary = state.steeringPressed = state.brakePressed = True
+  stamp = NOW + 10_000_000
+  sm, native = eps_sample(cp, stamp, withdrawn=True, brake=True)
+  assert not feedback.observe(sm, cp, state, stamp, latched=True, intent_producer_session=PRODUCER)
+  return cp, state, feedback, sm, native, stamp
+
+
+@pytest.mark.parametrize('cleared_eps', [False, True])
+def test_brake_release_joins_only_its_previously_observed_eps_pedal_event(cleared_eps):
+  case = braked_eps_case()
+  _, state, feedback, _, native, stamp = case
+  state.brakePressed = False
+  state.steerFaultTemporary = not cleared_eps
+  leases = feedback.lateral_baseline_ns, feedback.lateral_source_ns, feedback.lateral_native_ns
+  assert not observe(case, stamp + 10_000_000)
+  assert not output(state, native).lateral_active
+  assert leases == (feedback.lateral_baseline_ns, feedback.lateral_source_ns, feedback.lateral_native_ns)
+
+
+@pytest.mark.parametrize('fault', ['unobserved_brake', 'expired_source', 'new_pedal_event'])
+def test_brake_release_cannot_borrow_unmatched_or_expired_eps_history(fault):
+  case = braked_eps_case()
+  _, state, feedback, sm, _, stamp = case
+  state.brakePressed = False
+  if fault == 'unobserved_brake':
+    feedback.honda_eps_brake_event_ns = 0
+  elif fault == 'expired_source':
+    feedback.honda_eps_source_ns = stamp - 201_000_000
+  else:
+    event = sm.messages['onroadEvents'].as_builder()
+    event.logMonoTime = stamp + 5_000_000
+    sm.messages['onroadEvents'] = event.as_reader()
+    sm.logMonoTime['onroadEvents'] = int(event.logMonoTime)
+    change(sm, 'aolAxisState', lambda a: setattr(a, 'faultEventMonoTime', stamp + 5_000_000))
+  assert observe(case, stamp + 10_000_000)
+
+
+@pytest.mark.parametrize('first', [False, True])
+def test_pending_eps_with_current_brake_still_denies_all_output(first):
+  case = pending_request_case(first=first, requested=first)
+  _, state, feedback, sm, native, stamp = case
+  state.brakePressed = True
+  event = sm.messages['onroadEvents'].as_builder()
+  event.onroadEvents = [*(e.to_dict()for e in event.onroadEvents),
+                        {'name':'pedalPressed','userDisable':True}]
+  sm.messages['onroadEvents'] = event.as_reader()
+  assert not observe(case, stamp + 10_000_000)
+  assert not feedback.failed and not output(state, native).lateral_active
+
+
+@pytest.mark.parametrize('brake', [False, True])
+@pytest.mark.parametrize('source_lag', [0, 20_000_000])
+def test_fresh_active_publication_during_eps_keeps_only_intent(brake, source_lag):
+  case = pending_request_case(first=True)
+  _, state, feedback, sm, native, stamp = case
+  state.brakePressed = brake
+  previous = list(feedback.signature)
+  previous[8] -= source_lag
+  feedback.signature = tuple(previous)
+  feedback.lateral_source_ns -= source_lag
+  change(sm, 'aolAxisState', lambda a: setattr(a, 'lateralActive', True))
+  change(sm, 'aolAxisState', lambda a: setattr(a, 'mode', 'lateralOnly'))
+  native = native_change(sm, native, lateralAllowed=True)
+  before = feedback.lateral_baseline_ns, feedback.lateral_source_ns, feedback.lateral_native_ns
+  assert not observe(case, stamp + 10_000_000)
+  assert not output(state, native).lateral_active
+  assert before == (feedback.lateral_baseline_ns, feedback.lateral_source_ns, feedback.lateral_native_ns)
+
+
+@pytest.mark.parametrize('new_pulse', [False, True])
+def test_clean_event_update_during_pending_eps_recovery_does_not_erase_intent(new_pulse):
+  case = pending_request_case(requested=False, new_event=True)
+  _, state, feedback, _, native, stamp = case
+  state.steerFaultTemporary = new_pulse
+  source = feedback.honda_eps_source_ns
+  assert not observe(case, stamp + 10_000_000)
+  assert feedback.honda_eps_source_ns == source
+  assert not output(state, native).lateral_active
+
+
+def test_unexplained_native_denial_without_physical_eps_still_revokes_intent():
+  case = pending_request_case(first=True)
+  _, state, _, _, _, stamp = case
+  state.steerFaultTemporary = False
+  assert observe(case, stamp + 10_000_000)
+
+
+def test_fresh_history_cannot_replace_an_expired_current_source():
+  case = pending_request_case(first=True)
+  _, _, _, sm, _, stamp = case
+  change(sm, 'aolAxisState', lambda a: setattr(a, 'sourceCarStateMonoTime', NOW - 50_000_000))
+  assert observe(case, stamp + 10_000_000)
+
+
+def test_new_eps_episode_uses_its_new_actual_active_predecessor():
+  case = pending_request_case(first=True)
+  _, state, feedback, _, native, stamp = case
+  feedback.honda_eps_source_ns = NOW - 10_000_000_000
+  assert not observe(case, stamp + 10_000_000)
+  assert feedback.honda_eps_source_ns == NOW
+  assert not output(state, native).lateral_active
