@@ -1425,13 +1425,17 @@ def test_drive_join_picks_the_best_allowed_network_and_re_pauses_auto_join(monke
               "/settings/phone": {"uuid": ("s", "phone"), "autoconnect-priority": ("i", 5)},
               "/settings/off": {"uuid": ("s", "off"), "autoconnect": ("b", False), "autoconnect-priority": ("i", 9)},
               "/settings/car": {"uuid": ("s", "car"), "id": ("s", network.CONNECTION_ID)}}
-  state, calls, sets, order = [30], [], [], []
+  state, calls, sets, order, scans = [30], [], [], [], []
   monkeypatch.setattr(network.NetworkLease, "_wifi_devices", lambda lease: [("/dev/wlan0", "wlan0")])
-  props = {"State": lambda: state[0], "AvailableConnections": lambda: list(profiles)}
+  monkeypatch.setattr(network.NetworkLease, "_heard", lambda lease, path: {b"home": 40, b"phone": 70, b"off": 90})
+  props = {"State": lambda: state[0], "AvailableConnections": lambda: list(profiles),
+           "LastScan": lambda: scans.append(1) or len(scans)}
   monkeypatch.setattr(network.NetworkLease, "_get", lambda lease, path, interface, name: props[name]())
   def call(lease, path, interface, member, signature=None, body=(), timeout=10.0):
     if member == "GetSettings":
-      return ({"connection": profiles[path]},)
+      return ({"connection": profiles[path], "802-11-wireless": {"ssid": ("ay", path.rsplit("/", 1)[1].encode())}},)
+    if member == "RequestScan":
+      return
     calls.append(body)
     state[0] = 100
   monkeypatch.setattr(network.NetworkLease, "_call", call)
@@ -1456,13 +1460,18 @@ def test_drive_join_resumes_hotspot_promptly_after_failure(monkeypatch, states):
   def get(lease, path, interface, name):
     if name == "AvailableConnections":
       return ["/settings/home"]
+    if name == "LastScan":
+      return 1
     reads[0] += 1
     return network.DEVICE_STATE_DISCONNECTED if reads[0] == 1 else states[min(reads[0] - 2, len(states) - 1)]
 
   def call(lease, path, interface, member, *args):
     if member == "GetSettings":
-      return ({"connection": {"uuid": ("s", "home")}},)
+      return ({"connection": {"uuid": ("s", "home")}, "802-11-wireless": {"ssid": ("ay", b"home")}},)
+    if member == "RequestScan":
+      raise network.NetworkError("busy")
 
+  monkeypatch.setattr(network.NetworkLease, "_heard", lambda lease, path: {b"home": 50})
   monkeypatch.setattr(network.NetworkLease, "_get", get)
   monkeypatch.setattr(network.NetworkLease, "_call", call)
   monkeypatch.setattr(network.NetworkLease, "_set", lambda lease, *args: sets.append(args[2:]))
@@ -1480,3 +1489,52 @@ def test_drive_join_resumes_hotspot_promptly_after_failure(monkeypatch, states):
   assert reads[0] == len(states) + 1
   assert order == ["pause", "resume"]
   assert sets == [("Autoconnect", "b", False)]
+
+
+def test_drive_join_skips_a_network_no_longer_heard_and_one_that_just_refused(monkeypatch):
+  from openpilot.starpilot.system.starport import network
+  profiles = {"/settings/home": ("home", 9), "/settings/phone": ("phone", 1)}
+  heard, calls, state = {b"phone": 60}, [], [30]
+  monkeypatch.setattr(network.NetworkLease, "_heard", lambda lease, path: dict(heard))
+  monkeypatch.setattr(network.NetworkLease, "_scan", lambda lease, path: None)
+  props = {"State": lambda: state[0], "AvailableConnections": lambda: list(profiles)}
+  monkeypatch.setattr(network.NetworkLease, "_get", lambda lease, path, interface, name: props[name]())
+  def call(lease, path, interface, member, signature=None, body=(), timeout=10.0):
+    if member == "GetSettings":
+      uuid, priority = profiles[path]
+      return ({"connection": {"uuid": ("s", uuid), "autoconnect-priority": ("i", priority)},
+               "802-11-wireless": {"ssid": ("ay", uuid.encode())}},)
+    calls.append(body[0])
+    state[0] = network.DEVICE_STATE_FAILED
+  monkeypatch.setattr(network.NetworkLease, "_call", call)
+  monkeypatch.setattr(network.NetworkLease, "_set", lambda lease, *args: None)
+  monkeypatch.setattr(network.time, "sleep", lambda _s: None)
+  lease = network.NetworkLease(lambda *a, **k: None, "wlan0")
+  lease.device_path = "/dev/wlan0"
+  assert lease.drive_join(lambda uuid: True) == "failed" and calls == ["/settings/phone"]  # home is out of range
+  state[0], heard[b"home"] = 30, 80
+  assert lease.drive_join(lambda uuid: True) == "failed" and calls[-1] == "/settings/home"
+  state[0] = 30
+  assert lease.drive_join(lambda uuid: True) == "none" and len(calls) == 2  # both refused just now
+
+
+def test_heard_networks_come_from_the_latest_scan_only(monkeypatch):
+  from openpilot.starpilot.system.starport import network
+  now = 1000.
+  aps = {"/ap/home": (b"home", 400, 90), "/ap/phone": (b"phone", 975, 40), "/ap/cafe": (b"cafe", 995, 70)}
+  last_scan = [976_000]
+
+  def get(lease, path, interface, name):
+    if name == "LastScan":
+      return last_scan[0]
+    if name == "AccessPoints":
+      return list(aps)
+    ssid, seen, strength = aps[path]
+    return {"LastSeen": seen, "Ssid": ssid, "Strength": strength}[name]
+
+  monkeypatch.setattr(network.NetworkLease, "_get", get)
+  monkeypatch.setattr(network.time, "clock_gettime", lambda _clock: now)
+  lease = network.NetworkLease(lambda *a, **k: None, "wlan0")
+  assert lease._heard("/dev/wlan0") == {b"phone": 40, b"cafe": 70}  # home was only heard long ago
+  last_scan[0] = 300_000  # an old scan does not vouch for what it heard
+  assert lease._heard("/dev/wlan0") == {b"cafe": 70}

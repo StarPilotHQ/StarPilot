@@ -50,7 +50,7 @@ def test_only_client_wifi_networks_are_listed_best_priority_first(tmp_path):
   snapshot = made.snapshot(True)
   assert [(n['name'], n['connected'], n['signal'], n['whileDriving']) for n in snapshot['networks']] == [
     ('Phone: 5G', False, None, True), ('Home', True, 80, True)]
-  assert snapshot['prefer'] == 'wifi' and snapshot['cellular']['enabled'] and snapshot['pauseHotspot']
+  assert snapshot['prefer'] == 'wifi' and snapshot['cellular']['enabled'] and not snapshot['pauseHotspot']
 
 
 def test_order_writes_priorities_and_rejects_a_stale_list(tmp_path):
@@ -110,8 +110,8 @@ def test_cellular_switch_uses_the_existing_setting_and_changes_need_park(tmp_pat
   made.apply({'action': 'cellular', 'value': False}, lambda: True)
   params.put_bool.assert_called_once_with('CellularDisabled', True)
   with pytest.raises(PermissionError):
-    made.apply({'action': 'pauseHotspot', 'value': False}, lambda: False)
-  assert changes(calls) == [] and network_prefs.read_prefs(tmp_path)['pauseHotspot'] is True
+    made.apply({'action': 'pauseHotspot', 'value': True}, lambda: False)
+  assert changes(calls) == [] and network_prefs.read_prefs(tmp_path)['pauseHotspot'] is False
 
 
 def test_scan_join_connect_and_forget(tmp_path):
@@ -150,6 +150,7 @@ def test_scan_join_connect_and_forget(tmp_path):
 
 
 def test_join_pauses_the_hotspot_and_cleans_up_a_failed_profile(tmp_path, monkeypatch):
+  network_prefs.atomic_json(network_prefs.prefs_path(tmp_path), {**network_prefs.DEFAULT, 'pauseHotspot': True})
   calls, events = [], []
   iface = tmp_path / 'galaxy0'
   iface.touch()
@@ -178,6 +179,7 @@ def test_join_pauses_the_hotspot_and_cleans_up_a_failed_profile(tmp_path, monkey
 
 
 def test_join_refuses_when_the_hotspot_stays_up(tmp_path, monkeypatch):
+  network_prefs.atomic_json(network_prefs.prefs_path(tmp_path), {**network_prefs.DEFAULT, 'pauseHotspot': True})
   iface, calls, events = tmp_path / 'galaxy0', [], []
   iface.touch()
   monkeypatch.setattr(network_prefs.hotspot, 'request_pause', lambda seconds: events.append('pause'))
@@ -225,3 +227,13 @@ def test_a_failed_background_join_keeps_the_reason(tmp_path):
 def test_only_hotspot_addresses_count_as_hotspot_clients():
   assert network_prefs.via_hotspot('172.31.254.23')
   assert not network_prefs.via_hotspot('192.168.1.20') and not network_prefs.via_hotspot('127.0.0.1') and not network_prefs.via_hotspot('bad')
+
+
+def test_join_leaves_the_hotspot_up_when_the_pause_is_off(tmp_path, monkeypatch):
+  iface, calls, events = tmp_path / 'galaxy0', [], []
+  iface.touch()
+  monkeypatch.setattr(network_prefs.hotspot, 'request_pause', lambda seconds: events.append('pause'))
+  made = NetworkSettings(tmp_path, NetworkManagerCli(fake_run(calls)), Mock(), link=lambda: {'link': 'wifi'},
+                         hotspot_iface=iface, sleep=lambda _s: None)
+  made.apply({'action': 'connect', 'uuid': PHONE}, lambda: True)
+  assert events == [] and ['--wait', '15', 'connection', 'up', 'uuid', PHONE, 'ifname', 'wlan0'] in calls
