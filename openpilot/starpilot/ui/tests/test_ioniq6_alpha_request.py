@@ -65,6 +65,7 @@ def test_request_survives_capability_loss_and_recovery(module, layout, offset):
       panel._ssh_toggle = Toggle()
       panel._ui_debug_toggle = Toggle()
       panel._cellular_disabled_toggle = Toggle()
+      panel._always_hold_toggle = Toggle()
     else:
       panel._refresh_toggles = (('AlphaLongitudinalEnabled', panel._alpha_long_toggle),)
     with patch.object(module, 'ui_state', ui):
@@ -126,6 +127,7 @@ def test_release_preserves_request_without_advertising_passive_authority(module,
       panel._ssh_toggle = Toggle()
       panel._ui_debug_toggle = Toggle()
       panel._cellular_disabled_toggle = Toggle()
+      panel._always_hold_toggle = Toggle()
     else:
       panel._refresh_toggles = (('AlphaLongitudinalEnabled', panel._alpha_long_toggle),)
     with patch.object(module, 'ui_state', ui):

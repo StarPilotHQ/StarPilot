@@ -29,7 +29,7 @@ def test_sharan_alpha_available_without_rewriting_choice(module, layout, raw):
     if layout is large.DeveloperLayout:
       panel._params = params
       panel._is_release = False
-      for key in ('_joystick_toggle', '_adb_toggle', '_ssh_toggle', '_ui_debug_toggle', '_cellular_disabled_toggle'):
+      for key in ('_joystick_toggle', '_adb_toggle', '_ssh_toggle', '_ui_debug_toggle', '_cellular_disabled_toggle', '_always_hold_toggle'):
         setattr(panel, key, Toggle())
     else:
       panel._refresh_toggles = (('AlphaLongitudinalEnabled', panel._alpha_long_toggle),)
