@@ -43,7 +43,7 @@ from openpilot.starpilot.system.starport.bugsink_report import PairingAttempt
 from openpilot.starpilot.system.starport.frame_source import (DEFAULT_PATH as DEFAULT_FRAME_PATH, FLAG_ASYNC_READBACK, FLAG_NV12,
                                                                   FORMAT_NV12, FrameRequest)
 from openpilot.starpilot.system.starport.projection_control import DEFAULT_CONTROL_SOCKET, NATIVE_FOCUS
-from openpilot.starpilot.system.starport.touch import DEFAULT_TOUCH_SOCKET
+from openpilot.starpilot.system.starport.touch import DEFAULT_TOUCH_SOCKET, TouchEvent
 from openpilot.starpilot.system.starport.view import CAR_FRAME_PATH, ViewSource, renderer_available
 from openpilot.starpilot.system.starport.session import CODEC_H265, AuthenticationRejected, PeerRequestedStop, ProjectionSession, SharedRadioStall
 
@@ -737,7 +737,8 @@ class Supervisor:
       if chosen:
         if self._bluez is not None:
           self._bluez.release()
-        self.config.update(receiver_address="", receiver_name="", companion_address="", companion_name="", car_fingerprint={})
+        self.config.update(receiver_address="", receiver_name="", companion_address="", companion_name="", car_fingerprint={},
+                           touch_units_cache={})
       elif companion:
         self.config.update(companion_address="", companion_name="")
       identity_store.save_config(self.config)
@@ -757,6 +758,9 @@ class Supervisor:
         self._quirks.reset(key)
         self._quirks.save()
         reset = reset or had_fix_state
+      if address and self.config.get("touch_units_cache"):
+        self.config["touch_units_cache"] = {}
+        reset = True
       if reset:
         self._strategy = None
         self.config["modern_reply_cache"] = replies
@@ -861,6 +865,15 @@ class Supervisor:
       self.config["car_profile_override"] = profile
       identity_store.save_config(self.config)
     self.log("car_profile_selected", profile=profile or "auto")
+
+  def _remember_touch_units(self, key: str, units: str) -> None:
+    with self._lock:
+      cache = dict(self.config.get("touch_units_cache", {}))
+      if cache.get(key) == units:
+        return
+      cache[key] = units
+      self.config["touch_units_cache"] = cache
+      identity_store.save_config(self.config)
 
   def _remember_fingerprint(self, head_unit: dict) -> None:
     fingerprint = car_profiles.fingerprint_from(head_unit, self.config["receiver_address"])
@@ -2082,6 +2095,8 @@ class Supervisor:
     self._stage("negotiating")
     self._fix_context = None
     session.on_discovered = self._choose_fixes
+    session.touch_units = dict(config.get("touch_units_cache", {}))
+    session.on_touch_units = self._remember_touch_units
     mode = session.start(config["device_name"], "comma.ai")
     self._set(mode=mode.as_dict(), error="")
     self.log("projection_ready", mode=mode.as_dict(), head_unit_subject=session.head_unit_subject)
@@ -2248,6 +2263,7 @@ class Supervisor:
     started = time.monotonic()
     last_fresh = time.monotonic()
     last_unavailable = 0.0
+    touch_setup_sent = 0.0
     next_check = 0.0
     ages: deque[float] = deque(maxlen=120)
     sent_times: deque[float] = deque(maxlen=200)
@@ -2296,6 +2312,10 @@ class Supervisor:
         source.demand(1.0)
       else:
         source.release_demand()
+      touch = getattr(session, "touch", None)
+      if touch is not None and touch.calibrating and session.focused and now - touch_setup_sent >= 1.0:
+        session.touch_events.append(TouchEvent("setup", 1.0, 0.0))  # the car view shows the dot while these keep coming
+        touch_setup_sent = now
       if session.touch_events:
         source.send_touches(list(session.touch_events))
         session.touch_events.clear()

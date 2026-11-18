@@ -639,6 +639,25 @@ class ProjectionOnroad:
       return claimed
     return gesture.claimed
 
+  def draw_touch_setup(self, x, y, done=False):
+    """One tap on this dot tells StarPort how the car reports touches."""
+    rl, role = self.native.rl, self.native.font_role.BOLD
+    if done:
+      text, size = "Touch is set up", 64
+      width = self.fonts.measure(text, role, size).width
+      text_x = max(30, x - 90 - width)
+      rl.draw_rectangle_rounded(rl.Rectangle(text_x - 24, y - size / 2 - 16, width + 48, size + 32), .4, 8, rl.Color(15, 13, 23, 200))
+      self.fonts.draw(text, role, size, text_x, y - size / 2)
+      return
+    rl.draw_circle(int(x), int(y), 56, rl.Color(15, 13, 23, 200))
+    rl.draw_circle_lines(int(x), int(y), 56, rl.Color(199, 174, 247, 255))
+    rl.draw_circle(int(x), int(y), 22, rl.Color(199, 174, 247, 255))
+    text, size = "Tap the dot to set up touch", 64
+    width = self.fonts.measure(text, role, size).width
+    text_x = max(30, x - 90 - width)
+    rl.draw_rectangle_rounded(rl.Rectangle(text_x - 24, y - size / 2 - 16, width + 48, size + 32), .4, 8, rl.Color(15, 13, 23, 200))
+    self.fonts.draw(text, role, size, text_x, y - size / 2)
+
   def cancel_touch(self):
     self.exit.cancel()
     if self.now_playing_touch is not None:
