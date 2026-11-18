@@ -9,7 +9,7 @@ import hashlib
 
 REVISION = 'selected-steering-compatibility-v1'
 FLM = (
-  'steering_compatibility', 'vehicle_identity', 'runtime_adapter_registry', 'canonical_surface_adapter', 'offroad_surface',
+  'steering_compatibility', 'vehicle_identity', 'identity_transition', 'runtime_adapter_registry', 'canonical_surface_adapter', 'offroad_surface',
   'offroad_runtime', 'offroad_store', 'torque_stages', 'pid_stages', 'selected_effects', 'manual_coordinates',
   'live', 'torque_surface', 'global_runtime', 'adaptive_profile', 'torque_adapter', 'learning_wire', 'native_refinement_wire',
 )
@@ -20,7 +20,7 @@ def source_paths(root, controller_file, brand_file):
   root = Path(root)
   brand = Path(brand_file).parent
   controller = Path(controller_file).parent
-  paths = {Path(controller_file), Path(brand_file)}
+  paths = {Path(controller_file), Path(brand_file), root / 'openpilot/starpilot/flm/identity_transition.json'}
   paths.update(root / 'openpilot/starpilot/flm' / (name + '.py') for name in FLM)
   paths.update(root / 'openpilot/common' / (name + '.py') for name in COMMON)
   paths.update(p for p in controller.glob('*.py') if p.name.startswith(('latcontrol', 'vehicle_model', 'drive_helpers')))

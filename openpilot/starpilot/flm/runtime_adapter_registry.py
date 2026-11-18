@@ -18,7 +18,7 @@ REVISION = 'actual-controller-registry-v2'
 
 
 @cache
-def implementation_revision(controller_type, interface_type):
+def implementation_revision(controller_type, interface_type, *, vin_compatible=False):
   """Selected steering semantics; startup only, never Controls.tick."""
   from openpilot.starpilot.flm.native_primitives import native_identity
   from openpilot.starpilot.flm.steering_compatibility import revision
@@ -27,7 +27,13 @@ def implementation_revision(controller_type, interface_type):
   controller = Path(cast(str, importlib.import_module(controller_type.__module__).__file__)).resolve()
   interface = Path(cast(str, importlib.import_module(interface_type.__module__).__file__)).resolve()
   names = (controller_type.__module__ + '.' + controller_type.__qualname__, interface_type.__module__ + '.' + interface_type.__qualname__)
-  return revision(here.parents[2], controller, interface, names, native_identity())
+  native = native_identity()
+  if vin_compatible:
+    from openpilot.starpilot.flm.identity_transition import known_vin_revision
+    previous = known_vin_revision(here.parents[2], controller, interface, names, native)
+    if previous is not None:
+      return previous
+  return revision(here.parents[2], controller, interface, names, native)
 
 
 SOURCE_LEASE_NS = 500_000_000
@@ -420,7 +426,10 @@ def selected_descriptor(cp, ci, controller):
   turn_assist = bool(
     getattr(controller, 'turn_assist', None) or getattr(getattr(getattr(controller, 'starpilot_extension', None), 'policy', None), 'turn_assist', False)
   )
-  return ControllerDescriptor(domain, mode, policy, implementation_revision(type(controller), type(ci)), stage, car_params_digest(cp), conversion, turn_assist)
+  from opendbc.car.vin import VIN_UNKNOWN, is_valid_vin
+  vin_compatible = is_valid_vin(str(cp.carVin)) and str(cp.carVin) != VIN_UNKNOWN
+  implementation = implementation_revision(type(controller), type(ci), vin_compatible=vin_compatible)
+  return ControllerDescriptor(domain, mode, policy, implementation, stage, car_params_digest(cp), conversion, turn_assist)
 
 
 def baseline_values(controller):
