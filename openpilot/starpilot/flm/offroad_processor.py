@@ -214,7 +214,7 @@ class RecordedInputs:
   observed_sources: dict = field(default_factory=dict)
 
 
-def collect_route_inputs(root, route, *, permitted, walker=None, isolate_segments=False):
+def collect_route_inputs(root, route, *, permitted, walker=None, isolate_segments=False, on_progress=None):
   from openpilot.starpilot.flm.offroad_control_metadata import read_control_metadata as read_control
 
   state = {'cp': None, 'cp_sha': None, 'context': None}
@@ -405,13 +405,14 @@ def collect_route_inputs(root, route, *, permitted, walker=None, isolate_segment
     if sum(map(len, windows.values())) + sum(map(len, stable_windows.values())) + sum(map(len, baseline_tracking.values())) > MAX_WINDOWS:
       raise ValueError('Whole-drive tracking window bound exceeded')
 
-  receipt = (walk_completed_route if walker is None else walker)(root, route, permitted=permitted, consume=consume)
+  progress = {'on_progress': on_progress} if on_progress is not None and walker is None else {}
+  receipt = (walk_completed_route if walker is None else walker)(root, route, permitted=permitted, consume=consume, **progress)
   counts['original_segments_reviewed'] = len(getattr(receipt, 'decoded_segments', receipt.segments))
   counts['original_segments_available'] = len(receipt.segments)
   return RecordedInputs(receipt, state, windows, stable_windows, baseline_tracking, bookends, raw_windows, context_metadata, counts, quality_stops, observed)
 
 
-def collect_latest_steering_inputs(params, root, *, permitted, selected_route=None):
+def collect_latest_steering_inputs(params, root, *, permitted, selected_route=None, on_progress=None):
   route = latest_route(params, root, permitted=permitted) if selected_route is None else selected_route
   import time
   from openpilot.starpilot.flm.offroad_route import MAX_ANALYSIS_SECONDS, LOCAL_ID
@@ -421,7 +422,8 @@ def collect_latest_steering_inputs(params, root, *, permitted, selected_route=No
   def allowed():
     return permitted() and time.monotonic() - started <= MAX_ANALYSIS_SECONDS
 
-  collected = collect_route_inputs(root, route, permitted=allowed)
+  progress = {'on_progress': on_progress} if on_progress is not None else {}
+  collected = collect_route_inputs(root, route, permitted=allowed, **progress)
   current_cp = collected.receipt.cp_sha256
   skipped = 0
 
@@ -446,7 +448,7 @@ def collect_latest_steering_inputs(params, root, *, permitted, selected_route=No
       from openpilot.starpilot.flm.offroad_route import RouteInputError
 
       try:
-        earlier = collect_route_inputs(root, candidate, permitted=allowed)
+        earlier = collect_route_inputs(root, candidate, permitted=allowed, **progress)
       except RouteInputError as error:
         import logging
 
@@ -462,12 +464,16 @@ def collect_latest_steering_inputs(params, root, *, permitted, selected_route=No
   return route, collected
 
 
-def analyze_latest(params, root, previous, *, permitted, selected_route=None, evidence_bank=None, history_identity=None):
+def analyze_latest(params, root, previous, *, permitted, selected_route=None, evidence_bank=None, history_identity=None, on_progress=None):
   permitted = route_permission(permitted)
+  progress = {'on_progress': on_progress} if on_progress is not None else {}
   if selected_route is None:
-    route, collected = collect_latest_steering_inputs(params, root, permitted=permitted)
+    route, collected = collect_latest_steering_inputs(params, root, permitted=permitted, **progress)
   else:
-    route, collected = collect_latest_steering_inputs(params, root, permitted=permitted, selected_route=selected_route)
+    route, collected = collect_latest_steering_inputs(params, root, permitted=permitted, selected_route=selected_route, **progress)
+  if on_progress is not None:
+    from openpilot.starpilot.flm.offroad_route import _reading_progress
+    _reading_progress(on_progress, 'checking', len(collected.receipt.segments), len(collected.receipt.segments))
   single = _assess_inputs(route, collected, previous, permitted=permitted)
   if evidence_bank is None:
     return single

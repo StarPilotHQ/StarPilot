@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { validTrainingResults, trainingSummary, detailText, learningReason, offroadView, tunerStatus, SURFACE_NAMES, FRICTION_NAMES, surfaceRows, offroadCoordinateEvidence } from "../web/js/flm-training-results.js"
+import { parkedAnalysisProgress, validTrainingResults, trainingSummary, detailText, learningReason, offroadView, tunerStatus, SURFACE_NAMES, FRICTION_NAMES, surfaceRows, offroadCoordinateEvidence } from "../web/js/flm-training-results.js"
 
 const report = () => ({ version: 1, current: { fresh: true, ageSeconds: .1, enabled: true,
   status: "collecting", reason: "independent_evidence", progress: { samples: 140, blocks: 3, requiredBlocks: 16 },
@@ -192,3 +192,26 @@ adjustedSlider.current.details['Full surface coordinates'][0][1] = .005
 assert.match(offroadCoordinateEvidence(adjustedSlider, SURFACE_NAMES[0]), /Auto Learn saved: \+0.005 for the next drive/)
 assert(surfaceRows(adjustedSlider, false).every(row => row.applied === null))
 console.log('Saved curve and slider adjustments, unsaved recommendations, absent history and current application reconcile without writes')
+
+// Current scan counts must never come from an earlier retained assessment.
+const scan = report();scan.current.status = 'fitting';scan.current.reason = 'analyzing_last_completed_drive'
+scan.current.details['Original route segments reviewed'] = [99, 99]
+assert.equal(parkedAnalysisProgress(scan).percent, null)
+for (const [phase, percent] of [['reading', 20], ['verifying', 20], ['checking', null]]) {
+  scan.current.details['Parked analysis progress'] = [phase, 2, 10]
+  assert(validTrainingResults(scan))
+  assert.equal(parkedAnalysisProgress(scan).percent, percent)
+  assert.equal(parkedAnalysisProgress(scan).detail, '2 of 10 sections read in this recording')
+}
+for (const counts of [[11, 10], [-1, 10], [true, 10], [1, 181], [1.5, 10], [null, null]]) {
+  scan.current.details['Parked analysis progress'] = ['reading', ...counts]
+  assert.equal(parkedAnalysisProgress(scan).percent, null)
+  assert.equal(parkedAnalysisProgress(scan).total, null)
+}
+scan.current.details = {};scan.current.reason = 'loading_parked_analysis'
+assert.equal(parkedAnalysisProgress(scan).phase, 'preparing')
+for (const reason of ['not_a_phase', 'constructor', 'toString']) {
+  scan.current.reason = reason;assert.equal(parkedAnalysisProgress(scan), null)
+}
+scan.current.status = 'collecting';assert.equal(parkedAnalysisProgress(scan), null)
+console.log('Current section progress, indeterminate checks, retained-count separation and malformed-count refusal passed')
