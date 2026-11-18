@@ -101,19 +101,6 @@ GV70_CALM_ENTER_SPEED = 4.0
 GV70_CALM_EXIT_SPEED = 4.5
 GV70_CALM_RAMP_IN_SECONDS = 1.5
 GV70_CALM_RAMP_OUT_SECONDS = 0.3
-# Approach-phase build (see the block in update() for the gates). The
-# history window is ~0.5 s at 100 Hz; the boost is a magnitude in
-# lateral-accel units, ramped per frame, added to feedforward only.
-GV70_APPROACH_WINDOW_FRAMES = 50
-GV70_APPROACH_SIGN_FLIP_CURVATURE = 0.008
-GV70_APPROACH_MIN_CURVATURE = 0.003
-GV70_APPROACH_MIN_TREND = 0.001
-GV70_APPROACH_SPEED_BP = [8.0, 12.0]
-GV70_APPROACH_SETPOINT_BP = [0.3, 1.0, 1.9]
-GV70_APPROACH_BOOST_CAP = 0.45
-GV70_APPROACH_BOOST_STEP = 0.05
-
-
 # The helpers below mirror the named Ioniq 6 helpers, with the same
 # signatures and formulas, for the branches the GV70 uses.
 # ioniq6_policy.py itself is untouched and no Ioniq 6 function is
@@ -233,11 +220,6 @@ class GenesisGV70TorquePolicy:
     self._moveoff_frames = 0
     self._calm_lsf_amount = 0.0
     self._calm_speed_band = False
-    # Approach-build state.
-    # 50 frames = ~0.5 s at 100 Hz; boost is a magnitude in lateral-accel
-    # units, ramped at 0.05/frame, and is added to feedforward only.
-    self.approach_curv_hist = deque([0.0] * GV70_APPROACH_WINDOW_FRAMES, maxlen=GV70_APPROACH_WINDOW_FRAMES)
-    self.approach_boost = 0.0
 
   def update(self, active, CS, VM, params, steer_limited_by_safety, desired_curvature, curvature_limited, lat_delay):
     parent = self.parent
@@ -253,8 +235,6 @@ class GenesisGV70TorquePolicy:
       self._moveoff_frames = 0
       self._calm_lsf_amount = 0.0
       self._calm_speed_band = False
-      self.approach_boost = 0.0
-      self.approach_curv_hist.append(desired_curvature)
       self.curvature_request_buffer.append(desired_curvature)
       self.previous_measurement = measurement
       self.measurement_rate_filter.x = 0.0
@@ -351,54 +331,6 @@ class GenesisGV70TorquePolicy:
     if not CS.steeringPressed and not self.prev_steering_pressed and self.previous_feedforward is not None:
       ff = get_genesis_gv70_stabilized_output(ff, self.previous_feedforward, setpoint,
                                             desired_lateral_jerk, CS.vEgo, self.dt)
-    # --- Approach-phase build ---
-    # Build steering angle earlier, while the approach is below
-    # saturation and headroom exists, so the wheel is further along
-    # when demand peaks and the saturated core can maintain it. This
-    # cannot raise max EPS or max command (both still capped by PID
-    # limits and the car controller); it only moves command earlier
-    # in a rising-curvature approach.
-    # Gates (all must hold for target > 0):
-    #  * curvature rising for ~0.5 s, same sign, no sign flip > 0.008
-    #    in that window (stable path, not a transient / lane change step)
-    #  * |desired_curvature| >= 0.003 (R <= ~333 m; straight driving
-    #    sits at ~0.0001, so 0.003 is well above straight noise)
-    #  * 0.5 s curvature trend >= 0.001
-    #  * speed >= 8 m/s, full above 12 m/s
-    #  * setpoint in the approach zone 0.3-1.9 latAccel, full at 1.0,
-    #    fading to 0 at the 1.9 cap (no effect in saturated cores)
-    #  * driver not pressed, not safety/curvature limited
-    # Not gated on lane confidence: LatControlTorque.update receives
-    # no model lane-confidence signal, so a low-confidence curve
-    # cannot be excluded here.
-    # Negative consequences, mitigated by the gates + cap + ramp:
-    #  * steering into a curve early on a wrong model path -> cuts
-    #    the corner / drifts inside (mitigated: sign-stable 0.5 s
-    #    trend, curvature threshold, capped boost, ramped in/out)
-    #  * overshoot / oscillation on unwind (mitigated: boost fades
-    #    to 0 as setpoint approaches the cap and ramps down at
-    #    0.05/frame when the gate closes, not a step)
-    #  * false trigger on a lane change / demand spike (mitigated:
-    #    0.5 s sign-stable trend, not a single-frame jerk spike)
-    #  * abrupt feel at high speed (mitigated: cap 0.45 latAccel,
-    #    ramped, not a step to full command)
-    #  * if the demand peak still exceeds the cap, this only delays
-    #    the shortfall, it does not fix it.
-    self.approach_curv_hist.append(desired_curvature)
-    _trend = desired_curvature - self.approach_curv_hist[0] if len(self.approach_curv_hist) >= GV70_APPROACH_WINDOW_FRAMES else 0.0
-    _sign_stable = not any(v * desired_curvature < 0.0 and abs(v) > GV70_APPROACH_SIGN_FLIP_CURVATURE for v in self.approach_curv_hist)
-    _rising = (_trend * desired_curvature > 0.0 and abs(_trend) >= GV70_APPROACH_MIN_TREND
-               and abs(desired_curvature) >= GV70_APPROACH_MIN_CURVATURE and _sign_stable)
-    _target_boost = 0.0
-    if (_rising and not CS.steeringPressed and not steer_limited_by_safety
-        and not curvature_limited and setpoint != 0.0):
-      _speed_w = float(np.interp(CS.vEgo, GV70_APPROACH_SPEED_BP, [0.0, 1.0]))
-      _mag_w = float(np.interp(abs(setpoint), GV70_APPROACH_SETPOINT_BP, [0.0, 1.0, 0.0]))
-      _target_boost = GV70_APPROACH_BOOST_CAP * _speed_w * _mag_w
-    _boost_step = float(np.clip(_target_boost - self.approach_boost, -GV70_APPROACH_BOOST_STEP, GV70_APPROACH_BOOST_STEP))
-    self.approach_boost += _boost_step
-    if self.approach_boost != 0.0 and setpoint != 0.0:
-      ff += math.copysign(self.approach_boost, setpoint)
     self.previous_feedforward = ff
     error_rate = 0.0 if CS.steeringPressed else -measurement_rate
     freeze_integrator = steer_limited_by_safety or CS.steeringPressed or CS.vEgo < self.low_speed_reset_threshold or unwind_detected

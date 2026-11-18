@@ -221,34 +221,6 @@ def test_calm_moveoff_is_immediate_while_speed_entry_ramps():
   assert selected2._calm_lsf_amount == pytest.approx(0.1, abs=0.02)
 
 
-def test_approach_build_boosts_rising_curvature_and_is_capped():
-  _, controller, vm, cs, params = controller_for()
-  selected = selected_policy(controller)
-  cs.vEgo = 10.0
-  for _ in range(60):
-    update(controller, vm, cs, params, curvature=0.005)
-  assert selected.approach_boost == 0.0  # constant curvature: no trend, no boost
-
-  _, controller2, vm2, cs2, params2 = controller_for()
-  selected2 = selected_policy(controller2)
-  cs2.vEgo = 10.0
-  curvature = 0.0035
-  for _ in range(80):
-    curvature += 0.00005
-    update(controller2, vm2, cs2, params2, curvature=curvature)
-  # Speed weight at 10 m/s is 0.5, so the target can never exceed 0.45 * 0.5.
-  assert 0.02 < selected2.approach_boost <= 0.45 * 0.5
-
-  _, controller3, vm3, cs3, params3 = controller_for()
-  selected3 = selected_policy(controller3)
-  cs3.vEgo = 15.0
-  curvature = 0.003
-  for _ in range(80):
-    curvature += 0.00003
-    update(controller3, vm3, cs3, params3, curvature=curvature)
-  assert 0.1 < selected3.approach_boost <= 0.45  # hard cap at full speed weight
-
-
 def test_learned_calibration_updates_stay_raw_without_new_multipliers():
   cp, controller, *_ = controller_for()
   factor = cp.lateralTuning.torque.latAccelFactor
