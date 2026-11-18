@@ -184,7 +184,7 @@ class TestRegisteredDeviceVehicleIdentity(unittest.TestCase):
     exec(compile(source, 'published-steering-compatibility', 'exec'), namespace)
     old_revision = namespace['revision'](old_root, *(old_root / path.relative_to(root) for path in files), names, native)
     descriptor = selected_descriptor(self.cp, ci, controller)
-    self.assertIsNotNone(descriptor)
+    assert descriptor is not None
     self.assertEqual(descriptor.controller_revision, old_revision)
     scope = current_scope(self.cp, self.params)
     previous: dict[str, Any] = {}
@@ -210,7 +210,7 @@ class TestRegisteredDeviceVehicleIdentity(unittest.TestCase):
     self.cp.carVin = '0' * 17
     ci, controller = _current_controller(self.cp, self.params)
     unknown = selected_descriptor(self.cp, ci, controller)
-    self.assertIsNotNone(unknown)
+    assert unknown is not None
     self.assertNotEqual(unknown.controller_revision, old_revision, 'New fallback identity never inherits legacy qualification')
 
   def test_known_vin_transition_rejects_unreviewed_sources_and_still_binds_controller_safety_and_native(self):
