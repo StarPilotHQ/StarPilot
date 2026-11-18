@@ -192,20 +192,25 @@ export const ONROAD_LAYOUT_TEMPLATE = `
               <div ref="widgetsHelp" class="gx-layout__subhead gx-layout__help-anchor"><h3>Widgets</h3><span>{{ activeWidgets.length }} active</span>
                 <button class="gx-icon-btn gx-layout__info" type="button" :aria-expanded="state.widgetsHelpOpen" aria-controls="gx-layout-widgets-help" aria-label="How the widget list works" title="How the widget list works" @click="toggleFloating('widgetsHelpOpen', 'widgetsHelp')"><i class="bi bi-info-circle" aria-hidden="true"></i></button>
                 <GxCollapse><div v-show="state.widgetsHelpOpen" id="gx-layout-widgets-help" class="gx-layout__popover" @click="closeFloating('widgetsHelpOpen')" @keydown.esc="closeFloating('widgetsHelpOpen')">
-                  <p>Tap a widget to edit it.</p><p>Drag ⠿ to reorder. The top row is in front. Side cameras always overlay other widgets; alerts remain above them.</p><p>The eyes follow the chosen scene. Choose General edit to arrange every enabled widget. Hiding a widget with the eye affects only this scene's preview.</p>
+                  <p>Tap a widget to edit it.</p><p>Drag ⠿ to reorder. The top row is in front, and alerts stay above all widgets. Side cameras are locked to the front; unlock them to move widgets above.</p><p>The eyes follow the chosen scene. Choose General edit to arrange every enabled widget. Hiding a widget with the eye affects only this scene's preview.</p>
                 </div></GxCollapse>
               </div>
               <div class="gx-layout__widget-list"><div v-for="widget in listWidgets" :key="widget.id" class="gx-layout__layer" :data-layer-id="widget.id"
                 :class="{'is-dragging': state.layerDrag?.id === widget.id && state.layerDrag?.moved, 'is-drop-target': state.layerDrag?.target === widget.id && state.layerDrag?.id !== widget.id, 'is-drop-after': state.layerDrag?.after}">
                 <button class="gx-layout__row-grip gx-icon-btn" type="button"
-                  :aria-label="widget.frontmost ? widget.label + ' is pinned above all widgets' : 'Reorder ' + widget.label"
-                  :disabled="!editAvailable || !!state.drag || widget.frontmost"
-                  :title="widget.frontmost ? 'Always above other widgets' : 'Drag to reorder. Up and down keys reorder.'"
+                  :aria-label="widget.frontmost ? widget.label + ' is pinned above all widgets' : layerFixed(widget.id) ? widget.label + ' is locked in front' : 'Reorder ' + widget.label"
+                  :disabled="!editAvailable || !!state.drag || layerFixed(widget.id)"
+                  :title="widget.frontmost ? 'Always above other widgets' : layerFixed(widget.id) ? 'Locked in front. Unlock to reorder.' : 'Drag to reorder. Up and down keys reorder.'"
                   @pointerdown="startLayerDrag($event, widget.id)" @pointermove="moveLayerDrag($event)"
                   @pointerup="endLayerDrag($event)" @pointercancel="endLayerDrag($event, true)" @lostpointercapture="endLayerDrag($event, true)"
-                  @keydown="layerKey($event, widget.id)" @click="layerClick($event, widget.id)"><span aria-hidden="true">{{ widget.frontmost ? '↑' : '⠿' }}</span></button>
+                  @keydown="layerKey($event, widget.id)" @click="layerClick($event, widget.id)"><span aria-hidden="true">{{ layerFixed(widget.id) ? '↑' : '⠿' }}</span></button>
                 <button class="gx-layout__layer-name" type="button" :aria-pressed="state.selected === widget.id" :disabled="!!state.drag || !!state.layerDrag"
                   @click="selectWidget(widget.id)">{{ widget.label }}</button>
+                <button v-if="cameraIds.includes(widget.id)" class="gx-layout__visibility gx-icon-btn" type="button" :disabled="!editAvailable || !!state.drag || !!state.layerDrag"
+                  :aria-label="camerasLocked ? 'Unlock side cameras' : 'Lock side cameras in front'" :title="camerasLocked ? 'Locked in front. Tap to unlock.' : 'Tap to lock side cameras in front.'"
+                  :aria-pressed="camerasLocked" @click="toggleCameraLock">
+                  <i class="bi" :class="camerasLocked ? 'bi-lock-fill' : 'bi-unlock'" aria-hidden="true"></i>
+                </button>
                 <button v-if="!projection || widget.id !== 'car_exit'" class="gx-layout__visibility gx-icon-btn" type="button" :disabled="!!state.drag || !!state.layerDrag || sceneHidden(widget.id)"
                   :aria-label="visibilityTitle(widget.id, widget.label)"
                   :title="visibilityTitle(widget.id, widget.label)"
@@ -407,6 +412,14 @@ export const ONROAD_LAYOUT_TEMPLATE = `
         <div class="gx-settings__controls gx-actions">
           <button type="button" class="gx-btn gx-btn--tonal" @click="cancelRemove">Cancel</button>
           <button type="button" class="gx-btn gx-btn--danger" @click="confirmRemove">Remove widget</button>
+        </div>
+      </GxDialog>
+      <GxDialog v-if="state.pipUnlockConfirm" labelledby="gx-layout-pip-unlock-title" describedby="gx-layout-pip-unlock-body" alert @close="cancelCameraUnlock">
+        <div><h3 id="gx-layout-pip-unlock-title">Unlock side cameras?</h3>
+          <p id="gx-layout-pip-unlock-body">Warning: moving other widgets on top of the side cameras may block your view of the blind-spot camera. Are you sure?</p></div>
+        <div class="gx-settings__controls gx-actions">
+          <button type="button" class="gx-btn gx-btn--tonal" @click="cancelCameraUnlock">Cancel</button>
+          <button type="button" class="gx-btn gx-btn--danger" @click="confirmCameraUnlock">Unlock</button>
         </div>
       </GxDialog>
       <GxDialog v-if="modalLeavePrompt" class="gx-layout__leave-dialog" :inert="busy" labelledby="gx-layout-leave-title" describedby="gx-layout-leave-body" alert @close="cancelLeave">

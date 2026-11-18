@@ -250,8 +250,6 @@ class _Canvas:
 
   def _render_background(self, rect: rl.Rectangle, state: OnroadState) -> None:
     render_sample_road(rect, state, self.profile)
-    if not state.customization.get("widgetOrder", {}).get(str(self.profile)) and self.viewport is None:
-      self._render_side_cameras(state)
 
   @staticmethod
   def _map_placement(state: OnroadState):
@@ -265,9 +263,11 @@ class _Canvas:
       self.map.draw(rl.Rectangle(placed["x"] + shift, placed["y"], placed["width"], placed["height"]), placed["opacity"] / 100.0)
 
   def _render_preview_pip(self, rect, state, *, submit=None):
-    if submit is not None:
-      for key in CAMERA_WIDGETS:
-        submit(key, lambda key=key: self._render_side_cameras(state, only=key))
+    if submit is None:
+      self._render_side_cameras(state)
+      return
+    for key in CAMERA_WIDGETS:
+      submit(key, lambda key=key: self._render_side_cameras(state, only=key))
 
   def _render_side_cameras(self, state: OnroadState, only=None) -> None:
     for key in CAMERA_WIDGETS:
@@ -280,7 +280,7 @@ class _Canvas:
       radius = widget["width"] / 2
       shift = state.viewport_width - 1860 if self.profile == Profile.LARGE and key == "pip_right" and self.viewport is None else 0
       center = rl.Vector2(position["x"] + shift + radius, position["y"] + radius)
-      rl.draw_circle_v(center, radius, rl.Color(21, 44, 57, 230))
+      rl.draw_circle_v(center, radius, rl.Color(21, 44, 57, 90))
       rl.draw_ring(center, radius - 3, radius, 0, 360, 64, rl.Color(94, 229, 238, 255))
 
   def _render_driver_monitor(self, rect: rl.Rectangle, state: OnroadState, *, general: bool = False) -> None:

@@ -105,12 +105,12 @@ def test_renderer_dispatches_each_widget_in_saved_order(profile, viewport):
   from pathlib import Path
   from types import SimpleNamespace as NS
   from unittest.mock import Mock
-  from openpilot.starpilot.ui.onroad_customization import MODE_WIDGET, STOPPED_TIMER_WIDGET, placement, rendered_widget_order, RAIL_WIDGETS
+  from openpilot.starpilot.ui.onroad_customization import MODE_WIDGET, STOPPED_TIMER_WIDGET, placement, widget_order, RAIL_WIDGETS
 
   source = Path(__file__).parents[1] / 'onroad.py'
   tree = ast.parse(source.read_text())
   method = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == '_ordered_widgets')
-  namespace: dict[str, Any] = {'CLOCK_WIDGET': CLOCK_WIDGET, 'MODE_WIDGET': MODE_WIDGET, 'placement': placement, 'rendered_widget_order': rendered_widget_order,
+  namespace: dict[str, Any] = {'CLOCK_WIDGET': CLOCK_WIDGET, 'MODE_WIDGET': MODE_WIDGET, 'placement': placement, 'widget_order': widget_order,
                              'RAIL_WIDGETS': RAIL_WIDGETS, 'STOPPED_TIMER_WIDGET': STOPPED_TIMER_WIDGET,
                              'render_rear_fog': lambda *args: seen.append('rear_fog'),
                'manual_slc_confirmation': lambda profile, state: False, 'AlertSize': NS(NONE='none', FULL='full'), 'CameraViewChoice': NS(NONE='none'),
@@ -154,7 +154,7 @@ def test_renderer_dispatches_each_widget_in_saved_order(profile, viewport):
   state = NS(customization=document, camera_available=True, viewport_width=1860, alert=NS(size='none'), stopped_duration_s=65,
              appearance=NS(camera_view='road'))
   namespace['_ordered_widgets'](view, NS(x=30, y=30, width=1800, height=1020), state)
-  assert seen == [key for key in order if key not in ("pip_left", "pip_right")] + [key for key in order if key in ("pip_left", "pip_right")]
+  assert seen == order
   view.pip_layer.assert_called_once()  # Acquire the camera frame once, then draw each side at its layer.
   for selected in order:
     seen.clear()
