@@ -214,6 +214,42 @@ def test_recorded_highway_wobble_is_found_at_the_bookmark_without_new_applicatio
   observation = recorded_observation('center_chatter', 'center', events[0]['peakScore'], 35.)
   assert not coordinate_candidates([('same-source-window', observation)] * 20, values())
   assert coordinate_candidates([(str(i), observation) for i in range(3)], values())
+  assert not oscillation_events([replace(s, actual_la=s.desired_la, error=0.) for s in samples])
+
+
+def test_recorded_turn_forecasts_use_the_existing_turn_repair_with_fresh_sources():
+  import json
+  from pathlib import Path
+  from openpilot.cereal import log
+  from openpilot.starpilot.lateral.lane_change_smoothing import LaneChangeSmoother
+  from openpilot.starpilot.lateral.signal_turn import SignalTurnEvidence
+  from openpilot.starpilot.lateral.tests.test_signal_turn import BASE, OFFSET, frame
+
+  fixture = json.loads((Path(__file__).parent / 'fixtures/recorded_turn_forecasts.json').read_text())
+  assert fixture['source_sha256'] == '8a6d6067a6e0d4596fa8fcbbf4cf564d811d04b3844f6b5500f1ee0cacae2d1e'
+  owner, smoother = SignalTurnEvidence(), LaneChangeSmoother()
+  confirmed_before_lane_change = False
+  for row in fixture['rows']:
+    # Original numerical inputs; explicitly declared fresh receiver clocks, not a historical authority reconstruction.
+    sm, _, model = frame(0, 1)
+    now = BASE + row['dt_ns']
+    sm.logMonoTime, sm.recv_time = dict.fromkeys(sm, now), dict.fromkeys(sm, now / 1e9)
+    for name, value in row['car'].items():
+      setattr(sm['carState'], name, value)
+    sm['carControl'].latActive, sm['deviceState'].started = row['lat_active'], row['started']
+    sm['longitudinalPlan'].modelMonoTime, sm['longitudinalPlan'].shouldStop = now, row['plan_stop']
+    model.timestampEof, model.action.shouldStop = now + OFFSET, row['model_stop']
+    model.meta.desirePrediction, model.meta.laneChangeState = row['prediction'], row['lane_change_state']
+    ready = owner.observe(sm, model, model_ns=now, now_ns=now, now_boot_ns=now + OFFSET, valid=row['model_valid'], enabled=True)
+    state = model.meta.laneChangeState
+    if ready and state in (log.LaneChangeState.off, log.LaneChangeState.preLaneChange):
+      confirmed_before_lane_change = True
+    if state == log.LaneChangeState.laneChangeStarting:
+      assert confirmed_before_lane_change and ready
+      factor = smoother.factor(active=True, lane_change_state=state, speed=row['car']['vEgo'], minimum_speed=0., duration=5.777777777777778,
+                               previous=.0015, desired=.015, turn_assist=True, intersection_turn=ready)
+      assert factor == 1., 'A confirmed intersection must not receive the extra lane-change slowing'
+  assert confirmed_before_lane_change
 
 
 @pytest.mark.parametrize('kind', ['follows_request', 'small_error', 'one_lane_change', 'steady_curve', 'wheel_only',

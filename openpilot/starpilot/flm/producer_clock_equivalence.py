@@ -18,7 +18,7 @@ PRODUCER_SOURCE_HASHES = (
   ('openpilot', 'system/camerad/cameras/spectra.cc', '4fa26c17f0fb792a4ab6815657beccddee1d641faa2fd02e5aa7393f717a2f3a'),
   ('openpilot', 'system/camerad/cameras/camera_qcom2.cc', 'b34c24c9984a0ac086f7b961cb7ff09d0501231da50aaad0e676bb3dc3f2edd9'),
   ('openpilot', 'system/camerad/cameras/camera_common.cc', 'bd9a416a6ee21047b4deec6df04276d8717cd92fe14de43f3e9daff86b62bb8f'),
-  ('openpilot', 'selfdrive/modeld/modeld.py', '1b8d96ca9f7ac267d180732a6646b128bcbaec9ac79f80814030ec84197fd9d5'),
+  ('openpilot', 'selfdrive/modeld/modeld.py', '58dc00dcfc6a497469ce71698f71650abcc5c995b299d560b576d291422eed3b'),
   ('openpilot', 'starpilot/car/volkswagen/model_smoothing.py', 'dd5d0ddaf77fe05960b673557b1b9f649d303ddfdad77a5185c7b3156fc6bbd2'),
   ('openpilot', 'starpilot/car/hyundai/model_smoothing.py', '28b1b8c64dd2d8e83f1bc71d39de7f797741d0911b39b7184a6e2d7d34d75243'),
   ('openpilot', 'selfdrive/modeld/fill_model_msg.py', 'b3916c34d1073d0c26a7a8adc51e7b148f63a1ac68b388226170fd0f8b8b56b4'),
