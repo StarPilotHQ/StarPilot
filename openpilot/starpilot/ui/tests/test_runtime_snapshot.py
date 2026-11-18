@@ -582,6 +582,25 @@ class TestRuntimeSnapshot(unittest.TestCase):
         self.assertEqual(state.personality, 2)
         self.assertEqual(reads.count('LongitudinalPersonality'), 1)
 
+  def test_updater_failure_is_visible_bounded_and_clears_after_success(self):
+    ui = ui_fake()
+    ui.params.values.update(UpdaterState="idle", UpdateFailedCount=1,
+                            LastUpdateException="AGNOS hash mismatch\n" + "x" * 5000)
+    adapter = RuntimeSnapshotAdapter(ui)
+    failed = adapter.build(ShellMode.SETTINGS, now_ns=NOW).software
+    self.assertTrue(failed.download_status.startswith("Update failed: AGNOS hash mismatch "))
+    self.assertLessEqual(len(failed.download_status), 4111)
+    ui.params.values["UpdaterState"] = "downloading..."
+    self.assertEqual(adapter.build(ShellMode.SETTINGS, now_ns=NOW+1).software.download_status, "downloading...")
+    ui.params.values.update(UpdaterState="idle", UpdateFailedCount=0)
+    self.assertNotIn("hash mismatch", adapter.build(ShellMode.SETTINGS, now_ns=NOW+2).software.download_status)
+
+  def test_updater_missing_exception_retains_failure(self):
+    ui = ui_fake()
+    ui.params.values.update(UpdaterState="idle", UpdateFailedCount="2")
+    snapshot = RuntimeSnapshotAdapter(ui).build(ShellMode.SETTINGS, now_ns=NOW).software
+    self.assertEqual(snapshot.download_status, "Update failed: Updater reported a failure")
+
   def test_onroad_ancillary_reads_are_bounded_and_settings_refreshes_immediately(self):
     ui = ui_fake()
     ui.params.values['UpdaterState'] = 'idle'
@@ -1122,6 +1141,14 @@ class TestParkedClockDomains(unittest.TestCase):
     current = self.adapter.confirmed_offroad()
     self.assertEqual(current, self.adapter.build(ShellMode.SETTINGS, now_ns=self.mono).device.offroad)
     return current
+
+  def test_updater_error_log_requires_fresh_offroad_state(self):
+    from openpilot.starpilot.ui.software_state import SoftwareRequest
+    self.assertIn(SoftwareRequest.OPEN_ERROR_LOG,
+                  self.adapter.build(ShellMode.SETTINGS, now_ns=self.mono).software.available_actions)
+    self.ui.sm.valid["deviceState"] = False
+    self.assertNotIn(SoftwareRequest.OPEN_ERROR_LOG,
+                     self.adapter.build(ShellMode.SETTINGS, now_ns=self.mono).software.available_actions)
 
   def test_authority_check_does_not_read_preferences_or_change_display_mode(self):
     self.adapter._last_mode = ShellMode.ONROAD

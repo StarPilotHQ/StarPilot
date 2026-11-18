@@ -867,9 +867,12 @@ class RuntimeSnapshotAdapter:
     available = _flag(params, "UpdaterFetchAvailable")
     status = "updater status unavailable" if not updater_state else updater_state if updater_state != "idle" else (
       "update available" if available else "up to date, last checked " + ("previously" if _text(params, "LastUpdateTime") else "never"))
+    if updater_state == "idle" and _text(params, "UpdateFailedCount", "0") not in ("", "0"):
+      error = _text(params, "LastUpdateException", "Updater reported a failure")[:4096]
+      status = "Update failed: " + " ".join(error.split())
     software_actions: set[SoftwareRequest] = set()
     if confirmed_offroad:
-      software_actions.add(SoftwareRequest.OPEN_UNINSTALL_CONFIRMATION)
+      software_actions.update((SoftwareRequest.OPEN_UNINSTALL_CONFIRMATION, SoftwareRequest.OPEN_ERROR_LOG))
       if updater_state == "idle":
         software_actions.update((SoftwareRequest.FAST_UPDATE, SoftwareRequest.ROLLBACK))
         software_actions.add(SoftwareRequest.DOWNLOAD_UPDATE if available else SoftwareRequest.CHECK_FOR_UPDATES)
