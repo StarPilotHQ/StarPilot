@@ -52,7 +52,15 @@ class StatusReport:
         for key in ('configuration_state', 'configured_values', 'saved_adjustments', 'qualification_summary'):
           if key in self.previous:
             previous[key] = self.previous[key]
-    self.set({**(previous or value), 'status': 'fitting', 'reason': value['reason'], 'retained_analysis': bool(previous)}, diagnostic_value=value)
+    counts = value.get('analysis_counts', {})
+    if type(counts) is not dict:
+      counts = {}
+    phase = ('preparing' if value['reason'] == 'loading_parked_analysis' else
+             'reading' if value['reason'] == 'analyzing_last_completed_drive' else 'checking')
+    progress = value.get('analysis_progress', {'phase': phase,
+      'completed': counts.get('original_segments_reviewed'), 'total': counts.get('original_segments_available')})
+    self.set({**(previous or value), 'status': 'fitting', 'reason': value['reason'], 'retained_analysis': bool(previous),
+              'analysis_progress': progress}, diagnostic_value=value)
 
   def restore(self, cache):
     """Recover historical display data, never a current tune or permission."""
@@ -114,6 +122,12 @@ class StatusReport:
       return value if type(value) is int and 0 <= value < 2**63 else 0
 
     details: dict[str, Any] = {'Analysis runs while parked': True, 'Next-drive trial is reversible': True, 'Physical road improvement proven': False}
+    progress = value.get('analysis_progress')
+    if value.get('status') == 'fitting' and type(progress) is dict and progress.get('phase') in ('preparing', 'reading', 'verifying', 'checking'):
+      completed, total = progress.get('completed'), progress.get('total')
+      if not (type(completed) is int and type(total) is int and 0 <= completed <= total <= 180 and total > 0):
+        completed = total = None
+      details['Parked analysis progress'] = [progress['phase'], completed, total]
     if value.get('vehicle_identity') == 'unavailable':
       details['Recorded vehicle identity'] = 'unavailable'
     if self.diagnostics is not None and self.diagnostics.error:
@@ -402,6 +416,7 @@ def _run():
       elif parked() and time.monotonic() >= next_analysis:
         if worker is None:
           report.analyzing({'status': 'fitting', 'reason': 'loading_parked_analysis'})
+          report.publish()
           from openpilot.starpilot.flm.offroad_worker import OffroadWorker
 
           worker = OffroadWorker(
@@ -410,6 +425,9 @@ def _run():
             cache,
             permitted=permitted,
             on_analysis=lambda: report.analyzing({'status': 'fitting', 'reason': 'analyzing_last_completed_drive'}),
+            on_progress=lambda progress: report.analyzing({'status': 'fitting', 'reason':
+              'checking_recorded_steering_recommendations' if progress['phase'] == 'checking' else 'analyzing_last_completed_drive',
+              'analysis_progress': progress}),
             on_assessment=lambda a: report.analyzing(
               {
                 'status': 'fitting',
