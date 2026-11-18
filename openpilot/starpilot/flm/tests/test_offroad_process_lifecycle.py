@@ -134,7 +134,7 @@ assert 'opendbc.car.car_helpers' not in sys.modules
         params.put_bool('IsOffroad', True, block=True)
 
       report = SimpleNamespace(restore=lambda cache: events.append('history-restored'), set=lambda value: None,
-                               publish=lambda: None, analyzing=lambda value: None)
+                               publish=lambda: events.append('published'), analyzing=lambda value: events.append(('analysis', value['reason'])))
       with patch.object(daemon, 'Params', return_value=params), patch.object(daemon.messaging, 'SubMaster', return_value=sm), \
            patch.object(daemon, 'StatusReport', return_value=report), \
            patch.object(daemon, 'wait_for_parked', side_effect=lambda *a, stopped, **k: not stopped() and params.get_bool('IsOffroad')), \
@@ -142,6 +142,9 @@ assert 'opendbc.car.car_helpers' not in sys.modules
            patch('openpilot.starpilot.flm.offroad_source.record_drive', side_effect=drive):
         restart = daemon._run()
       self.assertEqual(params.get(KEY), b'declared-existing-saved-tune')
+      preparing = events.index(('analysis', 'loading_parked_analysis'))
+      self.assertEqual(events[preparing + 1], 'published', 'Preparation must reach the UI before optimizer construction')
+      self.assertLess(preparing + 1, events.index('parked-worker'))
       self.assertIn(('cancelled', True), events)
       self.assertIn('child-reaped', events)
       self.assertEqual(sum(isinstance(e, tuple) and e[0] == 'closed' for e in events), 3)

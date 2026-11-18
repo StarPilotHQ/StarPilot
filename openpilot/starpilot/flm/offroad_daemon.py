@@ -416,6 +416,7 @@ def _run():
       elif parked() and time.monotonic() >= next_analysis:
         if worker is None:
           report.analyzing({'status': 'fitting', 'reason': 'loading_parked_analysis'})
+          report.publish()
           from openpilot.starpilot.flm.offroad_worker import OffroadWorker
 
           worker = OffroadWorker(
