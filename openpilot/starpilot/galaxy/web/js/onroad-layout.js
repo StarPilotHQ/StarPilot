@@ -763,8 +763,7 @@ export const OnroadLayoutPage = {
     selectWidget(id) {
       this.state.selected = id
       this.state.touchArmed = id
-      this.state.inspectorPanel = "edit"
-      this.revealEditPanel()
+      this.openEditPanel()
     },
     // Tapping empty preview space or anywhere outside the editor lets go of the selected widget.
     deselectWidget() {
@@ -776,14 +775,18 @@ export const OnroadLayoutPage = {
     previewClick(event) {
       if (!event.target?.closest?.(".gx-layout__widget")) this.deselectWidget()
     },
-    // On narrow screens a picked widget brings its edit controls up to just under the pinned tabs.
+    openEditPanel() {
+      this.state.inspectorPanel = "edit"
+      this.revealEditPanel()
+    },
+    // On narrow screens the edit controls always open with their top just under the pinned tabs.
     revealEditPanel() {
       if (typeof window === "undefined") return
       const align = () => {
         const tabs = this.$refs.sections, panel = this.$refs.editPanel
         if (!tabs || !panel || getComputedStyle(tabs).position !== "sticky") return
         const gap = panel.getBoundingClientRect().top - tabs.getBoundingClientRect().bottom - 8
-        if (gap < 0) window.scrollBy(0, gap)
+        if (Math.abs(gap) >= 1) window.scrollBy(0, gap)
       }
       this.$nextTick(() => { align(); setTimeout(align, 220) })
     },
@@ -1428,8 +1431,7 @@ export const OnroadLayoutPage = {
         this.state.touchArmed = id
         this.state.selected = id
         this.finishColorEdit()
-        this.state.inspectorPanel = "edit"
-        this.revealEditPanel()
+        this.openEditPanel()
         return
       }
       const drag = this.state.drag
@@ -1437,10 +1439,7 @@ export const OnroadLayoutPage = {
       this.moveDrag(event)
       if (drag.fromTray && !drag.inside) Object.assign(this.layout[drag.id], drag.before)
       const before = drag.historyBefore, position = this.layout[drag.id]
-      if (!drag.fromTray && !drag.resize && !drag.moved) {
-        this.state.inspectorPanel = "edit"
-        this.revealEditPanel()
-      }
+      if (!drag.fromTray && !drag.resize && !drag.moved) this.openEditPanel()
       this.releaseDrag()
       this.recordChange(before)
     },

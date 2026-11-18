@@ -556,6 +556,7 @@ box-shadow: var(--glass-shadow);
 transition: transform var(--motion-slow), opacity var(--motion-base), background-color var(--motion-fast);
 max-width: calc(100vw - 32px);
 }
+.gx-ios-safari .blur-nav { bottom: calc(1px + env(safe-area-inset-bottom, 0px)); }
 .gx-nav-indicator { position: absolute; inset: 6px auto 6px 6px; width: calc((100% - 12px) / 4); border-radius: var(--radius-full); background: linear-gradient(135deg, rgba(255, 255, 255, .2), transparent 60%), var(--glass-active-bg); border: 1px solid var(--glass-border); box-shadow: inset 0 1px 1px rgba(255, 255, 255, .3), 0 3px 12px rgba(0, 0, 0, .15); transform: translateX(calc(var(--active-tab, 0) * 100%)); transition: transform 420ms cubic-bezier(.22, 1, .36, 1), scale 180ms ease; pointer-events: none; }
 .blur-nav:has(.nav-item:active) .gx-nav-indicator { scale: 1.035 1.06; }
 .blur-nav .nav-item i { transition: transform var(--motion-base); }
