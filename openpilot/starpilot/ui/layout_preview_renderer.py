@@ -278,7 +278,8 @@ class _Canvas:
         continue
       widget = PROFILES[str(self.profile)]["widgets"][key]
       radius = widget["width"] / 2
-      center = rl.Vector2(position["x"] + radius, position["y"] + radius)
+      shift = state.viewport_width - 1860 if self.profile == Profile.LARGE and key == "pip_right" and self.viewport is None else 0
+      center = rl.Vector2(position["x"] + shift + radius, position["y"] + radius)
       rl.draw_circle_v(center, radius, rl.Color(21, 44, 57, 230))
       rl.draw_ring(center, radius - 3, radius, 0, 360, 64, rl.Color(94, 229, 238, 255))
 

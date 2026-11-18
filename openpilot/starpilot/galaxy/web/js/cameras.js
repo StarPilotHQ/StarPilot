@@ -82,7 +82,7 @@ export const CamerasPage = {
   beforeUnmount() { document.removeEventListener("visibilitychange", this.visibility); this.snapshots.stop() },
   watch: { mode() { this.snapshots.stop() } },
   template: `
-    <div class="gx-view gx-settings" aria-label="Cameras and Monitoring">
+    <div class="gx-view gx-settings" aria-label="Cameras & Monitoring">
       <h2>Cameras &amp; Monitoring</h2>
       <div class="gx-grid">
         <MenuTile v-for="tool in tools" :key="tool.path" :icon="tool.icon" :title="tool.name" :description="tool.description"

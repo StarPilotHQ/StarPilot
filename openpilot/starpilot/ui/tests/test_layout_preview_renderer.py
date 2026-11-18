@@ -317,20 +317,22 @@ if __name__ == "__main__":
 
 
 def test_native_preview_draws_independent_camera_circles_without_camera_input():
-  canvas = _Canvas.__new__(_Canvas)
-  canvas.profile = Profile.COMPACT
-  document = default_document()
-  state = sample_state('engaged', document)
-  with patch('openpilot.starpilot.ui.layout_preview_renderer.rl.draw_circle_v') as circle, \
-       patch('openpilot.starpilot.ui.layout_preview_renderer.rl.draw_ring') as ring:
-    canvas._render_side_cameras(state)
-    assert circle.call_count == ring.call_count == 2
-    right_center = circle.call_args.args[0]
-    document['layouts']['compact']['pip_left']['enabled'] = False
-    document['layouts']['compact']['pip_left']['x'] = 150
-    circle.reset_mock()
-    ring.reset_mock()
-    canvas._render_side_cameras(sample_state('engaged', document))
-    assert circle.call_count == ring.call_count == 1
-    assert circle.call_args.args[0].x == right_center.x
-    assert circle.call_args.args[0].y == right_center.y
+  for profile, width in ((Profile.COMPACT, 536), (Profile.LARGE, 1860), (Profile.LARGE, 2160)):
+    canvas = _Canvas.__new__(_Canvas)
+    canvas.profile, canvas.viewport = profile, None
+    document = default_document()
+    state = replace(sample_state('engaged', document), viewport_width=width)
+    with patch('openpilot.starpilot.ui.layout_preview_renderer.rl.draw_circle_v') as circle, \
+         patch('openpilot.starpilot.ui.layout_preview_renderer.rl.draw_ring') as ring:
+      canvas._render_side_cameras(state)
+      assert circle.call_count == ring.call_count == 2
+      right_center, radius = circle.call_args.args[:2]
+      assert right_center.x + radius == (width - 54 if profile == Profile.LARGE else 460)
+      document['layouts'][str(profile)]['pip_left']['enabled'] = False
+      document['layouts'][str(profile)]['pip_left']['x'] = 150
+      circle.reset_mock()
+      ring.reset_mock()
+      canvas._render_side_cameras(replace(state, customization=document))
+      assert circle.call_count == ring.call_count == 1
+      assert circle.call_args.args[0].x == right_center.x
+      assert circle.call_args.args[0].y == right_center.y

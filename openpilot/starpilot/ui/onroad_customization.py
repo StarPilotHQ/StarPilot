@@ -230,7 +230,7 @@ for _profile, _geometry in {"large": (112, 70, 165, 294), "compact": (45, 28, 22
 
 ROAD_BASE_WIDTH = 1860
 SIDEBAR_EXTRA = 300
-ANCHOR_SHIFT = {"steering_wheel": 1.0, NAV_CARD_WIDGET: 1.0, NAV_MAP_WIDGET: 1.0,
+ANCHOR_SHIFT = {"steering_wheel": 1.0, "pip_right": 1.0, NAV_CARD_WIDGET: 1.0, NAV_MAP_WIDGET: 1.0,
                 "current_speed": .5, "torque_bar": .5, MODE_WIDGET: .5, CLOCK_WIDGET: .5, WEATHER_WIDGET: .5}
 for _key, _widget_data in PROFILES["large"]["widgets"].items():
   if _key in ANCHOR_SHIFT:
@@ -309,6 +309,12 @@ def validate_widget_order(order, widgets):
 
 def widget_order(document, profile):
   return document.get("widgetOrder", {}).get(str(profile), DEFAULT_WIDGET_ORDER[str(profile)])
+
+
+def rendered_widget_order(document, profile):
+  """Side cameras cover widgets regardless of the saved editor layer order."""
+  order = widget_order(document, profile)
+  return [key for key in order if key not in CAMERA_WIDGETS] + [key for key in order if key in CAMERA_WIDGETS]
 
 
 def widget_bounds(profile, widget):

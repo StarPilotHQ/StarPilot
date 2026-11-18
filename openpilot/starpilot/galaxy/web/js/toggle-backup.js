@@ -1,3 +1,4 @@
+import { MaintenanceGroup } from "./maintenance-group.js"
 import { GxDialog } from "./dialog.js"
 import { GxNotice } from "./notice.js"
 import { requestJson } from "./startup.js"
@@ -6,7 +7,7 @@ import { decodeLayoutBackup, MAX_LAYOUT_BACKUP_BYTES } from "./layout-backup.js"
 export const MAX_TOGGLE_BACKUP_BYTES = 256 * 1024
 export const ToggleBackup = {
   name: "ToggleBackup",
-  components: { GxDialog, GxNotice },
+  components: { GxDialog, GxNotice, MaintenanceGroup },
   props: { unauthorized: { type: Function, required: true } },
   data: () => ({ busy: false, draft: null, resetDraft: null, legacy: false, error: "", notice: "" }),
   methods: {
@@ -97,13 +98,14 @@ export const ToggleBackup = {
       finally { this.busy = false }
     },
   },
-  template: `<section class="gx-card gx-panel gx-stack" :inert="busy" :aria-busy="busy || undefined">
-    <div class="gx-section__header"><i class="bi bi-cloud-arrow-down" aria-hidden="true"></i><span class="gx-section__title">Toggle backup</span></div><p class="gx-note">Save your editable toggles, onroad layout and colors. Restore compatible settings while parked.</p>
-    <div class="gx-actions"><button type="button" class="gx-btn gx-btn--tonal" @click="exportBackup">Back up toggles</button>
-      <button type="button" class="gx-btn gx-btn--tonal" @click="$refs.file.click()">Restore toggles</button>
-      <button type="button" class="gx-btn gx-btn--tonal" @click="reviewResetDefaults">Reset toggles to default</button>
-      <input ref="file" type="file" accept=".json,application/json" class="gx-sr-only" tabindex="-1" aria-label="Choose toggle backup" @change="chooseFile"></div>
-    <p v-if="busy" class="gx-note" role="status"><span class="gx-spinner" aria-hidden="true"></span> Working…</p>
+  template: `<div class="gx-maintenance__group" :inert="busy" :aria-busy="busy || undefined">
+    <MaintenanceGroup title="Toggle backup" description="Save your editable toggles, onroad layout and colors. Restore compatible settings while parked.">
+      <button type="button" class="gx-btn gx-btn--tonal" :disabled="busy" @click="exportBackup">Back up toggles</button>
+      <button type="button" class="gx-btn gx-btn--tonal" :disabled="busy" @click="$refs.file.click()">Restore toggles</button>
+      <button type="button" class="gx-btn gx-btn--danger" :disabled="busy" @click="reviewResetDefaults">Reset toggles to default</button>
+    </MaintenanceGroup>
+    <input ref="file" type="file" accept=".json,application/json" class="gx-sr-only" tabindex="-1" aria-label="Choose toggle backup" @change="chooseFile">
+    <p v-if="busy" class="gx-note gx-maintenance__feedback" role="status"><span class="gx-spinner" aria-hidden="true"></span> Working…</p>
     <GxNotice v-if="notice" tone="success">{{ notice }}</GxNotice><GxNotice v-if="error" tone="danger">{{ error }}</GxNotice>
     <GxDialog v-if="draft" :inert="busy" labelledby="gx-toggle-restore-title" @close="draft=null"><h3 id="gx-toggle-restore-title">Restore {{ legacy ? 'layout' : 'toggles' }}?</h3>
       <p>{{ legacy ? 'Replace your saved layout and colors?' : 'Apply the compatible saved toggles, layout and colors from this backup? Unavailable settings will be skipped.' }} Keep the vehicle parked.</p>
@@ -114,7 +116,7 @@ export const ToggleBackup = {
       <p>{{ resetDraft.question }}</p>
       <p>Keep the vehicle parked. Settings unavailable for this vehicle are left unchanged. Calibration, downloaded models, accounts and network credentials are kept.</p>
       <div class="gx-actions"><button type="button" class="gx-btn gx-btn--tonal" @click="resetDraft=null">Cancel</button>
-        <button type="button" class="gx-btn" @click="resetDefaults">Reset toggles</button></div>
+        <button type="button" class="gx-btn gx-btn--danger" @click="resetDefaults">Reset toggles</button></div>
     </GxDialog>
-  </section>`,
+  </div>`,
 }

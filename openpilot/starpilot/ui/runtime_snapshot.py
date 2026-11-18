@@ -706,11 +706,14 @@ class RuntimeSnapshotAdapter:
     weather_location = None
     if (started and getattr(ui, 'replay_clock', None) is None and
         any(layout.get('weather', {}).get('enabled', False) for layout in self._customization_value['layouts'].values())):
-      from openpilot.starpilot.ui.weather import valid_location
-      for service in ('gpsLocationExternal', 'gpsLocation'):
-        gps = current_message(sm, service, now_ns, after_frame=after)
-        if gps is not None and gps.hasFix and valid_location((gps.latitude, gps.longitude)):
-          weather_location = (gps.latitude, gps.longitude)
+      from openpilot.starpilot.gps.source import GPS_SOURCES, SOURCE_SERVICES, observation
+      # Weather needs a recent location, not the high-frequency driving-message age gate.
+      # Include car/phone fixes when this device has no native GNSS receiver.
+      for service in GPS_SOURCES:
+        carrier = SOURCE_SERVICES.get(service, service)
+        fix = observation(sm, service, now_ns)
+        if fix is not None and int(sm.recv_frame.get(carrier, 0)) > after:
+          weather_location = (fix[1].latitude, fix[1].longitude)
           break
     aol_latched = (display_aol_latch(sm, now_ns, after_frame=after)
                    if started and getattr(ui, "aol_runtime", False) else None)

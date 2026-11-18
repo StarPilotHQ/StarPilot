@@ -186,7 +186,7 @@ class PiPOwner:
                            reason="" if live else "Open the live crop preview while parked to check the camera."))
     defaults = dict.fromkeys(BOOL_KEYS, 'Off')
     rows = [replace(row, default_value=defaults[row.key]) if row.key in defaults else row for row in rows]
-    return FeatureSettingsState(page="pip", title="Blind Spot Camera and Preview",
+    return FeatureSettingsState(page="pip", title="Blind Spot Camera & Preview",
                                 subtitle="Choose when to show the camera and adjust its crop from the live preview. " +
                                          "Resolution follows the camera automatically.",
                                 rows=tuple(rows), parked=parked)

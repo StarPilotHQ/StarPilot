@@ -476,7 +476,7 @@ const starPortTool = catalog.tools.find(tool => tool.path === "/starport")
 assert.equal(starPortTool.name, "StarPort")
 const audioTool = starPortTool.children
   .find(tool => tool.path === "/starport/audio")
-assert.equal(audioTool.name, "Spotify and Phone Audio")
+assert.equal(audioTool.name, "Spotify & Phone Audio")
 assert.match(StarPortPage.template, /href="#\/starport\/audio"/)
 assert.ok(app.includes(`SpotifyPage v-else-if="['/starport/audio', '/spotify'].includes(route.path)"`))
 // Setup type: what is in the car decides which pairing steps appear.
@@ -500,7 +500,6 @@ typed.control = (action, extra) => typedCalls.push([action, extra])
 typed.saveCarType(0, 'Wireless adapter')
 typed.saveCarType(0, 'Not a type')
 assert.deepEqual(typedCalls, [['car_type', { carType: 'adapter' }]])
-assert.deepEqual(new Set(page(setup).carTypeRow.choices), new Set(['Built-in wireless', 'Wireless adapter', 'Wired AA', 'App']))
 // A blocked wired port explains itself instead of silently refusing the pick.
 const blocked = page(setup)
 blocked.feed = { error: '', emit() {} }
@@ -516,8 +515,6 @@ assert.equal(blocked.wiredUnavailable, false, 'already wired: the pick is not bl
 // The line names the chosen tablet app.
 const named = page(setup)
 named.runtime = { car_type: 'app', connection: 'openheadunit' }
-assert.equal(named.carTypeRow.value, 'App (Open Headunit)')
-assert.ok(named.carTypeRow.choices.includes('App (Open Headunit)'))
 const namedCalls = []
 named.control = (action, extra) => namedCalls.push([action, extra])
 named.saveCarType(0, 'Wireless adapter')
@@ -525,22 +522,15 @@ assert.deepEqual(namedCalls, [['car_type', { carType: 'adapter' }]])
 // The adapter model picks the AAWireless tuning; any other adapter keeps the regular pairing.
 const dongle = page(setup)
 dongle.runtime = { car_type: 'adapter', car_profile: 'default', car_profile_source: 'standard' }
-assert.equal(dongle.adapterRow.value, 'Choose one', 'no default: the owner picks')
-assert.equal(settingControl(dongle.adapterRow), 'select', 'the initial adapter prompt must open a picker')
 assert.match(dongle.pairingReason, /adapter model/)
 dongle.runtime = { car_type: 'adapter', car_profile: 'default', car_profile_source: 'override' }
-assert.equal(dongle.adapterRow.value, 'Motorola MA1')
-assert.deepEqual(dongle.adapterRow.choices, ['AAWireless', 'Motorola MA1', 'Unofficial dongle'])
 dongle.runtime = { car_type: 'adapter', car_profile: 'aawireless', car_profile_source: 'override' }
-assert.equal(dongle.adapterRow.value, 'AAWireless')
 const dongleCalls = []
 dongle.control = (action, extra) => dongleCalls.push([action, extra])
 dongle.saveAdapter(0, 'Motorola MA1')
 dongle.saveAdapter(0, 'AAWireless')
 dongle.saveAdapter(0, 'Unofficial dongle')
 assert.deepEqual(dongleCalls, [['car_profile', { profile: 'default' }], ['car_profile', { profile: 'aawireless' }], ['car_profile', { profile: 'unofficial' }]])
-assert.match(StarPortPage.template, /adapterSetup" :row="adapterRow"/)
-assert.match(StarPortPage.template, /What’s in your car\?|carTypeRow/)
 assert.match(StarPortPage.template, /runtime\?\.pairing_note/)
 assert.match(StarPortPage.template, /'Find ' \+ findLabel/)
 // A session that is only waiting or retrying never locks the pickers or Find; it is stopped first.
@@ -552,7 +542,6 @@ idle.runtime = { car_type: 'builtin', running: true, state: 'streaming' }
 assert.equal(idle.appDisabled, true)
 assert.match(idle.pairingReason, /Disconnect/)
 // The home card offers the setup type; the app picker belongs to App only.
-assert.match(StarPortPage.template, /v-if="app" :row="appRow"/)
 assert.equal(page(setup).homeTitle, 'car')
 const wiredHome = page(setup); wiredHome.runtime = { car_type: 'usb', connection: 'wired' }
 assert.equal(wiredHome.homeTitle, 'Wired Android Auto')

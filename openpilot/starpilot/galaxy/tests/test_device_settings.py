@@ -1,22 +1,20 @@
-"""Galaxy developer preference admission, exact saves and drive-start selection."""
+"""Galaxy device and longitudinal preference admission, exact saves and drive-start selection."""
 
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
-from unittest import mock
 from typing import cast
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from openpilot.starpilot.galaxy.developer_settings import (CALIBRATION_RESET, DRIVER_MONITORING_RESET, STARPORT_EXPERIMENT_PREFIX,
+from openpilot.starpilot.galaxy.device_settings import (CALIBRATION_RESET, DRIVER_MONITORING_RESET, STARPORT_EXPERIMENT_PREFIX,
                                                           STARPORT_EXPERIMENTS_KEY,
-                                                          STARPORT_HEADING_KEY, STARPORT_HEVC_KEY, STARPORT_KEYFRAME_TEST_KEY,
+                                                          STARPORT_HEVC_KEY, STARPORT_KEYFRAME_TEST_KEY,
                                                           STARPORT_TALL_HEVC_KEY, STARPORT_UNACKED_VIDEO_KEY, STARPORT_PATIENT_TCP_KEY,
-                                                          STARPORT_NEW_SETUP_KEY, STARPORT_WIFI_KEY, DeveloperSettingsOwner)
-from openpilot.starpilot.galaxy.settings import AuthorityContext, ContextSource, SettingsChanged, SettingsGateway
+                                                          STARPORT_WIFI_KEY, DeviceSettingsOwner)
+from openpilot.starpilot.galaxy.settings import AuthorityContext, ContextSource, SettingsChanged, SettingsGateway, PAGES
 from openpilot.starpilot.longitudinal.voacc import KEY, selected
-from openpilot.starpilot.system.starport import new_setup
 from openpilot.starpilot.ui.feature_settings_state import FeatureSettingsRequest
 
 
@@ -82,7 +80,7 @@ class FakeStarPort:
                                    "head_unit_experiments": self.experiments, "head_unit_experiment_rules": self.rules}}
 
 
-class DeveloperSettingsTest(unittest.TestCase):
+class DeviceSettingsTest(unittest.TestCase):
   def setUp(self):
     directory = tempfile.TemporaryDirectory()
     self.addCleanup(directory.cleanup)
@@ -90,12 +88,17 @@ class DeveloperSettingsTest(unittest.TestCase):
     self.path = Path(self.params.get_param_path(KEY))
     self.cp = SimpleNamespace(openpilotLongitudinalControl=True, notCar=False, dashcamOnly=False, passive=False)
     self.parked = True
-    self.owner = DeveloperSettingsOwner(self.params, lambda: self.parked)
-    flag = Path(directory.name) / "new_setup"
-    patch = mock.patch.object(new_setup, "FLAG_PATH", flag)
-    patch.start()
-    self.addCleanup(patch.stop)
-    self.flag = flag
+    self.owner = DeviceSettingsOwner(self.params, lambda: self.parked)
+
+  def test_pages_separate_driving_controls_services_and_resets(self):
+    from openpilot.starpilot.longitudinal.enhanced_stop_hold import KEY as HOLD_KEY
+    service = SimpleNamespace(call=unittest.mock.Mock(side_effect=RuntimeError("off")))
+    owner = DeviceSettingsOwner(self.params, lambda: self.parked, starport=lambda: service)
+    self.assertEqual([row.key for row in owner.snapshot("driving_options").rows], [KEY, HOLD_KEY])
+    self.assertEqual([row.key for row in owner.snapshot("resets").rows], [DRIVER_MONITORING_RESET, CALIBRATION_RESET])
+    service.call.assert_not_called()
+    self.assertEqual(owner.snapshot("starport_options").rows, ())
+    self.assertNotIn("developer", PAGES)
 
   def test_always_hold_default_registry_exact_save_and_parked_authority(self):
     from openpilot.common.params import Params, ParamKeyType
@@ -104,14 +107,14 @@ class DeveloperSettingsTest(unittest.TestCase):
     self.assertTrue(params.check_key(HOLD_KEY))
     self.assertEqual(params.get_type(HOLD_KEY), ParamKeyType.BOOL)
     self.assertIs(params.get_default_value(HOLD_KEY), False)
-    owner = DeveloperSettingsOwner(params, lambda: self.parked)
-    row = next(row for row in owner.snapshot().rows if row.key == HOLD_KEY)
+    owner = DeviceSettingsOwner(params, lambda: self.parked)
+    row = next(row for row in owner.snapshot("driving_options").rows if row.key == HOLD_KEY)
     self.assertEqual((row.label, row.value, row.reason), (LABEL, "Off", DESCRIPTION))
     self.assertTrue(owner.apply(FeatureSettingsRequest(HOLD_KEY, row.source, "On")))
     self.assertTrue(hold_selected(params))
     self.assertFalse(owner.apply(FeatureSettingsRequest(HOLD_KEY, row.source, "Off")))
     self.parked = False
-    self.assertFalse(next(row for row in owner.snapshot().rows if row.key == HOLD_KEY).available)
+    self.assertFalse(next(row for row in owner.snapshot("driving_options").rows if row.key == HOLD_KEY).available)
     self.assertFalse(owner.apply(FeatureSettingsRequest(HOLD_KEY, b"1", "Off")))
     self.parked = True
     self.assertTrue(owner.apply(FeatureSettingsRequest(HOLD_KEY, b"1", "Off")))
@@ -123,7 +126,7 @@ class DeveloperSettingsTest(unittest.TestCase):
       self.assertFalse(owner.apply(FeatureSettingsRequest(HOLD_KEY, raw, "On")))
 
   def test_default_off_strict_selection_and_vehicle_admission(self):
-    self.assertEqual(self.owner.snapshot().rows[0].value, "Off")
+    self.assertEqual(self.owner.snapshot("driving_options").rows[0].value, "Off")
     self.assertFalse(selected(self.params, self.cp))
     for raw in (b"0", b"", b"true", b"1\n", b"1" * 9):
       with self.subTest(raw=raw):
@@ -145,8 +148,8 @@ class DeveloperSettingsTest(unittest.TestCase):
     self.assertTrue(params.check_key(KEY))
     self.assertEqual(params.get_type(KEY), ParamKeyType.BOOL)
     self.assertIs(params.get_default_value(KEY), False)
-    owner = DeveloperSettingsOwner(params, lambda: True)
-    row = owner.snapshot().rows[0]
+    owner = DeviceSettingsOwner(params, lambda: True)
+    row = owner.snapshot("driving_options").rows[0]
     self.assertEqual(row.value, "Off")
     self.assertTrue(owner.apply(FeatureSettingsRequest(KEY, row.source, "On")))
     self.assertTrue(params.get_bool(KEY))
@@ -157,7 +160,7 @@ class DeveloperSettingsTest(unittest.TestCase):
     self.assertEqual(self.path.read_bytes(), b"1")
     self.assertFalse(self.owner.apply(FeatureSettingsRequest(KEY, None, "Off")))
     self.parked = False
-    self.assertFalse(self.owner.snapshot().rows[0].available)
+    self.assertFalse(self.owner.snapshot("driving_options").rows[0].available)
     self.assertFalse(self.owner.apply(FeatureSettingsRequest(KEY, b"1", "Off")))
     self.parked = True
     self.assertFalse(self.owner.apply(FeatureSettingsRequest(KEY, b"1", "yes")))
@@ -165,7 +168,7 @@ class DeveloperSettingsTest(unittest.TestCase):
     self.assertTrue(self.owner.apply(FeatureSettingsRequest(KEY, b"1", "Off")))
     self.assertEqual(self.path.read_bytes(), b"0")
     self.path.write_bytes(b"garbage")
-    self.assertFalse(self.owner.snapshot().rows[0].available)
+    self.assertFalse(self.owner.snapshot("driving_options").rows[0].available)
     self.assertFalse(self.owner.apply(FeatureSettingsRequest(KEY, b"garbage", "On")))
 
   def test_real_gateway_preview_save_default_and_authority_recheck(self):
@@ -175,7 +178,7 @@ class DeveloperSettingsTest(unittest.TestCase):
     token, generation = "session", b"generation"
 
     def preview(value):
-      page = gateway.page("developer", token, generation)
+      page = gateway.page("driving_options", token, generation)
       self.assertEqual(page["rows"][0]["label"], "Use VOACC")
       self.assertEqual(page["rows"][0]["defaultValue"], "Off")
       self.assertIn("next drive", page["rows"][0]["reason"])
@@ -190,7 +193,7 @@ class DeveloperSettingsTest(unittest.TestCase):
       gateway.confirm(intent, token, generation)
     self.assertEqual(self.path.read_bytes(), b"1")
     context.value = replace(context.value, parked=True)
-    page = gateway.page("developer", token, generation)
+    page = gateway.page("driving_options", token, generation)
     intent = gateway.preview(page["view"], 0, 0, token, generation, reset_default=True)
     self.assertTrue(gateway.confirm(intent["intent"], token, generation))
     self.assertEqual(self.path.read_bytes(), b"0")
@@ -199,28 +202,28 @@ class DeveloperSettingsTest(unittest.TestCase):
       gateway.confirm(intent, token, generation, session_valid=lambda: False)
 
   def test_starport_stay_on_wifi_toggle(self):
-    self.assertNotIn(STARPORT_WIFI_KEY, [row.key for row in self.owner.snapshot().rows])
+    self.assertNotIn(STARPORT_WIFI_KEY, [row.key for row in self.owner.snapshot("starport_options").rows])
     service = FakeStarPort()
-    owner = DeveloperSettingsOwner(self.params, lambda: self.parked, starport=lambda: service)
-    row = next(row for row in owner.snapshot().rows if row.key == STARPORT_WIFI_KEY)
+    owner = DeviceSettingsOwner(self.params, lambda: self.parked, starport=lambda: service)
+    row = next(row for row in owner.snapshot("starport_options").rows if row.key == STARPORT_WIFI_KEY)
     self.assertEqual((row.value, row.choices, row.available), ("Off", ("Off", "On"), True))
     self.assertTrue(owner.apply(FeatureSettingsRequest(STARPORT_WIFI_KEY, row.source, "On")))
     self.assertTrue(service.enabled)
     self.assertFalse(owner.apply(FeatureSettingsRequest(STARPORT_WIFI_KEY, row.source, "Off")))  # stale view
     self.assertFalse(owner.apply(FeatureSettingsRequest(STARPORT_WIFI_KEY, b"1", "maybe")))
     self.parked = False
-    self.assertFalse(next(row for row in owner.snapshot().rows if row.key == STARPORT_WIFI_KEY).available)
+    self.assertFalse(next(row for row in owner.snapshot("starport_options").rows if row.key == STARPORT_WIFI_KEY).available)
     self.assertFalse(owner.apply(FeatureSettingsRequest(STARPORT_WIFI_KEY, b"1", "Off")))
     self.parked = True
     self.assertTrue(owner.apply(FeatureSettingsRequest(STARPORT_WIFI_KEY, b"1", "Off")))
     self.assertFalse(service.enabled)
     service.running = False
-    self.assertNotIn(STARPORT_WIFI_KEY, [row.key for row in owner.snapshot().rows])
+    self.assertNotIn(STARPORT_WIFI_KEY, [row.key for row in owner.snapshot("starport_options").rows])
     self.assertFalse(owner.apply(FeatureSettingsRequest(STARPORT_WIFI_KEY, b"0", "On")))
 
   def test_driver_monitoring_reset_matches_native_semantics_and_guards_preview(self):
     self.params.put_bool("IsRhdDetected", True, block=True)
-    row = next(row for row in self.owner.snapshot().rows if row.key == DRIVER_MONITORING_RESET)
+    row = next(row for row in self.owner.snapshot("resets").rows if row.key == DRIVER_MONITORING_RESET)
     self.assertTrue(row.available)
     self.assertTrue(self.owner.apply(FeatureSettingsRequest(DRIVER_MONITORING_RESET, b"1", "confirm", confirmation=True)))
     self.assertFalse(Path(self.params.get_param_path("IsRhdDetected")).exists())
@@ -228,48 +231,27 @@ class DeveloperSettingsTest(unittest.TestCase):
 
     self.params.put_bool("IsRhdDetected", True, block=True)
     self.params.put_bool("IsDriverViewEnabled", True, block=True)
-    row = next(row for row in self.owner.snapshot().rows if row.key == DRIVER_MONITORING_RESET)
+    row = next(row for row in self.owner.snapshot("resets").rows if row.key == DRIVER_MONITORING_RESET)
     self.assertFalse(row.available)
     self.assertFalse(self.owner.apply(FeatureSettingsRequest(DRIVER_MONITORING_RESET, b"1", "confirm", confirmation=True)))
     self.assertTrue(Path(self.params.get_param_path("IsRhdDetected")).exists())
 
-  def test_starport_section_has_a_heading_and_the_escape_hatch_even_with_the_service_off(self):
-    rows = self.owner.snapshot().rows
+  def test_starport_section_has_no_legacy_setup_switch(self):
+    self.assertEqual(self.owner.snapshot("starport_options").rows, ())
+    service = FakeStarPort()
+    owner = DeviceSettingsOwner(self.params, lambda: self.parked, starport=lambda: service)
+    rows = owner.snapshot("starport_options").rows
     keys = [row.key for row in rows]
-    heading = rows[keys.index(STARPORT_HEADING_KEY)]
-    self.assertEqual((heading.label, heading.value, heading.available, heading.choices), ("StarPort", "", False, ()))
-    self.assertEqual(keys[keys.index(STARPORT_HEADING_KEY) + 1], STARPORT_NEW_SETUP_KEY)  # the heading groups what follows
-    self.assertNotIn(STARPORT_WIFI_KEY, keys)
-    self.assertNotIn(STARPORT_HEVC_KEY, keys)
-    self.assertFalse(self.owner.apply(FeatureSettingsRequest(STARPORT_HEADING_KEY, b"", "On")))  # a heading is never a control
-
-  def test_new_pairing_experience_defaults_on_and_the_classic_screens_are_one_switch_away(self):
-    row = next(row for row in self.owner.snapshot().rows if row.key == STARPORT_NEW_SETUP_KEY)
-    self.assertEqual((row.value, row.source, row.choices, row.default_value, row.available), ("On", b"1", ("Off", "On"), "On", True))
-    self.assertFalse(self.owner.apply(FeatureSettingsRequest(STARPORT_NEW_SETUP_KEY, b"0", "On")))  # stale view
-    self.assertFalse(self.owner.apply(FeatureSettingsRequest(STARPORT_NEW_SETUP_KEY, b"1", "maybe")))
-    self.assertTrue(self.owner.apply(FeatureSettingsRequest(STARPORT_NEW_SETUP_KEY, b"1", "Off")))
-    self.assertFalse(new_setup.enabled())
-    self.assertEqual(next(r for r in self.owner.snapshot().rows if r.key == STARPORT_NEW_SETUP_KEY).value, "Off")
-    self.parked = False
-    self.assertFalse(self.owner.apply(FeatureSettingsRequest(STARPORT_NEW_SETUP_KEY, b"0", "On")))
-    self.parked = True
-    self.assertTrue(self.owner.apply(FeatureSettingsRequest(STARPORT_NEW_SETUP_KEY, b"0", "On")))
-    self.assertTrue(new_setup.enabled())
-
-  def test_unreadable_or_odd_flag_means_on(self):
-    self.flag.write_text("garbage")
-    self.assertTrue(new_setup.enabled())
-    self.flag.unlink()
-    self.assertTrue(new_setup.enabled())
+    self.assertEqual(keys[0], STARPORT_WIFI_KEY)
+    self.assertNotIn("StarPortNewSetup", keys)
 
   def test_allow_h265_toggle_defaults_off_and_follows_the_daemon(self):
     service = FakeStarPort()
-    owner = DeveloperSettingsOwner(self.params, lambda: self.parked, starport=lambda: service)
-    rows = owner.snapshot().rows
+    owner = DeviceSettingsOwner(self.params, lambda: self.parked, starport=lambda: service)
+    rows = owner.snapshot("starport_options").rows
     keys = [row.key for row in rows]
-    self.assertEqual(keys[keys.index(STARPORT_HEADING_KEY):keys.index(STARPORT_HEVC_KEY) + 1],
-                     [STARPORT_HEADING_KEY, STARPORT_NEW_SETUP_KEY, STARPORT_WIFI_KEY, STARPORT_HEVC_KEY])
+    self.assertEqual(keys[:keys.index(STARPORT_HEVC_KEY) + 1],
+                     [STARPORT_WIFI_KEY, STARPORT_HEVC_KEY])
     row = rows[keys.index(STARPORT_HEVC_KEY)]
     self.assertEqual((row.value, row.default_value, row.available), ("Off", "Off", True))
     self.assertTrue(owner.apply(FeatureSettingsRequest(STARPORT_HEVC_KEY, row.source, "On")))
@@ -283,8 +265,8 @@ class DeveloperSettingsTest(unittest.TestCase):
 
   def test_keyframe_test_defaults_off_and_follows_the_daemon(self):
     service = FakeStarPort()
-    owner = DeveloperSettingsOwner(self.params, lambda: self.parked, starport=lambda: service)
-    rows = owner.snapshot().rows
+    owner = DeviceSettingsOwner(self.params, lambda: self.parked, starport=lambda: service)
+    rows = owner.snapshot("starport_options").rows
     keys = [row.key for row in rows]
     self.assertEqual(keys.index(STARPORT_KEYFRAME_TEST_KEY), keys.index(STARPORT_HEVC_KEY) + 1)
     row = rows[keys.index(STARPORT_KEYFRAME_TEST_KEY)]
@@ -295,12 +277,12 @@ class DeveloperSettingsTest(unittest.TestCase):
     self.assertFalse(owner.apply(FeatureSettingsRequest(STARPORT_KEYFRAME_TEST_KEY, row.source, "Off")))  # stale view
     self.parked = False
     self.assertFalse(owner.apply(FeatureSettingsRequest(STARPORT_KEYFRAME_TEST_KEY, b"1", "Off")))
-    self.assertNotIn(STARPORT_KEYFRAME_TEST_KEY, [row.key for row in DeveloperSettingsOwner(self.params, lambda: True).snapshot().rows])
+    self.assertNotIn(STARPORT_KEYFRAME_TEST_KEY, [row.key for row in DeviceSettingsOwner(self.params, lambda: True).snapshot("starport_options").rows])
 
   def test_tall_hevc_defaults_off_and_follows_the_daemon(self):
     service = FakeStarPort()
-    owner = DeveloperSettingsOwner(self.params, lambda: self.parked, starport=lambda: service)
-    rows = owner.snapshot().rows
+    owner = DeviceSettingsOwner(self.params, lambda: self.parked, starport=lambda: service)
+    rows = owner.snapshot("starport_options").rows
     keys = [row.key for row in rows]
     self.assertEqual(keys.index(STARPORT_TALL_HEVC_KEY), keys.index(STARPORT_KEYFRAME_TEST_KEY) + 1)
     row = rows[keys.index(STARPORT_TALL_HEVC_KEY)]
@@ -312,8 +294,8 @@ class DeveloperSettingsTest(unittest.TestCase):
 
   def test_unacked_video_defaults_off_and_follows_the_daemon(self):
     service = FakeStarPort()
-    owner = DeveloperSettingsOwner(self.params, lambda: self.parked, starport=lambda: service)
-    rows = owner.snapshot().rows
+    owner = DeviceSettingsOwner(self.params, lambda: self.parked, starport=lambda: service)
+    rows = owner.snapshot("starport_options").rows
     keys = [row.key for row in rows]
     row = rows[keys.index(STARPORT_UNACKED_VIDEO_KEY)]
     self.assertEqual((row.value, row.default_value, row.available), ("Off", "Off", True))
@@ -323,8 +305,8 @@ class DeveloperSettingsTest(unittest.TestCase):
 
   def test_patient_connect_defaults_off_and_follows_the_daemon(self):
     service = FakeStarPort()
-    owner = DeveloperSettingsOwner(self.params, lambda: self.parked, starport=lambda: service)
-    rows = owner.snapshot().rows
+    owner = DeviceSettingsOwner(self.params, lambda: self.parked, starport=lambda: service)
+    rows = owner.snapshot("starport_options").rows
     keys = [row.key for row in rows]
     row = rows[keys.index(STARPORT_PATIENT_TCP_KEY)]
     self.assertEqual((row.value, row.default_value, row.available), ("Off", "Off", True))
@@ -334,8 +316,8 @@ class DeveloperSettingsTest(unittest.TestCase):
 
   def test_try_experimental_fixes_defaults_off_and_is_the_only_master_switch(self):
     service = FakeStarPort()
-    owner = DeveloperSettingsOwner(self.params, lambda: self.parked, starport=lambda: service)
-    rows = {row.key: row for row in owner.snapshot().rows}
+    owner = DeviceSettingsOwner(self.params, lambda: self.parked, starport=lambda: service)
+    rows = {row.key: row for row in owner.snapshot("starport_options").rows}
     self.assertEqual((rows[STARPORT_EXPERIMENTS_KEY].value, rows[STARPORT_EXPERIMENTS_KEY].default_value), ("Off", "Off"))
     self.assertNotIn("StarPortHeadUnitFixes", rows)
     self.assertTrue(owner.apply(FeatureSettingsRequest(STARPORT_EXPERIMENTS_KEY, b"0", "On")))
@@ -346,13 +328,13 @@ class DeveloperSettingsTest(unittest.TestCase):
 
   def test_experiment_toggles_appear_only_under_try_experimental_fixes(self):
     service = FakeStarPort()
-    owner = DeveloperSettingsOwner(self.params, lambda: self.parked, starport=lambda: service)
-    keys = [row.key for row in owner.snapshot().rows]
+    owner = DeviceSettingsOwner(self.params, lambda: self.parked, starport=lambda: service)
+    keys = [row.key for row in owner.snapshot("starport_options").rows]
     self.assertIn(STARPORT_EXPERIMENTS_KEY, keys)
     self.assertFalse([key for key in keys if key.startswith(STARPORT_EXPERIMENT_PREFIX)])
     self.assertNotIn("heading:starport_experiments", keys)
     self.assertTrue(owner.apply(FeatureSettingsRequest(STARPORT_EXPERIMENTS_KEY, b"0", "On")))
-    rows = owner.snapshot().rows
+    rows = owner.snapshot("starport_options").rows
     keys = [row.key for row in rows]
     self.assertEqual(keys[keys.index(STARPORT_EXPERIMENTS_KEY) + 1:],
                      [STARPORT_EXPERIMENT_PREFIX + "gm_mychevrolet_w28e", STARPORT_EXPERIMENT_PREFIX + "polestar_ps2_aar_301433653",
@@ -374,20 +356,21 @@ class DeveloperSettingsTest(unittest.TestCase):
     self.assertFalse(owner.apply(FeatureSettingsRequest(STARPORT_EXPERIMENT_PREFIX + "unknown", b"0", "On")))
     self.parked = False
     self.assertFalse(owner.apply(FeatureSettingsRequest(rule_key, b"0", "On")))
-    self.assertFalse(next(r for r in owner.snapshot().rows if r.key == rule_key).available)
+    self.assertFalse(next(r for r in owner.snapshot("starport_options").rows if r.key == rule_key).available)
 
   def test_experiment_rows_are_hidden_when_the_service_is_off(self):
-    keys = [row.key for row in self.owner.snapshot().rows]
+    keys = [row.key for row in self.owner.snapshot("starport_options").rows]
     self.assertNotIn(STARPORT_EXPERIMENTS_KEY, keys)
     self.assertNotIn(STARPORT_EXPERIMENTS_KEY, keys)
+
 
 
 class CalibrationResetSettingsTest(unittest.TestCase):
-  setUp = DeveloperSettingsTest.setUp
+  setUp = DeviceSettingsTest.setUp
   def test_calibration_reset_adjacent_and_uses_existing_reset_service(self):
-    with patch("openpilot.starpilot.galaxy.developer_settings.calibration_reset") as reset:
+    with patch("openpilot.starpilot.galaxy.device_settings.calibration_reset") as reset:
       reset.pending = False
-      rows = self.owner.snapshot().rows
+      rows = self.owner.snapshot("resets").rows
       keys = [row.key for row in rows]
       self.assertEqual(keys[keys.index(DRIVER_MONITORING_RESET) + 1], CALIBRATION_RESET)
       self.assertTrue(rows[keys.index(CALIBRATION_RESET)].available)
@@ -396,13 +379,13 @@ class CalibrationResetSettingsTest(unittest.TestCase):
       reset.request.assert_called_once_with(self.params)
 
   def test_calibration_reset_refuses_onroad_pending_stale_and_wrong_value(self):
-    with patch("openpilot.starpilot.galaxy.developer_settings.calibration_reset") as reset:
+    with patch("openpilot.starpilot.galaxy.device_settings.calibration_reset") as reset:
       reset.pending = False
       request = FeatureSettingsRequest(CALIBRATION_RESET, None, "confirm", confirmation=True)
       self.assertFalse(self.owner.apply(replace(request, value="On")))
       self.parked = False
       self.assertFalse(self.owner.apply(request))
-      self.assertFalse(next(row for row in self.owner.snapshot().rows if row.key == CALIBRATION_RESET).available)
+      self.assertFalse(next(row for row in self.owner.snapshot("resets").rows if row.key == CALIBRATION_RESET).available)
       self.parked = True
       reset.pending = True
       self.assertFalse(self.owner.apply(request))
@@ -415,14 +398,14 @@ class CalibrationResetSettingsTest(unittest.TestCase):
       reset.request.assert_not_called()
 
   def test_calibration_reset_gateway_requires_confirmation_and_fresh_parked_state(self):
-    with patch("openpilot.starpilot.galaxy.developer_settings.calibration_reset") as reset:
+    with patch("openpilot.starpilot.galaxy.device_settings.calibration_reset") as reset:
       reset.pending = False
       reset.request.return_value = True
       context = SimpleNamespace(value=AuthorityContext(True, None, None))
       context.sample = lambda: context.value
       gateway = SettingsGateway(self.params, cast(ContextSource, context), clock=lambda: 10.)
       def preview():
-        page = gateway.page("developer", "session", b"generation")
+        page = gateway.page("resets", "session", b"generation")
         i = next(i for i,row in enumerate(page["rows"]) if row["label"] == "Reset Calibration")
         self.assertTrue(page["rows"][i]["confirm"])
         return gateway.preview(page["view"], i, 0, "session", b"generation")
@@ -437,3 +420,4 @@ class CalibrationResetSettingsTest(unittest.TestCase):
       pending = preview()
       self.assertTrue(gateway.confirm(pending["intent"], "session", b"generation"))
       reset.request.assert_called_once()
+

@@ -23,14 +23,12 @@ const post = (fetcher, path, body, signal) => fetcher(path, {
 
 export const SETTINGS_SECTIONS = Object.freeze([
   { id: "lateral", label: "Lateral (Steering)", icon: "bi-arrows-move", pages: ["aol", "lane_change", "lane", "torque", "torque/developer"] },
-  { id: "longitudinal", label: "Longitudinal (Speed & Following)", icon: "bi-speedometer2", pages: ["profiles", "conditional", "curve", "slc", "personalities", "aggressive", "standard", "relaxed", "traffic"] },
+  { id: "longitudinal", label: "Longitudinal (Speed & Following)", icon: "bi-speedometer2", pages: ["driving_options", "profiles", "conditional", "curve", "slc", "personalities", "aggressive", "standard", "relaxed", "traffic"] },
   { id: "wheel", label: "Wheel Controls", icon: "bi-controller", pages: ["wheel"] },
-  { id: "visual", label: "Visual (Display & UI)", icon: "bi-eye", pages: ["appearance", "ui_layout", "favorites", "pip"] },
+  { id: "visual", label: "Visual (Display & UI)", icon: "bi-eye", pages: ["display", "appearance", "ui_layout", "favorites", "pip"] },
   { id: "sounds", label: "Sounds & Alerts", icon: "bi-volume-up", pages: ["sounds"] },
-  { id: "device", label: "Device & Data", icon: "bi-hdd", pages: ["power", "display", "data"] },
-  { id: "localization", label: "Localization", icon: "bi-globe", pages: ["localization"] },
   { id: "vehicle", label: "Vehicle", icon: "bi-car-front", pages: ["vehicle"] },
-  { id: "developer", label: "Developer", icon: "bi-code-slash", pages: ["developer"] },
+  { id: "device", label: "Device & System", icon: "bi-hdd", pages: ["power", "data", "starport_options", "browser_preferences", "localization"] },
 ])
 
 // Crop numeric rows and the inline editor row are controlled from the dedicated
@@ -40,8 +38,19 @@ export const isPipCropRow = (row) => ["Visual camera crop editor", "Camera crop 
   /^Vehicle (left|right) crop/.test(row.label || "")
 
 const SECTION_LINKS = {
-  device: [{ label: "Power and Cooling", page: "power", value: "Adjust parked shutdown limits and supported fan cooling" }, { label: "Display", page: "display", value: "Adjust screen brightness and display timing" }, { label: "Data Uploads", page: "data", value: "Choose mobile-data uploads and usage-statistics sharing" }],
-  visual: [{ label: "Driving Screen Widgets, Colors & Layout", page: "ui_layout" }, { label: "Quick Select", page: "favorites" }, { label: "Blind Spot Camera and Preview", page: "pip" }],
+  device: [
+    { label: "Power & Cooling", page: "power", value: "Adjust parked shutdown limits and supported fan cooling" },
+    { label: "Data & Connections", page: "data", value: "Cloud services, remote access, mobile-data uploads and usage-statistics sharing" },
+    { label: "StarPort", page: "starport_options", value: "Manage Android Auto connection options" },
+    { label: "Browser preferences", page: "browser_preferences", value: "Choose preferences saved for this browser" },
+    { label: "Localization", page: "localization", value: "Choose language, units and regional preferences" },
+  ],
+  visual: [
+    { label: "Display", page: "display", value: "Adjust screen brightness and display timing" },
+    { label: "Driving Screen Widgets, Colors & Layout", page: "ui_layout" },
+    { label: "Quick Select", page: "favorites" },
+    { label: "Blind Spot Camera & Preview", page: "pip" },
+  ],
 }
 
 const activeSettings = new Set()
@@ -171,7 +180,7 @@ export class SettingsFeed {
   }
 
   scheduleParkedRefresh() {
-    if (!this.active || this.pending || this.request || this.saving || this.pollTimer !== null) return
+    if (!this.active || this.page === "browser_preferences" || this.pending || this.request || this.saving || this.pollTimer !== null) return
     const generation = this.generation
     this.pollTimer = this.later(() => {
       this.pollTimer = null
@@ -182,6 +191,16 @@ export class SettingsFeed {
 
   async load(page = this.page, { keepData = page === this.page && this.data !== null, quiet = keepData } = {}) {
     if (!this.active || this.saving || (quiet && (this.pending || this.request))) return
+    if (page === "browser_preferences") {
+      // Browser preferences are local: cancel device requests and polling while this page is open.
+      this.stop()
+      this.active = true
+      activeSettings.add(this)
+      this.page = page
+      this.data = { page, title: "Browser preferences", rows: [] }
+      this.publish({ status: "ready", data: this.data, pending: null, error: "" })
+      return
+    }
     this.page = page
     this.pending = null
     if (!keepData) this.data = null
@@ -285,8 +304,8 @@ export const SettingsPage = {
     const navigation = route.view
     const navigationKey = `${props.initialPage}:${props.initialSection || ""}`
     const saved = navigation.settings?.key === navigationKey ? navigation.settings : null
-    const state = reactive({ status: "idle", data: null, pending: null, error: "", query: "", searchOpen: false, section: props.initialSection || "lateral", layoutOpen: false, layoutPanel: "widgets", favoritesOpen: false, soundChoicesDirty: false, testingSound: false, openCards: [], parents: [], developerOpen: props.initialSection === "developer", panelDirection: 1 })
-    if (saved) Object.assign(state, { section: saved.section, query: saved.query, searchOpen: saved.searchOpen, parents: saved.parents.slice(), developerOpen: saved.developerOpen })
+    const state = reactive({ status: "idle", data: null, pending: null, error: "", query: "", searchOpen: false, section: props.initialSection || "lateral", layoutOpen: false, layoutPanel: "widgets", favoritesOpen: false, soundChoicesDirty: false, testingSound: false, openCards: [], parents: [], panelDirection: 1 })
+    if (saved) Object.assign(state, { section: saved.section, query: saved.query, searchOpen: saved.searchOpen, parents: saved.parents.slice() })
     const feed = new SettingsFeed({ publish: (update) => Object.assign(state, update), unauthorized: props.unauthorized })
     return { state, feed, sections: SETTINGS_SECTIONS, navigation, navigationKey, restoredPage: saved?.page }
   },
@@ -295,12 +314,11 @@ export const SettingsPage = {
     busy() { return settingsBusy(this.state) || !!this.state.testingSound || !!this.$refs?.vehicleEditor?.busy },
     vehicleSection() { return this.initialPage === "hub" && this.activeSection.id === "vehicle" },
     activeSection() {
-      if (this.state.developerOpen) return this.sections.at(-1)
       const page = (this.state.data?.page || "hub").split("/")[0]
       return this.sections.find((section) => page === "hub" ? section.id === this.state.section : section.pages.includes(page)) || this.sections[0]
     },
     atSectionRoot() {
-      if (this.state.developerOpen || (!this.state.data && this.initialPage === "hub" && !this.state.parents?.length)) return true
+      if (!this.state.data && this.initialPage === "hub" && !this.state.parents?.length) return true
       return this.state.data?.page === "hub" ||
         (this.activeSection.pages.length === 1 && this.state.data?.page === this.activeSection.pages[0])
     },
@@ -344,14 +362,14 @@ export const SettingsPage = {
   },
   async mounted() {
     if (this.mode !== "local") return
-    await this.feed.start(this.restoredPage || (this.state.developerOpen ? "developer" : this.initialPage))
+    await this.feed.start(this.restoredPage || this.initialPage)
     await nextTick()
     if (this.feed.active && this.navigation.scroll) window.scrollTo(this.navigation.scroll.x, this.navigation.scroll.y)
   },
   beforeUnmount() {
-    const { data, section, query, searchOpen, parents, developerOpen } = this.state
+    const { data, section, query, searchOpen, parents } = this.state
     this.navigation.settings = {
-      key: this.navigationKey, page: data?.page || this.restoredPage || this.initialPage, section, query, searchOpen, parents: parents.slice(), developerOpen,
+      key: this.navigationKey, page: data?.page || this.restoredPage || this.initialPage, section, query, searchOpen, parents: parents.slice(),
     }
     this.navigation.searchPage = this.initialPage === "hub" ? "" : this.initialPage
     this.feed.stop()
@@ -411,7 +429,6 @@ export const SettingsPage = {
       }
       this.state.parents = []
       this.state.section = section.id
-      this.state.developerOpen = section.id === "developer"
       if (!this.feed.active) { this.feed.start(section.pages.length === 1 ? section.pages[0] : "hub"); return }
       this.state.query = ""
       const page = section.pages.length === 1 ? section.pages[0] : "hub"
@@ -429,14 +446,12 @@ export const SettingsPage = {
       if (this.busy) return true
       if (this.state.layoutOpen) { this.$refs.layoutEditor.requestLeave("back"); return true }
       if (this.state.favoritesOpen) { if (!this.$refs.favoritesEditor?.busy) this.closeFavorites(); return true }
-      if (this.state.developerOpen) return false
       const nested = this.initialPage === "hub" ? !this.atSectionRoot : this.state.data?.page !== this.initialPage
       if (!nested) return false
       this.back()
       return true
     },
     back() {
-      if (this.state.developerOpen) return
       this.state.panelDirection = -1
       const page = this.state.data?.page || this.initialPage
       this.state.section = this.activeSection?.id || this.state.section
@@ -461,12 +476,12 @@ export const SettingsPage = {
   template: `
     <OnroadLayoutPage ref="layoutEditor" v-if="state.layoutOpen" :mode="mode" :unauthorized="unauthorized" :initial-panel="state.layoutPanel" @target="openLayoutTarget" @close="closeLayout" />
     <FavoritesPage ref="favoritesEditor" v-else-if="state.favoritesOpen" :mode="mode" :unauthorized="unauthorized" @close="closeFavorites" />
-    <section v-else class="gx-settings" :aria-label="title" :inert="busy" :aria-busy="busy || undefined">
+    <section v-else class="gx-settings" :aria-label="title || state.data?.title || 'Settings'" :inert="busy" :aria-busy="busy || undefined">
       <div v-if="title && (initialPage !== 'hub' || atSectionRoot)" class="gx-settings__header gx-page-header"><h2>{{ title }}</h2></div>
         <div v-if="mode === 'local' && initialPage === 'hub' && atSectionRoot" class="gx-settings-tabs" aria-label="Settings sections">
           <button v-for="section in sections" :key="section.id" type="button" class="gx-chip" :aria-pressed="section.id === activeSection.id" @click="selectSection(section)">{{ section.label }}</button>
         </div>
-      <p class="gx-page-description" v-if="state.developerOpen">Choose developer driving options and cloud services.</p>
+      <p class="gx-page-description" v-if="state.data?.page === 'data'">Configure cloud services, remote access and data uploads.</p>
       <p class="gx-page-description" v-else-if="initialPage === 'pip'">Choose when to show the camera and adjust its saved crop. Use the crop editor for a live preview.</p>
       <p class="gx-page-description" v-else-if="(state.data?.page || initialPage) === 'sounds'">Adjust alert and chime volumes. Test alert plays on your comma while offroad; Auto previews a quiet-cabin starting level. Immediate warnings keep their safety volume ramp.</p>
       <p class="gx-page-description" v-else-if="(state.data?.page || initialPage) === 'display'">Adjust brightness and screen timing when custom display settings are on.</p>
@@ -482,7 +497,6 @@ export const SettingsPage = {
       <div v-else-if="state.data?.page === 'slc'"><p class="gx-page-description">Control how speed limits change your set speed.</p>
         <a class="gx-btn gx-btn--tonal" href="https://wiki.firestar.link/exclusive/speed-limit-controller/#vision-speed-limits" target="_blank" rel="noopener noreferrer"><i class="bi bi-book" aria-hidden="true"></i> Vision speed limits guide</a></div>
       <p class="gx-page-description" v-else-if="state.data?.page === 'wheel'">Assign what the steering-wheel controls do.</p>
-      <p class="gx-page-description" v-else-if="state.data?.page === 'data'">Choose what uploads when the vehicle uses mobile data.</p>
       <p class="gx-page-description" v-else-if="['aggressive','standard','relaxed'].includes(state.data?.page)">Adjust acceleration, braking and following for this driving style.</p>
       <GxState v-if="mode !== 'local'">Local settings are unavailable in preview.</GxState>
       <template v-else>
@@ -493,12 +507,12 @@ export const SettingsPage = {
           </GxNotice>
         <div class="gx-panel-stage" :style="{'--panel-direction': state.panelDirection}">
           <Transition name="gx-panel" @before-enter="$event.inert = false" @before-leave="$event.inert = true">
-          <div v-if="state.data || state.developerOpen || vehicleSection" :key="state.developerOpen ? 'developer' : vehicleSection ? 'vehicle' : state.data.page + activeSection.id" class="gx-settings__body">
+          <div v-if="state.data || vehicleSection" :key="vehicleSection ? 'vehicle' : state.data.page + activeSection.id" class="gx-settings__body">
             <VehicleControlsPage ref="vehicleEditor" v-if="vehicleSection" :mode="mode" :unauthorized="unauthorized" />
-            <CloudProviderPage ref="cloudProvider" v-if="state.developerOpen" :mode="mode" :unauthorized="unauthorized" />
-            <ReverseProxySettings v-if="state.developerOpen" :mode="mode" :unauthorized="unauthorized" />
-            <AppReminderSettings v-if="state.developerOpen" />
-            <template v-if="!vehicleSection && state.data && (!state.developerOpen || state.data.page === 'developer')">
+            <CloudProviderPage ref="cloudProvider" v-if="state.data?.page === 'data'" :mode="mode" :unauthorized="unauthorized" />
+            <ReverseProxySettings v-if="state.data?.page === 'data'" :mode="mode" :unauthorized="unauthorized" />
+            <AppReminderSettings v-if="state.data?.page === 'browser_preferences'" />
+            <template v-if="!vehicleSection && state.data && state.data.page !== 'browser_preferences'">
             <div v-if="state.data.page === 'pip'" class="gx-settings__actions gx-actions">
               <button type="button" class="gx-btn gx-btn--tonal" @click="openCropEditor"><i class="bi bi-crop" aria-hidden="true"></i> Crop editor</button>
             </div>
@@ -518,7 +532,7 @@ export const SettingsPage = {
                 :busy="busy" :disabled="!!state.error || !row.available" :save-value="(index, value) => feed.previewValue(index, value)" :test-alert="state.data.page === 'sounds' ? testAlert : null"
                 @open="open" @review="(index, direction) => feed.preview(index, direction)" @reset-default="index => feed.resetDefault(index)" />
               </div></GxCollapse>
-              <div v-if="!cardIndex && !visibleRows.length" class="gx-empty">No matching settings.</div>
+              <div v-if="!cardIndex && !visibleRows.length" class="gx-empty"><template v-if="state.data.page === 'starport_options' && !state.query">Turn on StarPort to manage connection options. <a class="gx-link" href="#/starport">Open StarPort setup</a></template><template v-else>No matching settings.</template></div>
             </section>
             <SoundPacks v-if="state.data.page === 'sounds'" :unauthorized="unauthorized" :busy="busy" @installed="refreshSoundChoices" />
             </template>

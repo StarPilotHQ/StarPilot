@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any
 
 from openpilot.common.hardware import COMMA_HARDWARE
-from openpilot.starpilot.system.starport import (car_profiles, device_health, head_unit_fixes, identity as identity_store, new_setup, quirk_state,
+from openpilot.starpilot.system.starport import (car_profiles, device_health, head_unit_fixes, identity as identity_store, quirk_state,
                                                  reachability, setup_ladder, system_slice)
 from openpilot.starpilot.system.starport import reconnect_notice
 from openpilot.starpilot.system.starport.adapter_syslog import AdapterSyslog
@@ -546,7 +546,6 @@ class Supervisor:
     status["experimental_fixes"] = head_unit_fixes.experimental_entries()
     status["fix_suggestion"] = self._fix_suggestion()
     status["car_candidates"] = list(getattr(self, "_candidates", []))[:8]  # paired Android Auto devices to choose between
-    status["new_setup"] = new_setup.enabled()
     status["setup_ladder"] = self._ladder.snapshot(self.config["receiver_address"], self.car_type() == "adapter", self._unofficial_dongle())
     status["auto_paused"] = self.auto.suppressed
     status["recent"] = list(self.log.recent)[-8:]

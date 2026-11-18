@@ -148,7 +148,7 @@ def test_native_pip_passes_only_qualified_visual_sides_without_replacing_oem_bsm
                          fingerprint="b" * 64)
   car = SimpleNamespace(leftBlinker=False, rightBlinker=False, leftBlindspot=False, rightBlindspot=True,
                         canValid=True, gearShifter=runtime_app.car_schema.CarState.GearShifter.drive)
-  state = SimpleNamespace(customization=default_document(), alert=SimpleNamespace(size=None))
+  state = SimpleNamespace(customization=default_document(), alert=SimpleNamespace(size=None), viewport_width=2160)
   with patch.object(runtime_app, "ui_state", SimpleNamespace(params=object(), sm=object(), started_frame=0)), \
        patch.object(runtime_app, "read_pip", return_value=saved), \
        patch.object(runtime_app, "read_vasm_preferences", return_value=vasm), \
@@ -157,6 +157,9 @@ def test_native_pip_passes_only_qualified_visual_sides_without_replacing_oem_bsm
        patch.object(runtime_app.time, "monotonic_ns", return_value=100), \
        patch.dict("os.environ", {"STARPILOT_PIP_DEV": "1", "STARPILOT_VASM_DEVELOPMENT": "1"}):
     shell._render_pip(SimpleNamespace(x=0), state)
+    placements = shell.pip_renderer.render.call_args.kwargs["placements"]
+    assert placements["right"].x == state.customization["layouts"]["large"]["pip_right"]["x"] + 300
+    assert placements["left"].x == state.customization["layouts"]["large"]["pip_left"]["x"]
     signals = shell.pip_renderer.render.call_args.args[2]
     assert signals.vasm_left and not signals.vasm_right
     assert signals.right_blindspot and not signals.left_blindspot

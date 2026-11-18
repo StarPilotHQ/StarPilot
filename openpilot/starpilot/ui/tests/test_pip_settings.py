@@ -78,7 +78,7 @@ class PiPSettingsTests(unittest.TestCase):
     path = Path(self.params.get_param_path(MASK))
     path.write_bytes(original)
     page = self.owner.snapshot(include_editor=True)
-    self.assertEqual(page.title, 'Blind Spot Camera and Preview')
+    self.assertEqual(page.title, 'Blind Spot Camera & Preview')
     self.assertFalse(any(row.key.startswith(FORMAT_PREFIX) for row in page.rows))
     self.assertEqual(path.read_bytes(), original)
     editor, source = self.owner.editor_with_source()

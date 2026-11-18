@@ -594,7 +594,8 @@ export const OnroadLayoutPage = {
     },
     activeWidgets() { return this.widgets.filter(({ id }) => this.layout[id].enabled) },
     renderWidgets() {
-      return this.layerWidgets.filter(item => !this.previewHidden(item.id)).reverse().map((item) => {
+      return this.layerWidgets.filter(item => !this.previewHidden(item.id)).reverse()
+        .sort((a, b) => Number(a.kind === "pip_camera") - Number(b.kind === "pip_camera")).map((item) => {
         const below = item.visualInsetTop && this.layout[item.id].y < item.visualInsetTop
         const widget = {
           ...item, visualInsetTop: below ? 0 : item.visualInsetTop || 0,

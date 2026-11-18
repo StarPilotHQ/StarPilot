@@ -174,8 +174,8 @@ export const PipPage = {
     },
   },
   template: `
-    <section class="gx-settings gx-pip" aria-label="Blind Spot Camera and Preview saved settings" :inert="busy" :aria-busy="busy || undefined">
-      <header class="gx-settings__header gx-page-header"><div><h2>Blind Spot Camera and Preview</h2>
+    <section class="gx-settings gx-pip" aria-label="Blind Spot Camera & Preview saved settings" :inert="busy" :aria-busy="busy || undefined">
+      <header class="gx-settings__header gx-page-header"><div><h2>Blind Spot Camera & Preview</h2>
         <p>Shows a close-up of the cabin window as you drive. Whether it appears on your turn signal or when a car is in your blind spot depends on your settings. Choose which window each side covers and how much to zoom in.</p></div>
         <div class="gx-actions"><a class="gx-btn gx-btn--tonal" href="https://wiki.firestar.link/exclusive/cameras-and-monitoring/#pip-blind-spot-camera-preview" target="_blank" rel="noopener noreferrer"><i class="bi bi-book" aria-hidden="true"></i> PiP guide</a>
           <button type="button" class="gx-btn gx-btn--tonal" :disabled="bluetooth || state.cameraWarming" @click="liveCamera.refresh()"><i class="bi bi-camera" aria-hidden="true"></i> Take new snapshot</button><button type="button" class="gx-icon-btn" aria-label="Position side cameras" title="Position side cameras" @click="go('/theme_maker')"><i class="bi bi-layout-wtf" aria-hidden="true"></i></button></div></header>

@@ -44,7 +44,7 @@ const projection = JSON.parse(execFileSync(process.env.PYTHON || 'python3', ['-c
     assert.equal(await page.locator('.gx-layout__drag-ghost').isVisible(), true)
     assert.equal(await page.locator('.gx-layout__outline').first().isVisible(), true)
     assert.equal(await page.locator('.is-drop-target').count(), 1)
-    assert.equal(await page.evaluate(() => window.editor.renderWidgets.at(-1).id), 'pip_left')
+    assert.deepEqual(await page.evaluate(() => window.editor.renderWidgets.slice(-2).map(widget => widget.kind)), ['pip_camera', 'pip_camera'])
     assert.equal(await page.evaluate(() => window.editor.state.history.undo.length), 0)
     await page.screenshot({path:path.join(tmpdir(), 'theme-live-layer-drag.png')})
     await page.mouse.up()
@@ -58,6 +58,8 @@ const projection = JSON.parse(execFileSync(process.env.PYTHON || 'python3', ['-c
       .filter(id => window.editor.state.draft.layouts.large[id].enabled))
     assert.equal(order.at(-1), 'pip_left')
     assert.equal(await page.getByRole('button', {name:/Move .* (forward|backward)/}).count(), 0)
+    const client = await page.context().newCDPSession(page)
+    await client.send('Emulation.setTouchEmulationEnabled', {enabled:true})
     await page.setViewportSize({width:390,height:844})
     await rows.first().evaluate(row => row.scrollIntoView({block:'center'}))
     const touchRows = await rows.evaluateAll(elements => {
@@ -66,12 +68,10 @@ const projection = JSON.parse(execFileSync(process.env.PYTHON || 'python3', ['-c
         .slice(0, 2).map(row => ({ id: row.dataset.layerId, box: row.getBoundingClientRect().toJSON(),
           grip: row.querySelector('.gx-layout__row-grip').getBoundingClientRect().toJSON() }))
     })
-    assert.equal(touchRows.length, 2, 'two rows are visible below the pinned preview and tabs')
+    assert.equal(touchRows.length, 2, 'two widget rows remain visible while scrolling')
     const handle = touchRows[0].grip, target = touchRows[1].box
     const beforeTouch = await page.evaluate(() => window.editor.state.draft.widgetOrder.large
       .filter(id => window.editor.state.draft.layouts.large[id].enabled))
-    const client = await page.context().newCDPSession(page)
-    await client.send('Emulation.setTouchEmulationEnabled', {enabled:true})
     const touch = (x, y) => [{x, y, id:1}]
     await client.send('Input.dispatchTouchEvent', {type:'touchStart', touchPoints:touch(handle.x + handle.width / 2, handle.y + handle.height / 2)})
     await client.send('Input.dispatchTouchEvent', {type:'touchMove', touchPoints:touch(target.x + target.width / 2, target.y + target.height / 2)})

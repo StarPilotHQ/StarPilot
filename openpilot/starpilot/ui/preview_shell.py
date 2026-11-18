@@ -76,7 +76,7 @@ def reference_feature_scene(scene: str) -> tuple[Destination, str, FeatureSettin
     rows = tuple(FeatureRow("", label, "Saved settings", page=page, available=True) for page, label in (
       ("slc", "Speed Limit Controller"), ("lane", "Lane Centering"), ("lane_change", "Lane Changes"),
       ("profiles", "Long Planner"), ("conditional", "Conditional Driving Modes"), ("curve", "Curve Speed Controller"),
-      ("torque", "Steering and Torque"), ("aol", "Always On Lateral"), ("wheel", "Wheel Controls")))
+      ("torque", "Steering & Torque"), ("aol", "Always On Lateral"), ("wheel", "Wheel Controls")))
     destination, field, page, title = Destination.DRIVING_CONTROLS, "features", "hub", "Driving Controls"
   elif scene == "settings_sounds":
     rows = (FeatureRow("soundpack", "Sound Pack", "Standard", choices=("Standard", "Classic"), available=True),
@@ -103,7 +103,7 @@ def reference_feature_scene(scene: str) -> tuple[Destination, str, FeatureSettin
                        presets=(("10 s", "10 s"),)),
             FeatureRow(SCREEN_OFF, "Turn Off Comma Screen", "Off", choices=("Off", "On"), available=True,
                        reason=SCREEN_OFF_DESCRIPTION),
-            FeatureRow("power:enabled", "Parked Power", "Stock", choices=("Stock", "On"), available=True),
+            FeatureRow("power:enabled", "Parked Power", "Stock", choices=("Stock", "Custom limits"), available=True),
             FeatureRow("power:hours", "Maximum Parked Time", "30 h", page="power:hours", available=True,
                        reason="Saved; stock power policy applies", presets=(("30 h", "30 h"),)),
             FeatureRow("power:volts", "Low-Voltage Cutoff", "11.8 V", page="power:volts", available=True,
@@ -122,7 +122,7 @@ def reference_feature_scene(scene: str) -> tuple[Destination, str, FeatureSettin
   elif scene == "settings_pip":
     rows = (boolean("pip:enabled", "On"), boolean("pip:blinker", "Off"), number, reset,
             FeatureRow("", "Camera availability", "No fresh cabin frame", reason="Check the live crop preview while parked"))
-    destination, field, page, title = Destination.APPEARANCE, "appearance", "pip", "Blind Spot Camera and Preview"
+    destination, field, page, title = Destination.APPEARANCE, "appearance", "pip", "Blind Spot Camera & Preview"
   else:
     rows = (boolean("enabled_off", "Off"), boolean("enabled_on", "On"),
             boolean("disabled_off", "Off", available=False), boolean("disabled_on", "On", available=False),
@@ -131,7 +131,7 @@ def reference_feature_scene(scene: str) -> tuple[Destination, str, FeatureSettin
             FeatureRow("unreadable", "Saved preference", "Unreadable", reason="Saved source cannot be read"),
             FeatureRow("", "Following", ""), number, reset,
             FeatureRow("", "Child settings", "Saved settings", page="lane", available=True),
-            FeatureRow("stock", "Parked Power", "Stock", choices=("Stock", "On"), available=True),
+            FeatureRow("stock", "Parked Power", "Stock", choices=("Stock", "Custom limits"), available=True),
             boolean("last_off", "Off"), boolean("last_on", "On"))
     destination, field, page, title = Destination.DRIVING_CONTROLS, "features", "lane", "Feature States"
     if scene == "settings_appearance":

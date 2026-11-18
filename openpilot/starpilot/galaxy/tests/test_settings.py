@@ -262,7 +262,7 @@ class SettingsGatewayTest(unittest.TestCase):
     self.assertEqual(next(page for page in lateral["pages"] if page["id"] == "aol")["title"], self.page("aol")["title"])
     self.assertEqual([row["page"] for row in hub["rows"]],
                      ["aol", "lane_change", "lane", "torque", "torque/developer", "curve", "slc", "profiles", "conditional", "wheel",
-                     "vehicle", "personalities"])
+                     "vehicle", "personalities", "driving_options"])
     self.assertEqual([row["page"] for row in self.page("personalities")["rows"]],
                      ["aggressive", "standard", "relaxed", "traffic"])
     for page in ("slc", "lane", "lane_change", "profiles", "conditional", "conditional/cem",
@@ -310,6 +310,20 @@ class SettingsGatewayTest(unittest.TestCase):
     Path(self.params.get_param_path("BlindSpotMetrics")).write_bytes(b"bad")
     self.assertFalse(self.gateway.confirm(intent["intent"], self.session, self.generation))
     self.assertEqual(Path(self.params.get_param_path("BlindSpotMetrics")).read_bytes(), b"bad")
+
+  def test_data_connections_and_starport_keep_distinct_saved_settings(self):
+    self.context.value = replace(self.context.value,
+                                 cp=ToyotaInterface.get_non_essential_params(ToyotaCar.TOYOTA_COROLLA_TSS2))
+    data = self.page("data")
+    self.assertEqual(data["title"], "Data & Connections")
+    self.assertIn("Always Allow Uploads", [row["label"] for row in data["rows"]])
+    self.assertNotIn("Stay on Wi-Fi", [row["label"] for row in data["rows"]])
+    starport = self.page("starport_options")
+    self.assertEqual(starport["title"], "StarPort")
+    self.assertNotIn("Always Allow Uploads", [row["label"] for row in starport["rows"]])
+    sections = self.page("hub")["sections"]
+    self.assertEqual(sections[-1]["id"], "device")
+    self.assertNotIn("localization", [section["id"] for section in sections])
 
   def test_developer_sidebar_uses_the_shared_saved_choice(self):
     self.context.value = AuthorityContext(False, None, None)
@@ -880,7 +894,7 @@ class SettingsGatewayTest(unittest.TestCase):
     self.assertEqual(page["rows"][index]["choices"], ["StarPilot Default", "Normal", "Comfort", "Sport"])
     intent = self.gateway.preview(page["view"], index, 0, self.session, self.generation, value="Sport")
     self.assertEqual(intent["proposed"], "Sport")
-    self.assertIn("Selected Profile", intent["question"])
+    self.assertIn("Use global preset", intent["question"])
     self.assertTrue(self.gateway.confirm(intent["intent"], self.session, self.generation))
     self.assertFalse(self.params.get_bool("CustomPersonalities"))
     category = self.page("aggressive/braking")

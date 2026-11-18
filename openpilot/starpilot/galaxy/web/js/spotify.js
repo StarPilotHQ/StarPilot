@@ -419,7 +419,7 @@ export const SpotifyPage = {
   template: `
     <section class="gx-driving gx-spotify" aria-label="Spotify" :aria-busy="busy || undefined">
       <header class="gx-page-header">
-        <h2>Spotify and Phone Audio</h2>
+        <h2>Spotify & Phone Audio</h2>
         <p>Play Spotify on your comma, or send music from your phone through the comma to your car.</p>
       </header>
       <GxNotice tone="danger" v-if="error && setup">{{ error }}</GxNotice>
@@ -512,7 +512,7 @@ export const SpotifyPage = {
           :index="0" :busy="busy" :save-value="(index, value) => setEnabled(value === 'On')" />
         <div class="gx-actions">
           <button type="button" class="gx-btn gx-btn--tonal" :aria-expanded="showSetup" aria-controls="gx-spotify-steps" @click="showSetup = !showSetup">
-            <i :class="showSetup ? 'bi bi-chevron-up' : 'bi bi-gear'" aria-hidden="true"></i> {{ showSetup ? 'Hide Setup' : 'Setup and Settings' }}</button>
+            <i :class="showSetup ? 'bi bi-chevron-up' : 'bi bi-gear'" aria-hidden="true"></i> {{ showSetup ? 'Hide Setup' : 'Setup & Settings' }}</button>
         </div>
       </section>
 
@@ -610,7 +610,7 @@ export const SpotifyPage = {
       </ol>
 
       <section v-if="setup && !phoneSource && (setupDone ? showSetup : setup.release.installed)" class="gx-card gx-step" aria-labelledby="gx-spotify-manage-title">
-        <h3 id="gx-spotify-manage-title">Storage and Account</h3>
+        <h3 id="gx-spotify-manage-title">Storage & Account</h3>
         <label class="gx-stack"><span>Music cache</span>
           <select class="gx-field" :value="setup.preferences.cacheMb" :disabled="busy" @change="saveCache">
             <option v-for="size in setup.cacheChoices" :key="size" :value="size">{{ size >= 1024 ? (size / 1024) + ' GB' : size + ' MB' }}</option>

@@ -13,13 +13,13 @@ export const DRIVING_PAGES = Object.freeze({
 })
 
 export const DRIVING_GROUPS = Object.freeze([
-  { title: "Steering and buttons", items: [
+  { title: "Steering & buttons", items: [
     { page: "aol", title: "Always On Lateral", detail: "Steering assistance independent of cruise control" },
     { page: "lane", title: "Lane centering", detail: "Saved steering behavior" },
     { page: "lane_change", title: "Lane changes", detail: "Saved lane-change choices" },
     { page: "torque", title: "Torque tuning", detail: "Saved steering tune and vehicle-source selection" },
   ] },
-  { title: "Speed and longitudinal", items: [
+  { title: "Speed & longitudinal", items: [
     { page: "conditional", title: "Driving Modes", detail: "Automatic, Chill and Experimental" },
     { page: "curve", title: "Curve Speed Controller", detail: "Saved curve-speed choices" },
     { page: "slc", title: "Speed Limit Controller", detail: "Dashboard and qualified vision source choices" },
@@ -51,7 +51,7 @@ export const DrivingPage = {
         </section>
         <div class="gx-driving__extras gx-actions"><button type="button" class="gx-btn gx-btn--tonal" @click="go('/driving/longitudinal-curves')">Edit longitudinal curves</button>
           <button type="button" class="gx-btn gx-btn--tonal" @click="go('/tuning/plots')">Live plots</button>
-          <button type="button" class="gx-btn gx-btn--tonal" @click="go('/tuning')">Tuning and Analysis</button></div>
+          <button type="button" class="gx-btn gx-btn--tonal" @click="go('/tuning')">Tuning & Analysis</button></div>
       </template>
     </section>`,
 }

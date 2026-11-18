@@ -103,7 +103,7 @@ Ordinary personalities keep their existing 45/70 mph follow curve. The global
 **Selected Deceleration Profile** and explicit personality braking presets use
 different historical scales:
 
-| UI selection | Global or inherited through Selected Profile | Explicit personality preset |
+| UI selection | Global or inherited through Use global preset | Explicit personality preset |
 | --- | --- | --- |
 | Comfort (`eco`) | 0.6 m/s² | 0.5 m/s² |
 | Normal (`standard`) | 1.2 m/s² | 1.0 m/s² |
@@ -115,7 +115,7 @@ including a changed SLC cap. Global values preserve the historical
 presets retain their original physical values. The distinction preserves
 existing tuning and saved-document compatibility.
 
-Comfort is the fresh global default. A personality set to **Selected Profile**
+Comfort is the fresh global default. A personality set to **Use global preset**
 inherits the global choice; an explicit preset or Custom curve overrides it.
 For example, changing from inherited global Sport to explicit personality
 Sport changes the cruise braking magnitude from 2.4 to 2.0 m/s².

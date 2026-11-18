@@ -863,7 +863,8 @@ class StarShellSession:
       position = placement(state.customization, self.profile, key)
       if position["enabled"]:
         width, height = widget_size(state.customization, self.profile, key)
-        camera_positions[side] = Rect(position["x"], position["y"], width, height)
+        shift = (state.viewport_width - 1860) if self.profile == Profile.LARGE and key == "pip_right" else 0
+        camera_positions[side] = Rect(position["x"] + shift, position["y"], width, height)
     status = self.pip_renderer.render(rect, saved.mask, signals, enabled=True,
                                       on_blinker=saved.on_blinker, on_bsm=saved.on_bsm, invert=saved.invert,
                                       placements=camera_positions, **({"submit": submit} if submit is not None else {}))

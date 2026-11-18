@@ -101,7 +101,7 @@ def test_actual_owner_projections_have_no_uncovered_setting(tmp_path):
   from openpilot.starpilot.ui.pip_owner import PiPOwner
   from openpilot.starpilot.ui.vasm_owner import VASMOwner
   from openpilot.starpilot.ui.sentry_owner import SentryOwner
-  from openpilot.starpilot.galaxy.developer_settings import DeveloperSettingsOwner
+  from openpilot.starpilot.galaxy.device_settings import DeviceSettingsOwner
   from openpilot.starpilot.ui.presentation import Profile
   params = Params(str(tmp_path))
 
@@ -111,7 +111,8 @@ def test_actual_owner_projections_have_no_uncovered_setting(tmp_path):
         assert purpose(row), (page, row.key)
         assert _projection(row)['reason'].startswith(purpose(row))
 
-  check(DeveloperSettingsOwner(params, lambda: True).snapshot().rows, 'developer')
+  for page in ('starport_options', 'driving_options', 'resets'):
+    check(DeviceSettingsOwner(params, lambda: True).snapshot(page).rows, page)
 
   for candidate in (GM.CHEVROLET_BOLT_EUV, GM.CHEVROLET_VOLT, HYUNDAI.HYUNDAI_IONIQ_6,
                     TOYOTA.TOYOTA_RAV4_TSS2_2023, FORD.FORD_ESCAPE_MK4):

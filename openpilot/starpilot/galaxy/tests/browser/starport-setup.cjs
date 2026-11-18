@@ -15,11 +15,11 @@ for (const width of [390,1280]) {
 await page.setViewportSize({width,height:1100});
 for(const [car_type,connection] of [['builtin','wireless'],['adapter','wireless'],['usb','wired'],['app','headunitpad'],['app','openheadunit']]){
 await page.evaluate(({car_type,connection})=>{Object.assign(fixture.runtime,{car_type,connection,car_profile:'aawireless',car_profile_source:'override',state:connection==='wired'?'waiting_for_usb':connection==='headunitpad'?'waiting_for_ipad':connection==='openheadunit'?'waiting_for_tablet':'wifi_info'});}, {car_type,connection});
-assert.equal(await page.locator('.gx-starport-progress:visible').count(),1);
+assert.equal(await page.locator('[aria-label="Connection progress"]:visible').count(),1);
 assert.equal(await page.getByRole('button',{name:'Disconnect',exact:true}).count(),1);
 assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,`${width} ${connection} overflow`);
 await page.evaluate(()=>{fixture.showSteps=true;});
-assert.equal(await page.locator('.gx-starport-progress:visible').count(),1,'expanded setup has one progress panel');
+assert.equal(await page.locator('[aria-label="Connection progress"]:visible').count(),1,'expanded setup has one progress panel');
 assert.equal(await page.getByRole('button',{name:'Disconnect',exact:true}).filter({visible:true}).count(),1);
 await page.evaluate(()=>{fixture.showSteps=false;});
 }
@@ -35,6 +35,6 @@ assert.equal(await page.locator('button').filter({hasText: /^\s*Find car\s*$/}).
 assert.equal(await page.getByRole('button',{name:'Connect to car',exact:true}).isEnabled(),false);
 await page.evaluate(()=>{fixture.runtime.state='wifi_info';fixture.runtime.running=true;});
 await page.emulateMedia({reducedMotion:'reduce'});
-assert.equal(await page.locator('.gx-starport-orbit:visible').evaluate(el=>getComputedStyle(el).animationName),'none');
+assert.equal(await page.locator('.gx-guided [aria-label="Connection progress"] .gx-spinner:visible').evaluate(el=>getComputedStyle(el).animationName),'none');
 assert.deepEqual(errors,[]);await browser.close();console.log('All five device options at phone/desktop sizes, confirmation, failure and single progress/action layout passed.');
 })().catch(e=>{console.error(e);process.exit(1)});

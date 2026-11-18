@@ -1,11 +1,10 @@
+import { SystemMaintenance } from "./system-maintenance.js"
 import { DriveStatePanel } from "./drive-state.js"
 import { GxDialog } from "./dialog.js"
 import { GxState } from "./state.js"
 import { GxNotice } from "./notice.js"
-import { ToggleBackup } from "./toggle-backup.js"
 import { GalaxySelect } from "./galaxy-select.js"
 import { GalaxySettingRow, switchRow } from "./galaxy-setting-row.js"
-import { RouteCleanup } from "./route-cleanup.js"
 
 const ACTIONS = new Set(["check", "download", "select", "install", "preferences", "install-preferences", "update", "fast", "rollback", "versions", "version", "download-version"])
 const REQUEST_STATES = new Set(["pending", "complete", "failed"])
@@ -365,7 +364,7 @@ export class SoftwareStatusFeed {
 }
 
 export const SoftwarePage = {
-  components: { DriveStatePanel, GxDialog, GxState, GxNotice, GalaxySelect, GalaxySettingRow, ToggleBackup, RouteCleanup },
+  components: { DriveStatePanel, GxDialog, GxState, GxNotice, GalaxySelect, GalaxySettingRow, SystemMaintenance },
   name: "SoftwarePage",
   props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true }, restarting: { type: Function, default: () => {} },
     preparing: { type: Function, default: () => {} }, cancelPreparation: { type: Function, default: () => {} } },
@@ -799,8 +798,7 @@ export const SoftwarePage = {
             </form>
           </div></details>
         </section>
-        <ToggleBackup :unauthorized="unauthorized" />
-        <RouteCleanup :unauthorized="unauthorized" />
+        <SystemMaintenance :unauthorized="unauthorized" />
         <GxDialog v-if="dialog" labelledby="gx-software-status-confirm-title" @close="closeDialog"><h3 id="gx-software-status-confirm-title">{{ dialog.title }}</h3><p>{{ dialog.message }}</p>
           <div class="gx-actions"><button type="button" class="gx-btn gx-btn--tonal" @click="closeDialog">Cancel</button><button type="button" class="gx-btn" @click="confirmDialog">{{ dialog.label }}</button></div>
         </GxDialog>

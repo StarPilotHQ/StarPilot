@@ -848,7 +848,8 @@ border-radius: var(--radius-full); color: var(--text-muted);
 .gx-view > *, .gx-driving > *, .gx-long-curves > *, .gx-vehicle > * { margin-block: 0; }
 .gx-view h2, .gx-monitor h2 { margin-top: 0; }
 .gx-note { color: var(--text-muted); font-size: var(--fs-sm); }
-.gx-alert { --notice-accent: var(--primary); align-items: center; backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); border: 1px solid var(--glass-border); border-left: 4px solid var(--notice-accent); border-radius: var(--radius-md); display: flex; gap: var(--sp-3); width: 100%; margin: 0 0 var(--sp-4); padding: var(--sp-4); background: color-mix(in srgb, var(--notice-accent) 12%, transparent); }
+.gx-alert { --notice-accent: var(--primary); align-items: center; backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); border: 1px solid var(--glass-border); border-left: 4px solid var(--notice-accent); border-radius: var(--radius-md); display: flex; gap: var(--sp-3); box-sizing: border-box; min-width: 0; width: 100%; margin: 0; padding: var(--sp-4); background: color-mix(in srgb, var(--notice-accent) 12%, transparent); }
+* + .gx-alert { margin-top: var(--sp-4); }
 .gx-alert--warn { --notice-accent: var(--warning); }
 .gx-alert--danger { --notice-accent: var(--error); }
 .gx-alert--success { --notice-accent: var(--success); }
@@ -864,7 +865,10 @@ border-radius: var(--radius-full); color: var(--text-muted);
 .gx-alert__actions { margin: 0; justify-content: flex-start; }
 .gx-alert__actions .gx-btn { max-width: 100%; white-space: normal; overflow-wrap: anywhere; padding-block: var(--sp-2); box-shadow: none; }
 .gx-alert .gx-spinner { border-top-color: var(--notice-accent); }
-.gx-settings > .gx-card, .gx-settings > .gx-alert, .gx-stack > .gx-card, .gx-stack > .gx-alert { margin-bottom: 0; }
+.gx-alert:first-child { margin-top: 0; }
+.gx-alert:last-child { margin-bottom: 0; }
+.gx-settings > .gx-card, .gx-stack > .gx-card { margin-bottom: 0; }
+.gx-settings > .gx-alert, .gx-stack > .gx-alert { margin-block: 0; }
 .gx-menu-tile {
 align-items: center;
 background: var(--surface-container);

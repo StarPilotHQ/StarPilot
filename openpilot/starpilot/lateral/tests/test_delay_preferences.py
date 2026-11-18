@@ -46,7 +46,7 @@ class TestSteeringDelay(unittest.TestCase):
   def test_all_controllers_visible_adjacent_and_default_is_total(self):
     hub = self.owner.snapshot('hub', parked=True, system_long=False, lateral_context=True, metric=False).rows
     lateral = [row.label for row in hub if row.page in ('aol', 'lane_change', 'lane', 'torque', 'torque/developer')]
-    self.assertEqual(lateral, ['Always On Lateral', 'Lane Changes', 'Lane Centering', 'Steering and Torque', 'Developer Parameters'])
+    self.assertEqual(lateral, ['Always On Lateral', 'Lane Changes', 'Lane Centering', 'Steering & Torque', 'Developer Parameters'])
     for identity in ('HYUNDAI_IONIQ_6', 'HONDA_CIVIC', 'NISSAN_LEAF', 'CHEVROLET_BOLT_CC_2022_2023'):
       self.cp = interfaces[identity].get_non_essential_params(identity)
       rows = self.owner.snapshot('torque/developer', parked=True, system_long=False, lateral_context=True, metric=False).rows

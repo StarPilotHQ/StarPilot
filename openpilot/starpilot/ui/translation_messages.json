@@ -1456,7 +1456,7 @@
       ]
     },
     {
-      "source": "Blind Spot Camera and Preview",
+      "source": "Blind Spot Camera & Preview",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/pip.js",
         "openpilot/starpilot/galaxy/web/js/settings.js",
@@ -1464,7 +1464,7 @@
       ]
     },
     {
-      "source": "Blind Spot Camera and Preview saved settings",
+      "source": "Blind Spot Camera & Preview saved settings",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/pip.js"
       ]
@@ -2015,7 +2015,7 @@
       ]
     },
     {
-      "source": "Cameras and Monitoring",
+      "source": "Cameras & Monitoring",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/cameras.js"
       ]
@@ -15544,7 +15544,7 @@
       ]
     },
     {
-      "source": "Setup and Settings",
+      "source": "Setup & Settings",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/spotify.js"
       ]
@@ -15663,7 +15663,7 @@
       ]
     },
     {
-      "source": "Show onroad · Big and Small UI",
+      "source": "Show onroad · Big & Small UI",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/favorites.js"
       ]
@@ -16158,7 +16158,7 @@
       ]
     },
     {
-      "source": "Speed and longitudinal",
+      "source": "Speed & longitudinal",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/driving.js"
       ]
@@ -16269,7 +16269,7 @@
       ]
     },
     {
-      "source": "Spotify and Phone Audio",
+      "source": "Spotify & Phone Audio",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/spotify.js",
         "openpilot/starpilot/galaxy/web/js/starport.js"
@@ -16737,13 +16737,13 @@
       ]
     },
     {
-      "source": "Steering and Torque",
+      "source": "Steering & Torque",
       "refs": [
         "openpilot/starpilot/ui/feature_settings_owner.py"
       ]
     },
     {
-      "source": "Steering and buttons",
+      "source": "Steering & buttons",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/driving.js"
       ]
@@ -16972,7 +16972,7 @@
       ]
     },
     {
-      "source": "Storage and Account",
+      "source": "Storage & Account",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/spotify.js"
       ]

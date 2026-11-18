@@ -19,7 +19,7 @@ from openpilot.starpilot.ui.onroad_rear_fog import render_rear_fog
 from openpilot.starpilot.ui import clip
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.starpilot.ui.onroad_customization import (CLOCK_WIDGET, MODE_WIDGET, RAIL_WIDGETS, STOPPED_TIMER_WIDGET, placement, rgba,
-                                                         widget_order, widget_size)
+                                                         rendered_widget_order, widget_size)
 from openpilot.starpilot.ui.appearance_preferences import CameraViewChoice
 
 from openpilot.starpilot.ui.onroad_alerts import AlertRenderer
@@ -367,15 +367,18 @@ class OnroadView:
     if state.alert.size != AlertSize.FULL:
       submit("rear_fog", lambda: render_rear_fog(state, profile))
     pending = manual_slc_confirmation(self.fonts.profile, state)
-    for key in widget_order(state.customization, profile):
+    for key in rendered_widget_order(state.customization, profile):
       if only_widget is not None and key != only_widget:
         continue
       if pending and key == 'speed_limit_actions':
         continue
-      if draw := callbacks.get(key):
+      if key not in ('pip_left', 'pip_right') and (draw := callbacks.get(key)):
         draw()
     if pending and (only_widget is None or only_widget == ('cruise_limits' if large else 'speed_limit')) and not driver_camera:
       self._slc_actions(state)
+    for key in rendered_widget_order(state.customization, profile):
+      if key in ('pip_left', 'pip_right') and (only_widget is None or key == only_widget) and (draw := callbacks.get(key)):
+        draw()
 
   def _large(self, state: OnroadState) -> None:
     width, height = self.projection_viewport or (state.viewport_width, 1080)
