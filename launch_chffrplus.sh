@@ -4,6 +4,10 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null && pwd )"
 
 source "$DIR/launch_env.sh"
 
+if [ -f "$DIR/scripts/branch-migration.json" ]; then
+  python3 "$DIR/scripts/branch_migration.py" --repo "$DIR" || echo "Branch migration deferred; keeping installed software."
+fi
+
 function run_agnos_updater {
   if python3 -c "import openpilot.system.ui.updater"; then
     python3 -m openpilot.system.ui.updater "$@"
