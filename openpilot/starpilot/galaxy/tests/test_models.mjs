@@ -364,7 +364,7 @@ assert.equal(liveLink.manager.data.jetlink.active, false)
 assert.equal(liveLink.manager.data.jetlink.state, "checking execution")
 liveLink.manager.stop()
 
-assert.ok(ModelsPage.template.includes('href="https://github.com/StarPilotHQ/StarPilot/blob/Dom/openpilot/starpilot/models/JETLINK.md"'), "Jetlink setup guide points at Dom")
+assert.ok(ModelsPage.template.includes('href="https://github.com/StarPilotHQ/StarPilot/blob/testing/openpilot/starpilot/models/JETLINK.md"'), "Jetlink setup guide points at testing")
 
 const refreshingCatalog = { ...managerPayload, downloading: true, refreshing: true }
 assert.equal(modelActionAllowed(refreshingCatalog, "select-small", small), true)
