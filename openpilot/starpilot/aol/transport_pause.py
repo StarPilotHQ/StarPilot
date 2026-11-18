@@ -1195,6 +1195,9 @@ class TransportPauseFeedback:
         (native.pandaSerial, tuple(slot.hardwareSerial for slot in native.pandaInventory)))
 
   def _inactive_source_pause_current(self, sm, cp, cs, axis, stamp, now_ns, *, latched, producer):
+    from openpilot.starpilot.car.subaru.paused_intent import retain_stopped_source_feedback
+    if retain_stopped_source_feedback(self, sm, cp, cs, axis, stamp, now_ns, latched=latched, producer=producer):
+      return True
     from opendbc.car import structs
     previous = self.signature
     if (not latched or self.failed or self.paused or self.pending_event or self.retention_started_ns or
@@ -1446,6 +1449,12 @@ class TransportPauseFeedback:
       if cp.brand == 'ford' and current and continuity:
         from openpilot.starpilot.car.ford.physical_pause import retain_physical_pause_intent
         if retain_physical_pause_intent(self, sm, cp, cs, axis, now_ns, latched=latched, producer=intent_producer_session):
+          return False
+      if cp.brand == 'subaru' and current and continuity:
+        from openpilot.starpilot.car.subaru.paused_intent import retain_paused_restriction
+        if retain_paused_restriction(self, sm, cp, cs, axis, stamp, now_ns,
+            latched=latched, producer=intent_producer_session):
+          self.sequence, self.signature = int(axis.sequence), signature
           return False
       if current and continuity and self._temporary_steering_intent_current(sm, cp, cs, axis, stamp, now_ns,
           latched=latched, producer=intent_producer_session, signature=signature):

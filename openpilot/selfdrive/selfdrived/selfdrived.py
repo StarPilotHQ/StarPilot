@@ -1394,12 +1394,19 @@ class SelfdriveD:
       now_ns - source_ns <= SAFETY_MAX_AGE_NS and CS.canValid and not CS.canTimeout and
       (getattr(self, 'conditional_car_state_valid', False) or
        getattr(self, 'aol_publication_retained_intent', None) is intent))
+    from openpilot.starpilot.car.subaru.paused_intent import retain_stopped_source
+    stopped_intent = healthy_expiry and retain_stopped_source(self, CS, intent, source_ns, now_ns)
     self.aol_car_state_log_ns = 0
     self.conditional_car_state_valid = False
     self.aol_expired_healthy_source = healthy_expiry
     previous = self.aol_axis_decision
     was_enabled = self.enabled
     self.aol_axis_decision = AxisDecision()
+    if stopped_intent:
+      self.aol_fault_reason = 'availabilityPause'
+      self.aol_publication_retained_intent = intent
+      self.events.add(EventName.commIssue)
+      return
     if healthy_expiry and not was_enabled and (self.cold_gm_main_readiness(CS, intent, now_ns) or
         self.cold_gm_main_readiness(CS, intent, now_ns, recovering=True)):
       self.aol_fault_reason = 'availabilityPause'
@@ -1697,6 +1704,11 @@ class SelfdriveD:
       if not axis_deferred:
         self.aol_sequence = next_sequence
         self.pm.send('aolAxisState', axis_msg)
+        if source_clock_scoped and reason == 'none':
+          from openpilot.starpilot.car.subaru.paused_intent import record_stopped_intent
+          record_stopped_intent(self, CS, axis_msg, now_ns)
+        elif reason == 'critical':
+          self.aol_stopped_intent_proof = None
         # Bind critical history to the actual completed axis publication. The
         # working decision can change again during later source-expiry checks.
         self.aol_published_fault_proof = ((str(axis.sessionId), str(axis.faultReason),
@@ -2229,6 +2241,10 @@ class SelfdriveD:
         hard_fault=bool(self.aol_selected_pair_future or self.aol_authority_lost or lost_active_aol or
           lost_companion and not publication_expiry or lost_permission or upgraded),
         healthy_native=self.aol_transport_pause.observed_native)
+      from openpilot.starpilot.car.subaru.paused_intent import retain_stopped_source
+      stopped_availability = bool(publication_expiry and retain_stopped_source(
+        self, CS, retained_intent, retained_intent.carStateLogMonoTime, now_ns))
+      availability = availability or stopped_availability
       ordinary_availability = bool(not source_current and not lost_active_aol and not lost_permission and not upgraded and
         self.ordinary_source_availability(CS, now_ns, native))
       if ordinary_availability:
@@ -2328,7 +2344,7 @@ class SelfdriveD:
       if self.aol_ordinary_source_pause:
         self.aol_axis_decision = self.ordinary_source_withdrawal()
       elif availability:
-        self.aol_axis_decision = AxisDecision(desired_lateral=True, native_acknowledged=True)
+        self.aol_axis_decision = AxisDecision() if stopped_availability else AxisDecision(desired_lateral=True, native_acknowledged=True)
       elif getattr(self, 'aol_availability_long_inhibit', False):
         decision = self.aol_axis_decision
         self.aol_axis_decision = AxisDecision(desired_lateral=decision.desired_lateral,
