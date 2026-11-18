@@ -6,6 +6,7 @@ from openpilot.cereal import log
 from openpilot.common.constants import CV
 
 from openpilot.starpilot.navigation.wire import navigation_state
+from openpilot.starpilot.lateral.signal_turn import SignalTurnEvidence
 
 SERVICE = 'starpilotNavigation'
 MAX_AGE_NS = 2_500_000_000
@@ -106,6 +107,7 @@ class TurnIntent:
     from openpilot.starpilot.lateral.lane_change_preferences import LiveLaneChangePolicy
     self.guidance = LiveLaneChangePolicy(params) if params is not None else None
     self.steering_capable = steering_capable(cp)
+    self.signal_model = SignalTurnEvidence()
     self.signal_stop_hold = False
     self.signal_stop_completed = False
     self.key = None
@@ -148,7 +150,8 @@ class TurnIntent:
       if (not supported or not self.steering_capable or not policy.turn_signal_guidance or
           current_desire != log.Desire.none or not cc.latActive or
           not cs.canValid or cs.canTimeout or str(cs.gearShifter) != 'drive' or
-          not math.isfinite(cs.vEgo) or cs.vEgo >= 20 * CV.MPH_TO_MS or
+          not math.isfinite(cs.vEgo) or (cs.vEgo >= 20 * CV.MPH_TO_MS and
+            (cs.steeringPressed or not self.signal_model.current(sm, now_ns))) or
           not device.started):
         return current_desire
       for service, age in (('carState', 100_000_000), ('carControl', 100_000_000),

@@ -682,11 +682,16 @@ def main(demo=False):
                     auto_evidence(sm, modelv2_send.modelV2, direction, runtime_lane_policy.minimum_lane_width_m,
                                   now_mono_ns=mono_now_ns, now_boot_ns=boot_now_ns,
                                   model_valid=bool(modelv2_send.valid), vehicle_capable=auto_vehicle_capable))
+      signal_turn = navigation_turn.signal_model.observe(
+        sm, modelv2_send.modelV2, model_ns=int(modelv2_send.logMonoTime), now_ns=mono_now_ns, now_boot_ns=boot_now_ns,
+        valid=bool(modelv2_send.valid), enabled=bool(turn_supported and navigation_turn.steering_capable and
+                                                  runtime_lane_policy.turn_signal_guidance),
+        clock_skew_ns=clock_skew_ns, lane_change_state=DH.lane_change_state)
       engaged = bool(sm['carControl'].latActive)
       DH.update(car_state, sm['carControl'].latActive, lane_change_prob,
                 auto_evidence=auto_ready, engaged=auto_trigger_engaged(sm, runtime_lane_policy,
                   openpilot_longitudinal=bool(CP.openpilotLongitudinalControl), now_mono_ns=mono_now_ns),
-                navigation_turn=matching_turn_signal(sm, mono_now_ns, supported=turn_supported))
+                navigation_turn=signal_turn or matching_turn_signal(sm, mono_now_ns, supported=turn_supported))
       modelv2_send.modelV2.meta.laneChangeState = DH.lane_change_state
       modelv2_send.modelV2.meta.laneChangeDirection = DH.lane_change_direction
 

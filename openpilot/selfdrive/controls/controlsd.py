@@ -49,6 +49,7 @@ from openpilot.starpilot.lateral.lane_feedback import feedback_message
 from openpilot.starpilot.lateral.lane_clearance import current_delay, interface_dimensions
 from openpilot.starpilot.lateral.lane_change_preferences import LiveLaneChangePolicy
 from openpilot.starpilot.lateral.lane_change_smoothing import LaneChangeSmoother, limit_rate
+from openpilot.starpilot.lateral.auto_lane_change import paired_clocks_ns
 from openpilot.starpilot.lateral.lane_runtime import LaneCenteringHost, runtime_supported as lane_runtime_supported
 from openpilot.starpilot.lateral.torque_runtime import TorqueHost, runtime_enabled as torque_runtime_enabled
 from openpilot.starpilot.feature_capabilities import lateral_supported
@@ -575,6 +576,10 @@ class Controls:
     previous_curvature = self.desired_curvature
     lane_policy_now_ns = int(self.sm.logMonoTime['carState']) if os.getenv('REPLAY') == '1' else time.monotonic_ns()
     self.refresh_lane_change_policy(CS, model_v2, lane_policy_now_ns)
+    turn_now_ns, turn_boot_ns, turn_skew_ns = paired_clocks_ns()
+    intersection_turn = self.lane_change_smoother.turn_evidence.observe(
+      self.sm, model_v2, model_ns=int(self.sm.logMonoTime["modelV2"]), now_ns=turn_now_ns, now_boot_ns=turn_boot_ns,
+      valid=bool(self.sm.all_checks(["modelV2"])), enabled=assist_ready, clock_skew_ns=turn_skew_ns)
     factor = self.lane_change_smoother.factor(
       active=bool(CC.latActive and CS.canValid and not CS.canTimeout and self.sm.all_checks(['modelV2']) and self.lane_change_policy.enabled),
       lane_change_state=model_v2.meta.laneChangeState,
@@ -583,7 +588,7 @@ class Controls:
       duration=self.lane_change_policy.duration_s,
       previous=previous_curvature,
       desired=new_desired_curvature,
-      turn_assist=assist,
+      turn_assist=assist, intersection_turn=intersection_turn,
     )
     new_desired_curvature = limit_rate(CS.vEgo, previous_curvature, new_desired_curvature, factor)
     self.desired_curvature, curvature_limited = clip_curvature(CS.vEgo, previous_curvature, new_desired_curvature, lp.roll)
