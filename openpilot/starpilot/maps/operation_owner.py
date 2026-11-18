@@ -283,7 +283,7 @@ def _catalog() -> list[dict]:
     if len(completed.stdout) > MAX_CATALOG or len(completed.stderr) > MAX_STATUS:
       raise ValueError('catalog output exceeds bound')
     rows = json.loads(completed.stdout, object_pairs_hook=_unique_object)
-    if type(rows) is not list or len(rows) != 229:
+    if type(rows) is not list or len(rows) not in (229, 242):
       raise ValueError('catalog shape invalid')
     seen = set()
     for row in rows:
