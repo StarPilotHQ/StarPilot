@@ -51,7 +51,8 @@ from openpilot.starpilot.lateral.lane_change_preferences import LiveLaneChangePo
 from openpilot.starpilot.lateral.lane_change_smoothing import LaneChangeSmoother, limit_rate
 from openpilot.starpilot.lateral.lane_runtime import LaneCenteringHost, runtime_supported as lane_runtime_supported
 from openpilot.starpilot.lateral.torque_runtime import TorqueHost, runtime_enabled as torque_runtime_enabled
-from openpilot.starpilot.lateral.controller_selection import learning_allowed, read_selection, turn_assist_supported
+from openpilot.starpilot.feature_capabilities import lateral_supported
+from openpilot.starpilot.lateral.controller_selection import learning_allowed, read_selection
 from openpilot.starpilot.lateral.gain_runtime import create_gain_owner
 from openpilot.starpilot.flm.global_runtime import GlobalRuntime
 from openpilot.starpilot.flm.evidence_hooks import control_message
@@ -79,6 +80,8 @@ class Controls:
     self.subaru_smoothing = read_frozen(self.CP, self.params)
     from openpilot.starpilot.car.volkswagen.model_smoothing import ControlSmoothing
     self.volkswagen_smoothing = ControlSmoothing(self.CP)
+    from openpilot.starpilot.car.hyundai.model_smoothing import seconds as kona_smoothing
+    self.kona_smoothing = kona_smoothing(self.CP)
 
     self.CI = interfaces[self.CP.carFingerprint](self.CP)
     self.hyundai_lateral_fault = LateralFaultLatch(self.CP.carFingerprint)
@@ -126,7 +129,7 @@ class Controls:
       LaneCenteringController(body=interface_dimensions(self.CI, self.CP), body_required=True) if predict_lane_clearance else LaneCenteringController()
     )
     self.highway_correction_gain = HighwayCorrectionGain()
-    self.highway_smoothing_supported = turn_assist_supported(self.CP)
+    self.highway_smoothing_supported = lateral_supported(self.CP)
     self.highway_gain = read_gain(self.params) if self.highway_smoothing_supported else 1.0
     self.lateral_pause = LateralPause(read_lateral_pause(self.params), self.params)
     self.lane_change_preferences = LiveLaneChangePolicy(self.params, now_ns=0 if os.getenv('REPLAY') == '1' else time.monotonic_ns())
@@ -534,6 +537,7 @@ class Controls:
     self.lane_centering_applied = 0.0
     self.lane_centering_inactive_reason = 'inactive'
     self.last_lane_centering_result = None
+    kona_tau = getattr(self, "kona_smoothing", 0.)
     lane_delay = None
     if lane_centering is None and self.lane_centering_host is not None:
       now_ns = int(self.sm.logMonoTime['carState']) if os.getenv('REPLAY') == '1' else time.monotonic_ns()
@@ -548,6 +552,8 @@ class Controls:
     else:
       lane_now_ns = int(self.sm.logMonoTime['carState']) if os.getenv('REPLAY') == '1' else time.monotonic_ns()
       lane_delay = current_delay(self.sm, lane_now_ns)
+      if lane_delay is not None:
+        lane_delay += kona_tau
       result = self.lane_centering_controller.update(
         LaneCenteringInput(
           model=model_v2,
@@ -593,7 +599,7 @@ class Controls:
       self.lane_centering_applied = self.desired_curvature - baseline_curvature
     from openpilot.starpilot.car.subaru.smoothing import seconds as subaru_smooth_seconds, control_maximum
 
-    lat_delay = self.sm["lateralDelay"].lateralDelay + LAT_SMOOTH_SECONDS + subaru_smooth_seconds(CS.vEgo, control_maximum(self))
+    lat_delay = self.sm["lateralDelay"].lateralDelay + LAT_SMOOTH_SECONDS + subaru_smooth_seconds(CS.vEgo, control_maximum(self)) + kona_tau
     if getattr(self, "volkswagen_smoothing", None) is not None:
       lat_delay += self.volkswagen_smoothing.seconds(int(self.sm.logMonoTime["modelV2"]), time.monotonic_ns())
 
@@ -831,6 +837,8 @@ class Controls:
       valid=bool(CS.canValid and self.sm.all_checks(['modelV2'])),
       inactive_reason=getattr(self, 'lane_centering_inactive_reason', 'inactive'),
     )
+    from openpilot.starpilot.lateral.applied_tuning import write_applied_tuning
+    write_applied_tuning(feedback.starpilotLateralState, self.LaC, getattr(self, 'torque_host', None))
     automatic = getattr(self, 'global_learning', None)
     if automatic is not None:
       try:

@@ -116,6 +116,7 @@ def _input_errors(observations, policy):
     errors.append("online fallback must be Boolean")
   if not isinstance(observations, Mapping):
     return errors + ["observations must be a source mapping"]
+  # Source is a StrEnum, so raw string keys satisfy the set comparison: keep the explicit type check.
   if len(observations) != len(Source) or any(not isinstance(source, Source) for source in observations) or set(observations) != set(Source):
     return errors + ["every source requires an explicit observation"]
   for source, observation in observations.items():

@@ -155,14 +155,14 @@ def test_mask_owns_only_current_dbc_actuation_and_normal_status_fields():
   signals = packer.dbc.name_to_msg['LFA'].sigs
   expected = bytearray(16)
   owned = ('CHECKSUM', 'COUNTER', 'LKA_OptUsmSta', 'LKA_RcgSta', 'LKA_SysIndReq',
-           'StrTqReqVal', 'ActToiSta', 'Damping_Gain')
+           'StrTqReqVal', 'ActToiSta')
   for name in owned:
     signal = signals[name]
     assert signal.is_little_endian
     for bit in range(signal.lsb, signal.lsb + signal.size):
       expected[bit // 8] |= 1 << (bit % 8)
   assert bytes(expected) == LFA_CONTROL_MASK
-  for name in ('LKA_UsmMod', 'ToiFltSta', 'LKA_SysWrn', 'LKA_OnOffEquip2Sta', 'ELK_SysFlrSta', 'FCA_ESA_WrnSta'):
+  for name in ('Damping_Gain', 'LKA_UsmMod', 'ToiFltSta', 'LKA_SysWrn', 'LKA_OnOffEquip2Sta', 'ELK_SysFlrSta', 'FCA_ESA_WrnSta'):
     signal = signals[name]
     assert all(not (LFA_CONTROL_MASK[bit // 8] >> (bit % 8)) & 1 for bit in range(signal.lsb, signal.lsb + signal.size))
 
@@ -520,167 +520,345 @@ def test_actual_interface_preserves_camera_lane_safety_user_mode(car, alpha, mod
       assert decoder.vl['LFA']['StrTqReqVal'] == 0
 
 
-@pytest.mark.parametrize('car', (CAR.KIA_NIRO_EV_2ND_GEN, CAR.GENESIS_GV60_EV_1ST_GEN))
+@pytest.mark.parametrize('car', (CAR.KIA_EV6, CAR.KIA_NIRO_EV_2ND_GEN, CAR.GENESIS_GV60_EV_1ST_GEN))
 @pytest.mark.parametrize('alpha', (False, True))
-def test_actual_active_owner_status_keeps_its_display_without_changing_camera_faults(car, alpha, clock):
+@pytest.mark.parametrize('preexisting', (False, True))
+def test_unclassified_camera_system_fail_remains_visible_before_and_during_aol(car, alpha, preexisting, clock):
   cp = params(car, alpha=alpha)
   ci = CarInterface(cp)
   ci.update([])
   packer = CANPacker(DBC[car][Bus.pt])
   decoder = CANParser(DBC[car][Bus.pt], [('LFA', 0)], ci.CC.CAN.ECAN)
-  command = structs.CarControl.new_message(enabled=True, latActive=True)
-  command.actuators.torque = .2
-  for tick in range(4):
-    clock[0] = 5_000_000_000 + tick * 10_000_000
-    stock = template(packer, ci.CC.CAN.CAM, tick, warning=15, fault=0)
+  command = structs.CarControl.new_message(enabled=True)
+  for tick in range(6):
+    clock[0] = 9_000_000_000 + tick * 10_000_000
+    command.latActive = tick >= 2
+    warning = 15 if preexisting or tick >= 3 else 0
+    stock = template(packer, ci.CC.CAN.CAM, tick, warning=warning, fault=0)
     assert ci.update([(clock[0], physical_frames(ci, packer, tick, stock))]).canValid
     _, packets = ci.apply(command.as_reader(), clock[0])
     own = [p for p in packets if p[0] == 0x12A and p[2] == ci.CC.CAN.ECAN]
-    assert len(own) == 1
     decoder.update([(clock[0], own)])
-    assert decoder.vl['LFA']['LKA_SysIndReq'] == 2
-    assert decoder.vl['LFA']['LKA_SysWrn'] == 0
+    assert decoder.vl['LFA']['LKA_SysWrn'] == warning
+    if warning:
+      assert decoder.vl['LFA']['LKA_SysIndReq'] == 4
     assert decoder.vl['LFA']['ToiFltSta'] == 0
-    assert own[0][1][9] == stock[1][9] and own[0][1][14] == stock[1][14]
-    assert ci.CS.stock_lfa_status.body == stock[1]
-    assert (stock[1][4] >> 6) | ((stock[1][5] & 1) << 2) == 4
-    assert stock[1][7] >> 4 == 15
+    assert decoder.vl['LFA']['ActToiSta'] == int(command.latActive)
 
 
 @pytest.mark.parametrize('fresh', (False, True))
 @pytest.mark.parametrize('active', (False, True))
 @pytest.mark.parametrize('indication', (4, 5, 6, 7))
-@pytest.mark.parametrize('warning', (0, 4, 15))
-@pytest.mark.parametrize('fault', (0, 1, 2, 3))
-def test_active_owner_status_preserves_faults_and_inactive_or_stale_indications(fresh, active, indication, warning, fault):
+@pytest.mark.parametrize('warning', range(16))
+@pytest.mark.parametrize('fault', range(4))
+def test_fault_indication_is_never_cleared_by_lateral_request(fresh, active, indication, warning, fault):
   from opendbc.car.hyundai.hyundaicanfd import create_steering_messages
   cp = params(CAR.GENESIS_GV60_EV_1ST_GEN)
   packer = CANPacker(DBC[cp.carFingerprint][Bus.pt])
   _, body, _ = packer.make_can_msg('LFA', 2, {'LKA_SysIndReq': indication, 'LKA_SysWrn': warning,
-                                          'ToiFltSta': fault, 'ActToiSta': 0, 'StrTqReqVal': -100})
+                                          'ToiFltSta': fault, 'ActToiSta': 0, 'StrTqReqVal': -123})
   kwargs = {'stock_lfa' if fresh else 'stock_lfa_faults': body}
   own = create_steering_messages(packer, cp, CanBus(cp), active, active, 2 if active else 0, **kwargs)
   decoder = CANParser(DBC[cp.carFingerprint][Bus.pt], [('LFA', 0)], CanBus(cp).ECAN)
   decoder.update([(1_000_000_000, own)])
-  status = decoder.vl['LFA']
-  owns_status = fresh and active and indication == 4 and warning == 15 and fault == 0
-  assert status['LKA_SysIndReq'] == (2 if owns_status else indication)
-  assert status['LKA_SysWrn'] == (0 if owns_status else warning)
-  assert status['ToiFltSta'] == fault
-  assert status['ActToiSta'] == int(active)
-  assert status['StrTqReqVal'] == (2 if active else 0)
+  values = decoder.vl['LFA']
+  assert values['LKA_SysIndReq'] == indication
+  assert values['LKA_SysWrn'] == warning
+  assert values['ToiFltSta'] == fault
+  assert values['ActToiSta'] == int(active)
+  assert values['StrTqReqVal'] == (2 if active else 0)
   assert int.from_bytes(own[0][1][:2], 'little') == hkg_can_fd_checksum(0x12A, None, bytearray(own[0][1]))
 
 
 @pytest.mark.parametrize('car', (CAR.KIA_EV6, CAR.KIA_NIRO_EV_2ND_GEN, CAR.GENESIS_GV60_EV_1ST_GEN))
 @pytest.mark.parametrize('alpha', (False, True))
-def test_actual_hda1_release_status_does_not_rebroadcast_the_owned_warning(car, alpha, clock):
-  cp = params(car, alpha=alpha)
+@pytest.mark.parametrize('offset', (0, 4))
+@pytest.mark.parametrize('clear_camera', (False, True))
+def test_actual_verified_owner_keeps_display_clean_through_release(car, alpha, offset, clear_camera, clock):
+  fp = gen_empty_fingerprint()
+  fp[offset][0x1CF] = 8
+  fp[offset + 2][0x1A0] = 32
+  cp = CarInterface.get_params(car, fp, [], alpha, False, False)
   ci = CarInterface(cp)
   ci.update([])
   packer = CANPacker(DBC[car][Bus.pt])
   decoder = CANParser(DBC[car][Bus.pt], [('LFA', 0)], ci.CC.CAN.ECAN)
-  command = structs.CarControl.new_message(enabled=True)
+  command = structs.CarControl.new_message()
+  command.actuators.torque = 0.2
+  for tick in range(230):
+    clock[0] = 10_000_000_000 + tick * 10_000_000
+    command.enabled = command.latActive = 2 <= tick < 30
+    warning = 15 if tick >= 14 and not (clear_camera and tick >= 214) else 0
+    stock = template(packer, ci.CC.CAN.CAM, tick // 2 % 256, warning=warning)
+    frames = physical_frames(ci, packer, tick, stock)
+    frames = [p for p in frames if not (p[0] == 0xEA and p[2] == ci.CC.CAN.ECAN)]
+    frames.append(packer.make_can_msg('MDPS', ci.CC.CAN.ECAN, {'COUNTER': tick % 256, 'MDPS_LkaToiActvSta': int(4 <= tick < 32)}))
+    if tick % 2:
+      frames = [p for p in frames if not (p[0] == 0x12A and p[2] == ci.CC.CAN.CAM)]
+    assert ci.update([(clock[0], frames)]).canValid
+    _, packets = ci.apply(command.as_reader(), clock[0])
+    own = [p for p in packets if p[0] == 0x12A and p[2] == ci.CC.CAN.ECAN]
+    decoder.update([(clock[0], own)])
+    expired = not clear_camera and tick > 224
+    assert decoder.vl['LFA']['LKA_SysWrn'] == (15 if expired else 0)
+    assert decoder.vl['LFA']['ToiFltSta'] == 0
+    assert decoder.vl['LFA']['ActToiSta'] == int(command.latActive)
+    if not command.latActive:
+      assert decoder.vl['LFA']['StrTqReqVal'] == 0
+    if warning and not expired and not command.latActive:
+      assert decoder.vl['LFA']['LKA_SysIndReq'] == 1
+
+
+@pytest.mark.parametrize(
+  'failure', ('preexisting', 'late', 'no_eps', 'eps_fault', 'eps_unavailable', 'eps_crc', 'eps_counter', 'wrong_bus', 'camera_active', 'host_fault')
+)
+def test_owner_classifier_preserves_unproven_and_genuine_failures(failure, clock):
+  packer = CANPacker(DBC[CAR.KIA_NIRO_EV_2ND_GEN][Bus.pt])
+  source = CANFDLfaStatus(2)
+  qualified = []
+  for tick in range(40):
+    clock[0] = 20_000_000_000 + tick * 10_000_000
+    request = tick >= 2
+    fault_tick = 30 if failure == 'late' else 14
+    warning = failure == 'preexisting' or tick >= fault_tick
+    _, camera, _ = template(packer, 2, tick % 256, warning=15 if warning else 0)
+    if failure == 'camera_active':
+      body = bytearray(camera)
+      body[6] |= 0x10
+      body[:2] = hkg_can_fd_checksum(0x12A, None, body).to_bytes(2, 'little')
+      camera = bytes(body)
+    values = {'COUNTER': tick % 256, 'MDPS_LkaToiActvSta': int(tick >= 4 and failure != 'no_eps')}
+    if failure == 'eps_fault':
+      values['MDPS_LkaFailSta'] = 1
+    if failure == 'eps_unavailable':
+      values['MDPS_LkaToiUnblSta'] = 1
+    if failure == 'eps_counter':
+      values['COUNTER'] = 0
+    eps = packer.make_can_msg('MDPS', 1 if failure == 'wrong_bus' else 0, values)
+    if failure == 'eps_crc':
+      b = bytearray(eps[1])
+      b[0] ^= 1
+      eps = eps[0], bytes(b), eps[2]
+    source.update([(clock[0], [eps, (0x12A, camera, 2)])])
+    qualified.append(source.owns_display_status(request, clock[0], healthy=failure != 'host_fault'))
+  assert not any(qualified)
+
+
+@pytest.mark.parametrize('failure', ('host_fault', 'eps_fault', 'stale_eps', 'stale_camera', 'camera_fault', 'higher_grade'))
+def test_established_owner_immediately_yields_to_faults_and_stale_evidence(failure, clock):
+  packer = CANPacker(DBC[CAR.KIA_NIRO_EV_2ND_GEN][Bus.pt])
+  source = CANFDLfaStatus(2)
+  for tick in range(16):
+    clock[0] = 30_000_000_000 + tick * 10_000_000
+    camera = template(packer, 2, tick, warning=15 if tick >= 14 else 0)
+    eps = packer.make_can_msg('MDPS', 0, {'COUNTER': tick, 'MDPS_LkaToiActvSta': int(tick >= 4)})
+    source.update([(clock[0], [eps, camera])])
+    owned = source.owns_display_status(tick >= 2, clock[0], healthy=True)
+    popup_owned = source.owns_disengage_popup(tick >= 2, clock[0], healthy=True, qualified_warning=owned)
+  assert owned and popup_owned
+  for tick in range(16, 23):
+    clock[0] += 10_000_000
+    camera = template(packer, 2, tick, warning=15, fault=int(failure == 'camera_fault'))
+    if failure == 'higher_grade':
+      b = bytearray(camera[1])
+      b[4] = (b[4] & 0x3F) | 0x40
+      b[5] |= 1
+      b[:2] = hkg_can_fd_checksum(0x12A, None, b).to_bytes(2, 'little')
+      camera = camera[0], bytes(b), camera[2]
+    eps = packer.make_can_msg('MDPS', 0, {'COUNTER': tick, 'MDPS_LkaToiActvSta': 1, 'MDPS_LkaFailSta': int(failure == 'eps_fault')})
+    frames = [] if failure == 'stale_eps' else [eps]
+    if failure != 'stale_camera':
+      frames.append(camera)
+    source.update([(clock[0], frames)])
+    owned = source.owns_display_status(True, clock[0], healthy=failure != 'host_fault')
+    popup_owned = source.owns_disengage_popup(True, clock[0], healthy=failure != 'host_fault', qualified_warning=owned)
+    if failure not in ('stale_eps', 'stale_camera') or tick >= 21:
+      assert not owned
+      assert not popup_owned
+  assert not source.owns_display_status(False, clock[0], healthy=True)
+
+
+@pytest.mark.parametrize('popup', range(8))
+@pytest.mark.parametrize('owned', (False, True))
+def test_cluster_clears_only_automatic_disengagement_for_verified_owner(popup, owned):
+  cp = params()
+  packer = CANPacker(DBC[cp.carFingerprint][Bus.pt])
+  _, body, _ = cluster(packer, 2, 10)
+  data = bytearray(body)
+  data[4] = (data[4] & 0xF8) | popup
+  data[:2] = hkg_can_fd_checksum(0x1E0, None, data).to_bytes(2, 'little')
+  original = create_lfahda_cluster(CANPacker(DBC[cp.carFingerprint][Bus.pt]), CanBus(cp), True, stock_cluster=bytes(data))[1]
+  result = create_lfahda_cluster(CANPacker(DBC[cp.carFingerprint][Bus.pt]), CanBus(cp), True, stock_cluster=bytes(data), owned_lfa_status=owned)[1]
+  assert result[4] & 7 == (0 if owned and popup == 3 else popup)
+  allowed = (7 << 32) | 65535
+  assert not (int.from_bytes(original, 'little') ^ int.from_bytes(result, 'little')) & ~allowed
+  assert int.from_bytes(result[:2], 'little') == hkg_can_fd_checksum(0x1E0, None, bytearray(result))
+
+
+@pytest.mark.parametrize('car', (CAR.KIA_NIRO_EV_2ND_GEN, CAR.KIA_EV6, CAR.GENESIS_GV60_EV_1ST_GEN))
+@pytest.mark.parametrize('alpha', (False, True))
+@pytest.mark.parametrize('popup', (3, 4, 5, 6, 7))
+def test_actual_startup_popup_ownership_preserves_failures_and_hands_off(car, alpha, popup, clock):
+  cp = params(car, alpha=alpha)
+  ci = CarInterface(cp)
+  ci.update([])
+  packer = CANPacker(DBC[car][Bus.pt])
+  observed = []
+  for tick in range(45):
+    clock[0] = 40_000_000_000 + tick * 10_000_000
+    command = structs.CarControl.new_message(enabled=tick >= 2, latActive=tick >= 2)
+    stock = template(packer, ci.CC.CAN.CAM, tick % 256, warning=15 if tick >= 14 else 0)
+    frames = physical_frames(ci, packer, tick, stock)
+    frames = [p for p in frames if not (p[0] == 0xEA and p[2] == ci.CC.CAN.ECAN)]
+    frames.append(packer.make_can_msg('MDPS', ci.CC.CAN.ECAN,
+                                    {'COUNTER': tick, 'MDPS_LkaToiActvSta': int(tick >= 4)}))
+    if tick % 5 == 0:
+      _, body, _ = cluster(packer, ci.CC.CAN.CAM, tick // 5)
+      b = bytearray(body)
+      b[4] = (b[4] & 0xF8) | (popup if tick >= 15 else 0)
+      b[:2] = hkg_can_fd_checksum(0x1E0, None, b).to_bytes(2, 'little')
+      frames.append((0x1E0, bytes(b), ci.CC.CAN.CAM))
+    assert ci.update([(clock[0], frames)]).canValid
+    _, packets = ci.apply(command.as_reader(), clock[0])
+    for address, body, bus in packets:
+      if address == 0x1E0 and bus == ci.CC.CAN.ECAN and tick >= 15:
+        observed.append(body[4] & 7)
+  assert observed and all(v == (0 if popup == 3 else popup) for v in observed)
+
+
+@pytest.mark.parametrize('car', (CAR.HYUNDAI_KONA_2ND_GEN, CAR.HYUNDAI_KONA_HEV_2ND_GEN, CAR.HYUNDAI_KONA_EV_2ND_GEN,
+                                CAR.HYUNDAI_IONIQ_5, CAR.HYUNDAI_IONIQ_6, CAR.KIA_EV6,
+                                CAR.KIA_NIRO_EV_2ND_GEN, CAR.GENESIS_GV60_EV_1ST_GEN))
+@pytest.mark.parametrize('alpha', (False, True))
+@pytest.mark.parametrize('damping', (0, 37, 100, 255))
+def test_actual_hda1_sender_preserves_fresh_camera_damping(car, alpha, damping, clock):
+  cp = params(car, alpha=alpha)
+  assert preserves_stock_lfa(cp)
+  ci = CarInterface(cp)
+  ci.update([])
+  packer = CANPacker(DBC[car][Bus.pt])
+  command = structs.CarControl.new_message(enabled=True, latActive=True)
+  command.actuators.torque = .4
+  for tick in range(6):
+    clock[0] = 5_000_000_000 + tick * 10_000_000
+    address, original, bus = template(packer, ci.CC.CAN.CAM, tick)
+    body = bytearray(original)
+    body[13] = damping
+    body[:2] = hkg_can_fd_checksum(address, None, body).to_bytes(2, 'little')
+    stock = address, bytes(body), bus
+    state = ci.update([(clock[0], physical_frames(ci, packer, tick, stock))])
+    assert state.canValid and not state.canTimeout
+    _, packets = ci.apply(command.as_reader(), clock[0])
+    outgoing = [raw for address, raw, bus in packets if address == 0x12A and bus == ci.CC.CAN.ECAN]
+    assert len(outgoing) == 1
+    assert outgoing[0][13] == damping
+    assert int.from_bytes(outgoing[0][:2], 'little') == hkg_can_fd_checksum(0x12A, None, bytearray(outgoing[0]))
+
+
+def test_stale_camera_damping_does_not_replace_sender_fallback():
+  from opendbc.car.hyundai.hyundaicanfd import create_steering_messages
+  cp = params()
+  packer = CANPacker(DBC[cp.carFingerprint][Bus.pt])
+  _, body, _ = packer.make_can_msg('LFA', 2, {'Damping_Gain': 37, 'ToiFltSta': 2})
+  for active in (False, True):
+    args = (packer, cp, CanBus(cp), active, active, 0)
+    missing = create_steering_messages(*args)[0][1]
+    stale = create_steering_messages(*args, stock_lfa_faults=body)[0][1]
+    assert missing[13] == stale[13] == 100
+    assert stale[6] & 0xC0 == body[6] & 0xC0
+
+
+@pytest.mark.parametrize('car', (CAR.HYUNDAI_KONA_EV_2ND_GEN, CAR.HYUNDAI_KONA_2ND_GEN,
+                                CAR.HYUNDAI_KONA_HEV_2ND_GEN, CAR.HYUNDAI_IONIQ_5,
+                                CAR.KIA_EV6, CAR.KIA_NIRO_EV_2ND_GEN,
+                                CAR.GENESIS_GV60_EV_1ST_GEN, CAR.HYUNDAI_SONATA_2024))
+@pytest.mark.parametrize('alpha', (False, True))
+@pytest.mark.parametrize('offset', (0, 4))
+def test_actual_handoff_preserves_order_of_healthy_and_fault_frames_in_one_batch(car, alpha, offset, clock):
+  fp = gen_empty_fingerprint()
+  fp[offset][0x1CF] = 8
+  fp[offset + 2][0x1A0] = 32
+  cp = CarInterface.get_params(car, fp, [], alpha, False, False)
+  ci = CarInterface(cp)
+  ci.update([])
+  assert ci.CS.stock_lfa_status is not None
+  packer = CANPacker(DBC[car][Bus.pt])
+  decoder = CANParser(DBC[car][Bus.pt], [('LFA', 0)], ci.CC.CAN.ECAN)
+  command = structs.CarControl.new_message()
   command.actuators.torque = .2
-  for tick in range(214):
-    clock[0] = 6_000_000_000 + tick * 10_000_000
-    command.latActive = tick < 20
-    stock = template(packer, ci.CC.CAN.CAM, tick % 256, warning=15, fault=0)
-    assert ci.update([(clock[0], physical_frames(ci, packer, tick, stock))]).canValid
+  for tick in range(20):
+    clock[0] = 70_000_000_000 + tick * 10_000_000
+    command.latActive = tick >= 2
+    command.enabled = bool(command.latActive and cp.openpilotLongitudinalControl)
+    warning = tick >= 14
+    camera = packer.make_can_msg('LFA', ci.CC.CAN.CAM,
+                                {'COUNTER': tick + int(tick > 14), 'LKA_SysIndReq': 4 if warning and tick != 14 else 1,
+                                 'LKA_SysWrn': 15 if warning and tick != 14 else 0,
+                                 'ActToiSta': 0, 'StrTqReqVal': -123})
+    frames = [p for p in physical_frames(ci, packer, tick, camera)
+              if not (p[0] == 0xEA and p[2] == ci.CC.CAN.ECAN)]
+    if tick == 14:
+      frames.append(packer.make_can_msg('LFA', ci.CC.CAN.CAM,
+                                       {'COUNTER': 15, 'LKA_SysIndReq': 4, 'LKA_SysWrn': 15}))
+    frames.append(packer.make_can_msg('MDPS', ci.CC.CAN.ECAN,
+                                     {'COUNTER': tick, 'MDPS_LkaToiActvSta': int(tick >= 4)}))
+    state = ci.update([(clock[0], frames)])
+    assert state.canValid and not state.canTimeout
     _, packets = ci.apply(command.as_reader(), clock[0])
     own = [p for p in packets if p[0] == 0x12A and p[2] == ci.CC.CAN.ECAN]
     assert len(own) == 1
     decoder.update([(clock[0], own)])
-    status = decoder.vl['LFA']
-    assert status['LKA_SysWrn'] == (0 if tick <= 210 else 15)
-    assert status['LKA_SysIndReq'] == (2 if tick < 20 else 1 if tick <= 210 else 4)
-    assert status['ToiFltSta'] == 0
-    assert status['ActToiSta'] == int(command.latActive)
+    values = decoder.vl['LFA']
+    assert values['ActToiSta'] == int(command.latActive)
+    assert values['StrTqReqVal'] != -123
+    assert values['ToiFltSta'] == 0
+    assert values['LKA_SysWrn'] == 0
     if not command.latActive:
-      assert status['StrTqReqVal'] == 0
-    assert ci.CS.stock_lfa_status.body == stock[1]
+      assert values['StrTqReqVal'] == 0
+    if tick >= 4:
+      source = ci.CS.stock_lfa_status
+      owned = source.owns_display_status(True, clock[0], healthy=True)
+      assert source.owns_disengage_popup(True, clock[0], healthy=True, qualified_warning=owned)
+    if warning:
+      assert values['LKA_SysIndReq'] == 2
+    body = own[0][1]
+    assert int.from_bytes(body[:2], 'little') == hkg_can_fd_checksum(0x12A, None, bytearray(body))
 
 
-@pytest.mark.parametrize('mutation', ('stale', 'healthy', 'fault1', 'fault2', 'fault3', 'grade5', 'grade6', 'grade7', 'backward'))
-def test_display_handover_stops_immediately_for_faults_or_invalid_source(mutation, clock):
-  packer = CANPacker(DBC[CAR.KIA_EV6][Bus.pt])
+@pytest.mark.parametrize('failure', ('none', 'bad_crc', 'counter', 'camera_fault', 'higher_grade', 'warning',
+                                   'no_predecessor', 'fault_first', 'wrong_bus', 'eps_fault', 'eps_lamp',
+                                   'eps_unavailable', 'host_fault', 'reserved_request'))
+@pytest.mark.parametrize('wrap', (False, True))
+def test_same_batch_ownership_requires_valid_ordered_healthy_predecessor(failure, wrap, clock):
+  packer = CANPacker(DBC[CAR.HYUNDAI_KONA_EV_2ND_GEN][Bus.pt])
   source = CANFDLfaStatus(2)
-  source.update([(clock[0], [template(packer, 2, 0, warning=15)])])
-  assert source.owns_display_status(True, clock[0])
-  clock[0] += 10_000_000
-  values = {'COUNTER': 1, 'LKA_SysIndReq': 4, 'LKA_SysWrn': 15}
-  if mutation.startswith('fault'):
-    values['ToiFltSta'] = int(mutation[-1])
-  elif mutation.startswith('grade'):
-    values['LKA_SysIndReq'] = int(mutation[-1])
-  elif mutation == 'healthy':
-    values.update(LKA_SysIndReq=1, LKA_SysWrn=0)
-  if mutation == 'stale':
-    clock[0] += 40_000_001
-  elif mutation == 'backward':
-    clock[0] -= 20_000_000
-  else:
-    source.update([(clock[0], [packer.make_can_msg('LFA', 2, values)])])
-  assert not source.owns_display_status(False, clock[0])
-  clock[0] = 1_100_000_000
-  counter = 1 if mutation in ('stale', 'backward') else 2
-  source.update([(clock[0], [template(packer, 2, counter, warning=15)])])
-  assert not source.owns_display_status(False, clock[0])
-
-
-@pytest.mark.parametrize('last_active_ns,deadline_ns', ((1_100_000_000, 3_100_000_000), (4_000_000_000, 4_150_000_000)))
-def test_display_handover_deadline_is_bounded_and_cannot_rearm_while_inactive(last_active_ns, deadline_ns, clock):
-  packer = CANPacker(DBC[CAR.KIA_EV6][Bus.pt])
-  source = CANFDLfaStatus(2)
-  for counter, (stamp, active) in enumerate(((1_000_000_000, True), (last_active_ns, True),
-                                            (deadline_ns, False), (deadline_ns + 1, False), (deadline_ns + 2, False))):
-    clock[0] = stamp
-    source.update([(stamp, [template(packer, 2, counter, warning=15)])])
-    assert source.owns_display_status(active, stamp) == (counter < 3)
-
-
-def test_inactive_camera_warning_never_acquires_display_ownership(clock):
-  source = CANFDLfaStatus(2)
-  packer = CANPacker(DBC[CAR.KIA_EV6][Bus.pt])
-  source.update([(clock[0], [template(packer, 2, 0, warning=15)])])
-  assert not source.owns_display_status(False, clock[0])
-  assert source.last_fault() is not None
-
-
-@pytest.mark.parametrize('active', (False, True))
-def test_vehicle_fault_cancels_display_handover_and_cannot_rearm_it(active, clock):
-  source = CANFDLfaStatus(2)
-  packer = CANPacker(DBC[CAR.KIA_EV6][Bus.pt])
-  source.update([(clock[0], [template(packer, 2, 0, warning=15)])])
-  assert source.owns_display_status(True, clock[0])
-  clock[0] += 10_000_000
-  source.update([(clock[0], [template(packer, 2, 1, warning=15)])])
-  assert not source.owns_display_status(active, clock[0], healthy=False)
-  assert not source.owns_display_status(False, clock[0], healthy=True)
-
-
-@pytest.mark.parametrize('car', (CAR.KIA_EV6, CAR.KIA_NIRO_EV_2ND_GEN, CAR.GENESIS_GV60_EV_1ST_GEN))
-@pytest.mark.parametrize('alpha', (False, True))
-def test_actual_eps_fault_preserves_camera_warning_during_release(car, alpha, clock):
-  cp = params(car, alpha=alpha)
-  ci = CarInterface(cp)
-  ci.update([])
-  packer = CANPacker(DBC[car][Bus.pt])
-  decoder = CANParser(DBC[car][Bus.pt], [('LFA', 0)], ci.CC.CAN.ECAN)
-  command = structs.CarControl.new_message(enabled=True)
-  for tick in range(5):
-    clock[0] = 8_000_000_000 + tick * 10_000_000
-    command.latActive = tick < 2
-    stock = template(packer, ci.CC.CAN.CAM, tick, warning=15)
-    frames = physical_frames(ci, packer, tick, stock)
-    frames = [p for p in frames if not (p[0] == 0xEA and p[2] == ci.CC.CAN.ECAN)]
-    frames.append(packer.make_can_msg('MDPS', ci.CC.CAN.ECAN, {'MDPS_LkaFailSta': int(tick == 2)}))
-    state = ci.update([(clock[0], frames)])
-    assert state.canValid and state.steerFaultTemporary == (tick == 2)
-    _, packets = ci.apply(command.as_reader(), clock[0])
-    own = [p for p in packets if p[0] == 0x12A and p[2] == ci.CC.CAN.ECAN]
-    decoder.update([(clock[0], own)])
-    assert decoder.vl['LFA']['LKA_SysWrn'] == (0 if tick < 2 else 15)
-    assert decoder.vl['LFA']['LKA_SysIndReq'] == (2 if tick < 2 else 4)
-    assert decoder.vl['LFA']['ToiFltSta'] == 0
-    assert decoder.vl['LFA']['ActToiSta'] == int(command.latActive)
+  counter_start = 241 if wrap else 0
+  for tick in range(15):
+    clock[0] = 80_000_000_000 + tick * 10_000_000
+    counter = (counter_start + tick) % 256
+    camera = packer.make_can_msg('LFA', 2, {'COUNTER': counter, 'LKA_SysIndReq': 1,
+                                         'ActToiSta': int(tick >= 9)})
+    eps_values = {'COUNTER': tick, 'MDPS_LkaToiActvSta': int(tick >= 4),
+                  'MDPS_LkaFailSta': int(failure == 'eps_fault'),
+                  'MDPS_WrngLmpSta': 3 if failure == 'eps_lamp' else 0,
+                  'MDPS_LkaToiUnblSta': int(failure == 'eps_unavailable')}
+    eps = packer.make_can_msg('MDPS', 0, eps_values)
+    if tick == 14:
+      predecessor = packer.make_can_msg('LFA', 1 if failure == 'wrong_bus' else 2,
+                                       {'COUNTER': counter, 'LKA_SysIndReq': 5 if failure == 'higher_grade' else 1,
+                                        'LKA_SysWrn': 15 if failure == 'warning' else 0,
+                                        'ToiFltSta': int(failure == 'camera_fault'),
+                                        'ActToiSta': 2 if failure == 'reserved_request' else 0})
+      if failure == 'bad_crc':
+        body = bytearray(predecessor[1])
+        body[0] ^= 1
+        predecessor = predecessor[0], bytes(body), predecessor[2]
+      fault = packer.make_can_msg('LFA', 2, {'COUNTER': (counter + (failure != 'counter')) % 256,
+                                           'LKA_SysIndReq': 4, 'LKA_SysWrn': 15})
+      frames = [eps, fault] if failure == 'no_predecessor' else [eps, fault, predecessor] if failure == 'fault_first' else [eps, predecessor, fault]
+    else:
+      frames = [eps, camera]
+    source.update([(clock[0], frames)])
+    owned = source.owns_display_status(tick >= 2, clock[0], healthy=failure != 'host_fault')
+  assert owned == (failure == 'none')
+  assert not source.owns_display_status(False, clock[0] + 3_000_000_000, healthy=True)

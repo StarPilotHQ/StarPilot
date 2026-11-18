@@ -143,3 +143,23 @@ Close owned fonts and textures before destroying the graphics context.
 The adjacent [LICENSE](LICENSE) and [asset notices](assets/README.md) retain
 applicable code, font and image attribution. Hash validation establishes asset
 identity, not redistribution rights.
+
+## Numbered bookmarks
+
+The native saved-bookmark alert includes its number, for example
+`Bookmark #2 Saved`. Large and compact keep their existing alert styling;
+there is no additional onroad control or setting. The shared selfdrived counter
+counts `userBookmark` events from UI, wheel and projection sources, not the
+accompanying `bookmarkButton` signal. Going offroad or observing a new drive
+identity resets it; the next bookmark is #1. The count is atomically checkpointed
+in volatile shared memory with its boot and drive identity only when a bookmark
+arrives, so restarting selfdrived during the same drive preserves the sequence.
+Manager startup and offroad transitions clear the
+checkpoint. This is notification numbering, not an additional field in recorded
+bookmark messages. If storage is unavailable, counting continues in memory and
+the persistence error is logged; restart recovery is unavailable in that case.
+
+`./dev python -m openpilot.starpilot.ui.preview_bookmarks --output /tmp/bookmark-review`
+produces stills and short animations for both profiles using production widgets
+and alert text. It shows #1, #2, offroad, then #1. These are deterministic sample
+states without camera footage, not drive replay or hardware validation.

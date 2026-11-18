@@ -98,12 +98,13 @@ class TestFastUpdate(unittest.TestCase):
       self.git(self.remote, 'branch', branch)
     return self.target
 
-  def test_legacy_dom_and_starpilot_return_without_manifest_or_build_receipt(self):
-    for branch in ('Dom', 'StarPilot'):
+  def test_legacy_channels_return_without_manifest_or_build_receipt(self):
+    for branch in ('Dom', 'StarPilot', 'stable', 'testing'):
       with self.subTest(branch=branch):
         if branch == 'Dom':
           self.legacy_release()
-          self.git(self.remote, 'branch', 'StarPilot')
+          for alias in ('StarPilot', 'stable', 'testing'):
+            self.git(self.remote, 'branch', alias)
         else:
           self.git(self.repo, 'checkout', '-B', 'SecretGoodStarPilot', self.previous)
         model = self.repo / 'downloaded-model'

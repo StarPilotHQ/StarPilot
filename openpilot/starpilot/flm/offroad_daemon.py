@@ -24,10 +24,16 @@ class StatusReport:
     self.current: dict[str, Any] = {'status': 'collecting', 'reason': 'waiting_for_completed_drive', 'vehicle': ''}
     self.previous: dict[str, Any] = {}
     self.next_ns = 0
+    self.diagnostics = None
 
-  def set(self, value):
+  def set(self, value, *, diagnostic_value=None):
     changed = (self.current.get('status'), self.current.get('reason')) != (value.get('status'), value.get('reason'))
     self.current = dict(value)
+    if self.diagnostics is not None:
+      try:
+        self.diagnostics.observe(value if diagnostic_value is None else diagnostic_value)
+      except (OSError, ValueError, TypeError, AttributeError) as error:
+        self.diagnostics.error = f'Diagnostic state could not be recorded: {type(error).__name__}'
     if value.get('completed_route') and value.get('status') != 'fitting':
       self.previous = dict(value)
     if changed:
@@ -46,7 +52,7 @@ class StatusReport:
         for key in ('configuration_state', 'configured_values', 'saved_adjustments', 'qualification_summary'):
           if key in self.previous:
             previous[key] = self.previous[key]
-    self.set({**(previous or value), 'status': 'fitting', 'reason': value['reason'], 'retained_analysis': bool(previous)})
+    self.set({**(previous or value), 'status': 'fitting', 'reason': value['reason'], 'retained_analysis': bool(previous)}, diagnostic_value=value)
 
   def restore(self, cache):
     """Recover historical display data, never a current tune or permission."""
@@ -108,6 +114,8 @@ class StatusReport:
       return value if type(value) is int and 0 <= value < 2**63 else 0
 
     details: dict[str, Any] = {'Analysis runs while parked': True, 'Next-drive trial is reversible': True, 'Physical road improvement proven': False}
+    if self.diagnostics is not None and self.diagnostics.error:
+      details['Diagnostic persistence error'] = self.diagnostics.error
     if value.get('skipped_routes'):
       details['Skipped recorded drives'] = [list(row) for row in value['skipped_routes'][:16]]
     if value.get('partial_drive') is True:
@@ -245,23 +253,43 @@ class StatusReport:
         Path(temporary).unlink(missing_ok=True)
 
 
-def parked_status(sm, params, *, stopped=False, now=None):
+def parked_blocker(sm, params, *, stopped=False, now=None):
   """Same fresh parked physical-state checks as the existing bench supervisor.
 
   Offroad analysis needs current status, not the nominal publication cadence.
   Do not rewrite freq_ok or use this predicate for current Controls authority.
   """
   services = ('deviceState', 'pandaStates', 'peripheralState')
-  if stopped or not params.get_bool('IsOffroad') or params.get_bool('IsEngaged'):
-    return False
-  if not all(sm.seen[k] and sm.alive[k] and sm.valid[k] for k in services):
-    return False
+  if stopped:
+    return 'waiting_for_shutdown_to_finish'
+  if not params.get_bool('IsOffroad'):
+    return 'waiting_for_vehicle_offroad'
+  if params.get_bool('IsEngaged'):
+    return 'waiting_for_controls_to_disengage'
+  for service in services:
+    if not (sm.seen[service] and sm.alive[service] and sm.valid[service]):
+      return 'waiting_for_valid_' + service
   if now is None:
     now = time.monotonic()
-  if any(not 0 <= now - sm.recv_time[k] <= 2.0 for k in services):
-    return False
+  for service in services:
+    if not 0 <= now - sm.recv_time[service] <= 2.0:
+      return 'waiting_for_fresh_' + service
   pandas = sm['pandaStates']
-  return bool(not sm['deviceState'].started and pandas and all(not (p.ignitionLine or p.ignitionCan or p.controlsAllowed or p.faults) for p in pandas))
+  if sm['deviceState'].started:
+    return 'waiting_for_vehicle_to_switch_off'
+  if not pandas:
+    return 'waiting_for_connected_panda_status'
+  if any(p.ignitionLine or p.ignitionCan for p in pandas):
+    return 'waiting_for_ignition_off'
+  if any(p.controlsAllowed for p in pandas):
+    return 'waiting_for_panda_controls_to_disarm'
+  if any(p.faults for p in pandas):
+    return 'waiting_for_panda_fault_to_clear'
+  return None
+
+
+def parked_status(sm, params, *, stopped=False, now=None):
+  return parked_blocker(sm, params, stopped=stopped, now=now) is None
 
 
 def wait_for_parked(sm, params, *, stopped=lambda: False, clock=time.monotonic):
@@ -313,7 +341,7 @@ def run_parked_analysis(worker, report):
 def _run():
   from openpilot.common.hardware.hw import Paths
   from openpilot.starpilot.flm.offroad_cache import directory_for_params
-  from openpilot.starpilot.flm.offroad_source import record_drive
+  from openpilot.starpilot.flm.diagnostic_state import DiagnosticState
 
   params = Params()
   stopped = False
@@ -327,10 +355,16 @@ def _run():
   restart = False
   report = StatusReport()
   try:
+    report.diagnostics = DiagnosticState(params)
+    from openpilot.starpilot.flm.offroad_source import record_drive
+
     sm = messaging.SubMaster(['deviceState', 'pandaStates', 'peripheralState'])
 
     def parked():
-      return wait_for_parked(sm, params, stopped=lambda: stopped)
+      allowed = wait_for_parked(sm, params, stopped=lambda: stopped)
+      if not allowed and not stopped and params.get_bool('IsOffroad'):
+        report.set({'status': 'collecting', 'reason': parked_blocker(sm, params) or 'waiting_for_parked_permission'})
+      return allowed
 
     def permitted():
       okay = parked()
@@ -365,6 +399,7 @@ def _run():
         )
       elif parked() and time.monotonic() >= next_analysis:
         if worker is None:
+          report.analyzing({'status': 'fitting', 'reason': 'loading_parked_analysis'})
           from openpilot.starpilot.flm.offroad_worker import OffroadWorker
 
           worker = OffroadWorker(
@@ -392,7 +427,16 @@ def _run():
       report.publish()
       if not stopped:
         time.sleep(0.05)
+  except Exception as error:
+    report.set({'status': 'unavailable', 'reason': f'{type(error).__name__}: {error}'[:300]})
+    report.publish()
+    raise
   finally:
+    diagnostics = getattr(report, 'diagnostics', None)
+    if diagnostics is not None and diagnostics.state['current'] is not None and diagnostics.state['current']['stage'] in (
+      'starting_analysis', 'reading_recording', 'checking_recommendations'
+    ):
+      diagnostics.observe({'status': 'unavailable', 'reason': 'analysis_interrupted_by_shutdown'})
     try:
       if sm is not None:
         for sock in sm.sock.values():

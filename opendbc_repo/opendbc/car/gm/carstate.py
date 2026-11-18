@@ -504,7 +504,10 @@ class CarState(CarStateBase):
         elif self.camera_pedal_profile is not None and self.camera_pedal_profile.longitudinal:
           ret.gasPressed = ret.gasPressed or first + second > 1190
         else:
-          ret.gasPressed = (125677 * first + 251976 * second > 198510000 if self.volt_cc_pedal_profile is not None else sum(tracks) / 2. > 23.0)
+          if self.volt_cc_pedal_profile is not None or self.hybrid_profile is not None:
+            ret.gasPressed = 125677 * first + 251976 * second > 198510000
+          else:
+            ret.gasPressed = sum(tracks) / 2. > 23.0
 
     ret.steeringAngleDeg = pt_cp.vl["PSCMSteeringAngle"]["SteeringWheelAngle"]
     ret.steeringRateDeg = pt_cp.vl["PSCMSteeringAngle"]["SteeringWheelRate"]
@@ -690,16 +693,22 @@ class CarState(CarStateBase):
       if self.hybrid_profile.pedal and self.hybrid_profile.longitudinal:
         healthy = (healthy and self.pedal_sensor_healthy and
                    0 < self.pedal_sensor_ts_nanos <= now <= self.pedal_sensor_ts_nanos + 100_000_000)
-      _, semantic, edges = self.hybrid_buttons.update(
+      previous_semantic, semantic, edges = self.hybrid_buttons.update(
         healthy, enable_ready=healthy and not ret.brakePressed and not ret.regenBraking and
         (self.hybrid_profile.pedal or not ret.gasPressed))
       from opendbc.car.gm.hybrid_cc import HybridPhysical
       self.volt_cc_physical = HybridPhysical(now, tuple(stamp for stamp, _ in self.hybrid_sources),
                                             self.hybrid_buttons.slot.credit_ns)
       self.cruise_buttons = CruiseButtons.INIT if semantic is None else semantic
+      # Physical Cancel stops stock cruise while this exact pedal owner stays enabled.
+      cancel_passthrough = self.hybrid_profile.pedal and self.hybrid_profile.longitudinal
+      button_map = {k: v for k, v in BUTTONS_DICT.items() if k != CruiseButtons.CANCEL} if cancel_passthrough else BUTTONS_DICT
+      side_buttons = (previous_semantic, semantic, *(value for edge in edges for value in edge))
+      suppress_side_buttons = cancel_passthrough and any(b in (CruiseButtons.CANCEL, CruiseButtons.MAIN) for b in side_buttons)
+      distance_events = [] if suppress_side_buttons else create_button_events(
+        self.distance_button, prev_distance_button, {1: ButtonType.gapAdjustCruise})
       ret.buttonEvents = [event for old, new in edges for event in
-                          create_button_events(new, old, BUTTONS_DICT, unpressed_btn=CruiseButtons.UNPRESS)] + create_button_events(
-                            self.distance_button, prev_distance_button, {1: ButtonType.gapAdjustCruise})
+                          create_button_events(new, old, button_map, unpressed_btn=CruiseButtons.UNPRESS)] + distance_events
     if self.flashed_volt_profile:
       lkas_events = []
       for pressed in pt_cp.vl_all["ASCMSteeringButton"]["LKAButton"]:

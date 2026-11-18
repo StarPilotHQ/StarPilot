@@ -28,7 +28,7 @@ const assert = require('node:assert/strict')
     window.fixture = createApp({ components: { software, GxState, GxNotice, GxDialog, GxSummary },
       data: () => ({ dialog: false }),
       template: `<software mode="local" :unauthorized="() => {}" /><div class="gx-card-grid"><section class="gx-card gx-panel">Card</section><section class="gx-card gx-panel">Card</section></div>
-        <div class="gx-home__totals"><section class="gx-card"><h2>Time on the Road</h2><p>Saved history</p></section></div><section class="gx-card gx-starport-step"><h2>Android Auto</h2><p>Connect your car</p></section><GxSummary :items="[{label: 'Installed', value: 1}, {label: 'Missing', value: 0}, {label: 'Total', value: 1}]" /><GxState loading>Reading your device…</GxState><GxState>Nothing here yet.</GxState>
+        <div class="gx-home__totals"><section class="gx-card"><h2>Time on the Road</h2><p>Saved history</p></section></div><section class="gx-card gx-step"><h2>Android Auto</h2><p>Connect your car</p></section><GxSummary :items="[{label: 'Installed', value: 1}, {label: 'Missing', value: 0}, {label: 'Total', value: 1}]" /><GxState loading>Reading your device…</GxState><GxState>Nothing here yet.</GxState>
         <GxNotice tone="success" title="Saved">Preferences saved.</GxNotice><GxNotice tone="danger">An error occurred.</GxNotice>
         <div class="gx-tabs"><button class="gx-btn" aria-pressed="true">Selected</button><button class="gx-btn gx-btn--tonal">Other</button></div>
         <button class="gx-btn" @click="dialog=true">Open dialog</button>
@@ -58,7 +58,7 @@ const assert = require('node:assert/strict')
         const summary = await page.locator('.gx-summary > div').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().top))
         assert.ok(summary.every(top => Math.abs(top - summary[0]) < 1), 'summary counts share one row')
         assert.ok(Math.abs(geometry.notice - geometry.container) < 1 && geometry.aligned, 'progress fills the padded panel with the track below its label')
-        for (const selector of ['.gx-panel', '.gx-message', '.gx-home__totals > section', '.gx-starport-step']) {
+        for (const selector of ['.gx-panel', '.gx-message', '.gx-home__totals > section', '.gx-step']) {
           const padding = await page.locator(selector).first().evaluate(element => { const style = getComputedStyle(element); return [parseFloat(style.paddingLeft), parseFloat(style.paddingRight), parseFloat(style.paddingTop), parseFloat(style.paddingBottom)] })
           assert.ok(padding[0] >= 16 && padding[1] >= 16, `${selector}: horizontal padding survives all themes and widths`)
           assert.ok(padding[2] >= 16 && padding[3] >= 16, `${selector}: vertical padding`)

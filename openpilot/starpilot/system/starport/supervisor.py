@@ -57,6 +57,7 @@ SOFTWARE_FPS = 15            # libx264 cadence; the hardware encoder runs at 30
 UNAVAILABLE_AFTER = 1.0      # focused but no fresh UI frame for this long -> "unavailable" card; the Honda gives the screen back after 3 s without video
 SDP_SETTLE = (1.5, 2.2, 3.0)
 TCP_ATTEMPTS = 6
+PATIENT_TCP_SECONDS = 60.0  # owner toggle: keep retrying a refused projection connection this long
 MAX_LOG_FILES = 20
 LOG_QUEUE_MAX = 1000          # session log records waiting for the writer; past this they are dropped and counted
 ENCODER_RECOVERIES = 3       # hardware encoder reopens allowed per window before the session is torn down
@@ -81,7 +82,7 @@ STALL_CAPTURE_S = 20.0       # device logs kept from before a shared-radio stall
 REPORTED_SETTINGS = ("connection", "usb_mode", "view", "encoder", "fps", "bitrate_kbps", "rate_control", "gpu_nv12",
                      "async_readback", "wifi_interface", "dedicated_wifi_interface", "verify_head_unit", "version_status",
                      "rfcomm_channel", "phone_class", "auto_connect", "allow_hevc", "keyframe_test", "tall_hevc",
-                     "head_unit_experiments", "head_unit_experiment_rules")
+                     "unacked_video", "patient_tcp", "head_unit_experiments", "head_unit_experiment_rules")
 
 
 def _tcp_failure_kind(error: OSError) -> str:
@@ -288,7 +289,7 @@ class SharedRadioWatch:
     self.counter = counter or Path(f"/sys/class/net/{interface}/carrier_changes")
     self.carrier = carrier or Path(f"/sys/class/net/{interface}/carrier")
     self.on_down = on_down  # the other network was lost, not just roamed
-    self.on_stall = on_stall  # the car's acks stopped after a change
+    self.on_stall = on_stall  # the car's acks stopped after a change that has not connected yet
     self.changed_at: float | None = None
     self._stop = threading.Event()
     self._thread = threading.Thread(target=self._run, name="aa_radio_watch", daemon=True)
@@ -328,6 +329,11 @@ class SharedRadioWatch:
           self.log("other_wifi_hold_failed", error=str(error) or type(error).__name__)
 
   def stalled(self) -> None:
+    # A join that already connected has only its address left. Stopping it there lost the hotspot and still
+    # dropped the car on 2026-11-16, while a joined hotspot then streamed alongside the car for minutes.
+    if self._carrier():
+      self.log("other_wifi_join_kept", interface=self.interface)
+      return
     if self.on_stall is not None:
       self.on_stall()
 
@@ -414,7 +420,8 @@ class EventLog:
     """Save the last seconds of device logs now; the session's own capture keeps only its newest lines."""
     if self.path is not None:
       now = datetime.now(UTC).timestamp()
-      system_slice.write_sidecar_async(self.path, now - STALL_CAPTURE_S, now, tag=".stall")
+      system_slice.write_sidecar_async(self.path, now - STALL_CAPTURE_S, now, tag=".stall",
+                                       on_firmware=lambda lines, reason: self("wifi_firmware_restart", lines=lines, reason=reason))
 
   def _line(self, record: dict) -> str:
     return json.dumps(record, default=str) + "\n"
@@ -532,6 +539,8 @@ class Supervisor:
     status["allow_hevc"] = bool(self.config["allow_hevc"])
     status["keyframe_test"] = bool(self.config["keyframe_test"])
     status["tall_hevc"] = bool(self.config["tall_hevc"])
+    status["unacked_video"] = bool(self.config["unacked_video"])
+    status["patient_tcp"] = bool(self.config["patient_tcp"])
     status["head_unit_experiments"] = bool(self.config["head_unit_experiments"])
     status["head_unit_experiment_rules"] = list(self.config["head_unit_experiment_rules"])
     status["experimental_fixes"] = head_unit_fixes.experimental_entries()
@@ -587,6 +596,20 @@ class Supervisor:
       self.config["tall_hevc"] = bool(enabled)
       identity_store.save_config(self.config)
     self.log("tall_hevc_selected", enabled=bool(enabled))
+
+  def set_unacked_video(self, enabled: bool) -> None:
+    """Sessions send video without waiting for the car's acknowledgments, on any codec; used from the next session."""
+    with self._lock:
+      self.config["unacked_video"] = bool(enabled)
+      identity_store.save_config(self.config)
+    self.log("unacked_video_selected", enabled=bool(enabled))
+
+  def set_patient_tcp(self, enabled: bool) -> None:
+    """Keep retrying a refused projection connection for up to a minute; used from the next connection."""
+    with self._lock:
+      self.config["patient_tcp"] = bool(enabled)
+      identity_store.save_config(self.config)
+    self.log("patient_tcp_selected", enabled=bool(enabled))
 
   def set_head_unit_experiments(self, enabled: bool) -> None:
     """The master switch for car and dongle fixes; off gives the standard connection to every car from the next session."""
@@ -1861,13 +1884,13 @@ class Supervisor:
       raise errors[0]
 
   def recover_wifi(self, now: float | None = None) -> None:
-    """Turn wlan0 autoconnect back on if a session paused it and crashed. Retried while idle until it works."""
+    """Turn wlan0 autoconnect back on and rejoin a network a session stopped. Retried while idle until done."""
     now = time.monotonic() if now is None else now
     if now < self._wifi_recover_at or self._session_alive():
       return
-    from openpilot.starpilot.system.starport.network import recover_autoconnect
+    from openpilot.starpilot.system.starport import network
     try:
-      done = recover_autoconnect(self.log)
+      done = network.recover_autoconnect(self.log) and network.rejoin_interrupted(self.log)
     except Exception as error:
       self.log("wifi_autoconnect_recover_failed", error=str(error))
       done = False
@@ -1994,7 +2017,9 @@ class Supervisor:
   def _connect_tcp(self, result, lease) -> socket.socket:
     self._stage("connecting_tcp", f"{result.endpoint.ip}:{result.endpoint.port}")
     last_error: Exception | None = None
-    for attempt in range(TCP_ATTEMPTS):
+    patient_until = time.monotonic() + PATIENT_TCP_SECONDS if self.config["patient_tcp"] else 0.0
+    attempt = 0
+    while True:
       self._check_cancel()
       try:
         sock = socket.create_connection((result.endpoint.ip, result.endpoint.port), timeout=5.0,
@@ -2003,8 +2028,12 @@ class Supervisor:
         return self._track(sock)
       except OSError as error:
         last_error = error
-        self.log("tcp_retry", attempt=attempt + 1, error=str(error), kind=_tcp_failure_kind(error))
-        self._wait(1.0 + attempt * 0.5)
+        kind = _tcp_failure_kind(error)
+        self.log("tcp_retry", attempt=attempt + 1, error=str(error), kind=kind)
+        self._wait(min(1.0 + attempt * 0.5, 3.5))
+        attempt += 1
+        if attempt >= TCP_ATTEMPTS and not (kind == "refused" and time.monotonic() < patient_until):
+          break
     raise RuntimeError(f"Car did not accept the projection connection: {last_error}")
 
   def _unofficial_dongle(self) -> bool:
@@ -2045,6 +2074,7 @@ class Supervisor:
     session.allow_hevc = bool(config["allow_hevc"])
     session.keyframe_test = bool(config["keyframe_test"])
     session.tall_hevc = bool(config["tall_hevc"])
+    session.unacked_video = bool(config["unacked_video"])
     if tuning["phone_services"]:
       session.phone_services = True
       session.phone_address = self._adapter_address()
@@ -2099,6 +2129,8 @@ class Supervisor:
                                on_stall=getattr(lease, "stop_home_join", None)).start()
       session.radio_change = radio.recent
       session.radio_stalled = radio.stalled
+      if not radio._carrier() and getattr(lease, "hold_home_wifi", None) is not None:
+        lease.hold_home_wifi()  # wlan0 is not on a network: it joins one under StarPort's control, not by itself
     try:
       from openpilot.starpilot.system.starport.media_audio import MediaAudio, music_control
       from openpilot.starpilot.system.starport.media_status import MediaStatus

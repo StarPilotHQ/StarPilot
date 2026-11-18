@@ -32,6 +32,23 @@ SETUP_LIMITS = {**dict.fromkeys(SETUP_DEFAULTS, 128), LEARNING_PREFERENCES_KEY: 
                 LANE_CHANGE_KEY: LANE_CHANGE_LIMIT, DOCUMENT_KEY: MAX_DOCUMENT_BYTES}
 
 
+def steering_controller(CP) -> str | None:
+  try:
+    from opendbc.car.values import PLATFORMS
+
+    platform = PLATFORMS.get(str(CP.carFingerprint))
+    if (platform is None or platform.__class__.__module__.split('.')[-2] != str(CP.brand) or
+        CP.passive or CP.dashcamOnly or CP.notCar):
+      return None
+    kind = str(CP.steerControlType)
+    if kind in ('angle', 'curvature'):
+      return kind
+    tuning = str(CP.lateralTuning.which())
+    return tuning if kind == 'torque' and tuning in ('torque', 'pid') else None
+  except (AttributeError, TypeError, ValueError, OverflowError):
+    return None
+
+
 class ControllerFeature:
   def __init__(self, owner):
     self.params = owner.params
@@ -60,30 +77,12 @@ class ControllerFeature:
   def learning_capability(self, CP=None) -> tuple | None:
     CP = self.vehicle_params() if CP is None else CP
     try:
-      from opendbc.car.values import PLATFORMS
-      platform = PLATFORMS.get(str(CP.carFingerprint))
-      if (platform is None or platform.__class__.__module__.split('.')[-2] != str(CP.brand) or
-          CP.passive or CP.dashcamOnly or CP.notCar or str(CP.steerControlType) != 'torque'):
+      if steering_controller(CP) != 'torque':
         return None
-      if CP.lateralTuning.which() == 'torque':
-        tune = CP.lateralTuning.torque
-        basis = (float(tune.latAccelFactor), float(tune.latAccelOffset), float(tune.friction),
-                 float(tune.steeringAngleDeadzoneDeg), float(CP.steerActuatorDelay), float(CP.steerLimitTimer))
-        if not all(math.isfinite(value) for value in basis) or basis[0] <= 0 or any(value < 0 for value in basis[2:]):
-          return None
-      elif CP.lateralTuning.which() == 'pid':
-        tune = CP.lateralTuning.pid
-        curves = tuple(tuple(float(value) for value in getattr(tune, key)) for key in ('kpBP', 'kpV', 'kiBP', 'kiV'))
-        scalars = (float(tune.kf), float(CP.steerActuatorDelay), float(CP.steerLimitTimer))
-        if (any(not 1 <= len(row) <= 16 for row in curves) or sum(map(len, curves)) + 4 > 32 or
-            len(curves[0]) != len(curves[1]) or len(curves[2]) != len(curves[3]) or
-            any(b <= a for row in (curves[0], curves[2]) for a, b in zip(row, row[1:], strict=False)) or
-            not all(math.isfinite(value) and value >= 0 for value in (*scalars, *(v for row in curves for v in row)))):
-          return None
-        # Actual PID configuration only. This authorizes the shared learning
-        # preference; it does not expose torque-only numeric/manual editors.
-        basis = (*scalars, *curves)
-      else:
+      tune = CP.lateralTuning.torque
+      basis = (float(tune.latAccelFactor), float(tune.latAccelOffset), float(tune.friction),
+               float(tune.steeringAngleDeadzoneDeg), float(CP.steerActuatorDelay), float(CP.steerLimitTimer))
+      if not all(math.isfinite(value) for value in basis) or basis[0] <= 0 or any(value < 0 for value in basis[2:]):
         return None
       firmware = tuple((str(fw.ecu), bytes(fw.fwVersion)) for fw in CP.carFw)
       return (str(CP.brand), str(CP.carFingerprint), str(CP.steerControlType), str(CP.lateralTuning.which()),

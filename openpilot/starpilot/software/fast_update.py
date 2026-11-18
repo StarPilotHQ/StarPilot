@@ -40,8 +40,8 @@ def legacy_os_compatible(launch, current_os):
 
 
 def validate_legacy_return(git, revision, branch):
-  if branch not in ('Dom', 'StarPilot'):
-    raise FastUpdateIncompatible('Legacy return is only available for Dom and StarPilot 6.x releases')
+  if branch not in ('Dom', 'StarPilot', 'stable', 'testing'):
+    raise FastUpdateIncompatible('Legacy return is only available for supported StarPilot 6.x channels')
   entries = {}
   for row in git('ls-tree', '-rz', '--full-tree', revision).split('\0'):
     if row:
@@ -241,7 +241,7 @@ def fast_update(repo, branch, *, params, parked, expected_commit, current_os=Non
         notify('complete', 'Recent versions are ready to review.')
         return 'versions-listed'
   notify('validating', 'Checking downloaded operating system and native artifacts...')
-  legacy_return = branch in ('Dom', 'StarPilot') and not git('ls-tree', target, '--', 'upstream-sync.json').strip()
+  legacy_return = branch in ('Dom', 'StarPilot', 'stable', 'testing') and not git('ls-tree', target, '--', 'upstream-sync.json').strip()
   if legacy_return:
     version = validate_legacy_return(git, target, branch)
     notify('validating', f'Returning to {branch} {version}; checking the legacy prebuilt release...')

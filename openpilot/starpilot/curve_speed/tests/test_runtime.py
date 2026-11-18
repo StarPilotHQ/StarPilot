@@ -58,6 +58,30 @@ class TestCurveRuntime(unittest.TestCase):
     self.assertEqual(rt.curve.revision, 0)
     self.assertFalse(rt.glow)
 
+  def test_glow_starts_with_a_shallow_applied_cap_and_bridges_a_brief_outbid(self):
+    rt = Runtime(enabled=True)
+
+    def run(n: int, applied: bool):
+      item = frame(n, ego_mps=29.6)
+      result = rt.step(item)
+      rt.confirm_applied(item.now_ns, applied=applied)
+      return result
+
+    for n in range(1, 6):
+      result = run(n, True)
+    assert result.ceiling_mps is not None
+    self.assertGreater(result.ceiling_mps, 29.0)
+    self.assertFalse(rt.was_controlling)
+    self.assertTrue(rt.glow)
+    run(6, False)
+    self.assertTrue(rt.glow)
+    run(7, True)
+    for n in range(8, 18):
+      run(n, False)
+    self.assertTrue(rt.glow)
+    run(18, False)
+    self.assertFalse(rt.glow)
+
   def test_accel_press_latches_override_and_confirmation_does_not(self):
     rt = Runtime(enabled=True)
     arm_selected(rt)

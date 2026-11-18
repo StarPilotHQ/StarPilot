@@ -211,6 +211,7 @@ class StarShellSession:
                                           home_stats=self.home_stats_source.snapshot if self.home_stats_source is not None else None)
     self.galaxy_flow = GalaxyAccessFlow(self.galaxy_access, self.confirmed_offroad)
     self.feature_owner = FeatureSettingsOwner(ui_state.params, self._feature_authority,
+                                               learning_messages=lambda: ui_state.sm,
                                                vehicle_fingerprint=lambda: getattr(ui_state.CP, "carFingerprint", None),
                                                vehicle_params=lambda: ui_state.CP,
                                                vision_development=lambda: diagnostic_choice_enabled(os.environ, ui_state.CP))

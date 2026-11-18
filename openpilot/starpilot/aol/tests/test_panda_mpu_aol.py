@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[4]
 @pytest.fixture(scope='module', params=[False, True], ids=['DEBUG', 'RELEASE'])
 def native_template(tmp_path_factory, request):
   if not sys.platform.startswith('linux'):
-    pytest.skip('The native safety-state linker section requires ELF')
+    raise pytest.skip.Exception('The native safety-state linker section requires ELF')
   directory = tmp_path_factory.mktemp('mpu-aol')
   comms = (ROOT / 'panda/board/main_comms.h').read_text()
   matches = [re.search(rf'    case 0x{value}:.*?(?=    //|    case)', comms, re.DOTALL) for value in ('d5', 'f5')]

@@ -12,6 +12,7 @@ TRAINING_QUIET_NS = 5_000_000_000
 TRAINING_SETTLE_NS = 2_000_000_000
 LEAD_CLEAR_NS = 1_000_000_000
 GLOW_RELEASE_NS = 3_000_000_000
+GLOW_OUTBID_NS = 500_000_000
 PERSIST_INTERVAL_NS = 30_000_000_000
 CRUISING_SPEED = 5.0
 ACTIVE_ON_DELTA = 0.5
@@ -157,21 +158,26 @@ class Runtime:
       return True
     target = self.pending_target
     selected = applied and self.pending_cap and target is not None
-    self.was_controlling = bool(selected and target < self.pending_cruise - 1.0 and
-                                self.pending_ego >= target - ACTIVE_OFF_DELTA)
-    if not selected and (self.pending_cap or target is None):
+    at_cap = bool(selected and self.pending_ego >= target - ACTIVE_OFF_DELTA)
+    self.was_controlling = at_cap and target is not None and target < self.pending_cruise - 1.0
+    outbid = self.pending_cap and not selected
+    released = not self.pending_cap and target is not None and target > self.pending_cruise - ACTIVE_OFF_DELTA
+    if target is None:
       self.glow = False
       self.glow_release_since_ns = 0
-    elif self.was_controlling:
+    elif at_cap:
       self.glow = True
       self.glow_release_since_ns = 0
-      self.quiet_until_ns = frame_ns + TRAINING_QUIET_NS
-    elif self.glow and target is not None and target > self.pending_cruise - ACTIVE_OFF_DELTA:
+      if self.was_controlling:
+        self.quiet_until_ns = frame_ns + TRAINING_QUIET_NS
+    elif self.glow and (outbid or released):
       if not self.glow_release_since_ns:
         self.glow_release_since_ns = frame_ns
-      elif frame_ns - self.glow_release_since_ns >= GLOW_RELEASE_NS:
+      elif frame_ns - self.glow_release_since_ns >= (GLOW_OUTBID_NS if outbid else GLOW_RELEASE_NS):
         self.glow = False
         self.glow_release_since_ns = 0
+    else:
+      self.glow_release_since_ns = 0
     return True
 
   def _event(self, event: DriverEvent | None, frame: Frame) -> bool:

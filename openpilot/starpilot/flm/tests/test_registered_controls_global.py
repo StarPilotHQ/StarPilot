@@ -15,6 +15,8 @@ from pathlib import Path
 import time
 from unittest import mock
 
+import pytest
+
 from opendbc.car import gen_empty_fingerprint, structs
 from opendbc.car.car_helpers import interfaces
 from opendbc.car.fingerprints import FW_VERSIONS
@@ -286,6 +288,48 @@ def test_actual_controls_source_freshness_calibration_and_override_rejection():
     for tick, health in enumerate(({'override': True}, {'fault': True}, {'can_timeout': True}, {'can_valid': False}, {'model_age': 500_000_000}), 31):
       frame(controls, 400_000_000_000 + tick * 10_000_000, tick, **health)
       assert not runtime.eligible and runtime.applied_coordinates == (0.0, 0.0)
+
+
+@pytest.mark.parametrize('vehicle', ['HYUNDAI_IONIQ_6', 'TOYOTA_RAV4_TSS2', 'CHEVROLET_BOLT_EUV'])
+@pytest.mark.parametrize('mode', ['standard', 'starpilot'])
+def test_actual_publisher_keeps_registered_controller_metadata_across_frames(vehicle, mode):
+  from openpilot.starpilot.flm.learning_wire import read_control
+  from openpilot.starpilot.flm.offroad_control_metadata import read_control_metadata
+
+  cp = interfaces[vehicle].get_non_essential_params(vehicle)
+  with controls_for(cp, mode, True) as controls:
+    runtime = controls.global_learning
+    revision = runtime.descriptor.controller_revision
+    assert revision.startswith('selected-steering-compatibility-v1:') and len(revision) == 99
+    original_tune = controls.LaC.torque_params.to_dict()
+    published = []
+
+    def send(service, event):
+      if service == 'starpilotLateralState':
+        published.append(messaging.log_from_bytes(event.to_bytes()))
+
+    controls.pm.send.side_effect = send
+    for tick in range(35):
+      now = 600_000_000_000 + tick * 10_000_000
+      command, lac_log = frame(controls, now, tick)
+      actuators = command.actuators.to_dict()
+      original_message = messaging.new_message
+
+      def packet(service, *args, _clock=now + 1_000_000, _new=original_message, **kwargs):
+        kwargs.setdefault('logMonoTime', _clock)
+        return _new(service, *args, **kwargs)
+
+      with mock.patch.object(messaging, 'new_message', side_effect=packet), \
+           mock.patch('openpilot.selfdrive.controls.controlsd.time.monotonic_ns', return_value=now + 1_000_000):
+        controls.publish(command, lac_log)
+      assert controls.global_learning is runtime
+      assert command.actuators.to_dict() == actuators
+    assert controls.LaC.torque_params.to_dict() == original_tune
+    assert len(published) == 35
+    for event in published:
+      assert event.starpilotLateralState.learningEvidence.version == 1
+      assert read_control(event).controller_revision == revision
+      assert read_control_metadata(event).controller_revision == revision
 
 
 def test_actual_controls_added_cost_collecting_path():

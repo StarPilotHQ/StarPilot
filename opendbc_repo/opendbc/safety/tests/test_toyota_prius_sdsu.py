@@ -82,7 +82,9 @@ def test_original_prius_required_status_lease_aeb_and_malformed_source(stock, ex
       assert not case.tx('ACC_CONTROL', {'ACCEL_CMD': .1})
       assert case.tx('ACC_CONTROL', {'ACCEL_CMD': 0, 'CANCEL_REQ': 1})
     case.earn()
-    for value in (-3.501, 2.001):
+    for value in (-3.5, 3.5):
+      assert bool(case.tx('ACC_CONTROL', {'ACCEL_CMD': value})) == (not stock)
+    for value in (-3.501, 3.501):
       assert not case.tx('ACC_CONTROL', {'ACCEL_CMD': value})
     assert not case.tx('STEERING_LTA', {'STEER_REQUEST': 1})
     assert not case.native.safety_tx_hook(libsafety_py.make_CANPacket(0x750, 0, bytes.fromhex('0f02280100000000')))

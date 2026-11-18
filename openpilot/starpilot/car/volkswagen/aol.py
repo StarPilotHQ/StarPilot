@@ -284,12 +284,16 @@ def awaiting_initial_request(cp, cs, sm, native, feedback, intent, *, now_ns, pr
   """A cold MAIN request may await its first native response, never output."""
   from openpilot.starpilot.aol.runtime import SAFETY_MAX_AGE_NS, AXIS_MAX_AGE_NS, current_axis
   from openpilot.starpilot.aol.transport_pause import _configured_transport_native, cp_identity
+  from openpilot.cereal import log
   try:
     if not (stock_qualified(cp, marked_only=True) or long_qualified(cp, marked_only=True)):
       return False
     axis = current_axis(sm, now_ns=now_ns)
     arm = intent.startup_arm_ns
     event_ns = int(sm.logMonoTime['onroadEvents'])
+    reverse_event_pending = bool(axis is not None and 0 < event_ns < arm <= axis.sourceCarStateMonoTime and
+      event_ns < axis.faultEventMonoTime <= axis.observedMonoTime and
+      any(event.name == log.OnroadEvent.EventName.reverseGear and event.userDisable for event in sm['onroadEvents']))
     return bool(intent.settings.enabled and intent.settings.main_action != AOL_TOGGLE and intent.settings.lkas_action != AOL_TOGGLE and
       intent.allowed_latch and not intent.pause_lateral and not feedback.ever_lateral_active and
       not feedback.failed and not feedback.paused and not feedback.pending_event and not feedback.retention_started_ns and
@@ -316,7 +320,10 @@ def awaiting_initial_request(cp, cs, sm, native, feedback, intent, *, now_ns, pr
         require_longitudinal=False, allow_restricted_lateral=True) is not None and
       sm.seen['onroadEvents'] and sm.valid['onroadEvents'] and sm.alive['onroadEvents'] and
       0 < event_ns <= now_ns and now_ns - event_ns <= 1_500_000_000 and
-      not any(event.immediateDisable or event.softDisable or event.userDisable for event in sm['onroadEvents']))
+      not any(event.immediateDisable or
+        event.softDisable and not (reverse_event_pending and event.name == log.OnroadEvent.EventName.wrongGear) or
+        event.userDisable and not (reverse_event_pending and event.name == log.OnroadEvent.EventName.reverseGear)
+        for event in sm['onroadEvents']))
   except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
     return False
 

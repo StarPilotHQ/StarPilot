@@ -341,6 +341,11 @@ class BoschALeadPolicy:
         self.tracks[identifier] = Track(identifier, v_lead, radar.kalman_params)
       measured = bool(point.deprecated.measured and fresh)
       self.tracks[identifier].update(point.dRel, point.yRel, point.vRel, v_lead, measured, measured)
+      if not point.deprecated.measured:
+        # A range-based coast can close faster than its frozen velocity filter.
+        track = self.tracks[identifier]
+        track.vLeadK = min(track.vLeadK, track.vLead)
+
 
   def leads(self, sm, radar, model_v_ego):
     leads = sm['modelV2'].leadsV3

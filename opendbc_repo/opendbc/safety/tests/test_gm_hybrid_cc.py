@@ -85,7 +85,7 @@ class TestGmHybridCc(unittest.TestCase):
     self.safety.aol_set_host_request(3)
 
   def arm(self):
-    self.slot(0x55AE)
+    self.slot(0x20EF)
     self.assertTrue(self.safety.get_controls_allowed())
     self.slot(0x15EE)
 
@@ -93,7 +93,7 @@ class TestGmHybridCc(unittest.TestCase):
     return self.safety.safety_tx_hook(self.packet(gmcan.create_pedal_command(self.packer, fraction, counter)))
 
   def test_physical_cancel_main_and_standard_set_have_distinct_rearm_effects(self):
-    for physical_word in (0x2ACD, 0x20EF, 0x60AF, 0x6A8D):
+    for physical_word in (0x55AE, 0x5F8C, 0x60AF, 0x6A8D):
       with self.subTest(physical_word=hex(physical_word)):
         self.reset(0xE801)
         self.warm()
@@ -328,7 +328,7 @@ class TestGmHybridCc(unittest.TestCase):
           self.assertTrue(self.steering())
         self.reset(word, alternative)
         self.warm(stock=False)
-        self.slot(0x55AE)
+        self.slot(0x20EF)
         if alternative == 0:
           self.assertFalse(self.steering())
         self.assertFalse(self.safety.get_controls_allowed())
@@ -420,7 +420,7 @@ class TestGmHybridCc(unittest.TestCase):
       if word >= 0xE804:
         self.stock_frame(True)
       else:
-        self.slot(0x55AE)
+        self.slot(0x20EF)
       self.assertFalse(self.safety.get_controls_allowed())
       self.advance(10_000)
       self.feed(stock=word >= 0xE804)

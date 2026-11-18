@@ -1,10 +1,8 @@
 """Card-side qualification for SLC choices, software SET engagement and active caps."""
 
-import math
-
 from openpilot.cereal.services import SERVICE_LIST
 from openpilot.selfdrive.car.cruise import SlcPendingConfirmation, SlcWheelContext, V_CRUISE_MIN, V_CRUISE_MAX
-from openpilot.starpilot.speed_limits.acceptance import CONFIRMATION_NS
+from openpilot.starpilot.speed_limits.acceptance import CONFIRMATION_NS, number
 from openpilot.starpilot.speed_limits.selection import Source
 from openpilot.starpilot.speed_limits.speed_domain import set_above_limit
 
@@ -12,21 +10,14 @@ from openpilot.starpilot.speed_limits.speed_domain import set_above_limit
 STATE_MAX_AGE_NS = int(2e9 / SERVICE_LIST['slcState'].frequency)
 
 
-def finite_speed(value: object) -> bool:
-  if type(value) not in (int, float):
-    return False
-  assert isinstance(value, (int, float))
-  return math.isfinite(value) and value > 0
-
-
 def adoption_speed(state):
-  boundary = str(getattr(state, 'upcomingBoundaryId', ''))
+  boundary = str(state.upcomingBoundaryId)
   if not boundary:
-    return float(state.speedLimit) if finite_speed(state.speedLimit) else None
+    return float(state.speedLimit) if number(state.speedLimit, positive=True) else None
   if len(boundary) != 64 or any(c not in '0123456789abcdef' for c in boundary):
     return None
-  speed = getattr(state, 'upcomingSpeedLimit', 0.0)
-  return float(speed) if finite_speed(speed) else None
+  speed = state.upcomingSpeedLimit
+  return float(speed) if number(speed, positive=True) else None
 
 
 def source_matches(state, observation, producer_session: str, now_ns: int) -> bool:
@@ -35,13 +26,13 @@ def source_matches(state, observation, producer_session: str, now_ns: int) -> bo
   # Card can have a newer packet for the same episode before the planner publishes again.
   return (str(state.source) == 'dashboard' and str(state.observationKind) == 'valid' and
           str(state.sourceProducerSessionId) == producer_session and producer_session != '' and
-          getattr(observation.status, 'value', observation.status) == 'valid' and int(state.sourceEpisode) > 0 and
+          observation.status == 'valid' and int(state.sourceEpisode) > 0 and
           int(state.sourceEpisode) == int(observation.episode) and
           0 < observed_ns <= state.frameMonoTime and observed_ns <= observation.observed_ns <= now_ns and
           observed_ns < expiry_ns and observation.observed_ns < observation.valid_until_ns and
           now_ns <= min(expiry_ns, observation.valid_until_ns) and
           (observed_ns != observation.observed_ns or expiry_ns == observation.valid_until_ns) and
-          finite_speed(state.speedLimit) and finite_speed(observation.speed_mps) and
+          number(state.speedLimit, positive=True) and number(observation.speed_mps, positive=True) and
           abs(float(state.speedLimit) - float(observation.speed_mps)) <= 0.02)
 
 
@@ -61,7 +52,7 @@ def _state(sm, now_ns: int):
 def _current_state(sm, now_ns: int):
   state = _state(sm, now_ns)
   return state if (state is not None and str(state.observationKind) == 'valid' and
-                   str(state.source) in tuple(Source) and finite_speed(state.speedLimit) and adoption_speed(state) is not None) else None
+                   str(state.source) in tuple(Source) and number(state.speedLimit, positive=True) and adoption_speed(state) is not None) else None
 
 
 def active_ceiling(sm, now_ns: int, *, after_ns: int = 0) -> float | None:
@@ -69,7 +60,7 @@ def active_ceiling(sm, now_ns: int, *, after_ns: int = 0) -> float | None:
   if state is None or int(state.frameMonoTime) <= after_ns or not state.hasCeiling:
     return None
   cap = float(state.effectiveCap)
-  return cap if finite_speed(cap) and cap <= V_CRUISE_MAX / 3.6 + 1e-5 else None
+  return cap if number(cap, positive=True) and cap <= V_CRUISE_MAX / 3.6 + 1e-5 else None
 
 
 def accepted_target(sm, now_ns: int, *, after_ns: int = 0) -> float | None:
@@ -77,14 +68,14 @@ def accepted_target(sm, now_ns: int, *, after_ns: int = 0) -> float | None:
   state = _state(sm, now_ns)
   if state is None or int(state.frameMonoTime) <= after_ns or not state.hasAcceptedAdjustedLimit:
     return None
-  return float(state.acceptedAdjustedLimit) if finite_speed(state.acceptedAdjustedLimit) else None
+  return float(state.acceptedAdjustedLimit) if number(state.acceptedAdjustedLimit, positive=True) else None
 
 
 def wheel_override_context(sm, now_ns: int, *, selected_kph: float, is_metric: bool,
                            after_ns: int = 0) -> SlcWheelContext | None:
   state = _state(sm, now_ns)
   if (state is None or int(state.frameMonoTime) <= after_ns or not state.hasAcceptedAdjustedLimit or
-      not finite_speed(state.acceptedAdjustedLimit) or not V_CRUISE_MIN <= selected_kph <= V_CRUISE_MAX or
+      not number(state.acceptedAdjustedLimit, positive=True) or not V_CRUISE_MIN <= selected_kph <= V_CRUISE_MAX or
       set_above_limit(selected_kph / 3.6, float(state.acceptedAdjustedLimit), is_metric)):
     return None
   since = int(state.wheelOverrideSince)
@@ -104,7 +95,7 @@ def engagement_state(sm, observation, producer_session: str, now_ns: int, *, aft
       0 < state.sourceObservedMonoTime <= now_ns <= state.sourceValidUntilMonoTime):
     return None
   target = float(state.presentationAdjustedLimit)
-  return state if finite_speed(target) and V_CRUISE_MIN / 3.6 - 1e-5 <= target <= V_CRUISE_MAX / 3.6 + 1e-5 else None
+  return state if number(target, positive=True) and V_CRUISE_MIN / 3.6 - 1e-5 <= target <= V_CRUISE_MAX / 3.6 + 1e-5 else None
 
 
 def engagement_target(sm, observation, producer_session: str, now_ns: int, *, after_ns: int = 0):
@@ -129,7 +120,7 @@ def adopted_target(sm, now_ns: int, *, wheel_ns: int) -> float | None:
       not 0 < wheel_ns <= int(state.frameMonoTime)):
     return None
   target = float(state.wheelAdoptTargetMps)
-  return target if finite_speed(target) and V_CRUISE_MIN / 3.6 - 1e-5 <= target <= V_CRUISE_MAX / 3.6 + 1e-5 else None
+  return target if number(target, positive=True) and V_CRUISE_MIN / 3.6 - 1e-5 <= target <= V_CRUISE_MAX / 3.6 + 1e-5 else None
 
 
 def pending_confirmation(sm, now_ns: int, *, long_active: bool,
@@ -142,7 +133,7 @@ def pending_confirmation(sm, now_ns: int, *, long_active: bool,
     return None
   started = int(state.pendingSinceMonoTime)
   # Use the published prompt and its frame time so a late press cannot change SET.
-  if (str(state.pendingSource) not in tuple(Source) or not finite_speed(state.pendingSpeedLimit) or
+  if (str(state.pendingSource) not in tuple(Source) or not number(state.pendingSpeedLimit, positive=True) or
       not 0 < started <= int(state.frameMonoTime) <= started + CONFIRMATION_NS):
     return None
   return SlcPendingConfirmation(str(state.sessionId), int(state.decisionId), int(state.presentationId))

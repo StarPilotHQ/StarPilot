@@ -86,7 +86,7 @@ def test_pedal_set_during_accelerator_override_retains_intent_without_actuation(
   try:
     case.reset(0xE802, alternative)
     case.warm()
-    kwargs = {'tracks': (1000, 500)} if sensor_override else {'gas': True}
+    kwargs = {'tracks': (1000, 500), 'gas': sensor_override}
     case.feed(**kwargs)
     case.rx(0x1E1, standard_set_bytes(0))
     assert not case.safety.get_controls_allowed()
@@ -105,8 +105,11 @@ def test_pedal_set_during_accelerator_override_retains_intent_without_actuation(
     case.slot(0x60AF)
     case.advance(20_000)
     case.feed()
+    assert case.safety.get_controls_allowed()
+    assert case.pedal(counter=1)
+    case.slot(0x55AE)  # MAIN remains an explicit disengagement.
     assert not case.safety.get_controls_allowed()
-    assert not case.pedal(counter=1)
+    assert not case.pedal(counter=2)
   finally:
     case.tearDown()
 

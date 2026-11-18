@@ -41,7 +41,8 @@ from openpilot.starpilot.ui.vasm_owner import ANNOTATION as VASM_ANNOTATION, RES
 
 PAGES = frozenset(("hub", "localization", "developer", "vehicle", "slc", "lane", "lane_change", "profiles", "personalities",
                    "traffic", "aggressive", "standard", "relaxed",
-                   "curve", "torque", "tuning", "torque/bluepilot", "aol", "wheel", "appearance", "display", "data", "power", "sounds", "pip", "sentry", "vasm",
+                   "curve", "torque", "torque/developer", "tuning", "torque/bluepilot", "aol", "wheel", "appearance", "display",
+                   "data", "power", "sounds", "pip", "sentry", "vasm",
                    "conditional", "conditional/cem",
                    *(f"{name}/{category}" for name in ("traffic", "aggressive", "standard", "relaxed")
                      for category in ("acceleration", "braking", "following"))))
@@ -52,7 +53,7 @@ TTL = 60.0
 
 # Android Auto lists binary controls only.
 CAR_CONTROL_SECTIONS = (
-  ("lateral", "Lateral (Steering)", ("aol", "lane_change", "torque", "lane", "vehicle")),
+  ("lateral", "Lateral (Steering)", ("aol", "lane_change", "lane", "torque", "torque/developer")),
   ("longitudinal", "Longitudinal (Speed & Following)",
    ("profiles", "conditional", "curve", "slc", "aggressive", "standard", "relaxed", "traffic")),
   ("wheel", "Wheel Controls", ("wheel",)),
@@ -184,7 +185,8 @@ class LiveContextSource:
       return None
     if self.messages is None:
       from openpilot.cereal import messaging
-      self.messages = messaging.SubMaster(["deviceState", "pandaStates", "carState", "selfdriveState", "carParams"])
+      self.messages = messaging.SubMaster(["deviceState", "pandaStates", "carState", "selfdriveState", "carParams",
+                                          "lateralDelay", "lateralTorqueParameters", "vehicleParameters"])
     return cast(Callable[[], object], self.messages.snapshot)() if hasattr(self.messages, "snapshot") else self.messages
 
   def close(self) -> None:
@@ -408,7 +410,7 @@ def _session_key(token: str) -> bytes:
 def _projection(row: FeatureRow) -> dict:
   return {"label": row.label, "value": row.value, "choices": list(row.choices), "step": row.step,
           "minimum": row.minimum, "maximum": row.maximum, "unit": row.unit,
-          "available": row.available, "reason": description(row),
+          "available": row.available, "reason": description(row), "learnedValue": row.learned_value,
           "page": row.page if row.page in PAGES else "", "action": bool(row.key and row.available and not row.page),
           "confirm": bool(row.key in CONFIRM_ACTIONS or is_long_confirm_action(row.key) or
                           row.key in (PIP_RESET, PIP_EDITOR, VASM_RESET, VASM_ANNOTATION) or row.key.startswith(PIP_FORMAT_PREFIX)),
@@ -525,7 +527,7 @@ class SettingsGateway:
     with self.lock:
       ctx = self.context.sample()
       sections = []
-      for page in ("torque", "lane", "lane_change", "aol", "conditional", "profiles", "slc", "curve"):
+      for page in ("torque", "torque/developer", "lane", "lane_change", "aol", "conditional", "profiles", "slc", "curve"):
         state = self._state(page, ctx)
         sections.append({"title": state.title,
                          "rows": [{"label": row.label, "value": row.value} for row in state.rows[:64]]})
@@ -554,6 +556,7 @@ class SettingsGateway:
       fresh = self.context.sample() if live else ctx
       return fresh.cp_raw == ctx.cp_raw and _qualified(fresh, group)
     return FeatureSettingsOwner(self.params, authorized,
+                                learning_messages=lambda: self.context._messages() if isinstance(self.context, LiveContextSource) else None,
                                 vehicle_fingerprint=lambda: getattr(current().cp, "carFingerprint", None),
                                 vehicle_params=lambda: current().cp,
                                 vision_development=lambda: diagnostic_choice_enabled(os.environ, current().cp),
@@ -674,7 +677,7 @@ class SettingsGateway:
                                       system_long=_qualified(ctx, "long"),
                                       lateral_context=_qualified(ctx, "lane") or (page == "lane" and _qualified(ctx, "lane_live")),
                                       metric=ctx.metric, configure_while_driving=True)
-    if page == "torque":
+    if page in ("torque", "torque/developer"):
       state = replace(state, rows=tuple(row for row in state.rows if row.key not in ("torque:factor:reset", "torque:friction:reset")))
     if ctx.editing_saved_vehicle:
       from opendbc.car.values import PLATFORMS

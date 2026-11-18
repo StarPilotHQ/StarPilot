@@ -36,14 +36,17 @@ class FeatureSnapshotReadTests(unittest.TestCase):
   def snapshot(self, page="torque"):
     return self.owner.snapshot(page, parked=False, system_long=False, lateral_context=False, metric=False)
 
-  def test_duplicate_torque_sources_are_read_once_per_assembly(self):
-    first = self.snapshot()
-    self.assertEqual(set(self.params.reads), {"TorqueOverrideDocument", "LaneChangePreferences"})
-    self.assertEqual(len(self.params.reads), len(set(self.params.reads)))
-    self.params.reads.clear()
-    self.assertEqual(self.snapshot(), first)
-    self.assertEqual(set(self.params.reads), {"TorqueOverrideDocument", "LaneChangePreferences"})
-    self.assertEqual(len(self.params.reads), len(set(self.params.reads)))
+  def test_normal_and_developer_pages_read_only_their_sources_once_per_assembly(self):
+    for page, expected in (('torque', {'LaneChangePreferences'}), ('torque/developer', {'TorqueOverrideDocument'})):
+      with self.subTest(page=page):
+        self.params.reads.clear()
+        first = self.snapshot(page)
+        self.assertEqual(set(self.params.reads), expected)
+        self.assertEqual(len(self.params.reads), len(expected))
+        self.params.reads.clear()
+        self.assertEqual(self.snapshot(page), first)
+        self.assertEqual(set(self.params.reads), expected)
+        self.assertEqual(len(self.params.reads), len(expected))
 
   def test_learning_row_reads_scoped_and_legacy_sources_once(self):
     cp = interfaces[HONDA.HONDA_FIT_4G].get_non_essential_params(HONDA.HONDA_FIT_4G)

@@ -7,6 +7,7 @@ import time
 import traceback
 
 from openpilot.starpilot.drive_state.owner import DriveStateOwner
+from openpilot.starpilot.bookmark_state import clear_bookmark_checkpoint
 from openpilot.cereal import log
 import openpilot.cereal.messaging as messaging
 from openpilot.common.utils import atomic_write
@@ -54,6 +55,7 @@ def manager_init() -> None:
 
   build_metadata = get_build_metadata()
 
+  clear_bookmark_checkpoint()
   params.clear_all(ParamKeyFlag.CLEAR_ON_MANAGER_START)
   params.clear_all(ParamKeyFlag.CLEAR_ON_ONROAD_TRANSITION)
   params.clear_all(ParamKeyFlag.CLEAR_ON_OFFROAD_TRANSITION)
@@ -185,6 +187,9 @@ def manager_thread() -> None:
 
     managed_processes['modeld'].observe(sm, started)
     ensure_running(managed_processes.values(), started, params=params, CP=sm['carParams'], not_run=ignore)
+    if not started:
+      # Stops can be nonblocking. Repeat the cheap unlink offroad to retire late writes.
+      clear_bookmark_checkpoint()
 
     running = ' '.join("{}{}\u001b[0m".format("\u001b[32m" if p.proc.is_alive() else "\u001b[31m", p.name)
                        for p in managed_processes.values() if p.proc)

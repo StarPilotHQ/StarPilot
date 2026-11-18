@@ -67,3 +67,22 @@ def test_a_collector_that_raises_leaves_no_sidecar(tmp_path):
 
   system_slice.write_sidecar(log, 0.0, 1.0, collector=broken)
   assert system_slice.read_sidecar(log) == {}
+
+
+def test_firmware_restart_lines_survive_the_cap_and_are_reported(tmp_path):
+  def crashed(since, deadline, *, command_set):
+    files = fake_collector(since, deadline, command_set=command_set)
+    manifest = json.loads(files["manifest.json"])
+    del manifest["commands"]["kernel"]["error"]
+    files["manifest.json"] = json.dumps(manifest).encode()
+    files["kernel"] = (b"modem subsystem failure reason: wlan_fw.c:12: assert\nsubsys-restart: Shutting down modem\n" +
+                       b"noise\n" * (system_slice.MAX_LINES + 5))
+    return files
+
+  log = tmp_path / "session-000009-20261116-120000.jsonl"
+  log.write_text("")
+  seen = []
+  system_slice.write_sidecar(log, 1_000_000.0, 1_000_060.0, collector=crashed, tag=".stall", on_firmware=lambda *a: seen.append(a))
+  saved = json.loads((tmp_path / "session-000009.stall.system.json").read_text())["sources"]
+  assert len(saved["firmware"]["lines"]) == 2 and "failure reason" not in "".join(saved["kernel"]["lines"])
+  assert seen == [(2, "wlan_fw.c:12: assert")]

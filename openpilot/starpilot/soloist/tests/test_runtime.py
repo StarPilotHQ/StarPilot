@@ -495,3 +495,30 @@ def test_pull_onroad_takes_spotify_over_only_while_driving(layout, monkeypatch):
   now[0] += supervisor.PULL_RETRY_SECONDS
   sup.tick()
   assert sup.client.sent == [('activate', {})] * 2
+
+
+def test_network_change_restarts_an_idle_player_only_if_it_stays_offline(layout, monkeypatch):
+  ready_layout(layout, monkeypatch)
+  spawned = []
+  sup, now = make_supervisor(layout, spawned)
+  changed, online = [1.0], [True]
+  sup.network_change, sup.cloud = lambda: changed[0], lambda pid: online[0]
+  sup.tick()
+  sup.tick()
+  changed[0] = 2.0
+  sup.tick()
+  now[0] += supervisor.NETWORK_RECHECK_SECONDS + 1
+  sup.tick()
+  assert len(spawned) == 2 and any('changed networks' in line for line in sup.log)
+  changed[0], online[0] = 3.0, False
+  sup.tick()
+  sup.last_playing = True
+  now[0] += supervisor.NETWORK_RECHECK_SECONDS + 1
+  sup._follow_network(now[0])
+  assert sup.player is not None  # music from the cache is never cut
+  changed[0] = 4.0
+  sup.tick()
+  now[0] += supervisor.NETWORK_RECHECK_SECONDS + 1
+  sup.last_playing = False
+  sup._follow_network(now[0])
+  assert sup.player is None and sup.status()['state'] == 'retrying'

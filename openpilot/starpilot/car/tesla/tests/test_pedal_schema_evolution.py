@@ -35,6 +35,23 @@ struct Lane @0xee74a80b1d309a72 {
   yield parser.load(str(path)).Lane
 
 
+@pytest.fixture
+def reviewed_torque_tuning(tmp_path):
+  path = tmp_path / 'reviewed-torque-tuning.capnp'
+  path.write_text('''@0xb526ba661d550a59;
+struct TorqueTuning @0xa92d1325b855c382 {
+  version @0 :UInt16;
+  factor @1 :Float64;
+  friction @2 :Float64;
+  manualFactor @3 :Bool;
+  manualFriction @4 :Bool;
+  learned @5 :Bool;
+}
+''')
+  parser = capnp.SchemaParser()
+  yield parser.load(str(path)).TorqueTuning
+
+
 def compare_node(old, new):
   assert old.schema.node.id == new.schema.node.id
   kind = old.schema.node.which()
@@ -65,7 +82,7 @@ def compare_node(old, new):
     compare_node(getattr(old, child.name), getattr(new, child.name))
 
 
-def test_all_incumbent_custom_type_ids_fields_and_layouts_are_preserved(historical, reviewed_navigation_lane):
+def test_all_incumbent_custom_type_ids_fields_and_layouts_are_preserved(historical, reviewed_navigation_lane, reviewed_torque_tuning):
   assert hashlib.sha256(FIXTURE.read_bytes()).hexdigest() == REVIEW['incumbent_fixture_sha256']
   for name in re.findall(r'^(?:struct|enum) (\w+)', FIXTURE.read_text(), re.MULTILINE):
     old = getattr(historical, name)
@@ -73,6 +90,7 @@ def test_all_incumbent_custom_type_ids_fields_and_layouts_are_preserved(historic
     current_name = approved['after_name'] if approved else name
     compare_node(old, getattr(custom, current_name))
   compare_node(reviewed_navigation_lane, custom.StarPilotCarControl.Navigation.Lane)
+  compare_node(reviewed_torque_tuning, custom.StarPilotLateralState.TorqueTuning)
   # Startup capsules have no parent slots; published phone GPS@3 stays occupied.
   assert set(custom.StarPilotCarControl.schema.fields) == {
     'hudControl', 'steeringLimitInfo', 'navigation', 'phoneGps'}
@@ -128,6 +146,57 @@ def test_additive_feedback_survives_incumbent_reader_relay(historical):
   with custom.StarPilotCarState.from_bytes(relayed) as recovered:
     assert {name: recovered.to_dict()[name] for name in incumbent} == incumbent
     assert recovered.feedbackPublication.to_dict() == expected_feedback
+
+
+@pytest.mark.parametrize('manual', [False, True])
+def test_additive_applied_tuning_preserves_defaults_and_incumbent_relay(historical, manual):
+  original = historical.StarPilotLateralState.new_message(
+    active=True, frictionThreshold=.25, frictionScale=.5, feedforward=.125,
+    frictionJerk=.75, frictionJerkDeadzone=.0625, lowSpeedFactor=1.5,
+    unwindDetected=True, laneCentering={'version': 1, 'modelMonoTime': 123456})
+  incumbent = original.to_dict()
+  with custom.StarPilotLateralState.from_bytes(original.to_bytes()) as decoded:
+    assert not decoded._has('torqueTuning')
+    assert decoded.torqueTuning.to_dict() == {
+      'version': 0, 'factor': 0., 'friction': 0., 'manualFactor': False, 'manualFriction': False, 'learned': False}
+    current = decoded.as_builder()
+  current.feedbackConsumption.version = 1
+  current.trackingApplication.version = 1
+  current.torqueTuning = {'version': 1, 'factor': 2.5, 'friction': .125,
+                          'manualFactor': manual, 'manualFriction': manual, 'learned': not manual}
+  expected = current.to_dict()
+  with historical.StarPilotLateralState.from_bytes(current.to_bytes()) as old:
+    assert old.to_dict() == incumbent
+    relayed = old.as_builder().to_bytes()
+  with custom.StarPilotLateralState.from_bytes(relayed) as recovered:
+    assert recovered.to_dict() == expected
+
+
+@pytest.mark.parametrize(('before', 'after'), [
+  ('torqueTuning @13 :TorqueTuning;', 'torqueTuning @13 :LaneCentering;'),
+  ('torqueTuning @13 :TorqueTuning;', 'torqueTuning @13 :TorqueTuning; unreviewed @14 :Bool;'),
+  ('factor @1 :Float64;', 'factor @1 :Float32;'),
+  ('version @0 :UInt16;', 'version @0 :UInt16 = 1;'),
+  ('learned @5 :Bool;', 'learned @5 :Bool; unreviewed @6 :Bool;'),
+])
+def test_reviewed_applied_tuning_rejects_other_schema_changes(historical, reviewed_torque_tuning, tmp_path, before, after):
+  source = Path(CEREAL_PATH, 'custom.capnp').read_text()
+  if before.startswith('torqueTuning'):
+    assert source.count(before) == 1
+    changed_source = source.replace(before, after)
+  else:
+    start = source.index('  struct TorqueTuning {')
+    end = source.index('\n  }', start)
+    body = source[start:end]
+    assert body.count(before) == 1
+    changed_source = source[:start] + body.replace(before, after) + source[end:]
+  path = tmp_path / 'unreviewed-applied-tuning.capnp'
+  path.write_text(changed_source)
+  parser = capnp.SchemaParser()
+  changed = parser.load(str(path), imports=[CEREAL_PATH, str(files('opendbc') / 'car')])
+  with pytest.raises(AssertionError):
+    compare_node(historical.StarPilotLateralState, changed.StarPilotLateralState)
+    compare_node(reviewed_torque_tuning, changed.StarPilotLateralState.TorqueTuning)
 
 
 def test_additive_steering_limits_preserve_defaults_and_survive_incumbent_relay(historical):

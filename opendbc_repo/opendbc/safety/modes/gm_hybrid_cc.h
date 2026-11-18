@@ -121,10 +121,10 @@ static uint8_t gm_hybrid_semantic(const CANPacket_t *msg) {
   const uint16_t word = ((uint16_t)msg->data[5] << 8U) | msg->data[6];
   uint8_t button = 0U;
   if (gm_hybrid_tuple(msg)) {
-    if ((word == 0x15EEU) || (word == 0x1FCCU)) { button = 1U; }
-    else if ((word == 0x55AEU) || (word == 0x5F8CU)) { button = 2U; }
-    else if ((word == 0x2ACDU) || (word == 0x20EFU)) { button = 5U; }
-    else if ((word == 0x60AFU) || (word == 0x6A8DU)) { button = 6U; }
+    if ((word == 0x10FFU) || (word == 0x15EEU) || (word == 0x1ADDU) || (word == 0x1FCCU)) { button = 1U; }
+    else if ((word == 0x20EFU) || (word == 0x25DEU) || (word == 0x2ACDU) || (word == 0x2FBCU)) { button = 2U; }
+    else if ((word == 0x50BFU) || (word == 0x55AEU) || (word == 0x5A9DU) || (word == 0x5F8CU)) { button = 5U; }
+    else if ((word == 0x60AFU) || (word == 0x659EU) || (word == 0x6A8DU) || (word == 0x6F7CU)) { button = 6U; }
     else if ((msg->data[4] == 0U) && ((word == 0x30DFU) || (word == 0x35CEU) ||
                                       (word == 0x3ABDU) || (word == 0x3FACU))) { button = 3U; }
     else {
@@ -163,7 +163,10 @@ static void gm_hybrid_rx(const CANPacket_t *msg) {
                             (((msg->data[4] >> 3U) & 7U) == 1U) && ((msg->data[4] & 7U) == 1U);
           vehicle_moving = ((((unsigned int)msg->data[0] << 8U) | msg->data[1]) > 10U) ||
                            ((((unsigned int)msg->data[2] << 8U) | msg->data[3]) > 10U);
-        } else if (i == 3U) { gas_pressed = msg->data[5] != 0U; }
+        } else if (i == 3U) {
+          // On pedal profiles this is the interceptor output, not driver input.
+          if (!gm_hybrid_pedal) { gas_pressed = msg->data[5] != 0U; }
+        }
         else if (i == 4U) { gm_hybrid_main = GET_BIT(msg, 29U); brake_pressed = GET_BIT(msg, 40U); }
         else if (i == 5U) {
           gm_hybrid_stock_active = GET_BIT(msg, 39U);
@@ -181,6 +184,7 @@ static void gm_hybrid_rx(const CANPacket_t *msg) {
             (gm_pedal_crc(msg) == msg->data[5]) && (!gm_hybrid_sensor_seen || (counter != gm_hybrid_sensor_counter));
           gm_hybrid_sensor_seen = true; gm_hybrid_sensor_counter = counter;
           gm_hybrid_sensor_gas = ((125677U * track1) + (251976U * track2)) > (uint32_t)198510000U;
+          gas_pressed = gm_hybrid_sensor_gas;
         } else {
         }
         if (i == 2U) {
@@ -208,7 +212,8 @@ static void gm_hybrid_rx(const CANPacket_t *msg) {
               } else {
               }
               if (gm_hybrid_semantic_reset && (button == 1U)) { gm_hybrid_semantic_reset = false; }
-              if ((button == 5U) || (button == 6U)) { controls_allowed = false; }
+              // Hybrid pedal takeover uses physical Cancel only to stop stock cruise.
+              if ((button == 5U) || ((button == 6U) && !gm_hybrid_pedal)) { controls_allowed = false; }
               gm_hybrid_button = button; gm_hybrid_button_seen = true;
             }
           }

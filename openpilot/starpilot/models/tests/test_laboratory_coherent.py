@@ -9,7 +9,7 @@ from tinygrad import Tensor
 
 from openpilot.starpilot.models import laboratory, laboratory_runner
 from openpilot.starpilot.models.runner import CatalogModelState, SUPPORTED_VERSIONS
-from openpilot.starpilot.models.tests import test_laboratory_runner as load_tests
+from openpilot.starpilot.models.tests import test_laboratory_runner as load_fixture
 
 
 class TestCoherentOutput(unittest.TestCase):
@@ -76,8 +76,8 @@ class TestCoherentOutput(unittest.TestCase):
 
 
 class TestCoherentFactory(unittest.TestCase):
-  setUp = load_tests.TestLaboratoryLoad.setUp
-  factory = load_tests.TestLaboratoryLoad.factory
+  setUp = load_fixture.TestLaboratoryLoad.setUp
+  factory = load_fixture.TestLaboratoryLoad.factory
 
   def test_all_supported_versions_apply_after_verification_before_warmup(self):
     original = laboratory.freeze_request(self.root)

@@ -9,6 +9,21 @@ from opendbc.car.hyundai.hyundaicanfd import CanBus
 from opendbc.car.hyundai.values import CAR, HyundaiFlags
 from opendbc.car.hyundai.canfd_owner import topology_index
 
+# Integer masks avoid constructing IntFlag objects in live 100 Hz admission checks.
+_FLAG_CANFD = HyundaiFlags.CANFD.value
+_FLAG_CANFD_ALT_BUTTONS = HyundaiFlags.CANFD_ALT_BUTTONS.value
+_FLAG_CANFD_ANGLE_STEERING = HyundaiFlags.CANFD_ANGLE_STEERING.value
+_FLAG_CANFD_CAMERA_SCC = HyundaiFlags.CANFD_CAMERA_SCC.value
+_FLAG_CANFD_LKA_STEER_MSG = HyundaiFlags.CANFD_LKA_STEER_MSG.value
+_FLAG_CANFD_LKA_STEER_MSG_ALT = HyundaiFlags.CANFD_LKA_STEER_MSG_ALT.value
+_FLAG_CCNC = HyundaiFlags.CCNC.value
+_FLAG_EV = HyundaiFlags.EV.value
+_FLAG_HYBRID = HyundaiFlags.HYBRID.value
+
+_EXCLUDED = (_FLAG_CANFD_ANGLE_STEERING | _FLAG_CANFD_LKA_STEER_MSG_ALT |
+             _FLAG_CANFD_ALT_BUTTONS | _FLAG_CANFD_CAMERA_SCC | _FLAG_CCNC |
+             _FLAG_HYBRID)
+
 
 def first_generation(cp):
   owner = topology_index(cp)
@@ -16,12 +31,9 @@ def first_generation(cp):
     return False
   buses = CanBus(cp)
   offset = 4 * owner
-  excluded = (HyundaiFlags.CANFD_ANGLE_STEERING | HyundaiFlags.CANFD_LKA_STEER_MSG_ALT |
-              HyundaiFlags.CANFD_ALT_BUTTONS | HyundaiFlags.CANFD_CAMERA_SCC | HyundaiFlags.CCNC |
-              HyundaiFlags.HYBRID)
-  return (cp.flags & HyundaiFlags.CANFD and
-          cp.flags & HyundaiFlags.EV and cp.flags & HyundaiFlags.CANFD_LKA_STEER_MSG and
-          not cp.flags & excluded and (buses.ACAN, buses.ECAN, buses.CAM) == (offset, offset + 1, offset + 2) and
+  return (int(cp.flags) & _FLAG_CANFD and
+          int(cp.flags) & _FLAG_EV and int(cp.flags) & _FLAG_CANFD_LKA_STEER_MSG and
+          not int(cp.flags) & _EXCLUDED and (buses.ACAN, buses.ECAN, buses.CAM) == (offset, offset + 1, offset + 2) and
           not cp.passive and not cp.dashcamOnly and not cp.notCar)
 
 

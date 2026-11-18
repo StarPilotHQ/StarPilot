@@ -431,7 +431,8 @@ class ProjectionOnroad:
     for side, key in zip(('left', 'right'), native.pip_widgets, strict=True):
       position = native.placement(state.customization, 'large', key)
       if position['enabled']:
-        width, height = native.widget_size(state.customization, 'large', key)
+        width, height = ((position['width'], position['height']) if 'width' in position else
+                         native.widget_size(state.customization, 'large', key))
         placements[side] = native.pip_rect(position['x'], position['y'], width, height)
     result = self.pip.render(rect, saved.mask, signals, enabled=True, on_blinker=on_blinker,
                              on_bsm=on_bsm, invert=saved.invert, placements=placements,

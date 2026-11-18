@@ -102,6 +102,8 @@ CODEC_NAMES = {3: "H.264", 5: "VP9", 6: "AV1", 7: "H.265"}
 # kind and then every hundredth, so a head unit repeating one cannot flood the session log.
 IGNORED_LOG_FIRST = 5
 IGNORED_LOG_EVERY = 100
+INPUT_LOG_FIRST = 20
+INPUT_LOG_EVERY = 100
 FRAME_RATES = {1: 60, 2: 30}
 # Software H.264 on the comma is the constraint: prefer 720p, then 480p. 1080p
 # is accepted only when nothing smaller is offered.
@@ -694,6 +696,12 @@ class ProjectionSession(Session):
   # HeadunitPad acknowledges every fragment (codec config included) rather than every frame.
   fragment_acks = False
 
+  # Owner toggle or head-unit fix, any codec: for cars that show video but never acknowledge it.
+  unacked_video = False
+  UNACKED_SILENCE_TIMEOUT = 5.0
+  unacked_started_at: float | None = None  # when the first frame of an unacknowledged stream was sent
+  unacked_ack_seen = False
+
   def __init__(self, *args, **kwargs):
     super().__init__(*args, **kwargs)
     self.frame_fragments: deque[int] = deque()
@@ -791,6 +799,9 @@ class ProjectionSession(Session):
     """Open the touch/key channel so input is acknowledged; failures are not fatal."""
     inputs = [ch for ch in self.channels if ch.get("input")]
     channel = next((ch for ch in inputs if ch.get("display_id") in (None, 0)), inputs[0] if inputs else None)
+    self.event("input_channels", channels=[{"channel": ch["id"], "display_id": ch.get("display_id"),
+                                           "config": str(ch.get("input_config") or InputConfig())} for ch in inputs],
+               selected=channel["id"] if channel is not None else None)
     if channel is None:
       return
     try:
@@ -806,9 +817,14 @@ class ProjectionSession(Session):
         self.touch = TouchMapper(config, self.mode.width, self.mode.height, self.mode.margin_width, self.mode.margin_height,
                                  content_left=self.mode.content_left, content_top=self.mode.content_top)
       self.event("input_opened", channel=channel["id"], keycodes=list(config.keycodes),
-                 touch=f"{config.touch_width}x{config.touch_height}")
+                 touch=f"{config.touch_width}x{config.touch_height}", display_id=channel.get("display_id"),
+                 mapping={"touch_width": self.touch.touch_width, "touch_height": self.touch.touch_height,
+                          "video_width": self.touch.video_width, "video_height": self.touch.video_height,
+                          "content_left": self.touch.left, "content_top": self.touch.top,
+                          "content_width": self.touch.content_width, "content_height": self.touch.content_height,
+                          "content_space": self.touch.content_space} if self.touch is not None else None)
     except (TimeoutError, ValueError) as error:
-      self.event("input_unavailable", error=str(error))
+      self.event("input_unavailable", channel=channel["id"], error=str(error))
 
   def _open_optional(self, channel: dict, name: str) -> bool:
     try:
@@ -876,6 +892,8 @@ class ProjectionSession(Session):
         if self.vendor_channel is None:
           self.vendor_channel = self._open_service(VENDOR_SERVICE, "vendor")
         done = self.vendor_channel is not None
+      elif action == "unacked_video":
+        self.unacked_video = done = True
       elif action == "request_bt_pairing":
         if self.bluetooth_channel is not None and self.phone_address:
           bluetooth = next((ch for ch in self.channels if ch.get("id") == self.bluetooth_channel), {})
@@ -960,21 +978,31 @@ class ProjectionSession(Session):
     elif channel == self.input_channel:
       if kind == INPUT_EVENT:
         self.input_events += 1
+        mapped = []
+        disposition = "no_mapper" if self.touch is None else "unfocused" if not self.focused else "no_touch_event"
         if self.touch is not None and self.focused:
           try:
-            self.touch_events.extend(self.touch.decode(data))
+            mapped = self.touch.decode(data)
+            self.touch_events.extend(mapped)
+            if mapped:
+              disposition = "queued"
           except ValueError as error:
-            self.event("input_invalid", error=str(error))
+            disposition = "invalid"
+            self.event("input_invalid", channel=channel, kind=kind, error=str(error))
+        if self.input_events <= INPUT_LOG_FIRST or self.input_events % INPUT_LOG_EVERY == 0:
+          self.event("input_event", channel=channel, kind=kind, count=self.input_events, bytes=len(data),
+                     focused=self.focused, disposition=disposition, message=describe(data),
+                     mapped=[{"kind": event.kind, "x": round(event.x, 5), "y": round(event.y, 5)} for event in mapped])
         # The driver may be on the car's own screen while Android Auto plays the music.
         try:
           for action in self.keys.decode(data):
-            self.event("media_key", action=action)
+            self.event("media_key", channel=channel, action=action)
             if self.media_control is not None:
               self.media_control(action)
         except ValueError as error:
-          self.event("input_invalid", error=str(error))
+          self.event("input_invalid", channel=channel, kind=kind, error=str(error))
       elif kind == INPUT_BINDING_RESPONSE:
-        self.event("input_bound", status=signed(one(fields, 1, 0)))
+        self.event("input_bound", channel=channel, status=signed(one(fields, 1, 0)))
       else:
         self.ignored("input_ignored", channel, kind, data)
     elif channel is not None and channel == self.sensor_channel:
@@ -1034,6 +1062,12 @@ class ProjectionSession(Session):
   def _handle_ack(self, sid, count: int) -> None:
     if sid in self.retired_sessions:
       return
+    if self.unacked_video:
+      self.acked += count
+      if not self.unacked_ack_seen:
+        self.unacked_ack_seen = True
+        self.event("unexpected_video_ack", session=sid, count=count, frames_sent=self.frames_sent)
+      return
     if self.fragment_acks:
       if sid != self.session_id:
         raise ValueError(f"Invalid video acknowledgement session={sid} count={count} pending={self.unacked}")
@@ -1086,6 +1120,8 @@ class ProjectionSession(Session):
   # Altering this can degrade video smoothness or introduce lag on Android Auto.
   # Do not change it autonomously; require an explicit user request specifically for this video optimization.
   def can_send(self) -> bool:
+    if self.unacked_video:
+      return self.focused
     return self.focused and self.unacked < self.window
 
   def _ack_overdue(self, now: float) -> bool:
@@ -1106,16 +1142,43 @@ class ProjectionSession(Session):
         now = time.monotonic()
       if self._ack_overdue(now):
         self._wait_out_radio_change(now)
+    if self.unacked_video:
+      now = self._check_unacked_video(now, measured)
     # Only a receiver known to answer pings can be declared dead by silence; for
     # others a lost link surfaces as a socket error or a dropped Wi-Fi lease.
     if self.ping_responses and now - self.last_rx > 15.0:
       raise TimeoutError("Head unit stopped answering for 15 s")
+
+  def _unacked_silent(self, now: float) -> bool:
+    started = self.unacked_started_at
+    return bool(self.focused and started is not None and now - max(self.last_rx, started) > self.UNACKED_SILENCE_TIMEOUT)
+
+  def _check_unacked_video(self, now: float, measured: bool) -> float:
+    """Without ACKs a car that still talks is still there: give up on silence, and count video as shown once it has stayed."""
+    if self._unacked_silent(now):
+      deadline = time.monotonic() + self.ACK_DRAIN_SECONDS
+      while time.monotonic() < deadline and self.pump(0.0):
+        pass
+      if measured:
+        now = time.monotonic()
+      if self._unacked_silent(now):
+        raise TimeoutError(f"Head unit stopped answering for {self.UNACKED_SILENCE_TIMEOUT:.1f} s while projecting without video acknowledgments")
+    started = self.unacked_started_at
+    if (not self.video_confirmed and self.focused and started is not None and now - started > self.ACK_TIMEOUT and
+        self.last_rx > started):
+      self.video_confirmed = True
+      self.video_confirmed_at = started
+      self.event("video_acknowledged", session=self.session_id, ack_ms=None, unacked=True, frames_sent=self.frames_sent)
+    return now
 
   def _wait_out_radio_change(self, now: float) -> None:
     """The oldest frame is past ACK_TIMEOUT: give up, unless the comma's other Wi-Fi just changed networks."""
     oldest = self.pending[0]
     if self.grace_frame != oldest:
       if not self.radio_change():
+        if not self.acked and not self.video_confirmed:
+          self.event("video_never_acknowledged", frames_sent=self.frames_sent,
+                     last_rx_ms=round((time.monotonic() - self.last_rx) * 1000))
         raise TimeoutError(f"Video acknowledgement older than {self.ACK_TIMEOUT:.1f} s")
       self.grace_frame = oldest
       self.event("ack_grace", after_ms=round((now - oldest) * 1000))
@@ -1143,11 +1206,15 @@ class ProjectionSession(Session):
     if self.phone_frames:
       data = (wire_frame_hevc if self.mode.codec == CODEC_H265 else wire_frame)(data, drop_config=bool(config))
     fragments += self.send(self.mode.channel, AV_MEDIA_WITH_TIMESTAMP, struct.pack(">Q", timestamp_us) + data)
-    if self.fragment_acks:
-      self.frame_fragments.append(fragments)
     self.needs_keyframe = False
-    self.pending.append(time.monotonic())
-    self.unacked += 1
+    if self.unacked_video:
+      if self.unacked_started_at is None:
+        self.unacked_started_at = time.monotonic()
+    else:
+      if self.fragment_acks:
+        self.frame_fragments.append(fragments)
+      self.pending.append(time.monotonic())
+      self.unacked += 1
     self.frames_sent += 1
     if self.keyframe_test_active() and self.test_frames_logged < TEST_FRAMES_LOGGED:
       self.test_frames_logged += 1
@@ -1180,4 +1247,4 @@ class ProjectionSession(Session):
     return {"frames_sent": self.frames_sent, "frames_acked": self.acked, "pending": self.unacked,
             "focus_epoch": self.focus_epoch, "focused": self.focused, "max_ack_ms": round(self.max_ack_seconds * 1000),
             "input_events": self.input_events, "touch": self.touch is not None,
-            "sensor_events": sum(self.sensor_events.values())}
+            "sensor_events": sum(self.sensor_events.values()), **({"unacked_video": True} if self.unacked_video else {})}

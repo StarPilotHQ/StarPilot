@@ -6,7 +6,8 @@ from opendbc.can import CANPacker
 from opendbc.car import Bus, gen_empty_fingerprint, structs
 from opendbc.car.gm.interface import CarInterface
 from opendbc.car.gm.aol import qualified_gm
-from opendbc.car.gm.values import CAR, DBC, GMFlags, SILVERADO_CC_STOCK_SOURCES, is_ordinary_cc_profile
+from opendbc.car.gm.values import (CAR, DBC, GMFlags, GMSafetyFlags, SILVERADO_CC_STOCK_SOURCES,
+                                  is_ordinary_cc_profile, is_silverado_cc_stock_profile)
 from opendbc.car.gm.startup_preferences import prepare_disable_longitudinal
 from opendbc.car.gm.tests.test_bolt_cc import native
 from opendbc.car.gm.tests.test_cc_gateway_stock import silverado_stock_params
@@ -37,13 +38,16 @@ def params(*, alpha=False, release=False, disabled=False):
 def test_sierra_layout_finalizes_existing_cc_owner_and_preserves_stock_variant(release, alpha, disabled):
   cp = params(alpha=alpha, release=release, disabled=disabled)
   assert not cp.dashcamOnly and not cp.passive
-  assert cp.openpilotLongitudinalControl == (not disabled) and not cp.pcmCruise
+  assert cp.openpilotLongitudinalControl == (not disabled) and cp.pcmCruise == disabled
   assert cp.safetyConfigs[0].safetyModel == structs.CarParams.SafetyModel.gm
-  assert cp.safetyConfigs[0].safetyParam == 0xC160 and cp.networkLocation == structs.CarParams.NetworkLocation.gateway
-  assert cp.flags == int(GMFlags.CC_LONG | GMFlags.HAS_BSM)
-  assert is_ordinary_cc_profile(cp) and qualified_gm(cp)
+  assert cp.safetyConfigs[0].safetyParam == (GMSafetyFlags.NO_ACC if disabled else 0xC160)
+  assert cp.networkLocation == structs.CarParams.NetworkLocation.gateway
+  assert cp.flags == int(GMFlags.HAS_BSM | (0 if disabled else GMFlags.CC_LONG))
+  assert (is_silverado_cc_stock_profile if disabled else is_ordinary_cc_profile)(cp) and qualified_gm(cp)
   assert cp.minSteerSpeed == pytest.approx(7 * .44704)
-  assert cp.minEnableSpeed == pytest.approx(24 * .44704)
+  assert cp.minEnableSpeed == pytest.approx(-1. if disabled else 24 * .44704)
+  if disabled:
+    assert not cp.autoResumeSng
   old = silverado_stock_params()
   assert old.safetyConfigs[0].safetyParam == 16 and old.pcmCruise and not old.openpilotLongitudinalControl
   assert not old.dashcamOnly and not is_ordinary_cc_profile(old)

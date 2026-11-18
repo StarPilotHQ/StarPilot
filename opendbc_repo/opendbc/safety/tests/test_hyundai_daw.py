@@ -208,3 +208,30 @@ def test_packet_forwarding_preserves_existing_other_profile_rules():
     for bus in range(3):
       for addr in (0x53E, 0x340, 0x4F1, 0x421, 0x110, 0x11A):
         assert safety.safety_fwd_packet_hook(packet(addr, data, bus)) == safety.safety_fwd_hook(bus, addr)
+
+
+@pytest.mark.parametrize('mode,word', [(structs.CarParams.SafetyModel.hyundai, 0),
+  (structs.CarParams.SafetyModel.hyundai, 0xC02), (structs.CarParams.SafetyModel.hyundaiLegacy, 0)])
+@pytest.mark.parametrize('status', (1, 2, 3))
+@pytest.mark.parametrize('period_us', (100001, 110000))
+def test_classic_current_physical_frame_renews_source_before_forwarding(mode, word, status, period_us):
+  safety, _ = setup(False, word)
+  assert safety.set_safety_hooks(mode, word) == 0
+  safety.init_tests()
+  safety.set_timer(1_000_000)
+  owner = DawSource(params(False))
+  original = source(False, status)
+  safety.safety_rx_hook(packet(0x53E, original, 2))
+  owner.update([(BASE, [(0x53E, original, 2)])])
+  addr, output, bus = advisory_candidate(owner, BASE)
+  assert safety.safety_tx_hook(packet(addr, output, bus))
+  safety.set_timer(1_090_000)
+  assert safety.safety_tx_hook(packet(addr, output, bus))
+  safety.set_timer(1_000_000 + period_us)
+  incoming = packet(0x53E, original, 2)
+  assert safety.safety_fwd_packet_hook(incoming) == -1
+  safety.safety_rx_hook(incoming)
+  assert safety.safety_fwd_packet_hook(incoming) == -1
+  assert not safety.get_controls_allowed()
+  safety.set_timer(1_190_001)
+  assert safety.safety_fwd_packet_hook(incoming) == 0

@@ -235,7 +235,7 @@ export const OfflineRoadMapsPanel = {
   template: `
     <section class="gx-card gx-offline-roads" aria-label="Offline road maps" :inert="busy" :aria-busy="busy || undefined">
       <div class="gx-offline-roads__head">
-        <span class="gx-starport-step__num" aria-hidden="true"><i class="bi bi-cloud-download"></i></span>
+        <span class="gx-step__num" aria-hidden="true"><i class="bi bi-cloud-download"></i></span>
         <div>
           <div class="gx-navigation__step-title">
             <h3 class="gx-section__title">Offline Map Management</h3>

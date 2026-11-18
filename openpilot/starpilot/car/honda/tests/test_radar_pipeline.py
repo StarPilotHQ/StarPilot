@@ -3,6 +3,7 @@ import copy
 import pytest
 
 from opendbc.car import gen_empty_fingerprint, structs
+from opendbc.car.honda.bosch_a_radar import BOSCH_A_FREQ_HZ
 from opendbc.car.honda.hondacan import CanBus
 from opendbc.car.honda.interface import CarInterface
 from opendbc.car.honda.radar_interface import RadarInterface
@@ -12,7 +13,7 @@ from openpilot.cereal import messaging
 from openpilot.selfdrive.controls.radard import RadarD
 
 
-def source_tick(sm, tick, rr=None, speed=0.0, probability=0.0, distance=10.0, standstill=False):
+def source_tick(sm, tick, rr=None, speed=0.0, probability=0.0, distance=10.0, standstill=False, lead_speed=None):
   stamp = 1_000_000_000 + tick * 50_000_000
   model_event = messaging.new_message('modelV2', valid=True)
   model_event.logMonoTime = stamp
@@ -22,7 +23,7 @@ def source_tick(sm, tick, rr=None, speed=0.0, probability=0.0, distance=10.0, st
   for lead in leads:
     lead.x = [distance + 1.52]
     lead.y = [0.0]
-    lead.v = [speed]
+    lead.v = [speed if lead_speed is None else lead_speed]
     lead.a = [0.0]
     lead.xStd = lead.yStd = lead.vStd = [1.0]
     lead.prob = probability
@@ -67,7 +68,7 @@ def test_actual_radard_duplicate_and_predicted_point_hold_kalman_measurement():
   source_tick(sm, 3, radar_data(True, 2.0), speed=20.0)
   radar.update(sm, sm['radarTracks'])
   assert track.cnt == 2 and track.kf.x != original and track.measured
-  assert radar.kalman_params.A[0][1] == pytest.approx(1.0 / 15.0)
+  assert radar.kalman_params.A[0][1] == pytest.approx(1.0 / BOSCH_A_FREQ_HZ)
 
 
 def test_non_honda_radard_keeps_ordinary_duplicate_measurement_behavior():

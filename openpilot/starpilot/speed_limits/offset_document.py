@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
-import math
 from typing import cast
 
+from openpilot.starpilot.speed_limits import acceptance as acc
 from openpilot.starpilot.speed_limits import speed_domain as sd
 
 MPH_TO_MPS = 0.44704
@@ -35,7 +35,7 @@ NEEDS_REVIEW = NeedsReview()
 
 
 def _finite(value: object) -> float:
-  if not isinstance(value, (int, float)) or type(value) not in (int, float) or not math.isfinite(value):
+  if not acc.finite(value):
     raise ValueError('SLC offset value must be finite')
   return float(value)
 
@@ -51,7 +51,7 @@ def validate(value: object) -> OffsetDocument | NeedsReview:
     return NEEDS_REVIEW
   if isinstance(value, OffsetDocument):
     value = {'version': 1, 'bounds_mps': value.bounds_mps, 'offsets_mps': value.offsets_mps}
-  if not isinstance(value, dict) or type(value) is not dict:
+  if type(value) is not dict:
     raise ValueError('invalid SLC offset document version')
   data = cast(dict[str, object], value)
   if type(data.get('version')) is not int or data['version'] != 1:

@@ -1,6 +1,7 @@
 """Galaxy-only, next-drive developer preferences."""
 
 from openpilot.starpilot.longitudinal.voacc import KEY, DESCRIPTION
+from openpilot.starpilot.longitudinal.enhanced_stop_hold import KEY as HOLD_KEY, LABEL as HOLD_LABEL, DESCRIPTION as HOLD_DESCRIPTION
 from openpilot.starpilot.ui.calibration_reset import calibration_reset
 from openpilot.starpilot.saved_document import commit_exact
 from openpilot.starpilot.saved_source import read_saved
@@ -27,6 +28,14 @@ STARPORT_TALL_HEVC_KEY = "StarPortTallHevc"
 STARPORT_TALL_HEVC_DESCRIPTION = ("Experimental test for a car that only takes H.265. Uses the car's 1080x1920 screen mode instead of " +
                                   "720x1280 when it offers one. Needs Allow H.265 video on. H.264 cars are not affected. " +
                                   "Applies from the next StarPort connection.")
+STARPORT_UNACKED_VIDEO_KEY = "StarPortUnackedVideo"
+STARPORT_UNACKED_VIDEO_DESCRIPTION = ("Experimental. For a car that shows video but never acknowledges it, so the picture freezes " +
+                                      "and reconnects every few seconds. Sends video without waiting for acknowledgments, on " +
+                                      "H.264 or H.265. Applies from the next StarPort connection.")
+STARPORT_PATIENT_TCP_KEY = "StarPortPatientConnect"
+STARPORT_PATIENT_TCP_DESCRIPTION = ("Experimental. For a wireless adapter that hands over its Wi-Fi but then refuses the connection, " +
+                                    "as if it is still starting up. Keeps trying for up to a minute instead of about 15 seconds. " +
+                                    "Applies from the next StarPort connection.")
 STARPORT_EXPERIMENTS_KEY = "StarPortHeadUnitExperiments"
 STARPORT_EXPERIMENTS_DESCRIPTION = ("Shows experimental fixes for specific cars and dongles, each with its own switch. Turn off to use the " +
                                     "standard connection for every car. Applies from the next StarPort connection.")
@@ -74,6 +83,16 @@ class DeveloperSettingsOwner:
       rows.append(FeatureRow(STARPORT_TALL_HEVC_KEY, "H.265 at 1080x1920", "On" if tall_hevc else "Off", b"1" if tall_hevc else b"0",
                              ("Off", "On"), available=parked, reason=STARPORT_TALL_HEVC_DESCRIPTION if parked else held,
                              default_value="Off"))
+      unacked_video = bool(status.get("unacked_video"))
+      rows.append(FeatureRow(STARPORT_UNACKED_VIDEO_KEY, "Unacknowledged video", "On" if unacked_video else "Off",
+                             b"1" if unacked_video else b"0",
+                             ("Off", "On"), available=parked, reason=STARPORT_UNACKED_VIDEO_DESCRIPTION if parked else held,
+                             default_value="Off"))
+      patient_tcp = bool(status.get("patient_tcp"))
+      rows.append(FeatureRow(STARPORT_PATIENT_TCP_KEY, "Wait longer for the adapter", "On" if patient_tcp else "Off",
+                             b"1" if patient_tcp else b"0",
+                             ("Off", "On"), available=parked, reason=STARPORT_PATIENT_TCP_DESCRIPTION if parked else held,
+                             default_value="Off"))
       experiments = bool(status.get("head_unit_experiments"))
       chosen = set(status.get("head_unit_experiment_rules") or ())
       rows.append(FeatureRow(STARPORT_EXPERIMENTS_KEY, "Try experimental fixes", "On" if experiments else "Off",
@@ -100,6 +119,12 @@ class DeveloperSettingsOwner:
                      raw, ("Off", "On") if valid else (), available=parked and valid,
                      reason=(DESCRIPTION if parked else "Park the vehicle to change this setting.") if valid else
                             "Invalid saved value", default_value="Off")
+    hold_raw, hold_readable = read_saved(self.params, HOLD_KEY, 8)
+    hold_valid = hold_readable and hold_raw in (None, b"0", b"1")
+    hold_row = FeatureRow(HOLD_KEY, HOLD_LABEL, ("On" if hold_raw == b"1" else "Off") if hold_valid else "Invalid saved value",
+                          hold_raw, ("Off", "On") if hold_valid else (), available=parked and hold_valid,
+                          reason=(HOLD_DESCRIPTION if parked else "Park the vehicle to change this setting.") if hold_valid else
+                                 "Invalid saved value", default_value="Off")
     rhd_raw, rhd_readable = read_saved(self.params, "IsRhdDetected", 8)
     reset_available = self._driver_monitoring_reset_allowed() and rhd_readable
     reset_reason = (DRIVER_MONITORING_RESET_DESCRIPTION if reset_available else
@@ -115,7 +140,7 @@ class DeveloperSettingsOwner:
     starport_rows = self._starport_rows(parked)
     summary = "Changes apply next drive."
     return FeatureSettingsState("developer", "Developer driving options", summary,
-                                (row, reset_row, calibration_row, *starport_rows), parked)
+                                (row, hold_row, reset_row, calibration_row, *starport_rows), parked)
 
   def apply(self, request):
     if request.key == CALIBRATION_RESET:
@@ -146,16 +171,20 @@ class DeveloperSettingsOwner:
       return self._apply_starport(request, "keyframe_test", "set_keyframe_test")
     if request.key == STARPORT_TALL_HEVC_KEY:
       return self._apply_starport(request, "tall_hevc", "set_tall_hevc")
+    if request.key == STARPORT_UNACKED_VIDEO_KEY:
+      return self._apply_starport(request, "unacked_video", "set_unacked_video")
+    if request.key == STARPORT_PATIENT_TCP_KEY:
+      return self._apply_starport(request, "patient_tcp", "set_patient_tcp")
     if request.key == STARPORT_EXPERIMENTS_KEY:
       return self._apply_starport(request, "head_unit_experiments", "set_head_unit_experiments")
     if request.key.startswith(STARPORT_EXPERIMENT_PREFIX):
       return self._apply_experiment_rule(request)
     if request.key == STARPORT_NEW_SETUP_KEY:
       return self._apply_new_setup(request)
-    if request.key != KEY or request.value not in ("Off", "On") or request.expected not in (None, b"0", b"1"):
+    if request.key not in (KEY, HOLD_KEY) or request.value not in ("Off", "On") or request.expected not in (None, b"0", b"1"):
       return False
     result = commit_exact(self.params, key=request.key, max_bytes=8, raw=b"1" if request.value == "On" else b"0",
-                          expected=request.expected, authorized=self.authorized, temp_prefix=".voacc-")
+                          expected=request.expected, authorized=self.authorized, temp_prefix=".developer-")
     return result.committed and result.verified
 
   def _apply_starport(self, request, field, command):

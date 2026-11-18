@@ -1,5 +1,0 @@
-<network-security-config>
-    <!-- Android has no CIDR matcher. MainActivity enforces numeric RFC1918 origins
-         and intercepts every WebView request; the service uses only the fixed AP. -->
-    <base-config cleartextTrafficPermitted="true" />
-</network-security-config>

@@ -265,7 +265,10 @@ def init_overlay() -> None:
 
 # Audited legacy release, pinned by Git commit identity. Other releases must
 # satisfy the modern source manifest contract.
-TRUSTED_LEGACY_RELEASES = {'StarPilot': frozenset({'c2e5e469ee8fefc3cffb514dc2e1a1fb82a421d6'})}
+TRUSTED_LEGACY_RELEASES = {
+  'StarPilot': frozenset({'c2e5e469ee8fefc3cffb514dc2e1a1fb82a421d6', '7ab42497b4590153c88560c7e2c2f3ff8317c6d4'}),
+  'stable': frozenset({'7ab42497b4590153c88560c7e2c2f3ff8317c6d4'}),
+}
 LEGACY_OS_MARKER = '.git/starpilot-retain-agnos'
 
 

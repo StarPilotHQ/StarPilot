@@ -16,6 +16,8 @@ ADDRESS = '172.31.254.1'
 NETWORK = '172.31.254.0/24'
 STATUS_PATH = Path('/tmp/starpilot-galaxy-hotspot-status.json')
 DEFAULT = {'enabled': False, 'ssid': 'Galaxy', 'password': ''}
+PAUSE_PATH = Path('/tmp/starpilot-galaxy-hotspot-pause.json')
+MAX_PAUSE_S = 120.0
 
 
 def device_dongle_id():
@@ -36,6 +38,26 @@ def validate_config(value):
       type(value['password']) is not str or not re.fullmatch(r'[\x21-\x7e]{12,63}', value['password'])):
     raise ValueError('Use a 1–32 character network name and a 12–63 character password without spaces.')
   return dict(value)
+
+
+def request_pause(seconds, path=PAUSE_PATH, clock=time.monotonic):
+  """Ask the hotspot to stand down briefly, for example while the comma joins a Wi-Fi network during a drive."""
+  atomic_json(path, {'until': clock() + min(float(seconds), MAX_PAUSE_S)}, mode=0o644)
+
+
+def clear_pause(path=PAUSE_PATH):
+  try:
+    path.unlink()
+  except FileNotFoundError:
+    pass
+
+
+def paused(path=PAUSE_PATH, clock=time.monotonic):
+  try:
+    until = bounded_json(path)['until']
+    return type(until) in (int, float) and 0 < until - clock() <= MAX_PAUSE_S
+  except (OSError, ValueError, KeyError, TypeError):
+    return False
 
 
 def atomic_json(path, value, mode=0o600):

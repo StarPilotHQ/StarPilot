@@ -18,7 +18,7 @@ from openpilot.selfdrive.controls import plannerd
 from openpilot.selfdrive.controls.radard import RadarD
 from openpilot.selfdrive.controls.plannerd import current_manual_event, queue_cruise_event
 from openpilot.starpilot.conditional_mode.planner_host import ConditionalPlannerHost, selected_follow_time
-from openpilot.starpilot.conditional_mode.policy import ModeChoice
+from openpilot.starpilot.conditional_mode.policy import ConditionalModePolicy, ManualIntent, ModeChoice
 from openpilot.starpilot.conditional_mode.preferences import CCMOptions, CEMOptions, SavedPreferences, encode_preferences
 from openpilot.starpilot.conditional_mode.projection import ConditionalOwnerContext, ObservedBool
 from openpilot.starpilot.conditional_mode.runtime_settings import DOCUMENT_KEY
@@ -263,13 +263,14 @@ class TestConditionalRuntimeLoop(unittest.TestCase):
           self.assertNotIn(service, subscriber.call_args.kwargs[check])
       self.assertIsNone(plannerd.SavedSlcLifecycle(params, cp, {}).refresh(1_000_000_000)[0])
 
-  def test_automatic_chill_ignores_retired_slc_modes_but_keeps_native_radar_veto(self):
+  def test_retired_chill_setting_maps_to_cem_and_native_radar_still_vetoes_ccm(self):
     cp = CarInterface.get_non_essential_params(CAR.HONDA_CIVIC)
     planner = LongitudinalPlanner(cp, init_v=25.0)
     with tempfile.TemporaryDirectory() as directory:
       params = Params(directory)
       params.put(DOCUMENT_KEY, json.loads(encode_preferences(SavedPreferences(mode=ModeChoice.CCM))), block=True)
       owner = ConditionalPlannerHost(params)
+      ccm_policy = ConditionalModePolicy()
       stamp = MONO
       radar = RadarD(adjacent_enabled=True, radar_available=True,
                      clock_pair_fn=lambda: (stamp + 1_000_000, BOOT + stamp - MONO + 1_000_000, 1000))
@@ -339,14 +340,24 @@ class TestConditionalRuntimeLoop(unittest.TestCase):
         current, _ = owner.sample(sm, cp, planner, now_mono_ns=stamp + 2_000_000,
                                    now_boot_ns=BOOT + stamp - MONO + 2_000_000, sample_skew_ns=1000,
                                    drive_id=MONO - 1_000_000_000, native_plan_valid=True)
+        self.assertIs(current.choice, ModeChoice.CEM)
+        if current.projected.authority is None:
+          ccm_policy.reset()  # The initial subscription barrier has no fresh authority yet.
+          ccm_decision = None
+        else:
+          ccm_decision = ccm_policy.step((stamp + 2_000_000) / 1e9, ModeChoice.CCM, ManualIntent.NONE,
+                                         current.projected.authority, current.projected.scene)
         self.assertEqual(legacy.read_bytes(), saved_modes[index % len(saved_modes)])
         if 20 <= index < 30:
           self.assertIs(current.projected.scene.adjacent_lead_ambiguous, False)
-          self.assertEqual(current.decision.reason.value, 'ccm_speed')
+          self.assertEqual(current.decision.reason.value, 'no_trigger')
+          self.assertIsNotNone(ccm_decision)
+          self.assertEqual(ccm_decision.reason.value, 'ccm_speed')
+          self.assertIs(ccm_decision.requested_experimental, False)
           self.assertIs(current.override_experimental, False)
       self.assertIs(current.projected.scene.adjacent_lead_ambiguous, True)
-      self.assertEqual(current.decision.reason.value, 'ccm_veto')
-      self.assertIs(current.override_experimental, True)  # Real adjacent radar veto exits Chill immediately.
+      self.assertEqual(ccm_decision.reason.value, 'ccm_veto')
+      self.assertIs(ccm_decision.requested_experimental, True)  # Real adjacent radar veto exits Chill immediately.
 
   def test_current_build_disabled_scenes_make_chill_launch_known(self):
     cp = CarInterface.get_non_essential_params(CAR.HONDA_CIVIC)

@@ -1,3 +1,4 @@
+import { GxCollapse } from './disclosure.js'
 import { GxState } from "./state.js"
 import { GxDialog } from "./dialog.js"
 import { GxIconButton } from "./icon-button.js"
@@ -570,7 +571,7 @@ export function connectionProgress(runtime, { wired = false, app = "", selected 
 }
 
 export const StarPortPage = {
-  components: { GxState, GxIconButton, GxNotice, BluetoothNotice, GxDialog, GalaxySettingRow, StarPortGuidedSetup },
+  components: { GxCollapse, GxState, GxIconButton, GxNotice, BluetoothNotice, GxDialog, GalaxySettingRow, StarPortGuidedSetup },
   props: {
     mode: { type: String, required: true }, localAccess: { type: Boolean, required: true },
     unauthorized: { type: Function, required: true }
@@ -930,13 +931,13 @@ export const StarPortPage = {
       <GxNotice tone="warn" v-if="!wired && !app && runtime?.dedicated_wifi_interface === false">StarPort uses the comma’s Wi-Fi to connect to your car and disconnects it from your current Wi-Fi network. Use the Galaxy hotspot for local access during projection. Remote Galaxy access requires Internet on the comma.</GxNotice>
       <GxNotice tone="danger" v-if="error && setup">{{ error }}</GxNotice>
       <GxNotice v-if="!setup" :busy="!error" :tone="error ? 'danger' : 'info'">{{ error || "Checking StarPort setup… Reconnecting automatically…" }}</GxNotice>
-        <section v-if="setup" class="gx-card gx-starport-step" :class="{ 'gx-starport-step--done': supportReady }">
-          <div class="gx-starport-step__head">
-            <span class="gx-starport-step__num" aria-hidden="true"><i v-if="supportReady" class="bi bi-check-lg"></i><template v-else>1</template></span>
+        <section v-if="setup" class="gx-card gx-step" :class="{ 'gx-step--done': supportReady }">
+          <div class="gx-step__head">
+            <span class="gx-step__num" aria-hidden="true"><i v-if="supportReady" class="bi bi-check-lg"></i><template v-else>1</template></span>
             <div><h3>StarPort Support</h3><p v-if="supportCollapsed" role="status">{{ expiry.label }}</p><p v-else>Turn on StarPort and install support. Wireless pairing also needs Bluetooth on; Galaxy will offer to enable it.</p></div>
             <button v-if="supportReady && setup.installReady" type="button" class="gx-btn gx-btn--tonal" :aria-expanded="!supportCollapsed" aria-controls="gx-starport-support" @click="supportOpen = !supportOpen">{{ supportCollapsed ? 'Manage' : 'Hide' }}</button>
           </div>
-          <div id="gx-starport-support" v-show="!supportCollapsed" class="gx-starport-step__body">
+          <GxCollapse><div id="gx-starport-support" v-show="!supportCollapsed" class="gx-step__body">
             <p v-if="!setup.installReady" class="gx-starport-pill gx-starport-pill--expired" role="status">Not available on this build — the StarPort display and encoder are missing.</p>
             <template v-else>
               <div class="gx-starport-status">
@@ -968,7 +969,7 @@ export const StarPortPage = {
                 <li><strong>Why is this needed?</strong> Car screens only talk to devices that present Google’s Android Auto certificate. Your comma reads it from your own copy of the app, on the device. No Android app is installed on the comma.</li>
               </ul>
             </details>
-          </div>
+          </div></GxCollapse>
         </section>
       <StarPortGuidedSetup v-if="setup && newSetup && guided.show" id="gx-starport-guided" :state="guided" :busy="busy" :choices-disabled="appDisabled"
         @choose-type="chooseType" @choose-adapter="chooseAdapter" @choose-app="chooseApp" @use-car="useCar" @classic="useClassic" @reset-handshake="resetHandshake" @continue-ladder="continueLadder" @dismiss-suggestion="dismissSuggestion" @done="showSteps = false">
@@ -991,13 +992,13 @@ export const StarPortPage = {
         </template>
       </StarPortGuidedSetup>
       <p v-else-if="setup && !newSetup && !setupDone" class="gx-note"><button type="button" class="gx-btn gx-btn--tonal" :disabled="busy" @click="useGuided">Try the guided setup</button></p>
-      <ol v-if="setup && !newSetup" id="gx-starport-steps" class="gx-starport__steps">
-        <li v-show="!setupDone || showSteps" class="gx-card gx-starport-step" :class="{ 'gx-starport-step--done': !!selected && !pairing?.active }">
-          <div class="gx-starport-step__head">
-            <span class="gx-starport-step__num" aria-hidden="true"><i v-if="selected && !pairing?.active" class="bi bi-check-lg"></i><template v-else>2</template></span>
+      <ol v-if="setup && !newSetup" id="gx-steps" class="gx-steps">
+        <li v-show="!setupDone || showSteps" class="gx-card gx-step" :class="{ 'gx-step--done': !!selected && !pairing?.active }">
+          <div class="gx-step__head">
+            <span class="gx-step__num" aria-hidden="true"><i v-if="selected && !pairing?.active" class="bi bi-check-lg"></i><template v-else>2</template></span>
             <div><h3>{{ carType === 'usb' ? 'Set Up Wired AA' : carType === 'app' ? 'Set Up Your App' : adapterSetup ? 'Pair Your Adapter' : 'Pair Your Car' }}</h3><p>{{ adapterSetup ? 'Put the adapter in pairing mode, then tap Find adapter. Your car doesn’t need to be paired.' : pairsHere ? 'Open your car’s phone pairing screen, then tap Find car. You can do this before step 1 is finished.' : 'No Bluetooth pairing is needed for this setup.' }}</p></div>
           </div>
-          <div class="gx-starport-step__body">
+          <div class="gx-step__body">
             <button v-if="setupDone && showSteps" class="gx-btn gx-btn--tonal" @click="showSteps = false">Hide Setup</button>
             <GalaxySettingRow :row="carTypeRow" :index="0" :busy="busy" :disabled="appDisabled" :save-value="saveCarType" />
             <GxNotice v-if="wiredUnavailable" tone="warn">Wired AA is unavailable: {{ runtime.wired_blocked }}.</GxNotice>
@@ -1030,13 +1031,13 @@ export const StarPortPage = {
         </li>
 
       </ol>
-      <section v-if="setup && setupDone && !showSteps && (!newSetup || !guided.show)" class="gx-card gx-starport-step gx-starport-home" aria-labelledby="gx-starport-home-title">
-        <div class="gx-starport-step__head">
-          <span class="gx-starport-step__num" :class="{ 'gx-starport-home__icon--live': projecting }" aria-hidden="true"><i class="bi bi-car-front"></i></span>
+      <section v-if="setup && setupDone && !showSteps && (!newSetup || !guided.show)" class="gx-card gx-step gx-starport-home" aria-labelledby="gx-starport-home-title">
+        <div class="gx-step__head">
+          <span class="gx-step__num" :class="{ 'gx-starport-home__icon--live': projecting }" aria-hidden="true"><i class="bi bi-car-front"></i></span>
           <div><h3 id="gx-starport-home-title">{{ homeTitle }}</h3>
             <p role="status">{{ runtime?.running && runtime.state !== 'streaming' ? connectionProgress.title : projecting ? 'Showing StarPilot on your car’s screen.' : wired ? wiredStatus.label : runtime?.auto_connect ? 'Connects automatically when you start driving.' : 'Ready to connect.' }}</p></div>
         </div>
-        <div class="gx-starport-step__body">
+        <div class="gx-step__body">
           <p v-if="expiry.level === 'soon'" class="gx-starport-pill gx-starport-pill--soon" role="status">{{ expiry.label }}</p>
           <template v-if="!newSetup">
             <GalaxySettingRow :row="carTypeRow" :index="0" :busy="busy" :disabled="appDisabled" :save-value="saveCarType" />
@@ -1061,7 +1062,7 @@ export const StarPortPage = {
           ${CONNECT}
           <div class="gx-actions">
             <a class="gx-btn gx-btn--tonal" href="#/theme_maker/starport"><i class="bi bi-layout-text-window" aria-hidden="true"></i> Customize Layout</a>
-            <button type="button" class="gx-btn gx-btn--tonal" :aria-expanded="showSteps" :aria-controls="newSetup ? 'gx-starport-guided' : 'gx-starport-steps'" @click="showSteps = !showSteps">
+            <button type="button" class="gx-btn gx-btn--tonal" :aria-expanded="showSteps" :aria-controls="newSetup ? 'gx-starport-guided' : 'gx-steps'" @click="showSteps = !showSteps">
               <i :class="showSteps ? 'bi bi-chevron-up' : 'bi bi-gear'" aria-hidden="true"></i> {{ showSteps ? 'Hide Setup' : newSetup ? 'Change how your car connects' : 'Setup and Pairing' }}</button>
             <button v-if="canResetHandshake" type="button" class="gx-btn gx-btn--tonal" :disabled="busy" @click="resetHandshake"
               title="Go back to the standard handshake. Your Bluetooth pairing is kept.">
@@ -1069,13 +1070,13 @@ export const StarPortPage = {
           </div>
         </div>
       </section>
-      <ol v-if="setup" class="gx-starport__steps">
-        <li v-show="!setupDone || showSteps" class="gx-card gx-starport-step">
-          <div class="gx-starport-step__head">
-            <span class="gx-starport-step__num" aria-hidden="true">3</span>
+      <ol v-if="setup" class="gx-steps">
+        <li v-show="!setupDone || showSteps" class="gx-card gx-step">
+          <div class="gx-step__head">
+            <span class="gx-step__num" aria-hidden="true">3</span>
             <div><h3>Customize Your Dashboard</h3><p>Once connected, customize your dashboard setup.</p></div>
           </div>
-          <div class="gx-starport-step__body">
+          <div class="gx-step__body">
             <a class="gx-btn gx-btn--tonal gx-starport-cta" href="#/starport/audio"><i class="bi bi-spotify" aria-hidden="true"></i> Spotify and Phone Audio</a>
             <a class="gx-btn gx-btn--tonal gx-starport-cta" href="#/theme_maker/starport">Customize Layout</a>
             <a class="gx-btn gx-btn--tonal gx-starport-cta" href="#/navigation/maps"><i class="bi bi-map" aria-hidden="true"></i> Offline Road Maps</a>
@@ -1084,12 +1085,12 @@ export const StarPortPage = {
         </li>
       </ol>
 
-      <section v-if="setup" class="gx-card gx-starport-step" aria-labelledby="gx-starport-help-title">
-        <div class="gx-starport-step__head">
-          <span class="gx-starport-step__num" aria-hidden="true"><i class="bi bi-question-circle"></i></span>
+      <section v-if="setup" class="gx-card gx-step" aria-labelledby="gx-starport-help-title">
+        <div class="gx-step__head">
+          <span class="gx-step__num" aria-hidden="true"><i class="bi bi-question-circle"></i></span>
           <div><h3 id="gx-starport-help-title">Still having trouble?</h3><p>Our wiki has detailed help for pairing, connection status, other phones, wireless adapters, and screen problems.</p></div>
         </div>
-        <div class="gx-starport-step__body">
+        <div class="gx-step__body">
           <div class="gx-driving__actions gx-actions">
             <a class="gx-btn" href="https://wiki.firestar.link/exclusive/android-auto/" target="_blank" rel="noopener noreferrer">Read the Android Auto troubleshooting guide</a>
             <a class="gx-btn gx-btn--tonal" href="#/logs/starport"><i class="bi bi-journal-text"></i> Connection Logs</a>
@@ -1140,16 +1141,16 @@ export const StarPortPage = {
                 </div>
               </div>
             </div>
-            <ol class="gx-starport-sheet__steps">
-              <li class="gx-starport-step-card" :class="{ 'gx-starport-sheet__step--muted': installState !== 'choose' }">
-                <div class="gx-starport-step-card__head">
-                  <span class="gx-starport-step__num gx-starport-step-card__num">1</span>
-                  <div class="gx-starport-step-card__title">
+            <ol class="gx-steps gx-steps--compact">
+              <li class="gx-step-card" :class="{ 'gx-starport-sheet__step--muted': installState !== 'choose' }">
+                <div class="gx-step-card__head">
+                  <span class="gx-step__num gx-step-card__num">1</span>
+                  <div class="gx-step-card__title">
                     <strong>Download Android Auto</strong>
                     <small>{{ download.direct ? 'Saves the app to this ' + (onPhone ? 'phone' : 'computer') : download.pending ? 'Looking up the newest release…' : 'Get the newest release from APKMirror' }}<template v-if="installedVersion"> · You have {{ installedVersion }}</template></small>
                   </div>
                 </div>
-                <div class="gx-starport-step-card__body">
+                <div class="gx-step-card__body">
                   <a v-if="download.direct" class="gx-btn gx-btn--tonal" :href="download.url" rel="noreferrer" download @click="markDownloadStarted">
                     <i class="bi bi-download" aria-hidden="true"></i> Download Android Auto {{ download.version }} · {{ download.megabytes }} MB
                   </a>
@@ -1169,15 +1170,15 @@ export const StarPortPage = {
                   <small v-if="download.direct" class="gx-note">From APKPure, a third-party mirror (<a class="gx-link" href="https://apkpure.com/terms.html" target="_blank" rel="noopener noreferrer">terms</a>). Don’t unzip it.</small>
                 </div>
               </li>
-              <li class="gx-starport-step-card" :class="{ 'gx-starport-sheet__step--muted': installState !== 'choose' }">
-                <div class="gx-starport-step-card__head">
-                  <span class="gx-starport-step__num gx-starport-step-card__num">2</span>
-                  <div class="gx-starport-step-card__title">
+              <li class="gx-step-card" :class="{ 'gx-starport-sheet__step--muted': installState !== 'choose' }">
+                <div class="gx-step-card__head">
+                  <span class="gx-step__num gx-step-card__num">2</span>
+                  <div class="gx-step-card__title">
                     <strong>Choose the downloaded file</strong>
                     <small>{{ downloadStarted && downloadsHint ? downloadsHint : 'The file you just downloaded' }}</small>
                   </div>
                 </div>
-                <div class="gx-starport-step-card__body">
+                <div class="gx-step-card__body">
                   <label class="gx-btn gx-btn--tonal gx-starport-file" :class="{ 'gx-starport-file--disabled': installState !== 'choose' }">
                     <input type="file" :accept="onPhone ? undefined : '.apk,.xapk,.apkm,.zip'" aria-label="Android Auto APK, XAPK, APKM, or ZIP" :disabled="installState !== 'choose'" @change="choosePackage" />
                     <i class="bi bi-folder2-open"></i> {{ packageFile ? 'Choose a Different File' : 'Choose File' }}
@@ -1191,15 +1192,15 @@ export const StarPortPage = {
                   <small v-if="packageError" class="gx-starport-bad" role="alert">{{ packageError }}</small>
                 </div>
               </li>
-              <li class="gx-starport-step-card">
-                <div class="gx-starport-step-card__head">
-                  <span class="gx-starport-step__num gx-starport-step-card__num">3</span>
-                  <div class="gx-starport-step-card__title">
+              <li class="gx-step-card">
+                <div class="gx-step-card__head">
+                  <span class="gx-step__num gx-step-card__num">3</span>
+                  <div class="gx-step-card__title">
                     <strong>Install</strong>
                     <small>Send it to your comma and check the certificate</small>
                   </div>
                 </div>
-                <div class="gx-starport-step-card__body">
+                <div class="gx-step-card__body">
                   <button v-if="installState === 'choose'" class="gx-btn gx-starport-cta" :disabled="!!uploadReason" @click="upload">
                     {{ setup.enabled ? 'Install' : 'Turn On and Install' }}
                   </button>

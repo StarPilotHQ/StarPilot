@@ -49,9 +49,9 @@ def test_stale_previous_drive_and_disabled_nav_are_inert(sm, field, value):
   assert current_instruction(sm, NOW) is None
 
 
-def test_original_turn_ceiling_and_override(sm):
+def test_turn_ceiling_and_override(sm):
   cp = NS(openpilotLongitudinalControl=True, passive=False, dashcamOnly=False, minSteerSpeed=0.)
-  expected = ((14 * CV.MPH_TO_MS) ** 2 + 2 * .45 * (30 - 8)) ** .5
+  expected = ((14 * CV.MPH_TO_MS) ** 2 + 2 * .5 * (30 - 8)) ** .5
   assert cruise_ceiling(sm, cp, NOW, 20.) == pytest.approx(expected)
   sm['carState'].gasPressed = True
   assert cruise_ceiling(sm, cp, NOW, 20.) is None
@@ -158,3 +158,27 @@ def test_approaching_turn_does_not_start_or_replace_lane_change(sm):
   helper.update(cs, True, 1., navigation_turn=turn)
   assert helper.lane_change_state == log.LaneChangeState.laneChangeStarting
   assert helper.desire == log.Desire.laneChangeRight
+
+
+@pytest.mark.parametrize('modifier', ['left', 'right'])
+@pytest.mark.parametrize('cruise', [10., 15., 20., 25.])
+def test_ordinary_turn_onset_is_ten_percent_shorter_with_same_final_target(modifier, cruise):
+  target = 14 * CV.MPH_TO_MS
+  old_onset = 8 + (cruise ** 2 - target ** 2) / (2 * .45)
+  new_onset = 8 + (cruise ** 2 - target ** 2) / (2 * .5)
+  maneuver = NS(maneuverType='turn', maneuverModifier=modifier, distanceMeters=old_onset)
+  assert turn_speed(maneuver, 0.) > cruise
+  maneuver.distanceMeters = new_onset
+  assert turn_speed(maneuver, 0.) == pytest.approx(cruise)
+  assert new_onset - 8 == pytest.approx(.9 * (old_onset - 8))
+  maneuver.distanceMeters = 8.
+  assert turn_speed(maneuver, 0.) == pytest.approx(target)
+  maneuver.distanceMeters = 0.
+  assert turn_speed(maneuver, 0.) == pytest.approx(target)
+
+
+@pytest.mark.parametrize('kind,modifier,mph', [('turn', 'sharpLeft', 10.), ('turn', 'sharpRight', 10.),
+                                             ('turn', 'uturn', 5.), ('roundabout', 'right', 12.)])
+def test_tight_turn_approaches_keep_the_original_margin(kind, modifier, mph):
+  maneuver = NS(maneuverType=kind, maneuverModifier=modifier, distanceMeters=100.)
+  assert turn_speed(maneuver, 0.) == pytest.approx(((mph * CV.MPH_TO_MS) ** 2 + .9 * 92.) ** .5)

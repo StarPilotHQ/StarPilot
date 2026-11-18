@@ -247,13 +247,25 @@ def ordinary_source_availability(self, CS, now_ns, native=None, *, replay: bool,
     ford_gas = bool(ford_native is not None and (native is None or native == ford_native))
     if ford_gas:
       native = ford_native
+  toyota_gas = False
+  if (self.CP.brand == 'toyota' and proof[8] and not proof[9] and accepted_state.gasPressed and CS.gasPressed and
+      not getattr(self, 'aol_dm_lateral_inhibit', False) and
+      accepted.allowedLatch and accepted.lateralArmed and accepted.settingsQualified and
+      not accepted.pauseLateral and not accepted.pauseLongitudinal and
+      prior_native is not None and prior_native.requestedLateral and prior_native.lateralAllowed and
+      prior_native.requestedLongitudinal and not prior_native.longitudinalAllowed):
+    from openpilot.starpilot.car.toyota.aol import healthy_gas_transport_native
+    gas_native = healthy_gas_transport_native(self.sm, self.CP, CS, self.aol_session_id, now_ns)
+    toyota_gas = bool(gas_native is not None and (native is None or native == gas_native))
+    if toyota_gas:
+      native = gas_native
   samples = getattr(self, 'car_state_samples', ()) or ((CS,
     bool(getattr(self, 'car_state_retained_valid', False) or held_metadata)),)
   if any(not valid or not sample.canValid or sample.canTimeout or sample.steerFaultPermanent or
          sample.steerFaultTemporary or sample.accFaulted or sample.doorOpen or sample.seatbeltUnlatched or
          (sample.brakePressed or sample.regenBraking) and not held_pedal or
-         sample.gasPressed and not (toyota_pedal or stock_gas or ford_gas) or
-         (stock_gas or ford_gas) and sample.gasPressed != accepted_state.gasPressed or physical_cancel(sample, self.CP) or
+         sample.gasPressed and not (toyota_pedal or stock_gas or ford_gas or toyota_gas) or
+         (stock_gas or ford_gas or toyota_gas) and sample.gasPressed != accepted_state.gasPressed or physical_cancel(sample, self.CP) or
          sample.gearShifter not in (car.CarState.GearShifter.drive, car.CarState.GearShifter.sport,
                                    car.CarState.GearShifter.low, car.CarState.GearShifter.brake)
          for sample, valid in samples):
@@ -301,7 +313,7 @@ def ordinary_source_availability(self, CS, now_ns, native=None, *, replay: bool,
       lateral_intent_only and not (accepted.allowedLatch and accepted.lateralArmed and
         not accepted.pauseLateral and not getattr(self, 'aol_dm_lateral_inhibit', False) and
         (native.requestedLateral and native.lateralAllowed or withdrawn_source)) or
-      not ford_gas and not healthy_transport(self.sm, self.CP, CS, self.aol_session_id, now_ns, native) or
+      not (ford_gas or toyota_gas) and not healthy_transport(self.sm, self.CP, CS, self.aol_session_id, now_ns, native) or
       native.observedMonoTime < prior_native.observedMonoTime or
       native.pandaSerial != prior_native.pandaSerial or
       tuple(p.hardwareSerial for p in native.pandaInventory) != tuple(p.hardwareSerial for p in prior_native.pandaInventory)):

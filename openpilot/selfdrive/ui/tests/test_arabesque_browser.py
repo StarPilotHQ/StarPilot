@@ -99,6 +99,18 @@ def test_transient_launcher_has_no_host_data_or_display_privileges():
   assert not any('NO_SANDBOX' in part or 'disable-sandbox' in part for part in command)
 
 
+def test_agnos_background_memory_cap_is_lifted_only_when_present(tmp_path, monkeypatch):
+  dropin = tmp_path / 'background.conf'
+  monkeypatch.setattr(runtime, 'BACKGROUND_LIMIT', dropin)
+  for build in (lambda: runtime.launch_command('u', 'test', 1440, 650, 20, 'shm'), lambda: runtime.preparation_command('u', 'test')):
+    assert not any(part.startswith(('--property=Slice=', '--property=ExecStartPost=')) for part in build())
+  dropin.write_text('[Service]\nMemoryMax=128M\n')
+  for build in (lambda: runtime.launch_command('u', 'test', 1440, 650, 20, 'shm'), lambda: runtime.preparation_command('u', 'test')):
+    command = build()
+    assert '--property=Slice=app.slice' in command and '--property=MemoryMax=1G' in command
+    assert '--property=ExecStartPost=+/usr/bin/systemctl set-property --runtime u.service MemoryMax=1G' in command
+
+
 def test_first_use_preparer_is_temporary_supervised_and_resource_limited():
   command = runtime.preparation_command('arabesque-firefox-test', 'test')
   assert '--collect' in command

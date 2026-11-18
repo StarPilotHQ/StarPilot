@@ -79,9 +79,13 @@ class CarControllerCMA(CarControllerBase):
 
     # A current command cannot authorize steering against actual gear/source
     # state. B is decoded as drive by this family; no guessed transmission mode.
+    if self.lca_2_modulus == 15 and not CC.latActive and CS.pscm_status_supported:
+      CS.pscm_rearm_required = False
+    pscm_ready = (self.lca_2_modulus != 15 or
+                  (CS.pscm_status_supported and not CS.pscm_rearm_required))
     lat_active = bool(CC.latActive and CS.out.canValid and not CS.out.canTimeout and
                       CS.out.gearShifter == structs.CarState.GearShifter.drive and
-                      not CS.out.steerFaultTemporary and not CS.out.steerFaultPermanent)
+                      not CS.out.steerFaultTemporary and not CS.out.steerFaultPermanent and pscm_ready)
     self.lat_active = lat_active
     if not lat_active:
       self.lca_5_primed = False

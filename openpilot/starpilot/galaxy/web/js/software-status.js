@@ -10,8 +10,10 @@ import { RouteCleanup } from "./route-cleanup.js"
 const ACTIONS = new Set(["check", "download", "select", "install", "preferences", "install-preferences", "update", "fast", "rollback", "versions", "version", "download-version"])
 const REQUEST_STATES = new Set(["pending", "complete", "failed"])
 const UPDATER_ACTIVE = new Set(["checking...", "downloading...", "finalizing update...", "updating..."])
-const PRIMARY_BRANCH_LABELS = { StarPilot: "Stable — StarPilot", Dom: "Development — Dom" }
+const PRIMARY_BRANCH_LABELS = { stable: "Stable", testing: "Testing", StarPilot: "Stable — StarPilot (legacy name)", Dom: "Testing — Dom (legacy name)" }
 const PRIMARY_BRANCH_HELP = {
+  stable: "Stable releases. Recommended for most users.",
+  testing: "Latest features and fixes for testing. May introduce bugs.",
   StarPilot: "Stable releases. Recommended for most users.",
   Dom: "Latest features and fixes under development. Updates regularly and may introduce bugs.",
 }
@@ -459,7 +461,11 @@ export const SoftwarePage = {
       return [...new Set([this.operations?.selectedTarget, this.data?.installed.branch, this.previousVersion?.branch, ...available].filter(branch => branch && branch !== "other:"))]
         .map(name => ({ name, available: available.includes(name) || name === this.data?.installed.branch }))
     },
-    otherBranches() { return this.branchOptions.filter(branch => !['StarPilot', 'Dom'].includes(branch.name)) },
+    primaryBranches() {
+      const available = name => this.branchOptions.some(branch => branch.name === name && branch.available)
+      return [['stable', 'StarPilot'], ['testing', 'Dom']].map(([name, legacy]) => available(name) ? name : available(legacy) ? legacy : name)
+    },
+    otherBranches() { return this.branchOptions.filter(branch => !this.primaryBranches.includes(branch.name)) },
     hasInstalledVersion() {
       const recent = this.operations?.history?.recent
       return this.draftBranch === this.data?.installed.branch ||
@@ -571,19 +577,19 @@ export const SoftwarePage = {
     },
     syncDraftBranch(branch) {
       this.draftBranch = branch || this.data?.installed.branch || ""
-      this.primaryChoice = ['StarPilot', 'Dom'].includes(this.draftBranch) ? this.draftBranch : this.draftBranch ? 'other:' : ''
+      this.primaryChoice = this.primaryBranches.includes(this.draftBranch) ? this.draftBranch : this.draftBranch ? 'other:' : ''
     },
     onPrimaryBranchChange() {
       this.draftTouched = true
       if (this.primaryChoice === 'other:') {
-        if (['StarPilot', 'Dom'].includes(this.draftBranch)) this.draftBranch = ''
+        if (this.primaryBranches.includes(this.draftBranch)) this.draftBranch = ''
         return
       }
       this.draftBranch = this.primaryChoice
       return this.changeBranch()
     },
     async changeBranch() {
-      this.primaryChoice = ['StarPilot', 'Dom'].includes(this.draftBranch) ? this.draftBranch : 'other:'
+      this.primaryChoice = this.primaryBranches.includes(this.draftBranch) ? this.draftBranch : 'other:'
       this.draftTouched = true
       this.version = ""
       this.newerVersionLimit = 2; this.olderVersionLimit = 1; this.collapsedOlderLimit = 0
@@ -726,8 +732,7 @@ export const SoftwarePage = {
             <DriveStatePanel offroad-only :lockout="operations?.parked === false" />
             <label class="gx-field-group"><span class="gx-row__label">Branch</span>
               <GalaxySelect show-description v-model="primaryChoice" class="gx-field gx-field--full" aria-label="Version branch" :disabled="metadataActionDisabled || !operations.canCheck" @change="onPrimaryBranchChange">
-                <option value="StarPilot" :data-description="primaryBranchHelpFor('StarPilot')">Stable — StarPilot</option>
-                <option value="Dom" :data-description="primaryBranchHelpFor('Dom')">Development — Dom</option>
+                <option v-for="branch in primaryBranches" :key="branch" :value="branch" :data-description="primaryBranchHelpFor(branch)" :disabled="!branchOptions.some(option => option.name === branch && option.available)">{{ branchLabel(branch) }}</option>
                 <option value="other:">Other branches…</option>
               </GalaxySelect>
             </label>

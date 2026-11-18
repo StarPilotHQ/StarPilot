@@ -154,8 +154,10 @@ class FeatureSettingsOwner:
                configuration_longitudinal: Callable[[], bool] = lambda: False,
                configuration_vehicle: Callable[[], bool] = lambda: False,
                galaxy: Callable[[], bool] = lambda: False,
-               maps_available: Callable[[], bool] | None = None):
+               maps_available: Callable[[], bool] | None = None,
+               learning_messages: Callable[[], object | None] = lambda: None):
     self.params = params
+    self.learning_messages = learning_messages
     self._galaxy = galaxy
     self._snapshot_reads: ContextVar[dict[tuple[str, int], tuple[bytes | None, bool]] | None] = ContextVar(
       "feature_snapshot_reads", default=None)
@@ -812,9 +814,9 @@ class FeatureSettingsOwner:
     return result.committed and result.verified
 
   def _highway_smoothing_capability(self) -> tuple | None:
-    from openpilot.starpilot.lateral.controller_selection import turn_assist_supported
+    from openpilot.starpilot.feature_capabilities import lateral_supported
     cp = self.vehicle_params()
-    if cp is None or not turn_assist_supported(cp):
+    if cp is None or not lateral_supported(cp):
       return None
     return (cp.carFingerprint, cp.lateralTuning.which(), str(cp.steerControlType), cp.passive, cp.dashcamOnly, cp.notCar,
             tuple((str(config.safetyModel), int(config.safetyParam)) for config in cp.safetyConfigs))
@@ -885,14 +887,16 @@ class FeatureSettingsOwner:
         rows.append(self._bool_row(AGGRESSIVE_COOLING_KEY, "Aggressive Cooling", self.authority("preferences"),
                                    AGGRESSIVE_COOLING_DESCRIPTION))
     elif page == FeaturePage.HUB:
-      rows = [FeatureRow("", "Curve Speed Controller", "Adjust how speed is reduced for curves ahead", page=FeaturePage.CURVE, available=True),
-              FeatureRow("", "Speed Limit Controller", "Choose speed-limit sources, offsets, and confirmation behavior", page=FeaturePage.SLC, available=True),
-              FeatureRow("", "Lane Centering", "Adjust lane positioning, lane detection, and steering alerts", page=FeaturePage.LANE, available=True),
+      rows = [FeatureRow("", "Always On Lateral", "Keep steering assistance active independently of cruise control", page=FeaturePage.AOL, available=True),
               FeatureRow("", "Lane Changes", "Configure lane-change speed, automatic timing, and driver nudges", page=FeaturePage.LANE_CHANGE, available=True),
+              FeatureRow("", "Lane Centering", "Adjust lane positioning, lane detection, and steering alerts", page=FeaturePage.LANE, available=True),
+              FeatureRow("", "Steering and Torque", "Select the steering controller and tune its response", page=FeaturePage.TORQUE, available=True),
+              FeatureRow('', 'Developer Parameters', 'Advanced steering parameters and total actuator delay',
+                         page=FeaturePage.DEVELOPER_LATERAL, available=True),
+              FeatureRow("", "Curve Speed Controller", "Adjust how speed is reduced for curves ahead", page=FeaturePage.CURVE, available=True),
+              FeatureRow("", "Speed Limit Controller", "Choose speed-limit sources, offsets, and confirmation behavior", page=FeaturePage.SLC, available=True),
               FeatureRow("", "Long Planner", "Tune acceleration, braking, and following distances", page=FeaturePage.PROFILES, available=True),
               FeatureRow("", "Driving Modes", "Choose Automatic, Chill or Experimental", page=FeaturePage.CONDITIONAL, available=True),
-              FeatureRow("", "Steering and Torque", "Select the steering controller and tune its response", page=FeaturePage.TORQUE, available=True),
-              FeatureRow("", "Always On Lateral", "Keep steering assistance active independently of cruise control", page=FeaturePage.AOL, available=True),
               FeatureRow("", "Wheel Controls", "Assign steering-wheel buttons and cruise behavior", page=FeaturePage.WHEEL, available=True)]
       if (self._long_pitch_capability() is not None or self._bolt_disable_capability() is not None or
           self._auto_hold_capability() is not None or self._toyota_sng_capability() is not None or self._jeep_hold_capability() is not None or
@@ -1107,13 +1111,25 @@ class FeatureSettingsOwner:
       setup_row = self.controller.setup_row()
       if setup_row is not None:
         rows.append(setup_row)
-      capability = self._capability("torque")
-      allowed = configurable and self.authority("torque") and capability is not None
-      _, numeric_rows = self.torque.rows(capability, allowed, repair_allowed=parked and allowed)
       learning_row = self.controller.learning_row()
       if learning_row is not None:
         rows.append(learning_row)
-      rows.extend(numeric_rows)
+    elif page == FeaturePage.DEVELOPER_LATERAL:
+      title = 'Developer Parameters'
+      capability = self._capability("torque")
+      allowed = configurable and self.authority("torque") and capability is not None
+      _, numeric_rows = self.torque.rows(capability, allowed, repair_allowed=parked and allowed)
+      from openpilot.starpilot.ui.delay_feature import DelayFeature
+      delay_row = DelayFeature(self).row()
+      if delay_row is not None:
+        numeric_rows = tuple(row for row in numeric_rows if not row.key.startswith(('torque:full_delay:', 'torque:automatic_delay:')))
+        end = max((i for i, row in enumerate(numeric_rows) if row.key.startswith(('torque:factor:', 'torque:friction:'))), default=-1) + 1
+        numeric_rows = numeric_rows[:end] + (delay_row,) + numeric_rows[end:]
+      from openpilot.starpilot.ui.learned_steering import learned_references
+      references = learned_references(self)
+      fields = {'steering_delay', 'torque:factor:value', 'torque:friction:value', 'torque:ratio:value'}
+      rows.extend(replace(row, learned_value=references.get(row.key, 'Learned · —')) if row.key in fields else row
+                  for row in numeric_rows)
     elif page == FeaturePage.AOL:
       title = "Always On Lateral"
       rows.extend(self._lateral_pause_rows(configurable))
@@ -1534,6 +1550,9 @@ class FeatureSettingsOwner:
       return self.traffic_profiles.apply(request)
     if key in TORQUE_CONFIRM_ACTIONS or key.startswith("torque:"):
       return self.torque.apply(request)
+    if key in ('steering_delay', 'steering_delay_reset'):
+      from openpilot.starpilot.ui.delay_feature import DelayFeature
+      return DelayFeature(self).apply(request)
     if key in SLC_CONFIRM_ACTIONS or key in SLC_OFFSET_KEYS:
       return self.slc_offsets.apply(request)
     if is_long_confirm_action(key):

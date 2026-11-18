@@ -301,7 +301,10 @@ class TestVendoredUpdate(unittest.TestCase):
     with self.assertRaises(ValueError):
       self.updated.validate_update_revision(str(self.source), target, 'StarPilot')
     audited = load_updater().TRUSTED_LEGACY_RELEASES
-    self.assertEqual(audited, {'StarPilot': frozenset({'c2e5e469ee8fefc3cffb514dc2e1a1fb82a421d6'})})
+    self.assertEqual(audited, {
+      'StarPilot': frozenset({'c2e5e469ee8fefc3cffb514dc2e1a1fb82a421d6', '7ab42497b4590153c88560c7e2c2f3ff8317c6d4'}),
+      'stable': frozenset({'7ab42497b4590153c88560c7e2c2f3ff8317c6d4'}),
+    })
 
   def test_reserved_readiness_marker_rejected_in_modern_and_legacy_trees(self):
     for kind in ('modern-file', 'modern-symlink', 'legacy-file', 'legacy-symlink'):

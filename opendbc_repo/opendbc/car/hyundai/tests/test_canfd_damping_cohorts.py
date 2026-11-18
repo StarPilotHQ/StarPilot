@@ -34,7 +34,7 @@ def frames(ci, now):
 
 @pytest.mark.parametrize('car', (CAR.KIA_EV6, CAR.KIA_NIRO_EV_2ND_GEN))
 @pytest.mark.parametrize('alpha', (False, True))
-def test_hda1_actual_factory_direct_lfa_damping_unchanged(car, alpha):
+def test_hda1_actual_factory_preserves_fresh_damping_and_stale_fallback(car, alpha):
   with ExitStack() as stack:
     cp = params(car, alpha=alpha)
     if alpha and not cp.openpilotLongitudinalControl:
@@ -55,7 +55,11 @@ def test_hda1_actual_factory_direct_lfa_damping_unchanged(car, alpha):
       ci.update([(now, [packet])])
     steering = next(frame for frame in frames(ci, now) if frame[0] == 0x12A)
     assert steering[2] == bus.ECAN
-    assert steering[1][13] == 100
+    assert steering[1][13] == 3
+    stale = []
+    for tick in (1, 2):
+      stale.extend(frame for frame in frames(ci, now + canfd_lfa_status.MAX_AGE_NS + tick * 10_000_000) if frame[0] == 0x12A)
+    assert stale and all(frame[1][13] == 100 for frame in stale)
 
 
 @pytest.mark.parametrize('car', EXPLICIT)

@@ -317,3 +317,43 @@ console.log('Projection layers survive editor translation and save payload')
   assert.equal(grown.size, "big")
   assert.match(OnroadLayoutPage.template, /setWidgetSize\(size\)/)
 }
+
+// StarPort-only sizes reuse the map's handles and numeric controls without stretching cameras or text.
+const { clampBox } = await import('../web/js/onroad-layout-document.js')
+const scaled = editorSnapshot(raw)
+for (const [id, kind, width, height] of [['pip_left', 'pip_camera', 300, 300], ['pip_right', 'pip_camera', 300, 300], ['nav_card', 'nav_card', 600, 240]]) {
+  scaled.metadata.profiles.large.widgets[id] = { label: id, kind, width, height, colors: {},
+    aspectRatio: width / height, box: {minWidth: width / 2, minHeight: height / 2, maxWidth: width * 2, maxHeight: height * 2},
+    default: {x: 30, y: 30, enabled: true, width, height} }
+  scaled.document.layouts.large[id] = copy(scaled.metadata.profiles.large.widgets[id].default)
+  scaled.defaults.layouts.large[id] = copy(scaled.metadata.profiles.large.widgets[id].default)
+}
+scaled.metadata.profiles.large.widgetOrder = [...scaled.metadata.profiles.large.widgetOrder.filter(id => id !== "car_exit"), "pip_left", "pip_right", "nav_card", "car_exit"]
+assert.equal(validSnapshot(scaled), true)
+for (const id of ['pip_left', 'pip_right', 'nav_card']) {
+  const profile = scaled.metadata.profiles.large, at = scaled.document.layouts.large[id], widget = profile.widgets[id]
+  for (const factor of [.1, .5, 1.5, 10]) {
+    const sized = clampBox(profile, id, at, at.width * factor, at.height * factor)
+    assert.ok(Math.abs(sized.width / widget.aspectRatio - sized.height) <= 1)
+    assert.ok(sized.width >= widget.box.minWidth && sized.width <= widget.box.maxWidth)
+    assert.ok(sized.height >= widget.box.minHeight && sized.height <= widget.box.maxHeight)
+  }
+  const sized = clampBox(profile, id, at, at.width, at.height * 1.5)
+  assert.equal(sized.width, at.width * 1.5, 'height input changes both axes')
+  Object.assign(at, sized)
+  assert.equal(validDocument(scaled.document, scaled.metadata), true)
+  assert.deepEqual(projectionPayload({document: scaled.document, revision: 'resize'}, scaled.metadata).document.widgets[id], at)
+}
+const distorted = copy(scaled.document)
+distorted.layouts.large.pip_left.height += 40
+assert.equal(validDocument(distorted, scaled.metadata), false)
+console.log('StarPort PiP/nav sizes: limits, aspect, numeric controls, validation and save payload passed')
+const history = []
+const resizeVm = {editable: true, limitProfile: scaled.metadata.profiles.large,
+  state: {draft: copy(scaled.document), drag: null}, recordChange: before => history.push(before)}
+Object.defineProperty(resizeVm, 'layout', {get: () => resizeVm.state.draft.layouts.large})
+assert.equal(OnroadLayoutPage.methods.resizeBox.call(resizeVm, 'pip_left', 320, 320), true)
+assert.equal(history.length, 1)
+assert.deepEqual(widgetSize(resizeVm.limitProfile.widgets.pip_left, resizeVm.layout.pip_left), [320, 320])
+resizeVm.state.draft = history.pop()
+assert.deepEqual(resizeVm.layout.pip_left, scaled.document.layouts.large.pip_left, 'undo restores the entire previous size')

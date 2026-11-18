@@ -51,7 +51,9 @@ def test_native_sources_limits_and_angle_denial(candidate, stock, experience):
   assert tx('STEERING_LKA', {'STEER_REQUEST': 1, 'STEER_TORQUE_CMD': 3})
   assert tx('ACC_CONTROL', {'ACCEL_CMD': .1}) == (not stock)
   assert tx('ACC_CONTROL', {'ACCEL_CMD': 0, 'CANCEL_REQ': 1})
-  for accel in (-3.501, 2.001):
+  for accel in (-3.5, 2.001, 3.5):
+    assert tx('ACC_CONTROL', {'ACCEL_CMD': accel}) == (not stock)
+  for accel in (-3.501, 3.501):
     assert not tx('ACC_CONTROL', {'ACCEL_CMD': accel})
   for values in ({'STEER_REQUEST': 1}, {'STEER_REQUEST_2': 1}, {'STEER_ANGLE_CMD': .1}, {'STEER_ANGLE_CMD': -.1}, {'TORQUE_WIND_DOWN': 100}):
     assert not tx('STEERING_LTA', values, lta_packer), values

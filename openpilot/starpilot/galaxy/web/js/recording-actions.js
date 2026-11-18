@@ -1,9 +1,10 @@
+import { GxCollapse } from './disclosure.js'
 import { GxDialog } from "./dialog.js"
 import { GxNotice } from "./notice.js"
 import { requestJson } from "./startup.js"
 
 export const RecordingActions = {
-  components: { GxDialog, GxNotice },
+  components: { GxCollapse, GxDialog, GxNotice },
   props: { recording: { type: Object, required: true }, all: Boolean, compact: Boolean, collapsed: Boolean,
     unauthorized: { type: Function, required: true } },
   emits: ["changed"],
@@ -38,8 +39,10 @@ export const RecordingActions = {
         <button class="gx-icon-btn" :aria-label="recording.preserved ? 'Unpreserve drive' : 'Preserve drive'" :title="recording.preserved ? 'Unpreserve' : 'Preserve'" @click="save('preserve')"><i class="bi" :class="recording.preserved ? 'bi-heart-fill' : 'bi-heart'"></i></button>
         <slot></slot>
         <button v-if="!compact && collapsed" class="gx-icon-btn" aria-label="More route actions" title="More route actions" :aria-expanded="managementOpen" @click="managementOpen=!managementOpen" @keydown.esc="managementOpen=false"><i class="bi bi-three-dots" aria-hidden="true"></i></button>
-        <button v-if="!compact && (!collapsed || managementOpen)" class="gx-icon-btn" aria-label="Rename drive" title="Rename" @click="edit('rename')"><i class="bi bi-pencil"></i></button>
-        <button v-if="!compact && (!collapsed || managementOpen)" class="gx-icon-btn gx-recordings__danger" aria-label="Delete drive" title="Delete" @click="edit('delete')"><i class="bi bi-trash"></i></button>
+        <GxCollapse><div v-if="!compact && (!collapsed || managementOpen)" class="gx-actions">
+        <button class="gx-icon-btn" aria-label="Rename drive" title="Rename" @click="edit('rename')"><i class="bi bi-pencil"></i></button>
+        <button class="gx-icon-btn gx-recordings__danger" aria-label="Delete drive" title="Delete" @click="edit('delete')"><i class="bi bi-trash"></i></button>
+        </div></GxCollapse>
       </template>
       <template v-else>
         <button class="gx-btn gx-btn--tonal" @click="includePreserved=false; edit('delete')">Delete non-preserved</button>

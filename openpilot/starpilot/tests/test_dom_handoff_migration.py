@@ -50,7 +50,7 @@ class TestDomHandoff(unittest.TestCase):
     original = migration._read_namespace(self.namespace)
     self.mark_dom()
     self.start()
-    self.assertEqual(migration._read_namespace(self.namespace), {'DongleId': b'identity'})
+    self.assertEqual(migration._read_namespace(self.namespace), {'IsMetric': b'1', 'DongleId': b'identity'})
     self.assertIn(original, [migration.load_snapshot(path) for path in (self.storage / 'snapshots').iterdir()])
     self.assertEqual(json.loads(self.profile.read_bytes())['consumed_dom_token'], 'a' * 32)
     self.assertTrue(self.handoff.exists())
@@ -77,10 +77,11 @@ class TestDomHandoff(unittest.TestCase):
   def test_new_dom_token_resets_again(self):
     self.mark_dom()
     self.start()
-    self.write(IsMetric=b'1')
+    self.write(IsMetric=b'1', CalibrationParams=b'rebase calibration')
     self.mark_dom('b' * 32)
     self.start()
-    self.assertFalse((self.namespace / 'IsMetric').exists())
+    self.assertEqual((self.namespace / 'IsMetric').read_bytes(), b'1')
+    self.assertFalse((self.namespace / 'CalibrationParams').exists())
     self.assertEqual(json.loads(self.profile.read_bytes())['consumed_dom_token'], 'b' * 32)
 
   def test_malformed_wrong_target_and_bad_permissions_never_reset(self):
@@ -107,7 +108,7 @@ class TestDomHandoff(unittest.TestCase):
     self.assertEqual(self.profile.read_bytes(), before)
     self.assertEqual((self.namespace / 'IsMetric').read_bytes(), b'1')
     self.start()
-    self.assertFalse((self.namespace / 'IsMetric').exists())
+    self.assertEqual((self.namespace / 'IsMetric').read_bytes(), b'1')
 
   def test_partial_reset_failure_retries_same_token(self):
     self.write(IsMetric=b'1', CalibrationParams=b'old', DomSetting=b'old')
@@ -116,7 +117,7 @@ class TestDomHandoff(unittest.TestCase):
     self.mark_dom()
     unlink = Path.unlink
     def fail(path, *args, **kwargs):
-      if path == self.namespace.resolve() / 'IsMetric':
+      if path == self.namespace.resolve() / 'DomSetting':
         raise OSError('reset failed')
       return unlink(path, *args, **kwargs)
     with patch.object(Path, 'unlink', fail):
@@ -125,7 +126,7 @@ class TestDomHandoff(unittest.TestCase):
     self.assertEqual(self.profile.read_bytes(), before)
     self.assertIn(original, [migration.load_snapshot(path) for path in (self.storage / 'snapshots').iterdir()])
     self.start()
-    self.assertEqual(migration._read_namespace(self.namespace), {})
+    self.assertEqual(migration._read_namespace(self.namespace), {'IsMetric': b'1'})
 
   def test_strict_and_dry_run_do_not_consume(self):
     self.mark_dom()

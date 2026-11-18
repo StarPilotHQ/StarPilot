@@ -104,6 +104,7 @@ export const FlmPage = {
     connectionLabel() {
       if (this.loading && !this.report) return 'Connecting…'
       if (!this.choiceLive && !this.live) return this.state.key === 'offline' ? 'Connection interrupted' : 'Waiting for device'
+      if (this.preference?.controller !== undefined && this.preference.controller !== 'torque') return 'Connected'
       return this.preference?.valid ? 'Connected · Auto Learn ' + (this.preference.enabled ? 'on' : 'off') : 'Connected'
     },
 
@@ -111,6 +112,7 @@ export const FlmPage = {
     current() { return this.report?.current },
     preference() { return validLearningPreference(this.report?.preference) ? this.report.preference : null },
     choiceLive() { return !this.error && !!this.preference && Math.max(0, this.now - this.receivedAt) <= 2000 },
+    nonTorqueController() { return this.choiceLive && ['pid', 'angle', 'curvature'].includes(this.preference?.controller) },
     reportFresh() { return !this.error && !!this.current?.fresh && this.current.ageSeconds + Math.max(0, this.now - this.receivedAt) / 1000 <= 2 },
     live() { return this.reportFresh &&
       !(this.choiceLive && (this.preference.enabled === false || this.preference.parked === true)) },
@@ -314,6 +316,7 @@ export const FlmPage = {
     <header class="gx-page-header gx-settings__header gx-tuner__heading"><div><h2>Your steering</h2><p>{{ vehicle }}</p></div></header>
     <GxState v-if="mode !== 'local'">Connect to your device to see its steering tune.</GxState>
     <template v-else>
+      <p v-if="nonTorqueController" class="gx-tuner__caption" data-autotune-scope="torque-only">Autotune is available for torque steering only. Live plots remain available.</p>
       <GxNotice v-if="error && view !== 'plots'" tone="danger">{{ error }}</GxNotice>
       <div v-if="view !== 'plots'" class="gx-tuner__connection" role="status"><span class="gx-tuner__status-dot" :data-tone="connectionTone" aria-hidden="true"></span><span>{{ connectionLabel }}</span><span class="gx-tuner__connection-state">{{ currentApplied ? 'Learned tune in use' : preference?.parked ? 'Parked' : live ? 'Driving · use not confirmed' : 'State not confirmed' }}</span></div>
       <GxDialog v-if="manualResetRequested && manualState.pending" labelledby="manual-tune-confirm-title" @close="cancelManualReset"><h3 id="manual-tune-confirm-title">Reset manual tune?</h3><p>{{ manualState.pending.question }}</p><div class="gx-dialog__actions"><button type="button" class="gx-btn gx-btn--tonal" @click="cancelManualReset">Cancel</button><button type="button" class="gx-btn" @click="confirmManualReset">Reset</button></div></GxDialog>
@@ -322,7 +325,7 @@ export const FlmPage = {
       </nav>
       <section v-if="view === 'overview'" id="tuner-panel-overview" role="tabpanel" aria-labelledby="tuner-tab-overview" class="gx-tuner__panel">
         <section class="gx-card gx-tuner__drive" :data-tone="review.tone" aria-label="Drive review">
-          <div class="gx-tuner__drive-mark" aria-hidden="true"><i class="bi" :class="review.tone === 'saved' ? 'bi-check2-circle' : review.count ? 'bi-lightbulb' : 'bi-steering-wheel'"></i></div>
+          <div class="gx-tuner__drive-mark" aria-hidden="true"><i class="bi" :class="review.tone === 'saved' ? 'bi-check2-circle' : review.count ? 'bi-lightbulb' : 'bi-speedometer2'"></i></div>
           <div class="gx-tuner__drive-copy"><p class="gx-tuner__eyebrow">COMPLETED DRIVE REVIEW</p><h3>{{ review.title }}</h3><p>{{ review.description }}</p><p class="gx-tuner__summary"><template v-if="current?.status === 'unavailable'">Latest review incomplete · </template><template v-else><template v-if="offroad?.evidenceDrives > 1">{{ offroad.evidenceDrives }} drives in your steering history · </template>{{ review.count }} {{ review.count === 1 ? 'finding' : 'findings' }} · </template><template v-if="offroad">{{ savedSummary }}</template><template v-else-if="trackingValues">{{ amount(acceptedCount) }} accepted · saving not confirmed</template><template v-else>Saved tune not reported</template></p><p v-if="offroad?.earlierDrive" class="gx-tuner__caption" data-role="retained-drive-findings">These suggestions come from an earlier drive. Newer driving is reviewed separately.</p></div>
           <div class="gx-tuner__drive-actions"><button v-if="review.saved.length" type="button" class="gx-btn gx-btn--tonal" @click="selectView('tune')">{{ review.historical ? 'View earlier saved values' : 'View saved change' }}<i class="bi bi-arrow-right" aria-hidden="true"></i></button><button v-if="review.count" type="button" class="gx-btn gx-btn--tonal gx-tuner__review-button" data-action="view-findings" @click="selectView('tune')">{{ review.saved.length ? 'View other findings' : 'View ' + review.count + (review.count === 1 ? ' finding' : ' findings') }}<i class="bi bi-arrow-right" aria-hidden="true"></i></button></div>
         </section>

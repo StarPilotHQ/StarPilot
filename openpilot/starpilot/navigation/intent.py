@@ -64,7 +64,8 @@ def turn_speed(maneuver, min_steer_speed: float) -> float | None:
   if target is None or not math.isfinite(maneuver.distanceMeters) or maneuver.distanceMeters < 0:
     return None
   target = max(target * CV.MPH_TO_MS, min_steer_speed)
-  return math.sqrt(target * target + 2 * .45 * max(0., maneuver.distanceMeters - 8.))
+  approach_decel = .5 if kind == 'turn' and modifier in ('left', 'right') else .45
+  return math.sqrt(target * target + 2 * approach_decel * max(0., maneuver.distanceMeters - 8.))
 
 
 def cruise_ceiling(sm, CP, now_ns: int, cruise_mps: float) -> float | None:

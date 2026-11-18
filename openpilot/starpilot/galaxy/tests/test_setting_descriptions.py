@@ -47,6 +47,19 @@ def test_generated_inventory_matches_actual_canonical_field_and_button_sources()
     assert all(name + suffix in keys for name in ('Aggressive', 'Standard', 'Relaxed'))
 
 
+def test_actuator_delay_and_reset_have_purposes_without_offset_jargon():
+  assert {'steering_delay', 'steering_delay_reset'} <= inventory()
+  for reason in ('Manual actuator delay. Reset restores automatic delay.',
+                 'Automatic delay. Shown value is the vehicle default.',
+                 'Vehicle/controller changed; saved delay is paused. Reset uses automatic delay.',
+                 'Saved delay is unreadable; no override applied.'):
+    row = FeatureRow('steering_delay', 'Actuator delay', '0.40', reason=reason)
+    assert description(row).startswith(purpose(row))
+    assert row.reason in description(row)
+    assert '0.2' not in description(row)
+  assert 'without changing other steering settings' in purpose(FeatureRow('steering_delay_reset', 'Reset', 'Automatic'))
+
+
 def test_real_warning_kept_after_purpose_and_false_blanket_next_drive_removed():
   row = FeatureRow('LongPitch', 'Grade Compensation', 'Invalid', available=False,
                    reason='Invalid saved value; repair required')

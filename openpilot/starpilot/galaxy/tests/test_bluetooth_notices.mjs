@@ -8,7 +8,6 @@ import { VasmPage } from '../web/js/vasm.js'
 import { NavigationPage } from '../web/js/navigation.js'
 import { OfflineRoadMapsPanel } from '../web/js/offline-road-maps.js'
 import { StarPortPage } from '../web/js/starport.js'
-import { GalaxyCompanion } from '../web/js/companion.js'
 
 globalThis.window = {}
 assert.equal(bluetoothConnection(), false)
@@ -105,7 +104,6 @@ aa.uploadReason = StarPortPage.computed.uploadReason.call(aa)
 assert.match(aa.uploadReason, /not available over Bluetooth/)
 await StarPortPage.methods.upload.call(aa)
 assert.equal(uploaded, 0)
-await GalaxyCompanion.methods.toggle.call({ bluetooth: true })
 assert.equal(requests, 0)
 
 window.StarPilotApp.bluetooth = () => false

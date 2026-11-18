@@ -70,6 +70,13 @@ export function placementLimits(profile, id, layout = null) {
 export function clampBox(profile, id, position, width, height) {
   const widget = profile.widgets[id], box = widget.box, bounds = widget.bounds || profile.bounds
   if (!box || !Number.isFinite(width) || !Number.isFinite(height)) return null
+  if (widget.aspectRatio) {
+    const ratio = widget.aspectRatio
+    const scale = width !== position.width ? width : height * ratio
+    width = Math.max(box.minWidth, box.minHeight * ratio, Math.min(scale, box.maxWidth,
+      box.maxHeight * ratio, bounds.x + bounds.width - position.x, (bounds.y + bounds.height - position.y) * ratio))
+    height = width / ratio
+  }
   return {
     width: Math.round(Math.max(box.minWidth, Math.min(box.maxWidth, bounds.x + bounds.width - position.x, width))),
     height: Math.round(Math.max(box.minHeight, Math.min(box.maxHeight, bounds.y + bounds.height - position.y, height)))
@@ -115,11 +122,11 @@ export function overlapsReserved(profile, id, x, y, layout = null) {
   if (!actions || profile.protectedWidget !== "speed_limit_actions") return false
   if (id === "speed_limit_actions") return Object.entries(profile.widgets).some(([key, other]) => {
     const at = positions[key]
-    return key !== id && key !== "speed_limit" && key !== "stopped_timer" && other.layer !== "underlay" && at &&
+    return key !== id && key !== "speed_limit" && key !== "stopped_timer" && key !== "nav_card" && other.layer !== "underlay" && at &&
       at.enabled && Number.isFinite(at.x) && Number.isFinite(at.y) &&
       intersects(at.x, at.y, ...widgetSize(other, at))
   })
-  if (id === "speed_limit" || id === "stopped_timer") return false
+  if (id === "speed_limit" || id === "stopped_timer" || id === "nav_card") return false
   const at = positions.speed_limit_actions
   if (!at || !Number.isFinite(at.x) || !Number.isFinite(at.y)) return true
   return intersects(at.x, at.y, actions.width, actions.height)
@@ -183,6 +190,7 @@ export function validDocument(document, metadata) {
         (!resizable || (Number.isInteger(position.size) && position.size >= resizable.min && position.size <= resizable.max)) &&
         (!box || (Number.isInteger(position.width) && position.width >= box.minWidth && position.width <= box.maxWidth &&
           Number.isInteger(position.height) && position.height >= box.minHeight && position.height <= box.maxHeight)) &&
+        (!widget.aspectRatio || Math.abs(position.height - position.width / widget.aspectRatio) <= 1) &&
         typeof position.enabled === "boolean" && (!widget.required || position.enabled === true) &&
         Number.isFinite(position.x) && Number.isFinite(position.y) &&
         position.x >= limits.minX && position.x <= limits.maxX && position.y >= limits.minY && position.y <= limits.maxY &&
@@ -249,13 +257,13 @@ export function validSnapshot(data) {
         !positive(area.width) || !positive(area.height) || area.x + area.width > profile.width ||
         area.y + area.height > profile.height || typeof widget.label !== "string" || typeof widget.kind !== "string" ||
         !positive(widget.width) || !positive(widget.height) || widget.width > area.width || widget.height > area.height) return false
-      if (widget.box && (widget.kind !== "nav_map" || !object(widget.opacity) ||
+      if (widget.box && (!(widget.kind === "nav_map" || projection && ["nav_card", "pip_camera"].includes(widget.kind)) ||
+        (widget.kind === "nav_map" ? !object(widget.opacity) : !positive(widget.aspectRatio)) ||
         ![widget.box.minWidth, widget.box.maxWidth, widget.box.minHeight, widget.box.maxHeight].every(Number.isInteger) ||
         widget.box.minWidth < 24 || widget.box.minHeight < 24 || widget.box.minWidth > widget.box.maxWidth ||
-        widget.box.minHeight > widget.box.maxHeight || widget.box.maxWidth > area.width || widget.box.maxHeight > area.height ||
-        ![widget.opacity.min, widget.opacity.max, widget.opacity.default].every(Number.isInteger) ||
-        widget.opacity.min < 0 || widget.opacity.max > 100 || widget.opacity.min > widget.opacity.default ||
-        widget.opacity.default > widget.opacity.max)) return false
+        widget.box.minHeight > widget.box.maxHeight || widget.box.maxWidth > area.width || widget.box.maxHeight > area.height)) return false
+      if (widget.aspectRatio != null && (!projection || !widget.box || !["nav_card", "pip_camera"].includes(widget.kind) ||
+        !positive(widget.aspectRatio) || widget.aspectRatio !== widget.width / widget.height)) return false
       if (widget.opacity && (!(["nav_map", "jetlink_status"].includes(widget.kind) || projection && ["nav_home", "nav_work", "bookmark", "car_exit", "cruise_limits", "now_playing"].includes(widget.kind)) ||
         !object(widget.opacity) || ![widget.opacity.min, widget.opacity.max, widget.opacity.default].every(Number.isInteger) ||
         widget.opacity.min < 0 || widget.opacity.max > 100 || widget.opacity.min > widget.opacity.default ||

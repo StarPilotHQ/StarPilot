@@ -151,7 +151,8 @@ class TestTeslaContract(unittest.TestCase):
         self.assertTrue(all(m["signals"]["DAS_steeringControlType"] == 0 for m in steering))
 
   def test_longitudinal_limits_and_brake_permission_are_independent_of_lateral_input(self):
-    for request, expected in ((100.0, 2.0), (-100.0, -3.48)):
+    # 3.5 m/s² is encoded as 3.52 on the 0.04 m/s² native CAN lattice.
+    for request, expected in ((100.0, 3.52), (-100.0, -3.48)):
       for lateral in (False, True):
         with self.subTest(request=request, latActive=lateral):
           fixture = self.fixture()

@@ -23,6 +23,7 @@ RENAMED_BOOL_KEYS = {'AndroidAutoEnabled': 'StarPortEnabled'}
 MAX_VALUE_BYTES = 32 * 1024 * 1024
 MAX_SNAPSHOT_BYTES = 256 * 1024 * 1024
 MAX_KEYS = 4096
+DASHBOARD_HISTORY_KEYS = ('GalaxyDashboardStats', 'StarPilotStats', 'ApiCache_DriveStats')
 VEHICLE_PREFERENCE_KEYS = frozenset({
   'RemoteStartBootsComma', 'HKGRemoteStartBootsComma', 'IgnoreIgnitionLine',
   'TeslaWakeOnCAN', 'DisableOpenpilotLongitudinal', 'LongPitch',
@@ -37,6 +38,7 @@ VEHICLE_PREFERENCE_KEYS = frozenset({
 OPERATIONAL_KEYS = frozenset({
   'DongleId', 'HardwareSerial', 'GithubSshKeys', 'GithubUsername', 'SshEnabled',
   'AlphaLongitudinalEnabled', 'HasAcceptedTerms', 'CompletedTrainingVersion',
+  'IsMetric', 'IsRhdDetected', 'LanguageSetting',
   'CellularDisabled', 'GsmApn', 'GsmMetered', 'GsmRoaming', 'NetworkMetered', 'BluetoothEnabled',
   'ConnectProvider', 'PairingProvider', 'PairingEmail', 'PrimeType', 'AssistNowToken', 'SecOCKey', 'SecOCKeys',
 }) | VEHICLE_PREFERENCE_KEYS
@@ -305,12 +307,120 @@ def stage_settings(bundle, storage, namespace):
   return destination
 
 
+def _save_dashboard_history(values, storage):
+  history = {}
+  for key in DASHBOARD_HISTORY_KEYS:
+    raw = values.get(key)
+    if raw is None or len(raw) > 4_000_000:
+      continue
+    try:
+      value = json.loads(raw)
+      if type(value) is dict:
+        json.dumps(value, allow_nan=False)
+        history[key] = value
+    except (ValueError, UnicodeError, RecursionError):
+      continue
+  if history:
+    destination = _private_dir(storage / 'galaxy') / 'legacy-dashboard-stats.json'
+    _atomic_write(destination, canonical_json({'version': 1, 'params': history}))
+
+
+def _backfill_dashboard_history(namespace, storage):
+  destination = storage / 'galaxy' / 'legacy-dashboard-stats.json'
+  if destination.exists() or destination.is_symlink():
+    return
+  budget = 16_000_000
+
+  def private_directory(path):
+    info = path.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+      raise ValueError('Unsafe history archive directory')
+
+  def read(path, limit):
+    nonlocal budget
+    info = path.lstat()
+    if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077 or
+        info.st_size > min(limit, budget)):
+      raise ValueError('Unsafe history archive file')
+    value = _read_value(path)
+    if len(value) != info.st_size:
+      raise ValueError('History archive changed during recovery')
+    budget -= len(value)
+    return value
+
+  try:
+    archives = storage / 'snapshots'
+    private_directory(archives)
+    candidates = []
+    with os.scandir(archives) as entries:
+      for index, entry in enumerate(entries):
+        if index >= 256:
+          return
+        if re.fullmatch('[0-9a-f]{64}', entry.name) and entry.is_dir(follow_symlinks=False):
+          candidates.append(Path(entry.path))
+    candidates.sort(key=lambda path: path.stat().st_mtime_ns, reverse=True)
+    fallback = {}
+    for snapshot in candidates[:16]:
+      try:
+        private_directory(snapshot)
+        private_directory(snapshot / 'values')
+        receipt = json.loads(read(snapshot / 'migration.json', 1_000_000))
+        if (type(receipt) is not dict or receipt.get('format') != 'starpilot-first-start-migration' or
+            type(receipt.get('version')) is not int or receipt['version'] != 2 or receipt.get('namespace') != str(namespace) or
+            receipt.get('status') not in ('prepared', 'migrated', 'failed')):
+          continue
+        manifest = json.loads(read(snapshot / 'manifest.json', 1_000_000))
+        if (type(manifest) is not dict or set(manifest) != {'format', 'version', 'entries'} or
+            manifest['format'] != 'starpilot-raw-settings' or type(manifest['version']) is not int or manifest['version'] != 1 or
+            type(manifest['entries']) is not list or len(manifest['entries']) > MAX_KEYS or
+            digest(canonical_json(manifest['entries'])) != snapshot.name):
+          continue
+        selected = {}
+        seen = set()
+        for row in manifest['entries']:
+          if type(row) is not dict or set(row) != {'key', 'sha256', 'size'}:
+            raise ValueError('Invalid history archive inventory')
+          key = _key(row['key'])
+          _hash(row['sha256'])
+          if key in seen or type(row['size']) is not int or not 0 <= row['size'] <= MAX_VALUE_BYTES:
+            raise ValueError('Invalid history archive value')
+          seen.add(key)
+          if key in DASHBOARD_HISTORY_KEYS:
+            value = read(snapshot / 'values' / key, 4_000_000)
+            if len(value) != row['size'] or digest(value) != row['sha256']:
+              raise ValueError('Historical statistics integrity failure')
+            try:
+              decoded = json.loads(value)
+              if type(decoded) is not dict:
+                continue
+              json.dumps(decoded, allow_nan=False)
+              if key == 'GalaxyDashboardStats' and type(decoded.get('routes')) is not dict:
+                continue
+              selected[key] = value
+            except (ValueError, TypeError, RecursionError):
+              continue
+        if 'GalaxyDashboardStats' not in selected:
+          if not fallback:
+            fallback = selected
+          continue
+        _save_dashboard_history(selected, storage)
+        if destination.exists():
+          return
+      except (OSError, ValueError, TypeError, KeyError, RecursionError):
+        continue
+    _save_dashboard_history(fallback, storage)
+  except (OSError, ValueError, TypeError, RecursionError):
+    return
+
+
 def _migrate_first_start(params, namespace, storage, values, known, cache_keys, inspect_cache, *, retire_keys=None,
                          retire_action='archive incompatible reconstructible vehicle cache'):
   actual = namespace.resolve(strict=True)
   snapshot = _save_snapshot(values, storage / 'snapshots')
   if load_snapshot(snapshot) != values:
     raise MigrationRequired('Raw recovery snapshot readback failed')
+  if retire_keys is None:
+    _save_dashboard_history(values, storage)
   prepared = dict(values)
   actions = {}
   if (retire_keys is None and 'AlphaLongitudinalEnabled' in known and 'AlphaLongitudinalEnabled' not in values and
@@ -330,6 +440,21 @@ def _migrate_first_start(params, namespace, storage, values, known, cache_keys, 
     elif getattr(params.get_type(key), 'name', None) == 'BOOL' and raw not in (b'0', b'1'):
       prepared.pop(key)
       actions[key] = 'archive invalid operational flag; initialize registry default'
+  if retire_keys is None:
+    language = prepared.get('LanguageSetting')
+    if language is not None:
+      languages = json.loads((Path(__file__).resolve().parents[1] / 'selfdrive/ui/translations/languages.json').read_text())
+      try:
+        code = language.decode('utf-8').removeprefix('main_')
+      except UnicodeDecodeError:
+        code = None
+      if len(language) > 32 or code not in languages.values():
+        prepared.pop('LanguageSetting')
+        actions['LanguageSetting'] = 'archive invalid language; initialize registry default'
+    if ('IsRhdDetected' in known and values.get('IsRHDOverride') == b'1' and
+        values.get('IsRHD') in (b'0', b'1')):
+      prepared['IsRhdDetected'] = values['IsRHD']
+      actions['IsRhdDetected'] = 'preserve legacy steering-wheel side'
   report = {'format': 'starpilot-first-start-migration', 'version': 2,
             'namespace': str(namespace), 'target': str(actual), 'snapshot': str(snapshot),
             'status': 'prepared', 'actions': actions, 'attempted': [], 'written': []}
@@ -479,5 +604,7 @@ def prepare_manager_start(params, storage, *, dry_run=False, auto_migrate=False)
         raise MigrationRequired('Settings require migration before startup: ' + ', '.join(reasons))
       snapshot = _save_snapshot(values, storage / 'snapshots')
       raise MigrationRequired(f"Settings require migration before startup; raw recovery snapshot: {snapshot}")
+    if auto_migrate and not dry_run:
+      _backfill_dashboard_history(namespace, storage)
     if (not initialized or foreign_handoff) and not dry_run:
       _atomic_write(marker, canonical_json(identity))

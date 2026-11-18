@@ -1,0 +1,39 @@
+name: Galaxy phone bridge
+
+on:
+  push:
+    branches: [Dom, StarPilot, stable, testing, dev, secretgood-ios-integration]
+    paths:
+      - 'openpilot/starpilot/galaxy_bluetooth/**'
+      - '.github/workflows/galaxy-phone-bridge.yaml'
+  pull_request:
+    paths:
+      - 'openpilot/starpilot/galaxy_bluetooth/**'
+      - '.github/workflows/galaxy-phone-bridge.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: galaxy-phone-bridge-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bridge:
+    name: Comma Bluetooth bridge tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          lfs: false
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install bridge test dependencies
+        run: python -m pip install pycryptodome
+      - name: Run bridge regressions
+        run: python -m unittest discover -s openpilot/starpilot/galaxy_bluetooth/tests -v

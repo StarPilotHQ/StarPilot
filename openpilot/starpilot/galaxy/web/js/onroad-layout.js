@@ -1,3 +1,4 @@
+import { GxCollapse } from './disclosure.js'
 import { ONROAD_LAYOUT_TEMPLATE } from "./onroad-layout-template.js"
 import { GxState } from "./state.js"
 import { guardUnload } from "./unload-guard.js"
@@ -182,7 +183,7 @@ export const LayoutWidgetPreview = {
       <template v-if="native || art?.url && art.sprites?.sprites?.[widget.id]">
         <svg v-if="art?.url && art.sprites?.sprites?.[widget.id]"
           :x="art.sprites.sprites[widget.id].offsetX || 0" :y="art.sprites.sprites[widget.id].offsetY || 0"
-          :width="art.sprites.sprites[widget.id].width" :height="art.sprites.sprites[widget.id].height"
+          :width="widget.aspectRatio ? widget.width : art.sprites.sprites[widget.id].width" :height="widget.aspectRatio ? widget.height : art.sprites.sprites[widget.id].height"
           :viewBox="[art.sprites.sprites[widget.id].x, art.sprites.sprites[widget.id].y, art.sprites.sprites[widget.id].width, art.sprites.sprites[widget.id].height].join(' ')"
           preserveAspectRatio="xMinYMin meet" data-preview-source="runtime">
           <image :href="art.url" :width="art.sprites.width" :height="art.sprites.height" />
@@ -316,12 +317,20 @@ export const LayoutWidgetPreview = {
         <text :x="widget.width - 70" y="52" text-anchor="end" font-size="34" font-weight="600" fill="#f5f2fc">24.6</text>
         <text :x="widget.width - 30" y="52" text-anchor="end" font-size="22" fill="#b8b2c8">ms</text>
       </g>
-      <g v-else-if="widget.kind === 'nav_card'">
-        <rect x="1" y="1" :width="widget.width - 2" :height="widget.height - 2" rx="39" fill="#0f0d17f5" stroke="#a07edcbe" stroke-width="2" />
+      <g v-else-if="widget.kind === 'nav_card' && profile === 'compact'">
+        <rect x="1" y="1" :width="widget.width - 2" :height="widget.height - 2" rx="20" fill="#0f0d17" stroke="#a07edcbe" stroke-width="2" />
+        <path d="M42 78 V42 Q42 32 52 32 H78 M64 18 L78 32 L64 46" fill="none" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" />
+        <text x="104" y="46" font-size="28" font-weight="700" fill="white">500 ft</text>
+        <text x="104" y="74" font-size="18" font-weight="600" fill="#ded6f4">Turn right onto Main St</text>
+        <text x="18" y="118" font-size="16" fill="#ebe1ff">2.4 mi · 6 min</text>
+        <text :x="widget.width - 18" y="118" text-anchor="end" font-size="16" fill="#ebe1ff">ETA 3:51 PM</text>
+      </g>
+      <svg v-else-if="widget.kind === 'nav_card'" :width="widget.width" :height="widget.height" viewBox="0 0 560 255">
+        <rect x="1" y="1" :width="560 - 2" :height="253" rx="39" fill="#0f0d17f5" stroke="#a07edcbe" stroke-width="2" />
         <text v-if="!googleRoutes" x="24" y="66" font-size="54" font-weight="700" fill="white">500 ft</text>
         <text v-if="!googleRoutes" x="24" y="100" font-size="30" font-weight="600" fill="#ded6f4">Turn right onto Las Vegas Blvd</text>
         <template v-if="!googleRoutes">
-        <g v-for="(lane, i) in [['S', 0], ['S', 0], ['S', 0], ['R', 1], ['R', 1]]" :key="i" :transform="'translate(' + ((widget.width - 320) / 2 + i * 66) + ' 116)'">
+        <g v-for="(lane, i) in [['S', 0], ['S', 0], ['S', 0], ['R', 1], ['R', 1]]" :key="i" :transform="'translate(' + ((560 - 320) / 2 + i * 66) + ' 116)'">
           <rect width="56" height="44" rx="13" :fill="lane[1] ? '#4e3e80' : '#222030'" />
           <g transform="translate(28 22)" fill="none" :stroke="lane[1] ? '#ffffff' : '#70688a'" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
             <path v-if="lane[0] === 'S'" d="M0 13 V-12 M-8 -4 L0 -12 L8 -4" />
@@ -333,12 +342,12 @@ export const LayoutWidgetPreview = {
           <g transform="translate(24 28)" fill="none" stroke="white" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 56 V28 Q12 18 22 18 H48 M34 4 L48 18 L34 32" /></g>
           <text x="104" y="66" font-size="54" font-weight="700" fill="white">500 ft</text>
           <text x="104" y="100" font-size="30" font-weight="600" fill="#ded6f4">Las Vegas Blvd</text>
-          <text :x="widget.width - 24" y="150" text-anchor="end" font-size="27" font-weight="500" fill="#d6d2e2">2.4 mi | 6 min</text>
+          <text :x="560 - 24" y="150" text-anchor="end" font-size="27" font-weight="500" fill="#d6d2e2">2.4 mi | 6 min</text>
         </template>
-        <rect x="24" y="171" :width="widget.width - 48 - 190" height="6" rx="3" fill="#a07edc3c" />
-        <rect x="24" y="171" :width="(widget.width - 48 - 190) * .35" height="6" rx="3" fill="#b296ff" />
-        <text :x="widget.width - 24" y="182" text-anchor="end" font-size="22" font-weight="600" fill="#ebe1ff">ETA 3:51 PM</text>
-      </g>
+        <rect x="24" y="171" :width="560 - 48 - 190" height="6" rx="3" fill="#a07edc3c" />
+        <rect x="24" y="171" :width="(560 - 48 - 190) * .35" height="6" rx="3" fill="#b296ff" />
+        <text :x="560 - 24" y="182" text-anchor="end" font-size="22" font-weight="600" fill="#ebe1ff">ETA 3:51 PM</text>
+      </svg>
       <g v-else-if="widget.kind === 'nav_map'">
         <defs>
           <radialGradient id="gx-nav-map-fade" cx=".5" cy=".55" r=".75"><stop offset=".55" stop-color="white" /><stop offset="1" stop-color="white" stop-opacity="0" /></radialGradient>
@@ -385,7 +394,7 @@ export const LayoutWidgetPreview = {
 }
 
 export const OnroadLayoutPage = {
-  components: { GxState, LayoutWidgetPreview, GalaxySelect, GxNotice, GxDialog, GalaxySettingRow },
+  components: { GxCollapse, GxState, LayoutWidgetPreview, GalaxySelect, GxNotice, GxDialog, GalaxySettingRow },
   props: {
     projection: { type: Boolean, default: false }, mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
     initialPanel: { type: String, default: "widgets" }
@@ -553,6 +562,34 @@ export const OnroadLayoutPage = {
       return {
         x: this.previewX(this.state.selected), y: this.selectedPosition.y - widget.visualInsetTop,
         width: widget.width, height: widget.height + widget.visualInsetTop + widget.visualInsetBottom
+      }
+    },
+    // On touch, a magnified copy of the area around the dragged widget sits clear of the finger.
+    loupe() {
+      const drag = this.state.drag
+      if (!drag?.touch || !drag.moved || drag.resize || (drag.fromTray && !drag.inside) || drag.clientX == null || !this.$refs.preview) return null
+      const rect = this.$refs.preview.getBoundingClientRect(), viewWidth = window.innerWidth, viewHeight = window.innerHeight
+      if (!rect.width) return null
+      const gap = 48, edge = 8, x = drag.clientX, y = drag.clientY
+      let width = Math.round(Math.max(150, Math.min(240, viewWidth / 2 - 8))), height = Math.round(width * .62)
+      let left = Math.max(edge, Math.min(viewWidth - width - edge, x - width / 2)), top = y - gap - height
+      if (top < edge) {
+        // No room above: sit beside the finger on the roomier side, narrower if needed, before falling back to below.
+        const right = x < viewWidth / 2, beside = Math.min(width, Math.floor((right ? viewWidth - x : x) - 24 - edge))
+        if (beside >= 140) {
+          width = beside
+          height = Math.round(width * .62)
+          left = right ? x + 24 : x - 24 - width
+          top = Math.max(edge, Math.min(viewHeight - height - edge, y - height / 2))
+        } else top = Math.min(viewHeight - height - edge, y + gap)
+      }
+      const [widgetWidth, widgetHeight] = widgetSize(this.profile.widgets[drag.id], this.layout[drag.id])
+      const span = Math.max(width / (rect.width / this.profile.width * 2), widgetWidth * 1.5, widgetHeight * 1.5 * width / height)
+      const spanY = span * height / width
+      const centerX = this.previewX(drag.id) + widgetWidth / 2, centerY = this.layout[drag.id].y + widgetHeight / 2
+      return {
+        viewBox: [centerX - span / 2, centerY - spanY / 2, span, spanY].map(value => Math.round(value * 10) / 10).join(" "),
+        style: { left: Math.round(left) + "px", top: Math.round(top) + "px", width: width + "px", height: height + "px" }
       }
     },
     activeWidgets() { return this.widgets.filter(({ id }) => this.layout[id].enabled) },
@@ -1241,6 +1278,8 @@ export const OnroadLayoutPage = {
       // A finger wobbles a few pixels on every tap; only a deliberate move drags the widget.
       if (!drag.moved && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < DRAG_SLOP) return
       drag.moved = true
+      drag.clientX = event.clientX
+      drag.clientY = event.clientY
       drag.inside = point.x >= 0 && point.y >= 0 && point.x <= this.profile.width && point.y <= this.profile.height
       if (!drag.fromTray || drag.inside) {
         const raw = { x: point.x - drag.offsetX, y: point.y - drag.offsetY }

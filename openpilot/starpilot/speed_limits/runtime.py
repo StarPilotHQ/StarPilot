@@ -20,10 +20,6 @@ from openpilot.starpilot.speed_limits.advance import Advance
 from openpilot.starpilot.speed_limits.vision.observation import clock_pair_ns, vision_observation
 
 
-def _number(value, *, positive=False) -> bool:
-  return type(value) in (int, float) and math.isfinite(value) and (value > 0 if positive else value >= 0)
-
-
 def _fresh(sm, service: str, now_ns: int) -> bool:
   timestamp = sm.logMonoTime.get(service, 0)
   frequency = SERVICE_LIST[service].frequency
@@ -54,7 +50,7 @@ def dashboard_observation(evidence, *, car_fingerprint: str, session_id: str, no
     return acc.Observation(acc.ObservationKind.STALE)
   if status == "absent":
     return acc.Observation(acc.ObservationKind.ABSENT)
-  if status != "valid" or not _number(evidence.speedMps, positive=True) or int(evidence.episode) <= 0:
+  if status != "valid" or not acc.number(evidence.speedMps, positive=True) or int(evidence.episode) <= 0:
     return acc.Observation(acc.ObservationKind.UNKNOWN)
   producer_session = str(evidence.producerSessionId)
   if not producer_session:
@@ -124,57 +120,41 @@ class Runtime:
       raise ValueError('SLC display units must be Boolean')
     self.settings = settings
     self.is_metric = is_metric
-    self.map_source = MapSource()
-    self.advance = Advance()
     self.vision_enabled = vision_enabled
     # Exact saved Vision opt-in may grant control; source identity and current
     # driver confirmation remain independent requirements for each episode.
     self.vision_control_qualified = vision_enabled and vision_control_qualified
     self.vision_display_qualified = bool(vision_enabled and vision_display_qualified and settings.display and not settings.enabled)
-    self.vision_diagnostic = acc.Observation(acc.ObservationKind.UNKNOWN)
-    self._last_vision_producer = ''
-    self._last_vision_frame = 0
-    self._last_vision_eof_boot = 0
-    self._last_vision_episode = 0
-    self.session_id = session_id or uuid.uuid4().hex
-    self.state = comp.new_session(self.session_id, previous_limit)
-    self.history_limit = self.state.acceptance.accepted
-    self.ledger = arb.new_ledger(self.session_id)
-    self.last_ui_sequence = -1
-    self.last_cruise_event = -1
-    self.last_cruise_producer: str | None = None
-    self._ui_receipt = None
-    self.last_received: acc.Candidate | None = None
-    self._ego_delta_key: tuple[str, str] | None = None
-    self._ego_delta_mps = 0.0
-    self._ego_sample_ns = 0
-    self.current_presentation: acc.Presentation | None = None
+    self._start_session(session_id or uuid.uuid4().hex, previous_limit)
 
   def reset(self) -> None:
-    previous_limit = self.history_limit
-    self.map_source.reset()
+    self._start_session(uuid.uuid4().hex, self.history_limit)
+
+  def _start_session(self, session_id: str, previous_limit: acc.AcceptedLimit | None) -> None:
+    """Every per-drive field. Settings and Vision qualification deliberately survive a reset."""
+    self.session_id = session_id
+    try:
+      self.state = comp.new_session(session_id, previous_limit)
+    except ValueError:
+      self.state = comp.new_session(session_id)
+    self.history_limit = self.state.acceptance.accepted
+    self.ledger = arb.new_ledger(session_id)
+    self.map_source = MapSource()
     self.advance = Advance()
     self.vision_diagnostic = acc.Observation(acc.ObservationKind.UNKNOWN)
     self._last_vision_producer = ''
     self._last_vision_frame = 0
     self._last_vision_eof_boot = 0
     self._last_vision_episode = 0
-    self.session_id = uuid.uuid4().hex
-    try:
-      self.state = comp.new_session(self.session_id, previous_limit)
-    except ValueError:
-      self.state = comp.new_session(self.session_id)
-    self.history_limit = self.state.acceptance.accepted
-    self.ledger = arb.new_ledger(self.session_id)
     self.last_ui_sequence = -1
     self.last_cruise_event = -1
-    self.last_cruise_producer = None
+    self.last_cruise_producer: str | None = None
+    self.last_received: acc.Candidate | None = None
+    self.current_presentation: acc.Presentation | None = None
     self._ui_receipt = None
-    self.last_received = None
-    self._ego_delta_key = None
+    self._ego_delta_key: tuple[str, str] | None = None
     self._ego_delta_mps = 0.0
     self._ego_sample_ns = 0
-    self.current_presentation = None
 
   def update_offsets(self, offsets: sd.OffsetSchedule, *, is_metric: bool | None = None) -> None:
     if is_metric is not None:
@@ -215,8 +195,8 @@ class Runtime:
 
   def _cruise(self, event: CruiseEvent | None, sm, now_ns: int) -> arb.Result | None:
     if (event is None or event.kind != 'driverChange' or not self._event_current(event, sm, now_ns) or
-        event.button not in ('accel', 'decel') or not _number(event.previous_mps, positive=True) or
-        not _number(event.selected_mps, positive=True) or event.previous_mps == event.selected_mps or
+        event.button not in ('accel', 'decel') or not acc.number(event.previous_mps, positive=True) or
+        not acc.number(event.selected_mps, positive=True) or event.previous_mps == event.selected_mps or
         abs(float(sm['carState'].vCruise) / 3.6 - event.selected_mps) > 0.1):
       return None
     self._mark_event(event)
@@ -255,8 +235,8 @@ class Runtime:
         event.button != ('accel' if event.kind == 'confirmationAccept' else 'decel')):
       return None, None, None
     if engagement:
-      if (event.command_id != 0 or not _number(event.selected_mps, positive=True) or
-          not _number(float(sm['carState'].vCruise), positive=True) or
+      if (event.command_id != 0 or not acc.number(event.selected_mps, positive=True) or
+          not acc.number(float(sm['carState'].vCruise), positive=True) or
           abs(float(sm['carState'].vCruise) / 3.6 - event.selected_mps) > 0.1):
         return None, None, None
     elif pending is None or event.decision_id != pending.decision_id or pending.candidate != shown.candidate:
@@ -372,8 +352,8 @@ class Runtime:
     authority = _authority(CP, sm, host_long, lateral, long_enabled=long_enabled)
     # Native pedal handoff keeps the engagement while the driver controls acceleration.
     authority = replace(authority, accelerator_override=bool(CP.openpilotLongitudinalControl and long_enabled and car_state.gasPressed))
-    selected = float(car_state.vCruise) if car_fresh and _number(car_state.vCruise) else 0.0
-    selected_cluster = float(car_state.vCruiseCluster) if car_fresh and _number(car_state.vCruiseCluster) else None
+    selected = float(car_state.vCruise) if car_fresh and acc.number(car_state.vCruise) else 0.0
+    selected_cluster = float(car_state.vCruiseCluster) if car_fresh and acc.number(car_state.vCruiseCluster) else None
     # Filtered ego speed can undershoot zero after the wheels stop.
     ego_speeds = (car_state.vEgo, car_state.vEgoCluster)
     ego_valid = car_fresh and all(type(speed) in (int, float) and math.isfinite(speed) and
@@ -431,7 +411,7 @@ class Runtime:
         current_way_id=self.map_source.way_id, higher_seconds=self.settings.advance_higher_seconds,
         lower_seconds=self.settings.advance_lower_seconds,
         speed_mps=float(car_state.vEgo) if ego_valid else None,
-        standstill=bool(getattr(car_state, 'standstill', False)) or str(getattr(car_state, 'gearShifter', '')) == 'reverse',
+        standstill=bool(car_state.standstill) or str(car_state.gearShifter) == 'reverse',
         can_offer=self.settings.enabled and authority.can_control and not host.force_decel,
         confirmation_active=authority.can_control, now_ns=now_ns, pending=self.state.acceptance.pending, live=current,
         current_unresolved=current_unresolved)
@@ -527,7 +507,7 @@ class Runtime:
           frame.authority.can_control and not frame.host.force_decel and state.hasAcceptedAdjustedLimit and not state.acceptedIsPreview):
         state.wheelAdoptMonoTime = request.wheel_observed_ns
         state.wheelAdoptTargetMps = state.acceptedAdjustedLimit
-    receipt = getattr(self, '_ui_receipt', None)
+    receipt = self._ui_receipt
     if receipt is not None:
       message.slcState.actionSequenceId, message.slcState.actionStatus = receipt
     return Output(result, message, action_result)
@@ -599,8 +579,7 @@ class Runtime:
       ('pedal' if frame.pedal_pressed else 'persistent') if state.driverOverrideActive else 'none')
     shown = result.state.acceptance.presentation
     ego = frame.ego_pair
-    ego_delta = (max(0.0, ego.cluster_mps - ego.raw_mps)
-                 if ego.status is sd.DomainStatus.VALID and ego.cluster_mps is not None and ego.raw_mps is not None else 0.0)
+    ego_delta = ego.delta_mps if ego.status is sd.DomainStatus.VALID else 0.0
     if self.last_received is not None:
       state.lastReceivedSpeedLimit = self.last_received.speed_mps
       state.lastReceivedSource = self.last_received.source

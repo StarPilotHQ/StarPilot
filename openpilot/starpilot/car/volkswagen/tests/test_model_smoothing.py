@@ -111,7 +111,7 @@ def test_model_join_applies_matching_input_delay_and_exactly_one_filter():
   action = log.ModelDataV2.Action(desiredCurvature=.001, desiredAcceleration=-.25, shouldStop=True)
   env = {'CP': cp, 'receipt_owner': SimpleNamespace(load=load), 'v_ego': 18., 'subaru_smoothing': 0.,
          'subaru_smooth_seconds': lambda speed, maximum: 0., 'volkswagen_smoothing': seconds,
-         'LAT_SMOOTH_SECONDS': 0., 'sm': {'lateralDelay': SimpleNamespace(lateralDelay=.2893982231616974)},
+         'kona_tau': 0., 'LAT_SMOOTH_SECONDS': 0., 'sm': {'lateralDelay': SimpleNamespace(lateralDelay=.2893982231616974)},
          'action': action, 'prev_action': previous, 'filter_action': filter_action}
   wanted = {'subaru_tau', 'volkswagen_tau', 'lat_delay'}
   nodes = [n for n in ast.walk(tree) if isinstance(n, ast.Assign) and

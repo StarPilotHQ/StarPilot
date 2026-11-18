@@ -41,19 +41,39 @@ def test_sharan_alpha_available_without_rewriting_choice(module, layout, raw):
 
 
 @pytest.mark.parametrize('raw', (b'0', b'1'))
-def test_first_start_archives_prior_alpha_without_enabling_speed_control(raw):
+def test_first_start_archives_and_preserves_explicit_alpha_choice(raw):
   with TemporaryDirectory() as folder:
     root = Path(folder)
     params = Params(str(root / 'params'))
     params.put_bool('AlphaLongitudinalEnabled', raw == b'1', block=True)
     prepare_manager_start(params, root / 'recovery', auto_migrate=True)
-    assert params.get('AlphaLongitudinalEnabled') is None
-    assert not params.get_bool('AlphaLongitudinalEnabled')
+    assert Path(params.get_param_path('AlphaLongitudinalEnabled')).read_bytes() == raw
+    assert params.get_bool('AlphaLongitudinalEnabled') == (raw == b'1')
     snapshots = list((root / 'recovery/snapshots').iterdir())
     assert len(snapshots) == 1
     assert load_snapshot(snapshots[0])['AlphaLongitudinalEnabled'] == raw
-    # Later explicit choices in the initialized namespace survive ordinary startup.
-    params.put_bool('AlphaLongitudinalEnabled', raw == b'1', block=True)
+    # A later opposite choice in the initialized namespace survives ordinary startup.
+    later = b'0' if raw == b'1' else b'1'
+    params.put_bool('AlphaLongitudinalEnabled', later == b'1', block=True)
     prepare_manager_start(params, root / 'recovery', auto_migrate=True)
-    assert Path(params.get_param_path('AlphaLongitudinalEnabled')).read_bytes() == raw
-    assert params.get_bool('AlphaLongitudinalEnabled') == (raw == b'1')
+    assert Path(params.get_param_path('AlphaLongitudinalEnabled')).read_bytes() == later
+    assert params.get_bool('AlphaLongitudinalEnabled') == (later == b'1')
+
+
+@pytest.mark.parametrize('raw', (None, b'', b'invalid', b'true', b'2'))
+def test_first_start_does_not_enable_alpha_without_a_valid_choice(raw):
+  with TemporaryDirectory() as folder:
+    root = Path(folder)
+    params = Params(str(root / 'params'))
+    path = Path(params.get_param_path('AlphaLongitudinalEnabled'))
+    if raw is not None:
+      path.write_bytes(raw)
+    prepare_manager_start(params, root / 'recovery', auto_migrate=True)
+    assert not path.exists()
+    assert not params.get_bool('AlphaLongitudinalEnabled')
+    snapshots = list((root / 'recovery/snapshots').glob('*'))
+    if raw is None:
+      assert not snapshots
+    else:
+      assert len(snapshots) == 1
+      assert load_snapshot(snapshots[0])['AlphaLongitudinalEnabled'] == raw

@@ -21,6 +21,7 @@ DOCUMENT_PATH = DATA_DIR / 'layouts/document.json'
 
 # Layouts saved before these widgets existed gain them with their defaults.
 NAV_CARD, NAV_MAP = 'nav_card', 'nav_map'
+SCALED_WIDGETS = (NAV_CARD, 'pip_left', 'pip_right')
 NAV_HOME, NAV_WORK = 'nav_home', 'nav_work'
 FAVORITE_WIDGETS = (NAV_HOME, NAV_WORK)
 BOOKMARK_WIDGET = 'bookmark'
@@ -92,6 +93,14 @@ def layout_metadata_for_viewport(viewport):
   card_w, card_h = NAV_CARD_SIZE
   card_x, card_bottom = 1230 + width - 1860, 355 + card_h + 15
   widgets[NAV_CARD]['default'].update(x=card_x)
+  for key in SCALED_WIDGETS:
+    widget = widgets[key]
+    w, h = widget['width'], widget['height']
+    widget['box'] = {'minWidth': round(w / 2), 'minHeight': round(h / 2),
+                     'maxWidth': min(w * 2, width - 60), 'maxHeight': min(h * 2, height - 60)}
+    widget['aspectRatio'] = w / h
+    widget['default'].update(width=w, height=h)
+
   # The map scales with the screen: about 30% of its width in a 4:3 frame,
   # right-aligned with the turn card and sitting just below it.
   map_w = max(MAP_MIN_SIZE[0], round(width * 0.3 / 10) * 10)
@@ -204,7 +213,7 @@ def placement_size(key, widget, placement):
     return FAVORITE_ICON_SIZE, FAVORITE_ICON_SIZE
   if widget.get('resizable'):
     return (placement.get('size', widget['resizable']['default']),) * 2
-  if key == NAV_MAP:
+  if widget.get('box'):
     return placement['width'], placement['height']
   return widget['width'], widget['height']
 
@@ -281,12 +290,16 @@ def validate_layout_for_viewport(value, viewport, *, _legacy_geometry=False):
     if (key == 'driver_monitor' and 'following_distance' not in value['widgets'] and type(placement) is dict and
         (placement.get('x'), placement.get('y'), placement.get('size')) == (120, 840 + viewport[1] - 1080, 128)):
       placement['x'] = widget['default']['x']
+    if key in SCALED_WIDGETS and type(placement) is dict:
+      placement.setdefault('width', widget['width'])
+      placement.setdefault('height', widget['height'])
     fields = ({'x', 'y', 'enabled'} | ({'size'} if widget.get('resizable') else set()) |
               ({'display'} if key in DISPLAY_WIDGETS else set()) |
               ({'opacity', 'background'} if key in ACTION_WIDGETS else set()) |
               ({'opacity'} if key == 'cruise_limits' or key in CARD_WIDGETS else set()) |
               ({'collapse', 'size'} if key == NOW_PLAYING_WIDGET else set()) |
-              ({'width', 'height', 'opacity'} if key == NAV_MAP else set()))
+              ({'width', 'height'} if widget.get('box') else set()) |
+              ({'opacity'} if key == NAV_MAP else set()))
     if type(placement) is not dict or set(placement) != fields or type(placement['enabled']) is not bool:
       raise ValueError('Invalid projection widget')
     if widget.get('required') is True and placement['enabled'] is not True:
@@ -311,6 +324,13 @@ def validate_layout_for_viewport(value, viewport, *, _legacy_geometry=False):
       size, limits = placement['size'], widget['resizable']
       if type(size) is not int or not limits['min'] <= size <= limits['max']:
         raise ValueError('Invalid widget size')
+    if key in SCALED_WIDGETS:
+      box = widget['box']
+      if any(type(placement[axis]) is not int or not box[low] <= placement[axis] <= box[high]
+             for axis, low, high in (('width', 'minWidth', 'maxWidth'), ('height', 'minHeight', 'maxHeight'))):
+        raise ValueError('Invalid projection widget size')
+      if abs(placement['height'] - placement['width'] / widget['aspectRatio']) > 1:
+        raise ValueError('Invalid projection widget aspect ratio')
     if key == NAV_MAP:
       validate_map_box(placement, widget)
     dimensions = placement_size(key, widget, placement)

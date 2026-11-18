@@ -176,8 +176,10 @@ class FeatureSettingsView:
             detail = ""
           if row.page and detail in ("Saved settings", "Saved preferences", "Saved profiles"):
             detail = ""
-          reason = value_reason(row)
+          reason = row.reason if row.learned_value else value_reason(row)
           detail += (" - " if detail and reason else "") + reason
+          if row.learned_value:
+            detail = row.learned_value + '\n' + detail
           label = self._elide(row.label, FontRole.NORMAL, LABEL_SIZE, width)
           # Two detail lines fit a row.
           lines = [self._elide(line, FontRole.NORMAL, DETAIL_SIZE, width) for line in detail.split("\n")[:2]] if detail else []

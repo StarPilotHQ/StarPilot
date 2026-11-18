@@ -29,6 +29,7 @@ class FlmTrainingResults:
     from openpilot.starpilot.lateral.learning_preferences import KEY, MAX_BYTES, LEGACY_KEY, read_preference
     from openpilot.starpilot.saved_source import read_saved
     from openpilot.starpilot.schema_cache import inspect_cache
+    from openpilot.starpilot.ui.controller_feature import steering_controller
 
     unknown = {'version': 1, 'valid': False, 'enabled': None, 'parked': None, 'vehicle': None}
     try:
@@ -48,12 +49,13 @@ class FlmTrainingResults:
       with car.CarParams.from_bytes(payload, traversal_limit_in_words=1024 * 1024 // 8) as cp:
         choice = read_preference(self.params, cp, preference_snapshot=snapshots[KEY], legacy_snapshot=snapshots[LEGACY_KEY])
         vehicle, not_car = str(cp.carFingerprint), bool(cp.notCar)
+        controller = steering_controller(cp)
       # A mode, vehicle or preference change invalidates this read as a whole.
       if (not_car or not choice.valid or offroad != read_saved(self.params, 'IsOffroad', 1) or
           any(snapshot != read_saved(self.params, name, 1024 * 1024 if name == key else MAX_BYTES if name == KEY else 1)
               for name, snapshot in snapshots.items())):
         return {**unknown, 'parked': parked}
-      return {'version': 1, 'valid': True, 'enabled': choice.enabled, 'parked': parked, 'vehicle': vehicle}
+      return {'version': 1, 'valid': True, 'enabled': choice.enabled, 'parked': parked, 'vehicle': vehicle, 'controller': controller}
     except (OSError, RuntimeError, AttributeError, TypeError, ValueError, OverflowError, KjException):
       return unknown
 

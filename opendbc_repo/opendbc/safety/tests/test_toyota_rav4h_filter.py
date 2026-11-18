@@ -151,7 +151,7 @@ class TestRav4hFilterNative(unittest.TestCase):
     for ae in (0, 32, 128, 160):
       self.init(0x9049, ae)
       self.physical(cruise=True)
-      for accel, allowed in ((-3.501, False), (-3.5, True), (2., True), (2.001, False)):
+      for accel, allowed in ((-3.501, False), (-3.5, True), (2., True), (3.5, True), (3.501, False)):
         self.assertEqual(bool(self.safety.safety_tx_hook(self.packer.make_can_msg_safety("ACC_CONTROL", 0, {
           "ACCEL_CMD": accel}))), allowed, (ae, accel))
       self.safety.set_controls_allowed(False)

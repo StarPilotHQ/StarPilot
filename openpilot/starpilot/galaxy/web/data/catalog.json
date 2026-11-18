@@ -142,6 +142,13 @@
       ]
     },
     {
+      "name": "Networks",
+      "path": "/networks",
+      "icon": "bi-wifi",
+      "description": "Preferred Wi-Fi, cellular data and the Galaxy hotspot",
+      "availability": "local-only"
+    },
+    {
       "name": "System Tools",
       "path": "/system",
       "icon": "bi-arrow-repeat",

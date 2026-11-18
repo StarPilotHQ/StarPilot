@@ -272,3 +272,21 @@ def held_lateral_pedal(owner, cs):
     isfinite(cs.vEgoRaw) and isfinite(cs.vEgo) and
     (not cs.brakePressed or cs.standstill or cs.vEgo >= settings.pause_brake_mps) and
     not cs.seatbeltUnlatched and not physical_cancel(cs, owner.CP))
+
+
+def healthy_gas_transport_native(sm, cp, cs, session, now_ns):
+  """Retain established LAT intent during gas override; never grant LONG."""
+  from math import isfinite
+  from openpilot.starpilot.nostalgia import physical_cancel
+  from openpilot.starpilot.aol.transport_pause import _healthy_transport_native
+  if (not qualified(cp, marked_only=True) or not cp.openpilotLongitudinalControl or
+      not cs.gasPressed or cs.brakePressed or cs.regenBraking or not cs.cruiseState.available or
+      not cs.cruiseState.enabled or cs.accFaulted or cs.vehicleSensorsInvalid or cs.steeringDisengage or
+      cs.doorOpen or cs.seatbeltUnlatched or physical_cancel(cs, cp) or
+      cs.gearShifter not in (structs.CarState.GearShifter.drive, structs.CarState.GearShifter.sport,
+                             structs.CarState.GearShifter.low, structs.CarState.GearShifter.brake) or
+      not isfinite(cs.vEgo) or not isfinite(cs.vEgoRaw)):
+    return None
+  native = _healthy_transport_native(sm, cp, cs, session, now_ns, require_longitudinal=False)
+  return native if (native is not None and native.pandaInventory and native.requestedLateral and
+    native.lateralAllowed and native.requestedLongitudinal and not native.longitudinalAllowed) else None

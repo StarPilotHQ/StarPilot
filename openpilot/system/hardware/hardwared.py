@@ -30,6 +30,7 @@ from openpilot.common.linux import LinuxSystemStats
 from openpilot.system.loggerd.config import get_available_percent
 from openpilot.common.swaglog import cloudlog
 from openpilot.system.hardware.power_monitoring import PowerMonitoring
+from openpilot.system.hardware.power_telemetry import PowerTelemetry
 from openpilot.system.hardware.hardware_timing import HardwareLoopTiming
 from openpilot.system.hardware.fan_controller import FanController
 from openpilot.system.hardware.chestnut.monitoring import chestnut_state_thread
@@ -229,7 +230,7 @@ def hw_state_thread(end_event, hw_queue):
     time.sleep(DT_HW)
 
 
-def hardware_thread(end_event, hw_queue) -> None:
+def hardware_thread(end_event, hw_queue, power_telemetry: PowerTelemetry) -> None:
   system_stats = LinuxSystemStats() if sys.platform == "linux" else None
   timing = HardwareLoopTiming()
   pm = messaging.PubMaster(['deviceState'])
@@ -512,7 +513,7 @@ def hardware_thread(end_event, hw_queue) -> None:
     msg.deviceState.powerDrawW = current_power_draw
 
     timing.mark("som_power")
-    som_power_draw = HARDWARE.get_som_power_draw()
+    som_power_draw = power_telemetry.value()
     msg.deviceState.somPowerDrawW = som_power_draw
 
     # Check if we need to shut down
@@ -574,9 +575,15 @@ def main():
   hw_queue = queue.Queue(maxsize=1)
   end_event = threading.Event()
 
+  power_telemetry = PowerTelemetry(HARDWARE.get_som_power_draw, DT_HW)
+  # A kernel sysfs read may not be cancellable. The sole telemetry worker is
+  # daemonized so it cannot delay process shutdown; no health work runs in it.
+  power_thread = threading.Thread(target=power_telemetry.run, args=(end_event,), daemon=True, name="som_power")
+  power_thread.start()
+
   threads = [
     threading.Thread(target=hw_state_thread, args=(end_event, hw_queue)),
-    threading.Thread(target=hardware_thread, args=(end_event, hw_queue)),
+    threading.Thread(target=hardware_thread, args=(end_event, hw_queue, power_telemetry)),
   ]
 
   if COMMA_HARDWARE:

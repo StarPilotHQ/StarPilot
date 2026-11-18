@@ -205,3 +205,23 @@ def test_read_gain_maps_setting_and_treats_invalid_as_off(tmp_path):
   for raw, gain in ((b"10", 1.0), (b"3", 0.3), (b"1", 0.1), (b"0", 1.0), (b"0.5", 1.0), (b"11", 1.0), (b"nan", 1.0), (b"x", 1.0)):
     (tmp_path / KEY).write_bytes(raw)
     assert math.isclose(read_gain(params), gain), raw
+
+
+def test_smoothing_capability_independent_of_controller_type():
+  from opendbc.car import structs
+  from opendbc.car.car_helpers import interfaces
+  from opendbc.car.ford.values import CAR
+  from openpilot.starpilot.feature_capabilities import lateral_supported
+  cp = interfaces[CAR.FORD_MUSTANG_MACH_E_MK1].get_non_essential_params(CAR.FORD_MUSTANG_MACH_E_MK1)
+  raw = _weave()
+  for steer_type, tuning in ((structs.CarParams.SteerControlType.curvature, 'pid'),
+                             (structs.CarParams.SteerControlType.angle, 'pid'),
+                             (structs.CarParams.SteerControlType.torque, 'pid'),
+                             (structs.CarParams.SteerControlType.torque, 'torque')):
+    cp.steerControlType = steer_type
+    cp.lateralTuning.init(tuning)
+    assert lateral_supported(cp)
+    # Zero percent remains exact pass-through; enabled smoothing acts on the same
+    # curvature command before any controller consumes it.
+    np.testing.assert_array_equal(_run(HighwayCorrectionGain(), raw, gain=1.), raw)
+    assert np.max(np.abs(_run(HighwayCorrectionGain(), raw, gain=.37)[-1000:])) < np.max(np.abs(raw[-1000:]))

@@ -1,6 +1,5 @@
 """Qualified SLC decisions supply a planner cap beneath the driver's SET."""
 
-import math
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
@@ -73,36 +72,22 @@ class Result:
   errors: tuple[str, ...] = ()
 
 
-def _integer(value: object) -> bool:
-  return type(value) is int and value >= 0
-
-
-def _number(value: object, *, positive: bool = False) -> bool:
-  if type(value) not in (int, float):
-    return False
-  assert isinstance(value, (int, float))
-  try:
-    return math.isfinite(value) and (value > 0 if positive else value >= 0)
-  except OverflowError:
-    return False
-
-
 def _state_valid(state: object) -> bool:
   if not isinstance(state, State) or not isinstance(state.acceptance, acc.State):
     return False
   return (type(state.session_id) is str and bool(state.session_id) and state.acceptance.session_id == state.session_id and
-          _number(state.pedal_target_mps) and (state.last_now_ns is None or _integer(state.last_now_ns)) and
+          acc.number(state.pedal_target_mps) and (state.last_now_ns is None or acc.integer(state.last_now_ns)) and
           type(state.reset_required) is bool and type(state.pedal_blocked_until_release) is bool and
           (state.wheel_override_metric is None or type(state.wheel_override_metric) is bool) and
-          _integer(state.wheel_override_since_ns))
+          acc.integer(state.wheel_override_since_ns))
 
 
 def _host_valid(host: object) -> bool:
   return (isinstance(host, HostState) and
           all(type(value) is bool for value in (host.system_long_available, host.long_control_active,
                                                 host.selfdrive_enabled, host.force_decel)) and
-          _number(host.driver_v_cruise_kph) and
-          (host.selected_cluster_kph is None or _number(host.selected_cluster_kph)))
+          acc.number(host.driver_v_cruise_kph) and
+          (host.selected_cluster_kph is None or acc.number(host.selected_cluster_kph)))
 
 
 def new_session(session_id: str, previous_limit: acc.AcceptedLimit | None = None) -> State:
@@ -122,18 +107,18 @@ def step(state: State, frame: Frame) -> Result:
     return Result(state, status="invalid_state", errors=("invalid composition state",))
   if state.reset_required:
     return Result(state, status="session_reset_required", errors=("new session required",))
-  if (not isinstance(frame, Frame) or not _integer(frame.now_ns) or
+  if (not isinstance(frame, Frame) or not acc.integer(frame.now_ns) or
       (state.last_now_ns is not None and frame.now_ns < state.last_now_ns) or
       not _host_valid(frame.host) or not acc.authority_is_valid(frame.authority) or
       not isinstance(frame.acceptance_policy, acc.Policy) or
       not isinstance(frame.pedal_override, PedalOverride) or
-      not _integer(frame.wheel_override_since_ns) or
+      not acc.integer(frame.wheel_override_since_ns) or
       any(type(value) is not bool for value in (frame.acceptance_policy.confirm_lower,
                                                 frame.acceptance_policy.confirm_higher,
                                                 frame.acceptance_policy.display_only,
                                                 frame.wheel_override_enabled, frame.wheel_override_blocked)) or
       not isinstance(frame.selected_kind, sd.DomainStatus) or not isinstance(frame.ego_pair, sd.SpeedPair) or
-      (frame.filtered_ego_delta_mps is not None and not _number(frame.filtered_ego_delta_mps)) or
+      (frame.filtered_ego_delta_mps is not None and not acc.number(frame.filtered_ego_delta_mps)) or
       (frame.is_metric is not None and type(frame.is_metric) is not bool)):
     return Result(replace(state, reset_required=True), status="invalid_frame", errors=("invalid frame or clock",))
   host = frame.host
@@ -169,10 +154,9 @@ def step(state: State, frame: Frame) -> Result:
   matches_set = False
   if (active_path and candidate is not None and frame.selected_kind is sd.DomainStatus.VALID and
       ego.status is sd.DomainStatus.VALID and ego.session_id == state.session_id and ego.timestamp_ns == frame.now_ns and
-      _number(ego.raw_mps) and _number(ego.cluster_mps)):
+      acc.number(ego.raw_mps) and acc.number(ego.cluster_mps)):
     assert ego.raw_mps is not None and ego.cluster_mps is not None
-    target = sd.adjusted_limit(candidate.speed_mps, frame.offset_schedule,
-                               minimum_target_mps=max(0.0, ego.cluster_mps - ego.raw_mps))
+    target = sd.adjusted_limit(candidate.speed_mps, frame.offset_schedule, minimum_target_mps=ego.delta_mps)
     matches_set = target is not None and sd.set_speed_matches(
       target, host.driver_v_cruise_kph, host.selected_cluster_kph, frame.is_metric)
   acceptance = acc.step(base.acceptance, selected.observation, frame.authority, frame.acceptance_policy,

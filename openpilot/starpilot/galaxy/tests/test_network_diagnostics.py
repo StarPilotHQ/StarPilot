@@ -109,7 +109,7 @@ class TestNetworkDiagnostics(unittest.TestCase):
 
     owner = SimpleNamespace(lock=threading.Lock(), context=SimpleNamespace(sample=lambda: ctx), _state=state)
     result = namespace['diagnostics'](owner)
-    self.assertEqual(pages, ['torque', 'lane', 'lane_change', 'aol', 'conditional', 'profiles', 'slc', 'curve'])
+    self.assertEqual(pages, ['torque', 'torque/developer', 'lane', 'lane_change', 'aol', 'conditional', 'profiles', 'slc', 'curve'])
     self.assertEqual(result['sections'][0]['rows'], [{'label': 'Setting', 'value': 'Shown'}])
     self.assertTrue(result['vehicle']['available'])
     self.assertNotIn('not-public', json.dumps(result))

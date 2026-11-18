@@ -1,3 +1,4 @@
+import { GxCollapse } from './disclosure.js'
 import { GxNotice } from "./notice.js"
 import { reportSave } from "./save-feedback.js"
 export const channels = ["webPush", "discord", "webhook", "ntfy"]
@@ -58,7 +59,7 @@ export class NotificationClient {
 }
 
 export const SentryNotifications = {
-  components: { GxNotice },
+  components: { GxCollapse, GxNotice },
   name: "SentryNotifications",
   props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true } },
   data: () => ({ nativePush: !!window.StarPilotApp?.sentryPush, pushState: {}, testingId: '', testPoll: null, relayUrl: '', enrollmentCode: '', relayConfirmed: false, channels, labels, notifications: null, notificationBusy: false, notificationTesting: false, notificationError: "",
@@ -237,7 +238,7 @@ export const SentryNotifications = {
               <label class="gx-switch"><input type="checkbox" role="switch" :aria-label="labels[name] + ' notifications'" :checked="channelExpanded(name)"
                 :disabled="notificationBusy"
                 @change="$event.target.checked=channelExpanded(name); toggleChannel(name)"><span class="gx-switch__track"></span><span class="gx-switch__thumb"></span></label></div>
-            <div v-if="channelExpanded(name)" class="gx-panel gx-stack">
+            <GxCollapse><div v-if="channelExpanded(name)" class="gx-panel gx-stack">
             <p class="gx-note" role="status">{{ notifications.channels[name].configured ? 'Configured' : 'Not configured' }}<template v-if="notifications.channels[name].configured && notifications.channels[name].lastState !== 'idle'">, last delivery {{ notifications.channels[name].lastState }}<template v-if="notifications.channels[name].pending">, {{ notifications.channels[name].pending }} pending</template></template></p>
             <GxNotice tone="danger" v-if="notifications.channels[name].lastError">Delivery status: {{ notifications.channels[name].lastError.replaceAll('_', ' ') }}</GxNotice>
             <div v-if="name !== 'webPush'" class="gx-sentry-channel__fields">
@@ -249,7 +250,7 @@ export const SentryNotifications = {
             <button v-else class="gx-btn gx-btn--tonal" type="button" @click="subscribe">Subscribe this browser</button>
             <button class="gx-btn gx-btn--tonal" type="button" :disabled="!notifications.channels[name].enabled || !notifications.channels[name].configured" @click="test(name)">Send test</button>
             <button class="gx-btn gx-btn--tonal" type="button" @click="forget(name)">Forget configuration</button>
-            </div></div>
+            </div></div></GxCollapse>
           </section>
           <div v-if="notifications.subscriptionCount" class="gx-actions"><span class="gx-note">Subscribed browsers: {{ notifications.subscriptionCount }}</span>
             <button v-for="(subscription, index) in notifications.subscriptions" :key="subscription.id" class="gx-btn gx-btn--tonal" type="button" @click="remove(subscription.id)">Remove browser {{ index + 1 }}</button></div>

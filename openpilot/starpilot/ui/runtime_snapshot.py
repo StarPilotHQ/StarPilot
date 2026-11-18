@@ -341,6 +341,9 @@ class RuntimeSnapshotAdapter:
     self._stopped_timer = StoppedTimer()
     self._replay_stopped_history = False
     self._developer_metrics = DeveloperMetrics()
+    self._developer_delay = None
+    self._developer_delay_key = None
+    self._developer_delay_read_ns = None
     self._reverse_driver_camera = ReverseDriverCamera()
     self._vision_stop = StopConfirmation(display_only=True)
     self._slc_sign_cache: tuple[int, tuple[int, int], str, SpeedLimitObservation] | None = None
@@ -683,12 +686,20 @@ class RuntimeSnapshotAdapter:
            (car.standstill or cruise_state.standstill or not cruise_state.enabled)))
     developer_metrics = ()
     if not (onroad_view_only and stopped_timer_profile == "compact"):
+      delay_key = ((after, str(cp.carFingerprint), str(cp.steerControlType), str(cp.lateralTuning.which()), float(cp.steerActuatorDelay))
+                   if cp is not None else None)
+      if (delay_key != self._developer_delay_key or self._developer_delay_read_ns is None or
+          not 0 <= now_ns - self._developer_delay_read_ns < 1_000_000_000):
+        from openpilot.starpilot.lateral.delay_preferences import read_delay
+        self._developer_delay = read_delay(params, cp) if cp is not None else None
+        self._developer_delay_key, self._developer_delay_read_ns = delay_key, now_ns
+      lateral = current_message(sm, 'starpilotLateralState', now_ns, after_frame=after) if started else None
       developer_metrics = self._developer_metrics.observe(
         drive=after if started else None, car=display_car if display_car_valid else None,
         delay=current_message(sm, 'lateralDelay', now_ns, after_frame=after) if started else None,
         torque=current_message(sm, 'lateralTorqueParameters', now_ns, after_frame=after) if started else None,
         parameters=display_message(sm, 'vehicleParameters', now_ns, after_frame=after) if started else None,
-        metric=bool(ui.is_metric), cp=cp)
+        metric=bool(ui.is_metric), cp=cp, applied=getattr(lateral, 'torqueTuning', None), delay_selection=self._developer_delay)
     stop_observed_ns = (self._vision_stop.observe_message(
       sm, now_ns=now_ns, now_boot_ns=now_ns + pair[2], drive_id=drive_id, after_frame=after)
       if started and pair is not None else self._vision_stop.observe(None, now_ns=now_ns))

@@ -62,6 +62,50 @@ class ForceStopRuntimeTests(unittest.TestCase):
     self.assertTrue(output.forcing)
     return output
 
+  def test_always_hold_selection_is_next_drive_and_preserves_hold(self):
+    from openpilot.starpilot.longitudinal.enhanced_stop_hold import KEY
+    self.params.put_bool(KEY, True, block=True)
+    self.prime()
+    self.params.put_bool(KEY, False, block=True)
+    for tick in range(40, 120):
+      plan = self.sample(Frame(tick, horizon=190., stopped=True))
+      self.assertTrue(plan.manual_hold)
+      self.assertTrue(plan.should_stop)
+    self.assertTrue(self.owner.always_hold)
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    planner = LongitudinalPlanner(self.cp)
+    sm = Frame(120, horizon=190., stopped=True)
+    sm.all_checks = lambda _: True
+    planner.update(sm, now_ns=sm.stamp + 1_000_000, drive_id=DRIVE,
+                   force_stop_provider=lambda follow: self.sample(sm, follow_seconds=follow))
+    published = {}
+    with patch('openpilot.cereal.messaging.time.monotonic', return_value=(sm.stamp + 1_000_000) / 1e9):
+      planner.publish(sm, SimpleNamespace(send=lambda name, event: published.__setitem__(name, event)))
+    self.assertTrue(published['starpilotLongitudinalPlan'].valid)
+    self.assertTrue(published['starpilotLongitudinalPlan'].starpilotLongitudinalPlan.forceStopHolding)
+    self.assertTrue(published['longitudinalPlan'].longitudinalPlan.shouldStop)
+    self.sample(Frame(121), drive_id=DRIVE + 1)
+    self.assertFalse(self.owner.always_hold)
+    self.assertFalse(self.owner.plan.manual_hold)
+
+  def test_always_hold_cannot_bypass_control_brake_or_stale_guards(self):
+    from openpilot.starpilot.longitudinal.enhanced_stop_hold import KEY
+    for guard in ('brake', 'authority', 'stale'):
+      with self.subTest(guard=guard):
+        self.owner = ForceStopRuntime(self.params)
+        self.params.put_bool(KEY, True, block=True)
+        self.prime()
+        self.assertTrue(self.sample(Frame(40, stopped=True)).manual_hold)
+        sm = Frame(41, stopped=True)
+        if guard == 'brake':
+          sm['carState'].brakePressed = True
+        elif guard == 'authority':
+          sm['carControl'].longActive = False
+        else:
+          sm.valid['modelV2'] = False
+        self.assertFalse(self.sample(sm).manual_hold)
+
   def test_unconfirmed_stationary_forecast_tail_keeps_preview_tracking(self):
     from unittest.mock import patch
     from openpilot.starpilot.longitudinal.tests.test_ioniq6_start import candidate

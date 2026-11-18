@@ -73,6 +73,14 @@ assert.doesNotMatch(readFileSync(new URL('../web/js/flm.js', import.meta.url), '
 for (const view of ['overview', 'tune', 'activity', 'plots']) assert(FlmPage.template.includes(`view === '${view}'`))
 const choice = { version: 1, valid: true, enabled: true, parked: true, vehicle: 'HYUNDAI_IONIQ_6' }
 assert(validLearningPreference(choice))
+for (const controller of [null, 'torque', 'pid', 'angle', 'curvature']) {
+  const preference = { ...choice, controller }
+  assert(validLearningPreference(preference))
+  assert.equal(FlmPage.computed.nonTorqueController.call({ choiceLive: true, preference }), ['pid', 'angle', 'curvature'].includes(controller))
+  assert.equal(FlmPage.computed.nonTorqueController.call({ choiceLive: false, preference }), false)
+}
+assert(!validLearningPreference({ ...choice, controller: 'unknown' }))
+assert.equal(FlmPage.computed.nonTorqueController.call({ choiceLive: true, preference: choice }), false)
 assert.equal(tunerStatus({ ...value, preference: choice }, false, true).key, 'parked')
 assert.equal(tunerStatus({ ...value, preference: { ...choice, enabled: false } }, true, true).key, 'off')
 assert.equal(tunerStatus({ ...value, preference: choice }, false, false).key, 'stale')
