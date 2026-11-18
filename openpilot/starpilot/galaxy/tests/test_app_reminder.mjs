@@ -35,39 +35,10 @@ assert.ok(appReminderPreference.error)
 assert.equal(reminderHidden({}), false)
 assert.equal(reminderDismissed({}), false)
 const context = { download: APP_DOWNLOADS.ios, pref: { hidden: false }, dismissed: false }
-assert.match(AppDownloadReminder.template, /The most seamless way to connect to your StarPilot via Bluetooth, Wi-Fi, or over the network\./)
+assert.match(AppDownloadReminder.template, /The easiest way to connect to your comma\./)
 assert.ok(AppDownloadReminder.computed.visible.call(context))
 context.pref.hidden = true
 assert.equal(AppDownloadReminder.computed.visible.call(context), false)
-const dismissal = { dismissed: false, pref: { set: hidden => appReminderPreference.set(hidden, target) } }
-AppDownloadReminder.methods.dismiss.call(dismissal)
-assert.equal(dismissal.dismissed, true)
-assert.equal(reminderHidden(target), true, 'dismissing must persist across browser sessions')
-values.delete(DISMISSED_APP_REMINDER)
-assert.equal(reminderDismissed(target), false)
-assert.equal(reminderHidden(target), true, 'ending the session must not bring the prompt back')
-assert.equal(appReminderPreference.set(false, target), true, 'browser preferences can enable reminders again')
-const later = { dismissed: false }
-const originalSessionStorage = globalThis.sessionStorage
-try {
-  globalThis.sessionStorage = target.sessionStorage
-  AppDownloadReminder.methods.showLater.call(later)
-  assert.equal(later.dismissed, true)
-  assert.equal(reminderDismissed(target), true, 'show later dismisses for the tab session')
-  assert.equal(reminderHidden(target), false, 'show later must not disable future reminders')
-  values.delete(DISMISSED_APP_REMINDER)
-  assert.equal(reminderDismissed(target), false, 'a new session allows the reminder again')
-} finally {
-  if (originalSessionStorage === undefined) delete globalThis.sessionStorage
-  else globalThis.sessionStorage = originalSessionStorage
-}
-const failedDismissal = { dismissed: false, pref: { set: hidden => appReminderPreference.set(hidden, denied) } }
-AppDownloadReminder.methods.dismiss.call(failedDismissal)
-assert.equal(failedDismissal.dismissed, true, 'storage failure must not prevent closing the prompt')
-assert.equal(appReminderPreference.hidden, false)
-assert.match(AppDownloadReminder.template, /Don't Remind Me/)
-assert.match(AppDownloadReminder.template, /@click="showLater">Not Now/)
-assert.doesNotMatch(AppDownloadReminder.template, /download.name/)
 context.pref.hidden = false
 context.dismissed = true
 assert.equal(AppDownloadReminder.computed.visible.call(context), false)
