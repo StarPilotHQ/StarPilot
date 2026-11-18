@@ -1299,6 +1299,8 @@ def _tracking_oscillation_windows(samples: list[FLMSample], eligibility: list[bo
     outputs = np.array([s.output for s in window])
     angles -= np.linspace(angles[0], angles[-1], len(window))
     outputs -= np.linspace(outputs[0], outputs[-1], len(window))
+    angles -= np.median(angles)
+    outputs -= np.median(outputs)
     error_cycles, angle_cycles, output_cycles = excursions(errors, .11), excursions(angles, .14), excursions(outputs, .0125)
     if min(error_cycles, angle_cycles, output_cycles) < 6:
       continue

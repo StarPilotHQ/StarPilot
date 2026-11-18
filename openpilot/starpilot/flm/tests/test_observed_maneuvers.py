@@ -287,3 +287,20 @@ def test_commanded_maneuvers_and_unusable_sources_are_not_sustained_tracking_wob
   if kind == 'gap':
     samples = [s for i, s in enumerate(samples) if i < 35 or i > 40]
   assert not oscillation_events(samples)
+
+
+@pytest.mark.parametrize('phase', [0., 1.5707963267948966])
+def test_sustained_wobble_does_not_depend_on_window_phase_or_steering_offset(phase):
+  import math
+
+  template = recorded_highway_samples()[0]
+  samples = []
+  for i in range(60):
+    t = i / 10
+    wave = math.sin(2 * math.pi * t + phase)
+    desired = .3 * wave
+    error = .2 * math.sin(2 * math.pi * t + phase + .8)
+    samples.append(replace(template, t=t, desired_la=desired, actual_la=desired + error, error=error, desired_jerk=0.,
+                           steering_angle_deg=3. + 1.5 * wave, output=.2 + .15 * wave, v_ego=35.,
+                           steering_pressed=False, lat_active=True, saturated=False))
+  assert oscillation_events(samples)
