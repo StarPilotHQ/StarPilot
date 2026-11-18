@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from typing import cast
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from openpilot.starpilot.galaxy.device_settings import (CALIBRATION_RESET, DRIVER_MONITORING_RESET, STARPORT_EXPERIMENT_PREFIX,
                                                           STARPORT_EXPERIMENTS_KEY,
@@ -92,7 +92,7 @@ class DeviceSettingsTest(unittest.TestCase):
 
   def test_pages_separate_driving_controls_services_and_resets(self):
     from openpilot.starpilot.longitudinal.enhanced_stop_hold import KEY as HOLD_KEY
-    service = SimpleNamespace(call=unittest.mock.Mock(side_effect=RuntimeError("off")))
+    service = SimpleNamespace(call=Mock(side_effect=RuntimeError("off")))
     owner = DeviceSettingsOwner(self.params, lambda: self.parked, starport=lambda: service)
     self.assertEqual([row.key for row in owner.snapshot("driving_options").rows], [KEY, HOLD_KEY])
     self.assertEqual([row.key for row in owner.snapshot("resets").rows], [DRIVER_MONITORING_RESET, CALIBRATION_RESET])

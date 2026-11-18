@@ -23486,3 +23486,30 @@ msgstr "신호등에서의 정차 동작을 개선하고 감지된 정지 표지
 msgid "Enhanced Stops"
 msgstr "향상된 정차"
 
+msgid "Blind Spot Camera & Preview"
+msgstr "사각지대 카메라 및 미리보기"
+
+msgid "Blind Spot Camera & Preview saved settings"
+msgstr "사각지대 카메라 및 미리보기의 저장된 설정"
+
+msgid "Setup & Settings"
+msgstr "설치 및 설정"
+
+msgid "Show onroad · Big & Small UI"
+msgstr "주행 중 표시 · 대형 및 소형 UI"
+
+msgid "Speed & longitudinal"
+msgstr "속도 및 종방향 제어"
+
+msgid "Spotify & Phone Audio"
+msgstr "Spotify 및 휴대폰 오디오"
+
+msgid "Steering & Torque"
+msgstr "조향 및 토크"
+
+msgid "Steering & buttons"
+msgstr "조향 및 버튼"
+
+msgid "Storage & Account"
+msgstr "저장 공간 및 계정"
+

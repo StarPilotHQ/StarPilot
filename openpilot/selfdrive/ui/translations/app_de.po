@@ -23490,3 +23490,30 @@ msgstr "Verbessert das Anhalten an Ampeln und ermöglicht automatisches Anhalten
 msgid "Enhanced Stops"
 msgstr "Verbessertes Anhalten"
 
+msgid "Blind Spot Camera & Preview"
+msgstr "Totwinkelkamera und Vorschau"
+
+msgid "Blind Spot Camera & Preview saved settings"
+msgstr "Gespeicherte Einstellungen für Totwinkelkamera und Vorschau"
+
+msgid "Setup & Settings"
+msgstr "Einrichtung und Einstellungen"
+
+msgid "Show onroad · Big & Small UI"
+msgstr "Während der Fahrt anzeigen · Große und kleine Oberfläche"
+
+msgid "Speed & longitudinal"
+msgstr "Geschwindigkeit und Längsregelung"
+
+msgid "Spotify & Phone Audio"
+msgstr "Spotify und Telefonaudio"
+
+msgid "Steering & Torque"
+msgstr "Lenkung und Drehmoment"
+
+msgid "Steering & buttons"
+msgstr "Lenkung und Tasten"
+
+msgid "Storage & Account"
+msgstr "Speicher und Konto"
+

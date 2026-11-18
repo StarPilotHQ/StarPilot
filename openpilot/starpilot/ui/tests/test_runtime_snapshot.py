@@ -154,6 +154,20 @@ def test_slc_offset_schedule_uses_cached_validated_settings(tmp_path):
 
 class TestRuntimeSnapshot(unittest.TestCase):
 
+  def test_weather_gps_does_not_replace_speed_limit_observation(self):
+    ui = ui_fake()
+    baseline = RuntimeSnapshotAdapter(ui).build(ShellMode.ONROAD, now_ns=NOW).onroad.speed_limit
+    document = default_document()
+    document['layouts']['compact']['weather']['enabled'] = True
+    ui.sm.recv_frame['gpsLocationExternal'] = 3
+    with patch('openpilot.starpilot.ui.runtime_snapshot.read_customization', return_value=document):
+      for fix, location in ((None, None), ((NOW, NS(latitude=41.0, longitude=-87.0)), (41.0, -87.0))):
+        with self.subTest(location=location), patch('openpilot.starpilot.gps.source.observation', return_value=fix) as gps:
+          onroad = RuntimeSnapshotAdapter(ui).build(ShellMode.ONROAD, now_ns=NOW).onroad
+          gps.assert_called()
+          self.assertEqual(onroad.speed_limit, baseline)
+          self.assertEqual(onroad.weather_location, location)
+
   def vehicle_ui(self, **car_params):
     return vehicle_ui(self.enterContext(TemporaryDirectory()), **car_params)
 

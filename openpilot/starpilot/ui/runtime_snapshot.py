@@ -706,12 +706,12 @@ class RuntimeSnapshotAdapter:
     weather_location = None
     if (started and getattr(ui, 'replay_clock', None) is None and
         any(layout.get('weather', {}).get('enabled', False) for layout in self._customization_value['layouts'].values())):
-      from openpilot.starpilot.gps.source import GPS_SOURCES, SOURCE_SERVICES, observation
+      from openpilot.starpilot.gps.source import GPS_SOURCES, SOURCE_SERVICES, observation as gps_observation
       # Weather needs a recent location, not the high-frequency driving-message age gate.
       # Include car/phone fixes when this device has no native GNSS receiver.
       for service in GPS_SOURCES:
         carrier = SOURCE_SERVICES.get(service, service)
-        fix = observation(sm, service, now_ns)
+        fix = gps_observation(sm, service, now_ns)
         if fix is not None and int(sm.recv_frame.get(carrier, 0)) > after:
           weather_location = (fix[1].latitude, fix[1].longitude)
           break
