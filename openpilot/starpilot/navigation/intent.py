@@ -9,6 +9,7 @@ from openpilot.starpilot.navigation.wire import navigation_state
 
 SERVICE = 'starpilotNavigation'
 MAX_AGE_NS = 2_500_000_000
+NAVIGATION_BRAKE_MAGNITUDE = 1.0
 TARGET_MPH = {'uturn': 5., 'sharpLeft': 10., 'sharpRight': 10., 'left': 14., 'right': 14.}
 
 
@@ -64,8 +65,9 @@ def turn_speed(maneuver, min_steer_speed: float) -> float | None:
   if target is None or not math.isfinite(maneuver.distanceMeters) or maneuver.distanceMeters < 0:
     return None
   target = max(target * CV.MPH_TO_MS, min_steer_speed)
-  approach_decel = .5 if kind == 'turn' and modifier in ('left', 'right') else .45
-  return math.sqrt(target * target + 2 * approach_decel * max(0., maneuver.distanceMeters - 8.))
+  ordinary = kind == 'turn' and modifier in ('left', 'right')
+  approach_decel, settling_distance = (.75, 20.) if ordinary else (.45, 8.)
+  return math.sqrt(target * target + 2 * approach_decel * max(0., maneuver.distanceMeters - settling_distance))
 
 
 def cruise_ceiling(sm, CP, now_ns: int, cruise_mps: float) -> float | None:

@@ -51,7 +51,7 @@ def test_stale_previous_drive_and_disabled_nav_are_inert(sm, field, value):
 
 def test_turn_ceiling_and_override(sm):
   cp = NS(openpilotLongitudinalControl=True, passive=False, dashcamOnly=False, minSteerSpeed=0.)
-  expected = ((14 * CV.MPH_TO_MS) ** 2 + 2 * .5 * (30 - 8)) ** .5
+  expected = ((14 * CV.MPH_TO_MS) ** 2 + 2 * .75 * (30 - 20)) ** .5
   assert cruise_ceiling(sm, cp, NOW, 20.) == pytest.approx(expected)
   sm['carState'].gasPressed = True
   assert cruise_ceiling(sm, cp, NOW, 20.) is None
@@ -161,20 +161,24 @@ def test_approaching_turn_does_not_start_or_replace_lane_change(sm):
 
 
 @pytest.mark.parametrize('modifier', ['left', 'right'])
-@pytest.mark.parametrize('cruise', [10., 15., 20., 25.])
-def test_ordinary_turn_onset_is_ten_percent_shorter_with_same_final_target(modifier, cruise):
-  target = 14 * CV.MPH_TO_MS
-  old_onset = 8 + (cruise ** 2 - target ** 2) / (2 * .45)
-  new_onset = 8 + (cruise ** 2 - target ** 2) / (2 * .5)
+@pytest.mark.parametrize('mph', [25., 35., 45., 50., 55., 65., 75.])
+def test_ordinary_turn_onset_scales_with_speed_and_keeps_final_target(modifier, mph):
+  target, cruise = 14 * CV.MPH_TO_MS, mph * CV.MPH_TO_MS
+  old_onset = 8 + (cruise ** 2 - target ** 2)
+  new_onset = 20 + (cruise ** 2 - target ** 2) / 1.5
   maneuver = NS(maneuverType='turn', maneuverModifier=modifier, distanceMeters=old_onset)
   assert turn_speed(maneuver, 0.) > cruise
   maneuver.distanceMeters = new_onset
   assert turn_speed(maneuver, 0.) == pytest.approx(cruise)
-  assert new_onset - 8 == pytest.approx(.9 * (old_onset - 8))
-  maneuver.distanceMeters = 8.
-  assert turn_speed(maneuver, 0.) == pytest.approx(target)
-  maneuver.distanceMeters = 0.
-  assert turn_speed(maneuver, 0.) == pytest.approx(target)
+  assert new_onset < old_onset
+  if mph == 50.:
+    assert .19 < new_onset / 1609.344 < .21
+  elif mph >= 65.:
+    assert new_onset > .3 * 1609.344  # High-speed braking needs more than a fixed 0.2-mile cap.
+  for distance in (20., 8., 0.):
+    maneuver.distanceMeters = distance
+    assert turn_speed(maneuver, 0.) == pytest.approx(target)
+    assert turn_speed(maneuver, 10.) == pytest.approx(10.)
 
 
 @pytest.mark.parametrize('kind,modifier,mph', [('turn', 'sharpLeft', 10.), ('turn', 'sharpRight', 10.),
@@ -182,3 +186,30 @@ def test_ordinary_turn_onset_is_ten_percent_shorter_with_same_final_target(modif
 def test_tight_turn_approaches_keep_the_original_margin(kind, modifier, mph):
   maneuver = NS(maneuverType=kind, maneuverModifier=modifier, distanceMeters=100.)
   assert turn_speed(maneuver, 0.) == pytest.approx(((mph * CV.MPH_TO_MS) ** 2 + .9 * 92.) ** .5)
+
+
+def test_native_navigation_approach_has_braking_capacity_without_changing_cruise_or_jerk():
+  from unittest.mock import patch
+  from opendbc.car.hyundai.interface import CarInterface
+  from opendbc.car.hyundai.values import CAR
+  from openpilot.selfdrive.controls.lib import longitudinal_planner as module
+  from openpilot.starpilot.longitudinal.tests.test_conditional_handoff import Frame, NOW as FRAME_NOW, DRIVE
+  cp = CarInterface.get_non_essential_params(CAR.HYUNDAI_IONIQ_6)
+  cp.openpilotLongitudinalControl = True
+  for response in (None, 'eco', 'standard', 'sport'):
+    for guided in (False, True):
+      planner = module.LongitudinalPlanner(cp, init_v=20.)
+      for tick in range(30):
+        frame = Frame()
+        now = FRAME_NOW + tick * 50_000_000
+        frame['carState'].vEgo = 20.
+        frame['carState'].gearShifter = 'drive'
+        frame.logMonoTime = dict.fromkeys(frame, now)
+        with patch.object(module, 'navigation_ceiling', return_value=10. if guided else None), \
+             patch.object(module, 'get_cruise_accel', wraps=module.get_cruise_accel) as cruise:
+          planner.update(frame, now_ns=now, drive_id=DRIVE, traffic_mode=False, global_braking_response=response)
+        if guided:
+          assert cruise.call_args.kwargs['base_brake_floor'] <= -1.
+          assert planner.a_cruise >= -max(1., {'sport': 2.4, 'standard': 1.2}.get(response, 0.))
+        else:
+          assert cruise.call_args.kwargs['base_brake_floor'] == -{None: .5, 'eco': .6, 'standard': 1.2, 'sport': 2.4}[response]

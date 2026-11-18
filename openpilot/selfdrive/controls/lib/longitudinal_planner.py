@@ -21,7 +21,7 @@ from openpilot.selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import T_IDX
 from openpilot.selfdrive.controls.lib.drive_helpers import CONTROL_N, get_accel_from_plan, should_stop
 from openpilot.selfdrive.car.cruise import V_CRUISE_MAX, V_CRUISE_UNSET
 from openpilot.common.swaglog import cloudlog
-from openpilot.starpilot.navigation.intent import cruise_ceiling as navigation_ceiling
+from openpilot.starpilot.navigation.intent import NAVIGATION_BRAKE_MAGNITUDE, cruise_ceiling as navigation_ceiling
 from openpilot.starpilot.car.tesla.preap_adaptive import startup_owner as preap_adaptive_owner
 from openpilot.starpilot.longitudinal.vehicle_policy import forecast_should_stop, planner_cost_owner, far_follow_owner
 from openpilot.starpilot.longitudinal.cruise_ceiling import CruiseCeiling, CurveCeiling, select_cruise_ceiling, select_curve_ceiling
@@ -392,6 +392,12 @@ class LongitudinalPlanner:
                                                                           abs(A_CRUISE_MIN)))
     if curve.effective_mps is not None:
       global_floor = min(global_floor, A_CRUISE_MIN)
+    if navigation_target is not None and not sm['controlsState'].forceDecel:
+      # A later turn approach must remain reachable with a soft cruise profile.
+      global_floor = min(global_floor, -NAVIGATION_BRAKE_MAGNITUDE)
+      if cruise_profile is not None:
+        cruise_profile = replace(cruise_profile, cruise_brake_magnitude=max(cruise_profile.cruise_brake_magnitude,
+                                                                          NAVIGATION_BRAKE_MAGNITUDE))
     if selected_acceleration is not None and cruise_profile is not None:
       # The selected curve owns acceleration; following/jerks retain their owner.
       cruise_profile = replace(cruise_profile, acceleration_max=selected_acceleration)
