@@ -389,9 +389,11 @@ export function parkedAnalysisProgress(report) {
   if (!Object.hasOwn(labels, phase)) return null
   const [, done, total] = Array.isArray(value) ? value : []
   const counted = Array.isArray(value) && value.length === 3 && Object.hasOwn(labels, value[0]) && Number.isSafeInteger(done) && Number.isSafeInteger(total) && done >= 0 && total > 0 && done <= total && total <= 180
+  const steps = { preparing: 'Starting the parked analyzer.', reading: 'Reading the recording sections.',
+    verifying: 'Checking that the recording is unchanged.', checking: 'Checking the suggested changes.' }
   return { phase, label: labels[phase], completed: counted ? done : null, total: counted ? total : null,
     percent: counted && ['reading', 'verifying'].includes(phase) ? done / total * 100 : null,
-    detail: counted ? `${done} of ${total} sections read in this recording` : 'Progress is reported as each step finishes.' }
+    detail: counted ? `${done} of ${total} sections read in this recording` : steps[phase] }
 }
 
 export function tunerStatus(report, live = false, choiceLive = false, error = "", reportFresh = live) {
