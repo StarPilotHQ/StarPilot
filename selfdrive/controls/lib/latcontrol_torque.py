@@ -85,10 +85,15 @@ ENVISION_MAX_TORQUE_RATE = 5.0  # normalized torque units per second; output_tor
 # road crown / minor wheel-speed deltas.
 ENVISION_CENTER_DEADBAND_LAT_ACCEL = 0.18  # m/s^2
 ENVISION_CENTER_MIN_SCALE = 0.80  # dimensionless
-# 1.0 = verified default, matches the version road-tested for hundreds of km.
-# i *= center_scale every frame, same rate as output taper, so the integrator
-# cannot wind up in the center band. <1.0 is a future A/B knob, not enabled.
-ENVISION_CENTER_I_DECAY_POWER = 1.0
+# Exponent applied when scaling the integrator: self.pid.i *= center_scale ** POWER
+# 0.0 = CURRENT, road-tested. center_scale**0 == 1.0, so the integrator is left
+#       alone; it must carry the steady bias (road crown, crosswind, offset).
+#       Decaying it every frame pushed that bias onto P, and the residual error
+#       then rode the friction relay threshold -> the periodic straight-line
+#       twitch. 1.0 -> 0.0 was the single-variable fix for that symptom.
+# 1.0 = legacy. i tapered like the output (~45 ms time constant in the band,
+#       -dt/ln(0.80) @ 100 Hz). Kept only as an A/B knob; do not re-enable.
+ENVISION_CENTER_I_DECAY_POWER = 0.0
 ENVISION_UNWIND_OUTPUT_SCALE = 0.8  # dimensionless
 ENVISION_UNWIND_MAX_SPEED_MPS = 25.0  # m/s; exactly 90 km/h (25 * 3.6)
 
@@ -183,7 +188,8 @@ class LatControlTorque(LatControl):
     self.is_envision = CP.carFingerprint == GM_CAR.BUICK_ENVISION_SDGM
     if self.is_envision:
       # Below ~3 m/s lateral control is inactive, so early gains are placeholders.
-      # The stock KP at 5-10 m/s over-amplifies IMU noise from SUV suspension rebound.
+      # The stock KP at 5-10 m/s over-amplifies the bump-steer / suspension-rebound
+      # noise that reaches measurement through the steering angle (not the IMU).
       self.pid._k_p = [
         [1, 1.5, 2.0, 3.0, 5, 7.5, 10, 15, 30],       # Speed grid (m/s)
         [25, 20, 18.0, 18.0, 8.0, 3.1, 1.3, 0.7, 0.58]  # Smoothed KP values
@@ -756,9 +762,12 @@ class LatControlTorque(LatControl):
       #    NOT Nm. GM CarController STEER_DELTA_UP/DOWN is much stricter, so this
       #    only smooths LatControl's internal prev_output_torque and logs; it does
       #    not change the final CAN command.
-      # 2) Narrow center taper (0.18 m/s^2, min scale 0.80). Scales output and
-      #    integrator by the same factor inside the straight-line band to filter
-      #    surface chatter without delaying corner entry or dumping steady-state bias.
+      # 2) Narrow center taper (0.18 m/s^2, min scale 0.80). Scales the OUTPUT only;
+      #    the integrator is left untouched (I_DECAY_POWER 0.0) so it keeps carrying
+      #    the steady bias. Consequences: inside the band the integrator sits ~25%
+      #    higher, and band exit steps the output by ~20% un-slewed (the scale is
+      #    applied after the slew clamp). Both are small (~6-12 CAN units) and are
+      #    present in the road-tested build.
       # 3) Unwind damping: only when unwinding, driver holding wheel, and <90 km/h.
       # =========================================================================
       if self.is_envision:
