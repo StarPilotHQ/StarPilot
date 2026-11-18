@@ -19,7 +19,7 @@ function fixture() {
   vm.runInContext(fs.readFileSync(js + 'components/VersionHistoryPicker.js', 'utf8').replace(/export /g, ''), context)
   vm.runInContext(source.replace(/^import .*$/gm, '').replace('export const SystemTools =', 'globalThis.component ='), context)
   const component = context.component
-  const instance = {...component.data(), ...component.methods, branches: ['Dom', 'SunnyPilot', 'StarPilot', 'feature/test'], currentBranch: 'feature/local', branchLoading: false}
+  const instance = {...component.data(), ...component.methods, branches: ['stable', 'testing', 'Dom', 'SunnyPilot', 'StarPilot', 'feature/test'], currentBranch: 'feature/local', branchLoading: false}
   for (const [key, getter] of Object.entries(component.computed)) Object.defineProperty(instance, key, {get: () => getter.call(instance)})
   return {instance, calls, confirmations, messages, reads, api, setConfirm: fn => {confirm = fn}}
 }
@@ -37,10 +37,10 @@ test('primary and Other choices stage a target without installing or confirming'
 })
 test('current custom branch remains visible when absent from remote', () => {
   const {instance} = fixture()
-  assert.deepEqual(Array.from(instance.otherBranches), ['feature/local', 'SunnyPilot', 'feature/test'])
+  assert.deepEqual(Array.from(instance.otherBranches), ['feature/local', 'Dom', 'SunnyPilot', 'StarPilot', 'feature/test'])
 })
 test('every remote branch can install latest only through explicit confirmation', async () => {
-  for (const branch of ['StarPilot', 'Dom', 'SunnyPilot', 'feature/test']) {
+  for (const branch of ['stable', 'testing', 'StarPilot', 'Dom', 'SunnyPilot', 'feature/test']) {
     const {instance, calls, confirmations} = fixture()
     instance.selectTargetBranch(branch)
     await instance.installSelectedVersion()
@@ -289,4 +289,43 @@ test('Latest explains normal OS handling and local-edit behavior; historical con
   await instance.installSelectedVersion()
   assert.match(confirmations[1].message, /updates will be paused/)
   assert.match(confirmations[1].message, /code changes are backed up/)
+})
+
+
+test('Stable and Testing are the primary choices; old aliases stay under Other', () => {
+  const {instance} = fixture()
+  assert.match(source, /<option value="stable"/)
+  assert.match(source, /<option value="testing"/)
+  assert.doesNotMatch(source, /<option value="Dom"|<option value="StarPilot"/)
+  for (const branch of ['stable', 'testing']) {
+    instance.selectTargetBranch(branch)
+    assert.equal(instance.primaryBranchValue, branch)
+    assert.equal(instance.otherBranchesOpen, false)
+    assert.ok(!instance.otherBranches.includes(branch))
+  }
+  instance.selectTargetBranch('Dom')
+  assert.equal(instance.primaryBranchValue, 'other:')
+  assert.ok(instance.otherBranches.includes('Dom'))
+})
+test('Stable history keeps release deduplication and normal confirmation', async () => {
+  const {instance, api, calls} = fixture()
+  api.getUpdateVersions = async (branch, {page}) => ({branch, head: HEAD, page, hasMore: false, commits: [
+    {sha: SHA, version: '6.7.9', subject: 'Latest build'},
+    {sha: 'c'.repeat(40), version: '6.7.9', subject: 'Earlier build'},
+  ]})
+  instance.selectTargetBranch('stable')
+  await instance.onVersionModeSelect({target: {value: 'earlier'}})
+  assert.equal(instance.versionChoices.length, 1)
+  instance.selectedCommit = SHA
+  await instance.installSelectedVersion()
+  assert.deepEqual(calls, [{branch: 'stable', commit: SHA}])
+})
+test('Offline branch-list fallback offers the canonical channels without installing', async () => {
+  const {instance, api, calls} = fixture()
+  api.getUpdateBranches = async () => {throw Error('offline')}
+  instance.currentBranch = ''
+  await instance.loadBranches()
+  assert.deepEqual(Array.from(instance.branches), ['stable', 'testing'])
+  assert.equal(instance.targetBranch, 'stable')
+  assert.deepEqual(calls, [])
 })

@@ -1,0 +1,30 @@
+name: Legacy channel migration contracts
+
+on:
+  push:
+    branches: [StarPilot, stable, review/nov17-stable-channel-config]
+  pull_request:
+    paths:
+      - 'scripts/branch_migration.py'
+      - 'scripts/tests/test_stable_workflows.mjs'
+      - '.github/workflows/**'
+      - 'starpilot/system/the_galaxy/assets/mobile/js/views/SystemTools.js'
+      - 'starpilot/system/the_galaxy/tests/test_branch_selector.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: Legacy channel migration contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node starpilot/system/the_galaxy/tests/test_branch_selector.mjs "$PWD"
+      - run: node scripts/tests/test_stable_workflows.mjs "$PWD"
+      - run: python3 -m unittest discover -s scripts/tests -p test_stable_build_targets.py -v
