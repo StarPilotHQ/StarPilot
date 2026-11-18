@@ -303,3 +303,112 @@ def test_new_eps_episode_uses_its_new_actual_active_predecessor():
   assert not observe(case, stamp + 10_000_000)
   assert feedback.honda_eps_source_ns == NOW
   assert not output(state, native).lateral_active
+
+
+
+def stock_acc_recovery_case(identity='HONDA_CIVIC_BOSCH', cruise_enabled=False):
+  from opendbc.car.honda.tests.test_stock_aol import final_cp
+  from opendbc.car.honda.values import CAR
+  from openpilot.starpilot.aol.transport_pause import TransportPauseFeedback
+  from openpilot.starpilot.tests.test_ford_reverse_intent import sample
+
+  cp = final_cp(getattr(CAR, identity))
+  cp.alternativeExperience = 32
+  state = structs.CarState(canValid=True, gearShifter='drive', vEgo=15.)
+  state.cruiseState.available = True
+  state.cruiseState.enabled = cruise_enabled
+  feedback = TransportPauseFeedback(cp)
+  sm, _ = sample(cp, NOW, NOW, 1)
+  change(sm, 'onroadEvents', lambda events: setattr(events[0], 'userDisable', False))
+  assert not feedback.observe(sm, cp, state, NOW, latched=True, intent_producer_session=PRODUCER)
+  assert feedback.lateral_only_baseline
+  stamp = NOW + 10_000_000
+  state.steerFaultTemporary = state.steeringPressed = True
+  sm, native = eps_sample(cp, stamp, withdrawn=True)
+  event = sm.messages['onroadEvents'].as_builder()
+  if not cruise_enabled:
+    event.onroadEvents = [*(e.to_dict() for e in event.onroadEvents), {'name': 'cruiseDisabled', 'userDisable': True}]
+  sm.messages['onroadEvents'] = event.as_reader()
+  assert not feedback.observe(sm, cp, state, stamp, latched=True, intent_producer_session=PRODUCER)
+  state.steerFaultTemporary = False
+  return cp, state, feedback, sm, native, stamp
+
+
+@pytest.mark.parametrize('identity', ['HONDA_CIVIC_BOSCH', 'HONDA_CIVIC', 'HONDA_CIVIC_2022', 'HONDA_CRV_6G'])
+@pytest.mark.parametrize('cruise_enabled', [False, True])
+def test_stock_acc_eps_recovery_uses_lateral_owner_event_policy(identity, cruise_enabled):
+  cp, state, feedback, sm, native, stamp = stock_acc_recovery_case(identity, cruise_enabled)
+  lease = feedback.lateral_source_ns, feedback.lateral_native_ns, feedback.honda_eps_source_ns
+  assert not feedback.observe(sm, cp, state, stamp + 10_000_000, latched=True, intent_producer_session=PRODUCER)
+  assert not feedback.failed and not output(state, native).lateral_active
+  assert lease == (feedback.lateral_source_ns, feedback.lateral_native_ns, feedback.honda_eps_source_ns)
+  event = sm.messages['onroadEvents'].as_builder()
+  event.onroadEvents = [*(e.to_dict() for e in event.onroadEvents), {'name': 'buttonCancel', 'userDisable': True}]
+  sm.messages['onroadEvents'] = event.as_reader()
+  assert feedback.observe(sm, cp, state, stamp + 20_000_000, latched=True, intent_producer_session=PRODUCER)
+
+
+@pytest.mark.parametrize('flag', ['softDisable', 'immediateDisable'])
+def test_stock_cruise_disabled_fault_flags_remain_authoritative(flag):
+  case = stock_acc_recovery_case()
+  _, _, _, sm, _, stamp = case
+  event = sm.messages['onroadEvents'].as_builder()
+  event.onroadEvents = [{'name': 'cruiseDisabled', 'userDisable': True, flag: True}]
+  sm.messages['onroadEvents'] = event.as_reader()
+  assert observe(case, stamp + 10_000_000)
+
+
+def test_native_grant_before_host_recovery_does_not_erase_original_eps_baseline():
+  case = stock_acc_recovery_case()
+  cp, state, feedback, sm, native, stamp = case
+  change(sm, 'aolAxisState', lambda a: setattr(a, 'desiredLateral', True))
+  change(sm, 'aolAxisState', lambda a: setattr(a, 'sequence', a.sequence + 1))
+  native = native_change(sm, native, requestedLateral=True, lateralAllowed=True)
+  lease = feedback.lateral_baseline_ns, feedback.lateral_source_ns, feedback.lateral_native_ns, feedback.honda_eps_source_ns
+  assert not observe(case, stamp + 10_000_000)
+  assert lease == (feedback.lateral_baseline_ns, feedback.lateral_source_ns, feedback.lateral_native_ns, feedback.honda_eps_source_ns)
+  # The host recovers from its clear sample while Card has already observed a new EPS pulse.
+  state.steerFaultTemporary = True
+  change(sm, 'aolAxisState', lambda a: setattr(a, 'sequence', a.sequence + 1))
+  change(sm, 'aolAxisState', lambda a: setattr(a, 'lateralActive', True))
+  change(sm, 'aolAxisState', lambda a: setattr(a, 'mode', 'lateralOnly'))
+  assert not observe(case, stamp + 20_000_000)
+  assert not output(state, native).lateral_active
+  assert lease == (feedback.lateral_baseline_ns, feedback.lateral_source_ns, feedback.lateral_native_ns, feedback.honda_eps_source_ns)
+
+
+def test_brake_held_after_eps_clear_keeps_only_original_braked_episode():
+  cp, state, feedback, _, _ = baseline()
+  state.steerFaultTemporary = state.steeringPressed = state.brakePressed = True
+  stamp = NOW + 10_000_000
+  sm, native = eps_sample(cp, stamp, withdrawn=True, brake=True)
+  assert not feedback.observe(sm, cp, state, stamp, latched=True, intent_producer_session=PRODUCER)
+  state.steerFaultTemporary = False
+  case = cp, state, feedback, sm, native, stamp
+  assert not observe(case, stamp + 10_000_000)
+  assert not output(state, native).lateral_active
+  assert feedback.honda_eps_source_ns == stamp
+  feedback.honda_eps_brake_event_ns = 0
+  assert observe(case, stamp + 20_000_000)
+
+
+@pytest.mark.parametrize('fault', ['expired_source', 'wrong_producer', 'native_fault', 'native_long'])
+def test_recovered_native_grant_does_not_override_independent_vetoes(fault):
+  case = stock_acc_recovery_case()
+  _, state, feedback, sm, native, stamp = case
+  state.steerFaultTemporary = True
+  change(sm, 'aolAxisState', lambda a: setattr(a, 'desiredLateral', True))
+  change(sm, 'aolAxisState', lambda a: setattr(a, 'sequence', a.sequence + 1))
+  change(sm, 'aolAxisState', lambda a: setattr(a, 'lateralActive', True))
+  change(sm, 'aolAxisState', lambda a: setattr(a, 'mode', 'lateralOnly'))
+  native = native_change(sm, native, requestedLateral=True, lateralAllowed=True)
+  if fault == 'expired_source':
+    feedback.honda_eps_source_ns = stamp - 201_000_000
+  elif fault == 'wrong_producer':
+    change(sm, 'aolAxisState', lambda a: setattr(a, 'intentProducerSessionId', 'different'))
+  elif fault == 'native_fault':
+    native_change(sm, native, pandaInventory=(replace(native.pandaInventory[0], faults=1),))
+  else:
+    native_change(sm, native, requestedLongitudinal=True)
+  assert observe(case, stamp + 10_000_000)
+  assert not output(state, native).lateral_active
