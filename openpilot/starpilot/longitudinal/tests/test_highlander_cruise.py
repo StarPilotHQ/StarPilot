@@ -137,7 +137,9 @@ def test_cruise_solver_keeps_saved_jerk_factors_and_primary_solver_state():
   before = (owner.mpc.params.copy(), owner.mpc.a_prev.copy(), owner.mpc._cached_cost_weights)
   native_before = np.array([owner.mpc.solver.get(i, 'x') for i in range(len(owner.mpc.params))])
   primary = owner.mpc._cached_cost_weights
-  assert native._cached_cost_weights[0][4] < primary[0][4]
+  native_weights = native._cached_cost_weights
+  assert native_weights is not None and primary is not None
+  assert native_weights[0][4] < primary[0][4]
   sm, now = frame(4, setting=86.)
   owner.button_cruise.sample(sm, now_ns=now, drive_id=DRIVE, target_speed=86./3.6, brake_floor=-.3,
                             speed=25., previous_accel=owner.output_a_target, reference=owner.mpc, blocked=False)

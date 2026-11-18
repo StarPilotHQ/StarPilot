@@ -46,7 +46,7 @@ class RecordedLaunchTests(CemGreenCallerTests):
       if release is not None:
         self.assertFalse(held or plan.shouldStop)
         self.assertGreater(plan.aTarget, 0.0)
-    self.assertIsNotNone(release)
+    assert release is not None
     self.assertLess(release, 5953.0)
 
   def test_candidate_frame_rejects_red_lead_and_lost_authority(self):

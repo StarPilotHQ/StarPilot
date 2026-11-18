@@ -64,4 +64,7 @@ def test_real_passive_scene_survives_control_reset(aol, lead_present):
     assert data.indicator_type is IndicatorType.STOP_LIGHT
   else:
     assert data is None
-  assert ConditionalPerceptionProjector().project(received.slcState, **(args | {'now_ns': stamp+250_000_000})) is None
+  assert ConditionalPerceptionProjector().project(
+    received.slcState, now_ns=stamp+250_000_000, event_ns=stamp+1_000_000, drive_id=MONO, choice=ModeChoice.CEM,
+    lateral_active=True, selfdrive_enabled=not aol, car_valid=True, system_long=True,
+  ) is None

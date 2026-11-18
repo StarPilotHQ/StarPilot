@@ -27,7 +27,7 @@ def test_native_error_log_prefers_bounded_plain_updater_error(error):
   with (patch.object(software, "ui_state", NS(params=NS(get=lambda key: error))),
         patch.object(software, "gui_app") as app, patch.object(software, "ConfirmDialog") as dialog,
         patch.object(software.Path, "read_text", side_effect=AssertionError("must not read crash log"))):
-    software.SoftwareLayout._on_error_log(None)
+    software.SoftwareLayout._on_error_log(software.SoftwareLayout.__new__(software.SoftwareLayout))
     assert dialog.call_args.args[0] == expected[:4096]
     assert dialog.call_args.kwargs["rich"] is False
     app.push_widget.assert_called_once()
@@ -38,6 +38,6 @@ def test_native_error_log_preserves_crash_log_fallback():
   with (patch.object(software, "ui_state", NS(params=NS(get=lambda key: None))),
         patch.object(software, "gui_app"), patch.object(software, "ConfirmDialog") as dialog,
         patch.object(software.Path, "read_text", return_value="Existing crash log")):
-    software.SoftwareLayout._on_error_log(None)
+    software.SoftwareLayout._on_error_log(software.SoftwareLayout.__new__(software.SoftwareLayout))
     assert dialog.call_args.args[0] == "Existing crash log"
     assert dialog.call_args.kwargs["rich"] is True

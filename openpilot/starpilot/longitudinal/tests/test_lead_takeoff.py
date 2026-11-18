@@ -306,7 +306,7 @@ def test_every_other_registered_platform_retains_maximum_breakaway():
 
 
 @pytest.mark.parametrize('cap', [None, .2, 1.2, 2.])
-def test_gas_highlander_actual_factory_planner_keeps_confirmed_departure_floor(cap):
+def test_gas_highlander_actual_factory_planner_keeps_confirmed_departure_floor(cap, monkeypatch):
   from opendbc.car.toyota.interface import CarInterface
   from opendbc.car.toyota.values import CAR
   from openpilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPlanner
@@ -321,7 +321,7 @@ def test_gas_highlander_actual_factory_planner_keeps_confirmed_departure_floor(c
     result = step(enabled, projected, target, should_stop)
     calls.append((projected, target, result))
     return result
-  owner.lead_takeoff.step = record_step
+  monkeypatch.setattr(owner.lead_takeoff, "step", record_step)
   for tick in range(12):
     now = NOW + tick * 50_000_000
     sm = NativeFrame()

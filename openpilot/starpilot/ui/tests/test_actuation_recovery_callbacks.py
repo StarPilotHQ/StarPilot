@@ -2,6 +2,7 @@
 import ast
 from pathlib import Path
 from types import SimpleNamespace as NS
+from typing import Any
 from unittest.mock import Mock
 
 from openpilot.starpilot.ui.actuation_recovery import acknowledge, KEY
@@ -30,7 +31,7 @@ def setup():
 
 def test_mici_alert_wires_explicit_slide_and_rechecks_at_confirmation():
   params, physical = setup()
-  env = {'KEY': KEY, 'acknowledge': acknowledge, 'tr': lambda s: s, 'gui_app': Mock(),
+  env: dict[str, Any] = {'KEY': KEY, 'acknowledge': acknowledge, 'tr': lambda s: s, 'gui_app': Mock(),
              'BigConfirmationDialog': Mock(), 'BigDialog': Mock()}
   methods('selfdrive/ui/mici/layouts/offroad_alerts.py', 'MiciOffroadAlerts', ['_acknowledge_actuation'], env)
   obj = NS(params=params, _actuation_physical=physical)
@@ -46,7 +47,7 @@ def test_mici_alert_wires_explicit_slide_and_rechecks_at_confirmation():
 
 
 def test_mici_build_registers_only_actuation_and_update_callbacks():
-  env = {'KEY': KEY, 'AlertData': lambda **k: NS(**k), 'AlertItem': Mock(side_effect=lambda _: Mock()),
+  env: dict[str, Any] = {'KEY': KEY, 'AlertData': lambda **k: NS(**k), 'AlertItem': Mock(side_effect=lambda _: Mock()),
              'OFFROAD_ALERTS': {KEY: {'severity': 1}, 'Other': {'severity': 0}}, 'HARDWARE': Mock()}
   methods('selfdrive/ui/mici/layouts/offroad_alerts.py', 'MiciOffroadAlerts', ['_build_alerts'], env)
   obj = NS(alert_items=[], _scroller=Mock(), _acknowledge_actuation=Mock())
@@ -61,7 +62,7 @@ def test_large_confirmation_cancel_and_mode_change_do_not_clear():
   path = ROOT / 'selfdrive/ui/widgets/offroad_alerts.py'
   tree = ast.parse(path.read_text())
   callback = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == 'excessive_actuation_callback')
-  env = {'self': NS(params=params, _actuation_physical=physical, dismiss_callback=Mock()),
+  env: dict[str, Any] = {'self': NS(params=params, _actuation_physical=physical, dismiss_callback=Mock()),
              'KEY': KEY, 'acknowledge': acknowledge, 'DialogResult': NS(CONFIRM=1, CANCEL=0),
              'tr': lambda s: s, 'gui_app': Mock(), 'ConfirmDialog': Mock(), 'alert_dialog': Mock()}
   exec(compile(ast.Module(body=[callback], type_ignores=[]), str(path), 'exec'), env)
