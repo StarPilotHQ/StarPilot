@@ -1451,6 +1451,12 @@ class TransportPauseFeedback:
           latched=latched, producer=intent_producer_session, signature=signature):
         self.sequence, self.signature = int(axis.sequence), signature
         return False
+      if cp.brand == 'honda' and current and continuity:
+        from openpilot.starpilot.aol.temporary_steering import honda_eps_recovery_intent_current
+        if honda_eps_recovery_intent_current(self, sm, cp, cs, axis, stamp, now_ns,
+            latched=latched, producer=intent_producer_session):
+          self.sequence, self.signature = int(axis.sequence), signature
+          return False
       if cp.brand == 'volkswagen' and current and continuity:
         from openpilot.starpilot.car.volkswagen.aol import retain_reverse_withdrawal
         if retain_reverse_withdrawal(self, sm, cp, cs, axis, now_ns,
