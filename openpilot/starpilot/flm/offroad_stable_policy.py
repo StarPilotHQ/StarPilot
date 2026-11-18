@@ -1281,7 +1281,7 @@ def _tracking_oscillation_windows(samples: list[FLMSample], eligibility: list[bo
     return count
 
   events = []
-  for start in range(0, len(samples) - 49, 10):
+  for start in range(1, len(samples) - 49, 10):
     window = samples[start:start + 50]
     if not all(eligibility[start:start + 50]) or any(s.saturated or s.v_ego < 25.0 for s in window):
       continue
