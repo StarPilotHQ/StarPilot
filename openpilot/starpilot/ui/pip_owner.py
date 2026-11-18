@@ -9,7 +9,10 @@ import os
 from pathlib import Path
 import tempfile
 
+from openpilot.starpilot.saved_document import commit_exact
+from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.ui.feature_settings_state import FeatureRow, FeatureSettingsRequest, FeatureSettingsState
+from openpilot.starpilot.ui.onroad_customization import CAMERA_WIDGETS, MAX_BYTES, PARAM_KEY, validate_document
 from openpilot.starpilot.ui.pip_preferences import (
   BLINKER, BOOL_KEYS, BSM, CAMERA_FORMATS, ENABLED, INVERT, KEYS, MASK, MAX_MASK_BYTES,
   encode_mask, read_pip, starting_mask,
@@ -124,11 +127,52 @@ def _commit(params, key: str, raw: bytes, expected: tuple[tuple[str, bytes | Non
         pass
 
 
+def _enable_cameras(layouts) -> bool:
+  changed = False
+  for layout in layouts:
+    for key in (*CAMERA_WIDGETS, "vasm"):
+      placed = layout.get(key)
+      if type(placed) is dict and placed.get("enabled") is False:
+        placed["enabled"] = True
+        changed = True
+  return changed
+
+
+def _show_cameras_in(source, key: str, limit: int, layouts, parked: Callable[[], bool], temp_prefix: str,
+                     validate: Callable | None = None) -> bool:
+  raw, readable = read_saved(source, key, limit)
+  if not readable or raw is None:
+    return False
+  try:
+    document = json.loads(raw)
+    if not _enable_cameras(layouts(document)):
+      return False
+    if validate is not None:
+      validate(json.loads(json.dumps(document)))
+    encoded = json.dumps(document, separators=(",", ":"), allow_nan=False).encode()
+  except (ValueError, KeyError, TypeError, AttributeError, RecursionError):
+    return False
+  result = commit_exact(source, key=key, max_bytes=limit, raw=encoded, expected=raw, authorized=parked, temp_prefix=temp_prefix)
+  return bool(result.committed and result.verified)
+
+
+def show_side_cameras(params, parked: Callable[[], bool], projection_source=None) -> None:
+  """Turning PiP on adds both side cameras to saved comma and Android Auto layouts that have them off."""
+  from openpilot.starpilot.system.starport.projection_layout import (DOCUMENT_KEY, MAX_BYTES as PROJECTION_MAX_BYTES,
+                                                                     ProjectionLayoutSource, validate_layout_for_viewport)
+  _show_cameras_in(params, PARAM_KEY, MAX_BYTES, lambda document: document["layouts"].values(), parked,
+                   ".onroad-layout-", validate_document)
+  _show_cameras_in(projection_source or ProjectionLayoutSource(), DOCUMENT_KEY, PROJECTION_MAX_BYTES,
+                   lambda document: [document["widgets"]], parked, ".projection-layout-",
+                   lambda document: validate_layout_for_viewport(document, (document["canvas"]["width"], document["canvas"]["height"])))
+
+
 class PiPOwner:
   def __init__(self, params, parked: Callable[[], bool], camera_available: Callable[[], bool]):
     self.params = params
     self.parked = parked
     self.camera_available = camera_available
+    self.projection_source = None
     self.last_write = WriteResult(False, False)
 
   def snapshot(self, *, include_editor: bool = False) -> FeatureSettingsState:
@@ -267,4 +311,6 @@ class PiPOwner:
         return False
       target, raw = MASK, encode_mask(changed)
     self.last_write = _commit(self.params, target, raw, expected, self.parked)
+    if self.last_write.verified and key == ENABLED and raw == b"1" and saved.enabled is not True:
+      show_side_cameras(self.params, self.parked, self.projection_source)
     return self.last_write.verified

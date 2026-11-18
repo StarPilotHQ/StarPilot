@@ -36,6 +36,14 @@ const projection = JSON.parse(execFileSync(process.env.PYTHON || 'python3', ['-c
     const rows = page.locator('.gx-layout__layer')
     await rows.first().waitFor()
     const initial = await rows.locator('.gx-layout__layer-name').allTextContents()
+    const initialIds = await rows.evaluateAll(elements => elements.map(row => row.dataset.layerId))
+    assert.match(initialIds[0], /^pip_/, 'side cameras start locked in front')
+    assert.equal(await rows.first().locator('.gx-layout__row-grip').isDisabled(), true)
+    for (const side of ['left', 'right']) {
+      await page.getByRole('button', {name:`Unlock PiP ${side} side camera`}).click()
+      await page.getByRole('button', {name:'Unlock', exact:true}).click()
+    }
+    assert.equal(await rows.first().locator('.gx-layout__row-grip').isDisabled(), false)
     const source = await rows.last().boundingBox(), destination = await rows.first().boundingBox()
     const beforeMouse = await page.evaluate(() => JSON.stringify(window.editor.state.draft))
     await page.mouse.move(source.x + 30, source.y + source.height / 2)
@@ -44,7 +52,7 @@ const projection = JSON.parse(execFileSync(process.env.PYTHON || 'python3', ['-c
     assert.equal(await page.locator('.gx-layout__drag-ghost').isVisible(), true)
     assert.equal(await page.locator('.gx-layout__outline').first().isVisible(), true)
     assert.equal(await page.locator('.is-drop-target').count(), 1)
-    assert.deepEqual(await page.evaluate(() => window.editor.renderWidgets.slice(-2).map(widget => widget.kind)), ['pip_camera', 'pip_camera'])
+    assert.equal(await page.evaluate(() => window.editor.renderWidgets.at(-1).id), initialIds.at(-1))
     assert.equal(await page.evaluate(() => window.editor.state.history.undo.length), 0)
     await page.screenshot({path:path.join(tmpdir(), 'theme-live-layer-drag.png')})
     await page.mouse.up()
@@ -56,19 +64,21 @@ const projection = JSON.parse(execFileSync(process.env.PYTHON || 'python3', ['-c
     assert.equal((await rows.locator('.gx-layout__layer-name').allTextContents())[0], initial.at(-1))
     const order = await page.evaluate(() => window.editor.state.draft.widgetOrder.large
       .filter(id => window.editor.state.draft.layouts.large[id].enabled))
-    assert.equal(order.at(-1), 'pip_left')
+    assert.equal(order.at(-1), initialIds.at(-1))
     assert.equal(await page.getByRole('button', {name:/Move .* (forward|backward)/}).count(), 0)
     const client = await page.context().newCDPSession(page)
     await client.send('Emulation.setTouchEmulationEnabled', {enabled:true})
+    await page.emulateMedia({reducedMotion:'reduce'})
     await page.setViewportSize({width:390,height:844})
     await rows.first().evaluate(row => row.scrollIntoView({block:'center'}))
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve)))))
     const touchRows = await rows.evaluateAll(elements => {
       const top = document.querySelector('.gx-layout__sections').getBoundingClientRect().bottom
       return elements.filter(row => row.getBoundingClientRect().top > top && row.getBoundingClientRect().bottom < innerHeight)
         .slice(0, 2).map(row => ({ id: row.dataset.layerId, box: row.getBoundingClientRect().toJSON(),
           grip: row.querySelector('.gx-layout__row-grip').getBoundingClientRect().toJSON() }))
     })
-    assert.equal(touchRows.length, 2, 'two widget rows remain visible while scrolling')
+    assert.equal(touchRows.length, 2, 'two rows are visible below the pinned preview and tabs')
     const handle = touchRows[0].grip, target = touchRows[1].box
     const beforeTouch = await page.evaluate(() => window.editor.state.draft.widgetOrder.large
       .filter(id => window.editor.state.draft.layouts.large[id].enabled))
@@ -167,9 +177,11 @@ const projection = JSON.parse(execFileSync(process.env.PYTHON || 'python3', ['-c
         const saveButton = page.getByRole('button', {name:'Save changes', exact:true})
         assert.equal(await saveButton.isVisible(), true)
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
+        await page.evaluate(() => window.editor.deselectWidget())
         await page.getByRole('button', {name:/^Edit(?: widget)?$/}).click()
         assert.equal(await page.getByRole('combobox', {name:/^Selected widget/}).isVisible(), true)
         assert.equal(await page.getByLabel('X', {exact:true}).isVisible(), true)
+        if (width <= 768) assert.equal(await page.locator('.gx-layout__edit').evaluate(el => getComputedStyle(el).gap), '8px')
         assert.equal(await page.locator('svg.gx-layout__preview .gx-layout__remove').count(), 0)
         await page.getByRole('button', {name:'Widgets', exact:true}).click()
         await rows.filter({has:page.locator('.gx-layout__remove')}).first().locator('.gx-layout__remove').click()

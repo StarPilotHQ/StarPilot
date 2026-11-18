@@ -291,12 +291,12 @@ WIDGET_COLORS = {
 
 # Back-to-front order used when a layout first opts into custom layers.
 DEFAULT_WIDGET_ORDER = {
-  "large": (NAV_MAP_WIDGET, "pip_left", "pip_right", "cruise_limits", "speed_limit_actions", CEM_GAUGE_WIDGET, "current_speed",
+  "large": (NAV_MAP_WIDGET, "cruise_limits", "speed_limit_actions", CEM_GAUGE_WIDGET, "current_speed",
             "steering_wheel", "torque_bar", "following_distance", "driver_monitor", MODE_WIDGET, CLOCK_WIDGET, WEATHER_WIDGET,
-            STOPPED_TIMER_WIDGET, NAV_CARD_WIDGET, JETLINK_WIDGET, "rear_fog"),
-  "compact": ("pip_left", "pip_right", "speed_limit", "max_speed", "steering_wheel", "torque_bar",
+            STOPPED_TIMER_WIDGET, NAV_CARD_WIDGET, JETLINK_WIDGET, "rear_fog", "pip_left", "pip_right"),
+  "compact": ("speed_limit", "max_speed", "steering_wheel", "torque_bar",
               "speed_limit_actions", "driver_monitor", *RAIL_WIDGETS, MODE_WIDGET, CLOCK_WIDGET, WEATHER_WIDGET,
-              STOPPED_TIMER_WIDGET, NAV_CARD_WIDGET, "rear_fog"),
+              STOPPED_TIMER_WIDGET, NAV_CARD_WIDGET, "rear_fog", "pip_left", "pip_right"),
 }
 
 
@@ -309,12 +309,6 @@ def validate_widget_order(order, widgets):
 
 def widget_order(document, profile):
   return document.get("widgetOrder", {}).get(str(profile), DEFAULT_WIDGET_ORDER[str(profile)])
-
-
-def rendered_widget_order(document, profile):
-  """Side cameras cover widgets regardless of the saved editor layer order."""
-  order = widget_order(document, profile)
-  return [key for key in order if key not in CAMERA_WIDGETS] + [key for key in order if key in CAMERA_WIDGETS]
 
 
 def widget_bounds(profile, widget):

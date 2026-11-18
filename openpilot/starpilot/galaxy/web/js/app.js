@@ -6,7 +6,7 @@ import { GxState } from "./state.js"
 import { BottomNav, NAV, primaryTab } from "./bottom-nav.js"
 import { UpdateRestart } from "./update-restart.js"
 import { DeviceRestartWatch } from "./device-restart.js"
-import { AppDownloadReminder } from "./app-reminder.js"
+import { AppDownloadReminder, appDownloadPlatform } from "./app-reminder.js"
 import { bootScreenMode, dismissBootScreen, showBootScreen, showRestartScreen } from "./boot-screen.js"
 import { GxNotice } from "./notice.js"
 import { createApp, reactive, defineAsyncComponent } from "../vendor/vue/vue.esm-browser.js"
@@ -163,6 +163,7 @@ createApp({
   mounted() {
     this.stopLocalization = startLocalization()
     document.documentElement.dataset.theme = state.theme
+    document.documentElement.classList.toggle("gx-ios-safari", appDownloadPlatform() === "ios" && navigator.standalone !== true)
     this.visibility = () => {
       if (!document.hidden) deviceRestart.wake()
       clearTimeout(reconnectTimer)

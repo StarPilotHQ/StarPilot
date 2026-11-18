@@ -3,7 +3,7 @@ import { ONROAD_LAYOUT_TEMPLATE } from "./onroad-layout-template.js"
 import { GxState } from "./state.js"
 import { guardUnload } from "./unload-guard.js"
 import { PollTimer, connectionError } from "./polling.js"
-import { reactive, watch } from "../vendor/vue/vue.esm-browser.js"
+import { nextTick, reactive, watch } from "../vendor/vue/vue.esm-browser.js"
 import { LayoutPreviewFeed, PREVIEW_SCENES, PreviewQueue, previewScene, sceneHidesWidget } from "./layout-preview.js"
 import { LEAD_INFO, PROJECTION_WORDMARK, editorSnapshot, projectionPayload } from "./projection-layout.js"
 import { GalaxySelect } from "./galaxy-select.js"
@@ -54,6 +54,9 @@ let makerPagesOpen = 0
 
 // Screen pixels a pointer may wobble before a press on a preview widget becomes a drag.
 const DRAG_SLOP = 6
+const CAMERA_IDS = ["pip_left", "pip_right"]
+// Let swipes scroll before an unarmed widget grabs.
+const HOLD_MS = 220
 
 export class OnroadLayoutFeed {
   constructor({ publish, projection = false, unauthorized = () => { }, fetcher = (...args) => fetch(...args),
@@ -287,7 +290,7 @@ export const LayoutWidgetPreview = {
         <path :d="'M ' + widget.width / 2 + ' ' + widget.height * .68 + ' Q ' + widget.width * .65 + ' ' + widget.height * .68 + ' ' + widget.width * .8 + ' ' + widget.height * .74" :stroke-width="widget.height * .18" opacity=".9" />
       </g>
       <g v-else-if="widget.kind === 'pip_camera'">
-        <circle :cx="widget.width / 2" :cy="widget.height / 2" :r="widget.width / 2 - 3" fill="#152c39" stroke="#5ee5ee" stroke-width="3" />
+        <circle :cx="widget.width / 2" :cy="widget.height / 2" :r="widget.width / 2 - 3" fill="#152c39" fill-opacity=".35" stroke="#5ee5ee" stroke-width="3" />
         <text :x="widget.width / 2" :y="widget.height / 2" text-anchor="middle" :font-size="widget.height / 10">{{ widget.label }}</text>
       </g>
       <g v-else-if="['nav_home', 'nav_work', 'bookmark'].includes(widget.kind)" :opacity="(widget.opacity ?? 100) / 100">
@@ -403,9 +406,9 @@ export const OnroadLayoutPage = {
   setup(props) {
     const state = reactive({
       status: "idle", data: null, draft: null, needsReload: false, error: "", notice: "",
-      profile: "large", scene: "general", selected: null, layerDrag: null, drag: null, discard: null, leavePresentation: null, removeConfirm: null, colorError: "", placementError: "",
+      profile: "large", scene: "general", selected: null, layerDrag: null, drag: null, discard: null, leavePresentation: null, removeConfirm: null, pipUnlocked: {}, pipUnlockConfirm: null, colorError: "", placementError: "",
       inspectorPanel: ["widgets", "edit", "road", "display"].includes(props.initialPanel) && !props.projection ? props.initialPanel : "widgets", showFavoriteZones: false, showEditingAids: loadAidsPreference(),
-      aboutOpen: false, tipsOpen: false, moreOpen: false, widgetsHelpOpen: false, stuck: { leaveBar: false, pinned: false, sections: false }, openColor: null, art: { status: "idle", error: "", url: null, sprites: null }, backdrop: { status: "idle", error: "", url: null },
+      aboutOpen: false, tipsOpen: false, moreOpen: false, widgetsHelpOpen: false, stuck: { leaveBar: false, pinned: false, sections: false }, shrunk: false, touchArmed: null, openColor: null, art: { status: "idle", error: "", url: null, sprites: null }, backdrop: { status: "idle", error: "", url: null },
       hiddenPreviewWidgets: loadPreviewVisibility(props.projection), sceneHiddenPreviewWidgets: {}, snapEnabled: loadSnapPreference(), snapGuides: [], history: { undo: [], redo: [], group: null }
     })
     let deferred = null
@@ -437,8 +440,8 @@ export const OnroadLayoutPage = {
       if (update.data) {
         if (!state.data && update.data.activeProfile) state.profile = update.data.activeProfile
         if (!update.data.metadata.profiles[state.profile]) state.profile = Object.keys(update.data.metadata.profiles)[0]
-        if (!Object.hasOwn(update.data.metadata.profiles[state.profile].widgets, state.selected) ||
-            update.data.metadata.profiles[state.profile].widgets[state.selected]?.hidden === true)
+        if ((!state.data || state.selected != null) && (!Object.hasOwn(update.data.metadata.profiles[state.profile].widgets, state.selected) ||
+            update.data.metadata.profiles[state.profile].widgets[state.selected]?.hidden === true))
           state.selected = Object.keys(update.data.metadata.profiles[state.profile].widgets)[0] || null
         state.colorError = ""
         state.placementError = ""
@@ -480,6 +483,16 @@ export const OnroadLayoutPage = {
     watch(() => props.mode, (mode) => {
       if (mode !== "local") { backdropFeed.stop(); artFeed.stop() }
     })
+    // Coming back to Widgets returns to where the list was left.
+    let widgetsScroll = null
+    watch(() => state.inspectorPanel, (panel, previous) => {
+      if (typeof window === "undefined") return
+      if (previous === "widgets") widgetsScroll = window.scrollY
+      if (panel === "widgets" && widgetsScroll != null) {
+        const y = widgetsScroll
+        nextTick(() => window.scrollTo(0, y))
+      }
+    }, { flush: "sync" })
     return { state, feed, backdropFeed, artFeed, scenes: PREVIEW_SCENES, projectionWordmark: PROJECTION_WORDMARK }
   },
   computed: {
@@ -554,6 +567,16 @@ export const OnroadLayoutPage = {
       return orderedWidgetIds(this.state.draft, this.state.data.metadata, this.state.profile)
         .slice().reverse().map(id => this.widgets.find(widget => widget.id === id)).filter(widget => widget && this.layout[widget.id].enabled)
     },
+    cameraIds() { return CAMERA_IDS.filter(id => Object.hasOwn(this.profile?.widgets || {}, id)) },
+    // Cameras directly below the frontmost controls.
+    camerasOnTop() {
+      const order = orderedWidgetIds(this.state.draft, this.state.data.metadata, this.state.profile)
+        .filter(id => !this.profile.widgets[id]?.frontmost)
+      const top = []
+      for (let index = order.length - 1; index >= 0 && this.cameraIds.includes(order[index]); index--) top.push(order[index])
+      return top
+    },
+    lockedCameraIds() { return this.camerasOnTop.filter(id => !this.state.pipUnlocked[id]) },
     listWidgets() { return this.state.layerDrag ? this.state.layerDrag.rows.map(id => this.widgets.find(widget => widget.id === id)) : this.layerWidgets },
     selectionBox() {
       if (!this.state.layerDrag) return null
@@ -594,8 +617,7 @@ export const OnroadLayoutPage = {
     },
     activeWidgets() { return this.widgets.filter(({ id }) => this.layout[id].enabled) },
     renderWidgets() {
-      return this.layerWidgets.filter(item => !this.previewHidden(item.id)).reverse()
-        .sort((a, b) => Number(a.kind === "pip_camera") - Number(b.kind === "pip_camera")).map((item) => {
+      return this.layerWidgets.filter(item => !this.previewHidden(item.id)).reverse().map((item) => {
         const below = item.visualInsetTop && this.layout[item.id].y < item.visualInsetTop
         const widget = {
           ...item, visualInsetTop: below ? 0 : item.visualInsetTop || 0,
@@ -667,11 +689,20 @@ export const OnroadLayoutPage = {
     // Double-tap zoom stays off across the whole page, app bar included, while a maker page is open.
     if (makerPagesOpen++ === 0) document.documentElement.classList.add("gx-maker-open")
     this.observePinned()
+    this._onOutsideClick = (event) => {
+      const target = event.target
+      if (event.composedPath().includes(this.$el) || !target?.closest ||
+          target.closest(".gx-select-menu, [role='listbox'], [role='dialog'], dialog, .gx-dialog")) return
+      this.deselectWidget()
+    }
+    document.addEventListener("click", this._onOutsideClick)
   },
   updated() { this.observePinned() },
   beforeUnmount() { this.cancelDrag(); this.feed.stop(); this.backdropFeed.stop(); this.artFeed.stop(); this._stopUnloadGuard(); this._pinObserver?.disconnect(); this.unwatchRelease(); this._closeFloating?.()
     if (--makerPagesOpen === 0) document.documentElement.classList.remove("gx-maker-open")
     if (this._onPinScroll) window.removeEventListener("scroll", this._onPinScroll, { capture: true })
+    this._touchHost?.removeEventListener("touchmove", this._touchGuard)
+    if (this._onOutsideClick) document.removeEventListener("click", this._onOutsideClick)
   },
   methods: {
     previewShift(id) {
@@ -731,7 +762,35 @@ export const OnroadLayoutPage = {
     },
     selectWidget(id) {
       this.state.selected = id
+      this.state.touchArmed = id
+      this.openEditPanel()
+    },
+    // Tapping empty preview space or anywhere outside the editor lets go of the selected widget.
+    deselectWidget() {
+      if (this.state.drag || this.state.layerDrag || (this.state.selected == null && this.state.touchArmed == null)) return
+      this.finishColorEdit()
+      this.state.selected = null
+      this.state.touchArmed = null
+    },
+    previewClick(event) {
+      if (!event.target?.closest?.(".gx-layout__widget")) this.deselectWidget()
+    },
+    openEditPanel() {
+      if (this.state.selected == null) this.state.selected = this.activeWidgets?.[0]?.id || this.widgets?.[0]?.id || null
       this.state.inspectorPanel = "edit"
+      this.revealEditPanel()
+    },
+    // On narrow screens the edit controls always open with their top just under the pinned tabs.
+    revealEditPanel() {
+      if (typeof window === "undefined") return
+      const align = () => {
+        if (this.state.inspectorPanel !== "edit") return
+        const tabs = this.$refs.sections, panel = this.$refs.editPanel
+        if (!tabs || !panel || getComputedStyle(tabs).position !== "sticky") return
+        const gap = panel.getBoundingClientRect().top - tabs.getBoundingClientRect().bottom - 8
+        if (Math.abs(gap) >= 1) window.scrollBy(0, gap)
+      }
+      this.$nextTick(() => { align(); setTimeout(align, 220) })
     },
     toggleColor(key) {
       this.finishColorEdit()
@@ -766,6 +825,7 @@ export const OnroadLayoutPage = {
     },
     // Narrow screens pin the save bar and preview; the editor tabs stick just below their measured height.
     observePinned() {
+      this.guardPreviewTouch()
       if (typeof ResizeObserver === "undefined" || !this.$el?.style) return
       this._pinObserver ||= new ResizeObserver(() => {
         for (const [name, ref] of [["--layout-bar-h", "leaveBar"], ["--layout-pin-h", "pinned"]])
@@ -774,6 +834,8 @@ export const OnroadLayoutPage = {
       // Page-colored fills only appear while a piece is actually pinned, so they never show over the backdrop otherwise.
       if (!this._onPinScroll) {
         this._onPinScroll = () => {
+          const y = window.scrollY
+          if (y > 24 !== this.state.shrunk && (y > 24 || y < 8)) this.state.shrunk = y > 24
           for (const ref of ["leaveBar", "pinned", "sections"]) {
             const element = this.$refs[ref], style = element && getComputedStyle(element)
             const stuck = style?.position === "sticky" && element.getBoundingClientRect().top <= (parseFloat(style.top) || 0) + 1
@@ -792,22 +854,68 @@ export const OnroadLayoutPage = {
         }
       }
     },
+    // Once a drag owns the finger, the page must not scroll under it.
+    guardPreviewTouch() {
+      const preview = this.$refs.preview
+      if (preview === this._touchHost) return
+      this._touchGuard ||= (event) => { if (this.state.drag?.touch && event.cancelable) event.preventDefault() }
+      this._touchHost?.removeEventListener("touchmove", this._touchGuard)
+      preview?.addEventListener?.("touchmove", this._touchGuard, { passive: false })
+      this._touchHost = preview
+    },
+    clearPendingTouch() {
+      if (this._pendingTouch) clearTimeout(this._pendingTouch.timer)
+      this._pendingTouch = null
+    },
+    promotePendingTouch() {
+      const pending = this._pendingTouch
+      if (!pending) return
+      this._pendingTouch = null
+      this.state.touchArmed = pending.id
+      try { navigator.vibrate?.(10) } catch { }
+      this.startDrag(pending.id, { ...pending, button: 0, preventDefault() { } })
+    },
+    cameraLocked(id) { return this.lockedCameraIds.includes(id) },
+    layerFixed(id) { return this.profile.widgets[id]?.frontmost || this.cameraLocked(id) },
+    // Keeps the locked cameras directly under the frontmost controls, in their current relative order.
+    pinLockedCameras(order, locked) {
+      const front = order.filter(id => this.profile.widgets[id]?.frontmost)
+      return [...order.filter(id => !front.includes(id) && !locked.includes(id)), ...order.filter(id => locked.includes(id)), ...front]
+    },
+    toggleCameraLock(id) {
+      if (!this.editable || this.state.drag || this.state.layerDrag || !this.cameraIds.includes(id)) return
+      if (this.cameraLocked(id)) { this.state.pipUnlockConfirm = id; return }
+      const locked = [...this.lockedCameraIds, id]
+      this.state.pipUnlocked = { ...this.state.pipUnlocked, [id]: false }
+      const order = orderedWidgetIds(this.state.draft, this.state.data.metadata, this.state.profile)
+      const pinned = this.pinLockedCameras(order, locked)
+      if (pinned.every((key, index) => key === order[index])) return
+      const before = clone(this.state.draft)
+      this.state.draft.widgetOrder ||= {}
+      this.state.draft.widgetOrder[this.state.profile] = pinned
+      this.recordChange(before)
+    },
+    cancelCameraUnlock() { this.state.pipUnlockConfirm = null },
+    confirmCameraUnlock() {
+      const id = this.state.pipUnlockConfirm
+      this.state.pipUnlockConfirm = null
+      if (id) this.state.pipUnlocked = { ...this.state.pipUnlocked, [id]: true }
+    },
     reorderLayer(id, target) {
-      if (!this.editable || this.state.drag || id === target ||
-        this.profile.widgets[id]?.frontmost || this.profile.widgets[target]?.frontmost) return
+      if (!this.editable || this.state.drag || id === target || this.layerFixed(id) || this.layerFixed(target)) return
       const order = [...orderedWidgetIds(this.state.draft, this.state.data.metadata, this.state.profile)]
       const from = order.indexOf(id), to = order.indexOf(target)
       if (from < 0 || to < 0) return
-      const before = clone(this.state.draft)
+      const before = clone(this.state.draft), locked = this.lockedCameraIds
       order.splice(from, 1)
       order.splice(to, 0, id)
       this.state.draft.widgetOrder ||= {}
-      this.state.draft.widgetOrder[this.state.profile] = order
+      this.state.draft.widgetOrder[this.state.profile] = this.pinLockedCameras(order, locked)
       this.state.selected = id
       this.recordChange(before)
     },
     startLayerDrag(event, id) {
-      if (!this.editable || this.state.drag || this.state.layerDrag || event.button !== 0 || this.profile.widgets[id]?.frontmost) return
+      if (!this.editable || this.state.drag || this.state.layerDrag || event.button !== 0 || this.layerFixed(id)) return
       this._suppressLayerClick = false
       event.preventDefault()
       event.currentTarget.setPointerCapture(event.pointerId)
@@ -816,7 +924,7 @@ export const OnroadLayoutPage = {
       this.state.layerDrag = {
         id, pointerId: event.pointerId, target: null, startX: event.clientX, startY: event.clientY,
         x: rect.x, y: rect.y, width: rect.width, offsetX: event.clientX - rect.x, offsetY: event.clientY - rect.y,
-        rows: this.layerWidgets.map(widget => widget.id), before: clone(this.state.draft), moved: false
+        rows: this.layerWidgets.map(widget => widget.id), before: clone(this.state.draft), locked: [...this.lockedCameraIds], moved: false
       }
       this._layerTarget = event.currentTarget
       this.watchRelease()
@@ -857,7 +965,7 @@ export const OnroadLayoutPage = {
       const tabs = this.$el?.querySelector?.(".gx-layout__sections")?.getBoundingClientRect()
       const row = document.elementFromPoint(clientX, tabs ? Math.max(clientY, tabs.bottom + 6) : clientY)?.closest('[data-layer-id]')
       const target = row?.dataset.layerId
-      if (target && target !== drag.target && !this.profile.widgets[target]?.frontmost) {
+      if (target && target !== drag.target && !this.layerFixed(target)) {
         drag.target = target
         const order = [...orderedWidgetIds(drag.before, this.state.data.metadata, this.state.profile)]
         const from = order.indexOf(drag.id), to = order.indexOf(target)
@@ -865,7 +973,7 @@ export const OnroadLayoutPage = {
         order.splice(from, 1)
         order.splice(to, 0, drag.id)
         this.state.draft.widgetOrder ||= {}
-        this.state.draft.widgetOrder[this.state.profile] = order
+        this.state.draft.widgetOrder[this.state.profile] = this.pinLockedCameras(order, drag.locked || [])
       }
     },
     // Scrolls while a dragged row is held near the visible edges; the top edge is the bottom of the pinned tabs.
@@ -956,6 +1064,8 @@ export const OnroadLayoutPage = {
       this.state.snapGuides = []
       this.finishColorEdit()
       this.state.profile = profile
+      this.state.pipUnlocked = {}
+      this.state.touchArmed = null
       this.state.selected = Object.keys(this.profile.widgets)[0] || null
       this.state.placementError = ""
       if (!this.availableScenes.some(scene => scene.id === this.state.scene)) this.state.scene = "general"
@@ -1148,6 +1258,14 @@ export const OnroadLayoutPage = {
     startDrag(id, event, fromTray = false) {
       if (!this.editable || event.button > 0 || this.state.drag || !Object.hasOwn(this.profile.widgets, id)) return
       if (fromTray && this.profile.widgets[id].available === false) return
+      // Unarmed widgets need a tap or hold before dragging.
+      if (event.pointerType === "touch" && !fromTray && this.state.touchArmed !== id) {
+        this.clearPendingTouch()
+        this._pendingTouch = { id, pointerId: event.pointerId, pointerType: "touch", clientX: event.clientX, clientY: event.clientY }
+        this._pendingTouch.timer = setTimeout(() => this.promotePendingTouch(), HOLD_MS)
+        try { this.$refs.preview?.setPointerCapture?.(event.pointerId) } catch { }
+        return
+      }
       if (fromTray && this.sceneHidden(id)) this.state.scene = "general"
       const point = previewPoint(event, this.$refs.preview.getBoundingClientRect(), this.profile)
       if (!point) return
@@ -1257,6 +1375,11 @@ export const OnroadLayoutPage = {
       this.state.notice = ""
     },
     moveDrag(event) {
+      const pending = this._pendingTouch
+      if (pending?.pointerId === event.pointerId) {
+        if (Math.hypot(event.clientX - pending.clientX, event.clientY - pending.clientY) >= DRAG_SLOP) this.clearPendingTouch()
+        return
+      }
       const drag = this.state.drag
       if (!drag || drag.pointerId !== event.pointerId) return
       const rect = this.$refs.preview.getBoundingClientRect(), point = previewPoint(event, rect, this.profile)
@@ -1304,16 +1427,26 @@ export const OnroadLayoutPage = {
       if (drag.fromTray) this.layout[drag.id].enabled = drag.inside
     },
     endDrag(event) {
+      if (this._pendingTouch?.pointerId === event.pointerId) {
+        const { id } = this._pendingTouch
+        this.clearPendingTouch()
+        this.state.touchArmed = id
+        this.state.selected = id
+        this.finishColorEdit()
+        this.openEditPanel()
+        return
+      }
       const drag = this.state.drag
       if (!drag || drag.pointerId !== event.pointerId) return
       this.moveDrag(event)
       if (drag.fromTray && !drag.inside) Object.assign(this.layout[drag.id], drag.before)
       const before = drag.historyBefore, position = this.layout[drag.id]
-      if (!drag.fromTray && !drag.resize && !drag.moved) this.state.inspectorPanel = "edit"
+      if (!drag.fromTray && !drag.resize && !drag.moved) this.openEditPanel()
       this.releaseDrag()
       this.recordChange(before)
     },
     releaseDrag() {
+      this.clearPendingTouch()
       const id = this.state.drag?.pointerId
       this.state.snapGuides = []
       this.state.drag = null

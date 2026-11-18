@@ -201,6 +201,7 @@ snapVm.moveDrag(largePoint(35, 430))
 assert.equal(snapVm.state.drag.targets, cachedTargets)
 assert.equal(snapVm.snapInBar, false, "a mouse drag keeps the alignment chip on the preview")
 snapVm.endDrag(largePoint(34, 430))
+snapVm.state.touchArmed = "current_speed"
 snapVm.startDrag("current_speed", largePoint(34, 430, { pointerType: "touch" }))
 snapVm.moveDrag(largePoint(34, 300, { pointerType: "touch" }))  // past the finger slop
 snapVm.moveDrag(largePoint(35, 430, { pointerType: "touch" }))
@@ -237,9 +238,55 @@ for (const pointerType of ["mouse", "touch"]) {
   phone.$refs.preview.getBoundingClientRect = () => ({ left: 0, top: 0, width: 360, height: 180 })
   for (const id of Object.keys(phone.layout)) if (id !== "current_speed") phone.state.hiddenPreviewWidgets.large[id] = true
   const phonePoint = (x, y) => ({ ...snappedDrag.event(x / 6, y / 6), pointerType })
+  phone.state.touchArmed = "current_speed"
   phone.startDrag("current_speed", phonePoint(640, 30))
   phone.endDrag(phonePoint(75, 430))
   assert.equal(phone.layout.current_speed.x, pointerType === "touch" ? 30 : 75)
+}
+// Soft lock: a finger swiping across an unarmed widget scrolls past it; a tap or a short hold arms it.
+{
+  const soft = editor().vm
+  const finger = (x, y) => largePoint(x, y, { pointerType: "touch" })
+  const start = { ...soft.layout.current_speed }, selected = soft.state.selected
+  soft.startDrag("current_speed", finger(640, 30))
+  assert.equal(soft.state.drag, null, "an unarmed widget waits before it grabs")
+  soft.moveDrag(finger(640, 200))
+  soft.endDrag(finger(640, 200))
+  assert.deepEqual(soft.layout.current_speed, start)
+  assert.equal(soft.state.history.undo.length, 0)
+  assert.equal(soft.state.selected, selected, "a swipe does not select")
+  assert.equal(soft.state.touchArmed, null)
+  soft.startDrag("current_speed", finger(640, 30))
+  soft.endDrag(finger(640, 30))
+  assert.equal(soft.state.touchArmed, "current_speed", "a tap arms the widget")
+  assert.equal(soft.state.selected, "current_speed")
+  assert.equal(soft.state.history.undo.length, 0)
+  soft.startDrag("current_speed", finger(640, 30))
+  assert.equal(soft.state.drag?.id, "current_speed", "an armed widget grabs at once")
+  soft.moveDrag(finger(600, 200))
+  soft.endDrag(finger(600, 200))
+  assert.notDeepEqual(soft.layout.current_speed, start)
+  assert.equal(soft.state.history.undo.length, 1)
+  soft.undo()
+  soft.state.touchArmed = null
+  soft.startDrag("current_speed", finger(640, 30))
+  soft.promotePendingTouch()
+  assert.equal(soft.state.drag?.id, "current_speed", "holding still grabs the widget")
+  assert.equal(soft.state.touchArmed, "current_speed")
+  soft.cancelDrag()
+  assert.deepEqual(soft.layout.current_speed, start)
+  soft.state.touchArmed = null
+  soft.startDrag("current_speed", finger(640, 30))
+  soft.cancelDrag()
+  soft.promotePendingTouch()
+  assert.equal(soft.state.drag, null, "a cancelled press never grabs later")
+  soft.state.touchArmed = "current_speed"
+  soft.state.selected = "current_speed"
+  soft.previewClick({ target: { closest: () => ({}) } })
+  assert.equal(soft.state.selected, "current_speed", "tapping a widget keeps it selected")
+  soft.previewClick({ target: { closest: () => null } })
+  assert.equal(soft.state.selected, null, "tapping empty preview space lets go of the widget")
+  assert.equal(soft.state.touchArmed, null)
 }
 const targetVisibility = editor().vm
 targetVisibility.profile.widgets.pip = { ...widget("Side camera", "pip_camera", 60, 60, 400, 300), layer: "underlay" }

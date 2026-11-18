@@ -514,7 +514,7 @@ input[type="range"].gx-slider:active::-moz-range-thumb {
 .gx-layout__preview-card, .gx-layout__inspector, .gx-layout__colors, .gx-layout__discard { padding: 20px; display: grid; gap: 16px; min-width: 0; }
 .gx-layout__preview-card { padding: 20px 0; }
 .gx-layout__preview-card > :not(svg) { margin-inline: 20px; }
-.gx-layout__preview { display: block; width: 100%; height: auto; border-block: 1px solid var(--glass-border); touch-action: none; user-select: none; }
+.gx-layout__preview { display: block; width: 100%; height: auto; border-block: 1px solid var(--glass-border); touch-action: pan-y; user-select: none; }
 .gx-layout__widget { cursor: grab; outline: none; }
 .gx-layout__widget:active { cursor: grabbing; }
 .gx-layout-widget-art { pointer-events: none; font-family: var(--font-body); }
@@ -712,7 +712,20 @@ input[type="range"].gx-slider:active::-moz-range-thumb {
     margin: -14px -14px 0; padding: 10px 14px; background: var(--layout-solid); border-bottom: 1px solid var(--glass-border); border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
   .gx-layout__widget-list { gap: 6px; }
   .gx-layout__layer { padding: 2px; }
+  /* Shrink the pinned preview while scrolling. */
+  .gx-layout__preview-card .gx-layout__preview { transition: max-width 180ms ease; }
+  .gx-layout.is-shrunk .gx-layout__preview-card .gx-layout__preview { max-width: min(72%, calc(var(--layout-pin-max) * .72 * var(--layout-ratio, 2))); }
+  /* Preserve scroll space while the preview shrinks. */
+  .gx-layout.is-shrunk .gx-layout__workspace { padding-bottom: calc(var(--layout-pin-h, 0px) * .4); }
+  .gx-layout.is-shrunk .gx-layout__scene-note { display: none; }
+  .gx-layout.is-shrunk .gx-layout__preview-bar .gx-field { min-height: 34px; }
+  .gx-layout.is-shrunk .gx-layout__preview-bar .gx-select__button { min-height: 34px; padding-block: 4px; font-size: var(--fs-sm); }
+  .gx-layout.is-shrunk .gx-layout__preview-bar .gx-icon-btn { width: 34px; min-width: 34px; height: 34px; min-height: 34px; font-size: 1rem; }
+  .gx-layout.is-shrunk .gx-layout__sections { padding-block: 6px; }
+  .gx-layout.is-shrunk .gx-layout__sections .gx-btn { min-height: 34px; padding-block: 4px; font-size: var(--fs-sm); }
 }
+@media (prefers-reduced-motion: reduce) { .gx-layout__preview-card .gx-layout__preview { transition: none; } }
+@media (pointer: coarse) { .gx-layout__widget.is-armed .gx-layout__selection { opacity: 1; } }
 @container (max-width: 850px) {
   .gx-layout__savebar:not(.gx-layout__savebar--leave) > span { flex: 1 1 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .gx-layout__savebar:not(.gx-layout__savebar--leave) { gap: 4px; }
@@ -731,6 +744,8 @@ input[type="range"].gx-slider:active::-moz-range-thumb {
   .gx-layout__workspace { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
   .gx-layout__preview-card .gx-layout__preview { max-width: calc(var(--layout-pin-max) * var(--layout-ratio, 2)); margin-inline: auto; }
   .gx-layout__sections { top: calc(var(--layout-sticky-top, 0px) + var(--layout-bar-h, 60px)); }
+  .gx-layout.is-shrunk .gx-layout__preview-card .gx-layout__preview { max-width: calc(var(--layout-pin-max) * var(--layout-ratio, 2)); }
+  .gx-layout.is-shrunk .gx-layout__workspace { padding-bottom: 0; }
 }
 
 /* Widget list help pops over the list; widget rows and Edit controls run tighter. */
@@ -758,6 +773,24 @@ input[type="range"].gx-slider:active::-moz-range-thumb {
 .gx-layout__inspector .gx-layout__colors > .gx-layout__subhead { flex-wrap: nowrap; }
 .gx-layout__inspector .gx-layout__colors > .gx-layout__subhead > .gx-btn { flex: none; min-height: 34px; padding: 6px 14px; }
 
+.gx-layout__edit .gx-layout__favorite-display { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.gx-layout__edit .gx-layout__favorite-display > span { flex: none; }
+.gx-layout__edit .gx-layout__favorite-display .gx-segment { flex: 1 1 auto; gap: 6px; }
+.gx-layout__edit .gx-layout__favorite-display .gx-btn { min-height: 34px; padding: 4px 10px; font-size: var(--fs-sm); white-space: nowrap; }
+
+/* Narrow editors keep each widget's Edit controls compact so less scrolling is needed. */
+@container (max-width: 1040px) {
+  .gx-layout__inspector .gx-layout__edit { gap: 8px; }
+  .gx-layout__inspector .gx-select.gx-field { padding-block: 0; }
+  .gx-layout__edit .gx-row { min-height: 48px; padding: 6px 12px; }
+  .gx-layout__edit .gx-layout__coordinates { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 8px; row-gap: 6px; }
+  .gx-layout__edit .gx-layout__coordinates label { grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; }
+  .gx-layout__edit .gx-layout__colors { gap: 6px; }
+  .gx-layout__edit .gx-layout__colors > .gx-note { margin: 0; }
+  .gx-layout__edit .gx-layout__color-row { min-height: 40px; }
+  .gx-layout__edit .gx-note { line-height: 1.4; }
+}
+
 /* Slimmer preview switcher and save bar on narrow editors. */
 @container (max-width: 1040px) {
   .gx-layout__preview-bar .gx-layout__switcher .gx-btn { min-height: 36px; padding-block: 6px; }
@@ -773,19 +806,22 @@ input[type="range"].gx-slider:active::-moz-range-thumb {
 /* Pinned pieces keep the same 12px gap as the unpinned layout. While a piece is pinned, a page-colored strip fills
    the gap below it and the slivers beside its rounded corners, so the controls never show through while scrolling.
    Unpinned pieces get no fill, so nothing dark sits over the page backdrop. */
+.gx-layout { --pin-gap: 12px; }
+/* Scrolled, the pinned pieces close up to the same gap as between the app bar and the save bar. */
+.gx-layout.is-shrunk { --pin-gap: 6px; }
 .gx-layout__savebar { --pin-r: var(--radius-md); }
 .gx-layout__preview-card { --pin-r: var(--radius-lg); }
 @container (max-width: 1040px) {
-  .gx-layout__preview-card { top: calc(var(--layout-sticky-top, 0px) + var(--layout-bar-h, 60px) + 12px); overflow: visible; }
-  .gx-layout__sections { top: calc(var(--layout-sticky-top, 0px) + var(--layout-bar-h, 60px) + 24px + var(--layout-pin-h, 0px)); }
+  .gx-layout__preview-card { top: calc(var(--layout-sticky-top, 0px) + var(--layout-bar-h, 60px) + var(--pin-gap)); overflow: visible; }
+  .gx-layout__sections { top: calc(var(--layout-sticky-top, 0px) + var(--layout-bar-h, 60px) + 2 * var(--pin-gap) + var(--layout-pin-h, 0px)); }
   .gx-layout__preview-card.is-stuck::before, .gx-layout__preview-card.is-stuck::after {
     content: ""; position: absolute; left: -1px; right: -1px; pointer-events: none; --pin-bg: var(--background); }
   .gx-layout__preview-card.is-stuck::after {
-    top: calc(100% + 1px - var(--pin-r)); height: calc(var(--pin-r) + 12px);
+    top: calc(100% + 1px - var(--pin-r)); height: calc(var(--pin-r) + var(--pin-gap));
     background:
       radial-gradient(circle at 100% 0, transparent calc(var(--pin-r) - .5px), var(--pin-bg) var(--pin-r)) 0 0 / var(--pin-r) var(--pin-r) no-repeat,
       radial-gradient(circle at 0 0, transparent calc(var(--pin-r) - .5px), var(--pin-bg) var(--pin-r)) 100% 0 / var(--pin-r) var(--pin-r) no-repeat,
-      linear-gradient(var(--pin-bg), var(--pin-bg)) 0 100% / 100% 12px no-repeat; }
+      linear-gradient(var(--pin-bg), var(--pin-bg)) 0 100% / 100% var(--pin-gap) no-repeat; }
   .gx-layout__preview-card.is-stuck::before {
     top: -1px; height: var(--pin-r);
     background:
@@ -793,7 +829,7 @@ input[type="range"].gx-slider:active::-moz-range-thumb {
       radial-gradient(circle at 0 100%, transparent calc(var(--pin-r) - .5px), var(--pin-bg) var(--pin-r)) 100% 0 / var(--pin-r) var(--pin-r) no-repeat; }
 }
 @media (orientation: landscape) and (max-height: 560px) {
-  .gx-layout__sections { top: calc(var(--layout-sticky-top, 0px) + var(--layout-bar-h, 60px) + 12px); }
+  .gx-layout__sections { top: calc(var(--layout-sticky-top, 0px) + var(--layout-bar-h, 60px) + var(--pin-gap)); }
   .gx-layout__preview-card.is-stuck::after { content: none; }
 }
 
@@ -831,14 +867,14 @@ input[type="range"].gx-slider:active::-moz-range-thumb {
   .gx-layout__savebar.is-stuck { --pin-line: var(--glass-border); --pin-shadow: var(--elev-1); border-color: transparent; box-shadow: none; }
   .gx-layout__savebar.gx-layout__savebar--leave.is-stuck { --pin-line: var(--primary); --pin-shadow: var(--leave-glow); }
   .gx-layout__savebar.is-stuck::before {
-    content: ""; position: absolute; top: calc(-1px - var(--layout-sticky-top, 0px)); bottom: -13px; left: -1px; right: -1px; pointer-events: none;
+    content: ""; position: absolute; top: calc(-1px - var(--layout-sticky-top, 0px)); bottom: calc(-1px - var(--pin-gap)); left: -1px; right: -1px; pointer-events: none;
     background:
       radial-gradient(circle at 100% 100%, transparent calc(var(--pin-r) - .5px), var(--background) var(--pin-r)) left 0 top var(--layout-sticky-top, 0px) / var(--pin-r) var(--pin-r) no-repeat,
       radial-gradient(circle at 0 100%, transparent calc(var(--pin-r) - .5px), var(--background) var(--pin-r)) right 0 top var(--layout-sticky-top, 0px) / var(--pin-r) var(--pin-r) no-repeat,
-      radial-gradient(circle at 100% 0, transparent calc(var(--pin-r) - .5px), var(--background) var(--pin-r)) left 0 bottom 12px / var(--pin-r) var(--pin-r) no-repeat,
-      radial-gradient(circle at 0 0, transparent calc(var(--pin-r) - .5px), var(--background) var(--pin-r)) right 0 bottom 12px / var(--pin-r) var(--pin-r) no-repeat,
+      radial-gradient(circle at 100% 0, transparent calc(var(--pin-r) - .5px), var(--background) var(--pin-r)) left 0 bottom var(--pin-gap) / var(--pin-r) var(--pin-r) no-repeat,
+      radial-gradient(circle at 0 0, transparent calc(var(--pin-r) - .5px), var(--background) var(--pin-r)) right 0 bottom var(--pin-gap) / var(--pin-r) var(--pin-r) no-repeat,
       linear-gradient(var(--background), var(--background)) 0 0 / 100% var(--layout-sticky-top, 0px) no-repeat,
-      linear-gradient(var(--background), var(--background)) 0 100% / 100% 12px no-repeat; }
+      linear-gradient(var(--background), var(--background)) 0 100% / 100% var(--pin-gap) no-repeat; }
   .gx-layout__savebar.is-stuck::after {
     content: ""; position: absolute; inset: -1px; pointer-events: none;
     border: 1px solid var(--pin-line); border-radius: var(--pin-r); box-shadow: var(--pin-shadow); }
@@ -938,15 +974,6 @@ html.gx-maker-open, html.gx-maker-open body { touch-action: manipulation; }
   .gx-hotspot__row .gx-row__desc { overflow-wrap: anywhere; }
   .gx-hotspot__field { min-width: 0; max-width: none; }
   .gx-hotspot__controls { justify-content: flex-start; }
-}
-
-@media (pointer: coarse) {
-  .gx-layout__preview-card { position: static; }
-  .gx-layout__sections { position: static; }
-  .gx-layout__widget-list { gap: 12px; padding-inline: 12px; }
-  .gx-layout__inspector { padding-bottom: 32px; }
-  .gx-layout__layer-name { min-height: 48px; }
-  .gx-layout__tray { padding-block: 16px; }
 }
 
 /* Compact groups keep related maintenance actions together. */
