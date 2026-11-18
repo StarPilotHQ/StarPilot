@@ -39,8 +39,10 @@ const projection = JSON.parse(execFileSync(process.env.PYTHON || 'python3', ['-c
     const initialIds = await rows.evaluateAll(elements => elements.map(row => row.dataset.layerId))
     assert.match(initialIds[0], /^pip_/, 'side cameras start locked in front')
     assert.equal(await rows.first().locator('.gx-layout__row-grip').isDisabled(), true)
-    await page.getByRole('button', {name:'Unlock side cameras'}).first().click()
-    await page.getByRole('button', {name:'Unlock', exact:true}).click()
+    for (const side of ['left', 'right']) {
+      await page.getByRole('button', {name:`Unlock PiP ${side} side camera`}).click()
+      await page.getByRole('button', {name:'Unlock', exact:true}).click()
+    }
     assert.equal(await rows.first().locator('.gx-layout__row-grip').isDisabled(), false)
     const source = await rows.last().boundingBox(), destination = await rows.first().boundingBox()
     const beforeMouse = await page.evaluate(() => JSON.stringify(window.editor.state.draft))

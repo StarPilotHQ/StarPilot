@@ -110,9 +110,9 @@ Object.defineProperties(vm, {
   layout: { get: () => vm.state.draft.layouts.large },
   selectedWidget: { get: () => profile.widgets[vm.state.selected] },
   selectedPosition: { get: () => vm.state.draft.layouts.large[vm.state.selected] },
-  ...Object.fromEntries(["cameraIds", "camerasOnTop", "camerasLocked"].map(name => [name, { get: () => OnroadLayoutPage.computed[name].call(vm) }])),
+  ...Object.fromEntries(["cameraIds", "camerasOnTop", "lockedCameraIds"].map(name => [name, { get: () => OnroadLayoutPage.computed[name].call(vm) }])),
 })
-for (const name of ["watchRelease", "unwatchRelease", "recordChange", "resizeBox", "boxInput", "opacityInput", "setWidgetBackground", "undo", "redo", "startResize", "moveDrag", "endDrag", "releaseDrag", "changePosition", "add", "remove", "requestRemove", "reorderLayer", "startLayerDrag", "setFavoriteDisplay", "layerFixed", "toggleCameraLock", "confirmCameraUnlock", "cancelCameraUnlock", "clearPendingTouch"])
+for (const name of ["watchRelease", "unwatchRelease", "recordChange", "resizeBox", "boxInput", "opacityInput", "setWidgetBackground", "undo", "redo", "startResize", "moveDrag", "endDrag", "releaseDrag", "changePosition", "add", "remove", "requestRemove", "reorderLayer", "startLayerDrag", "setFavoriteDisplay", "layerFixed", "cameraLocked", "pinLockedCameras", "toggleCameraLock", "confirmCameraUnlock", "cancelCameraUnlock", "clearPendingTouch"])
   vm[name] = OnroadLayoutPage.methods[name].bind(vm)
 const pointer = (x, y) => ({ clientX: x, clientY: y, pointerId: 7, button: 0, preventDefault() {}, stopPropagation() {} })
 vm.startResize("nav_map", pointer(1950 + 860, 625 + 410))
@@ -253,37 +253,46 @@ vm.reorderLayer('car_exit', 'nav_map')
 vm.reorderLayer('nav_map', 'car_exit')
 assert.deepEqual(orderedWidgetIds(vm.state.draft, data.metadata, 'large'), pinnedOrder)
 
-// Side cameras lock just under Exit to car; unlocking needs a confirmation.
-assert.equal(vm.camerasLocked, false, "an order with widgets above the cameras opens unlocked")
-vm.toggleCameraLock()
+// Each side camera locks on its own, just under Exit to car; unlocking needs a confirmation.
+vm.state.pipUnlocked = {}
+const layerOrder = () => [...orderedWidgetIds(vm.state.draft, data.metadata, 'large')]
+assert.deepEqual(vm.lockedCameraIds, [], "cameras under other widgets open unlocked")
+vm.toggleCameraLock('pip_left')
 assert.equal(vm.state.pipUnlockConfirm, undefined, "locking needs no warning")
-const lockedOrder = [...orderedWidgetIds(vm.state.draft, data.metadata, 'large')]
-assert.deepEqual(lockedOrder.slice(-3), ['pip_left', 'pip_right', 'car_exit'])
-assert.equal(vm.camerasLocked, true)
+assert.deepEqual(layerOrder().slice(-2), ['pip_left', 'car_exit'])
+assert.equal(vm.cameraLocked('pip_left'), true)
+assert.equal(vm.cameraLocked('pip_right'), false, "the other camera keeps its own lock")
+vm.toggleCameraLock('pip_right')
+const lockedOrder = layerOrder()
+assert.deepEqual(lockedOrder.slice(-3), ['pip_right', 'pip_left', 'car_exit'], "a newly locked camera joins the locked ones under Exit to car")
 vm.reorderLayer('nav_map', 'pip_left')
 vm.reorderLayer('pip_left', 'nav_map')
 vm.startLayerDrag({ button: 0 }, 'pip_right')
 assert.equal(vm.state.layerDrag, undefined)
-assert.deepEqual(orderedWidgetIds(vm.state.draft, data.metadata, 'large'), lockedOrder)
-vm.toggleCameraLock()
-assert.equal(vm.state.pipUnlockConfirm, true)
-assert.equal(vm.camerasLocked, true, "the lock holds until the warning is confirmed")
+assert.deepEqual(layerOrder(), lockedOrder)
+vm.toggleCameraLock('pip_right')
+assert.equal(vm.state.pipUnlockConfirm, 'pip_right')
+assert.equal(vm.cameraLocked('pip_right'), true, "the lock holds until the warning is confirmed")
 vm.cancelCameraUnlock()
-vm.toggleCameraLock()
+vm.toggleCameraLock('pip_right')
 vm.confirmCameraUnlock()
-assert.equal(vm.camerasLocked, false)
+assert.equal(vm.cameraLocked('pip_right'), false)
+assert.equal(vm.cameraLocked('pip_left'), true, "unlocking one camera leaves the other locked")
 vm.reorderLayer('nav_map', 'pip_right')
-assert.deepEqual(orderedWidgetIds(vm.state.draft, data.metadata, 'large').slice(-3), ['pip_right', 'nav_map', 'car_exit'])
+assert.deepEqual(layerOrder().slice(-4), ['pip_right', 'nav_map', 'pip_left', 'car_exit'], "a widget can go above the unlocked camera only")
 assert.equal(validDocument(vm.state.draft, data.metadata), true)
-vm.toggleCameraLock()
-assert.equal(vm.camerasLocked, true, "locking moves the cameras back under Exit to car")
-assert.deepEqual(orderedWidgetIds(vm.state.draft, data.metadata, 'large').slice(-3), ['pip_left', 'pip_right', 'car_exit'])
+vm.reorderLayer('nav_map', 'pip_left')
+assert.deepEqual(layerOrder().slice(-4), ['pip_right', 'nav_map', 'pip_left', 'car_exit'])
+vm.toggleCameraLock('pip_right')
+assert.equal(vm.cameraLocked('pip_right'), true, "locking moves the camera back under Exit to car")
+assert.deepEqual(layerOrder().slice(-3), ['pip_right', 'pip_left', 'car_exit'])
 vm.undo()
 vm.undo()
-assert.deepEqual(orderedWidgetIds(vm.state.draft, data.metadata, 'large'), lockedOrder)
+assert.deepEqual(layerOrder(), lockedOrder)
 vm.undo()
-assert.deepEqual(orderedWidgetIds(vm.state.draft, data.metadata, 'large'), pinnedOrder)
-vm.state.pipUnlocked = false
+vm.undo()
+assert.deepEqual(layerOrder(), pinnedOrder)
+vm.state.pipUnlocked = {}
 const disabledExit = copy(vm.state.draft)
 disabledExit.layouts.large.car_exit.enabled = false
 assert.equal(validDocument(disabledExit, data.metadata), false)

@@ -406,7 +406,7 @@ export const OnroadLayoutPage = {
   setup(props) {
     const state = reactive({
       status: "idle", data: null, draft: null, needsReload: false, error: "", notice: "",
-      profile: "large", scene: "general", selected: null, layerDrag: null, drag: null, discard: null, leavePresentation: null, removeConfirm: null, pipUnlocked: false, pipUnlockConfirm: false, colorError: "", placementError: "",
+      profile: "large", scene: "general", selected: null, layerDrag: null, drag: null, discard: null, leavePresentation: null, removeConfirm: null, pipUnlocked: {}, pipUnlockConfirm: null, colorError: "", placementError: "",
       inspectorPanel: ["widgets", "edit", "road", "display"].includes(props.initialPanel) && !props.projection ? props.initialPanel : "widgets", showFavoriteZones: false, showEditingAids: loadAidsPreference(),
       aboutOpen: false, tipsOpen: false, moreOpen: false, widgetsHelpOpen: false, stuck: { leaveBar: false, pinned: false, sections: false }, shrunk: false, touchArmed: null, openColor: null, art: { status: "idle", error: "", url: null, sprites: null }, backdrop: { status: "idle", error: "", url: null },
       hiddenPreviewWidgets: loadPreviewVisibility(props.projection), sceneHiddenPreviewWidgets: {}, snapEnabled: loadSnapPreference(), snapGuides: [], history: { undo: [], redo: [], group: null }
@@ -568,14 +568,16 @@ export const OnroadLayoutPage = {
         .slice().reverse().map(id => this.widgets.find(widget => widget.id === id)).filter(widget => widget && this.layout[widget.id].enabled)
     },
     cameraIds() { return CAMERA_IDS.filter(id => Object.hasOwn(this.profile?.widgets || {}, id)) },
-    // Locked side cameras hold the front slots, under only the always-frontmost controls.
+    // Side cameras in the unbroken run of front slots, under only the always-frontmost controls.
     camerasOnTop() {
-      if (!this.cameraIds.length) return false
       const order = orderedWidgetIds(this.state.draft, this.state.data.metadata, this.state.profile)
         .filter(id => !this.profile.widgets[id]?.frontmost)
-      return order.slice(-this.cameraIds.length).every(id => this.cameraIds.includes(id))
+      const top = []
+      for (let index = order.length - 1; index >= 0 && this.cameraIds.includes(order[index]); index--) top.push(order[index])
+      return top
     },
-    camerasLocked() { return !this.state.pipUnlocked && this.camerasOnTop },
+    // Each side camera locks on its own; a locked one stays in front of every unlocked widget.
+    lockedCameraIds() { return this.camerasOnTop.filter(id => !this.state.pipUnlocked[id]) },
     listWidgets() { return this.state.layerDrag ? this.state.layerDrag.rows.map(id => this.widgets.find(widget => widget.id === id)) : this.layerWidgets },
     selectionBox() {
       if (!this.state.layerDrag) return null
@@ -868,36 +870,42 @@ export const OnroadLayoutPage = {
       try { navigator.vibrate?.(10) } catch { }
       this.startDrag(pending.id, { ...pending, button: 0, preventDefault() { } })
     },
-    layerFixed(id) { return this.profile.widgets[id]?.frontmost || this.camerasLocked && this.cameraIds.includes(id) },
-    toggleCameraLock() {
-      if (!this.editable || this.state.drag || this.state.layerDrag) return
-      if (this.camerasLocked) { this.state.pipUnlockConfirm = true; return }
-      this.state.pipUnlocked = false
-      if (this.camerasOnTop) return
-      const before = clone(this.state.draft)
-      const order = orderedWidgetIds(this.state.draft, this.state.data.metadata, this.state.profile)
+    cameraLocked(id) { return this.lockedCameraIds.includes(id) },
+    layerFixed(id) { return this.profile.widgets[id]?.frontmost || this.cameraLocked(id) },
+    // Keeps the locked cameras directly under the frontmost controls, in their current relative order.
+    pinLockedCameras(order, locked) {
       const front = order.filter(id => this.profile.widgets[id]?.frontmost)
-      const rest = order.filter(id => !front.includes(id))
+      return [...order.filter(id => !front.includes(id) && !locked.includes(id)), ...order.filter(id => locked.includes(id)), ...front]
+    },
+    toggleCameraLock(id) {
+      if (!this.editable || this.state.drag || this.state.layerDrag || !this.cameraIds.includes(id)) return
+      if (this.cameraLocked(id)) { this.state.pipUnlockConfirm = id; return }
+      const locked = [...this.lockedCameraIds, id]
+      this.state.pipUnlocked = { ...this.state.pipUnlocked, [id]: false }
+      const order = orderedWidgetIds(this.state.draft, this.state.data.metadata, this.state.profile)
+      const pinned = this.pinLockedCameras(order, locked)
+      if (pinned.every((key, index) => key === order[index])) return
+      const before = clone(this.state.draft)
       this.state.draft.widgetOrder ||= {}
-      this.state.draft.widgetOrder[this.state.profile] = [...rest.filter(id => !this.cameraIds.includes(id)),
-        ...rest.filter(id => this.cameraIds.includes(id)), ...front]
+      this.state.draft.widgetOrder[this.state.profile] = pinned
       this.recordChange(before)
     },
-    cancelCameraUnlock() { this.state.pipUnlockConfirm = false },
+    cancelCameraUnlock() { this.state.pipUnlockConfirm = null },
     confirmCameraUnlock() {
-      this.state.pipUnlockConfirm = false
-      this.state.pipUnlocked = true
+      const id = this.state.pipUnlockConfirm
+      this.state.pipUnlockConfirm = null
+      if (id) this.state.pipUnlocked = { ...this.state.pipUnlocked, [id]: true }
     },
     reorderLayer(id, target) {
       if (!this.editable || this.state.drag || id === target || this.layerFixed(id) || this.layerFixed(target)) return
       const order = [...orderedWidgetIds(this.state.draft, this.state.data.metadata, this.state.profile)]
       const from = order.indexOf(id), to = order.indexOf(target)
       if (from < 0 || to < 0) return
-      const before = clone(this.state.draft)
+      const before = clone(this.state.draft), locked = this.lockedCameraIds
       order.splice(from, 1)
       order.splice(to, 0, id)
       this.state.draft.widgetOrder ||= {}
-      this.state.draft.widgetOrder[this.state.profile] = order
+      this.state.draft.widgetOrder[this.state.profile] = this.pinLockedCameras(order, locked)
       this.state.selected = id
       this.recordChange(before)
     },
@@ -911,7 +919,7 @@ export const OnroadLayoutPage = {
       this.state.layerDrag = {
         id, pointerId: event.pointerId, target: null, startX: event.clientX, startY: event.clientY,
         x: rect.x, y: rect.y, width: rect.width, offsetX: event.clientX - rect.x, offsetY: event.clientY - rect.y,
-        rows: this.layerWidgets.map(widget => widget.id), before: clone(this.state.draft), moved: false
+        rows: this.layerWidgets.map(widget => widget.id), before: clone(this.state.draft), locked: [...this.lockedCameraIds], moved: false
       }
       this._layerTarget = event.currentTarget
       this.watchRelease()
@@ -960,7 +968,7 @@ export const OnroadLayoutPage = {
         order.splice(from, 1)
         order.splice(to, 0, drag.id)
         this.state.draft.widgetOrder ||= {}
-        this.state.draft.widgetOrder[this.state.profile] = order
+        this.state.draft.widgetOrder[this.state.profile] = this.pinLockedCameras(order, drag.locked || [])
       }
     },
     // Scrolls while a dragged row is held near the visible edges; the top edge is the bottom of the pinned tabs.
@@ -1051,7 +1059,7 @@ export const OnroadLayoutPage = {
       this.state.snapGuides = []
       this.finishColorEdit()
       this.state.profile = profile
-      this.state.pipUnlocked = false
+      this.state.pipUnlocked = {}
       this.state.touchArmed = null
       this.state.selected = Object.keys(this.profile.widgets)[0] || null
       this.state.placementError = ""
