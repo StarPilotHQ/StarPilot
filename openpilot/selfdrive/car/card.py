@@ -828,9 +828,12 @@ class Car:
           gm_claim.claim(self.traffic_receipt[1], self.traffic_receipt[2], self.traffic_receipt[3])
     self.switchback_receipt = None
     if self.switchback_button_tracker is not None and self.switchback_settings_owner is not None:
+      media_map = getattr(self, 'ioniq_media_map', None)
+      map_current = media_map is not None and media_map.checked_ns == now_ns
       self.switchback_receipt = conditional_traffic_candidate(
         CS, self.switchback_button_tracker, self.params, self.switchback_settings_owner,
-        self.CP, self.sm, now_ns=now_ns, media=media_observation, action=7)
+        self.CP, self.sm, now_ns=now_ns, media=media_observation, action=7,
+        media_buttons=media_map.buttons if map_current else None, media_map_captured=map_current)
     if consumed is not None:
       self.slc_receipts.append(('confirmationAccept' if consumed.button == 'accel' else 'confirmationReject',
                                 consumed, 0.0, 0.0, now_ns))
