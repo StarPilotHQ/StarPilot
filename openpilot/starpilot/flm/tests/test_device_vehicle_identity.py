@@ -220,28 +220,28 @@ class TestRegisteredDeviceVehicleIdentity(unittest.TestCase):
     copied = self.root / 'source-mutations'
     self.copy_sources(root, copied, paths)
     selected = tuple(copied / path.relative_to(root) for path in files)
-    baseline = known_vin_revision(copied, *selected, names, native)
+    baseline = known_vin_revision(copied, selected[0], selected[1], names, native)
     self.assertIsNotNone(baseline)
     for path in (copied / 'openpilot/starpilot/flm/vehicle_identity.py',
                  copied / 'openpilot/starpilot/flm/identity_transition.py'):
       before = path.read_bytes()
       path.write_bytes(before + b'\n# unreviewed change\n')
-      self.assertIsNone(known_vin_revision(copied, *selected, names, native))
+      self.assertIsNone(known_vin_revision(copied, selected[0], selected[1], names, native))
       path.write_bytes(before)
     ledger = copied / 'openpilot/starpilot/flm/identity_transition.json'
     before = ledger.read_bytes()
     document = json.loads(before)
     document['source_parent'] = '0' * 40
     ledger.write_text(json.dumps(document))
-    self.assertIsNone(known_vin_revision(copied, *selected, names, native))
+    self.assertIsNone(known_vin_revision(copied, selected[0], selected[1], names, native))
     ledger.write_bytes(before)
     safety = next(path for path in paths if path.suffix == '.h' and '/safety/' in str(path))
     for path in (selected[0], copied / safety.relative_to(root)):
       before = path.read_bytes()
       path.write_bytes(before + b'\n// changed steering source\n')
-      self.assertNotEqual(known_vin_revision(copied, *selected, names, native), baseline)
+      self.assertNotEqual(known_vin_revision(copied, selected[0], selected[1], names, native), baseline)
       path.write_bytes(before)
-    self.assertNotEqual(known_vin_revision(copied, *selected, names, ('changed-native', native)), baseline)
+    self.assertNotEqual(known_vin_revision(copied, selected[0], selected[1], names, ('changed-native', native)), baseline)
 
   def test_late_registration_invalidates_review_checkpoint_without_requalifying_missing_original_metadata(self):
     directory = str(self.root / 'late')
