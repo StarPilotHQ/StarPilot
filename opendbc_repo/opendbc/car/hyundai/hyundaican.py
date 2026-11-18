@@ -1,5 +1,5 @@
 from opendbc.car.hyundai.hyundaicanfd import CanBus
-from opendbc.car.hyundai.g90_lead import eligible as g90_lead_eligible
+from opendbc.car.hyundai.g90_lead import CanLeadData, eligible as g90_lead_eligible
 from opendbc.car.crc import CRC8J1850, mk_crc8_fun
 from opendbc.car.hyundai.values import is_blended, CAR, HyundaiFlags
 
@@ -134,7 +134,9 @@ def create_lfahda_mfc(packer, enabled, *, lfa_icon=None):
 
 def create_acc_commands(packer, enabled, accel, upper_jerk, idx, hud_control, set_speed, stopping, long_override, use_fca, CP, *, lead_data=None):
   commands = []
-  if lead_data is not None and not g90_lead_eligible(CP):
+  if g90_lead_eligible(CP):
+    lead_data = lead_data or CanLeadData()
+  else:
     lead_data = None
 
   scc11_values = {

@@ -49,7 +49,7 @@ class TestG90LeadInputs(unittest.TestCase):
     return provider
 
   def sample(self, provider, messages):
-    with patch.object(radar_lead_context, 'clock_pair_ns', side_effect=lambda: (messages.now, messages.now+20_000_000_000)):
+    with patch.object(radar_lead_context, 'clock_pair_ns', side_effect=lambda messages=messages: (messages.now, messages.now+20_000_000_000)):
       return provider.update()
 
   def test_staggered_producers_recover_without_a_moving_floor(self):
@@ -140,30 +140,31 @@ class TestG90LeadInputs(unittest.TestCase):
     assert result is not None
 
   def test_actual_controller_provider_bind_and_100hz_to_50hz_wire(self):
-    cp = params()
-    ci = CarInterface(cp)
-    ci.update([])
-    messages = RadarMessages(auto=True)
-    with patch.object(radar_lead_context.messaging, 'SubMaster', return_value=messages):
-      configure_controller(ci, None)
-    self.assertIsInstance(ci.CC.g90_lead_inputs, g90_lead.G90LeadInputs)
-    command = structs.CarControl(enabled=True, longActive=True)
-    command.actuators.longControlState = structs.CarControl.Actuators.LongControlState.pid
-    parser = CANParser(DBC[CAR.GENESIS_G90][Bus.pt], [('SCC11', 0), ('SCC14', 0)], 0)
-    obj = parser.dbc.name_to_msg['SCC14'].sigs['ObjDistStat']
-    self.assertEqual((obj.start_bit, obj.size, obj.factor, obj.offset), (42, 2, 1, 0))
-    captures = {}
-    for frame in range(52):
-      with patch.object(radar_lead_context, 'clock_pair_ns', side_effect=lambda: (messages.now, messages.now+20_000_000_000)):
-        _, packets = ci.apply(command.as_reader(), (frame+1)*10_000_000)
-      scc = [packet for packet in packets if packet[0] in (0x420, 0x389)]
-      self.assertEqual(bool(scc), frame % 2 == 0)
-      if scc:
-        parser.update([(1_000_000_000+frame*10_000_000, scc)])
-        captures[frame] = (parser.vl['SCC11']['ObjValid'], parser.vl['SCC14']['ObjGap'])
-    self.assertEqual(captures[48], (0, 0))
-    self.assertEqual(captures[50], (1, 4))
-    self.assertEqual(parser.vl['SCC11']['ACC_ObjDist'], 26)
-    self.assertEqual(parser.vl['SCC11']['ACC_ObjRelSpd'], -.5)
-    self.assertEqual(parser.vl['SCC14']['ObjDistStat'], 2)
+    for car in (CAR.GENESIS_G90, CAR.HYUNDAI_KONA_EV, CAR.HYUNDAI_SONATA, CAR.KIA_STINGER_2022):
+      cp = params(car)
+      ci = CarInterface(cp)
+      ci.update([])
+      messages = RadarMessages(auto=True)
+      with patch.object(radar_lead_context.messaging, 'SubMaster', return_value=messages):
+        configure_controller(ci, None)
+      self.assertIsInstance(ci.CC.g90_lead_inputs, g90_lead.G90LeadInputs)
+      command = structs.CarControl(enabled=True, longActive=True)
+      command.actuators.longControlState = structs.CarControl.Actuators.LongControlState.pid
+      parser = CANParser(DBC[car][Bus.pt], [('SCC11', 0), ('SCC14', 0)], 0)
+      obj = parser.dbc.name_to_msg['SCC14'].sigs['ObjDistStat']
+      self.assertEqual((obj.start_bit, obj.size, obj.factor, obj.offset), (42, 2, 1, 0))
+      captures = {}
+      for frame in range(52):
+        with patch.object(radar_lead_context, 'clock_pair_ns', side_effect=lambda messages=messages: (messages.now, messages.now+20_000_000_000)):
+          _, packets = ci.apply(command.as_reader(), (frame+1)*10_000_000)
+        scc = [packet for packet in packets if packet[0] in (0x420, 0x389)]
+        self.assertEqual(bool(scc), frame % 2 == 0)
+        if scc:
+          parser.update([(1_000_000_000+frame*10_000_000, scc)])
+          captures[frame] = (parser.vl['SCC11']['ObjValid'], parser.vl['SCC14']['ObjGap'])
+      self.assertEqual(captures[48], (0, 0))
+      self.assertEqual(captures[50], (1, 4))
+      self.assertEqual(parser.vl['SCC11']['ACC_ObjDist'], 26)
+      self.assertEqual(parser.vl['SCC11']['ACC_ObjRelSpd'], -.5)
+      self.assertEqual(parser.vl['SCC14']['ObjDistStat'], 2)
 
