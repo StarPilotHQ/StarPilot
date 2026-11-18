@@ -647,7 +647,7 @@ class TestUnidentifiedVehicleReview(unittest.TestCase):
     from opendbc.car.car_helpers import interfaces
     from opendbc.car.hyundai.values import CAR
     from openpilot.starpilot.lateral.learning_preferences import replace_preference
-    from openpilot.starpilot.lateral.controller_selection import replace_mode
+    from openpilot.starpilot.lateral.controller_selection import ControllerMode, replace_mode
 
     root = Path(directory)
     params = Params(str(root / 'params'))
@@ -655,7 +655,7 @@ class TestUnidentifiedVehicleReview(unittest.TestCase):
     cp.carVin = vin
     params.put_bool('OpenpilotEnabledToggle', True, block=True)
     params.put('SteeringLearningPreferences', replace_preference(None, cp, True), block=True)
-    params.put('LateralControllerSelection', json.loads(replace_mode(None, cp, 'starpilot')), block=True)
+    params.put('LateralControllerSelection', json.loads(replace_mode(None, cp, ControllerMode.STARPILOT)), block=True)
     route = f'{counter:08x}--aaaaaaaaaa'
     folder = root / 'logs' / (route + '--0')
     folder.mkdir(parents=True)
@@ -743,13 +743,25 @@ class TestUnidentifiedVehicleReview(unittest.TestCase):
       with patch.object(worker, 'assessor', side_effect=AssertionError('An unchanged recording must reuse its checkpoint')):
         self.assertEqual(worker.run_once()['assessment_sha256'], result['assessment_sha256'])
       self.assertEqual(params.get(KEY), original)
+      # A second physical car could have exactly the same unknown-VIN CP.
+      # The new route must still be reviewed alone, not counted as confirmation.
+      self.setup(directory, counter=19)
+      with patch.object(EvidenceBank, 'retain', side_effect=AssertionError('Same-model unidentified drives cannot be pooled')):
+        second = worker.run_once()
+      self.assertEqual(second['completed_route'], '00000013--aaaaaaaaaa')
+      self.assertEqual(second['analysis_counts']['recorded_tracking'], 1201)
+      self.assertEqual(second['analysis_counts'].get('evidence_drives', 0), 0)
+      self.assertEqual(worker.cache.get(result['assessment_sha256']), doc)
+      self.assertEqual(params.get(KEY), original)
 
   def test_invalid_cached_vin_is_queried_again_instead_of_reusing_an_empty_identity(self):
     from opendbc.car import car_helpers
     from opendbc.car.hyundai.values import CAR
     fresh_vin = 'KMHL341JBLU000001'
-    for cached_vin, expected_queries in (('', 1), ('invalid', 1), ('00000000000000000', 1), (fresh_vin, 0)):
-      with self.subTest(vin=cached_vin), patch.dict(os.environ, {}, clear=True):
+    cases = (('', 1, {}), ('invalid', 1, {}), ('00000000000000000', 1, {}), (fresh_vin, 0, {}),
+             ('', 0, {'REPLAY': '1'}), ('invalid', 0, {'SKIP_FW_QUERY': '1'}))
+    for cached_vin, expected_queries, environment in cases:
+      with self.subTest(vin=cached_vin, environment=environment), patch.dict(os.environ, environment, clear=True):
         cp = car_helpers.interfaces[CAR.HYUNDAI_SONATA_HYBRID].get_non_essential_params(CAR.HYUNDAI_SONATA_HYBRID)
         cp.carVin = cached_vin
         cp.carFw = [{'ecu': 'engine', 'fwVersion': b'declared-version', 'address': 0x7e0}]
@@ -762,6 +774,6 @@ class TestUnidentifiedVehicleReview(unittest.TestCase):
               patch.object(car_helpers, 'match_fw_to_car', return_value=(True, {CAR.HYUNDAI_SONATA_HYBRID})),
               patch.object(car_helpers, 'can_fingerprint', return_value=(CAR.HYUNDAI_SONATA_HYBRID, {})),
               patch.object(car_helpers, 'automatic_bolt_candidate', side_effect=lambda candidate, *a: candidate)):
-          result = car_helpers.fingerprint(lambda **k: [], lambda *a: None, lambda *a: None, cp)
+          result = car_helpers.fingerprint(lambda wait_for_one=False: [], lambda *a: None, lambda *a: None, cp)
         self.assertEqual(query.call_count, expected_queries)
-        self.assertEqual(result[2], fresh_vin)
+        self.assertEqual(result[2], fresh_vin if expected_queries or cached_vin == fresh_vin else '00000000000000000')

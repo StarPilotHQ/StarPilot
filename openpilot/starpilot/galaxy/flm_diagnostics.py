@@ -173,7 +173,7 @@ def download(report, params):
 
 def with_dashboard_diagnostics(body, owner, authority=None):
   """Attach privacy-limited existing dashboard state without starting its analyzer."""
-  summary = {'status': 'not_started'}
+  summary: dict[str, Any] = {'status': 'not_started'}
   if owner is not None:
     try:
       summary = owner.diagnostics()
