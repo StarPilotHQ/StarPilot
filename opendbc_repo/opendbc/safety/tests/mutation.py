@@ -473,8 +473,15 @@ def build_priority_tests(site, catalog, core_tests):
 
   if is_mode:
     family = src.stem.split("_", 1)[0]
-    family_modules = [name for name in sorted(catalog) if name == f"test_{family}.py" or name.startswith(f"test_{family}_") or
-                      (family == "ford" and name == "test_angle_native.py")]
+    aliases = {
+      "hyundai": ("hyundai", "hkg", "ev9", "pe", "ioniq5pe", "ioniq6", "kia", "nexo", "palisade",
+                  "classic_scc", "canfd_damping", "prepared_torque_ev"),
+      "volkswagen": ("volkswagen", "meb"),
+      "volvo": ("volvo", "polestar"),
+      "ford": ("ford", "angle_native"),
+    }.get(family, (family,))
+    family_modules = [name for name in sorted(catalog) if any(name == f"test_{alias}.py" or name.startswith(f"test_{alias}_")
+                                                           for alias in aliases)]
     if family_modules:
       targets = [test_id for name in family_modules for test_id in catalog[name]]
       if family == "honda":
