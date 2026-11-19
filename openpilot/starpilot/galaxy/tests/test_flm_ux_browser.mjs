@@ -266,7 +266,8 @@ async function layout(label) {
 }
 async function show(selector) { await execute('document.querySelector(arguments[0]).scrollIntoView({block:"center",behavior:"instant"})', selector) }
 async function capture(name) {
-  const base64 = await command(`/session/${session}/screenshot`, {}, 'GET')
+  const { data: base64 } = await command(`/session/${session}/goog/cdp/execute`, { cmd: 'Page.captureScreenshot',
+    params: { format: 'png', captureBeyondViewport: false, optimizeForSpeed: true } })
   screenshots.push({ name, png_base64: base64 })
 }
 let failure = null

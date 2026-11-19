@@ -98,7 +98,7 @@ class DeviceSettingsTest(unittest.TestCase):
     self.assertEqual([row.key for row in owner.snapshot("resets").rows], [DRIVER_MONITORING_RESET, CALIBRATION_RESET])
     service.call.assert_not_called()
     self.assertEqual(owner.snapshot("starport_options").rows, ())
-    self.assertNotIn("developer", PAGES)
+    self.assertIn("developer", PAGES)
 
   def test_always_hold_default_registry_exact_save_and_parked_authority(self):
     from openpilot.common.params import Params, ParamKeyType
