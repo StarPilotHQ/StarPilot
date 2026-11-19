@@ -504,12 +504,15 @@ class NetworkLease:
       return True
 
   def drive_join(self, allowed: Callable[[str], bool], before: Callable[[], bool] = lambda: True,
-                 after: Callable[[], None] = lambda: None, timeout: float = DRIVE_JOIN_TIMEOUT_S) -> str:
+                 after: Callable[[], None] = lambda: None, timeout: float = DRIVE_JOIN_TIMEOUT_S,
+                 cancelled: Callable[[], bool] = lambda: False) -> str:
     """Join the best allowed saved network in range by hand while auto-join stays paused.
 
     Returns "connected" (already on a network), "none" (nothing to join), "joined" or "failed".
     """
     with self._lock:
+      if cancelled():
+        return "none"
       path = self.device_path or next((path for path, name in self._wifi_devices() if name == self.interface), "")
       if not path:
         return "none"
@@ -518,8 +521,10 @@ class NetworkLease:
         return "connected" if self._carrier() else "none"
       if state != DEVICE_STATE_DISCONNECTED:
         return "none"
-    self._scan(path)
+    self._scan(path, cancelled)
     with self._lock:
+      if cancelled() or int(self._get(path, NM_DEVICE_IFACE, "State")) != DEVICE_STATE_DISCONNECTED:
+        return "none"
       heard = self._heard(path)
       now = time.monotonic()
       self._failed_at = {key: at for key, at in self._failed_at.items() if now - at < FAILED_SKIP_S}
@@ -542,6 +547,8 @@ class NetworkLease:
       return "none"
     try:
       with self._lock:
+        if cancelled() or int(self._get(path, NM_DEVICE_IFACE, "State")) != DEVICE_STATE_DISCONNECTED:
+          return "none"
         self._call(NM_PATH, NM_IFACE, "ActivateConnection", "ooo", (target, path, "/"))
       deadline, started = time.monotonic() + timeout, False
       while time.monotonic() < deadline:
@@ -570,13 +577,15 @@ class NetworkLease:
         except NetworkError as error:
           self.log("wifi_autoconnect_pause_failed", error=str(error))
 
-  def _scan(self, path: str) -> None:
-    """NetworkManager stops scanning a disconnected wlan0 while its auto-join is paused, so ask for a scan and wait for it."""
+  def _scan(self, path: str, cancelled: Callable[[], bool] = lambda: False) -> None:
+    """Request a scan while auto-join is paused and wait briefly for completion."""
     if time.monotonic() - self._scanned_at < DRIVE_SCAN_EVERY_S:
       return
     self._scanned_at = time.monotonic()
     try:
       with self._lock:
+        if cancelled():
+          return
         before = int(self._get(path, NM_WIRELESS_IFACE, "LastScan"))
         self._call(path, NM_WIRELESS_IFACE, "RequestScan", "a{sv}", ({},))
     except NetworkError:
@@ -586,6 +595,8 @@ class NetworkLease:
       time.sleep(0.25)
       try:
         with self._lock:
+          if cancelled():
+            return
           if int(self._get(path, NM_WIRELESS_IFACE, "LastScan")) != before:
             return
       except NetworkError:

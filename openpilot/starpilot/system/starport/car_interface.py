@@ -235,12 +235,13 @@ class DedicatedLease:
       pause = bool(prefs.get("pauseHotspot")) and self.hotspot is not None
       outcome = join(lambda uuid: uuid not in parked_only,
                      before=self._pause_hotspot if pause else lambda: True,
-                     after=self.hotspot.clear_pause if pause else lambda: None)
+                     after=self.hotspot.clear_pause if pause else lambda: None,
+                     cancelled=lambda: self._cancel.is_set() or self._join_stalled or self.home is not home)
     except Exception as error:  # a join is optional; the car link must never depend on it
       self.log("wifi_drive_join_failed", error=str(error) or type(error).__name__)
       outcome = "failed"
     shown = "stalled" if self._join_stalled else outcome
-    if shown != self._last_join or shown in ("joined", "failed", "stalled"):
+    if shown != self._last_join:
       self.log("wifi_drive_join", interface=self.fallback_interface, outcome=shown)
     self._last_join = shown
     with self._home_lock:
