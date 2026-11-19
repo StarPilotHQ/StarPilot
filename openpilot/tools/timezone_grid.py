@@ -2,6 +2,7 @@
 """Build timezone_grid.bin from timezone-boundary-builder's timezones.geojson: timezone_grid.py combined.json [out]"""
 import json
 import lzma
+import math
 import struct
 import sys
 from pathlib import Path
@@ -36,13 +37,18 @@ def build(features):
   shapes.sort(key=lambda s: -s[0])
 
   img = Image.new("I", (COLS, ROWS), 0)
-  draw = ImageDraw.Draw(img)
   for _, zone, poly in shapes:
     exterior = to_px(poly[0])
-    draw.polygon(exterior, fill=zone)
     xs, ys = zip(*exterior, strict=True)
-    if max(xs) - min(xs) < 3 or max(ys) - min(ys) < 3:
-      draw.polygon(exterior, fill=zone, outline=zone)
+    left, top = max(0, math.floor(min(xs))), max(0, math.floor(min(ys)))
+    right, bottom = min(COLS, math.floor(max(xs)) + 1), min(ROWS, math.floor(max(ys)) + 1)
+    if right <= left or bottom <= top:
+      continue
+    mask = Image.new("1", (right - left, bottom - top))
+    draw = ImageDraw.Draw(mask)
+    for i, ring in enumerate(poly):
+      draw.polygon([(x - left, y - top) for x, y in to_px(ring)], fill=int(i == 0))
+    img.paste(zone, (left, top, right, bottom), mask)
 
   grid = np.asarray(img, dtype=np.int32)
   ends, zones, offsets = [], [], [0]

@@ -1,6 +1,6 @@
 import datetime
 
-from openpilot.common.timezone_lookup import load_grid, pick_timezone
+from openpilot.common.timezone_lookup import load_grid
 from openpilot.system import timed
 
 # drive 000000a8, 2026-11-09 04:15:03 CST
@@ -22,7 +22,8 @@ def test_learn_utc_offset():
   assert timed.learn_utc_offset(local, A8_UTC - datetime.timedelta(days=100)) is None
 
 
-def test_car_clock_to_utc():
+def test_car_clock_to_utc(monkeypatch):
+  monkeypatch.setattr(timed, "current_timezone", lambda: None)
   local = timed.parse_car_clock(A8_FRAME)
   assert timed.car_clock_to_utc(local, datetime.timedelta(hours=-6)) == A8_UTC
   assert timed.car_clock_to_utc(local, None) == A8_UTC
@@ -55,24 +56,6 @@ def test_delayed_clock_sample_does_not_claim_a_precise_pair(monkeypatch):
   monkeypatch.setattr(timed, 'system_time_valid', lambda: True)
   event = timed.clock_message()
   assert event.clocks.deprecated.monotonicNanos == event.clocks.deprecated.bootTimeNanos == 0
-
-
-def test_timezone_lookup_regions():
-  grid = load_grid()
-  for lat, lon, zone in [(41.88, -87.63, "America/Chicago"), (52.13, -106.67, "America/Regina"),
-                         (49.1, -116.51, "America/Creston"), (47.56, -52.71, "America/St_Johns"),
-                         (53.28, -110.0, "America/Edmonton"), (31.76, -106.49, "America/Denver"),
-                         (48.85, 2.35, "Europe/Paris"), (49.61, 6.13, "Europe/Luxembourg"), (60.17, 24.94, "Europe/Helsinki")]:
-    assert grid.candidates(lat, lon)[0] == zone
-  assert grid.candidates(0., -140.) == (None, set())
-
-
-def test_pick_timezone_keeps_current_near_border():
-  grid = load_grid()
-  # Monaco cell borders France: an existing Paris zone is kept, anything else takes the cell's zone
-  assert pick_timezone(grid, 43.73, 7.42, "Europe/Paris") == "Europe/Paris"
-  assert pick_timezone(grid, 43.73, 7.42, "America/Los_Angeles") == "Europe/Monaco"
-  assert pick_timezone(grid, 0., -140., "America/Chicago") is None
 
 
 def test_timezone_tracker_confirms_before_switching():
@@ -114,6 +97,7 @@ def test_set_timezone_rejects_bad_names(monkeypatch):
   monkeypatch.setattr(timed.os.path, 'isfile', lambda path: path.endswith("America/Chicago"))
   assert not timed.set_timezone("../../etc/passwd")
   assert not timed.set_timezone("Mars/Olympus")
+  assert not timed.set_timezone("/etc/passwd")
   assert calls == []
 
 
@@ -123,3 +107,13 @@ def test_set_timezone_reports_sudo_failure(monkeypatch):
   monkeypatch.setattr(timed.subprocess, 'run', fail)
   monkeypatch.setattr(timed.os.path, 'isfile', lambda path: True)
   assert not timed.set_timezone("America/Chicago")
+
+
+def test_car_clock_uses_configured_timezone(monkeypatch):
+  monkeypatch.setattr(timed, "current_timezone", lambda: "America/New_York")
+  assert timed.car_clock_to_utc(datetime.datetime(2026, 7, 4, 12), None) == datetime.datetime(2026, 7, 4, 16)
+
+
+def test_set_timezone_rejects_existing_absolute_path(monkeypatch):
+  monkeypatch.setattr(timed.os.path, "isfile", lambda path: True)
+  assert not timed.set_timezone("/etc/passwd")

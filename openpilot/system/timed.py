@@ -123,7 +123,7 @@ def current_timezone(path=LOCALTIME_PATH):
 
 def set_timezone(zone):
   target = os.path.join(ZONEINFO_DIR, zone)
-  if os.path.normpath(target) != target or not os.path.isfile(target):
+  if not target.startswith(ZONEINFO_DIR + "/") or os.path.normpath(target) != target or not os.path.isfile(target):
     cloudlog.error(f"timed: unknown timezone {zone}")
     return False
   tmp = LOCALTIME_PATH + ".tmp"
@@ -224,11 +224,14 @@ def main() -> NoReturn:
 
       if not PC and time.monotonic() >= next_tz_check:
         next_tz_check = time.monotonic() + TIMEZONE_CHECK_INTERVAL
-        if tz_tracker is None:
-          tz_tracker = TimezoneTracker(load_grid(), current_timezone())
-        zone = tz_tracker.update(gps.latitude, gps.longitude)
-        if zone is not None and set_timezone(zone):
-          tz_tracker.current = zone
+        try:
+          if tz_tracker is None:
+            tz_tracker = TimezoneTracker(load_grid(), current_timezone())
+          zone = tz_tracker.update(gps.latitude, gps.longitude)
+          if zone is not None and set_timezone(zone):
+            tz_tracker.current = zone
+        except (OSError, ValueError):
+          cloudlog.exception("timed.failed_timezone_lookup")
     elif not system_time_valid():
       car_local = read_car_clock(can_sock)
       car_utc = car_clock_to_utc(car_local, utc_offset) if car_local is not None else None
