@@ -105,6 +105,12 @@ void ignition_can_hook(const CANPacket_t *msg) {
     ignition_can_cnt = 0U;
   }
 
+  // Mazda 2019+ (GEN2) exception
+  if (msg_matches(msg, 0x274U, 0U, 8U)) {
+    ignition_can = (msg->data[5] & 0x4U) != 0U;
+    ignition_can_cnt = 0U;
+  }
+
   // Volkswagen MEB exception
   if (msg_matches(msg, 0x3C0U, 0U, 4U)) {
     int counter = msg->data[1] & 0xFU;

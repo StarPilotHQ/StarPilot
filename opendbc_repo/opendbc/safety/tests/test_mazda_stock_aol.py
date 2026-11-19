@@ -90,6 +90,19 @@ class TestMazdaStockAol(unittest.TestCase):
     self.feed()
     self.assertEqual(self.safety.aol_get_permission_mask(), 0)
 
+  def test_camera_bus_gear_cannot_override_reverse(self):
+    # Independent review P1: GEN1 GEAR is a bus-0 source. A Drive frame on the camera bus (accepted for
+    # GEN2 only) must not overwrite a bus-0 Reverse.
+    self.configure()
+    self.arm()
+    self.feed(reverse=True)
+    self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+    self.safety.safety_rx_hook(self.packet('GEAR', {'GEAR': 4}, 2))
+    self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+    self.feed(reverse=True, omit='GEAR')
+    self.safety.safety_rx_hook(self.packet('GEAR', {'GEAR': 4}, 2))
+    self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+
   def test_each_required_source_missing_wrong_bus_or_length_expires(self):
     for name in ('CRZ_CTRL', 'CRZ_BTNS', 'STEER_TORQUE', 'ENGINE_DATA', 'PEDALS', 'GEAR', 'STEER_RATE', 'CAM_LKAS'):
       for fault in ('missing', 'bus', 'length'):
