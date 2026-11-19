@@ -12,7 +12,8 @@ from openpilot.starpilot.models.jetlink_status import JetlinkStatus, JetlinkStat
 
 
 def status(**kw):
-  base = {'enabled': True, 'mode': 'usb', 'present': True, 'port_state': 'connected', 'active': False, 'reason': None, 'running': None, 'ready': False}
+  base = {'enabled': True, 'mode': 'usb', 'present': True, 'port_state': 'connected', 'active': False, 'reason': None, 'running': None, 'ready': False,
+          'progress': None}
   return NS(**{**base, **kw})
 
 
@@ -31,7 +32,10 @@ def test_off_reads_nothing_of_jetlink():
 
 @pytest.mark.parametrize('kw,expected', [
   ({'active': True, 'running': 'running'}, JetlinkStatus('Computer', 'active', 24.6, 'connected')),
-  ({'running': 'ready'}, JetlinkStatus('Computer', 'ready', port='connected')),
+  ({'running': 'ready'}, JetlinkStatus('Computer', 'ready', port='connected', offer=True)),
+  ({'running': None, 'ready': True}, JetlinkStatus('Computer', 'ready', port='connected')),
+  ({'progress': {'stage': 'build', 'frac': .4, 'code': 'build'}}, JetlinkStatus('Computer', 'connected', port='connected', building=True)),
+  ({'progress': {'stage': 'joining', 'frac': 0, 'code': 'connecting'}}, JetlinkStatus('Computer', 'connected', port='connected')),
   ({'running': 'joining'}, JetlinkStatus('Computer', 'connecting', port='connected')),
   ({'running': 'retrying'}, JetlinkStatus('Computer', 'connecting', port='connected')),
   ({'running': None, 'ready': False}, JetlinkStatus('Computer', 'connected', port='connected')),
@@ -40,6 +44,11 @@ def test_off_reads_nothing_of_jetlink():
   ({'present': False, 'port_state': 'empty'}, JetlinkStatus('Computer', 'disconnected')),
   ({'present': False, 'port_state': None}, JetlinkStatus('Computer', 'disconnected')),
   ({'mode': 'ios', 'active': True}, JetlinkStatus('iPhone', 'active', 24.6, 'connected')),
+  ({'active': True, 'active_model': 'Cinque v3'}, JetlinkStatus('Computer', 'active', 24.6, 'connected', model='Cinque v3')),
+  ({'running': 'ready', 'model': 'ResFit', 'active_model': 'Cinque v3'},
+   JetlinkStatus('Computer', 'ready', port='connected', offer=True, model='Cinque v3')),
+  ({'running': 'ready', 'model': 'ResFit', 'active_model': None},
+   JetlinkStatus('Computer', 'ready', port='connected', offer=True, model='ResFit')),
   ({'enabled': False}, JetlinkStatus()),
 ])
 def test_states(kw, expected):
@@ -83,10 +92,11 @@ def test_feed_polls_off_thread_expires_and_disables():
 
 
 def test_feed_stale_and_failed_reads_drop_latency_and_port():
-  feed = JetlinkStatusFeed(read=lambda: JetlinkStatus('iPhone', 'active', 24.6, 'connected'))
+  feed = JetlinkStatusFeed(read=lambda: JetlinkStatus('iPhone', 'active', 24.6, 'connected', model='Cinque v3'))
   feed._enabled = True
   feed.poll()
   assert feed.snapshot().port == 'connected'
+  assert feed.snapshot().model == 'Cinque v3'
   feed._read_at = 0
   assert feed.snapshot() == JetlinkStatus('iPhone', 'unavailable')
   feed.read = lambda: 1 / 0

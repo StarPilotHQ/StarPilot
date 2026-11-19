@@ -207,12 +207,12 @@ _nav_map["note"] = ("Road lines and your route over the camera. Drag the corner 
 PROFILES["large"]["widgets"][NAV_MAP_WIDGET] = _nav_map
 
 JETLINK_WIDGET = "jetlink_status"
-JETLINK_SIZE = (420, 84)
+JETLINK_SIZE = (420, 100)
 JETLINK_OPACITY = (0, 100, 85)  # percent: min, max, default
-_jetlink = _widget("Jetlink status", JETLINK_WIDGET, *JETLINK_SIZE, 30, 650)
+_jetlink = _widget("Big model", JETLINK_WIDGET, *JETLINK_SIZE, 30, 650)
 _jetlink["default"].update(enabled=False, opacity=JETLINK_OPACITY[2])
 _jetlink["opacity"] = dict(zip(("min", "max", "default"), JETLINK_OPACITY, strict=True))
-_jetlink["note"] = "Shown while Jetlink is on: connection, device and host processing time. Opacity sets the card background."
+_jetlink["note"] = "Big or small model driving, and Jetlink's or the Chestnut's state (else Disconnected). Opacity sets the card background."
 PROFILES["large"]["widgets"][JETLINK_WIDGET] = _jetlink
 # Restore the Dom road graphic in the gap between the speed card and main speed.
 # Center the road gauge above the driver monitor, below the speed-limit controls.
@@ -652,6 +652,10 @@ def validate_document(value):
       bounds = widget_bounds(profile, key)
       if value['version'] < 8 and key in SPEED_LAYOUT_V7[profile]:
         bounds = data['bounds']
+      if (key == JETLINK_WIDGET and type(placement) is dict and type(placement.get('y')) in (int, float) and
+          math.isfinite(placement['y']) and
+          bounds['y'] + bounds['height'] - JETLINK_SIZE[1] < placement['y'] <= bounds['y'] + bounds['height'] - 84):
+        placement['y'] = bounds['y'] + bounds['height'] - JETLINK_SIZE[1]
       scalable = key == 'driver_monitor' or key == 'steering_wheel' and value['version'] >= 4
       expected = {"x", "y", "enabled"} | ({"size"} if scalable else set())
       if widget.get("box"):

@@ -1,7 +1,8 @@
-"""Keeps Jetlink's status polled for the native large screen only while its widget is showing."""
+"""Keeps the big model card fed on the native large screen: Jetlink polled only while it is showing, and the GPU state."""
 
 from openpilot.starpilot.models.jetlink_status import JetlinkStatusFeed
 from openpilot.starpilot.ui.onroad_customization import JETLINK_WIDGET
+from openpilot.starpilot.ui.onroad_jetlink import gpu_inputs
 from openpilot.system.ui.lib.application import gui_app
 
 
@@ -28,6 +29,7 @@ class NativeJetlinkLayer:
       return
     self.pending = state
     self.widget.status = self.feed.snapshot()
+    self.widget.gpu, self.widget.chestnut = gpu_inputs(self.ui)
     self.widget.render(state)
 
   def close(self):

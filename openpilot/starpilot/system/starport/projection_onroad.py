@@ -93,6 +93,7 @@ def native_dependencies():
   from openpilot.starpilot.system.starport.projection_now_playing import ProjectionNowPlayingFeed
   from openpilot.starpilot.system.starport.media_audio import music_control
   from openpilot.starpilot.models.jetlink_status import JetlinkStatusFeed
+  from openpilot.starpilot.ui.onroad_jetlink import gpu_inputs
 
   class ProjectionRoadCamera(AugmentedRoadView):
     """Current native calibrated camera/model without stock action widgets."""
@@ -151,7 +152,7 @@ def native_dependencies():
                          pip_rect=Rect, pip_widgets=CAMERA_WIDGETS, placement=placement, widget_size=widget_size,
                          alert=OnroadAlert, alert_size=AlertSize, map_overlay=live_overlay, map_feed=MapFeed,
                          favorites=ProjectionFavorites, standby_logo=standby_logo, now_playing_feed=ProjectionNowPlayingFeed,
-                         now_playing_control=music_control, jetlink_feed=JetlinkStatusFeed)
+                         now_playing_control=music_control, jetlink_feed=JetlinkStatusFeed, gpu_inputs=gpu_inputs)
 
 
 class ProjectionOnroad:
@@ -366,6 +367,8 @@ class ProjectionOnroad:
       placed = (self.customization or {}).get('widgets', {}).get('jetlink_status', {})
       self.jetlink_feed.set_enabled(bool(placed.get('enabled') and self.native.ui_state.started))
       self.onroad.jetlink_status.status = self.jetlink_feed.snapshot()
+      if (gpu_inputs := getattr(self.native, 'gpu_inputs', None)) is not None:
+        self.onroad.jetlink_status.gpu, self.onroad.jetlink_status.chestnut = gpu_inputs(self.native.ui_state)
     if self.favorites is not None:
       self.favorites.refresh()
       self.onroad.navigation_favorites.document = self.favorites.document
