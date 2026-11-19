@@ -226,6 +226,7 @@ SIGNAL_WIDGET = "network_signal"
 SIGNAL_SCALE = 120 / 88  # drawn on an 88 px grid
 SIGNAL_GRIDS = {"ring": (112, 140), "horizontal": (268, 112), "vertical": (112, 196)}
 SIGNAL_SIZES = {style: (round(w * SIGNAL_SCALE), round(h * SIGNAL_SCALE)) for style, (w, h) in SIGNAL_GRIDS.items()}
+SIGNAL_LEGACY_GRIDS = {"ring": (88, 88), "horizontal": (268, 84), "vertical": (96, 160)}  # before the Bluetooth row
 SIGNAL_SIZE = SIGNAL_SIZES["ring"]
 SIGNAL_WIFI_NAME_GRID = 22  # header row for the Wi-Fi network name, on the 88 px grid
 SIGNAL_WIFI_NAME_HEIGHT = round(SIGNAL_WIFI_NAME_GRID * SIGNAL_SCALE)
@@ -332,6 +333,20 @@ WIDGET_COLORS = {
     "following_distance": {**_FRAME_COLORS, "text": "#FFFFFFFF"},
   },
 }
+
+
+def _fit_legacy_signal(placement: dict, bounds: Bounds) -> None:
+  """A card saved before the Bluetooth row grew may now overhang its edge; pull it back in if it fit at its old size."""
+  grid = SIGNAL_LEGACY_GRIDS.get(placement.get("size"))
+  if grid is None or not valid_signal_scale(placement):
+    return
+  old = [round(round(side * SIGNAL_SCALE) * placement["scale"] / 100) for side in grid]
+  new = signal_size(placement)
+  axes = (("x", "width"), ("y", "height"))
+  if all(type(placement.get(axis)) in (int, float) and math.isfinite(placement[axis]) and
+         bounds[axis] <= placement[axis] <= bounds[axis] + bounds[extent] - size for (axis, extent), size in zip(axes, old, strict=True)):
+    for (axis, extent), size in zip(axes, new, strict=True):
+      placement[axis] = max(bounds[axis], min(placement[axis], bounds[axis] + bounds[extent] - size))
 
 
 # Back-to-front order used when a layout first opts into custom layers.
@@ -694,6 +709,7 @@ def validate_document(value):
       raise ValueError("Invalid widget IDs")
     for key, widget in data["widgets"].items():
       placement = layout[key]
+      legacy_signal = key == SIGNAL_WIDGET and type(placement) is dict and 'bluetooth' not in placement
       if key == SIGNAL_WIDGET and type(placement) is dict and any(field not in placement for field in ('size', 'scale', 'bluetooth', 'wifiName')):
         placement = dict(placement)
         placement.setdefault('size', 'ring')
@@ -704,6 +720,8 @@ def validate_document(value):
       bounds = widget_bounds(profile, key)
       if value['version'] < 8 and key in SPEED_LAYOUT_V7[profile]:
         bounds = data['bounds']
+      if legacy_signal:
+        _fit_legacy_signal(placement, bounds)
       if (key == JETLINK_WIDGET and type(placement) is dict and type(placement.get('y')) in (int, float) and
           math.isfinite(placement['y']) and
           bounds['y'] + bounds['height'] - JETLINK_SIZE[1] < placement['y'] <= bounds['y'] + bounds['height'] - 84):
