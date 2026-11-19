@@ -221,7 +221,7 @@ export const NetworksPage = {
             </div>
           </div>
         </div>
-        <GalaxySettingRow :row="switchRow('Pause Galaxy hotspot while joining Wi-Fi', snapshot.pauseHotspot, 'Briefly pauses the hotspot during a drive so joining Wi-Fi does not disturb StarPort.')" :index="0"
+        <GalaxySettingRow :row="switchRow('Pause Galaxy hotspot while joining Wi-Fi', snapshot.pauseHotspot, 'Briefly pauses the hotspot whenever the comma joins Wi-Fi. Only needed if joins disturb StarPort.')" :index="0"
           :busy="busy" :disabled="!snapshot.editable" :save-value="(index, value) => send({ action: 'pauseHotspot', value: value === 'On' })" />
       </section>
       <section class="gx-card gx-settings__section"><div class="gx-section__header"><i class="bi bi-broadcast" aria-hidden="true"></i><span class="gx-section__title">Nearby networks</span><span v-if="adding && availableNetworks.length" class="gx-section__count">{{ availableNetworks.length }}</span>
