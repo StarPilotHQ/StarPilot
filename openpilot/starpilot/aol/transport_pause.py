@@ -727,7 +727,8 @@ class TransportPauseFeedback:
 
     if (not qualified(cp, marked_only=True) or not latched or self.failed or self.paused or self.pending_event or
       not self.session or str(axis.sessionId) != self.session or
-      not self.healthy_feedback_ns or not 0 <= now_ns - self.healthy_feedback_ns <= AXIS_MAX_AGE_NS or
+      not self.healthy_feedback_ns or
+      not 0 <= now_ns - self.healthy_feedback_ns <= (SAFETY_MAX_AGE_NS if started else AXIS_MAX_AGE_NS) or
       not 0 < source_ns <= now_ns or now_ns - source_ns > SAFETY_MAX_AGE_NS or
       (not started and now_ns - source_ns > AXIS_MAX_AGE_NS) or
       cs.accFaulted or cs.seatbeltUnlatched or
@@ -1559,9 +1560,16 @@ class TransportPauseFeedback:
           self.lateral_native_ns = int(gas_native.observedMonoTime)
           self.sequence, self.signature = int(axis.sequence), signature
           return False
+      honda_driver_pending = bool(cp.brand == 'honda' and not current and continuity and signature == self.signature and
+        (self.honda_brake_ns or self.honda_cancel_ns) and not cs.buttonEvents and
+        cs.cruiseState.available and not cs.doorOpen and not cs.vehicleSensorsInvalid and not cs.steeringDisengage and
+        not cs.regenBraking and
+        sm.seen['aolAxisState'] and sm.valid['aolAxisState'] and sm.alive['aolAxisState'] and
+        axis.qualified and str(axis.faultSessionId) == self.session and cp_identity(cp) == self.cp and
+        0 < stamp == axis.observedMonoTime < axis.validUntilMonoTime < now_ns)
       brake_native = (self._honda_brake_lateral_current(sm, cp, cs, axis, now_ns,
-        latched=latched, brake_source_ns=brake_source_ns) if current and continuity else None)
-      if brake_native is None and current and continuity:
+        latched=latched, brake_source_ns=brake_source_ns) if (current or honda_driver_pending) and continuity else None)
+      if brake_native is None and (current or honda_driver_pending) and continuity:
         brake_native = self._honda_cancel_lateral_current(sm, cp, cs, axis, now_ns,
           latched=latched, cancel_source_ns=cancel_source_ns)
       if brake_native is not None:
