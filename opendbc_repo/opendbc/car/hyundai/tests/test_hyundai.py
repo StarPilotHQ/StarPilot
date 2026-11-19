@@ -149,7 +149,9 @@ class TestHyundaiFingerprint(unittest.TestCase):
           self.assertEqual(output_parser.vl["CCNC_0x162"]["COUNTER"], 9)
           self.assertEqual(output_parser.vl["CCNC_0x161"]["BACKGROUND"], 3)
           self.assertEqual(output_parser.vl["CCNC_0x162"]["SPEEDLIMIT"], 60)
-          self.assertEqual(output_parser.vl["CCNC_0x162"]["FAULT_DAS"], 0)
+          self.assertTrue(controller.ccnc_fault_ownership_required)
+          self.assertIsNone(state.stock_lfa_status.current(1_000_000_000))
+          self.assertEqual(output_parser.vl["CCNC_0x162"]["FAULT_DAS"], stock_162["FAULT_DAS"])
           self.assertEqual(output_parser.vl["CCNC_0x162"]["LEAD_DISTANCE"], 47 if alpha_long else 25)
           for signal, expected in (("ALERTS_3", 7), ("ALERTS_5", 4), ("SOUNDS_3", 5)):
             self.assertEqual(output_parser.vl["CCNC_0x161"][signal], expected)
