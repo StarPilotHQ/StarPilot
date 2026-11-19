@@ -76,7 +76,8 @@ class TrafficAccelerationPlannerTests(unittest.TestCase):
           sm['carState'].vCruise = 15.0 * 3.6
           baseline.update(sm, profile_tuning=target, traffic_mode=True)
           self.assertEqual(traffic.mpc.solution_status, 0)
-          self.assertLessEqual(traffic.a_cruise, baseline.a_cruise + 1e-8)
+          if force:  # cap inactive, so cruise matches SET exactly; an applied cap eases its braking in
+            self.assertLessEqual(traffic.a_cruise, baseline.a_cruise + 1e-8)
         self.assertEqual(traffic.last_cruise_ceiling_status, 'force_decel' if force else 'applied')
         self.assertIsNotNone(traffic.last_profile)
         self.assertAlmostEqual(traffic.last_profile.cruise_brake_magnitude, 0.35)

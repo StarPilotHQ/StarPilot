@@ -31,8 +31,11 @@ The planner records the decision in `last_cruise_ceiling_status`; it does not
 publish that diagnostic or alter the longitudinal plan schema.
 
 This optional input changes only the cruise candidate before the planner's
-existing jerk limiting. SLC uses the ordinary cruise braking response and selected
-profile for its capped target; a cap does not strengthen a softer cruise profile. Lead-relevance checks still prevent cruise comfort
+existing jerk limiting. SLC uses the selected profile for its capped target; a cap does
+not strengthen a softer cruise profile. While the SLC cap is the final cruise target and no
+braking-relevant lead is present, an overshoot is corrected over `CRUISE_ACCEL_RESPONSE_TIME`
+and braking builds at 0.15 m/s³ until -0.3 m/s², so friction brakes engage gently; braking
+already requested elsewhere keeps the normal jerk. Lead-relevance checks still prevent cruise comfort
 tuning from weakening braking for a close, slow or braking lead; malformed lead
 evidence also vetoes that tuning. The native MPC, lead, e2e, stop and acceleration
 arbitration remain in place. An inactive planner may still compute a nonzero
@@ -80,7 +83,7 @@ acceleration/braking limits. It cannot widen the native car acceleration range.
 Valid saved curves above native acceleration bounds are intersected with those
 bounds without dropping their other tuning or rewriting the saved document.
 Lead, e2e and cruise candidates still arbitrate normally. A lower explicit
-cruise or curve ceiling retains at least native cruise braking even when a saved profile asks
+cruise or curve ceiling retains at least the native cruise braking floor even when a saved profile asks
 for a softer approach; stronger configured braking may still apply.
 `forceDecel` keeps the native cruise braking response. Stock ACC and lateral-only control receive
 no profile effect. The acados model and cereal schemas are unchanged.

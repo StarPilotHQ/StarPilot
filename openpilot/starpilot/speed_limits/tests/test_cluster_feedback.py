@@ -77,7 +77,7 @@ def test_actual_native_planner_responds_before_the_dashboard_updates(drive):
   current.update(fixture.sm, cruise_ceiling=result.ceiling)
   legacy.update(fixture.sm, cruise_ceiling=old.ceiling)
   assert current.mpc.solution_status == legacy.mpc.solution_status == 0
-  assert current.output_a_target < -.01
+  assert current.output_a_target < -1e-3  # braking has begun; eased SLC braking starts small
   assert abs(legacy.output_a_target) < 1e-5
   np.testing.assert_array_equal(current.mpc.params, legacy.mpc.params)
   np.testing.assert_array_equal(current.mpc.x_sol, legacy.mpc.x_sol)

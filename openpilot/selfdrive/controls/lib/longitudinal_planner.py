@@ -50,6 +50,8 @@ A_CRUISE_MAX_BP = [0., 10.0, 25., 40.]
 J_CRUISE_VALS = [1.6, 1.2, 0.8, 0.6]
 A_CRUISE_MIN = -0.5
 CRUISE_ACCEL_RESPONSE_TIME = 2.0
+SLC_BRAKE_ONSET_JERK = 0.15  # m/s^3: how fast braking may build after an SLC overshoot
+SLC_BRAKE_ONSET_ACCEL = -0.3  # m/s^2: past this the brakes are engaged and normal jerk resumes
 CONTROL_N_T_IDX = ModelConstants.T_IDXS[:CONTROL_N]
 MIN_ALLOW_THROTTLE_SPEED = 2.5
 NATIVE_ALLOW_THROTTLE_PROBABILITY = 0.4
@@ -72,7 +74,7 @@ def get_coast_accel(pitch):
 def get_cruise_accel(e2e, v_cruise, v_ego, a_cruise_prev, angle_steers, CP, dt, accel_coast, allow_throttle,
                      profile: AppliedProfile | None = None,
                      base_brake_floor: float = A_CRUISE_MIN, selected_acceleration_max: float | None = None, faster_takeoffs: bool = False,
-                     *, a_target_prev: float | None = None):
+                     *, a_target_prev: float | None = None, ease_slc_braking: bool = False):
   ceiling = TAKEOFF_ACCEL_MAX if faster_takeoffs else ACCEL_MAX
   max_accel = ceiling if e2e else get_max_accel(v_ego, faster_takeoffs)
   if selected_acceleration_max is not None and not e2e:
@@ -97,10 +99,16 @@ def get_cruise_accel(e2e, v_cruise, v_ego, a_cruise_prev, angle_steers, CP, dt, 
   speed_error = v_cruise - v_ego
   if not e2e and not faster_takeoffs and v_ego >= MIN_ALLOW_THROTTLE_SPEED and speed_error > 0.:
     speed_error /= CRUISE_ACCEL_RESPONSE_TIME
+  elif ease_slc_braking and speed_error < 0.:
+    speed_error /= CRUISE_ACCEL_RESPONSE_TIME  # correct an SLC overshoot as gradually as an approach
   target_accel = np.clip(speed_error, cruise_min, max_accel)
   j_cruise = np.interp(v_ego, A_CRUISE_MAX_BP, J_CRUISE_VALS)
   decel_start = a_cruise_prev if a_target_prev is None else min(a_cruise_prev, a_target_prev)
-  target_accel = float(np.clip(target_accel, decel_start - j_cruise * dt, a_cruise_prev + j_cruise * dt))
+  lower = decel_start - j_cruise * dt
+  if ease_slc_braking and decel_start > SLC_BRAKE_ONSET_ACCEL:
+    # Ease braking in from zero so friction brakes engage without a jolt; lifting off the throttle keeps normal jerk.
+    lower = max(lower, min(decel_start, 0.) - SLC_BRAKE_ONSET_JERK * dt)
+  target_accel = float(np.clip(target_accel, lower, a_cruise_prev + j_cruise * dt))
 
   return target_accel
 
@@ -413,7 +421,8 @@ class LongitudinalPlanner:
                                      self.a_cruise, steer_angle_without_offset, self.CP, self.dt,
                                      accel_coast, self.allow_throttle, cruise_profile,
                                      base_brake_floor=global_floor, selected_acceleration_max=selected_acceleration, faster_takeoffs=faster_takeoffs,
-                                     a_target_prev=self.output_a_target)
+                                     a_target_prev=self.output_a_target,
+                                     ease_slc_braking=v_cruise == ceiling.effective_mps and not relevant_lead)
     if self.button_cruise is not None:
       button_target = self.button_cruise.sample(
         sm, now_ns=sample_now_ns, drive_id=drive_id, target_speed=v_cruise,
