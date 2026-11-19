@@ -3,10 +3,11 @@
 import math
 
 import pytest
+from opendbc.car import structs
 from opendbc.car.dashboard_speed_limit import Observation, Status
 
 from openpilot.cereal import messaging
-from openpilot.selfdrive.car.cruise import SlcPendingConfirmation
+from openpilot.selfdrive.car.cruise import SlcPendingConfirmation, VCruiseHelper
 from openpilot.starpilot.speed_limits import physical_actions
 from openpilot.starpilot.speed_limits.selection import Source
 from openpilot.starpilot.speed_limits.tests.test_runtime_replay import ReplaySM
@@ -144,3 +145,44 @@ def test_dashboard_engagement_qualifies_both_samples(sm, state_changes, local_ch
                           'observed_ns': NOW - 5_000_000, 'valid_until_ns': NOW + 145_000_000} | local_changes))
 
   assert (physical_actions.engagement_state(sm, local, 'card', NOW, after_ns=after_ns) is not None) == matches
+
+
+@pytest.mark.parametrize('direction', ['accelCruise', 'decelCruise'])
+@pytest.mark.parametrize('longitudinal', [False, True])
+def test_ford_pcm_wheel_changes_only_stock_set(direction, longitudinal):
+  cp = structs.CarParams(brand='ford', pcmCruise=True, openpilotLongitudinalControl=longitudinal)
+  helper = VCruiseHelper(cp)
+  cs = structs.CarState(canValid=True)
+  cs.cruiseState.available = cs.cruiseState.enabled = True
+  cs.cruiseState.speed = cs.cruiseState.speedCluster = 20.
+  prompt = SlcPendingConfirmation('planner', 1, 2)
+  for pressed, speed in [(True, 20.), (True, 21. if direction == 'accelCruise' else 19.), (False, 21. if direction == 'accelCruise' else 19.)]:
+    cs.cruiseState.speed = cs.cruiseState.speedCluster = speed
+    cs.buttonEvents = [{'type': direction, 'pressed': pressed}]
+    helper.update_v_cruise(cs, True, True, prompt, slc_enabled=True)
+    assert helper.slc_consumed_button is None
+    assert not helper.slc_suppressed_buttons
+    assert helper.v_cruise_kph == pytest.approx(speed * 3.6)
+    assert helper.v_cruise_cluster_kph == pytest.approx(speed * 3.6)
+
+
+@pytest.mark.parametrize('direction', ['accelCruise', 'decelCruise'])
+def test_ford_software_set_still_consumes_confirmation_without_a_speed_step(direction):
+  cp = structs.CarParams(brand='ford', pcmCruise=False, openpilotLongitudinalControl=True)
+  helper = VCruiseHelper(cp)
+  helper.v_cruise_kph = helper.v_cruise_cluster_kph = 72.
+  cs = structs.CarState(canValid=True)
+  cs.cruiseState.available = cs.cruiseState.enabled = True
+  prompt = SlcPendingConfirmation('planner', 1, 2)
+  cs.buttonEvents = [{'type': direction, 'pressed': True}]
+  helper.update_v_cruise(cs, True, True, prompt, slc_enabled=True)
+  assert helper.slc_consumed_button is not None
+  assert helper.slc_consumed_button.pending == prompt
+  for _ in range(60):
+    cs.buttonEvents = []
+    helper.update_v_cruise(cs, True, True, None, slc_enabled=True)
+    assert helper.v_cruise_kph == 72.
+  cs.buttonEvents = [{'type': direction, 'pressed': False}]
+  helper.update_v_cruise(cs, True, True, None, slc_enabled=True)
+  assert helper.v_cruise_kph == 72.
+  assert not helper.slc_suppressed_buttons

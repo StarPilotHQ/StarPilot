@@ -681,6 +681,7 @@ class RuntimeSnapshotAdapter:
     cruise_state = getattr(car, 'cruiseState', None)
     wheel_confirmation = bool(
       system_long and control is not None and getattr(control, 'enabled', False) and
+      not (cp is not None and cp.brand == 'ford' and cp.pcmCruise) and
       cruise_state is not None and getattr(cruise_state, 'available', False) and
       not (cp is not None and getattr(cp, 'brand', '') == 'toyota' and
            (car.standstill or cruise_state.standstill or not cruise_state.enabled)))

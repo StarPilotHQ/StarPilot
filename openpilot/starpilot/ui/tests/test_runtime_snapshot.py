@@ -1096,13 +1096,14 @@ class TestRuntimeSnapshot(unittest.TestCase):
 
 @pytest.mark.parametrize('brand,standstill,cruise_standstill,cruise_enabled,expected', [
   ('honda', False, False, True, True),
+  ('ford', False, False, True, False),
   ('toyota', False, False, True, True),
   ('toyota', True, False, True, False),
   ('toyota', False, True, True, False),
   ('toyota', False, False, False, False),
 ])
 def test_wheel_confirmation_hint_preserves_toyota_resume(brand, standstill, cruise_standstill, cruise_enabled, expected, tmp_path):
-  ui = vehicle_ui(tmp_path, carFingerprint='', brand=brand, openpilotLongitudinalControl=True, pcmCruise=brand == 'toyota')
+  ui = vehicle_ui(tmp_path, carFingerprint='', brand=brand, openpilotLongitudinalControl=True, pcmCruise=brand in ('toyota', 'ford'))
   car = ui.sm['carState']
   car.canTimeout, car.canValid, car.standstill = False, True, standstill
   car.cruiseState = NS(available=True, enabled=cruise_enabled, standstill=cruise_standstill)
