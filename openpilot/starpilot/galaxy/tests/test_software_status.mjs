@@ -814,3 +814,7 @@ let toggleSettings
 SoftwarePage.methods.configureAutomaticInstalls.call({operations:{restartSchedule:'0 0 * * *',restartTimezone:'UTC'},restartTimezone:'Asia/Tokyo',
   feed:{configureInstallPreferences:(...args)=>{toggleSettings=args}}},true)
 assert.deepEqual(toggleSettings,[true,'0 0 * * *','UTC'],'toggle preserves the saved timezone')
+
+assert.deepEqual(softwareProgress({...updater, state: "downloading..."},
+  {progress: {stage: "agnos", detail: "Downloading and writing AGNOS system", percent: 37}}),
+  {active: true, failed: false, percent: 37, label: "Downloading and installing AGNOS", detail: "Downloading and writing AGNOS system"})

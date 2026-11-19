@@ -181,3 +181,20 @@ def test_explicit_incompatible_manual_manifest_is_not_replaced(tmp_path, release
   with patch.object(agnos, 'DEVICE_MODEL_PATH', model):
     with pytest.raises(RuntimeError, match='incompatible with comma 3'):
       agnos.load_manifest(str(manual))
+
+
+def test_agnos_download_reports_partition_progress(tmp_path):
+  import hashlib
+
+  data = b'firmware'
+  digest = hashlib.sha256(data).hexdigest()
+  partition = {'name': 'system', 'url': 'https://example.invalid/system.xz', 'size': len(data), 'sparse': False, 'hash': digest, 'hash_raw': digest}
+  downloader = Mock(sha256=hashlib.sha256(data))
+  downloader.read.side_effect = [data[:4], data[4:], b'']
+  progress = Mock()
+  with patch.object(agnos, 'get_partition_path', return_value=str(tmp_path / 'partition')), \
+       patch.object(agnos, 'StreamingDecompressor', return_value=downloader), patch.object(agnos.os, 'sync'):
+    agnos.extract_compressed_image(1, partition, Mock(), progress=progress)
+  assert [call.args for call in progress.call_args_list] == [
+    ('Downloading and writing AGNOS system', 50), ('Downloading and writing AGNOS system', 100)]
+  assert (tmp_path / 'partition').read_bytes() == data

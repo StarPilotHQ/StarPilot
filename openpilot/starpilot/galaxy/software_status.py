@@ -27,7 +27,7 @@ def _fast_state(raw):
   try:
     value = json.loads(raw) if raw is not None else None
     if not isinstance(value, dict) or value.get("version") != 1 or value.get("stage") not in (
-        "preparing", "fetching", "validating", "applying", "submodules", "rebooting", "complete", "error", "finalizing"):
+        "preparing", "fetching", "validating", "applying", "agnos", "submodules", "rebooting", "complete", "error", "finalizing"):
       return None
     detail = value.get("detail")
     if not isinstance(detail, str) or len(detail) > 512:
