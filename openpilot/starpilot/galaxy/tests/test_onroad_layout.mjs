@@ -1314,3 +1314,13 @@ console.log("Ford rear fog: make visibility, saved placement and strict metadata
   sample.document.version = 16
   assert.equal(validDocument(sample.document, sample.metadata), false)
 }
+
+const speedAdjustment = snapshot()
+speedAdjustment.document.speedDisplayOffset = -1.7
+assert.ok(validDocument(speedAdjustment.document, speedAdjustment.metadata))
+assert.equal(layoutDocument({ ...speedAdjustment.document, display: {} }).speedDisplayOffset, -1.7)
+for (const invalidOffset of [true, null, "1", NaN, Infinity, -5.1, 5.1]) {
+  const document = { ...speedAdjustment.document, speedDisplayOffset: invalidOffset }
+  assert.equal(validDocument(document, speedAdjustment.metadata), false)
+}
+assert.ok(SETTINGS_SECTIONS.find(section => section.id === "developer").pages.includes("developer"))

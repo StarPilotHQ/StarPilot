@@ -3,6 +3,7 @@
 from collections.abc import Callable
 from dataclasses import replace
 import json
+import math
 
 from openpilot.starpilot.saved_document import commit_exact
 from openpilot.starpilot.saved_source import read_saved
@@ -104,7 +105,39 @@ class AppearanceOwner:
                                 subtitle="Display preferences; border highlights apply to C4 only.",
                                 rows=tuple(rows), parked=parked)
 
+  def developer_snapshot(self) -> FeatureSettingsState:
+    raw, document = self._motion_source()
+    valid = document is not None
+    value = f"{document.get('speedDisplayOffset', 0):g}" if document is not None else "Unavailable"
+    row = FeatureRow("SpeedDisplayOffset", "Speed display adjustment", value, source=raw,
+                     step=0.1, minimum=-5., maximum=5., unit="%", default_value="0",
+                     available=self.parked() and valid,
+                     reason=("0% leaves the display unchanged. Lower if the comma reads too high; raise if it reads too low. " +
+                             "Only changes displayed vehicle speed, not cruise speed or vehicle control.") if valid else
+                            "Repair the saved driving-screen layout first.")
+    return FeatureSettingsState("developer", "Developer", "Advanced display calibration for every vehicle.",
+                                (row,), self.parked())
+
   def apply(self, request: FeatureSettingsRequest) -> bool:
+    if request.key == "SpeedDisplayOffset":
+      raw, document = self._motion_source()
+      if document is None or request.expected != raw or type(request.value) is not str:
+        return False
+      try:
+        value = float(request.value)
+      except ValueError:
+        return False
+      if not math.isfinite(value) or not -5 <= value <= 5:
+        return False
+      value = round(value, 1)
+      if value:
+        document['speedDisplayOffset'] = value
+      else:
+        document.pop('speedDisplayOffset', None)
+      result = commit_exact(self.params, key=PARAM_KEY, max_bytes=MAX_BYTES,
+                            raw=json.dumps(document, separators=(',', ':')).encode(), expected=raw,
+                            authorized=self.parked, temp_prefix='.appearance-')
+      return result.committed and result.verified
     if request.key in ('TurnByTurn:large', 'TurnByTurn:compact'):
       raw, document = self._motion_source()
       if document is None or request.expected != raw or request.value not in ('Off', 'On'):

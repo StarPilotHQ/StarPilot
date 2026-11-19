@@ -729,6 +729,7 @@ class RuntimeSnapshotAdapter:
     onroad = OnroadState(weather_location=weather_location, developer_metrics=developer_metrics, stop_sign_observed_ns=stop_observed_ns,
                          engaged=display_lat_active or display_long_active or longitudinal_overridden, camera_available=started,
                          speed_mps=raw_speed, cruise_kph=cruise, speed_limit=observation,
+                         speed_display_offset_percent=self._customization_value.get("speedDisplayOffset", 0.),
                          appearance=self._appearance_value, customization=self._customization_value,
                          alert=alert, metric=bool(ui.is_metric), slc_offset_schedule=self._slc_offset_schedule,
                          experimental_available=bool(ui.has_longitudinal_control),

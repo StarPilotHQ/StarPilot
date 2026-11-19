@@ -39,7 +39,8 @@ from openpilot.starpilot.ui.sentry_owner import RESET as SENTRY_RESET, SentryOwn
 from openpilot.starpilot.ui.vasm_owner import ANNOTATION as VASM_ANNOTATION, RESET as VASM_RESET, VASMOwner, validated_annotation
 
 
-PAGES = frozenset(("hub", "localization", "starport_options", "driving_options", "resets", "vehicle", "slc", "lane", "lane_change", "profiles", "personalities",
+PAGES = frozenset(("hub", "developer", "localization", "starport_options", "driving_options", "resets", "vehicle",
+                   "slc", "lane", "lane_change", "profiles", "personalities",
                    "traffic", "aggressive", "standard", "relaxed",
                    "curve", "torque", "torque/developer", "tuning", "torque/bluepilot", "aol", "wheel", "appearance", "display",
                    "data", "power", "sounds", "pip", "sentry", "vasm",
@@ -650,6 +651,8 @@ class SettingsGateway:
       return self._localization_owner(ctx).snapshot()
     if page in ("starport_options", "driving_options", "resets"):
       return self._device_settings_owner(ctx).snapshot(page)
+    if page == "developer":
+      return self._appearance_owner(ctx).developer_snapshot()
     if page == "appearance":
       return self._appearance_owner(ctx).snapshot(Profile.COMPACT, include_large=True)
     if page == "sounds":
@@ -680,6 +683,7 @@ class SettingsGateway:
       state = replace(state, title="Data & Connections")
     if page == "hub":
       state = replace(state, rows=state.rows + (
+        FeatureRow("", "Developer", "Advanced display calibration", page="developer", available=True),
         FeatureRow("", "Longitudinal options", "Vision-only cruise control and Enhanced Stops", page="driving_options", available=True),
       ))
     if page in ("torque", "torque/developer"):
@@ -883,7 +887,7 @@ class SettingsGateway:
         raise SettingsChanged("Default or saved settings changed")
     if intent.page == "pip":
       return self._pip_owner(ctx, live=True, session_valid=session_valid).apply(intent.request)
-    if intent.page == "appearance":
+    if intent.page in ("appearance", "developer"):
       return self._appearance_owner(ctx, live=True, session_valid=session_valid).apply(intent.request)
     if intent.page == "sounds":
       return self._sounds_owner(ctx, live=True, session_valid=session_valid).apply(intent.request)

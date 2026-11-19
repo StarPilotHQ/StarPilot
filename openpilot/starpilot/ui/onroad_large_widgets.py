@@ -98,9 +98,10 @@ class CurrentSpeedHud:
     self.fonts = fonts
 
   def render(self, content: rl.Rectangle, state: OnroadState) -> None:
-    if state.speed_mps is None:
+    speed_mps = state.display_speed_mps
+    if speed_mps is None:
       return
-    speed = str(round(state.speed_mps * (3.6 if state.metric else 2.2369362921)))
+    speed = str(round(speed_mps * (3.6 if state.metric else 2.2369362921)))
     dx, dy = offset(state.customization, "large", "current_speed")
     rect = rl.Rectangle(content.x + 610 + dx, content.y + dy, 580, 300)
     number_top, _ = self.fonts.vertical_ink(speed, FontRole.SPEED, 176)
