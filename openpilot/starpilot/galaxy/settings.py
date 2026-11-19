@@ -30,7 +30,7 @@ from openpilot.starpilot.ui.feature_settings_state import (
   FeatureRow, FeatureSettingsRequest, FEATURE_CONFIRM_ACTIONS, is_heading, is_long_confirm_action, row_change, row_default,
 )
 from openpilot.starpilot.saved_source import read_saved
-from openpilot.starpilot.galaxy.device_settings import CALIBRATION_RESET, DRIVER_MONITORING_RESET, DeviceSettingsOwner
+from openpilot.starpilot.galaxy.device_settings import CALIBRATION_RESET, DRIVER_MONITORING_RESET, KEY as VOACC_KEY, HOLD_KEY, DeviceSettingsOwner
 from openpilot.starpilot.speed_limits.vision_gate import diagnostic_choice_enabled
 from openpilot.starpilot.parked_evidence import ParkedEvidence, RESUME_SKEW_NS, fresh_offroad, host_parked
 from openpilot.starpilot.ui.pip_owner import EDITOR as PIP_EDITOR, FORMAT_PREFIX as PIP_FORMAT_PREFIX, RESET as PIP_RESET, PiPOwner, validated_editor_draft
@@ -39,7 +39,7 @@ from openpilot.starpilot.ui.sentry_owner import RESET as SENTRY_RESET, SentryOwn
 from openpilot.starpilot.ui.vasm_owner import ANNOTATION as VASM_ANNOTATION, RESET as VASM_RESET, VASMOwner, validated_annotation
 
 
-PAGES = frozenset(("hub", "developer", "localization", "starport_options", "driving_options", "resets", "vehicle",
+PAGES = frozenset(("hub", "developer", "localization", "starport_options", "resets", "vehicle",
                    "slc", "lane", "lane_change", "profiles", "personalities",
                    "traffic", "aggressive", "standard", "relaxed",
                    "curve", "torque", "torque/developer", "tuning", "torque/bluepilot", "aol", "wheel", "appearance", "display",
@@ -56,7 +56,7 @@ TTL = 60.0
 CAR_CONTROL_SECTIONS = (
   ("lateral", "Lateral (Steering)", ("aol", "lane_change", "lane", "torque", "torque/developer")),
   ("longitudinal", "Longitudinal (Speed & Following)",
-   ("driving_options", "profiles", "conditional", "curve", "slc", "aggressive", "standard", "relaxed", "traffic")),
+   ("profiles", "conditional", "curve", "slc", "aggressive", "standard", "relaxed", "traffic")),
   ("wheel", "Wheel Controls", ("wheel",)),
   ("visual", "Visual (Display & UI)", ("display", "appearance", "pip")),
   ("sounds", "Sounds & Alerts", ("sounds",)),
@@ -147,8 +147,8 @@ def _onroad_preference(page: str, key: str) -> bool:
   # Regular saved choices are consumed by their runtime owners. Only explicit
   # multi-key reset/repair operations need the offroad transaction boundary;
   # their owners independently recheck that requirement at commit time.
-  return bool(page not in ("starport_options", "driving_options", "resets", "power") and key and key != SETUP_ACTION and key not in (
-    "IsRhdDetected", "AlphaLongitudinalEnabled", "reset_profiles", "curve_reset", "slc_reset",
+  return bool(page not in ("starport_options", "resets", "power") and key and key != SETUP_ACTION and key not in (
+    VOACC_KEY, HOLD_KEY, "IsRhdDetected", "AlphaLongitudinalEnabled", "reset_profiles", "curve_reset", "slc_reset",
     "conditional:reset", "conditional:manual_reset",
   ) and not is_long_confirm_action(key) and not key.startswith("torque_repair:"))
 
@@ -649,10 +649,12 @@ class SettingsGateway:
   def _state(self, page: str, ctx: AuthorityContext):
     if page == "localization":
       return self._localization_owner(ctx).snapshot()
-    if page in ("starport_options", "driving_options", "resets"):
+    if page in ("starport_options", "resets"):
       return self._device_settings_owner(ctx).snapshot(page)
     if page == "developer":
-      return self._appearance_owner(ctx).developer_snapshot()
+      state = self._appearance_owner(ctx).developer_snapshot()
+      driving = self._device_settings_owner(ctx).snapshot("driving_options")
+      return replace(state, subtitle="Advanced driving and display settings.", rows=driving.rows + state.rows)
     if page == "appearance":
       return self._appearance_owner(ctx).snapshot(Profile.COMPACT, include_large=True)
     if page == "sounds":
@@ -683,8 +685,7 @@ class SettingsGateway:
       state = replace(state, title="Data & Connections")
     if page == "hub":
       state = replace(state, rows=state.rows + (
-        FeatureRow("", "Developer", "Advanced display calibration", page="developer", available=True),
-        FeatureRow("", "Longitudinal options", "Vision-only cruise control and Enhanced Stops", page="driving_options", available=True),
+        FeatureRow("", "Developer", "Advanced driving and display settings", page="developer", available=True),
       ))
     if page in ("torque", "torque/developer"):
       state = replace(state, rows=tuple(row for row in state.rows if row.key not in ("torque:factor:reset", "torque:friction:reset")))
@@ -887,6 +888,8 @@ class SettingsGateway:
         raise SettingsChanged("Default or saved settings changed")
     if intent.page == "pip":
       return self._pip_owner(ctx, live=True, session_valid=session_valid).apply(intent.request)
+    if intent.page == "developer" and intent.request.key in (VOACC_KEY, HOLD_KEY):
+      return self._device_settings_owner(ctx, live=True, session_valid=session_valid).apply(intent.request)
     if intent.page in ("appearance", "developer"):
       return self._appearance_owner(ctx, live=True, session_valid=session_valid).apply(intent.request)
     if intent.page == "sounds":
@@ -901,7 +904,7 @@ class SettingsGateway:
       return self._vasm_owner(ctx, live=True, session_valid=session_valid).apply(intent.request)
     if intent.page == "localization":
       return self._localization_owner(ctx, live=True, session_valid=session_valid).apply(intent.request)
-    if intent.page in ("starport_options", "driving_options", "resets"):
+    if intent.page in ("starport_options", "resets"):
       return self._device_settings_owner(ctx, live=True, session_valid=session_valid).apply(intent.request)
     owner = self._owner(ctx, live=True, session_valid=session_valid)
     return owner.apply(intent.request, reset_default=True) if intent.recovery_default else owner.apply(intent.request)

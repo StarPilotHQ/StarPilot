@@ -427,7 +427,7 @@ assert.equal(sections.at(-2).label, 'Device & System')
 assert(!sections.some(section => section.id === 'localization'))
 assert(sections.find(section => section.id === 'device').pages.includes('localization'))
 assert(sections.find(section => section.id === 'device').pages.includes('starport_options'))
-assert(sections.find(section => section.id === 'longitudinal').pages.includes('driving_options'))
+assert(!sections.find(section => section.id === 'longitudinal').pages.includes('driving_options'))
 assert.match(SettingsPage.template, /state.data\?\.page === 'data'/)
 
 for (const subtitle of ["Off: Motion monitoring is disabled.", "Not armed: Battery is low or its charge cannot be checked.", "Not armed: The car is on or the device is shutting down."]) {

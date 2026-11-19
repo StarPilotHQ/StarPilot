@@ -34,7 +34,6 @@ export const SETTINGS_WIKI_LINKS = Object.freeze({
   hub: settings,
   lateral: settings + '#steering',
   longitudinal: settings + '#driving-controls',
-  driving_options: settings + '#driving-controls',
   personalities: settings + '#customize-driving-personalities',
   starport_options: starport,
   aol: settings + '#always-on-lateral',

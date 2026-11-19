@@ -56,12 +56,12 @@ class TestOffroadConfigurationPages(unittest.TestCase):
           with self.subTest(page=name):
             current = self.editable_inventory(self.page(name))
             expected = saved[name]
-            if name == 'driving_options':
+            if name == 'developer':
               # gated by Park, not by the vehicle
-              self.assertEqual([row[0] for row in expected], ['Use VOACC', 'Always Hold Enhanced Stops'])
-              self.assertEqual([row[1] for row in expected], [False, False])
-              self.assertEqual([row[1] for row in current], [True, True])
-              expected = [(row[0], True, *row[2:]) for row in expected]
+              self.assertEqual([row[0] for row in expected[:2]], ['Use VOACC', 'Always Hold Enhanced Stops'])
+              self.assertEqual([row[1] for row in expected[:2]], [False, False])
+              self.assertEqual([row[1] for row in current[:2]], [True, True])
+              expected = [(row[0], True, *row[2:]) for row in expected[:2]] + expected[2:]
             if name == 'profiles':
               # Saved configuration uses the native catalog; this preference is Galaxy-only.
               label = 'Disengage on Accelerator Pedal'

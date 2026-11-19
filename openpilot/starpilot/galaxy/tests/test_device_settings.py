@@ -178,7 +178,7 @@ class DeviceSettingsTest(unittest.TestCase):
     token, generation = "session", b"generation"
 
     def preview(value):
-      page = gateway.page("driving_options", token, generation)
+      page = gateway.page("developer", token, generation)
       self.assertEqual(page["rows"][0]["label"], "Use VOACC")
       self.assertEqual(page["rows"][0]["defaultValue"], "Off")
       self.assertIn("next drive", page["rows"][0]["reason"])
@@ -193,13 +193,46 @@ class DeviceSettingsTest(unittest.TestCase):
       gateway.confirm(intent, token, generation)
     self.assertEqual(self.path.read_bytes(), b"1")
     context.value = replace(context.value, parked=True)
-    page = gateway.page("driving_options", token, generation)
+    page = gateway.page("developer", token, generation)
     intent = gateway.preview(page["view"], 0, 0, token, generation, reset_default=True)
     self.assertTrue(gateway.confirm(intent["intent"], token, generation))
     self.assertEqual(self.path.read_bytes(), b"0")
     intent = preview("On")
     with self.assertRaises(SettingsChanged):
       gateway.confirm(intent, token, generation, session_valid=lambda: False)
+
+  def test_developer_driving_rows_keep_owner_and_parked_guards(self):
+    from openpilot.starpilot.longitudinal.enhanced_stop_hold import KEY as HOLD_KEY
+    from openpilot.starpilot.galaxy.settings import SettingsUnavailable, _onroad_preference
+    context = SimpleNamespace(value=AuthorityContext(True, None, None))
+    context.sample = lambda: context.value
+    gateway = SettingsGateway(self.params, cast(ContextSource, context), clock=lambda: 10.)
+    token, generation = "session", b"generation"
+    with self.assertRaises(SettingsUnavailable):
+      gateway.page("driving_options", token, generation)
+    for index, key in enumerate((KEY, HOLD_KEY)):
+      with self.subTest(key=key):
+        self.assertFalse(_onroad_preference("developer", key))
+        page = gateway.page("developer", token, generation)
+        row = page["rows"][index]
+        self.assertEqual(row["defaultValue"], "Off")
+        intent = gateway.preview(page["view"], index, 0, token, generation, value="On")["intent"]
+        self.assertTrue(gateway.confirm(intent, token, generation))
+        self.assertEqual(Path(self.params.get_param_path(key)).read_bytes(), b"1")
+        page = gateway.page("developer", token, generation)
+        intent = gateway.preview(page["view"], index, 0, token, generation, value="Off")["intent"]
+        context.value = replace(context.value, parked=False)
+        with self.assertRaises(SettingsChanged):
+          gateway.confirm(intent, token, generation)
+        self.assertFalse(gateway.page("developer", token, generation)["rows"][index]["available"])
+        context.value = replace(context.value, parked=True, editing_saved_vehicle=True)
+        self.assertFalse(gateway.page("developer", token, generation)["rows"][index]["available"])
+        context.value = replace(context.value, editing_saved_vehicle=False)
+        page = gateway.page("developer", token, generation)
+        intent = gateway.preview(page["view"], index, 0, token, generation, reset_default=True)["intent"]
+        self.assertTrue(gateway.confirm(intent, token, generation))
+        self.assertEqual(Path(self.params.get_param_path(key)).read_bytes(), b"0")
+    self.assertEqual(gateway.page("developer", token, generation)["rows"][2]["label"], "Speed display adjustment")
 
   def test_starport_stay_on_wifi_toggle(self):
     self.assertNotIn(STARPORT_WIFI_KEY, [row.key for row in self.owner.snapshot("starport_options").rows])
