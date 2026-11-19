@@ -93,7 +93,7 @@ jobs:
       env:
         GOTOOLCHAIN: local
       run: |
-        sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config zlib1g-dev
+        sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update && sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends pkg-config zlib1g-dev
         (cd mapd_repo && go mod download)
         PYTHONPATH="$GITHUB_WORKSPACE" python3 -m openpilot.starpilot.maps.package_shadow
     - name: Build devel
@@ -303,7 +303,7 @@ jobs:
         .venv/bin/python -c "import av; assert 'libx264' in av.codecs_available"
     - name: Provide Mesa software graphics for pixel-level tests
       if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-      run: sudo apt-get update && sudo apt-get install -y libegl1 libgles-dev libgl1-mesa-dri
+      run: sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update && sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y libegl1 libgles-dev libgl1-mesa-dri
     - name: Test every assigned custom pytest node serially
       if: ${{ !cancelled() && steps.build.outcome == 'success' }}
       timeout-minutes: 20
@@ -410,7 +410,7 @@ jobs:
         go-version: '1.25.1'
         cache-dependency-path: mapd_repo/go.sum
     - name: Install native build dependencies
-      run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config zlib1g-dev
+      run: sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update && sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends pkg-config zlib1g-dev
     - name: Test and build pinned map provider
       run: python3 tools/ci/run_map_tests.py --output ci-results/map-provider
     - name: Save test and build evidence
