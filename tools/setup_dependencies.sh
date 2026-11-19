@@ -52,7 +52,7 @@ function install_linux_deps() {
     echo "[ ] system packages already installed t=$SECONDS"
   elif command -v apt-get > /dev/null 2>&1; then
     local apt_options=()
-    if [[ "${CI:-}" == "1" ]]; then
+    if [[ "${CI:-}" == "1" || "${CI:-}" == "true" ]]; then
       apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
     fi
     "${SUDO[@]}" apt-get "${apt_options[@]}" update
