@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from openpilot.common.params import Params
+from openpilot.selfdrive.ui.layouts.sidebar import Sidebar
 
 
 _param_dir = tempfile.TemporaryDirectory(prefix="starpilot-ui-layout-test-")
@@ -92,7 +93,7 @@ class TestOptInLayouts(unittest.TestCase):
     layout = runtime_app.StarMainLayout.__new__(runtime_app.StarMainLayout)
     layout._current_mode = runtime_app.MainState.HOME
     layout._rect = runtime_app.rl.Rectangle(0, 0, 2160, 1080)
-    layout._sidebar = NS(is_visible=True)
+    layout._sidebar = Mock(spec=Sidebar, is_visible=True)
     layout.page = Mock()
     layout._home_layout = home = Mock(current_state=runtime_app.HomeLayoutState.HOME)
     with patch.object(runtime_app.ui_state, "is_body", False), \

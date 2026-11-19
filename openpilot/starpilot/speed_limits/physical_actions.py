@@ -1,7 +1,9 @@
 """Card-side qualification for SLC choices, software SET engagement and active caps."""
 
+from opendbc.car.structs import car
+
 from openpilot.cereal.services import SERVICE_LIST
-from openpilot.selfdrive.car.cruise import SlcPendingConfirmation, SlcWheelContext, V_CRUISE_MIN, V_CRUISE_MAX
+from openpilot.selfdrive.car.cruise import SlcPendingConfirmation, SlcWheelContext, VCruiseHelper, V_CRUISE_MIN, V_CRUISE_MAX
 from openpilot.starpilot.speed_limits.acceptance import CONFIRMATION_NS, number
 from openpilot.starpilot.speed_limits.selection import Source
 from openpilot.starpilot.speed_limits.speed_domain import set_above_limit
@@ -137,3 +139,19 @@ def pending_confirmation(sm, now_ns: int, *, long_active: bool,
       not 0 < started <= int(state.frameMonoTime) <= started + CONFIRMATION_NS):
     return None
   return SlcPendingConfirmation(str(state.sessionId), int(state.decisionId), int(state.presentationId))
+
+
+def curve_press_receipt(CS: car.CarState, helper: VCruiseHelper, sm, *, curve_replay: bool,
+                        slc_replay: bool, host_long_active: bool, observed_ns: int):
+  """A confirmation or native standstill RES must not also override Curve control."""
+  accelerate = frozenset((car.CarState.ButtonEvent.Type.accelCruise,
+                          car.CarState.ButtonEvent.Type.resumeCruise))
+  pressed = {b.type.raw for b in CS.buttonEvents if b.pressed and b.type.raw in accelerate}
+  if (not curve_replay or not host_long_active or not CS.canValid or CS.canTimeout or not CS.cruiseState.available or
+      CS.standstill or CS.cruiseState.standstill or not pressed):
+    return None
+  if (helper.slc_consumed_button is not None or bool(pressed & helper.slc_suppressed_buttons) or
+      slc_replay and bool(sm['slcState'].hasPending)):
+    return None
+  return ('curveAccelPress', None, float(helper.v_cruise_kph_last / 3.6),
+          float(helper.v_cruise_kph / 3.6), observed_ns)
