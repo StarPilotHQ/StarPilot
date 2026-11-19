@@ -1,5 +1,5 @@
 import numpy as np
-from opendbc.car import DT_CTRL, Bus, structs
+from opendbc.car import DT_CTRL, Bus, create_button_events, structs
 from opendbc.can.parser import CANParser
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.common.filter_simple import FirstOrderFilter
@@ -8,7 +8,10 @@ from opendbc.car.interfaces import CarStateBase
 from opendbc.car.leapmotor.values import DBC, CarControllerParams
 
 GearShifter = structs.CarState.GearShifter
+ButtonType = structs.CarState.ButtonEvent.Type
 GEARS = {0: GearShifter.park, 1: GearShifter.reverse, 2: GearShifter.neutral, 3: GearShifter.drive}
+# POWERTRAIN_STATE.STALK_PUSH 3 (stalk pushed up) cancels assist; the engage pushes (1, 2) are not reported
+STALK_CANCEL = 3
 
 
 class CarState(CarStateBase):
@@ -27,6 +30,7 @@ class CarState(CarStateBase):
     self.eps_torque_lagged = FirstOrderFilter(0., CarControllerParams.EPS_TORQUE_LAG, DT_CTRL)
     self.powertrain_state: dict | None = None
     self.dashboard_limit = LimitTracker()
+    self.stalk_cancel = False
 
   def update(self, can_parsers) -> structs.CarState:
     cp = can_parsers[Bus.pt]
@@ -101,6 +105,10 @@ class CarState(CarStateBase):
 
     # stock ACC / LCC, read from the camera side
     ret.cruiseState.enabled = bool(cp.vl['POWERTRAIN_STATE']['ASSIST_ENGAGED'])
+    # the driver's cancel push, so a cancel the car makes by itself can be told apart from the driver's
+    prev_cancel = self.stalk_cancel
+    self.stalk_cancel = int(cp.vl['POWERTRAIN_STATE']['STALK_PUSH']) == STALK_CANCEL
+    ret.buttonEvents = create_button_events(int(self.stalk_cancel), int(prev_cancel), {1: ButtonType.cancel})
     # latest VCU frame, copied by the controller to cancel ACC; None until received
     self.powertrain_state = dict(cp.vl['POWERTRAIN_STATE']) if cp.ts_nanos['POWERTRAIN_STATE']['COUNTER'] > 0 else None
     # ACC_STATE: 1 not ready (Park, brake, accelerator override), 2 ready, 3 engaged. Engaged also counts as
