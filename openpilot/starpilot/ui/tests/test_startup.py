@@ -1,5 +1,8 @@
 """The UI choice is final before Raylib creates a window."""
 
+import os
+import subprocess
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -64,47 +67,90 @@ class TestStartup(unittest.TestCase):
         ui.main()
       initialize.assert_not_called()
 
-  def test_display_scheduling_preserves_camera_precedence_and_other_devices(self):
+  def test_display_scheduling_is_background_before_window_on_both_profiles(self):
     from openpilot.selfdrive.ui import ui
 
     for device, hardware in (("mici", True), ("tici", True), ("tizi", True), ("pc", False)):
-      with self.subTest(device=device), \
-           patch.object(ui, "COMMA_HARDWARE", hardware), patch.object(ui.HARDWARE, "get_device_type", return_value=device), \
-           patch.object(ui, "select_ui", return_value=startup.UiSelection(False, "fixture")), \
-           patch.object(ui.gui_app, "init_window"), \
-           patch.object(ui.gui_app, "render", return_value=iter(((False, 0., 0.), (True, .01, .005), (True, .01, .005)))), \
-           patch.object(ui, "MainLayout"), patch.object(ui, "MiciMainLayout", return_value=object()), \
-           patch.object(ui.messaging, "PubMaster"), patch.object(ui, "config_realtime_process") as realtime, \
-           patch.object(ui, "drop_realtime") as normal, patch.object(ui.os, "setpriority") as nice, \
-           patch.object(ui.os, "sched_getscheduler", return_value=0, create=True), \
-           patch.object(ui.os, "SCHED_OTHER", 0, create=True), patch.object(ui.os, "getpriority", return_value=5 if device == "mici" else 0), \
-           patch.object(ui.os, "sched_getaffinity", return_value={0}, create=True), \
-           patch.object(ui, "set_core_affinity") as affinity:
-        ui.main()
-        if device == "mici":
-          realtime.assert_not_called()
-          self.assertEqual(normal.call_count, 2)
-          self.assertEqual(nice.call_count, 2)
-          self.assertTrue(all(call.args == (ui.os.PRIO_PROCESS, 0, 5) for call in nice.call_args_list))
-          self.assertEqual(set(affinity.call_args_list[0].args[0]), {0, 1, 2, 7})
-          self.assertTrue(all(set(call.args[0]) == {0, 1, 2, 7} for call in affinity.call_args_list[1:]))
-          self.assertEqual(affinity.call_count, 3)
-        else:
-          realtime.assert_called_once_with(0, ui.Priority.UI)
+      for big_ui in (False, True):
+        events = []
+        def window(_, events=events, hardware=hardware):
+          events.append("window")
           if hardware:
-            normal.assert_called_once_with()
-            nice.assert_called_once_with(ui.os.PRIO_PROCESS, 0, 0)
+            self.assertEqual(events[:4], ["normal", "nice", "affinity", "window"])
+        with self.subTest(device=device, big_ui=big_ui), \
+             patch.object(ui, "COMMA_HARDWARE", hardware), patch.object(ui, "BIG_UI", big_ui), \
+             patch.object(ui.HARDWARE, "get_device_type", return_value=device), \
+             patch.object(ui, "select_ui", return_value=startup.UiSelection(False, "fixture")), \
+             patch.object(ui.gui_app, "init_window", side_effect=window), \
+             patch.object(ui.gui_app, "render", return_value=iter(((False, 0., 0.), (True, .01, .005), (True, .01, .005)))), \
+             patch.object(ui, "MainLayout"), patch.object(ui, "MiciMainLayout", return_value=object()), \
+             patch.object(ui.messaging, "PubMaster"), \
+             patch.object(ui, "config_realtime_process", side_effect=lambda *_, events=events: events.append("realtime")) as realtime, \
+             patch.object(ui, "drop_realtime", side_effect=lambda events=events: events.append("normal")) as normal, \
+             patch.object(ui.os, "setpriority", side_effect=lambda *_, events=events: events.append("nice")) as nice, \
+             patch.object(ui.os, "sched_getscheduler", return_value=0, create=True), \
+             patch.object(ui.os, "SCHED_OTHER", 0, create=True), \
+             patch.object(ui.os, "getpriority", return_value=5 if hardware else 0), \
+             patch.object(ui.os, "sched_getaffinity", return_value={0}, create=True), \
+             patch.object(ui, "set_core_affinity", side_effect=lambda _, events=events: events.append("affinity")) as affinity:
+          ui.main()
+          if hardware:
+            realtime.assert_not_called()
+            self.assertEqual(events[:4], ["normal", "nice", "affinity", "window"])
+            self.assertEqual(normal.call_count, 2)
+            self.assertEqual(nice.call_count, 2)
+            self.assertTrue(all(call.args == (ui.os.PRIO_PROCESS, 0, 5) for call in nice.call_args_list))
+            self.assertEqual(affinity.call_count, 3)
+            expected_cores = {0, 1, 2, 7}
+            self.assertTrue(all(set(call.args[0]) == expected_cores for call in affinity.call_args_list))
           else:
+            realtime.assert_called_once_with(0, ui.Priority.UI)
+            self.assertEqual(events, ["realtime", "window"])
             normal.assert_not_called()
             nice.assert_not_called()
-          self.assertEqual(affinity.call_count, 2 if hardware else 0)
-          if hardware:
-            self.assertTrue(all(call.args == ([6],) for call in affinity.call_args_list))
+            affinity.assert_not_called()
 
   def test_slc_publisher_gate_is_independent_of_ui_selection(self):
     self.assertTrue(startup.slc_action_transport_enabled({"STARPILOT_UI_DEV": "1"}))
     self.assertTrue(startup.slc_action_transport_enabled({"SLC_REPLAY_RUNTIME": "1"}))
     self.assertTrue(startup.slc_action_transport_enabled({"STARPILOT_UI": "upstream", "SLC_REPLAY_RUNTIME": "1"}))
+
+  @unittest.skipUnless(sys.platform == "linux", "Linux thread scheduling")
+  def test_graphics_workers_inherit_background_scheduling(self):
+    if not os.sched_getaffinity(0).intersection({0, 1, 2, 7}):
+      self.skipTest("Runner has none of the display cores")
+    code = '''
+import os, sys, threading
+from unittest.mock import patch
+from openpilot.common import realtime
+from openpilot.selfdrive.ui import ui
+from openpilot.starpilot.ui import startup
+device, big = sys.argv[1], sys.argv[2] == "1"
+expected = os.sched_getaffinity(0).intersection({0, 1, 2, 7})
+observed = []
+def state():
+  return os.sched_getscheduler(0), os.getpriority(os.PRIO_PROCESS, 0), os.sched_getaffinity(0)
+def window(_):
+  assert state() == (os.SCHED_OTHER, 5, expected), state()
+  worker = threading.Thread(target=lambda: observed.append(state()))
+  worker.start()
+  worker.join(5)
+  assert not worker.is_alive()
+with patch.object(realtime, "PC", False), patch.object(ui, "COMMA_HARDWARE", True), \\
+     patch.object(ui.HARDWARE, "get_device_type", return_value=device), \\
+     patch.object(ui, "BIG_UI", big), \\
+     patch.object(ui, "select_ui", return_value=startup.UiSelection(False, "fixture")), \\
+     patch.object(ui.gui_app, "init_window", side_effect=window), \\
+     patch.object(ui.gui_app, "render", return_value=iter(())), \\
+     patch.object(ui, "MainLayout"), patch.object(ui, "MiciMainLayout"), \\
+     patch.object(ui.messaging, "PubMaster"):
+  ui.main()
+assert observed == [(os.SCHED_OTHER, 5, expected)], observed
+'''
+    for device in ("tici", "tizi"):
+      for big_ui in (False, True):
+        with self.subTest(device=device, big_ui=big_ui):
+          subprocess.run([sys.executable, "-B", "-c", code, device, str(int(big_ui))], check=True, timeout=20)
 
 
 if __name__ == "__main__":

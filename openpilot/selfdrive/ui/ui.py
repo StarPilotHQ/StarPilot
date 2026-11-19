@@ -38,8 +38,8 @@ def update_frame(preview=None, controllers=None, star=None, game_mode=None, arab
 def main():
   device_type = HARDWARE.get_device_type() if COMMA_HARDWARE else ""
   camera_core_ui = device_type in ("mici", "tici", "tizi")
-  background_ui = device_type == "mici"
-  cores = {0, 1, 2, 7} if background_ui else {6} if camera_core_ui else {5}
+  background_ui = camera_core_ui
+  cores = {0, 1, 2, 7} if background_ui else {5}
   display_nice = 5 if background_ui else 0
   main_thread_configured = False
   if background_ui:
