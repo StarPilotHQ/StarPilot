@@ -60,16 +60,20 @@ def read_signal() -> Signal:
 
 
 class SignalFeed:
-  """Polls in the background only while snapshot() keeps being asked; snapshot() never does IO."""
+  """Poll off-thread while snapshots are requested."""
   def __init__(self, read=read_signal, period=2.0):
     self.read, self.period = read, period
     self._lock = threading.Lock()
+    self._stop = threading.Event()
     self._thread = None
     self._signal = Signal()
     self._read_at = self._wanted_at = 0.
 
   def poll(self):
-    signal = self.read()
+    try:
+      signal = self.read()
+    except Exception:
+      signal = Signal()
     with self._lock:
       self._signal, self._read_at = signal, time.monotonic()
 
@@ -84,9 +88,14 @@ class SignalFeed:
     return signal if fresh else Signal()
 
   def _run(self):
-    while True:
+    while not self._stop.is_set():
       with self._lock:
         wanted = time.monotonic() - self._wanted_at <= WANTED_S
       if wanted:
         self.poll()
-      time.sleep(self.period)
+      self._stop.wait(self.period)
+
+  def close(self):
+    self._stop.set()
+    if self._thread is not None:
+      self._thread.join(timeout=2)

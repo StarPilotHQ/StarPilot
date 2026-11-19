@@ -610,6 +610,8 @@ class OnroadView:
     self.navigation.close()
     if now_playing := getattr(self, "now_playing", None):
       now_playing.close()
+    if signal := getattr(self, "network_signal", None):
+      signal.close()
     if self.fonts.profile == Profile.LARGE:
       self.unified_speed.close()
       self.steering_wheel.close()

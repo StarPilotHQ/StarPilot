@@ -256,7 +256,7 @@ def signal_size(placement: dict | None) -> tuple[int, int]:
   if (placement or {}).get("wifiName") is True:
     height += SIGNAL_WIFI_NAME_HEIGHT
   scale = signal_scale(placement)
-  return round(width * scale), round(height * scale)
+  return math.floor(width * scale + .5), math.floor(height * scale + .5)
 _signal["note"] = ("Cellular and Wi-Fi strength with the active link highlighted, Bluetooth status and device name, " +
                    "and optionally the Wi-Fi network name on top. Opacity sets the background.")
 PROFILES["large"]["widgets"][SIGNAL_WIDGET] = _signal
@@ -336,7 +336,7 @@ WIDGET_COLORS = {
 
 
 def _fit_legacy_signal(placement: dict, bounds: Bounds) -> None:
-  """A card saved before the Bluetooth row grew may now overhang its edge; pull it back in if it fit at its old size."""
+  """Keep layouts saved before the Bluetooth row inside their bounds."""
   grid = SIGNAL_LEGACY_GRIDS.get(placement.get("size"))
   if grid is None or not valid_signal_scale(placement):
     return

@@ -102,6 +102,9 @@ class SignalWidget:
     self.preview: Signal | None = None
     self.s = SIGNAL_SCALE
 
+  def close(self):
+    self.feed.close()
+
   def _text(self, text, x, cy, size, color, align='center'):
     """Draws text with its ink centered on cy; x is the centre, or the left edge with align='left'."""
     size *= self.s
@@ -200,7 +203,7 @@ class SignalWidget:
 
   def _ring(self, signal, radios, x, y, background, show_bt=True, header=0):
     S = self.s
-    devices = (signal.bt_devices or ('Connected',)) if signal.bt == 'connected' else ()
+    devices = (signal.bt_devices or ('Connected',)) if show_bt and signal.bt == 'connected' else ()
     height = 140 if len(devices) > 1 else 122 if devices and show_bt else 102
     _pill(x, y, 112 * S, (height + header) * S, background, 24 / 56, shadow=False)
     if header:

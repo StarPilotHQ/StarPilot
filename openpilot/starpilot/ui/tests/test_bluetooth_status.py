@@ -56,6 +56,19 @@ class TestBluetoothStatus(unittest.TestCase):
                return_value=subprocess.CompletedProcess([], 0, output, "")):
       self.assertEqual(read_bluetooth_details(), ("connected", ("iPhone 15", "AirPods")))
 
+  def test_bluez_details_count_distinct_devices_with_identical_names(self):
+    for name in ("Headphones", None):
+      props = {"Connected": {"data": True}, "Name": {"data": name}}
+      data = {
+        "/org/bluez/hci0": {"org.bluez.Adapter1": {"Powered": {"data": True}}},
+        "/org/bluez/hci0/dev_AA": {"org.bluez.Device1": props},
+        "/org/bluez/hci0/dev_BB": {"org.bluez.Device1": props},
+      }
+      output = json.dumps({"data": [data]})
+      with self.subTest(name=name), patch("openpilot.starpilot.ui.bluetooth_status.subprocess.run",
+                                         return_value=subprocess.CompletedProcess([], 0, output, "")):
+        self.assertEqual(read_bluetooth_details(), ("connected", (name or "Bluetooth",) * 2))
+
   def test_pending_failure_and_stale_result_never_show_icon(self):
     clock = [10_000_000_000]
     source = BluetoothStatusSource(clock=lambda: clock[0])

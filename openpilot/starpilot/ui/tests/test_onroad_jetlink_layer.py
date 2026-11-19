@@ -121,32 +121,49 @@ def test_big_model_card_uses_abbreviated_model_names_and_tier():
   assert (fallback.title, fallback.detail, fallback.tier) == ('RDF V4', 'Fell back', 'SMALL')
 
 
-def test_local_model_names_reads_receipts_caches_and_never_raises():
-  entries = {
-    'rdf43': NS(name='Regret Driven Framework V4 👀📡'),
-    'cinquev3': NS(name='Cinque v3 👀📡'),
-    'tr16223': NS(name='TR16 👀📡'),
-  }
+def test_local_model_names_reads_live_receipts_and_caches():
+  entries = {'tr16223': NS(name='TR16'), 'cinquev3': NS(name='Cinque v3'), BUNDLED_CURRENT: NS(name='Cheddar')}
+  pair = NS(pid=123, process_start_ticks=456, loaded_mono_ns=1, lateral_id='tr16223', longitudinal_id='cinquev3')
   onroad_jetlink._model_cache = None
   with patch.object(onroad_jetlink, 'model_entries', return_value=entries), \
-       patch.object(onroad_jetlink, 'read_pair_receipt', return_value=NS(lateral_id='tr16223', longitudinal_id='cinquev3')), \
-       patch.object(onroad_jetlink, 'read_receipt', return_value=None), \
-       patch.object(onroad_jetlink, 'preferences', return_value={'small': 'rdf43', 'big': ''}):
+       patch.object(onroad_jetlink, 'read_pair_receipt', return_value=pair), \
+       patch.object(onroad_jetlink, 'process_start_ticks', return_value=456):
     assert local_model_names(now=10.0) == ('TR16 / Cinque v3', 'TR16 / Cinque v3')
-    # Cached hit inside MODEL_TTL avoids re-reading even if inputs change.
   with patch.object(onroad_jetlink, 'read_pair_receipt', side_effect=AssertionError('should use cache')):
     assert local_model_names(now=10.5) == ('TR16 / Cinque v3', 'TR16 / Cinque v3')
 
+  for variant, expected in ((ModelVariant.SMALL, ('Cheddar', '')), (ModelVariant.CHESTNUT, ('', ''))):
+    onroad_jetlink._model_cache = None
+    load = NS(pid=123, process_start_ticks=456, loaded_mono_ns=1, model_id=BUNDLED_CURRENT, variant=variant)
+    with patch.object(onroad_jetlink, 'model_entries', return_value=entries), \
+         patch.object(onroad_jetlink, 'read_pair_receipt', return_value=None), \
+         patch.object(onroad_jetlink, 'read_receipt', return_value=load), \
+         patch.object(onroad_jetlink, 'process_start_ticks', return_value=456):
+      assert local_model_names(now=20.0) == expected
   onroad_jetlink._model_cache = None
-  with patch.object(onroad_jetlink, 'model_entries', return_value=entries), \
-       patch.object(onroad_jetlink, 'read_pair_receipt', return_value=None), \
-       patch.object(onroad_jetlink, 'preferences', return_value={'small': 'rdf43', 'big': 'cinquev3'}), \
-       patch.object(onroad_jetlink, 'read_receipt', return_value=NS(model_id=BUNDLED_CURRENT, variant=ModelVariant.CHESTNUT)):
-    assert local_model_names(now=20.0) == ('RDF V4', 'Cinque v2')
 
+
+@pytest.mark.parametrize('ticks', [0, 789])
+def test_local_model_names_reject_stale_process_receipts(ticks):
+  load = NS(pid=123, process_start_ticks=456, loaded_mono_ns=1, model_id='tr16223', variant=ModelVariant.SMALL)
+  pair = NS(pid=123, process_start_ticks=456, loaded_mono_ns=1, lateral_id='tr16223', longitudinal_id='tr16223')
   onroad_jetlink._model_cache = None
-  with patch.object(onroad_jetlink, 'model_entries', side_effect=RuntimeError('boom')), pytest.raises(RuntimeError):
-    local_model_names(now=30.0)
+  with patch.object(onroad_jetlink, 'model_entries', return_value={'tr16223': NS(name='TR16')}), \
+       patch.object(onroad_jetlink, 'read_pair_receipt', return_value=pair), \
+       patch.object(onroad_jetlink, 'read_receipt', return_value=load), \
+       patch.object(onroad_jetlink, 'process_start_ticks', return_value=ticks):
+    assert local_model_names(now=30.0) == ('', '')
+  onroad_jetlink._model_cache = None
+
+
+def test_local_model_names_unavailable_does_not_guess_from_preferences():
+  onroad_jetlink._model_cache = None
+  with patch.object(onroad_jetlink, 'read_pair_receipt', return_value=None), \
+       patch.object(onroad_jetlink, 'read_receipt', return_value=None):
+    assert local_model_names(now=30.0) == ('', '')
+  onroad_jetlink._model_cache = None
+  with patch.object(onroad_jetlink, 'model_entries', side_effect=OSError('unavailable')):
+    assert local_model_names(now=30.0) == ('', '')
   onroad_jetlink._model_cache = None
 
 

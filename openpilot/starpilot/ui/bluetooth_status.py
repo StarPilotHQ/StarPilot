@@ -41,8 +41,7 @@ def read_bluetooth_details() -> tuple[str, tuple[str, ...]]:
         if not isinstance(name, str) or not name.strip():
           name = prop(path, "org.bluez.Device1", "Alias")
         label = name.strip() if isinstance(name, str) and name.strip() else "Bluetooth"
-        if label not in devices:
-          devices.append(label)
+        devices.append(label)
   except (ValueError, KeyError, IndexError, TypeError, AttributeError):
     return "off", ()
   return ("connected", tuple(devices)) if devices else ("on", ())

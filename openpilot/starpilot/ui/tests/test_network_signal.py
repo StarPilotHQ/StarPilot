@@ -1,4 +1,5 @@
 import json
+import math
 import threading
 from unittest.mock import patch
 
@@ -30,12 +31,26 @@ def test_reads_both_radios_and_the_link_in_use(tmp_path):
   assert read(tmp_path, {'connected': True, 'signal_quality': '60'}, None, 'ppp0') == Signal()
 
 
-def test_feed_lets_a_failed_read_propagate():
-  def fail():
-    raise RuntimeError('boom')
-  feed = SignalFeed(read=fail)
-  with pytest.raises(RuntimeError):
+def test_feed_clears_a_failed_read_and_recovers():
+  signal = Signal(4, None, 'cell')
+  feed = SignalFeed(read=lambda: signal)
+  feed.poll()
+  with patch.object(feed, 'read', side_effect=OSError('modem temporarily unavailable')):
     feed.poll()
+  assert feed._signal == Signal()
+  feed.poll()
+  assert feed._signal == signal
+
+
+def test_feed_close_wakes_and_stops_the_worker():
+  polled = threading.Event()
+  feed = SignalFeed(read=lambda: polled.set() or Signal(), period=3600)
+  try:
+    feed.snapshot()
+    assert polled.wait(2)
+  finally:
+    feed.close()
+  assert feed._thread is not None and not feed._thread.is_alive()
 
 
 def test_feed_goes_blank_when_the_reading_is_old():
@@ -86,15 +101,16 @@ def test_starport_signal_style_is_validated_and_pulled_on_screen():
 
 
 @pytest.mark.parametrize('style', ['ring', 'horizontal', 'vertical'])
-def test_every_signal_style_shrinks_to_30_percent(style):
+@pytest.mark.parametrize('scale', [30, 50, 100])
+def test_every_signal_style_scales_like_the_editor(style, scale):
   from openpilot.starpilot.ui.onroad_customization import SIGNAL_SIZES, widget_size
   document = default_document()
   placed = document['layouts']['large'][SIGNAL_WIDGET]
   assert placed['scale'] == 100
-  placed.update(size=style, scale=30)
+  placed.update(size=style, scale=scale)
   document = validate_document(document)
   width, height = SIGNAL_SIZES[style]
-  assert widget_size(document, 'large', SIGNAL_WIDGET) == (round(width * .3), round(height * .3))
+  assert widget_size(document, 'large', SIGNAL_WIDGET) == (math.floor(width * scale / 100 + .5), math.floor(height * scale / 100 + .5))
   for bad in (29, 101, 50.0):
     document['layouts']['large'][SIGNAL_WIDGET]['scale'] = bad
     with pytest.raises(ValueError):
@@ -189,16 +205,20 @@ def test_bluetooth_toggle_defaults_on_and_hides_bluetooth_when_off():
   fonts.vertical_ink.return_value = (0, 10)
   fonts.measure.side_effect = lambda text, _role, size: NS(width=len(text) * size * 0.5)
   widget = onroad_signal.SignalWidget(fonts)
-  widget.preview = Signal(2, 4, 'wifi', '5G', 'connected', ('iPhone 15',))
+  widget.preview = Signal(2, 4, 'wifi', '5G', 'connected', ('iPhone 15', 'AirPods'))
   for style in ('ring', 'horizontal', 'vertical'):
     fonts.draw.reset_mock()
     doc = default_document()
     doc['layouts']['large'][SIGNAL_WIDGET].update(enabled=True, size=style, bluetooth=False)
-    with patch.object(onroad_signal, 'rl'):
+    with patch.object(onroad_signal, 'rl') as rl:
+      rl.Rectangle = lambda *args: args
       widget.render(NS(customization=doc, alert=NS(size='none')))
     drawn = [call.args[0] for call in fonts.draw.call_args_list]
     assert 'iPhone 15' not in drawn
     assert 'Connected' not in drawn
+    if style == 'ring':
+      from openpilot.starpilot.ui.onroad_customization import SIGNAL_SCALE
+      assert rl.draw_rectangle_rounded.call_args_list[0].args[0][3] == pytest.approx(102 * SIGNAL_SCALE)
 
 
 @pytest.mark.parametrize('style,grid', [('ring', (88, 88)), ('horizontal', (268, 84)), ('vertical', (96, 160))])
@@ -247,7 +267,7 @@ def test_horizontal_bluetooth_name_does_not_overlap_status():
 
 
 def test_reads_the_joined_wifi_name(tmp_path):
-  replies = {'SIGNAL_POLL': {'RSSI': '-45'}, 'STATUS': {'wpa_state': 'COMPLETED', 'ssid': r'Danny\xe2\x80\x99s Caf\xc3\xa9'}}
+  replies = {'SIGNAL_POLL': {'RSSI': '-45'}, 'STATUS': {'wpa_state': 'COMPLETED', 'ssid': r'Danny\xe2\x80\x99s \x43\x61\x66\xc3\xa9'}}
   with patch.object(hardware, 'MODEM_STATE_PATH', str(tmp_path / 'modem')), \
        patch.object(hardware, 'wpa_supplicant_cmd', side_effect=lambda cmd: replies[cmd]), \
        patch.object(hardware, 'get_default_route_iface', return_value='wlan0'), \

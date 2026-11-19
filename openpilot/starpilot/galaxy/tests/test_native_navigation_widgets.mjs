@@ -11,6 +11,21 @@ print(json.dumps(dict(document=default_document(), defaults=default_document(), 
                      revision="native", editable=True, valid=True, activeProfile="large", supportedProfiles=["large"])))
 `], { encoding: "utf8" }))
 assert.equal(validSnapshot(data), true)
+const signalEdges = JSON.parse(execFileSync(process.env.PYTHON || "python3", ["-c", `
+import json
+from openpilot.starpilot.ui.onroad_customization import SIGNAL_SIZES, default_document, signal_size, validate_document, widget_bounds
+documents = []
+for style in SIGNAL_SIZES:
+  document = default_document()
+  placed = document['layouts']['large']['network_signal']
+  placed.update(size=style, scale=50, enabled=True, wifiName=True)
+  bounds = widget_bounds('large', 'network_signal')
+  width, height = signal_size(placed)
+  placed.update(x=bounds['x'] + bounds['width'] - width, y=bounds['y'] + bounds['height'] - height)
+  documents.append(validate_document(document))
+print(json.dumps(documents))
+`], { encoding: "utf8" }))
+for (const document of signalEdges) assert.equal(validDocument(document, data.metadata), true)
 for (const version of [11, 12, 13, 14, 15]) {
   assert.equal(validSnapshot({ ...data, document: { ...data.document, version } }), true)
   assert.equal(validSnapshot({ ...data, defaults: { ...data.defaults, version } }), true)
@@ -142,10 +157,13 @@ vm.setWidgetToggle("bluetooth", "On")
 assert.equal(vm.layout.network_signal.bluetooth, true)
 for (const style of ["ring", "horizontal", "vertical"]) {
   vm.setWidgetSize(style)
-  vm.scaleInput({ target: { value: "30" } })
-  assert.deepEqual(widgetSize(signal, vm.layout.network_signal), signal.sizes[style].map(side => Math.round(side * 0.3)))
-  assert.equal(validDocument(vm.state.draft, data.metadata), true)
+  for (const scale of [30, 50, 100]) {
+    vm.scaleInput({ target: { value: String(scale) } })
+    assert.deepEqual(widgetSize(signal, vm.layout.network_signal), signal.sizes[style].map(side => Math.round(side * scale / 100)))
+    assert.equal(validDocument(vm.state.draft, data.metadata), true)
+  }
 }
+vm.scaleInput({ target: { value: "30" } })
 vm.scaleInput({ target: { value: "25" } })
 assert.equal(vm.layout.network_signal.scale, 30)
 vm.layout.network_signal.x = signalBounds.x + signalBounds.width - widgetSize(signal, vm.layout.network_signal)[0]

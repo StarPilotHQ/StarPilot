@@ -1,4 +1,4 @@
-"""Keeps the big model card fed on the native large screen: Jetlink polled only while it is showing, and the GPU state."""
+"""Keep the native Big model card fed while visible."""
 
 from openpilot.starpilot.models.jetlink_status import JetlinkStatusFeed
 from openpilot.starpilot.ui.onroad_customization import JETLINK_WIDGET

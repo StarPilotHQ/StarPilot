@@ -1,4 +1,4 @@
-"""Big model card shared by the native and Android Auto screens: which model drives, and the external GPU's state."""
+"""Big model card for native and Android Auto screens."""
 import re
 import time
 from typing import NamedTuple
@@ -7,9 +7,8 @@ from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.models.catalog import BUNDLED_CURRENT, model_entries
 from openpilot.starpilot.models.jetlink_status import JetlinkStatus
-from openpilot.starpilot.models.manager import preferences
-from openpilot.starpilot.models.receipt import read_pair_receipt, read_receipt
-from openpilot.starpilot.models.status import ModelVariant
+from openpilot.starpilot.models.receipt import process_start_ticks, read_pair_receipt, read_receipt
+from openpilot.starpilot.models.status import LaboratoryLoad, ModelLoad, ModelVariant
 from openpilot.starpilot.ui import clip
 from openpilot.starpilot.ui.models_state import model_display_text
 from openpilot.starpilot.ui.onroad_customization import JETLINK_SIZE, JETLINK_WIDGET
@@ -59,7 +58,7 @@ def abbreviate_model_name(name: str) -> str:
 
 
 def scroll_offset(text_width: float, width: float, seconds: float) -> float:
-  """How far a too-wide line has scrolled left: still for SCROLL_PAUSE, then one pass to where its repeat starts."""
+  """Pause, then scroll long text until its repeat reaches the start."""
   if text_width <= width:
     return 0.0
   travel = text_width + SCROLL_GAP
@@ -70,37 +69,41 @@ def scroll_offset(text_width: float, width: float, seconds: float) -> float:
 def _entry_name(entries: dict, model_id: str, variant: ModelVariant | None = None) -> str:
   if not model_id:
     return ''
-  if model_id == BUNDLED_CURRENT:
-    return 'Cinque v2' if variant is ModelVariant.CHESTNUT else 'RDF V4'
+  if model_id == BUNDLED_CURRENT and variant is ModelVariant.CHESTNUT:
+    return ''
   entry = entries.get(model_id)
   return entry.name if entry is not None else model_id
 
 
+def _live_load(load: ModelLoad | LaboratoryLoad | None) -> bool:
+  return (load is not None and load.process_start_ticks > 0 and process_start_ticks(load.pid) == load.process_start_ticks and
+          0 < load.loaded_mono_ns <= time.monotonic_ns())
+
+
+def _read_model_names() -> tuple[str, str]:
+  entries = model_entries()
+  pair = read_pair_receipt()
+  if pair is not None and _live_load(pair):
+    names = (abbreviate_model_name(_entry_name(entries, mid)) for mid in (pair.lateral_id, pair.longitudinal_id))
+    name = ' / '.join(part for part in names if part)
+    return name, name
+  load = read_receipt()
+  if load is not None and _live_load(load):
+    name = abbreviate_model_name(_entry_name(entries, load.model_id, load.variant))
+    return ('', name) if load.variant is ModelVariant.CHESTNUT else (name, '')
+  return '', ''
+
+
 def local_model_names(now: float | None = None) -> tuple[str, str]:
-  """Cached (small, big) driving model names from modeld receipts and saved preferences."""
+  """Cached (small, big) names from receipts belonging to a live modeld process."""
   global _model_cache
   ts = time.monotonic() if now is None else now
   if _model_cache is not None and 0 <= ts - _model_cache[0] < MODEL_TTL:
     return _model_cache[1]
-  entries = model_entries()
-  pair = read_pair_receipt()
-  if pair is not None:
-    lat = abbreviate_model_name(_entry_name(entries, pair.lateral_id))
-    lon = abbreviate_model_name(_entry_name(entries, pair.longitudinal_id))
-    pair_name = ' / '.join(part for part in (lat, lon) if part)
-    result = (pair_name, pair_name)
-  else:
-    prefs = preferences()
-    small = _entry_name(entries, prefs.get('small', ''), ModelVariant.SMALL)
-    big = _entry_name(entries, prefs.get('big', ''), ModelVariant.CHESTNUT)
-    load = read_receipt()
-    if load is not None:
-      loaded = _entry_name(entries, load.model_id, load.variant)
-      if load.variant is ModelVariant.CHESTNUT:
-        big = loaded or big
-      else:
-        small = loaded or small
-    result = (abbreviate_model_name(small), abbreviate_model_name(big))
+  try:
+    result = _read_model_names()
+  except Exception:
+    result = ('', '')
   _model_cache = (ts, result)
   return result
 
