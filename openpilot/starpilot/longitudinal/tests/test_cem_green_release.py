@@ -208,37 +208,39 @@ class CemGreenCallerTests(unittest.TestCase):
 
   def test_red_hold_and_clear_release_reach_actual_planner_publication(self):
     self.prime()
-    for tick in range(18):
-      _, result, held, plan = self.cycle(stopped=True, position=CLEAR_64_X, velocity=CLEAR_64_V, should_stop=False)
-      if tick < 10:
-        self.assertTrue(result.experimental and held and plan.shouldStop)
-      elif tick >= 12:
-        self.assertFalse(result.experimental or held or plan.shouldStop)
+    _, result, held, plan = self.cycle(stopped=True, position=CLEAR_64_X, velocity=CLEAR_64_V, should_stop=False)
+    self.assertFalse(held or plan.shouldStop)
     self.assertFalse(self.owner.mode.projector.stop_detector.committed)
-    self.assertFalse(held or result.experimental or plan.shouldStop)
     self.assertGreater(plan.aTarget, 0.)
-
-  def test_missing_source_and_transient_clear_cannot_release_stop(self):
-    self.prime()
-    for _ in range(6):
-      self.cycle(stopped=True, position=CLEAR_64_X, velocity=CLEAR_64_V, should_stop=False)
-    self.cycle(stopped=True, position=CLEAR_64_X, velocity=CLEAR_64_V, should_stop=False, unavailable='modelV2')
-    for _ in range(6):
+    for _ in range(17):
       _, result, held, plan = self.cycle(stopped=True, position=CLEAR_64_X, velocity=CLEAR_64_V, should_stop=False)
-      self.assertTrue(result.experimental and held and plan.shouldStop)
-    self.cycle(stopped=True, position=RED_97_X, velocity=RED_97_V)
-    self.assertTrue(self.owner.mode.projector.stop_detector.standstill_committed)
+    self.assertFalse(result.experimental or held or plan.shouldStop)
 
-  def test_alive_transport_gap_and_repeated_model_restart_clear_dwell(self):
+  def test_missing_source_cannot_prove_light_clearance(self):
     self.prime()
+    self.cycle(stopped=True, position=CLEAR_64_X, velocity=CLEAR_64_V, should_stop=False, unavailable='modelV2')
+    self.assertTrue(self.owner.mode.projector.stop_detector.committed)
+    released = False
+    for _ in range(2):
+      _, _, held, plan = self.cycle(stopped=True, position=CLEAR_64_X, velocity=CLEAR_64_V, should_stop=False)
+      released |= not held
+    self.assertTrue(released)
+    self.cycle(stopped=True, position=RED_97_X, velocity=RED_97_V)
+    self.assertTrue(self.planner.output_should_stop)
+
+  def test_alive_transport_gap_and_repeated_model_cannot_prove_clearance(self):
     for changes in ({'stale': 'radarState'}, {'repeat_model': True}):
-      for _ in range(6):
-        self.cycle(stopped=True, position=CLEAR_64_X, velocity=CLEAR_64_V, should_stop=False)
+      self.owner.mode.projector.stop_detector.reset()
+      self.prime()
       self.cycle(stopped=True, position=CLEAR_64_X, velocity=CLEAR_64_V, should_stop=False, **changes)
-      for _ in range(6):
-        _, result, held, plan = self.cycle(stopped=True, position=CLEAR_64_X, velocity=CLEAR_64_V, should_stop=False)
-        self.assertTrue(result.experimental and held and plan.shouldStop)
+      self.assertTrue(self.owner.mode.projector.stop_detector.committed)
+      released = False
+      for _ in range(2):
+        _, _, held, _ = self.cycle(stopped=True, position=CLEAR_64_X, velocity=CLEAR_64_V, should_stop=False)
+        released |= not held
+      self.assertTrue(released)
       self.cycle(stopped=True, position=RED_97_X, velocity=RED_97_V)
+      self.assertTrue(self.planner.output_should_stop)
 
   def test_should_stop_veto_and_short_geometry_cannot_be_false_clear(self):
     self.prime()
