@@ -45,8 +45,13 @@ export const AppDownloadReminder = {
     dismissed: reminderDismissed() }),
   computed: { visible() { return this.download && !this.pref.hidden && !this.dismissed } },
   methods: {
+    showLater() {
+      this.dismissed = true
+      try { sessionStorage.setItem(DISMISSED_APP_REMINDER, "1") } catch {}
+    },
     dismiss() {
       this.dismissed = true
+      this.pref.set(true)
       try { sessionStorage.setItem(DISMISSED_APP_REMINDER, "1") } catch {}
     },
   },
@@ -54,11 +59,13 @@ export const AppDownloadReminder = {
     class="gx-app-download" @close="dismiss">
     <img class="gx-app-download__icon" src="./assets/galaxy-icon-180.png" width="72" height="72" alt="" />
     <h2 id="gx-app-download-title">Get the Galaxy app</h2>
-    <p id="gx-app-download-description">The easiest way to connect to your comma.</p>
+    <p id="gx-app-download-description">The most seamless way to connect to your StarPilot via Bluetooth, Wi-Fi, or over the network.</p>
     <a class="gx-btn gx-app-download__get" :href="download.href" target="_blank" rel="noopener noreferrer" @click="dismiss">
       <i class="bi" :class="download.icon" aria-hidden="true"></i>{{ download.label }}</a>
-    <p class="gx-app-download__platform">{{ download.name }}</p>
-    <button class="gx-btn gx-btn--text" type="button" @click="dismiss">Not now</button>
+    <div class="gx-app-download__actions">
+      <button class="gx-btn gx-btn--tonal" type="button" @click="showLater">Not Now</button>
+      <button class="gx-btn gx-btn--tonal" type="button" @click="dismiss">Don't Remind Me</button>
+    </div>
   </GxDialog>`,
 }
 
