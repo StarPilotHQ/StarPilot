@@ -192,7 +192,7 @@ def test_paused_restriction_preserves_independent_fault_user_and_authority_vetoe
   elif fault == 'failed':
     feedback.failed = True
   elif fault == 'no_history':
-    feedback.ever_lateral_active = False
+    feedback.healthy_feedback_ns = 0
   elif fault == 'other_car':
     cp.carFingerprint = 'SUBARU_OUTBACK'
   elif fault != 'off':
@@ -273,7 +273,7 @@ def test_pending_subaru_recovery_does_not_bypass_independent_vetoes(fault):
   elif fault == 'failed':
     feedback.failed = True
   elif fault == 'no_history':
-    feedback.ever_lateral_active = False
+    feedback.healthy_feedback_ns = 0
   elif fault == 'new_event':
     sm.logMonoTime['onroadEvents'] += 1
   elif fault == 'no_warning':
@@ -354,3 +354,28 @@ def test_recovery_brake_release_preserves_only_a_known_pending_eps_brake():
   assert retain_pending_restriction_recovery(feedback, sm, cp, state, sm['aolAxisState'], sm.logMonoTime['aolAxisState'], now,
     latched=True, producer=PRODUCER)
   assert leases(feedback) == before
+
+
+@pytest.mark.parametrize('previous_role', ('off', 'waiting', 'active'))
+@pytest.mark.parametrize('current_role', ('off', 'waiting', 'active'))
+@pytest.mark.parametrize('native_granted', (False, True))
+@pytest.mark.parametrize('ever_active', (False, True))
+@pytest.mark.parametrize('steering_pressed', (False, True))
+@pytest.mark.parametrize('brake_pressed', (False, True))
+def test_subaru_temporary_intent_depends_on_accepted_proof_not_actuation_phase(
+    previous_role, current_role, native_granted, ever_active, steering_pressed, brake_pressed):
+  from openpilot.starpilot.car.subaru.paused_intent import retain_paused_restriction
+  cp, state, feedback, sm, native, stamp = paused_case()
+  state.steeringPressed, state.brakePressed = steering_pressed, brake_pressed
+  feedback.ever_lateral_active = ever_active
+  previous = list(feedback.signature)
+  previous[9], previous[11] = previous_role == 'active', previous_role != 'off'
+  feedback.signature = tuple(previous)
+  change(sm, 'aolAxisState', lambda a: (setattr(a, 'lateralActive', current_role == 'active'),
+    setattr(a, 'desiredLateral', current_role != 'off'), setattr(a, 'mode', 'lateralOnly' if current_role == 'active' else 'off')))
+  native_change(sm, native, requestedLateral=native_granted, lateralAllowed=native_granted)
+  before = leases(feedback), feedback.signature, sm['aolAxisState'].to_dict()
+  retained = retain_paused_restriction(feedback, sm, cp, state, sm['aolAxisState'], stamp, stamp,
+    latched=True, producer=PRODUCER)
+  assert retained == (current_role != 'active' or native_granted)
+  assert (leases(feedback), feedback.signature, sm['aolAxisState'].to_dict()) == before

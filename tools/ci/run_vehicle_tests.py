@@ -283,6 +283,8 @@ RELEASE_TARGETS = (
   "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_subaru_eps_clear_during_blinker_pause_keeps_armed_intent",
   "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_subaru_family_eps_recovery_join",
   "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_subaru_paused_restriction_event_join",
+  "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_subaru_stop_creep_restriction_preserves_armed_intent",
+  "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_subaru_family_stop_creep_restriction",
   "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_repeat_main_with_brake_and_signal_pause",
   "openpilot/starpilot/aol/tests/test_subaru_temporary_eps.py",
   "openpilot/starpilot/car/subaru/tests/test_paused_intent.py",

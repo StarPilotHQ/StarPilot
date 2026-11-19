@@ -1,4 +1,4 @@
-"""Retain established Subaru OFF intent; this proof never grants a command."""
+"""Preserve established Subaru intent; this proof never grants a command."""
 from dataclasses import dataclass
 from math import isfinite
 
@@ -135,19 +135,21 @@ def retain_stopped_source_feedback(feedback, sm, cp, state, axis, stamp, now_ns,
 
 
 def retain_paused_restriction(feedback, sm, cp, state, axis, stamp, now_ns, *, latched, producer):
+  """Accepted intent survives coherent OFF, waiting, and active LAT phases."""
   if retain_pending_restriction_recovery(feedback, sm, cp, state, axis, stamp, now_ns, latched=latched, producer=producer):
     return True
   from openpilot.starpilot.aol.transport_pause import _configured_transport_native
   previous = feedback.signature
-  if (cp.carFingerprint != CAR.SUBARU_IMPREZA_2020 or not qualified(cp, marked_only=True) or
+  if (not qualified(cp, marked_only=True) or cp.openpilotLongitudinalControl or
       not latched or feedback.failed or feedback.paused or
-      feedback.retention_started_ns or feedback.source_retention_started_ns or not feedback.ever_lateral_active or
+      feedback.retention_started_ns or feedback.source_retention_started_ns or
       previous is None or not feedback.session or not producer or
       previous[0] != previous[7] or previous[0] != feedback.session or previous[5] != 'none' or
-      previous[10] or previous[12] or previous[9] != previous[11] or not previous[13] or previous[14:16] != (producer, int(axis.intentIntegrityEpoch)) or
+      previous[10] or previous[12] or previous[9] and not previous[11] or not previous[13] or previous[14:16] != (producer, int(axis.intentIntegrityEpoch)) or
       axis.intentProducerSessionId != producer or str(axis.sessionId) != feedback.session or
-      str(axis.faultReason) != 'none' or str(axis.mode) != 'off' or not axis.nativeAcknowledged or
-      any((axis.desiredLateral, axis.lateralActive, axis.desiredLongitudinal, axis.longitudinalActive)) or
+      str(axis.faultReason) != 'none' or not axis.nativeAcknowledged or
+      str(axis.mode) != ('lateralOnly' if axis.lateralActive else 'off') or
+      axis.lateralActive and not axis.desiredLateral or axis.desiredLongitudinal or axis.longitudinalActive or
       not 0 < previous[8] <= previous[2] <= now_ns <= previous[4] or now_ns - previous[8] > AXIS_MAX_AGE_NS or
       not previous[8] <= axis.sourceCarStateMonoTime <= stamp <= now_ns or now_ns - axis.sourceCarStateMonoTime > AXIS_MAX_AGE_NS or
       not state.steerFaultTemporary or state.steerFaultPermanent or not state.canValid or state.canTimeout or
@@ -178,7 +180,8 @@ def retain_paused_restriction(feedback, sm, cp, state, axis, stamp, now_ns, *, l
     return False
   native = _configured_transport_native(sm, cp, feedback.session, now_ns, allow_restricted_lateral=True)
   if (native is None or not native.pandaInventory or native.requestedLateral != native.lateralAllowed or
-      native.requestedLongitudinal or native.longitudinalAllowed or native.observedMonoTime < feedback.healthy_native_ns or
+      axis.lateralActive and not native.lateralAllowed or native.requestedLongitudinal or native.longitudinalAllowed or
+      native.observedMonoTime < feedback.healthy_native_ns or
       feedback.healthy_inventory != (native.pandaSerial, tuple(slot.hardwareSerial for slot in native.pandaInventory))):
     return False
   if matched:
@@ -199,7 +202,7 @@ def retain_pending_restriction_recovery(feedback, sm, cp, state, axis, stamp, no
   pending, restriction = feedback.pending_event, getattr(feedback, 'temporary_eps_event_ns', 0)
   if (not qualified(cp, marked_only=True) or not cp.pcmCruise or cp.openpilotLongitudinalControl or
       not latched or feedback.failed or feedback.paused or feedback.retention_started_ns or
-      feedback.source_retention_started_ns or not feedback.ever_lateral_active or
+      feedback.source_retention_started_ns or not 0 < feedback.healthy_feedback_ns <= now_ns or
       previous is None or not feedback.session or cp_identity(cp) != feedback.cp or
       not 0 < restriction < pending <= now_ns or now_ns - pending > AXIS_MAX_AGE_NS or
       previous[0] != previous[7] or previous[0] != feedback.session or previous[5] != 'none' or
