@@ -194,6 +194,26 @@ class TransportPauseFeedback:
     self.healthy_native_ns = 0
     self.healthy_inventory = None
 
+  def _same_validated_ford_first_source(self, axis, now_ns):
+    """Join the first native grant to an already validated, still-leased axis.
+
+    This retains intent only. It does not admit a new source, renew a lease,
+    or change any source/axis/native check used to transmit controls.
+    """
+    p = self.signature
+    if not p or self.ever_lateral_active or self.lateral_native_ns:
+      return False
+    signature = (str(axis.sessionId), int(axis.sequence), int(axis.observedMonoTime), int(axis.observedMonoTime),
+      int(axis.validUntilMonoTime), str(axis.faultReason), int(axis.faultEventMonoTime), str(axis.faultSessionId),
+      int(axis.sourceCarStateMonoTime), bool(axis.lateralActive), bool(axis.longitudinalActive),
+      bool(axis.desiredLateral), bool(axis.desiredLongitudinal), bool(axis.nativeAcknowledged),
+      str(axis.intentProducerSessionId), int(axis.intentIntegrityEpoch))
+    return bool(p == signature and
+      0 < axis.sourceCarStateMonoTime <= axis.observedMonoTime <= self.healthy_feedback_ns < now_ns <= axis.validUntilMonoTime and
+      self.healthy_feedback_ns - axis.sourceCarStateMonoTime <= AXIS_MAX_AGE_NS and
+      axis.validUntilMonoTime == axis.observedMonoTime + AXIS_MAX_AGE_NS and
+      now_ns - self.healthy_feedback_ns <= AXIS_MAX_AGE_NS)
+
   def _first_ford_gas_lateral_grant(self, sm, cp, cs, axis, now_ns, *, latched, producer):
     from opendbc.car import structs
     from opendbc.car.ford.aol import qualified as ford_qualified
@@ -207,7 +227,8 @@ class TransportPauseFeedback:
       str(axis.faultReason) != 'none' or not (pending_ack or str(axis.mode) == 'lateralOnly' and axis.lateralActive) or
       not axis.nativeAcknowledged or not axis.desiredLateral or not axis.desiredLongitudinal or axis.longitudinalActive or
       not 0 < axis.sourceCarStateMonoTime <= axis.observedMonoTime <= now_ns <= axis.validUntilMonoTime or
-      now_ns - axis.sourceCarStateMonoTime > AXIS_MAX_AGE_NS or
+      (now_ns - axis.sourceCarStateMonoTime > AXIS_MAX_AGE_NS and
+        (cs.buttonEvents or not self._same_validated_ford_first_source(axis, now_ns))) or
       not cs.gasPressed or cs.brakePressed or cs.regenBraking or not cs.cruiseState.available or
       not cs.cruiseState.enabled or not cs.canValid or cs.canTimeout or cs.steerFaultTemporary or
       cs.steerFaultPermanent or cs.accFaulted or cs.vehicleSensorsInvalid or cs.steeringDisengage or
@@ -221,6 +242,7 @@ class TransportPauseFeedback:
     native = independent_lateral_health(sm, cp, cs, self.session, now_ns)
     # 10Hz LAT grant may precede waiting axis: intent only.
     if (native is None or native.observedMonoTime < max(self.healthy_native_ns, self.lateral_native_ns) or
+        (now_ns - axis.sourceCarStateMonoTime > AXIS_MAX_AGE_NS and native.observedMonoTime <= self.healthy_native_ns) or
         not native.pandaInventory or not native.requestedLongitudinal or native.longitudinalAllowed or
         self.healthy_inventory != (native.pandaSerial, tuple(slot.hardwareSerial for slot in native.pandaInventory))):
       return None
@@ -287,7 +309,18 @@ class TransportPauseFeedback:
     native = independent_lateral_health(sm, cp, cs, self.session, now_ns)
     # Brake health may precede axis status.
     # Keep LAT intent only; physical pedal owns LONG.
-    brake_health = bool(((ford_withdrawal or classic_brake) and cs.brakePressed or volkswagen_withdrawal) and (not cs.gasPressed or volkswagen_withdrawal) and
+    # Cancel can withdraw raw Panda LONG before its next native axis receipt.
+    # Retain only the already acknowledged LAT-only axis, under the original
+    # source/native deadlines and a fresh matching cruise-withdrawal event.
+    ford_cancel_health = bool(ford_withdrawal and not cs.cruiseState.enabled and
+      not axis.desiredLongitudinal and not axis.longitudinalActive and
+      0 < event_ns <= now_ns and now_ns - event_ns <= AXIS_MAX_AGE_NS and
+      any(event.userDisable and event.name in (log.OnroadEvent.EventName.buttonCancel,
+        log.OnroadEvent.EventName.pcmDisable) for event in sm['onroadEvents']) and
+      0 < int(sm.logMonoTime['pandaStates']) <= now_ns and
+      now_ns - int(sm.logMonoTime['pandaStates']) <= SAFETY_MAX_AGE_NS)
+    brake_health = bool(((ford_withdrawal or classic_brake) and cs.brakePressed or volkswagen_withdrawal or
+      ford_cancel_health) and (not cs.gasPressed or volkswagen_withdrawal) and
       native is not None and native.sourcePandaStatesMonoTime > 0 and
       native.sourcePandaStatesMonoTime < int(sm.logMonoTime['pandaStates']) and
       all(not slot.controlsAllowed for slot, config in zip(sm['pandaStates'], cp.safetyConfigs, strict=True)

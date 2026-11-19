@@ -659,7 +659,8 @@ class Car:
           current_native(self.sm, self.CP, now_ns=now_ns, axis_session_id=self.aol_axis_session()),
           self.aol_transport_feedback, self.aol_card_intent, now_ns=now_ns, producer=self.slc_producer_session))
       from openpilot.starpilot.car.volkswagen.aol import awaiting_initial_request as volkswagen_initial_request
-      volkswagen_initial_wait = volkswagen_initial_request(self.CP, CS, self.sm,
+      volkswagen_initial_wait = self.CP.brand == 'volkswagen' and volkswagen_initial_request(
+        self.CP, CS, self.sm,
         current_native(self.sm, self.CP, now_ns=now_ns, axis_session_id=self.aol_axis_session()),
         self.aol_transport_feedback, self.aol_card_intent, now_ns=now_ns,
         producer=getattr(self, 'slc_producer_session', ''))
