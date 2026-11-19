@@ -1,6 +1,7 @@
+import { compile } from "../web/vendor/vue/vue.esm-browser.js"
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import { OnroadLayoutPage, validSnapshot, validDocument, widgetSize, clampPlacement } from "../web/js/onroad-layout.js"
+import { LayoutWidgetPreview, OnroadLayoutPage, validSnapshot, validDocument, widgetSize, clampPlacement } from "../web/js/onroad-layout.js"
 
 // Use the server's real registry so a UI gate cannot silently reject a newly exposed widget.
 const data = JSON.parse(execFileSync(process.env.PYTHON || "python3", ["-c", `
@@ -121,6 +122,39 @@ assert.equal(validDocument(beyondNewPromptWidth, data.metadata), false)
 Object.assign(vm.layout.speed_limit_actions, {x:600, y:500})
 vm.setSpeedSources("speedSources", false)
 assert.deepEqual([vm.layout.speed_limit_actions.x, vm.layout.speed_limit_actions.y], [600, 500])
+const signal = vm.profile.widgets.network_signal, signalBounds = signal.bounds || vm.profile.bounds
+assert.equal(signal.label, "Connections")
+vm.layout.network_signal.enabled = true
+vm.state.selected = "network_signal"
+vm.setWidgetSize("horizontal")
+assert.deepEqual(widgetSize(signal, vm.layout.network_signal), signal.sizes.horizontal)
+assert.ok(vm.layout.network_signal.x + signal.sizes.horizontal[0] <= signalBounds.x + signalBounds.width)
+assert.equal(validDocument(vm.state.draft, data.metadata), true)
+vm.setWidgetSize("vertical")
+assert.deepEqual(widgetSize(signal, vm.layout.network_signal), signal.sizes.vertical)
+// Every style shrinks from full size down to 30%; growing back pulls it inside the screen.
+assert.deepEqual(signal.scale, {min: 30, max: 100, default: 100})
+assert.equal(vm.layout.network_signal.scale, 100)
+assert.equal(vm.layout.network_signal.bluetooth, true)
+vm.setWidgetToggle("bluetooth", "Off")
+assert.equal(vm.layout.network_signal.bluetooth, false)
+vm.setWidgetToggle("bluetooth", "On")
+assert.equal(vm.layout.network_signal.bluetooth, true)
+for (const style of ["ring", "horizontal", "vertical"]) {
+  vm.setWidgetSize(style)
+  vm.scaleInput({ target: { value: "30" } })
+  assert.deepEqual(widgetSize(signal, vm.layout.network_signal), signal.sizes[style].map(side => Math.round(side * 0.3)))
+  assert.equal(validDocument(vm.state.draft, data.metadata), true)
+}
+vm.scaleInput({ target: { value: "25" } })
+assert.equal(vm.layout.network_signal.scale, 30)
+vm.layout.network_signal.x = signalBounds.x + signalBounds.width - widgetSize(signal, vm.layout.network_signal)[0]
+vm.scaleInput({ target: { value: "100" } })
+assert.ok(vm.layout.network_signal.x + signal.sizes.vertical[0] <= signalBounds.x + signalBounds.width)
+assert.equal(validDocument(vm.state.draft, data.metadata), true)
+const badScale = JSON.parse(JSON.stringify(vm.state.draft))
+badScale.layouts.large.network_signal.scale = 20
+assert.equal(validDocument(badScale, data.metadata), false)
 vm.state.profile = "compact"
 vm.add("stopped_timer")
 assert.equal(vm.layout.stopped_timer.enabled, true)
@@ -137,3 +171,20 @@ assert.equal(compact.document.layouts.compact.nav_card.enabled, true)
 compact.document.layouts.compact.nav_card.enabled = false
 assert.equal(validDocument(compact.document, compact.metadata), true)
 assert.equal(compact.document.layouts.large.nav_card.enabled, true)
+
+// Exercise the rendered fallback, not just the stored toggle value.
+const renderSignal = compile(LayoutWidgetPreview.template, { decodeEntities: value => value.replaceAll("&amp;", "&") })
+function previewText(node) {
+  if (!node || typeof node !== "object") return ""
+  if (Array.isArray(node)) return node.map(previewText).join(" ")
+  return typeof node.children === "string" ? node.children : previewText(node.children)
+}
+for (const size of ["ring", "horizontal", "vertical"]) {
+  for (const bluetooth of [true, false]) {
+    const tree = renderSignal({ widget: { kind: "network_signal", size, width: 268, height: 196, bluetooth },
+      palette: {}, profile: "large", scene: "engaged", native: false, art: null }, [])
+    const text = previewText(tree)
+    assert.equal(text.includes("iPhone 15"), bluetooth, `${size} Bluetooth preview follows the toggle`)
+    if (!bluetooth) assert(!text.includes("Connected") && !text.includes("AirPods"))
+  }
+}

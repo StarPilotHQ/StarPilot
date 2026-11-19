@@ -6,7 +6,7 @@ import subprocess
 import unittest
 from unittest.mock import patch
 
-from openpilot.starpilot.ui.bluetooth_status import BluetoothStatusSource, read_bluetooth_state
+from openpilot.starpilot.ui.bluetooth_status import BluetoothStatusSource, read_bluetooth_details, read_bluetooth_state
 
 
 class FakeExecutor:
@@ -40,6 +40,21 @@ class TestBluetoothStatus(unittest.TestCase):
     with patch("openpilot.starpilot.ui.bluetooth_status.subprocess.run",
                side_effect=subprocess.TimeoutExpired(["busctl"], 1.5)):
       self.assertEqual(read_bluetooth_state(), "off")
+
+  def test_bluez_details_return_connected_device_names(self):
+    data = {
+      "/org/bluez/hci0": {"org.bluez.Adapter1": {"Powered": {"type": "b", "data": True}}},
+      "/org/bluez/hci0/dev_AA": {"org.bluez.Device1": {"Connected": {"type": "b", "data": True},
+                                                       "Name": {"type": "s", "data": "iPhone 15"}}},
+      "/org/bluez/hci0/dev_BB": {"org.bluez.Device1": {"Connected": {"type": "b", "data": True},
+                                                       "Alias": {"type": "s", "data": "AirPods"}}},
+      "/org/bluez/hci0/dev_CC": {"org.bluez.Device1": {"Connected": {"type": "b", "data": False},
+                                                       "Name": {"type": "s", "data": "Old Phone"}}},
+    }
+    output = json.dumps({"type": "a{oa{sa{sv}}}", "data": [data]})
+    with patch("openpilot.starpilot.ui.bluetooth_status.subprocess.run",
+               return_value=subprocess.CompletedProcess([], 0, output, "")):
+      self.assertEqual(read_bluetooth_details(), ("connected", ("iPhone 15", "AirPods")))
 
   def test_pending_failure_and_stale_result_never_show_icon(self):
     clock = [10_000_000_000]
