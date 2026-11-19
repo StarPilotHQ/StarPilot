@@ -150,6 +150,7 @@ def test_renderer_dispatches_each_widget_in_saved_order(profile, viewport):
     view.projection_exit_layer = lambda state: seen.append(CAR_EXIT)
     view.now_playing = NS(render=lambda state: seen.append('now_playing'))
     view.jetlink_status = NS(render=lambda state: seen.append('jetlink_status'))
+    view.network_signal = NS(render=lambda state: seen.append('network_signal'))
   document['widgetOrder'] = {profile: order}
   state = NS(customization=document, camera_available=True, viewport_width=1860, alert=NS(size='none'), stopped_duration_s=65,
              appearance=NS(camera_view='road'))

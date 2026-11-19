@@ -6,7 +6,7 @@ import json
 import math
 import re
 from functools import lru_cache
-from typing import Any, NotRequired, TypedDict
+from typing import Any, NotRequired, TypedDict, cast
 
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.ui.onroad_torque_geometry import maximum_footprint
@@ -39,10 +39,13 @@ class WidgetPlacement(TypedDict):
   x: float
   y: float
   enabled: bool
-  size: NotRequired[int]
+  size: NotRequired[int | str]
   width: NotRequired[int]
   height: NotRequired[int]
   opacity: NotRequired[int]
+  bluetooth: NotRequired[bool]
+  wifiName: NotRequired[bool]
+  scale: NotRequired[int]
 
 
 class Widget(TypedDict):
@@ -64,6 +67,10 @@ class Widget(TypedDict):
   confirmationObstacle: NotRequired[Bounds]
   box: NotRequired[dict[str, int]]
   opacity: NotRequired[dict[str, int]]
+  sizes: NotRequired[dict[str, list[int]]]
+  scale: NotRequired[dict[str, int]]
+  bluetoothToggle: NotRequired[bool]
+  wifiNameHeight: NotRequired[int]
   anchorShift: NotRequired[float]
   expandable: NotRequired[bool]
   hidden: NotRequired[bool]
@@ -207,13 +214,52 @@ _nav_map["note"] = ("Road lines and your route over the camera. Drag the corner 
 PROFILES["large"]["widgets"][NAV_MAP_WIDGET] = _nav_map
 
 JETLINK_WIDGET = "jetlink_status"
-JETLINK_SIZE = (420, 84)
+JETLINK_SIZE = (420, 100)
 JETLINK_OPACITY = (0, 100, 85)  # percent: min, max, default
-_jetlink = _widget("Jetlink status", JETLINK_WIDGET, *JETLINK_SIZE, 30, 650)
+_jetlink = _widget("Big model", JETLINK_WIDGET, *JETLINK_SIZE, 30, 650)
 _jetlink["default"].update(enabled=False, opacity=JETLINK_OPACITY[2])
 _jetlink["opacity"] = dict(zip(("min", "max", "default"), JETLINK_OPACITY, strict=True))
-_jetlink["note"] = "Shown while Jetlink is on: connection, device and host processing time. Opacity sets the card background."
+_jetlink["note"] = "Big or small model driving, and Jetlink's or the Chestnut's state (else Disconnected). Opacity sets the card background."
 PROFILES["large"]["widgets"][JETLINK_WIDGET] = _jetlink
+
+SIGNAL_WIDGET = "network_signal"
+SIGNAL_SCALE = 120 / 88  # drawn on an 88 px grid
+SIGNAL_GRIDS = {"ring": (112, 140), "horizontal": (268, 112), "vertical": (112, 196)}
+SIGNAL_SIZES = {style: (round(w * SIGNAL_SCALE), round(h * SIGNAL_SCALE)) for style, (w, h) in SIGNAL_GRIDS.items()}
+SIGNAL_LEGACY_GRIDS = {"ring": (88, 88), "horizontal": (268, 84), "vertical": (96, 160)}  # before the Bluetooth row
+SIGNAL_SIZE = SIGNAL_SIZES["ring"]
+SIGNAL_WIFI_NAME_GRID = 22  # header row for the Wi-Fi network name, on the 88 px grid
+SIGNAL_WIFI_NAME_HEIGHT = round(SIGNAL_WIFI_NAME_GRID * SIGNAL_SCALE)
+SIGNAL_OPACITY = (0, 100, 85)  # percent: min, max, default
+SIGNAL_SCALE_RANGE = (30, 100, 100)  # percent of the style's size: min, max, default
+_signal = _widget("Connections", SIGNAL_WIDGET, *SIGNAL_SIZE, 1624, 290)
+_signal["default"].update(enabled=False, opacity=SIGNAL_OPACITY[2], size="ring", scale=SIGNAL_SCALE_RANGE[2], bluetooth=True,
+                           wifiName=False)
+_signal["opacity"] = dict(zip(("min", "max", "default"), SIGNAL_OPACITY, strict=True))
+_signal["scale"] = dict(zip(("min", "max", "default"), SIGNAL_SCALE_RANGE, strict=True))
+_signal["sizes"] = {style: list(size) for style, size in SIGNAL_SIZES.items()}
+_signal["bluetoothToggle"] = True
+_signal["wifiNameHeight"] = SIGNAL_WIFI_NAME_HEIGHT
+
+
+def valid_signal_scale(placement: dict) -> bool:
+  return type(placement.get("scale")) is int and SIGNAL_SCALE_RANGE[0] <= placement["scale"] <= SIGNAL_SCALE_RANGE[1]
+
+
+def signal_scale(placement: dict | None) -> float:
+  """The chosen fraction of the style's full size; a missing or bad value draws full size."""
+  return placement["scale"] / 100 if placement and valid_signal_scale(placement) else 1.
+
+
+def signal_size(placement: dict | None) -> tuple[int, int]:
+  width, height = SIGNAL_SIZES.get((placement or {}).get("size"), SIGNAL_SIZE)
+  if (placement or {}).get("wifiName") is True:
+    height += SIGNAL_WIFI_NAME_HEIGHT
+  scale = signal_scale(placement)
+  return math.floor(width * scale + .5), math.floor(height * scale + .5)
+_signal["note"] = ("Cellular and Wi-Fi strength with the active link highlighted, Bluetooth status and device name, " +
+                   "and optionally the Wi-Fi network name on top. Opacity sets the background.")
+PROFILES["large"]["widgets"][SIGNAL_WIDGET] = _signal
 # Restore the Dom road graphic in the gap between the speed card and main speed.
 # Center the road gauge above the driver monitor, below the speed-limit controls.
 # It has no background and appears only with a current selected source.
@@ -240,7 +286,7 @@ for _key, _widget_data in PROFILES["large"]["widgets"].items():
   _widget_data["expandable"] = True
 # Older documents retain every saved placement and gain this independent widget.
 OPTIONAL_WIDGETS = frozenset({WEATHER_WIDGET, MODE_WIDGET, CLOCK_WIDGET, STOPPED_TIMER_WIDGET, CEM_GAUGE_WIDGET,
-                              NAV_CARD_WIDGET, NAV_MAP_WIDGET, JETLINK_WIDGET, "rear_fog"})
+                              NAV_CARD_WIDGET, NAV_MAP_WIDGET, JETLINK_WIDGET, SIGNAL_WIDGET, "rear_fog"})
 
 # The torque arc grows when the developer sidebar closes; protect both road widths.
 _torque = PROFILES['large']['widgets']['torque_bar']
@@ -289,11 +335,25 @@ WIDGET_COLORS = {
 }
 
 
+def _fit_legacy_signal(placement: dict, bounds: Bounds) -> None:
+  """Keep layouts saved before the Bluetooth row inside their bounds."""
+  grid = SIGNAL_LEGACY_GRIDS.get(placement.get("size"))
+  if grid is None or not valid_signal_scale(placement):
+    return
+  old = [round(round(side * SIGNAL_SCALE) * placement["scale"] / 100) for side in grid]
+  new = signal_size(placement)
+  axes = (("x", "width"), ("y", "height"))
+  if all(type(placement.get(axis)) in (int, float) and math.isfinite(placement[axis]) and
+         bounds[axis] <= placement[axis] <= bounds[axis] + bounds[extent] - size for (axis, extent), size in zip(axes, old, strict=True)):
+    for (axis, extent), size in zip(axes, new, strict=True):
+      placement[axis] = max(bounds[axis], min(placement[axis], bounds[axis] + bounds[extent] - size))
+
+
 # Back-to-front order used when a layout first opts into custom layers.
 DEFAULT_WIDGET_ORDER = {
   "large": (NAV_MAP_WIDGET, "cruise_limits", "speed_limit_actions", CEM_GAUGE_WIDGET, "current_speed",
             "steering_wheel", "torque_bar", "following_distance", "driver_monitor", MODE_WIDGET, CLOCK_WIDGET, WEATHER_WIDGET,
-            STOPPED_TIMER_WIDGET, NAV_CARD_WIDGET, JETLINK_WIDGET, "rear_fog", "pip_left", "pip_right"),
+            STOPPED_TIMER_WIDGET, NAV_CARD_WIDGET, JETLINK_WIDGET, SIGNAL_WIDGET, "rear_fog", "pip_left", "pip_right"),
   "compact": ("speed_limit", "max_speed", "steering_wheel", "torque_bar",
               "speed_limit_actions", "driver_monitor", *RAIL_WIDGETS, MODE_WIDGET, CLOCK_WIDGET, WEATHER_WIDGET,
               STOPPED_TIMER_WIDGET, NAV_CARD_WIDGET, "rear_fog", "pip_left", "pip_right"),
@@ -654,15 +714,33 @@ def validate_document(value):
       raise ValueError("Invalid widget IDs")
     for key, widget in data["widgets"].items():
       placement = layout[key]
+      legacy_signal = key == SIGNAL_WIDGET and type(placement) is dict and 'bluetooth' not in placement
+      if key == SIGNAL_WIDGET and type(placement) is dict and any(field not in placement for field in ('size', 'scale', 'bluetooth', 'wifiName')):
+        placement = dict(placement)
+        placement.setdefault('size', 'ring')
+        placement.setdefault('scale', SIGNAL_SCALE_RANGE[2])
+        placement.setdefault('bluetooth', True)
+        placement.setdefault('wifiName', False)
+        layout[key] = placement
       bounds = widget_bounds(profile, key)
       if value['version'] < 8 and key in SPEED_LAYOUT_V7[profile]:
         bounds = data['bounds']
+      if legacy_signal:
+        _fit_legacy_signal(placement, bounds)
+      if (key == JETLINK_WIDGET and type(placement) is dict and type(placement.get('y')) in (int, float) and
+          math.isfinite(placement['y']) and
+          bounds['y'] + bounds['height'] - JETLINK_SIZE[1] < placement['y'] <= bounds['y'] + bounds['height'] - 84):
+        placement['y'] = bounds['y'] + bounds['height'] - JETLINK_SIZE[1]
       scalable = key == 'driver_monitor' or key == 'steering_wheel' and value['version'] >= 4
       expected = {"x", "y", "enabled"} | ({"size"} if scalable else set())
       if widget.get("box"):
         expected |= {"width", "height", "opacity"}
       elif widget.get("opacity"):
         expected.add("opacity")
+      if widget.get("sizes"):
+        expected.add("size")
+      if key == SIGNAL_WIDGET:
+        expected |= {"scale", "bluetooth", "wifiName"}
       if type(placement) is not dict or set(placement) != expected or type(placement["enabled"]) is not bool:
         raise ValueError("Invalid widget placement")
       if widget.get("box"):
@@ -671,12 +749,20 @@ def validate_document(value):
         low, high = widget["opacity"]["min"], widget["opacity"]["max"]
         if type(placement["opacity"]) is not int or not low <= placement["opacity"] <= high:
           raise ValueError("Invalid widget opacity")
+      if widget.get("sizes") and (type(placement["size"]) is not str or placement["size"] not in widget["sizes"]):
+        raise ValueError("Invalid widget style")
+      if key == SIGNAL_WIDGET and not valid_signal_scale(placement):
+        raise ValueError("Invalid widget scale")
+      if key == SIGNAL_WIDGET and type(placement["bluetooth"]) is not bool:
+        raise ValueError("Invalid widget bluetooth setting")
+      if key == SIGNAL_WIDGET and type(placement["wifiName"]) is not bool:
+        raise ValueError("Invalid widget Wi-Fi name setting")
       size = WHEEL_SIZES[profile][1]
       if scalable:
-        size = placement["size"]
         minimum, _, maximum = WIDGET_SIZES[key][profile]
-        if type(size) is not int or not minimum <= size <= maximum:
+        if type(placement["size"]) is not int or not minimum <= cast(int, placement["size"]) <= maximum:
           raise ValueError("Invalid widget size")
+        size = cast(int, placement["size"])
       # Only a gauge the saved layout actually placed moves; one filled in from defaults is already in the new box.
       saved_layout = value.get("layouts", {}).get(profile) if type(value.get("layouts")) is dict else None
       old_gauge = key == CEM_GAUGE_WIDGET and value["version"] < 7 and type(saved_layout) is dict and key in saved_layout
@@ -702,7 +788,9 @@ def validate_document(value):
           if not current_default:
             dimensions = (576, 148) if profile == 'large' else (348, 54)
         dimension = (dimensions[0 if axis == 'x' else 1] if dimensions else
-                     size if key in WIDGET_SIZES else placement[extent] if widget.get("box") else widget[extent])
+                     size if key in WIDGET_SIZES else placement[extent] if widget.get("box") else
+                     signal_size(placement)[0 if axis == 'x' else 1] if key == SIGNAL_WIDGET else
+                     widget["sizes"][str(placement["size"])][0 if axis == 'x' else 1] if widget.get("sizes") else widget[extent])
         if old_gauge:
           dimension = CEM_GAUGE_FRAME[0 if axis == 'x' else 1]
         if type(number) not in (int, float) or not math.isfinite(number) or not bounds[axis] <= number <= bounds[axis] + bounds[extent] - dimension:
@@ -851,6 +939,8 @@ def widget_size(document, profile, widget):
     return default["width"], default["height"] + sources_extent(document)
   if default.get("box"):
     return position["width"], position["height"]
+  if widget == SIGNAL_WIDGET:
+    return signal_size(position)
   return (position.get("size", WIDGET_SIZES[widget][str(profile)][1]),) * 2 if widget in WIDGET_SIZES else (default["width"], default["height"])
 
 

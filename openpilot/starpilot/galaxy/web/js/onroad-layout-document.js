@@ -42,7 +42,12 @@ export const withAlpha = (color, factor) => color.slice(0, 7) + Math.floor(parse
 // Steering wheels resize as a square ("size"); box widgets such as the Android Auto map take a width and height.
 export function widgetSize(widget, position) {
   if (widget.iconSize && position?.display === "icons") return [widget.iconSize, widget.iconSize]
-  if (widget.sizes && Array.isArray(widget.sizes[position?.size])) return [...widget.sizes[position.size]]
+  if (widget.sizes && Array.isArray(widget.sizes[position?.size])) {
+    // A widget with a size percentage (the signal widget) shrinks its chosen style.
+    const scale = widget.scale && Number.isInteger(position?.scale) ? position.scale / 100 : 1
+    const [width, height] = widget.sizes[position.size]
+    return [width, height + (widget.wifiNameHeight && position.wifiName === true ? widget.wifiNameHeight : 0)].map(side => Math.round(side * scale))
+  }
   if (widget.box) return [position?.width ?? widget.width, position?.height ?? widget.height]
   if (widget.resizable) return [position?.size ?? widget.width, position?.size ?? widget.height]
   return [widget.width, widget.height]
@@ -109,8 +114,10 @@ export function overlapsReserved(profile, id, x, y, layout = null) {
       if ((id !== owner && id !== key) || !positions[key]?.enabled) return false
       const [width, height] = widgetSize(profile.widgets[key], positions[key])
       const obstacle = profile.widgets[key].confirmationObstacle || { x: 0, y: 0, width, height }
-      return overlaps(panel, { x: (id === key ? x : positions[key].x) + obstacle.x,
-        y: (id === key ? y : positions[key].y) + obstacle.y, width: obstacle.width, height: obstacle.height })
+      return overlaps(panel, {
+        x: (id === key ? x : positions[key].x) + obstacle.x,
+        y: (id === key ? y : positions[key].y) + obstacle.y, width: obstacle.width, height: obstacle.height
+      })
     })) return true
   }
   if (widget.layer === "underlay") return false
@@ -182,11 +189,14 @@ export function validDocument(document, metadata) {
       const widget = profile.widgets[id], limits = placementLimits(profile, id, layout)
       const resizable = widget.resizable, box = widget.box, opacity = widget.opacity
       return keysEqual(position, ["x", "y", "enabled", ...(resizable ? ["size"] : []), ...(box ? ["width", "height"] : []),
-        ...(opacity ? ["opacity"] : []), ...(widget.iconSize ? ["display"] : []), ...(widget.backgroundToggle ? ["background"] : []), ...(widget.collapseToggle ? ["collapse"] : []), ...(widget.sizes ? ["size"] : [])]) &&
+        ...(opacity ? ["opacity"] : []), ...(widget.iconSize ? ["display"] : []), ...(widget.backgroundToggle ? ["background"] : []), ...(widget.collapseToggle ? ["collapse"] : []), ...(widget.bluetoothToggle ? ["bluetooth"] : []), ...(widget.wifiNameHeight ? ["wifiName"] : []), ...(widget.sizes ? ["size"] : []), ...(widget.scale ? ["scale"] : [])]) &&
         (!widget.iconSize || ["words", "icons"].includes(position.display)) &&
         (!widget.backgroundToggle || typeof position.background === "boolean") &&
         (!widget.collapseToggle || typeof position.collapse === "boolean") &&
+        (!widget.bluetoothToggle || typeof position.bluetooth === "boolean") &&
+        (!widget.wifiNameHeight || typeof position.wifiName === "boolean") &&
         (!widget.sizes || Object.hasOwn(widget.sizes, position.size)) &&
+        (!widget.scale || (Number.isInteger(position.scale) && position.scale >= widget.scale.min && position.scale <= widget.scale.max)) &&
         (!opacity || (Number.isInteger(position.opacity) && position.opacity >= opacity.min && position.opacity <= opacity.max)) &&
         (!resizable || (Number.isInteger(position.size) && position.size >= resizable.min && position.size <= resizable.max)) &&
         (!box || (Number.isInteger(position.width) && position.width >= box.minWidth && position.width <= box.maxWidth &&
@@ -265,14 +275,19 @@ export function validSnapshot(data) {
         widget.box.minHeight > widget.box.maxHeight || widget.box.maxWidth > area.width || widget.box.maxHeight > area.height)) return false
       if (widget.aspectRatio != null && (!projection || !widget.box || !["nav_card", "pip_camera"].includes(widget.kind) ||
         !positive(widget.aspectRatio) || widget.aspectRatio !== widget.width / widget.height)) return false
-      if (widget.opacity && (!(["nav_map", "jetlink_status"].includes(widget.kind) || projection && ["nav_home", "nav_work", "bookmark", "car_exit", "cruise_limits", "now_playing"].includes(widget.kind)) ||
+      if (widget.opacity && (!(["nav_map", "jetlink_status", "network_signal"].includes(widget.kind) || projection && ["nav_home", "nav_work", "bookmark", "car_exit", "cruise_limits", "now_playing"].includes(widget.kind)) ||
         !object(widget.opacity) || ![widget.opacity.min, widget.opacity.max, widget.opacity.default].every(Number.isInteger) ||
         widget.opacity.min < 0 || widget.opacity.max > 100 || widget.opacity.min > widget.opacity.default ||
         widget.opacity.default > widget.opacity.max)) return false
       if (widget.collapseToggle != null && (!projection || widget.kind !== "now_playing" || widget.collapseToggle !== true)) return false
-      if (widget.sizes != null && (!projection || widget.kind !== "now_playing" || !object(widget.sizes) ||
+      if (widget.bluetoothToggle != null && (widget.kind !== "network_signal" || widget.bluetoothToggle !== true)) return false
+      if (widget.wifiNameHeight != null && (widget.kind !== "network_signal" || !positive(widget.wifiNameHeight))) return false
+      if (widget.sizes != null && (!(projection && widget.kind === "now_playing" || widget.kind === "network_signal") || !object(widget.sizes) ||
         !Object.values(widget.sizes).every(size => Array.isArray(size) && size.length === 2 && size.every(positive) &&
           size[0] <= area.width && size[1] <= area.height))) return false
+      if (widget.scale != null && (widget.kind !== "network_signal" || !widget.sizes || !object(widget.scale) ||
+        ![widget.scale.min, widget.scale.max, widget.scale.default].every(Number.isInteger) || widget.scale.min < 10 ||
+        widget.scale.max > 100 || widget.scale.min > widget.scale.default || widget.scale.default > widget.scale.max)) return false
       if (widget.backgroundToggle != null && (!projection || !["nav_home", "nav_work", "bookmark", "car_exit"].includes(widget.kind) ||
         widget.backgroundToggle !== true || !widget.opacity)) return false
       if (widget.resizable && (!["steering_wheel", "driver_monitor"].includes(widget.kind) || !Number.isInteger(widget.resizable.min) ||
