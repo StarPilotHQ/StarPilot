@@ -70,7 +70,7 @@ export function softwareProgress(updater, operations = {}) {
     "finalizing update...": "Preparing update", "updating...": "Updating software",
     checking: "Checking for updates", downloading: "Downloading update", finalizing: "Preparing update",
     preparing: "Preparing update", fetching: "Downloading update", validating: "Validating update",
-    applying: "Applying update", submodules: "Preparing dependencies", rebooting: "Restarting device",
+    agnos: "Downloading and installing AGNOS", applying: "Applying update", submodules: "Preparing dependencies", rebooting: "Restarting device",
     complete: "Update complete", error: "Update failed", unavailable: "Updater status unavailable", timed_out: "Update is taking longer than expected" }
   if (!active && (!stage || ["idle", "unknown"].includes(stage))) return null
   const percent = Number.isFinite(progress?.percent) && progress.percent >= 0 && progress.percent <= 100 ? progress.percent : null

@@ -238,7 +238,7 @@ class TestRetainedAgnos(unittest.TestCase):
     manifest.parent.mkdir(parents=True)
     manifest.write_text("[]")
     self.updater.handle_agnos_update()
-    self.flash.assert_called_once_with(str(self.root / 'openpilot/common/hardware/comma/agnos.json'), 1, self.updater.cloudlog)
+    self.flash.assert_called_once_with(str(self.root / 'openpilot/common/hardware/comma/agnos.json'), 1, self.updater.cloudlog, progress=None)
     self.assertTrue((ROOT / 'openpilot/common/hardware/comma/agnos.json').is_file())
     self.updater.set_consistent_flag.assert_called_once_with(False)
 
@@ -248,7 +248,7 @@ class TestRetainedAgnos(unittest.TestCase):
     manifest.parent.mkdir(parents=True)
     manifest.write_text("[]")
     self.updater.handle_agnos_update()
-    self.flash.assert_called_once_with(str(manifest), 1, self.updater.cloudlog)
+    self.flash.assert_called_once_with(str(manifest), 1, self.updater.cloudlog, progress=None)
     self.updater.set_consistent_flag.assert_called_once_with(False)
 
   def test_invalid_policy_cannot_finalize_or_flash(self):
