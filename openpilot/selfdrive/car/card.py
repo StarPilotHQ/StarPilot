@@ -1126,9 +1126,13 @@ class Car:
       if self.aol_card_intent is not None:
         allowed_latch, pause_lateral, pause_longitudinal = self.aol_card_intent.output(CS)
         lateral_armed = self.aol_card_intent.allowed_latch
+      intent_deadline_ns = int(cs_send.logMonoTime) + 200_000_000
+      publication = (getattr(self.aol_card_intent, 'intent_publication', None) if self.CP.brand == 'volkswagen' else None)
+      if publication is not None:
+        allowed_latch, pause_lateral, pause_longitudinal, lateral_armed, intent_deadline_ns = publication(CS, int(cs_send.logMonoTime))
       intent_msg.aolIntentWire = encode_intent(IntentState(
         self.slc_producer_session, self.aol_sequence, int(cs_send.logMonoTime), int(cs_send.logMonoTime),
-        int(cs_send.logMonoTime) + 200_000_000, allowed_latch, pause_lateral, pause_longitudinal, self.aol_qualified, lateral_armed,
+        intent_deadline_ns, allowed_latch, pause_lateral, pause_longitudinal, self.aol_qualified, lateral_armed,
         bool(getattr(self.aol_card_intent, "optional_set_release_policy", lambda: False)())))
       self.pm.send('aolIntentWire', intent_msg)
 

@@ -88,6 +88,13 @@ class VolkswagenStockCardIntent(AolCardIntent):
     self.main_neutral = False
     self.main_pulse = False
     self.startup_arm_ns = 0
+    self.startup_deferred = False
+    self.startup_release_ns = 0
+    self.startup_granted = False
+    self.startup_aborted = False
+    self.startup_ready = False
+    self.startup_identity = None
+    self.startup_observation_identity = None
     self.reverse_pause = False
     super().__init__(settings, explicit_latch=True, lkas_button_supported=False,
                      preserve_unassigned_cancel=self.cruise_lateral)
@@ -95,6 +102,7 @@ class VolkswagenStockCardIntent(AolCardIntent):
   def update(self, CS, **kwargs):
     from openpilot.starpilot.aol.runtime import SAFETY_MAX_AGE_NS
     now_ns = kwargs.get('now_ns', 0)
+    was_reverse = self.reverse_pause
     self.reverse_pause = bool(CS.canValid and not CS.canTimeout and CS.gearShifter == structs.CarState.GearShifter.reverse)
     if temporary_eps_restriction(self.cp, CS):
       self.physical_eps_pause = True
@@ -127,6 +135,10 @@ class VolkswagenStockCardIntent(AolCardIntent):
         not state.steerFaultPermanent and not state.accFaulted and available and self.main_neutral and
         not self.main_available and self.settings.main_action != AOL_TOGGLE and self.settings.lkas_action != AOL_TOGGLE):
       self.main_startup_pending = True
+      if self.startup_deferred:
+        self.startup_arm_ns = self.startup_release_ns = 0
+        self.startup_deferred = self.startup_granted = self.startup_aborted = self.startup_ready = False
+        self.startup_identity = None
     default_main_edge = (available and (self.main_startup_pending or (self.main_neutral and not self.main_available)) and
                          self.settings.main_action != AOL_TOGGLE and self.settings.lkas_action != AOL_TOGGLE)
     if state.canValid and not state.canTimeout:
@@ -146,11 +158,31 @@ class VolkswagenStockCardIntent(AolCardIntent):
       self.main_pulse = False
     state.buttonEvents = events
     super().update(state.as_reader(), **kwargs)
+    if (self.startup_deferred and not self.startup_granted and
+        (now_ns > self.startup_arm_ns + SAFETY_MAX_AGE_NS or kwargs.get('fault_active') or
+         kwargs.get('native_rejection_ns') or not state.canValid or state.canTimeout or not available or
+         not self.settings.enabled or
+         state.gearShifter not in (structs.CarState.GearShifter.drive, structs.CarState.GearShifter.sport,
+                                   structs.CarState.GearShifter.eco, structs.CarState.GearShifter.manumatic))):
+      self.allowed_latch = self.main_startup_pending = False
+      self.startup_aborted = True
     startup_inhibited = ((stock_qualified(self.cp) or long_qualified(self.cp)) and
                          (temporary_restriction(self.cp, state) or state.brakePressed or state.regenBraking))
     if (default_main_edge and not startup_inhibited and state.canValid and not state.canTimeout and self.settings.enabled and
         not state.steerFaultPermanent and not state.accFaulted and not self._fault_inhibit and
         (not self.cruise_lateral or not lateral_output_inhibited(self.cp, state))):
+      deferred = self.startup_deferred or (was_reverse and self.main_startup_pending and
+        not self.allowed_latch and longitudinal_speed_event(self.cp, state) and abs(state.vEgo) < self.cp.minEnableSpeed)
+      if deferred and not self.startup_granted:
+        if not self.startup_arm_ns:
+          self.startup_arm_ns = now_ns
+        if not self.startup_deferred:
+          self.startup_identity = self.startup_observation_identity
+        self.startup_deferred = True
+        if self.startup_aborted or not self.startup_ready:
+          return
+        if not self.startup_release_ns:
+          self.startup_release_ns = now_ns
       self.allowed_latch = True
       if self.main_startup_pending and not self.startup_arm_ns:
         self.startup_arm_ns = now_ns
@@ -160,6 +192,83 @@ class VolkswagenStockCardIntent(AolCardIntent):
       if state.canValid and not state.canTimeout:
         self.main_startup_pending = False
       self.allowed_latch = False
+
+
+  def observe_startup_readiness(self, sm, cs, *, native, panda_ready, now_ns, producer):
+    from openpilot.starpilot.aol.runtime import AXIS_MAX_AGE_NS, SAFETY_MAX_AGE_NS, current_axis
+    from openpilot.starpilot.aol.transport_pause import _configured_transport_native, cp_identity
+    self.startup_ready = False
+    if (self.startup_granted or self.startup_aborted or not self.settings.enabled or self.pause_lateral or
+        self.settings.main_action == AOL_TOGGLE or self.settings.lkas_action == AOL_TOGGLE or
+        not long_qualified(self.cp, marked_only=True) or
+        self.cp.transmissionType != structs.CarParams.TransmissionType.manual):
+      return
+    if not self.startup_deferred and (not self.main_startup_pending or not self.reverse_pause):
+      return
+    try:
+      axis = current_axis(sm, now_ns=now_ns)
+      if (not panda_ready or native is None or axis is None or not axis.qualified or not producer or
+          axis.intentProducerSessionId != producer or not axis.sessionId or axis.faultSessionId != axis.sessionId or
+          axis.faultReason != 'none'):
+        return
+      proof = _configured_transport_native(sm, self.cp, axis.sessionId, now_ns, native,
+        require_longitudinal=False, allow_restricted_lateral=True)
+      if proof is None or not proof.pandaInventory:
+        return
+      identity = (cp_identity(self.cp), str(axis.sessionId), producer, int(axis.intentIntegrityEpoch), proof.pandaSerial,
+                  tuple(p.hardwareSerial for p in proof.pandaInventory))
+      if not self.startup_deferred:
+        self.startup_observation_identity = identity
+        return
+      if identity != self.startup_identity:
+        return
+      event_ns = int(sm.logMonoTime['onroadEvents'])
+      deadline = self.startup_arm_ns + SAFETY_MAX_AGE_NS
+      if (not panda_ready or axis is None or not axis.qualified or not producer or
+          axis.intentProducerSessionId != producer or not axis.sessionId or axis.faultSessionId != axis.sessionId or
+          axis.faultReason != 'none' or axis.sequence <= 0 or
+          not self.startup_arm_ns <= axis.sourceCarStateMonoTime <= axis.observedMonoTime <= now_ns or
+          axis.observedMonoTime != int(sm.logMonoTime['aolAxisState']) or
+          now_ns - axis.sourceCarStateMonoTime > AXIS_MAX_AGE_NS or
+          not 0 < axis.validUntilMonoTime - axis.observedMonoTime <= AXIS_MAX_AGE_NS or
+          not sm.seen['onroadEvents'] or not sm.valid['onroadEvents'] or not sm.alive['onroadEvents'] or
+          not self.startup_arm_ns <= event_ns == axis.faultEventMonoTime <= axis.observedMonoTime or
+          now_ns - event_ns > 1_500_000_000 or
+          any(e.immediateDisable or e.softDisable or e.userDisable for e in sm['onroadEvents']) or
+          not cs.canValid or cs.canTimeout or not cs.cruiseState.available or
+          cs.steerFaultTemporary or cs.steerFaultPermanent or cs.accFaulted or cs.vehicleSensorsInvalid or
+          cs.doorOpen or cs.seatbeltUnlatched or cs.steeringDisengage or cs.buttonEvents or
+          cs.gearShifter not in (structs.CarState.GearShifter.drive, structs.CarState.GearShifter.sport,
+                                structs.CarState.GearShifter.eco, structs.CarState.GearShifter.manumatic)):
+        return
+      if proof.requestedLongitudinal or proof.longitudinalAllowed or axis.desiredLongitudinal or axis.longitudinalActive:
+        return
+      if self.startup_release_ns:
+        if (self.allowed_latch and identity == self.startup_identity and
+            self.startup_release_ns <= proof.observedMonoTime <= deadline and
+            axis.observedMonoTime <= deadline and axis.sourceCarStateMonoTime >= self.startup_release_ns and
+            proof.requestedLateral and proof.lateralAllowed and axis.desiredLateral and axis.lateralActive):
+          self.startup_granted = True
+        return
+      self.startup_ready = bool(now_ns <= deadline and not cs.brakePressed and not cs.regenBraking and
+        not lateral_output_inhibited(self.cp, cs) and not axis.desiredLateral and not axis.lateralActive and
+        not proof.requestedLateral and not proof.lateralAllowed)
+    except (AttributeError, KeyError, IndexError, TypeError, ValueError, OverflowError):
+      return
+
+  def intent_publication(self, cs, source_ns):
+    allowed, lateral, longitudinal = self.output(cs)
+    armed, deadline = self.allowed_latch, source_ns + 200_000_000
+    if self.startup_deferred and not self.startup_granted and not self.startup_aborted:
+      deadline = min(deadline, self.startup_arm_ns + 200_000_000)
+      if source_ns > deadline:
+        allowed = armed = False
+        deadline = source_ns + 200_000_000  # Fresh withdrawal, never a renewed arm.
+    return allowed, lateral, longitudinal, armed, deadline
+
+  def _arm_from_full_engagement(self, CS, *, source_ns):
+    super()._arm_from_full_engagement(CS, source_ns=source_ns)
+    self.startup_deferred = False
 
 
 def create_intent(cp, settings):

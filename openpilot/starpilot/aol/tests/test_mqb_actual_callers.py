@@ -36,7 +36,10 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
                                                                pq_eps_pause=False, pq_real_fault=False, native_phase=0, delayed_heartbeat=False,
                                                                manual_speed_withdrawal=False, cold_creep=False, cancel_override=False, reverse_boot=False,
                                                                reverse_unbraked=False, cancel_axis_delay=0,
-                                                               cancel_steering=True, cancel_axis_expiry=False, startup_event_delay=0):
+                                                               cancel_steering=True, cancel_axis_expiry=False, startup_event_delay=0,
+                                                               startup_delivery_delay=0, startup_delivery_services=(), receipt_sink=None,
+                                                               route2c_start=False, startup_block_until=0, startup_expect_expiry=False,
+                                                               startup_probe_denials=False, startup_stall=None, startup_stall_mode='frozen'):
   pq = candidate == CAR.VOLKSWAGEN_SHARAN_MK2
   with ExitStack() as cleanup:
     cleanup.enter_context(OpenpilotPrefix())
@@ -44,7 +47,7 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
     params = Params()
     params.put_bool('AlwaysOnLateral', True, block=True)
     params.put('MainCruiseButtonControl', 0, block=True)
-    params.put('AolBrakePauseSpeedMps', 5., block=True)
+    params.put('AolBrakePauseSpeedMps', 0. if route2c_start else 5., block=True)
     params.put_bool('AlphaLongitudinalEnabled', alpha, block=True)
     fp = {bus: {} for bus in range(8)}
     if gearbox != 'manual':
@@ -161,13 +164,14 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
     emitted, lat_commands, long_commands = [], [], []
     request = 0
     startup_vetoes_checked = False
+    route2c_denials_checked = False
     reverse_event_vetoes_checked = False
     cancel_join_vetoes_checked = False
     for tick in range(120):
       now = 10_000_000_000 + tick * 10_000_000
       native.set_timer(1_000_000 + tick * 10_000)
       if (parked_boot or main_cycle or creep_start and tick >= 12) and (not delayed_heartbeat or tick % 10 == 1):
-        native.set_aol_test_heartbeat(bool(card.aol_card_intent.allowed_latch or request))
+        native.set_aol_test_heartbeat(bool((card.aol_card_intent.allowed_latch or request) and tick >= startup_block_until))
       if quiet is not None:
         quiet.set_timer(1_000_000 + tick * 10_000)
         quiet.safety_tick()
@@ -177,10 +181,13 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
 
       brake = (60 if early_brake else 65) <= tick < 75 or (brake_held_engagement and tick < 29) or (reverse_boot and not reverse_unbraked and tick < 40)
       reverse = 85 <= tick < 95 or (reverse_boot and tick < 35)
+      if route2c_start:
+        reverse = 20 <= tick < 35 or 85 <= tick < 95
       ordinary = engage_on_set and 21 <= tick < (55 if cruise_cancel else 65)
       overrides = {
         'TSK_06': {'TSK_Status': 0 if main_cycle and 45 <= tick < 50 else 3 if ordinary and not alpha else 2},
-        'LH_EPS_03': {'EPS_HCA_Status': 3, 'EPS_Lenkmoment': 100 if (early_brake or cancel_override and cancel_steering) and 52 <= tick <= 61 else 0},
+        'LH_EPS_03': {'EPS_HCA_Status': 3, 'EPS_Lenkmoment':
+          100 if route2c_start and 30 <= tick < 40 or (early_brake or cancel_override and cancel_steering) and 52 <= tick <= 61 else 0},
         'Motor_20': {'MO_Fahrpedalrohwert_01': 20 if cancel_override and 48 <= tick < 65 else 0},
         'Motor_14': {'MO_Fahrer_bremst': int(brake), 'MO_Kuppl_schalter': 0},
         'ESP_05': {'ESP_Fahrer_bremst': int(brake)},
@@ -242,9 +249,14 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
             mock.patch.object(card_module.time, 'clock_gettime_ns', return_value=now),
             mock.patch.object(card_module, 'REPLAY', False), mock.patch.object(card.sm, 'update'),
             mock.patch.object(card.RI, 'update', return_value=None)):
-        state, radar = card.state_update()
-        card.state_publish(state, radar)
-      if tick >= 15:
+        stalled = startup_stall is not None and startup_stall[0] <= tick < startup_stall[1]
+        if not stalled:
+          state, radar = card.state_update()
+          card.state_publish(state, radar)
+        elif startup_stall_mode == 'publish-only':
+          # Freeze owner updates but serialize using the actual late publication clock.
+          card.state_publish(state, radar)
+      if tick >= 15 and startup_stall is None:
         assert state.canValid and not state.canTimeout
       if (parked_boot and 15 <= tick < 30) or (reverse_boot and 15 <= tick < (35 if reverse_unbraked else 40)):
         assert not card.aol_card_intent.allowed_latch, 'VW_PARKED_START_CONSUMED_MAIN_ARM'
@@ -313,12 +325,19 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
             reverse_event_vetoes_checked = True
           assert owner.startup_arm_ns == anchor
           startup_vetoes_checked = True
+      if startup_probe_denials and not route2c_denials_checked and card.aol_card_intent.startup_ready:
+        assert_readiness_denials(card, state, now)
+        route2c_denials_checked = True
       intent = card.pm.messages['aolIntentWire'].as_builder()
       axis, selfdrive, command = step(tick, observed_state=state, intent_message=intent,
         gas=state.gasPressed, steering=state.steeringPressed, brake=state.brakePressed,
         allowed=bool(permission & 1), long_allowed=bool(permission & 2),
         native_request_lat=bool(request & 1), native_request_long=bool(request & 2),
-        panda_controls_allowed=native.get_controls_allowed())
+        panda_controls_allowed=native.get_controls_allowed(),
+        **({'car_state_message': card.pm.messages['carState'].as_builder(),
+            'authority_message': card.pm.messages['starpilotCarState'].as_builder() if 'starpilotCarState' in card.pm.messages else None,
+            'companion': 'starpilotCarState' in card.pm.messages,
+            'timeout': stalled and startup_stall_mode == 'frozen-timeout'} if startup_stall is not None else {}))
       if early_brake and tick == 60:
         assert not state.brakePressed and state.steeringPressed
         if pq_real_fault:
@@ -411,6 +430,8 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
           valid=sd.sm.valid[name], logMonoTime=sd.sm.logMonoTime[name])
         setattr(envelope, name, sd.sm[name])
         frames.append(envelope.as_reader())
+      if startup_delivery_delay and 35 <= tick < 35 + startup_delivery_delay:
+        frames = [message for message in frames if message.which() not in startup_delivery_services]
       if startup_event_delay and 35 <= tick < 35 + startup_event_delay:
         frames = [message for message in frames if message.which() != 'onroadEvents']
       if cancel_axis_delay and 55 <= tick < 55 + cancel_axis_delay:
@@ -421,7 +442,8 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
             mock.patch.object(card_module.time, 'clock_gettime_ns', return_value=now),
             mock.patch.object(card_module, 'REPLAY', False),
             mock.patch.object(card, 'publish_sendcan', side_effect=lambda values, sent=sent, **kw: sent.extend(values))):
-        card.controls_update(state, card.sm['carControl'])
+        if not stalled:
+          card.controls_update(state, card.sm['carControl'])
       for addr, data, bus in sent:
         assert offset <= bus < offset + 4
         accepted = native.safety_tx_hook(make_msg(bus - offset, addr, dat=data))
@@ -437,18 +459,65 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
       if quiet is not None:
         for addr, data, bus in sent:
           assert not quiet.safety_tx_hook(make_msg(bus - offset, addr, dat=data))
+      if receipt_sink is not None:
+        native_wire = card.sm['aolSafetyWire']
+        receipt_sink.append({
+          'tick': tick, 'now_ns': now, 'permission_mask': int(permission), 'host_request': request,
+          'card_stalled': stalled, 'published_car_state_ns': int(card.pm.messages['carState'].logMonoTime),
+          'published_authority_ns': int(card.pm.messages['starpilotCarState'].logMonoTime) if 'starpilotCarState' in card.pm.messages else None,
+          'native_controls_allowed': bool(native.get_controls_allowed()),
+          'card_intent': {'allowed': card.aol_card_intent.allowed_latch,
+                          'startup_arm_ns': card.aol_card_intent.startup_arm_ns,
+                          'clear_reason': card.aol_card_intent.latch_clear_reason,
+                          'fault_inhibit': card.aol_card_intent._fault_inhibit,
+                          'deferred': getattr(card.aol_card_intent, 'startup_deferred', False),
+                          'release_ns': getattr(card.aol_card_intent, 'startup_release_ns', 0),
+                          'granted': getattr(card.aol_card_intent, 'startup_granted', False),
+                          'aborted': getattr(card.aol_card_intent, 'startup_aborted', False)},
+          'card_received_axis': card.sm['aolAxisState'].to_dict(),
+          'card_received_events': [event.to_dict() for event in card.sm['onroadEvents']],
+          'card_source_stamps': {name: int(card.sm.logMonoTime[name]) for name in
+                                ('aolAxisState', 'onroadEvents', 'aolSafetyWire', 'pandaStates')},
+          'native_wire_hex': bytes(native_wire).hex(),
+          'intent_wire_hex': bytes(intent.aolIntentWire).hex(),
+          'feedback_session': card.aol_transport_feedback.session,
+          'feedback_failed': card.aol_transport_feedback.failed,
+          'feedback_signature': card.aol_transport_feedback.signature,
+          'pending_native_since_ns': getattr(card, '_angle_aol_pending_since_ns', 0),
+          'physical_state': state.to_dict(), 'sd_axis': axis.to_dict(),
+          'control': command.to_dict(),
+          'sendcan': [{'address': addr, 'data': data.hex(), 'bus': bus} for addr, data, bus in sent],
+        })
+        # This asserts command authority against the genuine current native result.
+        assert not command.latActive or permission & 1
+        for addr, data, _bus in sent:
+          if addr == 0x126:
+            hca = int.from_bytes(data, 'little')
+            if hca >> 30 & 1 or hca >> 16 & 511:
+              assert permission & 1, ('VW_STARTUP_OUTPUT_BEFORE_NATIVE_GRANT', tick)
       emitted.extend(sent)
       lat_commands.append(command.latActive)
       long_commands.append(command.longActive)
+    if startup_stall is not None:
+      assert card.aol_card_intent.startup_arm_ns == 10_350_000_000
+      assert card.aol_card_intent.startup_aborted
+      assert not card.aol_card_intent.allowed_latch
+      return
     if delayed_heartbeat and not reverse_boot and alpha and gearbox == 'manual' and native_phase == 0:
       assert startup_vetoes_checked
     if startup_event_delay and native_phase == 6:
       assert reverse_event_vetoes_checked
     if cancel_axis_delay == 2 and native_phase == 5 and alpha:
       assert cancel_join_vetoes_checked
+    if startup_probe_denials:
+      assert route2c_denials_checked
     if creep_start:
       assert any(lat_commands[35:45]), 'AOL must request and obtain native steering below the manual long-enable speed'
       assert not any(long_commands[:46]), 'Creep AOL must not enable longitudinal below its independent minimum'
+    if startup_expect_expiry:
+      assert not any(lat_commands[35:]) and not any(long_commands)
+      assert card.aol_card_intent.startup_aborted and not card.aol_card_intent.allowed_latch
+      return
     assert any(lat_commands[45:60] if reverse_boot else lat_commands[35:60])
     assert any(lat_commands[76:84])  # braking released long, not qualified lateral intent
     assert not any(lat_commands[86:95])
@@ -688,3 +757,258 @@ def test_mqb_cancel_ordering_preserves_other_configurations(gearbox, alpha, stee
   test_mqb_full_engagement_brake_reverse_drive_actual_callers(
     gearbox, alpha, 4, True, True, cruise_cancel=True, cancel_override=True,
     native_phase=5, cancel_axis_delay=2, cancel_steering=steering)
+
+
+@pytest.mark.parametrize('phase', range(10))
+@pytest.mark.parametrize('delay', (1, 2))
+@pytest.mark.parametrize('services', ((), ('aolAxisState',), ('onroadEvents',), ('aolAxisState', 'onroadEvents')))
+def test_route2c_startup_delivery_order(phase, delay, services):
+  receipts = []
+  test_mqb_full_engagement_brake_reverse_drive_actual_callers(
+    'manual',
+    True,
+    0,
+    False,
+    False,
+    parked_boot=True,
+    reverse_boot=True,
+    reverse_unbraked=True,
+    delayed_heartbeat=True,
+    native_phase=phase,
+    cold_creep=True,
+    route2c_start=True,
+    startup_delivery_delay=delay,
+    startup_delivery_services=services,
+    receipt_sink=receipts,
+  )
+  assert_startup_provenance(receipts)
+
+
+def assert_startup_provenance(receipts):
+  from openpilot.starpilot.aol.wire import decode_intent, decode_safety
+
+  anchors = {row['card_intent']['startup_arm_ns'] for row in receipts if row['card_intent']['deferred']}
+  assert len(anchors) == 1
+  deadline = anchors.pop() + 200_000_000
+  first_active = False
+  for row in receipts:
+    owner = row['card_intent']
+    intent = decode_intent(bytes.fromhex(row['intent_wire_hex']))
+    assert intent is not None
+    assert not row['control']['longActive']
+    if owner['deferred'] and not owner['granted']:
+      if not owner['aborted'] and intent.observedMonoTime <= deadline:
+        assert intent.validUntilMonoTime == deadline, 'VW_STARTUP_WIRE_RENEWED_ORIGINAL_ATTEMPT'
+      if owner['aborted'] or intent.observedMonoTime > deadline:
+        assert not intent.allowedLatch and not intent.lateralArmed
+    if row['control']['latActive'] and not first_active:
+      native = decode_safety(bytes.fromhex(row['native_wire_hex']))
+      assert native is not None and native.requestedLateral and native.lateralAllowed
+      assert row['permission_mask'] & 1
+      assert native.observedMonoTime <= deadline
+      assert row['sd_axis']['observedMonoTime'] <= deadline
+      first_active = True
+
+
+@pytest.mark.parametrize('phase,expired', ((5, False), (6, True), (0, True)))
+def test_route2c_original_deadline_grant_boundary(phase, expired):
+  receipts = []
+  test_mqb_full_engagement_brake_reverse_drive_actual_callers(
+    'manual',
+    True,
+    0,
+    False,
+    False,
+    parked_boot=True,
+    reverse_boot=True,
+    reverse_unbraked=True,
+    delayed_heartbeat=True,
+    native_phase=phase,
+    cold_creep=True,
+    route2c_start=True,
+    startup_delivery_delay=1,
+    startup_delivery_services=('aolAxisState', 'onroadEvents'),
+    startup_block_until=50,
+    startup_expect_expiry=expired,
+    receipt_sink=receipts,
+  )
+  assert_startup_provenance(receipts)
+
+
+def assert_readiness_denials(card, state, now):
+  from copy import copy
+  from dataclasses import replace
+  from openpilot.starpilot.aol.runtime import current_native
+  from openpilot.selfdrive.selfdrived.events import Events
+
+  proof = current_native(card.sm, card.CP, now_ns=now, axis_session_id=card.aol_axis_session())
+  assert proof is not None and not proof.requestedLateral and not proof.lateralAllowed
+  owner = copy(card.aol_card_intent)
+  owner.startup_release_ns = 0
+  owner.allowed_latch = False
+  cases = []
+
+  def ready(cs=state, request=owner, sources=card.sm, native=proof, panda_ready=True, stamp=now, producer=card.slc_producer_session):
+    candidate = copy(request)
+    candidate.observe_startup_readiness(sources, cs, native=native, panda_ready=panda_ready, now_ns=stamp, producer=producer)
+    return candidate.startup_ready
+
+  def deny(name, **kwargs):
+    assert not ready(**kwargs), name
+    cases.append(name)
+
+  assert ready(), 'actual fresh OFF/Drive baseline must qualify'
+  for field, value in (
+    ('canValid', False),
+    ('canTimeout', True),
+    ('steerFaultTemporary', True),
+    ('steerFaultPermanent', True),
+    ('accFaulted', True),
+    ('vehicleSensorsInvalid', True),
+    ('steeringDisengage', True),
+    ('doorOpen', True),
+    ('seatbeltUnlatched', True),
+    ('brakePressed', True),
+    ('regenBraking', True),
+    ('vEgo', 0.1),
+    ('standstill', True),
+    ('gearShifter', structs.CarState.GearShifter.reverse),
+  ):
+    cs = structs.CarState(**state.to_dict())
+    setattr(cs, field, value)
+    deny(field, cs=cs)
+  cs = structs.CarState(**state.to_dict())
+  cs.cruiseState.available = False
+  deny('MAIN off', cs=cs)
+  cs = structs.CarState(**state.to_dict())
+  cs.buttonEvents = [structs.CarState.ButtonEvent(type=structs.CarState.ButtonEvent.Type.cancel, pressed=True)]
+  deny('physical Cancel', cs=cs)
+  for key, value in (('startup_aborted', True), ('startup_granted', True), ('pause_lateral', True), ('startup_arm_ns', now - 200_000_001)):
+    bad = copy(owner)
+    setattr(bad, key, value)
+    deny(key, request=bad)
+  for changes in ({'enabled': False}, {'main_action': 9}, {'lkas_action': 9}):
+    bad = copy(owner)
+    bad.settings = replace(owner.settings, **changes)
+    deny(str(changes), request=bad)
+  deny('native inventory missing', native=replace(proof, pandaInventory=(), sourcePandaStatesMonoTime=0))
+  deny('native missing', native=None)
+  deny('Panda not configured', panda_ready=False)
+  deny('expired native', native=replace(proof, validUntilMonoTime=now - 1))
+  deny('native requested LAT refused', native=replace(proof, requestedLateral=True))
+  deny('foreign native session', native=replace(proof, axisSessionId='foreign'))
+  deny('foreign native serial', native=replace(proof, pandaSerial='foreign'))
+  for field in ('heartbeatLost', 'safetyRxChecksInvalid'):
+    slot = replace(proof.pandaInventory[0], **{field: True})
+    deny(field, native=replace(proof, pandaInventory=(slot,)))
+  for field, value in (
+    ('intentProducerSessionId', 'foreign'),
+    ('intentIntegrityEpoch', card.sm['aolAxisState'].intentIntegrityEpoch + 1),
+    ('faultReason', 'critical'),
+    ('faultSessionId', 'foreign'),
+    ('sequence', 0),
+    ('sourceCarStateMonoTime', owner.startup_arm_ns - 1),
+    ('faultEventMonoTime', owner.startup_arm_ns - 1),
+    ('validUntilMonoTime', now - 1),
+    ('desiredLateral', True),
+    ('desiredLongitudinal', True),
+  ):
+    sm = copy(card.sm)
+    sm.data = dict(card.sm.data)
+    axis = card.sm['aolAxisState'].as_builder()
+    setattr(axis, field, value)
+    sm.data['aolAxisState'] = axis.as_reader()
+    deny(field, sources=sm)
+  for service in ('aolAxisState', 'onroadEvents', 'pandaStates'):
+    for flag in ('seen', 'valid', 'alive'):
+      sm = copy(card.sm)
+      setattr(sm, flag, dict(getattr(card.sm, flag)))
+      getattr(sm, flag)[service] = False
+      deny(service + ' ' + flag, sources=sm)
+  for name in (
+    log.OnroadEvent.EventName.controlsMismatch,
+    log.OnroadEvent.EventName.commIssue,
+    log.OnroadEvent.EventName.buttonCancel,
+    log.OnroadEvent.EventName.reverseGear,
+  ):
+    sm = copy(card.sm)
+    sm.data = dict(card.sm.data)
+    events = Events()
+    events.add(name)
+    sm.data['onroadEvents'] = [*card.sm['onroadEvents'], *events.to_msg()]
+    deny(str(name), sources=sm)
+  deny('foreign producer argument', producer='foreign')
+  assert len(cases) == 56
+
+
+def test_route2c_readiness_denial_boundaries():
+  test_mqb_full_engagement_brake_reverse_drive_actual_callers(
+    'manual',
+    True,
+    0,
+    False,
+    False,
+    parked_boot=True,
+    reverse_boot=True,
+    reverse_unbraked=True,
+    delayed_heartbeat=True,
+    native_phase=6,
+    cold_creep=True,
+    route2c_start=True,
+    startup_delivery_delay=1,
+    startup_delivery_services=('aolAxisState', 'onroadEvents'),
+    startup_probe_denials=True,
+  )
+
+
+@pytest.mark.parametrize('phase', (0, 6))
+@pytest.mark.parametrize('stall', ((36, 58), (38, 58), (54, 58)))
+@pytest.mark.parametrize('mode', ('frozen', 'frozen-timeout', 'publish-only'))
+def test_route2c_card_stall_preserves_original_deadline(phase, stall, mode):
+  from openpilot.starpilot.aol.wire import decode_intent
+
+  receipts = []
+  test_mqb_full_engagement_brake_reverse_drive_actual_callers(
+    'manual',
+    True,
+    0,
+    False,
+    False,
+    parked_boot=True,
+    reverse_boot=True,
+    reverse_unbraked=True,
+    delayed_heartbeat=True,
+    native_phase=phase,
+    cold_creep=True,
+    route2c_start=True,
+    startup_delivery_delay=1,
+    startup_delivery_services=('aolAxisState', 'onroadEvents'),
+    startup_block_until=50,
+    receipt_sink=receipts,
+    startup_stall=stall,
+    startup_stall_mode=mode,
+  )
+  assert_startup_provenance(receipts)
+  anchor = 10_350_000_000
+  deadline = anchor + 200_000_000
+  for row in receipts:
+    intent = decode_intent(bytes.fromhex(row['intent_wire_hex']))
+    assert intent is not None
+    assert row['card_intent']['startup_arm_ns'] in (0, anchor)
+    if mode.startswith('frozen') and row['card_stalled']:
+      assert row['published_car_state_ns'] == 10_000_000_000 + (stall[0] - 1) * 10_000_000
+    if mode == 'publish-only' and row['card_stalled']:
+      assert row['published_car_state_ns'] == row['now_ns']
+    if row['now_ns'] > deadline:
+      assert not row['control']['latActive'] and not row['control']['longActive']
+      assert not row['sd_axis']['desiredLateral'] and not row['sd_axis']['lateralActive']
+      assert not row['sd_axis']['desiredLongitudinal'] and not row['sd_axis']['longitudinalActive']
+      # Native may still report its prior grant until the next host request; no host/axis/output may use it.
+      assert not row['host_request'] & 1
+      assert not row['sendcan'] or all(
+        address['address'] != 0x126
+        or not ((int.from_bytes(bytes.fromhex(address['data']), 'little') >> 30 & 1) or (int.from_bytes(bytes.fromhex(address['data']), 'little') >> 16 & 511))
+        for address in row['sendcan']
+      )
+      if intent.observedMonoTime > deadline:
+        assert not intent.allowedLatch and not intent.lateralArmed
