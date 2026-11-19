@@ -398,6 +398,24 @@ class TestLeapmotorCan(unittest.TestCase):
       observation, _ = frame(i, limit)
       self.assertEqual(observation.status, Status.UNKNOWN)
 
+  def test_cancel_push_is_a_cancel_button(self):
+    # only the stalk pushed up (STALK_PUSH 3) is reported, as a cancel press and release; the engage pushes are not
+    from opendbc.car.leapmotor.carstate import CarState
+    from opendbc.car.leapmotor.interface import CarInterface
+    CP = CarInterface.get_non_essential_params("LEAPMOTOR_B10")
+    CS = CarState(CP)
+    parsers = CS.get_can_parsers(CP)
+    packer = CANPacker("leapmotor_b10")
+
+    def frame(i, stalk):
+      msgs = [packer.make_can_msg("POWERTRAIN_STATE", 0, {"ASSIST_ENGAGED": 1, "STALK_PUSH": stalk, "COUNTER": i % 16})]
+      parsers[Bus.pt].update([(int((i + 1) * 1e7), msgs)])
+      parsers[Bus.cam].update([(int((i + 1) * 1e7), [])])
+      return [(b.type, b.pressed) for b in CS.update(parsers).buttonEvents]
+
+    cancel = structs.CarState.ButtonEvent.Type.cancel
+    pushes = [frame(i, stalk) for i, stalk in enumerate((0, 1, 1, 0, 2, 0, 3, 3, 0))]
+    self.assertEqual(pushes, [[], [], [], [], [], [], [(cancel, True)], [], [(cancel, False)]])
 
 if __name__ == "__main__":
   unittest.main()

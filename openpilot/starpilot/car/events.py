@@ -5,6 +5,9 @@ def event_rules(cp) -> dict:
   if cp.brand == "honda":
     from openpilot.starpilot.car.honda.events import event_rules as honda_rules
     return honda_rules(cp)
+  if cp.brand == "leapmotor":
+    from openpilot.starpilot.car.leapmotor.events import event_rules as leapmotor_rules
+    return leapmotor_rules(cp)
   return {}
 
 
