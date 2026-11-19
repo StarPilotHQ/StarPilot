@@ -1036,6 +1036,48 @@
           }
         }
       ]
+    },
+    "0xfb41e1a738d832cb": {
+      "kind": "struct",
+      "before_name": "SlcState.ConditionalModeState",
+      "after_name": "SlcState.ConditionalModeState",
+      "old_field_count": 16,
+      "old_storage": {
+        "dataWordCount": 8,
+        "pointerCount": 4,
+        "preferredListEncoding": "inlineComposite",
+        "isGroup": false,
+        "discriminantCount": 0,
+        "discriminantOffset": 0
+      },
+      "new_storage": {
+        "dataWordCount": 8,
+        "pointerCount": 4,
+        "preferredListEncoding": "inlineComposite",
+        "isGroup": false,
+        "discriminantCount": 0,
+        "discriminantOffset": 0
+      },
+      "added_fields": [
+        {
+          "slot": {
+            "offset": 34,
+            "type": {
+              "bool": null
+            },
+            "defaultValue": {
+              "bool": false
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "perceivedStop",
+          "codeOrder": 16,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 16
+          }
+        }
+      ]
     }
   },
   "published_addition_commits": {
