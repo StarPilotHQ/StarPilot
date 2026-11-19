@@ -1,5 +1,6 @@
 import datetime
 
+from openpilot.common.timezone_lookup import load_grid, pick_timezone
 from openpilot.system import timed
 
 # drive 000000a8, 2026-11-09 04:15:03 CST
@@ -54,3 +55,71 @@ def test_delayed_clock_sample_does_not_claim_a_precise_pair(monkeypatch):
   monkeypatch.setattr(timed, 'system_time_valid', lambda: True)
   event = timed.clock_message()
   assert event.clocks.deprecated.monotonicNanos == event.clocks.deprecated.bootTimeNanos == 0
+
+
+def test_timezone_lookup_regions():
+  grid = load_grid()
+  for lat, lon, zone in [(41.88, -87.63, "America/Chicago"), (52.13, -106.67, "America/Regina"),
+                         (49.1, -116.51, "America/Creston"), (47.56, -52.71, "America/St_Johns"),
+                         (53.28, -110.0, "America/Edmonton"), (31.76, -106.49, "America/Denver"),
+                         (48.85, 2.35, "Europe/Paris"), (49.61, 6.13, "Europe/Luxembourg"), (60.17, 24.94, "Europe/Helsinki")]:
+    assert grid.candidates(lat, lon)[0] == zone
+  assert grid.candidates(0., -140.) == (None, set())
+
+
+def test_pick_timezone_keeps_current_near_border():
+  grid = load_grid()
+  # Monaco cell borders France: an existing Paris zone is kept, anything else takes the cell's zone
+  assert pick_timezone(grid, 43.73, 7.42, "Europe/Paris") == "Europe/Paris"
+  assert pick_timezone(grid, 43.73, 7.42, "America/Los_Angeles") == "Europe/Monaco"
+  assert pick_timezone(grid, 0., -140., "America/Chicago") is None
+
+
+def test_timezone_tracker_confirms_before_switching():
+  tracker = timed.TimezoneTracker(load_grid(), "America/Los_Angeles")
+  assert tracker.update(41.88, -87.63) is None
+  assert tracker.update(41.88, -87.63) == "America/Chicago"
+  # back in the current zone resets the pending switch
+  tracker = timed.TimezoneTracker(load_grid(), "America/Los_Angeles")
+  assert tracker.update(41.88, -87.63) is None
+  assert tracker.update(34.05, -118.24) is None
+  assert tracker.update(41.88, -87.63) is None
+  # no zone at sea keeps everything as is
+  assert tracker.update(0., -140.) is None
+
+
+def test_current_timezone(tmp_path):
+  link = tmp_path / "localtime"
+  assert timed.current_timezone(str(link)) is None
+  link.symlink_to("/usr/share/zoneinfo/America/Chicago")
+  assert timed.current_timezone(str(link)) == "America/Chicago"
+
+
+def test_set_timezone_swaps_link_and_name(monkeypatch):
+  calls = []
+  monkeypatch.setattr(timed.subprocess, 'run', lambda cmd, **kw: calls.append((cmd, kw.get('input'))))
+  monkeypatch.setattr(timed.os.path, 'isfile', lambda path: True)
+  assert timed.set_timezone("America/Chicago")
+  assert [c for c, _ in calls] == [
+    ["sudo", "-n", "ln", "-sfn", "/usr/share/zoneinfo/America/Chicago", timed.LOCALTIME_PATH + ".tmp"],
+    ["sudo", "-n", "mv", "-T", timed.LOCALTIME_PATH + ".tmp", timed.LOCALTIME_PATH],
+    ["sudo", "-n", "tee", timed.TIMEZONE_NAME_PATH],
+  ]
+  assert calls[-1][1] == "America/Chicago\n"
+
+
+def test_set_timezone_rejects_bad_names(monkeypatch):
+  calls = []
+  monkeypatch.setattr(timed.subprocess, 'run', lambda cmd, **kw: calls.append(cmd))
+  monkeypatch.setattr(timed.os.path, 'isfile', lambda path: path.endswith("America/Chicago"))
+  assert not timed.set_timezone("../../etc/passwd")
+  assert not timed.set_timezone("Mars/Olympus")
+  assert calls == []
+
+
+def test_set_timezone_reports_sudo_failure(monkeypatch):
+  def fail(cmd, **kw):
+    raise timed.subprocess.CalledProcessError(1, cmd)
+  monkeypatch.setattr(timed.subprocess, 'run', fail)
+  monkeypatch.setattr(timed.os.path, 'isfile', lambda path: True)
+  assert not timed.set_timezone("America/Chicago")

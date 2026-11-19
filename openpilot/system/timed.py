@@ -7,6 +7,7 @@ from typing import NoReturn
 
 import openpilot.cereal.messaging as messaging
 from openpilot.common.time_helpers import min_date, MAX_DATE, system_time_valid
+from openpilot.common.timezone_lookup import load_grid, pick_timezone
 from openpilot.common.swaglog import cloudlog
 from openpilot.common.params import Params
 from openpilot.common.gps import get_gps_location_service
@@ -30,6 +31,11 @@ CAR_CLOCK_LEARN_INTERVAL = 600.
 CAR_CLOCK_LEARN_RETRY = 60.
 CAR_CLOCK_MAX_DRIFT = datetime.timedelta(minutes=2)
 MAX_UTC_OFFSET_MINUTES = 14 * 60
+
+LOCALTIME_PATH = "/data/etc/localtime"
+TIMEZONE_NAME_PATH = "/data/etc/timezone"
+ZONEINFO_DIR = "/usr/share/zoneinfo"
+TIMEZONE_CHECK_INTERVAL = 600.
 
 
 def parse_car_clock(dat: bytes):
@@ -98,12 +104,57 @@ def car_clock_to_utc(car_local, utc_offset):
   if ZoneInfo is None:
     return None
   try:
-    tz = ZoneInfo(CAR_CLOCK_DEFAULT_TZ)
+    tz = ZoneInfo(current_timezone() or CAR_CLOCK_DEFAULT_TZ)
   except Exception:
     cloudlog.exception("timed.bad_timezone")
     return None
   # fold=0: on the repeated DST fall-back hour, assume the first pass
   return car_local.replace(tzinfo=tz, fold=0).astimezone(datetime.UTC).replace(tzinfo=None)
+
+
+def current_timezone(path=LOCALTIME_PATH):
+  try:
+    target = os.readlink(path)
+  except OSError:
+    return None
+  prefix = ZONEINFO_DIR + "/"
+  return target[len(prefix):] if target.startswith(prefix) else None
+
+
+def set_timezone(zone):
+  target = os.path.join(ZONEINFO_DIR, zone)
+  if os.path.normpath(target) != target or not os.path.isfile(target):
+    cloudlog.error(f"timed: unknown timezone {zone}")
+    return False
+  tmp = LOCALTIME_PATH + ".tmp"
+  try:
+    for cmd in (["ln", "-sfn", target, tmp], ["mv", "-T", tmp, LOCALTIME_PATH]):
+      subprocess.run(["sudo", "-n", *cmd], check=True, timeout=5, stdin=subprocess.DEVNULL)
+    subprocess.run(["sudo", "-n", "tee", TIMEZONE_NAME_PATH], input=zone + "\n", text=True,
+                   check=True, timeout=5, stdout=subprocess.DEVNULL)
+  except (OSError, subprocess.SubprocessError):
+    cloudlog.exception("timed.failed_setting_timezone")
+    return False
+  cloudlog.warning(f"timed: timezone set to {zone}")
+  return True
+
+
+class TimezoneTracker:
+  """Switch zones only when two checks in a row agree on the new one."""
+  def __init__(self, grid, current):
+    self.grid = grid
+    self.current = current
+    self.candidate = None
+
+  def update(self, lat, lon):
+    zone = pick_timezone(self.grid, lat, lon, self.current)
+    if zone is None or zone == self.current:
+      self.candidate = None
+      return None
+    if zone != self.candidate:
+      self.candidate = zone
+      return None
+    return zone
 
 
 def set_time(new_time):
@@ -135,8 +186,9 @@ def clock_message():
 
 def main() -> NoReturn:
   """
-    timed has two responsibilities:
+    timed has three responsibilities:
     - getting the current time from GPS, or the car's clock when GPS and NTP are unavailable
+    - setting the local timezone from the GPS position
     - publishing the time in the logs
 
     AGNOS will also use NTP to update the time.
@@ -152,6 +204,8 @@ def main() -> NoReturn:
   utc_offset = load_utc_offset()
   set_from_car_clock = False
   next_offset_learn = 0.
+  tz_tracker = None
+  next_tz_check = 0.
 
   while True:
     sm.update(1000)
@@ -167,6 +221,14 @@ def main() -> NoReturn:
     if gps_usable:
       set_time(gps_time)
       set_from_car_clock = False
+
+      if not PC and time.monotonic() >= next_tz_check:
+        next_tz_check = time.monotonic() + TIMEZONE_CHECK_INTERVAL
+        if tz_tracker is None:
+          tz_tracker = TimezoneTracker(load_grid(), current_timezone())
+        zone = tz_tracker.update(gps.latitude, gps.longitude)
+        if zone is not None and set_timezone(zone):
+          tz_tracker.current = zone
     elif not system_time_valid():
       car_local = read_car_clock(can_sock)
       car_utc = car_clock_to_utc(car_local, utc_offset) if car_local is not None else None
