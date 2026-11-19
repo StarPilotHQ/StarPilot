@@ -20,7 +20,8 @@ class StarMiciMainLayout(MiciMainLayout):
     except Exception:
       self._native_onroad.close()
       raise
-    self._home_layout = runtime.StarShellPage(self.star, runtime.ShellMode.HOME)
+    # Upstream's alerts pill is already wired to the alerts page; keep it on the StarPilot home
+    self._home_layout = runtime.StarShellPage(self.star, runtime.ShellMode.HOME, alerts_pill=self._home_layout._alerts_pill)
     self._car_onroad_layout = runtime.StarShellPage(self.star, runtime.ShellMode.ONROAD,
                                             on_background_tap=lambda: self._scroll_to(self._home_layout))
     self._settings_layout = runtime.StarCompactSettings(self.star)
@@ -32,7 +33,8 @@ class StarMiciMainLayout(MiciMainLayout):
       page.set_rect(runtime.rl.Rectangle(0, 0, runtime.gui_app.width, runtime.gui_app.height))
     self.star.set_navigation(on_settings=lambda: runtime.gui_app.push_widget(self._settings_layout),
                              on_home=lambda: self._settings_layout.dismiss(),
-                             on_compact_destination=self._open_compact_destination)
+                             on_compact_destination=self._open_compact_destination,
+                             on_alerts=self._open_alerts)
     self._scroller.set_scrolling_enabled(lambda: not self._native_onroad.is_swiping_left())
     self._on_body_changed()
     self.star._native_favorite_actions = self._native_favorites
@@ -53,6 +55,12 @@ class StarMiciMainLayout(MiciMainLayout):
       super()._render(rect)
     finally:
       self.star.camera_paint = True
+
+  def _open_alerts(self) -> bool:
+    if self._alerts_layout.active_alerts() == 0:
+      return False
+    self._scroll_to(self._alerts_layout)
+    return True
 
   def _native_favorites(self):
     from openpilot.starpilot.ui import runtime_app as runtime

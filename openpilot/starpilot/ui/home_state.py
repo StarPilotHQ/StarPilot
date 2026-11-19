@@ -16,6 +16,7 @@ class HomeMode(StrEnum):
 
 class HomeActionKind(StrEnum):
   OPEN_SETTINGS = "open_settings"
+  OPEN_ALERTS = "open_alerts"
   OPEN_TOGGLES = "open_toggles"
   OPEN_PAIRING = "open_pairing"
   SET_EXPERIMENTAL = "set_experimental"
@@ -135,7 +136,8 @@ class HomeInput:
       return
     if self.profile == Profile.COMPACT:
       if 0 <= x < 536 and 0 <= y < 240:
-        self.emit(HomeAction(HomeActionKind.OPEN_SETTINGS))
+        # Right edge is upstream's alerts pill zone (mici ALERTS_ZONE_WIDTH); without alerts it opens settings
+        self.emit(HomeAction(HomeActionKind.OPEN_ALERTS if x >= 536 - 180 else HomeActionKind.OPEN_SETTINGS))
     elif px < 300 and 50 <= x <= 250 and 35 <= y <= 152:
       self.emit(HomeAction(HomeActionKind.OPEN_SETTINGS))
     elif px < 300 and state.recording_audio and 170 <= x <= 245 and 245 <= y <= 285:

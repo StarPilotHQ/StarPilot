@@ -214,3 +214,22 @@ def test_actual_compact_force_card_hitbox_dispatches_captured_owner_request(life
   inputs.move(230, 120, state)
   inputs.release(230, 120, state)
   session._drive_change.assert_not_called()
+
+
+@pytest.mark.parametrize("active_alerts", [0, 1])
+def test_compact_alerts_tap_opens_alerts_page_or_falls_back_to_settings(lifecycle, active_alerts):
+  from openpilot.starpilot.ui.home_state import HomeAction, HomeActionKind
+  from openpilot.starpilot.ui.shell import ShellRequest
+  _, session, _, _ = lifecycle
+  layout = runtime_app.StarMiciMainLayout.__new__(runtime_app.StarMiciMainLayout)
+  layout._alerts_layout = Mock(**{"active_alerts.return_value": active_alerts})
+  layout._scroll_to = Mock()
+  on_settings = Mock()
+  session.set_navigation(on_settings=on_settings, on_home=Mock(), on_alerts=layout._open_alerts)
+  session._emit(ShellRequest("home", HomeAction(HomeActionKind.OPEN_ALERTS)))
+  if active_alerts:
+    layout._scroll_to.assert_called_once_with(layout._alerts_layout)
+    on_settings.assert_not_called()
+  else:
+    layout._scroll_to.assert_not_called()
+    on_settings.assert_called_once()

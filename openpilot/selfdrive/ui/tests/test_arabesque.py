@@ -475,9 +475,11 @@ def test_star_large_routes_shell_and_uses_confirmed_offroad(main, probe):
   namespace = vars(main.native).copy()
   namespace['Destination'] = NS(NETWORK='network')
   namespace['ShellMode'] = NS(HOME='home', SETTINGS='settings', ONROAD='onroad')
+  namespace['HomeLayoutState'] = NS(HOME='home')
   star = layout_classes(ROOT.parent / 'starpilot/ui/runtime_app.py', {'StarMainLayout'}, namespace)
   main.layout.__class__ = star.StarMainLayout
   layout = main.layout
+  layout._home_layout.current_state = 'home'
   layout.star, layout.page = Mock(), Mock()
   layout.star.selected = 'developer'
   layout._large_destination = None

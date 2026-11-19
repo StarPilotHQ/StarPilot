@@ -21,6 +21,8 @@ from openpilot.starpilot.ui.raylib import rl
 import openpilot.cereal.messaging as messaging
 from opendbc.car.structs import car as car_schema
 
+from openpilot.selfdrive.ui.layouts.home import HomeLayoutState
+from openpilot.selfdrive.ui.mici.layouts.home import HOME_PADDING
 from openpilot.selfdrive.ui.layouts.main import MainLayout, MainState
 from openpilot.selfdrive.ui.mici.layouts.main import MiciMainLayout as MiciMainLayout
 from openpilot.starpilot.ui.runtime_compact import StarMiciMainLayout as StarMiciMainLayout
@@ -267,6 +269,7 @@ class StarShellSession:
     self._on_settings: Any = None
     self._on_home: Any = None
     self._on_pairing: Any = None
+    self._on_alerts: Any = None
     self._on_compact_destination: Any = None
     self._on_destination_change: Any = None
     self._request_owner: Any = None
@@ -653,10 +656,11 @@ class StarShellSession:
 
 
   def set_navigation(self, *, on_settings: Any, on_home: Any, on_pairing: Any = None, on_compact_destination: Any = None,
-                     on_destination_change: Any = None) -> None:
+                     on_destination_change: Any = None, on_alerts: Any = None) -> None:
     self._on_settings = on_settings
     self._on_home = on_home
     self._on_pairing = on_pairing
+    self._on_alerts = on_alerts
     self._on_compact_destination = on_compact_destination
     self._on_destination_change = on_destination_change
 
@@ -1548,7 +1552,9 @@ class StarShellSession:
         self._unavailable("experimental shortcut in this context")
       return
     if request.source == "home":
-      if action.kind == HomeActionKind.OPEN_SETTINGS and self._on_settings is not None:
+      if action.kind == HomeActionKind.OPEN_ALERTS and self._on_alerts is not None and self._on_alerts():
+        pass  # on_alerts returns False when no alert is active, so the tap falls through to settings
+      elif action.kind in (HomeActionKind.OPEN_SETTINGS, HomeActionKind.OPEN_ALERTS) and self._on_settings is not None:
         self.selected = Destination.STAR
         self._on_settings()
       elif action.kind == HomeActionKind.OPEN_TOGGLES and self.profile == Profile.LARGE:
@@ -1830,16 +1836,22 @@ class StarShellSession:
 
 
 class StarShellPage(Widget):
-  def __init__(self, session: StarShellSession, mode: ShellMode, *, on_background_tap: Any = None):
+  def __init__(self, session: StarShellSession, mode: ShellMode, *, on_background_tap: Any = None,
+               alerts_pill: Widget | None = None):
     super().__init__()
     self.session, self.mode = session, mode
     self.on_background_tap = on_background_tap
+    self.alerts_pill = alerts_pill
     self._press_pos: tuple[float, float] | None = None
     self._dragged = False
     self._touch_time: float | None = None
 
   def _render(self, rect: rl.Rectangle) -> None:
     self.session.render(self.mode, rect, self._parent_rect)
+    if self.alerts_pill is not None:  # bottom right, where upstream's compact home draws it
+      self.alerts_pill.set_position(rect.x + rect.width - self.alerts_pill.rect.width - HOME_PADDING,
+                                    rect.y + rect.height - self.alerts_pill.rect.height)
+      self.alerts_pill.render()
     if self.mode == ShellMode.ONROAD and self.session.profile == Profile.COMPACT:
       bookmark = self.session.camera_owner._bookmark_icon
       bookmark.set_touch_valid_callback(lambda: self._touch_valid() and abs(self.rect.x) < 1)
@@ -2082,8 +2094,11 @@ class StarMainLayout(MainLayout):
                             software_request=SoftwareRequest, download_label=DownloadLabel)
 
   def _render_main_content(self) -> None:
-    if self._current_mode == MainState.ARABESQUE or self._current_mode == MainState.HOME and ui_state.is_body:
-      super()._render_main_content()
+    on_home = self._current_mode == MainState.HOME
+    if self._current_mode == MainState.ARABESQUE or on_home and (
+        ui_state.is_body or self._home_layout.current_state != HomeLayoutState.HOME):
+      self._update_layout_rects()  # onroad may have left a sidebar-less content rect
+      super()._render_main_content()  # body home, or upstream's offroad alerts / update screen
       return
     rect = self._rect
     if self._current_mode == MainState.ONROAD:
@@ -2097,6 +2112,13 @@ class StarMainLayout(MainLayout):
             MainState.ONROAD: ShellMode.ONROAD}[self._current_mode]
     self.page.mode = mode
     self.page.render(rect)
+    if on_home:
+      # StarPilot draws its own home: keep upstream's alert refresh, header pills and pill taps
+      home = self._home_layout
+      home.set_rect(rl.Rectangle(rect.x + SIDEBAR_WIDTH, rect.y, rect.width - SIDEBAR_WIDTH, rect.height))
+      home._update_state()
+      home._render_notifs()
+      home._process_mouse_events()
 
   def _on_background_tap(self) -> None:
     if self._current_mode == MainState.ONROAD:

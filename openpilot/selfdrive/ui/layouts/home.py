@@ -89,11 +89,6 @@ class HomeLayout(Widget):
     self.current_state = state
 
   def _render(self, rect: rl.Rectangle):
-    current_time = time.monotonic()
-    if current_time - self.last_refresh >= REFRESH_INTERVAL:
-      self._refresh()
-      self.last_refresh = current_time
-
     self._render_header()
 
     # Render content based on current state
@@ -105,6 +100,11 @@ class HomeLayout(Widget):
       self._render_alerts_view()
 
   def _update_state(self):
+    current_time = time.monotonic()
+    if current_time - self.last_refresh >= REFRESH_INTERVAL:
+      self._refresh()
+      self.last_refresh = current_time
+
     self.header_rect = rl.Rectangle(
       self._rect.x + CONTENT_MARGIN, self._rect.y + CONTENT_MARGIN, self._rect.width - 2 * CONTENT_MARGIN, HEADER_HEIGHT
     )
@@ -140,13 +140,20 @@ class HomeLayout(Widget):
       self._set_state(HomeLayoutState.ALERTS)
 
   def _render_header(self):
+    version_text_width = self.header_rect.width - self._render_notifs()
+    version_rect = rl.Rectangle(self.header_rect.x + self.header_rect.width - version_text_width, self.header_rect.y,
+                                version_text_width, self.header_rect.height)
+    gui_label(version_rect, self._version_text, 48, rl.WHITE, alignment=TextAlignment.RIGHT)
+
+  def _render_notifs(self) -> float:
+    """Draw the UPDATE / ALERTS header pills and return the header width they use."""
     font = gui_app.font(FontWeight.MEDIUM)
 
-    version_text_width = self.header_rect.width
+    used_width = 0.0
 
     # Update notification button
     if self.update_available:
-      version_text_width -= self.update_notif_rect.width
+      used_width += self.update_notif_rect.width
 
       # Highlight if currently viewing updates
       highlight_color = rl.Color(75, 95, 255, 255) if self.current_state == HomeLayoutState.UPDATE else rl.Color(54, 77, 239, 255)
@@ -160,7 +167,7 @@ class HomeLayout(Widget):
 
     # Alert notification button
     if self.alert_count > 0:
-      version_text_width -= self.alert_notif_rect.width
+      used_width += self.alert_notif_rect.width
 
       # Highlight if currently viewing alerts
       highlight_color = rl.Color(255, 70, 70, 255) if self.current_state == HomeLayoutState.ALERTS else rl.Color(226, 44, 44, 255)
@@ -172,13 +179,10 @@ class HomeLayout(Widget):
       text_y = self.alert_notif_rect.y + (self.alert_notif_rect.height - text_size.y) // 2
       rl.draw_text_ex(font, alert_text, rl.Vector2(int(text_x), int(text_y)), HEAD_BUTTON_FONT_SIZE, 0, rl.WHITE)
 
-    # Version text (right aligned)
+    # Gap before the right-aligned version text
     if self.update_available or self.alert_count > 0:
-      version_text_width -= SPACING * 1.5
-
-    version_rect = rl.Rectangle(self.header_rect.x + self.header_rect.width - version_text_width, self.header_rect.y,
-                                version_text_width, self.header_rect.height)
-    gui_label(version_rect, self._version_text, 48, rl.WHITE, alignment=TextAlignment.RIGHT)
+      used_width += SPACING * 1.5
+    return used_width
 
   def _render_home_content(self):
     self._render_left_column()
