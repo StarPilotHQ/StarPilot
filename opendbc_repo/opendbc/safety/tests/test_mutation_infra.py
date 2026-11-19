@@ -206,6 +206,24 @@ def test_native_variant(native_variant):
         actual = mutation.build_priority_tests(site, catalog, all_targets)
         self.assertEqual(Counter(actual), Counter(target for name in names for target in catalog[name]))
 
+  def test_core_order_matches_the_validated_full_baseline(self):
+    catalog = {"test_z.py": ["fixture.Z.test_first", "fixture.Z.test_second"],
+               "test_a.py": ["fixture.A.test_first"]}
+    expected = ["fixture.A.test_first", "fixture.Z.test_first", "fixture.Z.test_second"]
+    self.assertEqual(mutation._build_core_tests(catalog), expected)
+
+  def test_each_distinct_selected_order_must_pass_unmutated(self):
+    catalog = {"test_fixture.py": ["fixture.one", "fixture.two"]}
+    selected = ["fixture.two", "fixture.one"]
+    healthy = mutation.TestRun(2, 0, 0, (), ())
+    broken = mutation.TestRun(2, 0, 0, ("fixture.one",), ())
+    for bad in (broken, mutation.TestRun(1, 0, 0, (), ()), mutation.TestRun(2, 2, 0, (), ())):
+      with self.subTest(run=bad), patch.object(mutation, "_run_isolated_unittest", side_effect=[healthy, bad]) as run, \
+           patch.object(mutation, "build_priority_tests", return_value=selected):
+        with self.assertRaisesRegex(RuntimeError, "unmutated selected safety baseline failed"):
+          mutation.require_full_baseline(catalog, [self.site()], Path("libsafety.so"), False)
+        self.assertEqual(run.call_count, 2)
+
   def test_worker_crash_is_infrastructure_error(self):
     site = self.site()
     future = Future()
@@ -222,16 +240,16 @@ def test_native_variant(native_variant):
 
   def test_full_baseline_failure_aborts_before_mutant_targets(self):
     catalog = {"test_defaults.py": ["test_defaults.TestNoOutput.test_tx_hook"]}
-    with patch.object(mutation, "run_unittest", return_value=mutation.TestRun(1, 0, 0, (catalog["test_defaults.py"][0],), ())) as baseline, \
+    with patch.object(mutation, "_run_isolated_unittest", return_value=mutation.TestRun(1, 0, 0, (catalog["test_defaults.py"][0],), ())) as baseline, \
          patch.object(mutation, "build_priority_tests") as targets:
       with self.assertRaisesRegex(RuntimeError, "unmutated full safety baseline failed"):
         mutation.require_full_baseline(catalog, [self.site()], Path("libsafety.so"), False)
-    baseline.assert_called_once_with(catalog["test_defaults.py"], Path("libsafety.so"), mutant_id=-1, verbose=False)
+    baseline.assert_called_once_with(-1, catalog["test_defaults.py"], Path("libsafety.so"), 300.0)
     targets.assert_not_called()
 
   def test_empty_target_is_not_treated_as_surviving_mutant(self):
     catalog = {"test_defaults.py": ["test_defaults.TestNoOutput.test_tx_hook"]}
-    with patch.object(mutation, "run_unittest", return_value=mutation.TestRun(1, 0, 0, (), ())), \
+    with patch.object(mutation, "_run_isolated_unittest", return_value=mutation.TestRun(1, 0, 0, (), ())), \
       patch.object(mutation, "build_priority_tests", return_value=[]):
       with self.assertRaisesRegex(RuntimeError, "mutants lack test targets"):
         mutation.require_full_baseline(catalog, [self.site()], Path("libsafety.so"), False)
@@ -250,7 +268,7 @@ def test_native_variant(native_variant):
   def test_partial_or_all_skipped_baseline_aborts(self):
     catalog = {"test_defaults.py": ["test.one", "test.two"]}
     for run in (mutation.TestRun(1, 0, 0, (), ()), mutation.TestRun(2, 2, 0, (), ())):
-      with self.subTest(run=run), patch.object(mutation, "run_unittest", return_value=run):
+      with self.subTest(run=run), patch.object(mutation, "_run_isolated_unittest", return_value=run):
         with self.assertRaisesRegex(RuntimeError, "unmutated full safety baseline failed"):
           mutation.require_full_baseline(catalog, [self.site()], Path("libsafety.so"), False)
 

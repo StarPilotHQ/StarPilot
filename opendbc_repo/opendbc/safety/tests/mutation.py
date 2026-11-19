@@ -429,33 +429,8 @@ def verify_equivalence_artifact(path):
 
 
 def _build_core_tests(catalog):
-  """Build test ordering for core (non-mode) files.
-
-  Tests are ordered by how widely each method is shared. Methods inherited by
-  many classes exercise the most fundamental safety logic and run first.
-
-  Keep every implementation of each method.
-  """
-  method_freq = {}
-  method_by_module = {}
-  for name in sorted(catalog.keys()):
-    for test_id in catalog[name]:
-      method = test_id.rsplit(".", 1)[-1]
-      method_freq[method] = method_freq.get(method, 0) + 1
-      if method not in method_by_module:
-        method_by_module[method] = {}
-      method_by_module[method].setdefault(name, []).append(test_id)
-  # Round-robin: first instance of each method (by freq), then second, etc.
-  # This ensures diverse early coverage with failfast.
-  sorted_methods = sorted(method_freq, key=lambda m: -method_freq[m])
-  ordered = []
-  max_implementations = max(sum(len(ids) for ids in module_map.values()) for module_map in method_by_module.values())
-  for round_idx in range(max_implementations):
-    for m in sorted_methods:
-      ids = [test_id for module in sorted(method_by_module[m]) for test_id in method_by_module[m][module]]
-      if round_idx < len(ids):
-        ordered.append(ids[round_idx])
-  return ordered
+  """Keep the complete ordering that passed the unmutated baseline."""
+  return [test_id for name in sorted(catalog) for test_id in catalog[name]]
 
 
 def build_priority_tests(site, catalog, core_tests):
@@ -851,7 +826,7 @@ def require_full_baseline(catalog, sites, lib_path, verbose):
   if not catalog or any(not ids for ids in catalog.values()):
     raise RuntimeError("empty safety test catalog or module")
   baseline_ids = [test_id for module in sorted(catalog) for test_id in catalog[module]]
-  baseline = run_unittest(baseline_ids, lib_path, mutant_id=-1, verbose=verbose)
+  baseline = _run_isolated_unittest(-1, baseline_ids, lib_path, 300.0)
   if (baseline.failures or baseline.errors or baseline.ran + baseline.suppressed != len(baseline_ids) or
       baseline.ran == baseline.skipped):
     raise RuntimeError(f"unmutated full safety baseline failed: {baseline}")
@@ -861,6 +836,15 @@ def require_full_baseline(catalog, sites, lib_path, verbose):
   missing = [site_id for site_id, ids in targets.items() if not ids]
   if missing:
     raise RuntimeError(f"mutants lack test targets: {missing[:20]} ({len(missing)} total)")
+  checked = {tuple(baseline_ids)}
+  for selected in targets.values():
+    identity = tuple(selected)
+    if identity in checked:
+      continue
+    run = _run_isolated_unittest(-1, selected, lib_path, 300.0)
+    if (run.failures or run.errors or run.ran + run.suppressed != len(selected) or run.ran == run.skipped):
+      raise RuntimeError(f"unmutated selected safety baseline failed: {run}")
+    checked.add(identity)
   return targets
 
 
