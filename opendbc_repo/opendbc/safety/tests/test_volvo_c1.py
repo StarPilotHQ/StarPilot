@@ -232,3 +232,23 @@ class TestVolvoC1Safety(unittest.TestCase):
     lib.set_controls_allowed(True)
     lib.set_desired_angle_last(round(-30 * 22.753128))
     self.assertTrue(lib.safety_tx_hook(packet(codec.create_c1_steering_control(packer, -29.8, True))))
+
+  def test_literal_speed_crosses_the_standstill_threshold(self):
+    for raw, moving in ((0, False), (1, False), (35, False), (37, True), (100, True), (65535, True)):
+      with self.subTest(raw=raw):
+        reset()
+        data = bytes(6) + raw.to_bytes(2, 'big')
+        self.assertTrue(lib.safety_rx_hook(packet((0x150, data, 0))))
+        self.assertEqual(bool(lib.get_vehicle_moving()), moving)
+        self.assertAlmostEqual(lib.get_vehicle_speed_max(), raw / 360., delta=0.001)
+
+  def test_each_literal_brake_bit_is_independent_of_other_pedal_bits(self):
+    for bit in range(64):
+      with self.subTest(bit=bit):
+        reset()
+        data = bytearray(8)
+        data[bit // 8] = 1 << (bit % 8)
+        self.assertTrue(lib.safety_rx_hook(packet((0x55, data, 0))))
+        self.assertEqual(bool(lib.get_brake_pressed_prev()), bit in (24, 38))
+        self.assertTrue(lib.safety_rx_hook(packet((0x55, bytes(8), 0))))
+        self.assertFalse(lib.get_brake_pressed_prev())
