@@ -1,4 +1,4 @@
-"""Saved screen gestures for a detected Tesla Vehicle CAN connection."""
+"""Saved cooperative steering selection for modern Tesla vehicles."""
 from openpilot.starpilot.saved_document import commit_exact
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.ui.feature_settings_state import FeatureRow
@@ -6,7 +6,7 @@ from openpilot.starpilot.ui.feature_settings_state import FeatureRow
 
 KEYS = frozenset(('TeslaCoopSteering',))
 ROWS = (('TeslaCoopSteering', 'Tesla Co-op Steering',
-         'Model 3 only. Light steering input adjusts the assisted steering angle within its limits. Applies after the next startup.'),)
+         'Model 3 and Model Y. Light steering input adjusts the assisted steering angle within its limits. Applies after the next startup.'),)
 
 
 class TeslaCoopFeature:
