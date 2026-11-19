@@ -117,15 +117,13 @@ static uint32_t volvo_cma_compute_checksum(const CANPacket_t *msg) {
   }
   return value;
 }
-static bool volvo_cma_quality(const CANPacket_t *msg, bool allow_counter_lag) {
+static bool volvo_cma_quality(const CANPacket_t *msg) {
   bool valid = true;
   if (msg->addr == 0x17U) {
-    // Captured source counters are equal or the replica lags one modulo 15.
-    // Unknown status/checksum domains and unconstrained echo bit3 stay unsupported.
     const uint8_t counter = msg->data[1] >> 4U;
     const uint8_t replica = msg->data[2] & 0xFU;
     valid = ((msg->data[1] & 0x8U) == 0U) && (msg->data[2] >= 0x80U) && (msg->data[2] <= 0x8EU) &&
-      (counter < 15U) && ((counter == replica) || (allow_counter_lag && (counter == ((replica + 1U) % 15U))));
+      (counter == replica);
   }
   return valid;
 }

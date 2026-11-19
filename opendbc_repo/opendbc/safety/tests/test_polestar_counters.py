@@ -289,17 +289,18 @@ class TestPolestarCounters(unittest.TestCase):
     data[2] = 0x80 | replica
     return cma.checksummed((0x17, data, 2))
 
-  def test_pscm_equal_and_one_count_lag_keep_permission(self):
+  def test_pscm_only_equal_counters_keep_permission(self):
     for counter in range(15):
-      for lag in (0, 1):
-        with self.subTest(counter=counter, lag=lag):
+      for replica in range(15):
+        with self.subTest(counter=counter, replica=replica):
           self.reset()
           self.feed()
-          status = self.pscm_counter_status(counter, (counter - lag) % 15)
-          self.assertTrue(self.rx(status))
-          self.assertTrue(self.safety.get_controls_allowed())
+          status = self.pscm_counter_status(counter, replica)
+          expected = counter == replica
+          self.assertEqual(bool(self.rx(status)), expected)
+          self.assertEqual(self.safety.get_controls_allowed(), expected)
           self.assertTrue(self.tx(self.relay(status)))
-          self.assertTrue(self.tx(self.lca_command()))
+          self.assertEqual(bool(self.tx(self.lca_command())), expected)
 
   def test_pscm_other_counter_relationships_still_withdraw(self):
     for counter, replica in ((15, 14), (15, 0), (0, 1), (0, 13), (1, 14)):
@@ -315,7 +316,7 @@ class TestPolestarCounters(unittest.TestCase):
         self.safety.set_controls_allowed(True)
         self.assertFalse(self.tx(self.lca_command()))
 
-  def test_pscm_lag_retains_crc_identity_and_freshness_checks(self):
+  def test_pscm_mismatch_retains_crc_identity_and_freshness_checks(self):
     status = self.pscm_counter_status(0, 14)
     for pos in (0, 3):
       self.reset()
@@ -331,7 +332,7 @@ class TestPolestarCounters(unittest.TestCase):
       self.assertFalse(self.tx(self.relay(status)))
     self.reset()
     self.feed(cruise=False)
-    self.assertTrue(self.rx(status))
+    self.assertFalse(self.rx(status))
     self.safety.set_timer(110000)
     self.assertTrue(self.tx(self.relay(status)))
     self.safety.set_timer(110001)
