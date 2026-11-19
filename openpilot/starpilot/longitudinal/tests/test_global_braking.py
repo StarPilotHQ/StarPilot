@@ -54,7 +54,7 @@ class GlobalBrakingTests(unittest.TestCase):
                        ordinary.mpc.params[:, [0, 1, 4, 5]].tolist())
 
   def test_ceiling_hazards_and_category_override(self):
-    ceiling = CruiseCeiling(19.0, ACTIVE)
+    ceiling = CruiseCeiling(18.0, ACTIVE)  # 2 m/s over: the halved SLC correction (-1.0) still reaches the eco floor (-0.6)
     eco, cruise = self.run_planner('eco', ceiling=ceiling)
     self.assertEqual(cruise['base_brake_floor'], -0.6)
     self.assertAlmostEqual(eco.a_cruise, -0.6)

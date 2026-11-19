@@ -218,7 +218,7 @@ jobs:
       env:
         RAYLIB_BACKEND: headless
         STARPILOT_TEST_DIAGNOSTICS: ci-results/host-test-diagnostics/unittest
-      run: tools/op.sh test --json-output unit-test-results.json
+      run: tools/op.sh test --jobs 2 --json-output unit-test-results.json
     - name: Test GM vehicle configurations and CAN behavior
       if: ${{ !cancelled() && steps.build.outcome == 'success' }}
       timeout-minutes: 5

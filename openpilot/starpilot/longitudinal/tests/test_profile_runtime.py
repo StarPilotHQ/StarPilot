@@ -650,7 +650,7 @@ class ProfileRuntimeTests(unittest.TestCase):
     strong = LongitudinalPlanner(self.cp, init_v=V_EGO)
     soft_tuning = ProfileTuning('standard', 1.45, 1, 1, 1, 1, 1, None, 0.75)
     strong_tuning = ProfileTuning('standard', 1.45, 1, 1, 1, 1, 1, None, 1.8)
-    for _ in range(40):
+    for _ in range(60):  # 3 s: SLC braking takes 2 s to ease in to -0.3, then reaches each profile floor
       sm, _ = messages()
       sm['carControl'].longActive = True
       baseline.update(sm, cruise_ceiling=ceiling)

@@ -30,6 +30,7 @@ export const SETTINGS_SECTIONS = Object.freeze([
   { id: "sounds", label: "Sounds & Alerts", icon: "bi-volume-up", pages: ["sounds"] },
   { id: "vehicle", label: "Vehicle", icon: "bi-car-front", pages: ["vehicle"] },
   { id: "device", label: "Device & System", icon: "bi-hdd", pages: ["power", "data", "starport_options", "browser_preferences", "localization"] },
+  { id: "developer", label: "Developer", icon: "bi-code-slash", pages: ["developer"] },
 ])
 
 // Crop numeric rows and the inline editor row are controlled from the dedicated

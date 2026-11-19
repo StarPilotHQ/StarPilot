@@ -186,6 +186,26 @@ def test_native_variant(native_variant):
     self.assertEqual(Counter(ordered), Counter(expected))
     self.assertEqual(ordered[0], probe)
 
+  def test_vehicle_alias_suites_remain_in_their_mutation_family(self):
+    families = {
+      "hyundai": ("test_hyundai.py", "test_hkg_mode_parity.py", "test_ev9_combined_callers.py", "test_pe_combined_aol.py",
+                  "test_ioniq5pe_paired_native.py", "test_ioniq6_native_pedal_order.py", "test_kia_ev6_2025_angle.py",
+                  "test_nexo_stock_aol.py", "test_palisade_camera_echo.py", "test_classic_scc_main_ingress.py",
+                  "test_canfd_damping_contract.py", "test_prepared_torque_ev_native.py"),
+      "volkswagen": ("test_volkswagen.py", "test_meb_aol.py"),
+      "volvo": ("test_volvo.py", "test_polestar_counters.py"),
+      "ford": ("test_ford.py", "test_angle_native.py"),
+    }
+    catalog = {name: [f"pytest:/tests/{name}::test_guard[DEBUG]", f"pytest:/tests/{name}::test_guard[RELEASE]"]
+               for names in families.values() for name in names}
+    all_targets = [target for targets in catalog.values() for target in targets]
+    for family, names in families.items():
+      with self.subTest(family=family):
+        site = mutation.MutationSite(1, 0, 1, 0, 1, 1, "==", "!=", "comparison",
+                                     mutation.SAFETY_DIR / f"modes/{family}.h", 1)
+        actual = mutation.build_priority_tests(site, catalog, all_targets)
+        self.assertEqual(Counter(actual), Counter(target for name in names for target in catalog[name]))
+
   def test_worker_crash_is_infrastructure_error(self):
     site = self.site()
     future = Future()

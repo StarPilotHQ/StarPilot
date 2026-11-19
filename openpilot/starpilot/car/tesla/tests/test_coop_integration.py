@@ -15,8 +15,9 @@ from openpilot.starpilot.ui.feature_settings_state import FeatureSettingsRequest
 
 @pytest.mark.parametrize('long', (False, True))
 @pytest.mark.parametrize('brake', (False, True))
-def test_screen_and_cooperative_selection_compose(long, brake):
-  cp = screen_params(long=long)
+@pytest.mark.parametrize('candidate', (CAR.TESLA_MODEL_3, CAR.TESLA_MODEL_Y))
+def test_screen_and_cooperative_selection_compose(long, brake, candidate):
+  cp = screen_params(candidate, long=long)
   prepare(cp, True)
   apply_screen_button(cp, True, brake)
   assert cp.safetyConfigs[0].safetyParam == 768 + int(long) + 1024 * brake
@@ -30,7 +31,8 @@ def test_screen_and_cooperative_selection_compose(long, brake):
 
 @pytest.mark.parametrize('enabled,safe,value,expected', ((True,None,b'1',True),(False,None,b'1',False),
   (True,b'1',b'1',False),(True,None,b'bad',False),(True,None,None,False)))
-def test_startup_snapshot(tmp_path, enabled, safe, value, expected):
+@pytest.mark.parametrize('candidate', (CAR.TESLA_MODEL_3, CAR.TESLA_MODEL_Y))
+def test_startup_snapshot(tmp_path, enabled, safe, value, expected, candidate):
   saved = Params(str(tmp_path))
   for key, raw in (('TeslaCoopSteering',value),('SafeMode',safe)):
     if raw is not None:
@@ -40,14 +42,15 @@ def test_startup_snapshot(tmp_path, enabled, safe, value, expected):
         saved.put_bool(key,raw == b'1',block=True)
   snapshot = VehicleStartupPreferences.read(saved, enabled=enabled)
   assert snapshot.tesla_cooperative is expected
-  cp=screen_params()
+  cp=screen_params(candidate)
   snapshot.prepare(cp)
   assert bool(cp.safetyConfigs[0].safetyParam & 256) is expected
 
 
-def test_ui_setting_is_parked_bound_and_requires_startup(tmp_path):
+@pytest.mark.parametrize('candidate', (CAR.TESLA_MODEL_3, CAR.TESLA_MODEL_Y))
+def test_ui_setting_is_parked_bound_and_requires_startup(tmp_path, candidate):
   saved=Params(str(tmp_path))
-  cp=screen_params()
+  cp=screen_params(candidate)
   parked=True
   owner=FeatureSettingsOwner(saved,lambda group:parked and group=='parked_preferences',vehicle_fingerprint=lambda:cp.carFingerprint,vehicle_params=lambda:cp)
   row=owner.tesla_coop.rows(True)[0]
@@ -57,12 +60,13 @@ def test_ui_setting_is_parked_bound_and_requires_startup(tmp_path):
   assert cp.safetyConfigs[0].safetyParam==0
   parked=False
   assert not owner.apply(replace(request,expected=b'1',value='Off'))
-  cp.carFingerprint=CAR.TESLA_MODEL_Y
+  cp.carFingerprint=CAR.TESLA_MODEL_X
   assert not owner.tesla_coop.rows(True)
 
 
-def test_offset_is_not_saturation_and_invalid_evidence_falls_back():
-  cp=screen_params()
+@pytest.mark.parametrize('candidate', (CAR.TESLA_MODEL_3, CAR.TESLA_MODEL_Y))
+def test_offset_is_not_saturation_and_invalid_evidence_falls_back(candidate):
+  cp=screen_params(candidate)
   prepare(cp,True)
   output=SimpleNamespace(actuatorsOutput=SimpleNamespace(steeringAngleDeg=4.))
   info=SimpleNamespace(valid=True,monoTime=100,modelLimitErrorDeg=0.,resumeLimitErrorDeg=0.,cooperativeLimitErrorDeg=0.,combinedLimitErrorDeg=0.,cooperativeOffsetDeg=4.)

@@ -4,13 +4,25 @@ from unittest.mock import patch
 from openpilot.cereal import messaging
 
 
-def selfdrive_step(sd, published, native, previous_controls, cp, safety, now, *, calibration, driver_lockout=False, driver_monitoring_valid=True):
+def selfdrive_step(sd, published, native, previous_controls, cp, safety, now, *, calibration, driver_lockout=False,
+                   driver_monitoring_valid=True, queued=(), panda_health=None):
+  samples = (*queued, published)
+  cars = iter(sample['carState'] for sample in samples[1:])
+  intents = iter(sample['aolIntentWire'] for sample in samples)
+
+  def receive(sock):
+    if queued and sock is sd.car_state_sock:
+      return next(cars, None)
+    if queued and sock is sd.aol_intent_companion.sock:
+      return next(intents, None)
+    return None
+
   peers = []
   for service in sd.sm.data:
     if service in ('alertDebug', 'lateralManeuverPlan', 'laneChangeAssistWire', 'starpilotLongitudinalPlan'):
       continue
     if service == 'aolIntentWire':
-      peers.append(published[service])
+      peers.append(samples[0][service])
       continue
     if service == 'aolSafetyWire':
       peers.append(native.as_reader())
@@ -18,6 +30,9 @@ def selfdrive_step(sd, published, native, previous_controls, cp, safety, now, *,
     if service in ('carControl', 'controlsState'):
       if service in previous_controls:
         peers.append(previous_controls[service])
+      continue
+    if service == 'pandaStates' and panda_health is not None:
+      peers.append(panda_health)
       continue
     size = 1 if service == 'pandaStates' else None
     event = messaging.new_message(service, size, valid=True, logMonoTime=now)
@@ -60,8 +75,8 @@ def selfdrive_step(sd, published, native, previous_controls, cp, safety, now, *,
     patch('openpilot.selfdrive.selfdrived.selfdrived.time.monotonic_ns', return_value=now),
     patch('openpilot.selfdrive.selfdrived.selfdrived.time.monotonic', return_value=now / 1e9),
     patch('openpilot.selfdrive.selfdrived.selfdrived.time.clock_gettime_ns', return_value=now),
-    patch('openpilot.selfdrive.selfdrived.selfdrived.messaging.recv_one_or_none', return_value=None),
-    patch('openpilot.selfdrive.selfdrived.selfdrived.messaging.recv_one', return_value=published['carState']),
+    patch('openpilot.selfdrive.selfdrived.selfdrived.messaging.recv_one_or_none', side_effect=receive),
+    patch('openpilot.selfdrive.selfdrived.selfdrived.messaging.recv_one', return_value=samples[0]['carState']),
     patch.object(sd.sm, 'update', side_effect=lambda _: sd.sm.update_msgs(now / 1e9, peers)),
     patch.object(sd.pm, 'send', side_effect=capture),
   ):

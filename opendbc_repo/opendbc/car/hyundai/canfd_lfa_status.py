@@ -67,6 +67,7 @@ class CANFDLfaStatus:
     self.display_fault_since_ns = 0
     self.display_last_active_ns = 0
     self.popup_last_applied_ns = 0
+    self.ccnc_last_owned_ns = 0
 
   def update(self, can_packets):
     boot_clock = getattr(time, 'CLOCK_BOOTTIME', None)
@@ -184,6 +185,20 @@ class CANFDLfaStatus:
       self.popup_last_applied_ns = now_ns
       return True
     return 0 < self.popup_last_applied_ns <= now_ns <= self.popup_last_applied_ns + DISPLAY_RELEASE_NS
+
+  def owns_ccnc_fault_status(self, now_ns, *, healthy=False, qualified_warning=False):
+    body = self.current(now_ns)
+    eps_fresh = 0 < self.eps_observed_ns <= now_ns and now_ns - self.eps_observed_ns <= MAX_AGE_NS
+    indication = ((body[4] >> 6) | ((body[5] & 1) << 2)) if body is not None else 7
+    normal = body is not None and indication < 4 and not (body[6] & 0xF0 or body[7] >> 4 == 15)
+    if (not healthy or body is None or not self.camera_integrity or not eps_fresh or not self.eps_healthy or
+        not (normal or (qualified_warning and self._ownership_warning(body)))):
+      self.ccnc_last_owned_ns = 0
+      return False
+    if qualified_warning:
+      self.ccnc_last_owned_ns = now_ns
+      return True
+    return 0 < self.ccnc_last_owned_ns <= now_ns <= self.ccnc_last_owned_ns + MAX_AGE_NS
 
   def last_fault(self):
     body = self.body

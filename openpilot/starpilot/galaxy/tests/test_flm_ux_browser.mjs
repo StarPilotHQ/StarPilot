@@ -266,7 +266,8 @@ async function layout(label) {
 }
 async function show(selector) { await execute('document.querySelector(arguments[0]).scrollIntoView({block:"center",behavior:"instant"})', selector) }
 async function capture(name) {
-  const base64 = await command(`/session/${session}/screenshot`, {}, 'GET')
+  const { data: base64 } = await command(`/session/${session}/goog/cdp/execute`, { cmd: 'Page.captureScreenshot',
+    params: { format: 'png', captureBeyondViewport: false, optimizeForSpeed: true } })
   screenshots.push({ name, png_base64: base64 })
 }
 let failure = null
@@ -699,6 +700,7 @@ try {
   console.log(`Real Chromium FLM UI: ${checks.length} responsive/theme/state checks, 5 findings/7 destinations, parked save/reset, driving lockout, errors and retained evidence passed`)
 } catch (error) {
   failure = error.stack
+  console.error(failure)
   if (session) { try { await capture('failure') } catch {} }
   throw error
 } finally {
@@ -729,5 +731,5 @@ try {
   result.flmUxBrowser.cleanup = { driver_exit_code: driver.exitCode, driver_signal: driver.signalCode, driver_reaped: !running(driver), server_closed: !server.listening }
   await writeFile(output, JSON.stringify(result))
   console.log('FLM browser cleanup:', JSON.stringify(result.flmUxBrowser.cleanup))
-  await rm(profile, { recursive: true, force: true })
+  await rm(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
 }

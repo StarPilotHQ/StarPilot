@@ -480,10 +480,11 @@ class SceneProjector:
           # projecting forward. Use that endpoint only to clear an existing stop;
           # Curve geometry and cold stop acquisition retain strict validation.
           stop_horizon = _standstill_clear_horizon(model)
-        # A fresh discrete stop bit can corroborate an existing Ford stopped
-        # hold even when geometry is unavailable. Geometry admission stays strict.
+        # A fresh stop bit can corroborate a Ford hold or re-arm a light just
+        # released at standstill; cold stop acquisition still needs geometry.
         current_stop = model_should_stop if (stop_horizon is not None or
-          _field(cp, 'carFingerprint') in FORD_STOP_NAMES and _field(car, 'standstill') is True) else None
+          (_field(cp, 'carFingerprint') in FORD_STOP_NAMES or self.stop_detector.released_standstill_light) and
+          _field(car, 'standstill') is True) else None
     lead = _lead(radar) if radar is not None else None
     car_valid = speed is not None
     headway_fresh = (

@@ -528,6 +528,11 @@ def validate_document(value):
     fields.add('showMaxSpeed')
     if type(value['showMaxSpeed']) is not bool:
       raise ValueError('Invalid MAX speed preference')
+  if 'speedDisplayOffset' in value:
+    fields.add('speedDisplayOffset')
+    adjustment = value['speedDisplayOffset']
+    if type(adjustment) not in (int, float) or not math.isfinite(adjustment) or not -5 <= adjustment <= 5:
+      raise ValueError('Invalid speed display adjustment')
   if set(value) != fields:
     raise ValueError("Invalid customization fields")
   palette, layouts = value["palette"], value["layouts"]
@@ -734,6 +739,8 @@ def validate_document(value):
     result['clock24Hour'] = value['clock24Hour']
   if 'showMaxSpeed' in value:
     result['showMaxSpeed'] = value['showMaxSpeed']
+  if 'speedDisplayOffset' in value:
+    result['speedDisplayOffset'] = value['speedDisplayOffset']
   if value['version'] < 10:
     migrate_large_sign_layout(result['layouts']['large'], PROFILES['large']['bounds'], extra_height=sources_extent(result))
   if value['version'] < 8:

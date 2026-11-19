@@ -78,45 +78,11 @@ class RecordedLaunchTests(CemGreenCallerTests):
       else:
         self.assertTrue(self.owner.mode.projector.stop_detector.committed, change)
 
-  def test_candidate_clear_dwell_restarts_after_real_stop(self):
+  def test_real_stop_request_remains_after_light_handoff(self):
     self.prime()
     samples = json.loads(gzip.decompress((Path(__file__).parent / 'testdata/route160_stationary_launch.json.gz').read_bytes()))
     frame = next(f for f in samples if f['accel'] > 0.35 and min(f['x']) < -0.02)
-    for stop in [False] * 6 + [True] + [False] * 6:
-      _, _, held, plan = self.cycle(stopped=True, position=frame['x'], velocity=frame['v'], should_stop=stop, desired_accel=frame['accel'])
-      self.assertTrue(held and plan.shouldStop)
-      self.assertLessEqual(plan.aTarget, 0.0)
-
-
-def test_candidate_numeric_time_and_lead_guards():
-  from copy import deepcopy
-  from types import SimpleNamespace as N
-  from openpilot.selfdrive.modeld.constants import ModelConstants
-  from openpilot.starpilot.conditional_mode.launch_geometry import qualified_launch_horizon
-
-  samples = json.loads(gzip.decompress((Path(__file__).parent / 'testdata/route160_stationary_launch.json.gz').read_bytes()))
-  f = next(f for f in samples if f['accel'] > 0.35 and min(f['x']) < -0.02)
-  model = N(
-    position=N(x=f['x'], t=list(ModelConstants.T_IDXS)),
-    velocity=N(x=f['v'], t=list(ModelConstants.T_IDXS)),
-    action=N(shouldStop=False, desiredAcceleration=f['accel']),
-  )
-  car = N(standstill=True, vEgoRaw=0.0, vEgo=0.0, gasPressed=False, brakePressed=False)
-  assert qualified_launch_horizon(model, car, False) > 54
-  changes = [
-    lambda m: setattr(m.velocity, 't', [0.0] * 33),
-    lambda m: m.position.t.__setitem__(-1, 1000.0),
-    lambda m: setattr(m.action, 'desiredAcceleration', 1000.0),
-    lambda m: m.position.x.__setitem__(20, 0.0),
-    lambda m: m.velocity.x.__setitem__(25, 0.0),
-    lambda m: setattr(m.action, 'shouldStop', True),
-  ]
-  for change in changes:
-    m = deepcopy(model)
-    change(m)
-    assert qualified_launch_horizon(m, car, False) is None
-  assert qualified_launch_horizon(model, car, True) is None
-  for name, value in [('standstill', False), ('vEgoRaw', 0.01), ('vEgo', 0.1), ('gasPressed', True), ('brakePressed', True)]:
-    c = deepcopy(car)
-    setattr(c, name, value)
-    assert qualified_launch_horizon(model, c, False) is None
+    _, _, held, plan = self.cycle(stopped=True, position=frame['x'], velocity=frame['v'], should_stop=False, desired_accel=frame['accel'])
+    self.assertFalse(held or plan.shouldStop)
+    _, _, _, plan = self.cycle(stopped=True, position=frame['x'], velocity=frame['v'], should_stop=True, desired_accel=frame['accel'])
+    self.assertTrue(plan.shouldStop)

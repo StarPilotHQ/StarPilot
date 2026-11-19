@@ -246,8 +246,16 @@ class OnroadState:
   ford_rear_fog_on: bool = False
   ford_rear_fog_source_ns: int = 0
   slc_offset_schedule: OffsetSchedule | None = None
+  speed_display_offset_percent: float = 0.0
+
+  @property
+  def display_speed_mps(self) -> float | None:
+    return None if self.speed_mps is None else self.speed_mps * (1 + self.speed_display_offset_percent / 100)
 
   def __post_init__(self) -> None:
+    if (type(self.speed_display_offset_percent) not in (int, float) or
+        not math.isfinite(self.speed_display_offset_percent) or not -5 <= self.speed_display_offset_percent <= 5):
+      raise ValueError("Invalid speed display adjustment")
     if self.speed_mps is not None and (not math.isfinite(self.speed_mps) or self.speed_mps < 0):
       raise ValueError("Speed must be finite and nonnegative")
     if self.cruise_kph is not None and (not math.isfinite(self.cruise_kph) or self.cruise_kph < 0):

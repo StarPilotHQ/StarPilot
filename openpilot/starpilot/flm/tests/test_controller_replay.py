@@ -113,6 +113,7 @@ SEQUENCE = (
 
 
 class TestIoniq6ControllerReplay(unittest.TestCase):
+  @mock.patch("openpilot.starpilot.lateral.ioniq6_policy.IONIQ_6_STANDARD_HIGHWAY_FRICTION_THRESHOLD_INCREASE", 0.0, create=True)
   @mock.patch("openpilot.starpilot.lateral.ioniq6_policy.IONIQ_6_STANDARD_FRICTION_THRESHOLD_INCREASE", 0.0)
   def test_frozen_stateful_controller_trace(self):
     self.assertEqual(_GOLDEN["sourceCommit"], "678af783")
@@ -128,6 +129,7 @@ class TestIoniq6ControllerReplay(unittest.TestCase):
           _assert_rows(self, actual, expected)
 
   @mock.patch("openpilot.starpilot.lateral.ioniq6_policy.IONIQ_6_2025_HIGHWAY_FRICTION_THRESHOLD_INCREASE", 0.0)
+  @mock.patch("openpilot.starpilot.lateral.ioniq6_policy.IONIQ_6_STANDARD_HIGHWAY_FRICTION_THRESHOLD_INCREASE", 0.0, create=True)
   @mock.patch("openpilot.starpilot.lateral.ioniq6_policy.IONIQ_6_STANDARD_FRICTION_THRESHOLD_INCREASE", 0.0)
   def test_extended_frozen_filter_limit_override_and_reset_trace(self):
     self.assertEqual(_EXTENDED["sourceCommit"], "678af783")
@@ -149,6 +151,7 @@ class TestIoniq6ControllerReplay(unittest.TestCase):
           _assert_rows(self, actual, expected)
 
   @mock.patch("openpilot.starpilot.lateral.ioniq6_policy.IONIQ_6_2025_HIGHWAY_FRICTION_THRESHOLD_INCREASE", 0.0)
+  @mock.patch("openpilot.starpilot.lateral.ioniq6_policy.IONIQ_6_STANDARD_HIGHWAY_FRICTION_THRESHOLD_INCREASE", 0.0, create=True)
   @mock.patch("openpilot.starpilot.lateral.ioniq6_policy.IONIQ_6_STANDARD_FRICTION_THRESHOLD_INCREASE", 0.0)
   def test_actual_torque_parameter_update_recalculates_frozen_pid_limits(self):
     self.assertEqual(_LIVE["sourceControllerSha256"], _GOLDEN["controllerSha256"])
@@ -169,6 +172,7 @@ class TestIoniq6ControllerReplay(unittest.TestCase):
           _assert_rows(self, actual, expected["rows"])
 
   @mock.patch("openpilot.starpilot.lateral.ioniq6_policy.IONIQ_6_2025_HIGHWAY_FRICTION_THRESHOLD_INCREASE", 0.0)
+  @mock.patch("openpilot.starpilot.lateral.ioniq6_policy.IONIQ_6_STANDARD_HIGHWAY_FRICTION_THRESHOLD_INCREASE", 0.0, create=True)
   @mock.patch("openpilot.starpilot.lateral.ioniq6_policy.IONIQ_6_STANDARD_FRICTION_THRESHOLD_INCREASE", 0.0)
   def test_guarded_extended_trace_preserves_model_pid_inputs_and_manual_surface(self):
     for firmware, fw in (("2023", False), ("2025", True)):

@@ -135,14 +135,16 @@ def retain_stopped_source_feedback(feedback, sm, cp, state, axis, stamp, now_ns,
 
 
 def retain_paused_restriction(feedback, sm, cp, state, axis, stamp, now_ns, *, latched, producer):
+  if retain_pending_restriction_recovery(feedback, sm, cp, state, axis, stamp, now_ns, latched=latched, producer=producer):
+    return True
   from openpilot.starpilot.aol.transport_pause import _configured_transport_native
   previous = feedback.signature
   if (cp.carFingerprint != CAR.SUBARU_IMPREZA_2020 or not qualified(cp, marked_only=True) or
-      not latched or feedback.failed or feedback.paused or feedback.pending_event or
+      not latched or feedback.failed or feedback.paused or
       feedback.retention_started_ns or feedback.source_retention_started_ns or not feedback.ever_lateral_active or
       previous is None or not feedback.session or not producer or
       previous[0] != previous[7] or previous[0] != feedback.session or previous[5] != 'none' or
-      any(previous[9:13]) or not previous[13] or previous[14:16] != (producer, int(axis.intentIntegrityEpoch)) or
+      previous[10] or previous[12] or previous[9] != previous[11] or not previous[13] or previous[14:16] != (producer, int(axis.intentIntegrityEpoch)) or
       axis.intentProducerSessionId != producer or str(axis.sessionId) != feedback.session or
       str(axis.faultReason) != 'none' or str(axis.mode) != 'off' or not axis.nativeAcknowledged or
       any((axis.desiredLateral, axis.lateralActive, axis.desiredLongitudinal, axis.longitudinalActive)) or
@@ -155,13 +157,85 @@ def retain_paused_restriction(feedback, sm, cp, state, axis, stamp, now_ns, *, l
       not 0 < feedback.healthy_feedback_ns <= now_ns or not feedback.healthy_inventory):
     return False
   event_ns = int(sm.logMonoTime['onroadEvents'])
+  restriction = getattr(feedback, 'temporary_eps_event_ns', 0)
+  pending = feedback.pending_event
+  matched = axis.faultEventMonoTime == event_ns <= stamp
+  joined_event = max(axis.faultEventMonoTime, event_ns)
+  joining = bool(0 < restriction and previous[6] in (restriction, pending) and
+    min(axis.faultEventMonoTime, event_ns) in (restriction, pending) and
+    restriction < joined_event <= now_ns and now_ns - joined_event <= AXIS_MAX_AGE_NS and
+    (not pending or joined_event >= pending))
+  if (pending and (not 0 < pending <= now_ns or now_ns - pending > AXIS_MAX_AGE_NS or
+      not (joining or matched and event_ns >= pending))):
+    return False
   if (not sm.seen['onroadEvents'] or not sm.valid['onroadEvents'] or not sm.alive['onroadEvents'] or
-      not 0 < axis.faultEventMonoTime == event_ns <= stamp or now_ns - event_ns > 1_500_000_000 or
+      not 0 < event_ns <= now_ns or now_ns - event_ns > 1_500_000_000 or not (matched or joining) or
       any(event.immediateDisable or
           event.softDisable and event.name != log.OnroadEvent.EventName.steerTempUnavailable or
           event.userDisable and not (event.name == log.OnroadEvent.EventName.pcmDisable or
-            state.brakePressed and event.name == log.OnroadEvent.EventName.pedalPressed) for event in sm['onroadEvents'])):
+            (state.brakePressed or feedback.subaru_eps_brake_event_ns == event_ns) and
+            event.name == log.OnroadEvent.EventName.pedalPressed) for event in sm['onroadEvents'])):
     return False
   native = _configured_transport_native(sm, cp, feedback.session, now_ns, allow_restricted_lateral=True)
-  return bool(native_off(native) and native.observedMonoTime >= feedback.healthy_native_ns and
-    feedback.healthy_inventory == (native.pandaSerial, tuple(slot.hardwareSerial for slot in native.pandaInventory)))
+  if (native is None or not native.pandaInventory or native.requestedLateral != native.lateralAllowed or
+      native.requestedLongitudinal or native.longitudinalAllowed or native.observedMonoTime < feedback.healthy_native_ns or
+      feedback.healthy_inventory != (native.pandaSerial, tuple(slot.hardwareSerial for slot in native.pandaInventory))):
+    return False
+  if matched:
+    feedback.pending_event = 0
+    feedback.temporary_eps_event_ns = event_ns
+    if state.brakePressed:
+      feedback.subaru_eps_brake_event_ns = event_ns
+  else:
+    feedback.pending_event = pending or joined_event
+    feedback.awaiting = True
+  return True
+
+
+def retain_pending_restriction_recovery(feedback, sm, cp, state, axis, stamp, now_ns, *, latched, producer):
+  """Complete an existing EPS event join after recovery; never renew authority."""
+  from openpilot.starpilot.aol.transport_pause import _healthy_transport_native, cp_identity
+  previous = feedback.signature
+  pending, restriction = feedback.pending_event, getattr(feedback, 'temporary_eps_event_ns', 0)
+  if (not qualified(cp, marked_only=True) or not cp.pcmCruise or cp.openpilotLongitudinalControl or
+      not latched or feedback.failed or feedback.paused or feedback.retention_started_ns or
+      feedback.source_retention_started_ns or not feedback.ever_lateral_active or
+      previous is None or not feedback.session or cp_identity(cp) != feedback.cp or
+      not 0 < restriction < pending <= now_ns or now_ns - pending > AXIS_MAX_AGE_NS or
+      previous[0] != previous[7] or previous[0] != feedback.session or previous[5] != 'none' or
+      previous[6] not in (restriction, pending) or any(previous[9:13]) or not previous[13] or
+      not producer or previous[14:16] != (producer, int(axis.intentIntegrityEpoch)) or
+      not 0 < previous[8] <= previous[2] <= now_ns <= previous[4] or now_ns - previous[8] > AXIS_MAX_AGE_NS or
+      axis.intentProducerSessionId != producer or str(axis.sessionId) != feedback.session or
+      str(axis.faultSessionId) != feedback.session or str(axis.faultReason) != 'none' or
+      str(axis.mode) != 'off' or not axis.nativeAcknowledged or
+      any((axis.desiredLateral, axis.lateralActive, axis.desiredLongitudinal, axis.longitudinalActive)) or
+      not axis.qualified or not sm.seen['aolAxisState'] or not sm.valid['aolAxisState'] or not sm.alive['aolAxisState'] or
+      axis.sequence < feedback.sequence or
+      not previous[8] <= axis.sourceCarStateMonoTime <= stamp == axis.observedMonoTime <= now_ns <= axis.validUntilMonoTime or
+      axis.validUntilMonoTime - stamp != AXIS_MAX_AGE_NS or now_ns - axis.sourceCarStateMonoTime > AXIS_MAX_AGE_NS or
+      state.steerFaultTemporary or state.steerFaultPermanent or not state.canValid or state.canTimeout or
+      state.accFaulted or state.doorOpen or state.seatbeltUnlatched or state.vehicleSensorsInvalid or
+      state.steeringDisengage or state.buttonEvents or state.regenBraking or
+      state.gearShifter != structs.CarState.GearShifter.drive or not state.cruiseState.available or state.cruiseState.enabled):
+    return False
+  event_ns = int(sm.logMonoTime['onroadEvents'])
+  temporary = (log.OnroadEvent.EventName.steerTempUnavailable, log.OnroadEvent.EventName.steerTempUnavailableSilent)
+  allowed = (*temporary, log.OnroadEvent.EventName.pcmDisable, log.OnroadEvent.EventName.gasPressedOverride,
+    log.OnroadEvent.EventName.steerOverride, log.OnroadEvent.EventName.pedalPressed)
+  if (not sm.seen['onroadEvents'] or not sm.valid['onroadEvents'] or not sm.alive['onroadEvents'] or
+      axis.faultEventMonoTime not in (restriction, pending) or event_ns not in (restriction, pending) or
+      max(axis.faultEventMonoTime, event_ns) != pending or event_ns > stamp or
+      not any(event.name in temporary for event in sm['onroadEvents']) or
+      any(event.name not in allowed or event.immediateDisable or event.softDisable and event.name != temporary[0] or
+          event.userDisable and not (event.name == log.OnroadEvent.EventName.pcmDisable or
+            (state.brakePressed or feedback.subaru_eps_brake_event_ns in (restriction, pending)) and
+            event.name == log.OnroadEvent.EventName.pedalPressed) for event in sm['onroadEvents'])):
+    return False
+  native = _healthy_transport_native(sm, cp, state, feedback.session, now_ns)
+  if (native is None or not native.pandaInventory or native.requestedLateral != native.lateralAllowed or
+      native.requestedLongitudinal or native.longitudinalAllowed or native.observedMonoTime < feedback.healthy_native_ns or
+      feedback.healthy_inventory != (native.pandaSerial, tuple(slot.hardwareSerial for slot in native.pandaInventory))):
+    return False
+  feedback.pending_event = feedback.temporary_eps_event_ns = 0
+  return True
