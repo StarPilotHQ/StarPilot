@@ -676,7 +676,7 @@ def test_actual_paused_subaru_restriction_keeps_armed_intent(subaru_native_pair,
                          ids=('guard', 'guard-gas', 'raw-eps', 'raw-eps-gas', 'brake-release-guard', 'brake-release-eps'))
 @pytest.mark.parametrize('axis_first', (False, True), ids=('event-first', 'axis-first'))
 def test_actual_subaru_eps_clear_during_blinker_pause_keeps_armed_intent(
-    subaru_native_pair, tmp_path, recovery, axis_first=False, candidate=CAR.SUBARU_IMPREZA_2020):
+    subaru_native_pair, tmp_path, recovery, axis_first, candidate=CAR.SUBARU_IMPREZA_2020):
   test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(
     candidate, subaru_native_pair, tmp_path, main_only=candidate in (
       CAR.SUBARU_IMPREZA_2020, CAR.SUBARU_IMPREZA_2025, CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_OUTBACK_2023),
@@ -687,7 +687,7 @@ def test_actual_subaru_eps_clear_during_blinker_pause_keeps_armed_intent(
 @pytest.mark.parametrize('candidate', (CAR.SUBARU_ASCENT_2023, CAR.SUBARU_LEGACY_2025, CAR.SUBARU_CROSSTREK_2025,
   CAR.SUBARU_IMPREZA_2025, CAR.SUBARU_FORESTER, CAR.SUBARU_OUTBACK, CAR.SUBARU_OUTBACK_2023))
 def test_actual_subaru_family_eps_recovery_join(candidate, subaru_native_pair, tmp_path):
-  test_actual_subaru_eps_clear_during_blinker_pause_keeps_armed_intent(subaru_native_pair, tmp_path, 4, candidate=candidate)
+  test_actual_subaru_eps_clear_during_blinker_pause_keeps_armed_intent(subaru_native_pair, tmp_path, 4, axis_first=False, candidate=candidate)
 
 
 @pytest.mark.parametrize('restriction', (5, 6), ids=('braked-guard', 'braked-eps'))
