@@ -327,8 +327,8 @@ def create_ioniq6_blindspot_status(counter: int, status: BlindspotStatus, *, bus
 
 # Source-derived CCNC camera display transform; the repository MIT notice applies.
 def create_ccnc(packer, CAN, openpilot_longitudinal, enabled, hud, left_blinker, right_blinker, msg_161, msg_162, msg_1b5,
-                is_metric, out, main_cruise_enabled, lfa_icon, *, owned_lfa_status=False):
-  if lfa_icon or owned_lfa_status:
+                is_metric, out, main_cruise_enabled, lfa_icon, *, owned_lfa_status=None):
+  if owned_lfa_status or (owned_lfa_status is None and lfa_icon):
     # The host owns lateral; keep unrelated faults and obstruction warnings.
     for field in ("FAULT_LSS", "FAULT_HDA", "FAULT_DAS", "FAULT_LFA", "FAULT_DAW"):
       if msg_162.get(field) == 1:

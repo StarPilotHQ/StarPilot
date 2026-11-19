@@ -7,7 +7,7 @@ from opendbc.car import Bus, gen_empty_fingerprint, structs
 from opendbc.car.hyundai.canfd_lfa_status import CANFDClusterStatus, CANFDLfaStatus, preserves_stock_lfa
 from opendbc.car.hyundai.hyundaicanfd import CLUSTER_CONTROL_MASK, CanBus, create_lfahda_cluster, hkg_can_fd_checksum
 from opendbc.car.hyundai.interface import CarInterface
-from opendbc.car.hyundai.values import CAR, DBC
+from opendbc.car.hyundai.values import CAR, DBC, HyundaiFlags
 
 
 @pytest.fixture
@@ -389,6 +389,10 @@ def test_actual_interface_preserves_body_icons_cadence_and_identical_steering(ca
     _, original = reference.apply(command.as_reader(), clock[0])
     assert [p for p in own if p[0] == 0x12A] == [p for p in original if p[0] == 0x12A]
     messages = [p for p in own if p[0] == 0x1E0]
+    if cp.flags & HyundaiFlags.CCNC:
+      assert not messages
+      assert not any(p[0] in (0x161, 0x162) for p in own)
+      continue
     assert len(messages) == int(tick % 5 == 0)
     if messages:
       original_cluster = next(p for p in original if p[0] == 0x1E0)
@@ -864,7 +868,7 @@ def test_same_batch_ownership_requires_valid_ordered_healthy_predecessor(failure
   assert not source.owns_display_status(False, clock[0] + 3_000_000_000, healthy=True)
 
 
-@pytest.mark.parametrize('car', (CAR.HYUNDAI_KONA_2ND_GEN, CAR.HYUNDAI_KONA_HEV_2ND_GEN,
+@pytest.mark.parametrize('car', (CAR.HYUNDAI_KONA_EV_2ND_GEN, CAR.HYUNDAI_KONA_2ND_GEN, CAR.HYUNDAI_KONA_HEV_2ND_GEN,
                                 CAR.HYUNDAI_SANTA_CRUZ_2025, CAR.HYUNDAI_SONATA_2024,
                                 CAR.HYUNDAI_SONATA_HEV_2024, CAR.HYUNDAI_TUCSON_2025,
                                 CAR.HYUNDAI_TUCSON_HEV_2025, CAR.KIA_K5_2025))
