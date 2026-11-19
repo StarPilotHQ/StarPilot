@@ -862,3 +862,124 @@ def test_same_batch_ownership_requires_valid_ordered_healthy_predecessor(failure
     owned = source.owns_display_status(tick >= 2, clock[0], healthy=failure != 'host_fault')
   assert owned == (failure == 'none')
   assert not source.owns_display_status(False, clock[0] + 3_000_000_000, healthy=True)
+
+
+@pytest.mark.parametrize('car', (CAR.HYUNDAI_KONA_2ND_GEN, CAR.HYUNDAI_KONA_HEV_2ND_GEN,
+                                CAR.HYUNDAI_SANTA_CRUZ_2025, CAR.HYUNDAI_SONATA_2024,
+                                CAR.HYUNDAI_SONATA_HEV_2024, CAR.HYUNDAI_TUCSON_2025,
+                                CAR.HYUNDAI_TUCSON_HEV_2025, CAR.KIA_K5_2025))
+@pytest.mark.parametrize('alpha', (False, True))
+@pytest.mark.parametrize('failure', ('none', 'host_fault', 'eps_fault', 'camera_fault', 'higher_grade'))
+def test_actual_ccnc_handover_keeps_owned_warning_quiet_and_real_faults_visible(car, alpha, failure, clock):
+  cp = params(car, alpha=alpha)
+  ci = CarInterface(cp)
+  ci.update([])
+  packer = CANPacker(DBC[car][Bus.pt])
+  bus = ci.CC.CAN
+  decoder = CANParser(DBC[car][Bus.pt], [('CCNC_0x161', 0), ('CCNC_0x162', 0)], bus.ECAN)
+  command = structs.CarControl.new_message()
+  fields = ('FAULT_LSS', 'FAULT_HDA', 'FAULT_DAS', 'FAULT_LFA', 'FAULT_DAW')
+  seen = 0
+  for tick in range(100):
+    clock[0] = 40_000_000_000 + tick * 10_000_000
+    command.enabled = command.latActive = 2 <= tick < 30
+    faulted = failure != 'none' and tick >= 40
+    stock = template(packer, bus.CAM, tick % 256, warning=15 if 14 <= tick < 75 else 0,
+                     fault=int(faulted and failure == 'camera_fault'))
+    if faulted and failure == 'higher_grade':
+      data = bytearray(stock[1])
+      data[4], data[5] = (data[4] & 0x3F) | 0x40, data[5] | 1
+      data[:2] = hkg_can_fd_checksum(0x12A, None, data).to_bytes(2, 'little')
+      stock = stock[0], bytes(data), stock[2]
+    frames = [p for p in physical_frames(ci, packer, tick, stock) if not (p[0] == 0xEA and p[2] == bus.ECAN)]
+    frames.append(packer.make_can_msg('MDPS', bus.ECAN, {'COUNTER': tick % 256,
+                  'MDPS_LkaToiActvSta': int(4 <= tick < 32), 'MDPS_LkaFailSta': int(faulted and failure == 'eps_fault')}))
+    if tick % 5 == 0:
+      faults = dict.fromkeys(fields, int(14 <= tick < 80))
+      frames.extend([packer.make_can_msg('CCNC_0x161', bus.CAM, {'COUNTER': tick // 5 % 256}),
+                     packer.make_can_msg('CCNC_0x162', bus.CAM, {'COUNTER': tick // 5 % 256, 'FAULT_FSS': 2, **faults})])
+    state = ci.update([(clock[0], frames)])
+    assert state.canValid
+    if faulted and failure == 'host_fault':
+      ci.CS.out.accFaulted = True
+    _, packets = ci.apply(command.as_reader(), clock[0])
+    display = [p for p in packets if p[0] in (0x161, 0x162)]
+    if not display:
+      continue
+    seen += 1
+    decoder.update([(clock[0], display)])
+    for field in fields:
+      assert decoder.vl['CCNC_0x162'][field] == int(faulted and 14 <= tick < 80), (tick, failure, field)
+    assert decoder.vl['CCNC_0x162']['FAULT_FSS'] == 2
+    assert decoder.vl['CCNC_0x161']['LFA_ICON'] == (2 if command.latActive else 0)
+    assert decoder.vl['CCNC_0x161']['CENTERLINE'] == int(command.latActive)
+  assert seen == 19
+
+
+@pytest.mark.parametrize('failure', ('expired', 'backward', 'negative', 'host_fault', 'eps_fault', 'stale_eps', 'stale_camera', 'stale_camera_qualified',
+                                    'camera_crc', 'camera_fault', 'higher_grade', 'unqualified_warning'))
+def test_ccnc_normal_camera_handover_requires_current_health_and_expires(failure, clock):
+  packer = CANPacker(DBC[CAR.HYUNDAI_KONA_2ND_GEN][Bus.pt])
+  source = CANFDLfaStatus(2)
+  for tick in range(16):
+    clock[0] = 50_000_000_000 + tick * 10_000_000
+    camera = template(packer, 2, tick, warning=15 if tick >= 14 else 0)
+    eps = packer.make_can_msg('MDPS', 0, {'COUNTER': tick, 'MDPS_LkaToiActvSta': int(tick >= 4)})
+    source.update([(clock[0], [eps, camera])])
+    owned = source.owns_display_status(tick >= 2, clock[0], healthy=True)
+    assert source.owns_ccnc_fault_status(clock[0], healthy=True, qualified_warning=owned) == owned
+  assert owned
+  final_owned_ns = clock[0]
+  for tick in range(16, 23):
+    clock[0] += 10_000_000
+    warning = 15 if failure == 'unqualified_warning' else 0
+    camera = template(packer, 2, tick, warning=warning, fault=int(failure == 'camera_fault'))
+    if failure in ('camera_crc', 'higher_grade'):
+      data = bytearray(camera[1])
+      if failure == 'camera_crc':
+        data[0] ^= 1
+      else:
+        data[4], data[5] = (data[4] & 0x3F) | 0x40, data[5] | 1
+        data[:2] = hkg_can_fd_checksum(0x12A, None, data).to_bytes(2, 'little')
+      camera = camera[0], bytes(data), camera[2]
+    eps = packer.make_can_msg('MDPS', 0, {'COUNTER': tick, 'MDPS_LkaFailSta': int(failure == 'eps_fault')})
+    frames = [] if failure == 'stale_eps' else [eps]
+    if failure not in ('stale_camera', 'stale_camera_qualified'):
+      frames.append(camera)
+    source.update([(clock[0], frames)])
+    now = final_owned_ns - 1 if failure == 'backward' else -1 if failure == 'negative' else clock[0]
+    held = source.owns_ccnc_fault_status(now, healthy=failure != 'host_fault',
+                                         qualified_warning=failure == 'stale_camera_qualified')
+    if failure == 'expired':
+      assert held == (clock[0] - final_owned_ns <= 50_000_000)
+    elif failure in ('stale_eps', 'stale_camera', 'stale_camera_qualified') and tick < 21:
+      continue
+    else:
+      assert not held
+  for tick in range(23, 27):
+    clock[0] += 10_000_000
+    camera = template(packer, 2, tick)
+    eps = packer.make_can_msg('MDPS', 0, {'COUNTER': tick})
+    source.update([(clock[0], [eps, camera])])
+    assert not source.owns_ccnc_fault_status(clock[0], healthy=True, qualified_warning=False)
+
+
+@pytest.mark.parametrize('fault', range(1, 8))
+@pytest.mark.parametrize('owned', (False, True))
+def test_ccnc_fault_handover_preserves_obstruction_and_unknown_codes(fault, owned):
+  from opendbc.car.hyundai.hyundaicanfd import create_ccnc
+  cp = params(CAR.HYUNDAI_KONA_2ND_GEN)
+  bus = CanBus(cp)
+  packer = CANPacker(DBC[cp.carFingerprint][Bus.pt])
+  fields = ('FAULT_LSS', 'FAULT_HDA', 'FAULT_DAS', 'FAULT_LFA', 'FAULT_DAW')
+  original = dict.fromkeys(fields, fault)
+  original.update({'COUNTER': 173, 'FAULT_FCA': 1, 'FAULT_FSS': 2, 'FAULT_ESS': 1, 'FAULT_SCC': 3})
+  messages = create_ccnc(packer, bus, False, False, None, False, False, {'COUNTER': 172}, original.copy(),
+                         None, True, None, False, False, owned_lfa_status=owned)
+  decoder = CANParser(DBC[cp.carFingerprint][Bus.pt], [('CCNC_0x161', 0), ('CCNC_0x162', 0)], bus.ECAN)
+  decoder.update([(1_000_000_000, messages)])
+  for field in fields:
+    assert decoder.vl['CCNC_0x162'][field] == (0 if owned and fault == 1 else fault)
+  for field in ('COUNTER', 'FAULT_FCA', 'FAULT_FSS', 'FAULT_ESS', 'FAULT_SCC'):
+    assert decoder.vl['CCNC_0x162'][field] == original[field]
+  assert decoder.vl['CCNC_0x161']['LFA_ICON'] == decoder.vl['CCNC_0x161']['CENTERLINE'] == 0

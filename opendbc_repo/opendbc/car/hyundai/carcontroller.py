@@ -419,6 +419,7 @@ class CarController(CarControllerBase):
     _projection = self.learning_projection_observer
     can_sends = []
     stock_popup_owned = False
+    stock_ccnc_owned = False
     canfd_lfa_icon = (self.canfd_dash_icons.update(self.frame, CC.enabled, CC.latActive)
                        if self.canfd_dash_icons is not None else None)
 
@@ -548,6 +549,9 @@ class CarController(CarControllerBase):
         stock_owned_status = stock_source.owns_display_status(apply_steer_req, clock_boot_ns(), healthy=display_healthy)
         stock_popup_owned = stock_source.owns_disengage_popup(apply_steer_req, clock_boot_ns(), healthy=display_healthy,
                                                             qualified_warning=stock_owned_status)
+        if ccnc_non_lka:
+          stock_ccnc_owned = stock_source.owns_ccnc_fault_status(clock_boot_ns(), healthy=display_healthy,
+                                                               qualified_warning=stock_owned_status)
       damping_source = getattr(CS, "stock_lkas_damping", None)
       can_sends.extend(hyundaicanfd.create_steering_messages(self.packer, self.CP, self.CAN,
                                                             steering_status_active, apply_steer_req, apply_torque,
@@ -586,7 +590,7 @@ class CarController(CarControllerBase):
           can_sends.extend(hyundaicanfd.create_ccnc(self.packer, self.CAN, self.CP.openpilotLongitudinalControl,
                                                     CC.enabled, hud_control, CC.leftBlinker, CC.rightBlinker,
                                                     CS.ccnc_161.copy(), CS.ccnc_162.copy(), CS.ccnc_1b5 if support_current else None,
-                                                    CS.is_metric, CS.out, CS.out.cruiseState.available, CC.latActive))
+                                                    CS.is_metric, CS.out, CS.out.cruiseState.available, CC.latActive, owned_lfa_status=stock_ccnc_owned))
           self.last_ccnc_161_ts_ns = CS.ccnc_161_ts_ns
           self.last_ccnc_162_ts_ns = CS.ccnc_162_ts_ns
       else:
