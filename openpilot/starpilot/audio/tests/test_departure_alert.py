@@ -184,8 +184,8 @@ def test_defaults_skip_perception_and_never_mutate_settings(tmp_path):
   assert all(not Path(params.get_param_path(k)).exists() for k in KEYS)
 
 
-@pytest.mark.parametrize('kind', [1, 2])
-def test_existing_scene_projector_drives_each_notice_without_control_changes(tmp_path, kind):
+@pytest.mark.parametrize('kind,prefix_noise', [(1, False), (1, True), (2, False), (2, True)])
+def test_existing_scene_projector_drives_each_notice_without_control_changes(tmp_path, kind, prefix_noise):
   import numpy as np
   from openpilot.starpilot.conditional_mode.tests.test_projection import FakeSubMaster, serialized_scene
 
@@ -214,6 +214,8 @@ def test_existing_scene_projector_drives_each_notice_without_control_changes(tmp
     payloads['carState'].gearShifter = 'drive'
     payloads['controlsState'].curvature = 0.0
     payloads['modelV2'].action.shouldStop = not departing if kind == 1 else False
+    if prefix_noise and stationary and departing:
+      payloads['modelV2'].position.x = [0.0, -0.0001, 0.0002, -0.0004, *[horizon * i / 32 for i in range(4, 33)]]
     payloads['radarState'].leadOne.radarTrackId = 7
     payloads['deviceState'] = NS(started=True, startedMonoTime=DRIVE)
     sm = FakeSubMaster(payloads, now)
@@ -291,3 +293,68 @@ def test_known_stop_sign_never_becomes_a_green_light_notice_until_next_stop():
   sample(owner, 5, stationary=False)
   sample(owner, 6)
   assert sample(owner, 7, model_stopped=False)[0] == 1
+
+
+@pytest.mark.parametrize('fault', [None, 'vision', 'missing-lead', 'new-track', 'invalid-can', 'gas', 'reverse',
+                                 'stale-radar', 'radar-receipt', 'invalid-radar', 'dead-radar',
+                                 'stale-model', 'stale-eof', 'future-eof', 'safe-mode', 'disabled'])
+def test_stopped_physical_lead_departure_does_not_need_moving_control_tracking(tmp_path, fault):
+  import numpy as np
+  from openpilot.starpilot.conditional_mode.tests.test_projection import FakeSubMaster, serialized_scene
+
+  params = Params(str(tmp_path))
+  Path(params.get_param_path('LeadDepartingAlert')).write_bytes(b'0' if fault == 'disabled' else b'1')
+  if fault == 'safe-mode':
+    Path(params.get_param_path('SafeMode')).write_bytes(b'1')
+  owner = DepartureNotifications(params)
+  cp = NS(openpilotLongitudinalControl=True, pcmCruise=True, carFingerprint='TOYOTA_RAV4_TSS2',
+          passive=False, dashcamOnly=False, notCar=False)
+  planner = NS(mpc=NS(params=np.array([[0.0, 0.0, 0.0, 0.0, 1.45]])))
+  before = planner.mpc.params.copy()
+  emitted = []
+  for tick in range(100):
+    now = NOW + tick * 50_000_000
+    departing = tick >= 40
+    payloads = serialized_scene(stamp=now, speed=0.0, standstill=True, horizon=50.0,
+      lead_distance=5.1 if departing else 3.85, lead_speed=1.3 if departing else 0.0)
+    payloads = {k: v.as_builder() for k, v in payloads.items()}
+    car, model, lead = payloads['carState'], payloads['modelV2'], payloads['radarState'].leadOne
+    car.gearShifter = 'reverse' if fault == 'reverse' else 'drive'
+    car.canValid = fault != 'invalid-can'
+    car.gasPressed = fault == 'gas'
+    car.brakePressed = True
+    car.vCruise = 255.0
+    car.vEgo = -3.98e-9
+    car.vEgoRaw = 0.0
+    model.position.x = [0.0, -0.0001, 0.0002, -0.0004, *[50.0 * i / 32 for i in range(4, 33)]]
+    model.action.shouldStop = False
+    model.timestampEof = now - 200_000_000 if fault == 'stale-eof' else now + 1 if fault == 'future-eof' else now
+    lead.present = fault != 'missing-lead'
+    lead.radar = fault != 'vision'
+    lead.radarTrackId = tick if fault == 'new-track' and departing else 3630
+    payloads['deviceState'] = NS(started=True, startedMonoTime=DRIVE)
+    sm = FakeSubMaster(payloads, now)
+    for attr in ('valid', 'alive', 'seen'):
+      getattr(sm, attr)['deviceState'] = True
+    sm.logMonoTime['deviceState'] = now
+    sm.recv_time['deviceState'] = now / 1e9
+    sm.all_checks = lambda keys, sm=sm: all(sm.valid[k] and sm.alive[k] for k in keys)
+    if fault == 'stale-radar':
+      sm.logMonoTime['radarState'] = now - 300_000_000
+    elif fault == 'radar-receipt':
+      sm.recv_time['radarState'] = (now - 300_000_000) / 1e9
+    elif fault == 'invalid-radar':
+      sm.valid['radarState'] = False
+    elif fault == 'dead-radar':
+      sm.alive['radarState'] = False
+    elif fault == 'stale-model':
+      sm.logMonoTime['modelV2'] = now - 300_000_000
+    notice = owner.sample(sm, cp, planner, clocks=(now, now, 0))
+    if notice[0]:
+      emitted.append(notice)
+  if fault is None:
+    assert emitted and {kind for kind, _ in emitted} == {2}
+    assert len({stamp for _, stamp in emitted}) == 1
+  else:
+    assert not emitted
+  np.testing.assert_array_equal(planner.mpc.params, before)
