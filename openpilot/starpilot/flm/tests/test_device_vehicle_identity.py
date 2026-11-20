@@ -1,5 +1,6 @@
 """Declared registered-device identities; never proof of a unique physical VIN."""
 import bz2
+from dataclasses import replace
 import gzip
 import hashlib
 import importlib
@@ -167,12 +168,25 @@ class TestRegisteredDeviceVehicleIdentity(unittest.TestCase):
       output.parent.mkdir(parents=True, exist_ok=True)
       shutil.copyfile(path, output)
 
-  def test_known_vin_saved_keys_and_every_trial_state_match_actual_published_source_without_retagging(self):
-    self.cp.carVin = 'KMHL341JBLU000001'
-    root, files, names, native, paths, ci, controller = self.selected_sources()
+  def copy_reviewed_identity_sources(self, root, destination, paths):
     fixture = json.loads(gzip.decompress((Path(__file__).parent / 'fixtures/identity_previous_sources.json.gz').read_bytes()))
     ledger = json.loads((root / 'openpilot/starpilot/flm/identity_transition.json').read_bytes())
     self.assertEqual(fixture['source_parent'], ledger['source_parent'])
+    self.copy_sources(root, destination, paths)
+    for path, source in fixture['reviewed_sources'].items():
+      self.assertEqual(hashlib.sha256(source.encode()).hexdigest(), ledger['reviewed_sources'][path])
+      (destination / path).write_text(source)
+    return fixture, ledger
+
+  def test_known_vin_saved_keys_and_every_trial_state_match_actual_published_source_without_retagging(self):
+    from openpilot.starpilot.flm.identity_transition import known_vin_revision
+    from openpilot.starpilot.flm.steering_compatibility import revision
+
+    self.cp.carVin = 'KMHL341JBLU000001'
+    root, files, names, native, paths, ci, controller = self.selected_sources()
+    reviewed_root = self.root / 'reviewed-source'
+    fixture, ledger = self.copy_reviewed_identity_sources(root, reviewed_root, paths)
+    reviewed = tuple(reviewed_root / path.relative_to(root) for path in files)
     old_root = self.root / 'published-source'
     self.copy_sources(root, old_root, paths)
     for path, source in fixture['files'].items():
@@ -185,12 +199,17 @@ class TestRegisteredDeviceVehicleIdentity(unittest.TestCase):
     old_revision = namespace['revision'](old_root, *(old_root / path.relative_to(root) for path in files), names, native)
     descriptor = selected_descriptor(self.cp, ci, controller)
     assert descriptor is not None
-    self.assertEqual(descriptor.controller_revision, old_revision)
+    self.assertEqual(known_vin_revision(reviewed_root, *reviewed, names, native), old_revision)
+    self.assertIsNone(known_vin_revision(root, *files, names, native))
+    self.assertEqual(descriptor.controller_revision, revision(root, *files, names, native))
+    self.assertNotEqual(descriptor.controller_revision, old_revision)
     scope = current_scope(self.cp, self.params)
     previous: dict[str, Any] = {}
     exec(compile(fixture['files']['openpilot/starpilot/flm/offroad_runtime.py'], 'published-offroad-runtime', 'exec'), previous)
-    old_scope, _ = previous['configuration_scope'](self.cp, ci, controller, self.params, manual_status='not_configured')
-    self.assertEqual(scope, old_scope)
+    historical_descriptor = replace(descriptor, controller_revision=old_revision)
+    with patch('openpilot.starpilot.flm.runtime_adapter_registry.selected_descriptor', return_value=historical_descriptor):
+      old_scope, _ = previous['configuration_scope'](self.cp, ci, controller, self.params, manual_status='not_configured')
+    self.assertNotEqual(scope, old_scope)
     for state in ('ready_for_next_drive', 'accepted_after_drive', 'retained_after_drive', 'rolled_back'):
       with self.subTest(state=state):
         params = Params(str(self.root / state))
@@ -202,8 +221,9 @@ class TestRegisteredDeviceVehicleIdentity(unittest.TestCase):
           self.assertTrue(storage.resolve(scope=old_scope, expected=params.get(KEY), outcome=state,
                                           route_sha256='e' * 64, completed_wall_ns=2, analysis_sha256='f' * 64, authorized=lambda: True))
         before = params.get(KEY)
-        loaded, status = startup_row(params, scope)
+        loaded, status = startup_row(params, old_scope)
         self.assertEqual(status, 'route_tune_loaded')
+        self.assertIsNone(startup_row(params, scope)[0], 'Changed steering source cannot revive an old tune')
         self.assertEqual(loaded['state'], state)
         self.assertEqual(loaded['values'], row['previous'] if state == 'rolled_back' else row['values'])
         self.assertEqual(params.get(KEY), before, 'Loading must not rewrite history or restart a trial')
@@ -218,7 +238,8 @@ class TestRegisteredDeviceVehicleIdentity(unittest.TestCase):
 
     root, files, names, native, paths, _, _ = self.selected_sources()
     copied = self.root / 'source-mutations'
-    self.copy_sources(root, copied, paths)
+    self.assertIsNone(known_vin_revision(root, *files, names, native))
+    self.copy_reviewed_identity_sources(root, copied, paths)
     selected = tuple(copied / path.relative_to(root) for path in files)
     baseline = known_vin_revision(copied, selected[0], selected[1], names, native)
     self.assertIsNotNone(baseline)
