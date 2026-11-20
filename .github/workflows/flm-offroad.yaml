@@ -88,6 +88,7 @@ jobs:
             --json-output ci-results/flm-offroad.json
           .venv/bin/python -m pytest -q --import-mode=importlib \
             openpilot/starpilot/flm/tests/test_steering_compatibility.py \
+            openpilot/starpilot/flm/tests/test_offroad_nonemitted_controls.py \
             openpilot/starpilot/flm/tests/test_observed_maneuvers.py \
             openpilot/starpilot/flm/tests/test_upstream_producer_transport.py \
             openpilot/starpilot/flm/tests/test_clock_resolution_budget.py \
