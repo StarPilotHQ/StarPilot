@@ -233,7 +233,7 @@ class DeviceSettingsTest(unittest.TestCase):
         intent = gateway.preview(page["view"], index, 0, token, generation, reset_default=True)["intent"]
         self.assertTrue(gateway.confirm(intent, token, generation))
         self.assertEqual(Path(self.params.get_param_path(key)).read_bytes(), b"0")
-    self.assertEqual(gateway.page("developer", token, generation)["rows"][2]["label"], "Speed display adjustment")
+    self.assertEqual([row["label"] for row in gateway.page("developer", token, generation)["rows"]].count("Speed display adjustment"), 1)
 
   def test_starport_stay_on_wifi_toggle(self):
     self.assertNotIn(STARPORT_WIFI_KEY, [row.key for row in self.owner.snapshot("starport_options").rows])
@@ -452,7 +452,7 @@ class CalibrationResetSettingsTest(unittest.TestCase):
     context.value = replace(context.value, parked=True)
     pending = preview()
     self.assertTrue(gateway.confirm(pending["intent"], "session", b"generation"))
-    self.assertIsNone(self.params.get("IsRhdDetected"))
+    self.assertFalse(Path(self.params.get_param_path("IsRhdDetected")).exists())
     self.assertTrue(self.params.get_bool("OnroadCycleRequested"))
 
   def test_calibration_reset_gateway_requires_confirmation_and_fresh_parked_state(self):

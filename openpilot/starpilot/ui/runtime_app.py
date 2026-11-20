@@ -588,6 +588,7 @@ class StarShellSession:
         continue
       try:
         if command.action == 1:
+          self._native_favorite_actions()
           if self._wheel_personality is not None:
             self._wheel_personality()
         elif command.action in (5, 7, 8):
