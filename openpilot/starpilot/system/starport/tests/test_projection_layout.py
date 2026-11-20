@@ -420,11 +420,14 @@ class TestProjectionLayout(unittest.TestCase):
       source = ProjectionLayoutSource(Path(directory) / 'layouts/document.json')
       source.prepare()
       raw = json.dumps(default_layout(SCREEN)).encode()
-      args = {'key': 'projection', 'max_bytes': 16384, 'raw': raw, 'expected': None, 'temp_prefix': '.aa-test-'}
-      self.assertFalse(commit_exact(source, authorized=lambda: False, **args).committed)
-      result = commit_exact(source, authorized=lambda: True, **args)
+      def commit(authorized):
+        return commit_exact(source, key='projection', max_bytes=16384, raw=raw, expected=None,
+                            authorized=lambda: authorized, temp_prefix='.aa-test-')
+
+      self.assertFalse(commit(False).committed)
+      result = commit(True)
       self.assertTrue(result.committed and result.verified)
-      self.assertFalse(commit_exact(source, authorized=lambda: True, **args).committed)
+      self.assertFalse(commit(True).committed)
 
   def test_starport_widgets_are_added_to_older_layouts(self):
     document = default_layout(SCREEN)

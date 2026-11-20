@@ -59,6 +59,7 @@ def _controller(cp, surface=None, *, original_constructor_context=False):
     # Replace before the first update. The production constructor always uses None.
     controller.starpilot_extension.policy = Ioniq6TorquePolicy(controller, cp.as_reader(), surface=surface, turn_assist=True)
   if original_constructor_context:
+    controller.turn_assist_maneuver = True
     controller.hkg_canfd_torque = False
     # These frozen vectors invoke the original constructor directly. Dom
     # controlsd replaces this curve with the saved/default flat gain each tick;

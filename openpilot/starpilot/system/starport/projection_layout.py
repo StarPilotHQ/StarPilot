@@ -79,7 +79,7 @@ def layout_metadata_for_viewport(viewport):
   widgets.pop(JETLINK_WIDGET)  # Big-screen only for now
   profile['widgetOrder'] = [key for key in profile['widgetOrder'] if key != JETLINK_WIDGET]
   for widget in widgets.values():
-    for field in ('bounds', 'anchorShift', 'expandable'):
+    for field in ('bounds', 'anchorShift', 'expandable', 'rotateToggle'):
       widget.pop(field, None)
   widgets['current_speed']['default']['x'] += (width - 1860) / 2
   widgets[MODE_WIDGET]['default']['x'] += (width - 1860) / 2
