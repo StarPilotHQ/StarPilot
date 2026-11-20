@@ -389,7 +389,7 @@ class _Canvas:
           else:
             # General edit shows a representative CEM sample even though its backdrop
             # remains engaged. Driving scenes always use their unmodified state.
-            sample = {'cem_gauge': 'cem_curve', 'speed_limit_actions': 'slc_pending'}.get(key) if general else None
+            sample = 'cem_curve' if general and key == 'cem_gauge' else None
             widget_state = sample_state(sample, state.customization) if sample is not None else state
             if key == "rear_fog":
               from openpilot.starpilot.car.ford.rear_fog import boot_time_ns

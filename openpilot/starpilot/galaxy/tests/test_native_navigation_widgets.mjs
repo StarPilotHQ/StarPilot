@@ -26,11 +26,9 @@ for style in SIGNAL_SIZES:
 print(json.dumps(documents))
 `], { encoding: "utf8" }))
 for (const document of signalEdges) assert.equal(validDocument(document, data.metadata), true)
-for (const version of [11, 12, 13, 14, 15]) {
-  assert.equal(validSnapshot({ ...data, document: { ...data.document, version } }), true)
-  assert.equal(validSnapshot({ ...data, defaults: { ...data.defaults, version } }), true)
-}
-for (const version of [9, 10, 16]) {
+assert.equal(validSnapshot(data), true)
+assert.equal(data.document.version, 16)
+for (const version of [9, 10, 15, 17]) {
   assert.equal(validSnapshot({ ...data, document: { ...data.document, version } }), false)
   assert.equal(validSnapshot({ ...data, defaults: { ...data.defaults, version } }), false)
 }
@@ -107,36 +105,28 @@ assert.equal(vm.layout.nav_map.enabled, true)
 assert.equal(vm.layout.nav_map.opacity, 35)
 assert.equal(validSnapshot({ ...data, document: vm.state.draft }), true)
 
-// Use actual native geometry for source attachment, bounds, and the transient timer.
-assert.deepEqual(data.metadata.profiles.large.widgets.cruise_limits.sourcesExtent, {inline:114, card:122, actionGap:8})
+// Use actual native geometry for source growth, bounds, and the transient timer.
+assert.deepEqual(data.metadata.profiles.large.widgets.cruise_limits.sourcesExtent, {inline:114, card:122})
 vm.state.draft = structuredClone(data.document)
 vm.state.selected = "cruise_limits"
 vm.setSpeedSources("speedSources", true)
-assert.equal(vm.layout.speed_limit_actions.y, 449)
 vm.setSpeedSources("speedSourcesCard", true)
-assert.equal(vm.layout.speed_limit_actions.y, 457)
+assert.equal(vm.layout.cruise_limits.y, 75)
 vm.setSpeedSources("speedSources", false)
-assert.equal(vm.layout.speed_limit_actions.y, 325)
 const overlapping = structuredClone(data.document)
 overlapping.layouts.large.cruise_limits.y = 550
 assert.equal(validDocument(overlapping, data.metadata), false)
-// Disable torque while testing source attachment at the lower screen edge.
+// Disable torque while testing sources at the lower screen edge.
 vm.layout.torque_bar.enabled = false
 vm.layout.cruise_limits.x = 1300
-vm.layout.speed_limit_actions.x = 1324
 vm.layout.cruise_limits.y = 690
-vm.layout.speed_limit_actions.y = 940
 vm.setSpeedSources("speedSources", true)
-assert.equal(vm.layout.cruise_limits.y, 500)
-assert.equal(vm.layout.speed_limit_actions.y, 882)
+assert.equal(vm.layout.cruise_limits.y, 1050 - vm.profile.widgets.cruise_limits.height)
 assert.equal(validDocument(vm.state.draft, data.metadata), true)
 const beyondNewPromptWidth = JSON.parse(JSON.stringify(vm.state.draft))
 beyondNewPromptWidth.layouts.large.cruise_limits.x = 1430
 assert.equal(validDocument(beyondNewPromptWidth, data.metadata), false)
-
-Object.assign(vm.layout.speed_limit_actions, {x:600, y:500})
 vm.setSpeedSources("speedSources", false)
-assert.deepEqual([vm.layout.speed_limit_actions.x, vm.layout.speed_limit_actions.y], [600, 500])
 const signal = vm.profile.widgets.network_signal, signalBounds = signal.bounds || vm.profile.bounds
 assert.equal(signal.label, "Connections")
 vm.layout.network_signal.enabled = true
@@ -177,7 +167,7 @@ vm.state.profile = "compact"
 vm.add("stopped_timer")
 assert.equal(vm.layout.stopped_timer.enabled, true)
 assert.equal(validDocument(vm.state.draft, data.metadata), true)
-assert.deepEqual(clampPlacement(vm.profile, "speed_limit_actions", 146, 44, vm.layout), {x:146, y:44})
+assert.deepEqual(clampPlacement(vm.profile, "steering_wheel", 146, 44, vm.layout), {x:146, y:44})
 console.log("Native Big widgets: real metadata, optional add/move/remove, map resize/opacity and undo passed")
 
 // C4 has the same independent native navigation switch; StarPort is another document.

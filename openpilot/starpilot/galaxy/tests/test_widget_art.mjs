@@ -23,11 +23,8 @@ assert.deepEqual(await widgetArtMetadata(stripped,header),meta,'Sprite sheet sur
 await assert.rejects(widgetArtMetadata(stripped,null),/metadata/)
 assert.deepEqual(await widgetArtMetadata(image(),'image/png'),meta,'A malformed header falls back to the PNG chunk')
 await assert.rejects(widgetArtMetadata(stripped,Buffer.from(JSON.stringify({...meta,width:3})).toString('base64')))
-const withHeader={...meta,sprites:{speed_limit_actions:{x:0,y:0,width:2,height:1,offsetY:-32.5}}}
-assert.deepEqual(await widgetArtMetadata(image(withHeader)),withHeader,'Native action sprites include the heading above the buttons')
 for(const bad of [{...meta,width:3},{...meta,sprites:{conditional_mode:{x:1,y:0,width:2,height:1}}},
  {...meta,sprites:{conditional_mode:{x:0,y:0,width:NaN,height:1}}},
- {...meta,sprites:{speed_limit_actions:{x:0,y:0,width:2,height:1,offsetY:-34}}},
  {...meta,sprites:{conditional_mode:{x:0,y:0,width:2,height:1,offsetY:-32}}},
  {...meta,sprites:{conditional_mode:{x:0,y:0,width:2,height:1,offsetX:1}}}])await assert.rejects(widgetArtMetadata(image(bad)))
 await assert.rejects(widgetArtMetadata(new Blob(['not PNG'])))
@@ -46,11 +43,11 @@ for (const rect of [{offsetY:-20.01}, {offsetX:-2.01}, {x:1}, {width:3}]) {
   await assert.rejects(widgetArtMetadata(image({...meta,sprites:{cruise_limits:{x:0,y:0,width:2,height:1,...rect}}})))
 }
 const compactIds=['weather','max_speed','speed_limit','steering_wheel','conditional_mode','following_distance','model_confidence',
-  'driver_monitor','speed_limit_actions','rear_fog','driving_mode_descriptions','clock']
+  'driver_monitor','rear_fog','driving_mode_descriptions','clock']
 const complete={...meta,sprites:Object.fromEntries(compactIds.map(id=>[id,{x:0,y:0,width:2,height:1,visible:true}]))}
 assert.deepEqual(await widgetArtMetadata(image(complete)),complete)
 const atCapacity={...complete,sprites:{...complete.sprites,...Object.fromEntries(
-  Array.from({length:12},(_,i)=>[`extra_${String.fromCharCode(97+i)}`,{x:0,y:0,width:2,height:1,visible:true}]))}}
+  Array.from({length:13},(_,i)=>[`extra_${String.fromCharCode(97+i)}`,{x:0,y:0,width:2,height:1,visible:true}]))}}
 assert.deepEqual(await widgetArtMetadata(image(atCapacity)),atCapacity)
 await assert.rejects(widgetArtMetadata(image({...atCapacity,sprites:{...atCapacity.sprites,extra:{x:0,y:0,width:2,height:1}}})))
 const flush=async()=>{for(let i=0;i<20;i++)await Promise.resolve()}

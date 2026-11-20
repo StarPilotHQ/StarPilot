@@ -38,8 +38,8 @@ def test_numeric_subset_is_pinned_and_has_real_tabular_glyphs():
     assert bounds is not None and bounds[0] > 0
 
 
-def test_approved_limit_offset_and_action_sizes_fit_actual_fonts():
-  from openpilot.starpilot.ui.large_speed_geometry import ACTION_TEXT_SIZE, LARGE_SIGN_SCALE, LIMIT_RECTS
+def test_approved_limit_and_offset_sizes_fit_actual_fonts():
+  from openpilot.starpilot.ui.large_speed_geometry import LARGE_SIGN_SCALE, LIMIT_RECTS
   owns_context = not rl.is_window_ready()
   if owns_context:
     rl.init_window(128, 128, "Native speed-group font fixture")
@@ -57,13 +57,9 @@ def test_approved_limit_offset_and_action_sizes_fit_actual_fonts():
           offset_width = b - a
           width = max(value_width, offset_width) + 20 * scale
           assert width <= LIMIT_RECTS[profile][2]
-        action_width = 308 if large else 184
-        assert all(fonts.measure(label, FontRole.MEDIUM, ACTION_TEXT_SIZE[profile]).width + 4 <= action_width
-                   for label in ('Accept', 'Decline'))
         ppi = (2160**2 + 1080**2)**.5 / 6 if large else 300
         for text, role, size, minimum in (('65', FontRole.BOLD, limit_size, 2.5 if large else 2.8),
-                                         ('+5', FontRole.MEDIUM, offset_size, 1.5 if large else 2.0),
-                                         ('H', FontRole.MEDIUM, ACTION_TEXT_SIZE[profile], 2.8)):
+                                         ('+5', FontRole.MEDIUM, offset_size, 1.5 if large else 2.0)):
           top, bottom = fonts.vertical_ink(text, role, size)
           assert (bottom - top) * 25.4 / ppi >= minimum
   finally:
@@ -748,22 +744,19 @@ def test_sign_profiles_share_layout_and_keep_aligned_numbers():
       rl.close_window()
 
 
-def test_v5_geometry_migrates_and_keeps_custom_actions_independent():
+def test_v5_geometry_migrates_the_card():
   doc = default_document()
   doc['version'] = 5
   doc['speedSources'] = True
   doc['layouts']['large']['cruise_limits'].update(x=1550, y=638)
-  doc['layouts']['large']['speed_limit_actions'].update(x=1550, y=954)
+  doc['layouts']['large']['speed_limit_actions'] = {'x': 1550, 'y': 954, 'enabled': True}
   migrated = validate_document(doc)
-  assert migrated['version'] == 15
+  assert migrated['version'] == 16
   assert migrated['layouts']['large']['cruise_limits'] == default_document()['layouts']['large']['cruise_limits']
-  assert migrated['layouts']['large']['speed_limit_actions'] == {'x': 1550, 'y': 882, 'enabled': True}
+  assert 'speed_limit_actions' not in migrated['layouts']['large']
   assert migrated['speedSources'] is True
   assert doc['layouts']['large']['cruise_limits']['x'] == 1550
   assert validate_document(migrated) == migrated
-  doc['layouts']['large']['cruise_limits'].update(x=88, y=75)
-  doc['layouts']['large']['speed_limit_actions'].update(x=88, y=447)
-  assert validate_document(doc)['layouts']['large']['speed_limit_actions']['y'] == 449
 
 
 def test_pending_choices_use_the_sign_with_separated_horizontal_targets():
@@ -779,11 +772,11 @@ def test_projection_v1_layout_migrates_without_losing_other_widgets():
   viewport = (2880, 1080)
   doc = default_layout_for_viewport(viewport)
   doc['version'] = 1
-  doc['widgets']['speed_limit_actions'].update(x=88, y=447)
+  doc['widgets']['speed_limit_actions'] = {'x': 88, 'y': 447, 'enabled': True}
   doc['widgets']['current_speed'].update(x=1400, y=100)
   migrated = validate_layout_for_viewport(doc, viewport)
   assert migrated['version'] == 7
-  assert migrated['widgets']['speed_limit_actions']['y'] == 325
+  assert 'speed_limit_actions' not in migrated['widgets']
   assert migrated['widgets']['current_speed'] == doc['widgets']['current_speed']
   assert validate_layout_for_viewport(migrated, viewport) == migrated
 
@@ -793,12 +786,12 @@ def test_committed_projection_v1_right_edge_is_preserved_and_clamped():
   doc = default_layout_for_viewport(viewport)
   doc['version'] = 1
   doc['widgets']['cruise_limits'].update(x=1654, y=75)
-  doc['widgets']['speed_limit_actions'].update(x=1654, y=500)
+  doc['widgets']['speed_limit_actions'] = {'x': 1654, 'y': 500, 'enabled': True}
   migrated = validate_layout_for_viewport(doc, viewport)
   card = migrated['widgets']['cruise_limits']
   assert confirmation_bounds('large', card['x'], card['y'], opened=True)[2] <= 1830
   assert confirmation_bounds('large', card['x']+1, card['y'], opened=True)[2] > 1830
-  assert migrated['widgets']['speed_limit_actions'] == {'x': 1510, 'y': 500, 'enabled': True}
+  assert 'speed_limit_actions' not in migrated['widgets']
 
 
 

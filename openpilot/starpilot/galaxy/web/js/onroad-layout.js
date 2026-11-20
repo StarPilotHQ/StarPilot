@@ -365,16 +365,6 @@ export const LayoutWidgetPreview = {
         <path v-if="pending(scene)" d="M90 12 V-8 M84 -2 L90 -8 L96 -2" fill="none" :stroke="palette.text || '#ffffff'" stroke-width="2" />
         <text x="0" y="66" font-size="58" font-weight="700">45<tspan dx="10" font-size="36" font-weight="500">+5</tspan></text>
       </template>
-      <template v-else-if="widget.kind === 'speed_limit_actions'">
-        <template v-if="pending(scene)">
-          <line :x1="widget.width / 2" :x2="widget.width / 2" :y1="profile === 'large' ? 46 : 6" :y2="profile === 'large' ? 98 : 42" stroke="#9bb2adaa" />
-          <text v-for="(label, index) in ['Accept', 'Decline']" :key="label" :x="widget.width * (index ? .75 : .25)"
-            :y="profile === 'large' ? 72 : 24" text-anchor="middle" dominant-baseline="middle"
-            :font-size="profile === 'large' ? 64 : 50" font-weight="500">{{ label }}</text>
-        </template>
-        <text v-else :x="widget.width / 2" :y="profile === 'large' ? 72 : 24" text-anchor="middle"
-          dominant-baseline="middle" :font-size="profile === 'large' ? 48 : 28">Toyota guidance</text>
-      </template>
       <g v-else-if="widget.kind === 'torque_bar'" fill="none" stroke="white" stroke-linecap="round">
         <path :d="'M 12 ' + widget.height * .8 + ' Q ' + widget.width / 2 + ' ' + widget.height * .55 + ' ' + (widget.width - 12) + ' ' + widget.height * .8" :stroke-width="widget.height * .18" opacity=".3" />
         <path :d="'M ' + widget.width / 2 + ' ' + widget.height * .68 + ' Q ' + widget.width * .65 + ' ' + widget.height * .68 + ' ' + widget.width * .8 + ' ' + widget.height * .74" :stroke-width="widget.height * .18" opacity=".9" />
@@ -1167,7 +1157,7 @@ export const OnroadLayoutPage = {
         Object.assign(this.layout[id], position)
         if (before) this.recordChange(before)
         this.state.placementError = ""
-      } else this.state.placementError = "Keep widgets within the screen and clear of Speed limit actions. The last valid position is kept."
+      } else this.state.placementError = "Speed-limit confirmation overlaps set speed, torque, or screen bounds"
       this.state.notice = ""
     },
     add(id) {
@@ -1243,24 +1233,11 @@ export const OnroadLayoutPage = {
     setSpeedSources(key, value) {
       if (!this.editable || this.state.drag || this.state.layerDrag || this.selectedWidget?.kind !== "cruise_limits" ||
         !["speedSources", "speedSourcesCard"].includes(key)) return
-      const before = clone(this.state.draft), oldHeight = this.profile.widgets.cruise_limits.height
-      const widgets = this.state.data.metadata.profiles[this.state.profile].widgets
-      const dx = widgets.speed_limit_actions.default.x - widgets.cruise_limits.default.x
-      const gap = widgets.speed_limit_actions.default.y - widgets.cruise_limits.default.y - widgets.cruise_limits.height
-      const sourceGap = widgets.cruise_limits.sourcesExtent?.actionGap ?? gap
-      const oldGap = this.state.draft.speedSources === true ? sourceGap : gap
+      const before = clone(this.state.draft)
       this.state.draft[key] = value === true
-      const card = this.layout.cruise_limits, actions = this.layout.speed_limit_actions, height = this.profile.widgets.cruise_limits.height
-      // Actions that sat right under the card follow its new bottom; both stay on screen.
-      if (actions && actions.x === card.x + dx && actions.y === card.y + oldHeight + oldGap) {
-        const nextGap = this.state.draft.speedSources === true ? sourceGap : gap
-        card.y = Math.min(card.y, placementLimits(this.limitProfile, "speed_limit_actions", this.layout).maxY - height - nextGap)
-        actions.y = card.y + height + nextGap
-      }
-      for (const id of ["cruise_limits", "speed_limit_actions"].filter(id => this.layout[id])) {
-        const limits = placementLimits(this.limitProfile, id, this.layout)
-        this.layout[id].y = Math.max(limits.minY, Math.min(this.layout[id].y, limits.maxY))
-      }
+      // The card grows with its sources; keep it on screen.
+      const card = this.layout.cruise_limits, limits = placementLimits(this.limitProfile, "cruise_limits", this.layout)
+      card.y = Math.max(limits.minY, Math.min(card.y, limits.maxY))
       this.recordChange(before)
       this.state.notice = ""
     },
@@ -1330,7 +1307,7 @@ export const OnroadLayoutPage = {
         this.state.placementError = ""
       } else {
         Object.assign(position, before.layouts[this.state.profile][this.state.selected])
-        this.state.placementError = "That size would cover Speed limit actions. The last valid size is kept."
+        this.state.placementError = "Invalid widget size"
       }
       event.target.value = position.size
     },
@@ -1420,7 +1397,7 @@ export const OnroadLayoutPage = {
       } else {
         position.size = previous
         event.target.value = previous
-        this.state.placementError = "That size would cover Speed limit actions. The last valid size is kept."
+        this.state.placementError = "Invalid widget size"
       }
     },
     boxInput(axis, event) {

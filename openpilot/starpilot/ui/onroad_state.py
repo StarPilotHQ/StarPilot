@@ -14,7 +14,7 @@ from typing import Protocol
 
 from openpilot.starpilot.ui.presentation import Profile
 from openpilot.starpilot.ui.weather import WeatherReading
-from openpilot.starpilot.ui.large_speed_geometry import ACTION_BOUNDS, LIMIT_RECTS, confirmation_bounds, confirmation_buttons
+from openpilot.starpilot.ui.large_speed_geometry import LIMIT_RECTS, confirmation_bounds, confirmation_buttons
 from openpilot.starpilot.ui.appearance_preferences import CameraViewChoice, OnroadAppearance
 from openpilot.starpilot.curve_speed.status import CurveObservation
 from openpilot.starpilot.conditional_mode.policy import ModeChoice
@@ -92,15 +92,12 @@ class SpeedLimitObservation:
   presentation_id: int | None = None
   status: str = ""
   action_enabled: bool = False
-  action_sequence_id: int = 0
-  action_status: str = ""
   source_readings: tuple[SourceReading, ...] = ()
   accepted_adjusted_limit_mps: float | None = None
   pending_adjusted_limit_mps: float | None = None
   presentation_adjusted_limit_mps: float | None = None
   override_basis: str = 'none'
   retained_override: bool = False
-  action_feedback: str = ''
   automatic_adoption_pending: bool = False
   pending_since_ns: int = 0
   last_received_speed_limit_mps: float | None = None
@@ -291,8 +288,7 @@ def manual_slc_confirmation(profile: Profile, state: OnroadState) -> bool:
               obs.pending_speed_limit_mps is not None and obs.pending_speed_limit_mps > 0 and
               obs.session_id and obs.decision_id and obs.decision_id > 0 and
               obs.presentation_id is not None and obs.presentation_id > 0 and
-              placement(state.customization, profile, widget)['enabled'] and
-              placement(state.customization, profile, 'speed_limit_actions')['enabled'])
+              placement(state.customization, profile, widget)['enabled'])
 
 
 def slc_accept_available(state: OnroadState) -> bool:
@@ -300,11 +296,6 @@ def slc_accept_available(state: OnroadState) -> bool:
   return bool(obs.action_enabled and obs.presentation_id and obs.presentation_id > 0 and
               (obs.kind == ObservationKind.VALID or obs.pending_speed_limit_mps is not None and
                not obs.automatic_adoption_pending))
-
-
-def slc_action_bounds(profile: Profile, state: OnroadState):
-  dx, dy = offset(state.customization, profile, 'speed_limit_actions')
-  return tuple((left + dx, top + dy, right + dx, bottom + dy) for left, top, right, bottom in ACTION_BOUNDS[profile])
 
 
 def slc_controls(profile: Profile, state: OnroadState) -> tuple[SlcControl, ...]:
@@ -564,8 +555,6 @@ def speed_limit_from_message(message: SlcStateMessage | None) -> SpeedLimitObser
                                  session_id=message.sessionId, decision_id=message.decisionId if live or message.hasPending else None,
                                  presentation_id=message.presentationId if live or message.hasPending else None, status=message.status,
                                  action_enabled=bool(getattr(message, "enabled", False)),
-                                 action_sequence_id=int(getattr(message, "actionSequenceId", 0)),
-                                 action_status=str(getattr(message, "actionStatus", "")),
                                  automatic_adoption_pending=bool(getattr(message, 'automaticAdoptionPending', False)),
                                  pending_since_ns=int(getattr(message, 'pendingSinceMonoTime', 0)),
                                  last_received_speed_limit_mps=getattr(message, 'lastReceivedSpeedLimit', 0) or None,

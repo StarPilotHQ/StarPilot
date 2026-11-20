@@ -126,7 +126,6 @@ def test_renderer_dispatches_each_widget_in_saved_order(profile, viewport):
   view._clock = lambda *args: seen.append(CLOCK_WIDGET)
   view._weather = lambda *args: seen.append('weather')
   view._stopped_timer = lambda *args: seen.append(STOPPED_TIMER_WIDGET)
-  view._slc_actions = lambda *args: seen.append('speed_limit_actions')
   for attr, key in [('unified_speed', 'cruise_limits'), ('current_speed', 'current_speed'), ('cem_gauge', 'cem_gauge'),
                     ('steering_wheel', 'steering_wheel'), ('torque_bar', 'torque_bar')]:
     setattr(view, attr, NS(render=lambda *args, key=key: seen.append(key)))
@@ -168,7 +167,6 @@ def test_renderer_dispatches_each_widget_in_saved_order(profile, viewport):
   state.alert.size = 'full'
   namespace['_ordered_widgets'](view, NS(x=30, y=30, width=1800, height=1020), state)
   assert 'steering_wheel' not in seen
-  assert 'speed_limit_actions' not in seen
   assert 'cem_gauge' not in seen
   assert 'torque_bar' not in seen
   assert STOPPED_TIMER_WIDGET not in seen

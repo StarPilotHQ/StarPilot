@@ -40,7 +40,6 @@ from openpilot.starpilot.ui.onroad_torque import TorqueBarWidget
 from openpilot.starpilot.ui.onroad_navigation import NavigationCard
 from openpilot.starpilot.ui.onroad_navigation_favorites import NavigationFavorites
 from openpilot.starpilot.ui.presentation import BitmapFonts, FontRole, Profile
-from openpilot.starpilot.ui.speed_limit_widget import MUTED, draw_ink
 from openpilot.starpilot.conditional_mode.policy import ModeChoice
 
 
@@ -186,16 +185,8 @@ class OnroadView:
       self._compact(state)
 
   def _slc_actions(self, state: OnroadState) -> None:
-    if manual_slc_confirmation(self.fonts.profile, state):
-      sign = self.unified_speed.sign if self.fonts.profile == Profile.LARGE else self.compact_hud._speed_limit_widget
-      sign.render_confirmation(state, getattr(self, 'pressed_action', lambda: None)())
-      return
-    feedback = state.speed_limit.action_feedback
-    if (self.fonts.profile == Profile.LARGE and feedback and state.alert.size == AlertSize.NONE and
-        placement(state.customization, self.fonts.profile, 'speed_limit_actions')['enabled']):
-      from openpilot.starpilot.ui.onroad_state import slc_action_bounds
-      first, _ = slc_action_bounds(self.fonts.profile, state)
-      draw_ink(self.fonts, feedback, FontRole.MEDIUM, 30, first[0], first[1] + 24, MUTED)
+    sign = self.unified_speed.sign if self.fonts.profile == Profile.LARGE else self.compact_hud._speed_limit_widget
+    sign.render_confirmation(state, getattr(self, 'pressed_action', lambda: None)())
 
   def _preview_badge(self, state: OnroadState) -> None:
     """Keep synthetic replay visibly identified even over a full alert."""
@@ -333,7 +324,6 @@ class OnroadView:
       if state.alert.size != AlertSize.FULL:
         if placement(state.customization, profile, "cruise_limits")["enabled"]:
           submit("cruise_limits", lambda: self.unified_speed.render(content, state))
-        submit("speed_limit_actions", lambda: self._slc_actions(state))
         if gauge := getattr(self, "cem_gauge", None):
           submit("cem_gauge", lambda: gauge.render(state))
       if placement(state.customization, profile, "current_speed")["enabled"]:
@@ -352,7 +342,6 @@ class OnroadView:
         submit("speed_limit", lambda: self.compact_hud._speed_limit_sign(state))
         submit("max_speed", lambda: self.compact_hud.render_max_speed(state))
         submit("steering_wheel", lambda: self.compact_hud.render_steering_wheel(state))
-        submit("speed_limit_actions", lambda: self._slc_actions(state))
         if placement(state.customization, profile, "torque_bar")["enabled"]:
           submit("torque_bar", lambda: self.torque_bar.render(content, state, 536))
         if state.stopped_duration_s is not None:
@@ -374,8 +363,6 @@ class OnroadView:
     pending = manual_slc_confirmation(self.fonts.profile, state)
     for key in widget_order(state.customization, profile):
       if only_widget is not None and key != only_widget:
-        continue
-      if pending and key == 'speed_limit_actions':
         continue
       if draw := callbacks.get(key):
         draw()
@@ -413,8 +400,6 @@ class OnroadView:
         if state.alert.size != AlertSize.FULL:
           if placement(state.customization, "large", "cruise_limits")["enabled"]:
             self.unified_speed.render(content, state)
-          if not manual_slc_confirmation(self.fonts.profile, state):
-            self._slc_actions(state)
           if gauge := getattr(self, "cem_gauge", None):
             gauge.render(state)
         if placement(state.customization, "large", "current_speed")["enabled"]:
@@ -536,8 +521,6 @@ class OnroadView:
           self.compact_hud.render(state)
           if placement(state.customization, "compact", "torque_bar")["enabled"]:
             self.torque_bar.render(frame, state, 536)
-          if not manual_slc_confirmation(self.fonts.profile, state):
-            self._slc_actions(state)
           if state.stopped_duration_s is not None:
             self._stopped_timer(state, state.stopped_duration_s)
         if self.extra_overlays is not None:

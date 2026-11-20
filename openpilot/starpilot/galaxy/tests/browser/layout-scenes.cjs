@@ -71,9 +71,6 @@ print(json.dumps(dict(native=native,projection=projection)))
           assert.equal(await page.getByRole('button', { name: `${name} is hidden in this scene. Choose General edit to arrange it.`, exact: true }).isDisabled(), true)
         }
         if (target !== 'large') assert.equal(state.visible.includes('stopped_timer'), ['general', 'stopped'].includes(scene.id))
-        if (scene.id !== 'general') {
-          assert.equal(state.visible.includes('speed_limit_actions'), false)
-        }
         if (output) await page.locator('svg.gx-layout__preview').screenshot({ path: path.join(output, `${target}-${scene.id}.png`) })
       }
       await page.evaluate(() => { window.editor.state.scene = 'general'; window.editor.togglePreviewVisibility('driver_monitor'); window.editor.state.scene = 'engaged' })

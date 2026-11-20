@@ -1462,12 +1462,6 @@ class StarShellSession:
     self._mode = mode
     if mode == ShellMode.ONROAD:
       snapshot = replace(snapshot, onroad=self.input.onroad.present(snapshot.onroad))
-    if mode == ShellMode.ONROAD and self.slc_actions is not None:
-      observation = snapshot.onroad.speed_limit
-      snapshot = replace(snapshot, onroad=replace(snapshot.onroad, speed_limit=replace(
-        observation, action_feedback=self.slc_actions.feedback(observation))))
-    elif mode != ShellMode.ONROAD and self.slc_actions is not None:
-      self.slc_actions.clear_feedback()
     rendered = getattr(self, "_rendered_settings", None)
     if mode == ShellMode.SETTINGS and self.profile == Profile.LARGE and (rendered is None or rendered[1].selected != snapshot.selected):
       if pane := _FEATURE_SETTINGS_PANES.get(snapshot.selected):

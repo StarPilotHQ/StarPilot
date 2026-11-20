@@ -13,8 +13,7 @@ from openpilot.starpilot.ui.onroad_torque_geometry import maximum_footprint
 from openpilot.starpilot.ui.large_speed_geometry import LIMIT_RECTS, confirmation_footprint
 from openpilot.starpilot.ui.onroad_stopped_timer import timer_size
 from openpilot.starpilot.ui.onroad_favorites_geometry import shelf_metadata
-from openpilot.starpilot.ui.large_speed_geometry import (WIDTH, CARD_HEIGHT, ACTION_WIDTH, ACTION_HEIGHT, ACTION_X, ACTION_Y,
-                                                        GAP, SOURCE_ROW_HEIGHT, sources_extent)
+from openpilot.starpilot.ui.large_speed_geometry import WIDTH, CARD_HEIGHT, sources_extent
 
 PARAM_KEY = "OnroadCustomizations"
 MAX_BYTES = 16384
@@ -83,7 +82,6 @@ class LayoutProfile(TypedDict):
   bounds: Bounds
   widgets: dict[str, Widget]
   reservedZones: list[Bounds]
-  protectedWidget: NotRequired[str]
   inputZones: NotRequired[list[dict[str, Any]]]
   inputZonePriority: NotRequired[str]
   widgetOrder: NotRequired[list[str]]
@@ -103,36 +101,27 @@ PROFILES: dict[str, LayoutProfile] = {
             "widgets": {
               "current_speed": _widget("Current speed", "current_speed", 580, 300, 640, 30),
               "cruise_limits": _widget("Cruise and speed limit", "cruise_limits", WIDTH, CARD_HEIGHT, 88, 75),
-              "speed_limit_actions": _widget("Speed limit actions", "speed_limit_actions", ACTION_WIDTH, ACTION_HEIGHT, ACTION_X, ACTION_Y),
               "steering_wheel": _widget("Steering wheel", "steering_wheel", 192, 192, 1588, 75),
               "driver_monitor": _widget("Driver monitoring", "driver_monitor", 128, 128, 270, 840),
               "following_distance": _widget("Following distance", "following_distance", 150, 200, 88, 804)}},
   "compact": {"label": "Small UI", "width": 536, "height": 240,
               "bounds": {"x": 0, "y": 0, "width": 476, "height": 240},
-              "protectedWidget": "speed_limit_actions",
               "reservedZones": [],
               "widgets": {
                 "max_speed": _widget("Set speed", "max_speed", 146, 162, 0, 0),
                 "speed_limit": _widget("Speed limit", "speed_limit", *LIMIT_RECTS['compact'][2:], *LIMIT_RECTS['compact'][:2]),
-                "speed_limit_actions": _widget("Speed limit actions", "speed_limit_actions", 184, 120, 146, 44),
                 "steering_wheel": _widget("Steering wheel", "steering_wheel", 50, 50, 21, 176),
                 "driver_monitor": _widget("Driver monitoring", "driver_monitor", 60, 60, 16, 10)}}}
 
 for _profile in PROFILES:
-  PROFILES[_profile]['widgets']['speed_limit_actions']['note'] = (
-    'Accept / Reject appear inside a pending limit after tapping it.')
   _owner = 'cruise_limits' if _profile == 'large' else 'speed_limit'
   PROFILES[_profile]['widgets'][_owner]['confirmation'] = confirmation_footprint(_profile)
 
 SPEED_LAYOUT_V7 = {
-  'large': {'cruise_limits': (320, 210, 88, 75), 'speed_limit_actions': (320, 108, 88, 307)},
-  'compact': {'max_speed': (162, 162, 0, 0), 'speed_limit': (118, 132, 174, 12),
-              'speed_limit_actions': (282, 54, 174, 180)},
+  'large': {'cruise_limits': (320, 210, 88, 75)},
+  'compact': {'max_speed': (162, 162, 0, 0), 'speed_limit': (118, 132, 174, 12)},
 }
-COMPACT_SPEED_LAYOUT_V8 = {
-  'max_speed': (146, 114, 0, 0), 'speed_limit': (264, 82, 158, 18),
-  'speed_limit_actions': (440, 52, 16, 122),
-}
+COMPACT_SPEED_LAYOUT_V8 = {'max_speed': (146, 114, 0, 0), 'speed_limit': (264, 82, 158, 18)}
 
 for profile, sizes in DM_SIZES.items():
   PROFILES[profile]['widgets']['driver_monitor']['default']['size'] = sizes[1]
@@ -146,8 +135,6 @@ for _profile, _data in PROFILES.items():
   _data["widgets"]["torque_bar"] = {
     **_widget("Torque bar", "torque_bar", _width, _height, _x, _y), "layer": "underlay",
     "note": "Torque command or lateral-acceleration demand. Full width reflects the configured display scale."}
-ACTIONLESS_WIDGETS = {profile: set(data["widgets"]) - {"speed_limit_actions"} for profile, data in PROFILES.items()}
-
 RAILLESS_WIDGETS = {profile: set(data["widgets"]) for profile, data in PROFILES.items()}
 RAIL_WIDGETS = ("model_confidence", "conditional_mode", "following_distance")
 for _index, (_key, _label) in enumerate(zip(RAIL_WIDGETS, ("Model confidence", "CEM and driving mode", "Following distance"), strict=True)):
@@ -301,13 +288,12 @@ _torque['confirmationObstacle'] = {
 # These editor sprites use the runtime components and their canonical assets/fonts.
 RUNTIME_PREVIEW_WIDGETS = {
   "large": (WEATHER_WIDGET, "current_speed", "cruise_limits", CEM_GAUGE_WIDGET, "steering_wheel", "following_distance",
-            "driver_monitor", "speed_limit_actions", "rear_fog", MODE_WIDGET, CLOCK_WIDGET),
+            "driver_monitor", "rear_fog", MODE_WIDGET, CLOCK_WIDGET),
   "compact": (WEATHER_WIDGET, "max_speed", "speed_limit", "steering_wheel", "conditional_mode", "following_distance",
-              "model_confidence", "driver_monitor", "speed_limit_actions", "rear_fog", MODE_WIDGET, CLOCK_WIDGET),
+              "model_confidence", "driver_monitor", "rear_fog", MODE_WIDGET, CLOCK_WIDGET),
 }
 
 _FRAME_COLORS = {"cardFill": "#00000000", "cardBorder": "#00000000"}
-_ACTION_COLORS = {"cardFill": "#0C1820EB", "cardBorder": "#A6DFBEFF", "text": "#FFFFFFFF"}
 WIDGET_COLORS = {
   "large": {
     MODE_WIDGET: {"text": "#FFFFFFFF"},
@@ -316,7 +302,6 @@ WIDGET_COLORS = {
     CEM_GAUGE_WIDGET: {},
     "current_speed": {"text": None},
     "cruise_limits": {"cardFill": "#10191FFF", "cardBorder": "#35434DFF", "text": None},
-    "speed_limit_actions": {"cardFill": "#10191FFF", "cardBorder": "#35434DFF", "text": "#F1F6F3FF"},
     "steering_wheel": {"cardFill": None, "cardBorder": "#00000000"},
     "driver_monitor": _FRAME_COLORS,
     "following_distance": _FRAME_COLORS,
@@ -326,7 +311,6 @@ WIDGET_COLORS = {
     CLOCK_WIDGET: {"text": "#FFFFFFFF"},
     WEATHER_WIDGET: {"cardFill": "#0F0D17CC", "cardBorder": "#C7AEF744", "text": "#F5F2FCFF"},
     "max_speed": {"text": None},
-    "speed_limit_actions": {**_ACTION_COLORS, "text": "#F1F6F3FF"},
     "driver_monitor": _FRAME_COLORS,
     "model_confidence": _FRAME_COLORS,
     "conditional_mode": _FRAME_COLORS,
@@ -351,11 +335,11 @@ def _fit_legacy_signal(placement: dict, bounds: Bounds) -> None:
 
 # Back-to-front order used when a layout first opts into custom layers.
 DEFAULT_WIDGET_ORDER = {
-  "large": (NAV_MAP_WIDGET, "cruise_limits", "speed_limit_actions", CEM_GAUGE_WIDGET, "current_speed",
+  "large": (NAV_MAP_WIDGET, "cruise_limits", CEM_GAUGE_WIDGET, "current_speed",
             "steering_wheel", "torque_bar", "following_distance", "driver_monitor", MODE_WIDGET, CLOCK_WIDGET, WEATHER_WIDGET,
             STOPPED_TIMER_WIDGET, NAV_CARD_WIDGET, JETLINK_WIDGET, SIGNAL_WIDGET, "rear_fog", "pip_left", "pip_right"),
   "compact": ("speed_limit", "max_speed", "steering_wheel", "torque_bar",
-              "speed_limit_actions", "driver_monitor", *RAIL_WIDGETS, MODE_WIDGET, CLOCK_WIDGET, WEATHER_WIDGET,
+              "driver_monitor", *RAIL_WIDGETS, MODE_WIDGET, CLOCK_WIDGET, WEATHER_WIDGET,
               STOPPED_TIMER_WIDGET, NAV_CARD_WIDGET, "rear_fog", "pip_left", "pip_right"),
 }
 
@@ -381,11 +365,11 @@ def customization_metadata():
   profiles["large"]["widgets"]["following_distance"]["defaultAnchor"] = "driver_side"
   # The editor grows the cruise box by these while speed-limit sources are shown.
   profiles["large"]["widgets"]["cruise_limits"]["sourcesExtent"] = {
-    "inline": sources_extent({'speedSources': True}), "card": sources_extent({'speedSources': True, 'speedSourcesCard': True}), 'actionGap': GAP}
+    "inline": sources_extent({'speedSources': True}), "card": sources_extent({'speedSources': True, 'speedSourcesCard': True})}
   profiles["large"]["inputZones"] = [{"id": "favorites_drawer", "label": "Quick Select drawer",
                                     "x": 30, "y": 900, "width": 340, "height": 150,
                                     "excludes": [key for key in profiles["large"]["widgets"]
-                                                 if key not in ("torque_bar", "pip_left", "pip_right", "nav_map", "speed_limit_actions")]}]
+                                                 if key not in ("torque_bar", "pip_left", "pip_right", "nav_map")]}]
   profiles["large"]["quickSelectShelves"] = shelf_metadata()
   profiles["compact"]["inputZones"] = [
     {"id": f"favorite_{index + 1}", "label": f"Quick Select {index + 1}",
@@ -411,7 +395,7 @@ def customization_metadata():
 
 
 def default_document():
-  return {"version": 15, "clock24Hour": False, "reduceMotion": False, "palette": dict(PALETTE), "roadColors": {profile: {} for profile in PROFILES},
+  return {"version": 16, "clock24Hour": False, "reduceMotion": False, "palette": dict(PALETTE), "roadColors": {profile: {} for profile in PROFILES},
           "widgetColors": {profile: {} for profile in PROFILES}, "layouts": {
     profile: {key: {**widget["default"], **({"size": WIDGET_SIZES[key][profile][1]} if key in WIDGET_SIZES else {})}
               for key, widget in data["widgets"].items()}
@@ -426,12 +410,9 @@ def validate_map_box(placement, widget):
     raise ValueError("Invalid map overlay size or opacity")
 
 
-def migrate_speed_layout(layout, profile, bounds, old_gap=232, *, previous=None, widgets=None):
+def migrate_speed_layout(layout, profile, bounds, *, previous=None, widgets=None):
   widgets = PROFILES[profile]['widgets'] if widgets is None else widgets
   if profile == 'large':
-    card, actions = layout['cruise_limits'], layout['speed_limit_actions']
-    if actions['x'] == card['x'] and actions['y'] - card['y'] == old_gap:
-      actions.update(x=card['x'] + ACTION_X - 88, y=card['y'] + ACTION_Y - 75)
     gauge = layout[CEM_GAUGE_WIDGET]
     if (gauge['x'], gauge['y']) == (480, 99):
       default = widgets[CEM_GAUGE_WIDGET]['default']
@@ -445,73 +426,17 @@ def migrate_speed_layout(layout, profile, bounds, old_gap=232, *, previous=None,
       saved[axis] = max(area[axis], min(saved[axis], area[axis] + area[extent] - widget[extent]))
 
 
-def _migrate_action_collisions(layout):
-  actions = layout['speed_limit_actions']
-  area = PROFILES['compact']['widgets']['speed_limit_actions']
-  # Move only placements made invalid by the new protected action area.
-  for key, height in _compact_action_collisions(layout):
-    saved, widget = layout[key], PROFILES['compact']['widgets'][key]
-    width = saved['size'] if key in WIDGET_SIZES else widget['width']
-    candidates = ((actions['x'] - width, saved['y']), (actions['x'] + area['width'], saved['y']),
-                  (saved['x'], actions['y'] - height), (saved['x'], actions['y'] + area['height']))
-    valid = [(x, y) for x, y in candidates if 0 <= x <= 476 - width and 0 <= y <= 240 - height]
-    if valid:
-      x, y = min(valid, key=lambda xy: (xy[0] - saved['x']) ** 2 + (xy[1] - saved['y']) ** 2)
-      saved.update(x=x, y=y)
-
-
-def _compact_action_collisions(layout):
-  widgets = PROFILES['compact']['widgets']
-  actions, area = layout['speed_limit_actions'], widgets['speed_limit_actions']
-  for key, widget in widgets.items():
-    saved = layout[key]
-    if (not saved['enabled'] or key in ('speed_limit_actions', 'speed_limit', 'stopped_timer', NAV_CARD_WIDGET) or widget.get('layer') == 'underlay'):
-      continue
-    width, height = (saved['size'],) * 2 if key in WIDGET_SIZES else (widget['width'], widget['height'])
-    if (saved['x'] < actions['x'] + area['width'] and saved['x'] + width > actions['x'] and
-        saved['y'] < actions['y'] + area['height'] and saved['y'] + height > actions['y']):
-      yield key, height
-
-
 def migrate_large_sign_layout(layout, bounds, *, widgets=None, extra_height=0):
   widgets = PROFILES['large']['widgets'] if widgets is None else widgets
-  card, actions = layout['cruise_limits'], layout['speed_limit_actions']
-  # Only the old attached arrangement follows the sign; independently placed actions stay put.
-  paired = actions['x'] == card['x'] + 12 and actions['y'] == card['y'] + 173
+  card = layout['cruise_limits']
   card['y'] = min(card['y'], bounds['y'] + bounds['height'] - widgets['cruise_limits']['height'] - extra_height)
-  if paired:
-    actions['x'] = card['x'] + ACTION_X - 88
-    actions['y'] = min(card['y'] + ACTION_Y - 75,
-                       bounds['y'] + bounds['height'] - widgets['speed_limit_actions']['height'])
-
-
-# Attached action gaps below the card before the large speed group grew 1.3x: plain, inline sources, sources card.
-SMALL_CARD_ACTION_GAPS = (192, 284, 292)
-
-
-def migrate_attached_actions_gap(layout, bounds):
-  """Keep attached actions below the grown card; place_attached_slc_actions then adds any sources row."""
-  card, actions = layout['cruise_limits'], layout['speed_limit_actions']
-  if actions['x'] == card['x'] + ACTION_X - 88 and actions['y'] - card['y'] in SMALL_CARD_ACTION_GAPS:
-    # Raise a low card so the moved actions still fit on screen and stay attached.
-    card['y'] = min(card['y'], bounds['y'] + bounds['height'] - ACTION_HEIGHT - (ACTION_Y - 75))
-    actions['y'] = card['y'] + ACTION_Y - 75
-
-
-def place_attached_slc_actions(layout, bounds, extra_height):
-  card, actions = layout['cruise_limits'], layout['speed_limit_actions']
-  if (actions['x'], actions['y']) == (card['x'] + ACTION_X - 88, card['y'] + ACTION_Y - 75):
-    # Save the actual position so drawing, editor crops and input share coordinates.
-    dy = CARD_HEIGHT + extra_height + GAP if extra_height else ACTION_Y - 75
-    card['y'] = min(card['y'], bounds['y'] + bounds['height'] - ACTION_HEIGHT - dy)
-    actions['y'] = card['y'] + dy
 
 
 def confirmation_layout_valid(layout, profile, widgets, bounds, *, extra_height=0):
   owner = 'cruise_limits' if profile == 'large' else 'speed_limit'
   bounds = widgets[owner].get('bounds', bounds)
   at = layout[owner]
-  if not at['enabled'] or not layout['speed_limit_actions']['enabled']:
+  if not at['enabled']:
     return True
   area = confirmation_footprint(profile)
   left, top = at['x'] + area['x'], at['y'] + area['y']
@@ -534,13 +459,10 @@ def migrate_confirmation_layout(layout, profile, widgets, bounds, *, extra_heigh
   owner = 'cruise_limits' if profile == 'large' else 'speed_limit'
   bounds = widgets[owner].get('bounds', bounds)
   area, at = confirmation_footprint(profile), layout[owner]
-  confirming = at['enabled'] and layout['speed_limit_actions']['enabled']
-  actions = layout['speed_limit_actions']
-  attached = profile == 'large' and actions['x'] == at['x'] + ACTION_X - 88 and actions['y'] == at['y'] + ACTION_Y - 75
   for axis, extent in (('x', 'width'), ('y', 'height')):
     low = bounds[axis]
     high = bounds[axis] + bounds[extent] - widgets[owner][extent]
-    if confirming:
+    if at['enabled']:
       low = max(low, bounds[axis] - area[axis])
       high = min(high, bounds[axis] + bounds[extent] - area[axis] - area[extent])
     if axis == 'y':
@@ -552,13 +474,21 @@ def migrate_confirmation_layout(layout, profile, widgets, bounds, *, extra_heigh
     if not confirmation_layout_valid(layout, profile, widgets, bounds, extra_height=extra_height):
       for key in (('torque_bar',) if profile == 'large' else ('max_speed', 'torque_bar')):
         layout[key].update(x=widgets[key]['default']['x'], y=widgets[key]['default']['y'])
-  if attached:
-    actions.update(x=at['x'] + ACTION_X - 88, y=at['y'] + ACTION_Y - 75)
 
 
 def validate_document(value):
-  if type(value) is not dict or type(value.get("version")) is not int or value["version"] not in range(1, 16):
+  if type(value) is not dict or type(value.get("version")) is not int or value["version"] not in range(1, 17):
     raise ValueError("Invalid customization version")
+  if value["version"] < 16:
+    # Version 16 folded the separate speed limit actions widget into the speed limit sign.
+    value = copy.deepcopy(value)
+    for section in ("layouts", "widgetColors"):
+      for widgets in value[section].values() if type(value.get(section)) is dict else ():
+        if type(widgets) is dict:
+          widgets.pop("speed_limit_actions", None)
+    if type(value.get("widgetOrder")) is dict:
+      value["widgetOrder"] = {profile: [key for key in order if key != "speed_limit_actions"] if type(order) is list else order
+                              for profile, order in value["widgetOrder"].items()}
   fields = {"version", "palette", "layouts"} | ({"widgetColors"} if value["version"] >= 2 else set())
   if value["version"] >= 3:
     fields.add("roadColors")
@@ -605,30 +535,10 @@ def validate_document(value):
   if any(all(type(layouts[profile]) is dict and
              (set(layouts[profile]) - {"vasm", *OPTIONAL_WIDGETS, *CAMERA_WIDGETS}) == keys
              for profile, keys in shape.items())
-         for shape in (LEGACY_WIDGETS, DM_WIDGETS, ACTIONLESS_WIDGETS)):
+         for shape in (LEGACY_WIDGETS, DM_WIDGETS)):
     layouts = copy.deepcopy(layouts)
-    cruise = layouts["large"]["cruise_limits"]
-    if (type(cruise) is not dict or set(cruise) != {"x", "y", "enabled"} or type(cruise["enabled"]) is not bool or
-        any(type(cruise[axis]) not in (int, float) for axis in ("x", "y"))):
-      raise ValueError("Invalid widget placement")
-    try:
-      if not all(math.isfinite(cruise[axis]) for axis in ("x", "y")):
-        raise ValueError("Invalid widget placement")
-    except OverflowError as exc:
-      raise ValueError("Invalid widget placement") from exc
-    cruise_default = PROFILES["large"]["widgets"]["cruise_limits"]["default"]
-    actions_default = ({'x': 88, 'y': 500 if value['version'] < 5 else 447 if value['version'] < 6 else 307} if value['version'] < 8 else
-                       PROFILES["large"]["widgets"]["speed_limit_actions"]["default"])
-    layouts["large"]["speed_limit_actions"] = {
-      "x": actions_default["x"] + cruise["x"] - cruise_default["x"],
-      "y": actions_default["y"] + cruise["y"] - cruise_default["y"],
-      "enabled": cruise["enabled"],
-    }
-    if value['version'] == 8 and 'speed_limit_actions' not in layouts['compact']:
-      _, _, x, y = COMPACT_SPEED_LAYOUT_V8['speed_limit_actions']
-      layouts['compact']['speed_limit_actions'] = {'x': x, 'y': y, 'enabled': True}
     for profile in PROFILES:
-      for key in ("driver_monitor", "torque_bar", "speed_limit_actions"):
+      for key in ("driver_monitor", "torque_bar"):
         layouts[profile].setdefault(key, dict(PROFILES[profile]["widgets"][key]["default"]))
   if all(type(layouts[profile]) is dict and (set(layouts[profile]) - {"vasm", *OPTIONAL_WIDGETS, *CAMERA_WIDGETS}) == keys
          for profile, keys in RAILLESS_WIDGETS.items()):
@@ -673,8 +583,7 @@ def validate_document(value):
         for optional in missing:
           layouts[profile][optional] = dict(data["widgets"][optional]["default"])
   if value['version'] < 11:
-    old_defaults = {'large': {'speed_limit_actions': (100, 296), CEM_GAUGE_WIDGET: (56, 452)},
-                    'compact': {'speed_limit_actions': (128, 186), 'clock': (168, 92), MODE_WIDGET: (162, 22)}}
+    old_defaults = {'large': {CEM_GAUGE_WIDGET: (56, 452)}, 'compact': {'clock': (168, 92), MODE_WIDGET: (162, 22)}}
   result = default_document()
   for key, color in palette.items():
     if type(color) is not str or re.fullmatch(r"#[0-9a-fA-F]{8}", color) is None:
@@ -768,9 +677,8 @@ def validate_document(value):
       old_gauge = key == CEM_GAUGE_WIDGET and value["version"] < 7 and type(saved_layout) is dict and key in saved_layout
       for axis, extent in (("x", "width"), ("y", "height")):
         number = placement[axis]
-        legacy = ({'cruise_limits': (176, 483), 'speed_limit_actions': (176, 58)} if value['version'] < 5 else
-                  {'cruise_limits': (280, 412), 'speed_limit_actions': (280, 96)})
-        dimensions = legacy.get(key) if value['version'] < 6 and profile == 'large' else None
+        legacy = (176, 483) if value['version'] < 5 else (280, 412)
+        dimensions = legacy if value['version'] < 6 and profile == 'large' and key == 'cruise_limits' else None
         if dimensions is None and value['version'] < 8:
           dimensions = SPEED_LAYOUT_V7[profile].get(key)
         if value['version'] == 8 and profile == 'compact':
@@ -782,11 +690,6 @@ def validate_document(value):
             dimensions = (WIDTH, 168)
           elif profile == 'compact' and key == 'speed_limit':
             dimensions = (118, 132)
-        if dimensions is None and value['version'] < 11 and key == 'speed_limit_actions':
-          default = widget['default']
-          current_default = (placement['x'], placement['y']) == (default['x'], default['y'])
-          if not current_default:
-            dimensions = (576, 148) if profile == 'large' else (348, 54)
         dimension = (dimensions[0 if axis == 'x' else 1] if dimensions else
                      size if key in WIDGET_SIZES else placement[extent] if widget.get("box") else
                      signal_size(placement)[0 if axis == 'x' else 1] if key == SIGNAL_WIDGET else
@@ -804,8 +707,6 @@ def validate_document(value):
         if (saved['x'], saved['y']) == old:
           default = data['widgets'][key]['default']
           saved.update(x=default['x'], y=default['y'])
-    if profile == "compact" and value['version'] >= 11 and any(_compact_action_collisions(result['layouts'][profile])):
-      raise ValueError("Widget overlaps protected speed limit actions")
   if 'widgetOrder' in value:
     orders = value['widgetOrder']
     if type(orders) is not dict or not orders.keys() <= PROFILES.keys():
@@ -836,20 +737,11 @@ def validate_document(value):
       colors = result['widgetColors']['large'].setdefault('cruise_limits', {})
       for key in ('cardFill', 'cardBorder'):
         colors.setdefault(key, value['palette'][key])
-    old_gap = 425 if value['version'] < 5 else 372 if value['version'] < 6 else 232
     for profile in PROFILES:
-      migrate_speed_layout(result['layouts'][profile], profile, PROFILES[profile]['bounds'], old_gap)
+      migrate_speed_layout(result['layouts'][profile], profile, PROFILES[profile]['bounds'])
   elif value['version'] == 8:
     migrate_speed_layout(result['layouts']['compact'], 'compact', PROFILES['compact']['bounds'], previous=COMPACT_SPEED_LAYOUT_V8)
-  if value['version'] < 15:
-    migrate_attached_actions_gap(result['layouts']['large'], PROFILES['large']['bounds'])
   if value['version'] < 11:
-    for profile, data in PROFILES.items():
-      actions = result['layouts'][profile]['speed_limit_actions']
-      widget, bounds = data['widgets']['speed_limit_actions'], widget_bounds(profile, 'speed_limit_actions')
-      for axis, extent in (('x', 'width'), ('y', 'height')):
-        actions[axis] = min(actions[axis], bounds[axis] + bounds[extent] - widget[extent])
-    _migrate_action_collisions(result['layouts']['compact'])
     for profile, data in PROFILES.items():
       migrate_confirmation_layout(result['layouts'][profile], profile, data['widgets'], data['bounds'],
                                   extra_height=sources_extent(result) if profile == 'large' else 0)
@@ -860,19 +752,12 @@ def validate_document(value):
         sign = result['layouts'][profile]['speed_limit']
         if (sign['x'], sign['y']) == (330, 20):
           sign.update(x=LIMIT_RECTS['compact'][0], y=LIMIT_RECTS['compact'][1])
-      if profile == 'large' and result.get('speedSources') is True:
-        card, actions = result['layouts'][profile]['cruise_limits'], result['layouts'][profile]['speed_limit_actions']
-        old_gap = 284 if value['version'] == 12 else 192 + SOURCE_ROW_HEIGHT
-        old_gap += GAP if result.get('speedSourcesCard') is True else 0
-        if actions['x'] == card['x'] + ACTION_X - 88 and actions['y'] == card['y'] + old_gap:
-          actions['y'] = card['y'] + ACTION_Y - 75
-    if value['version'] < 15:
+    if value['version'] < 16:
       migrate_confirmation_layout(result['layouts'][profile], profile, data['widgets'], data['bounds'],
                                   extra_height=sources_extent(result) if profile == 'large' else 0)
     elif not confirmation_layout_valid(result['layouts'][profile], profile, data['widgets'], data['bounds'],
                                        extra_height=sources_extent(result) if profile == 'large' else 0):
       raise ValueError('Speed-limit confirmation overlaps set speed, torque, or screen bounds')
-  place_attached_slc_actions(result['layouts']['large'], PROFILES['large']['bounds'], sources_extent(result))
   if len(json.dumps(result, separators=(",", ":")).encode()) > MAX_BYTES:
     raise ValueError("Customization too large")
   return result
@@ -922,7 +807,7 @@ def fit_to_road(document, viewport_width):
       continue
     shift = widget.get("anchorShift", 0) * extra
     width = widget_size(document, "large", key)[0]
-    if (area := widget.get('confirmation')) and placed['enabled'] and layout['speed_limit_actions']['enabled']:
+    if (area := widget.get('confirmation')) and placed['enabled']:
       width = max(width, area['x'] + area['width'])
     x = max(30 - shift, min(placed["x"], viewport_width - 30 - width - shift))
     if x != placed["x"]:

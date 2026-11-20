@@ -670,7 +670,7 @@ class AppearanceSettingsTests(unittest.TestCase):
         view.alert.render.assert_called()
         if profile == Profile.LARGE:
           self.assertEqual(view.unified_speed.render.call_count, 2)
-          self.assertEqual(slc.call_count, 2)
+          slc.assert_not_called()  # No pending limit: feedback draws with the card, not the chooser.
           view.current_speed.render.assert_called_once()
           view.steering_wheel.render.assert_called_once()
         for alert_size in (AlertSize.SMALL, AlertSize.MID, AlertSize.FULL):

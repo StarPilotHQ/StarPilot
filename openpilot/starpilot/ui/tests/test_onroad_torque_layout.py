@@ -6,7 +6,7 @@ from unittest.mock import patch
 import numpy as np
 from openpilot.starpilot.ui.raylib import rl
 
-from openpilot.starpilot.ui.onroad_customization import PROFILES, default_document, validate_document, widget_size
+from openpilot.starpilot.ui.onroad_customization import PROFILES, default_document, validate_document
 from openpilot.starpilot.ui.onroad_state import OnroadState, SpeedLimitObservation
 from openpilot.starpilot.ui.onroad_torque import TorqueBarWidget
 from openpilot.starpilot.ui.tests.test_onroad_torque_draw import record_gpu
@@ -97,22 +97,6 @@ class TestTorqueLayout(unittest.TestCase):
               self.assertLessEqual(dx + dot_radius, right)
               self.assertLessEqual(dy + dot_radius, bottom)
 
-  def test_only_torque_underlay_can_overlap_reserved_actions(self):
-    document = default_document()
-    self.assertEqual(validate_document(document), document)
-    document['layouts']['compact']['torque_bar'].update(x=174, y=179)
-    validate_document(document)
-    for key in ('max_speed', 'driver_monitor', 'steering_wheel'):
-      with self.subTest(key=key):
-        invalid = default_document()
-        actions = invalid['layouts']['compact']['speed_limit_actions']
-        _, height = widget_size(invalid, 'compact', key)
-        invalid['layouts']['compact'][key].update(x=actions['x'] - widget_size(invalid, 'compact', key)[0], y=min(actions['y'], 240 - height))
-        self.assertEqual(validate_document(invalid), invalid)  # Touching edges do not overlap.
-        invalid['layouts']['compact'][key]['x'] += 1
-        with self.assertRaises(ValueError):
-          validate_document(invalid)
-
   def test_complete_old_three_and_four_widget_shapes_migrate(self):
     for count in (3, 4):
       document = default_document()
@@ -120,7 +104,6 @@ class TestTorqueLayout(unittest.TestCase):
         del document['layouts']['compact'][key]
       for layout in document['layouts'].values():
         del layout['torque_bar']
-        del layout['speed_limit_actions']
         if count == 3:
           del layout['driver_monitor']
       document['palette']['text'] = '#12345678'
@@ -133,13 +116,11 @@ class TestTorqueLayout(unittest.TestCase):
         for key, placement in layout.items():
           self.assertEqual(result['layouts'][profile][key], placement)
         self.assertEqual(result['layouts'][profile]['torque_bar'], default_document()['layouts'][profile]['torque_bar'])
-        self.assertEqual(result['layouts'][profile]['speed_limit_actions'], default_document()['layouts'][profile]['speed_limit_actions'])
 
   def test_mixed_legacy_shape_is_rejected(self):
     document = default_document()
     for layout in document['layouts'].values():
       del layout['torque_bar']
-      del layout['speed_limit_actions']
     del document['layouts']['large']['driver_monitor']
     with self.assertRaises(ValueError):
       validate_document(document)

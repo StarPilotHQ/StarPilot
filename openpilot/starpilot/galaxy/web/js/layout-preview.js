@@ -42,7 +42,6 @@ export function sceneHidesWidget(scene, profile, id, layout = {}, widgets = {}, 
   if (id === "cem_gauge") return !scene.startsWith("cem_")
   if (id === "torque_bar" || profile === "compact" && id === "steering_wheel") return !lateral
   if (profile === "compact" && id === "max_speed") return !longitudinal
-  if (id === "speed_limit_actions") return true
   const overlaps = (a, b) => a && b && a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
   const box = key => {
     if (!layout[key]?.enabled || !widgets[key]) return null

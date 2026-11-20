@@ -331,10 +331,10 @@ def test_default_cem_gauge_keeps_left_column_with_personality_monitor_pair(proje
   else:
     widgets = customization_metadata()['profiles']['large']['widgets']
     layout = default_document()['layouts']['large']
-  gauge, monitor, actions = (layout[key] for key in (CEM_GAUGE_WIDGET, 'driver_monitor', 'speed_limit_actions'))
+  gauge, monitor, card = (layout[key] for key in (CEM_GAUGE_WIDGET, 'driver_monitor', 'cruise_limits'))
   personality = layout['following_distance']
   assert gauge['x'] + widgets[CEM_GAUGE_WIDGET]['width'] / 2 == 184
   assert personality['x'] + widgets['following_distance']['width'] + 32 == monitor['x']
   assert personality['y'] + widgets['following_distance']['height'] / 2 == monitor['y'] + monitor['size'] / 2
-  assert actions['y'] + widgets['speed_limit_actions']['height'] < gauge['y']
+  assert card['y'] + widgets['cruise_limits']['height'] < gauge['y']
   assert gauge['y'] + widgets[CEM_GAUGE_WIDGET]['height'] < monitor['y']

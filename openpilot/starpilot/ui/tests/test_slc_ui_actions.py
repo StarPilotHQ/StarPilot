@@ -6,17 +6,14 @@ import unittest
 from unittest.mock import Mock
 
 from openpilot.starpilot.ui.onroad_state import (ObservationKind, OnroadInput, OnroadState,
-                                                 SlcActionKind, SlcUiRequest, SpeedLimitObservation, slc_action_bounds, slc_controls, speed_limit_bounds)
+                                                 SlcActionKind, SlcUiRequest, SpeedLimitObservation, slc_controls, speed_limit_bounds)
 from openpilot.starpilot.ui.presentation import Profile
 from openpilot.starpilot.ui.preview_home import reference_state
 from openpilot.starpilot.ui.preview_settings import reference_settings_state
 from openpilot.starpilot.ui.shell import ShellInput, ShellMode, ShellSnapshot
 from openpilot.starpilot.ui.slc_action_dispatch import SlcActionDispatcher
 
-from openpilot.starpilot.ui.large_speed_geometry import CARD_HEIGHT, GAP, ACTION_Y, sources_extent
-from openpilot.starpilot.ui.onroad_customization import default_document, placement, validate_document
-from openpilot.starpilot.ui.onroad_torque_geometry import maximum_footprint
-from openpilot.starpilot.ui.tests.test_onroad_customization import road
+from openpilot.starpilot.ui.onroad_customization import default_document, validate_document
 
 
 NOW = 10_000_000_000
@@ -188,8 +185,8 @@ class TestSlcTouch(unittest.TestCase):
         emitted = []
         touch = OnroadInput(emitted.append, profile)
         self.assertEqual(slc_controls(profile, current), ())
-        first, last = slc_action_bounds(profile, current)
-        x, y = (first[0] + last[2]) / 2, (first[1] + last[3]) / 2
+        left, top, right, bottom = speed_limit_bounds(profile, current)
+        x, y = (left + right) / 2, (top + bottom) / 2
         touch.press(x, y, current)
         touch.release(x, y, current)
         self.assertFalse(emitted)
@@ -261,36 +258,16 @@ class TestSlcDispatcher(unittest.TestCase):
     self.assertTrue(current.hasPending)
 
 
-def test_compact_actions_center_on_road_and_clear_full_torque():
-  state = road()
-  first, last = slc_action_bounds(Profile.COMPACT, state)
-  assert (first[0] + last[2]) / 2 == 476 / 2
-  torque_top = maximum_footprint(0, 0, 476, 240, 536)[1]
-  assert last[3] < torque_top
-
-
-def test_large_attached_actions_follow_source_row_and_custom_actions_stay_put():
-  state = road()
-  before = slc_action_bounds(Profile.LARGE, state)
-  state.customization['speedSources'] = True
-  state = replace(state, customization=validate_document(state.customization))
-  after = slc_action_bounds(Profile.LARGE, state)
-  assert after[0][1] - before[0][1] == CARD_HEIGHT + sources_extent(state.customization) + GAP - (ACTION_Y - 75)
-  assert after[0][:2] == tuple(placement(state.customization, Profile.LARGE, 'speed_limit_actions')[key] for key in ('x', 'y'))
-  state.customization['layouts']['large']['speed_limit_actions'].update(x=600, y=500)
-  assert slc_action_bounds(Profile.LARGE, state)[0][:2] == (600, 500)
-
-
 def test_v10_default_migration_preserves_unrelated_customization_and_optional_widgets():
   old = default_document()
   old['version'] = 10
-  old['layouts']['compact']['speed_limit_actions'].update(x=128, y=186)
+  old['layouts']['compact']['speed_limit_actions'] = {'x': 128, 'y': 186, 'enabled': True}
   old['layouts']['compact']['clock'].update(x=168, y=92, enabled=True)
   old['layouts']['compact']['driving_mode_descriptions'].update(x=162, y=22, enabled=True)
-  old['layouts']['large']['speed_limit_actions'].update(x=100, y=296)
+  old['layouts']['large']['speed_limit_actions'] = {'x': 100, 'y': 296, 'enabled': True}
   old['layouts']['large']['current_speed'].update(x=800, y=120)
   migrated = validate_document(old)
-  assert migrated['layouts']['compact']['speed_limit_actions'] == {'x': 146, 'y': 44, 'enabled': True}
+  assert all('speed_limit_actions' not in layout for layout in migrated['layouts'].values())
   assert migrated['layouts']['large']['current_speed'] == old['layouts']['large']['current_speed']
   clock = migrated['layouts']['compact']['clock']
   mode = migrated['layouts']['compact']['driving_mode_descriptions']

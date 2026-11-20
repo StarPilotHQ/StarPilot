@@ -222,10 +222,9 @@ def test_pending_confirmation_omits_redundant_speed_heading():
   assert [call.args[0] for call in foreground_calls(view.fonts.draw)] == ['NEW LIMIT', 'ACCEPT', '35', 'REJECT', 'NEW LIMIT']
 
 
-def test_compact_pending_label_and_button_follow_saved_action_placement():
+def test_compact_pending_label_and_buttons_follow_the_sign():
   from openpilot.starpilot.ui.onroad_state import slc_controls
   document = default_document()
-  document['layouts']['compact']['speed_limit_actions']['x'] = 120
   observation = SpeedLimitObservation(kind=ObservationKind.VALID, speed_limit_mps=20,
                                       pending_speed_limit_mps=15, session_id='drive', decision_id=4,
                                       presentation_id=5, action_enabled=True)

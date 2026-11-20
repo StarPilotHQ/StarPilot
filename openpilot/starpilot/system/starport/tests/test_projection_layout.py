@@ -63,75 +63,49 @@ class TestProjectionLayout(unittest.TestCase):
     saved = [NAV_MAP, *(key for key in order if key != NAV_MAP)][::-1]
     self.assertEqual(projection_customization({**document, 'widgetOrder': saved}, default_document())['widgetOrder']['large'], saved)
 
-  def test_sources_save_actual_attached_actions_inside_each_projection_screen(self):
-    from openpilot.starpilot.ui.onroad_customization import default_document, placement
+  def test_sources_keep_the_card_where_it_fits_on_each_projection_screen(self):
     for viewport in ((1860, 1080), (2880, 1080), (1920, 1440)):
       for separate in (False, True):
         with self.subTest(viewport=viewport, separate=separate):
           document = default_layout_for_viewport(viewport, {'speedSources': True, 'speedSourcesCard': separate})
-          actions = document['widgets']['speed_limit_actions']
-          self.assertEqual(actions['y'], 457 if separate else 449)
           self.assertEqual(validate_layout_for_viewport(document, viewport), document)
-          native = projection_customization(document, default_document())
-          self.assertEqual(placement(native, 'large', 'speed_limit_actions'), actions)
           document['widgets']['cruise_limits']['y'] = 200
-          actions['y'] = 574 + (8 if separate else 0)
           saved = validate_layout_for_viewport(document, viewport)
-          card, actions = (saved['widgets'][key] for key in ('cruise_limits', 'speed_limit_actions'))
-          self.assertEqual(card['y'], 200)
-          self.assertEqual(actions['y'], card['y'] + 374 + (8 if separate else 0))
-          self.assertLessEqual(actions['y'] + 168, viewport[1] - 30)
+          self.assertEqual(saved['widgets']['cruise_limits']['y'], 200)
           self.assertEqual(validate_layout_for_viewport(saved, viewport), saved)
 
-  def test_v4_large_sign_migration_clamps_old_bottom_placement_without_losing_custom_actions(self):
+  def test_v4_large_sign_migration_clamps_old_bottom_placement_and_drops_actions(self):
     document = default_layout(SCREEN)
     document['version'] = 4
     bounds = layout_metadata(SCREEN)['bounds']
     bottom = bounds['y'] + bounds['height']
     document['widgets']['cruise_limits']['y'] = bottom - 132
-    document['widgets']['speed_limit_actions'].update(x=250, y=400)
+    document['widgets']['speed_limit_actions'] = {'x': 250, 'y': 400, 'enabled': True}
+    document['widgetOrder'] = [*layout_metadata(SCREEN)['widgetOrder'][:-1], 'speed_limit_actions', 'car_exit']
     before = copy.deepcopy(document)
     migrated = validate_layout(document, SCREEN)
     self.assertEqual(document, before)
     self.assertEqual(migrated['version'], 7)
     self.assertEqual(migrated['widgets']['cruise_limits']['y'], bottom - 309)
-    self.assertEqual(migrated['widgets']['speed_limit_actions'], document['widgets']['speed_limit_actions'])
+    self.assertNotIn('speed_limit_actions', migrated['widgets'])
+    self.assertEqual(migrated['widgetOrder'], layout_metadata(SCREEN)['widgetOrder'])
     self.assertEqual(validate_layout(migrated, SCREEN), migrated)
 
-  def test_v4_moves_actions_only_when_they_follow_the_old_default_sign_position(self):
-    document = default_layout(SCREEN)
-    document['version'] = 4
-    card = document['widgets']['cruise_limits']
-    document['widgets']['speed_limit_actions'].update(x=card['x']+12, y=card['y']+173)
-    migrated = validate_layout(document, SCREEN)
-    self.assertEqual(migrated['widgets']['speed_limit_actions']['y'], card['y']+250)
-
-  def test_v5_portrait_upgrade_keeps_disabled_actions_and_clamps_only_the_resized_card(self):
+  def test_v5_portrait_upgrade_with_hidden_actions_makes_room_for_the_sign_chooser(self):
     document = default_layout(SCREEN)
     document['version'] = 5
     bottom = sum(layout_metadata(SCREEN)['bounds'][key] for key in ('y', 'height'))
     document['widgets']['cruise_limits']['y'] = bottom - 168
-    document['widgets']['speed_limit_actions'].update(x=250, y=400, enabled=False)
+    document['widgets']['speed_limit_actions'] = {'x': 250, 'y': 400, 'enabled': False}
     before = copy.deepcopy(document)
     migrated = validate_layout(document, SCREEN)
     expected = copy.deepcopy(document)
+    del expected['widgets']['speed_limit_actions']
     expected['version'] = 7
-    expected['widgets']['cruise_limits']['y'] = bottom - 252
+    expected['widgets']['cruise_limits']['y'] = bottom - 309
     self.assertEqual(document, before)
     self.assertEqual(migrated, expected)
     self.assertEqual(validate_layout(migrated, SCREEN), migrated)
-
-  def test_v5_source_attachment_follows_the_new_row_without_moving_custom_actions(self):
-    for separate in (False, True):
-      document = default_layout(SCREEN, {'speedSources': True, 'speedSourcesCard': separate})
-      document['version'] = 5
-      actions = document['widgets']['speed_limit_actions']
-      actions['y'] = 367 if separate else 359
-      updated = validate_layout(document, SCREEN)
-      self.assertEqual(updated['widgets']['speed_limit_actions']['y'], 457 if separate else 449)
-      self.assertEqual(validate_layout(updated, SCREEN), updated)
-      actions.update(x=600, y=400)
-      self.assertEqual(validate_layout(document, SCREEN)['widgets']['speed_limit_actions'], actions)
 
   def test_jetlink_widget_migrates_and_preserves_placement_and_order(self):
     document = default_layout(SCREEN)

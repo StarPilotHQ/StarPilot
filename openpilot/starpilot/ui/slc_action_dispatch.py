@@ -38,8 +38,6 @@ class SlcActionDispatcher:
     self._last_sequence = 0
     self._last_context: tuple[str, int, int, SlcActionKind] | None = None
     self._last_context_ns = 0
-    self._feedback_sequence = 0
-    self._feedback_started_ns = 0
 
   def dispatch(self, request: SlcUiRequest, *, wheel_observed_ns: int = 0) -> bool:
     if not _positive_number(request.candidate_speed_mps):
@@ -105,27 +103,4 @@ class SlcActionDispatcher:
     self._last_sequence = sequence
     self._last_context = context
     self._last_context_ns = now_ns
-    self._feedback_sequence = sequence
-    self._feedback_started_ns = now_ns
     return True
-
-  def clear_feedback(self):
-    self._feedback_sequence = 0
-
-  def feedback(self, observation) -> str:
-    if observation.session_id != self._session:
-      self._feedback_sequence = 0
-    if not self._feedback_sequence:
-      return ''
-    if (observation.pending_speed_limit_mps is not None and self._last_context is not None and
-        observation.decision_id != self._last_context[1]):
-      self.clear_feedback()
-      return ''
-    age = self.clock() - self._feedback_started_ns
-    if age > 4_000_000_000:
-      self._feedback_sequence = 0
-      return ''
-    if observation.action_sequence_id != self._feedback_sequence:
-      return 'Waiting…' if age < 2_000_000_000 else 'Not confirmed'
-    return {'accept': 'Limit accepted', 'reject': 'Set speed kept', 'adopt': 'Limit adopted'}.get(
-      observation.action_status, 'Not applied')

@@ -13,8 +13,8 @@ from openpilot.starpilot.ui.onroad_customization import (CEM_GAUGE_WIDGET, CLOCK
                                                          validate_map_box, validate_widget_order)
 from openpilot.starpilot.ui.onroad_stopped_timer import timer_size
 from openpilot.starpilot.ui.onroad_torque_geometry import maximum_footprint
-from openpilot.starpilot.ui.onroad_customization import (SPEED_LAYOUT_V7, migrate_speed_layout, migrate_large_sign_layout, migrate_attached_actions_gap,
-                                                        place_attached_slc_actions, migrate_confirmation_layout)
+from openpilot.starpilot.ui.onroad_customization import (SPEED_LAYOUT_V7, migrate_speed_layout, migrate_large_sign_layout,
+                                                        migrate_confirmation_layout)
 from openpilot.starpilot.ui.large_speed_geometry import sources_extent
 
 MAX_BYTES = 16384
@@ -199,11 +199,9 @@ def default_layout(screen, display=None):
 def default_layout_for_viewport(viewport, display=None):
   metadata = layout_metadata_for_viewport(viewport)
   display = {**DISPLAY_DEFAULTS, **{key: value for key, value in (display or {}).items() if key in DISPLAY_DEFAULTS}}
-  result = {'version': 7, 'clock24Hour': False, 'largeUiGammaTrial': False, **display, 'canvas': {key: metadata[key] for key in ('width', 'height')},
+  return {'version': 7, 'clock24Hour': False, 'largeUiGammaTrial': False, **display, 'canvas': {key: metadata[key] for key in ('width', 'height')},
           'widgets': {key: {**widget['default'], **({'size': 192} if key == 'steering_wheel' else {})}
                       for key, widget in metadata['widgets'].items()}}
-  place_attached_slc_actions(result['widgets'], metadata['bounds'], sources_extent(result))
-  return result
 
 
 def now_playing_size(placement):
@@ -232,14 +230,14 @@ def validate_layout(value, screen):
 
 def validate_layout_for_viewport(value, viewport, *, _legacy_geometry=False):
   metadata = layout_metadata_for_viewport(viewport)
+  if type(value) is dict and type(value.get('widgets')) is dict and 'speed_limit_actions' in value['widgets']:
+    # Speed limit actions are part of the speed limit sign now; older layouts still carry the widget.
+    value = {**value, 'widgets': {key: placement for key, placement in value['widgets'].items() if key != 'speed_limit_actions'}}
+    if type(value.get('widgetOrder')) is list:
+      value['widgetOrder'] = [key for key in value['widgetOrder'] if key != 'speed_limit_actions']
   if type(value) is dict and type(value.get('version')) is int and value['version'] == 1 and not _legacy_geometry:
     result = validate_layout_for_viewport(value, viewport, _legacy_geometry=True)
-    card, actions = result['widgets']['cruise_limits'], result['widgets']['speed_limit_actions']
-    gap = actions['y'] - card['y']
-    migrate_speed_layout(result['widgets'], 'large', metadata['bounds'], gap if gap in (372, 425) else 232, widgets=metadata['widgets'])
-    # The intermediate v2 validator still uses its historical wider action box.
-    actions['x'] = min(actions['x'], metadata['bounds']['x'] + metadata['bounds']['width'] -
-                       max(metadata['widgets']['speed_limit_actions']['width'], SPEED_LAYOUT_V7['large']['speed_limit_actions'][0]))
+    migrate_speed_layout(result['widgets'], 'large', metadata['bounds'], widgets=metadata['widgets'])
     result['version'] = 2
     return validate_layout_for_viewport(result, viewport)
   fields = {'version', 'canvas', 'widgets'}
@@ -365,10 +363,9 @@ def validate_layout_for_viewport(value, viewport, *, _legacy_geometry=False):
     old_gauge = key == CEM_GAUGE_WIDGET and value['version'] < 3 and key in value['widgets']
     if old_gauge:
       dimensions = CEM_GAUGE_FRAME
-    if _legacy_geometry and key in ('cruise_limits', 'speed_limit_actions'):
-      historic = {'cruise_limits': ((176, 483), (280, 412)), 'speed_limit_actions': ((176, 58), (280, 96))}
+    if _legacy_geometry and key == 'cruise_limits':
       # Both shapes were published as v1; validate the whole footprint before migrating.
-      dimensions = next((pair for pair in historic[key] if all(
+      dimensions = next((pair for pair in ((176, 483), (280, 412)) if all(
         type(placement[axis]) in (int, float) and math.isfinite(placement[axis]) and
         bounds[axis] <= placement[axis] <= bounds[axis] + bounds[extent] - dimension
         for (axis, extent), dimension in zip((('x', 'width'), ('y', 'height')), pair, strict=True))), dimensions)
@@ -386,24 +383,11 @@ def validate_layout_for_viewport(value, viewport, *, _legacy_geometry=False):
       placement.update(x=placement['x'] + CEM_GAUGE_INSET[0], y=placement['y'] + CEM_GAUGE_INSET[1])
   if not _legacy_geometry:
     if value['version'] < 4:
-      card, actions = result['widgets']['cruise_limits'], result['widgets']['speed_limit_actions']
-      gap = actions['y'] - card['y']
-      migrate_speed_layout(result['widgets'], 'large', bounds, gap if gap in (232, 492) else 232, widgets=metadata['widgets'])
+      migrate_speed_layout(result['widgets'], 'large', bounds, widgets=metadata['widgets'])
     if value['version'] < 5:
       migrate_large_sign_layout(result['widgets'], bounds, widgets=metadata['widgets'])
-    actions = result['widgets']['speed_limit_actions']
-    if (actions['x'], actions['y']) == (100, 296):
-      actions.update(x=metadata['widgets']['speed_limit_actions']['default']['x'], y=metadata['widgets']['speed_limit_actions']['default']['y'])
     result['version'] = 7
-  if value['version'] == 5 and result.get('speedSources') is True:
-    card, actions = result['widgets']['cruise_limits'], result['widgets']['speed_limit_actions']
-    old_gap = 284 + (8 if result.get('speedSourcesCard') is True else 0)
-    if actions['x'] == card['x'] + 24 and actions['y'] == card['y'] + old_gap:
-      actions['y'] = card['y'] + 192
-  if value['version'] < 7:
-    migrate_attached_actions_gap(result['widgets'], bounds)
   migrate_confirmation_layout(result['widgets'], 'large', metadata['widgets'], bounds, extra_height=sources_extent(result))
-  place_attached_slc_actions(result['widgets'], bounds, sources_extent(result))
   if len(json.dumps(result, separators=(',', ':'), allow_nan=False).encode()) > MAX_BYTES:
     raise ValueError('Projection layout too large')
   return result
