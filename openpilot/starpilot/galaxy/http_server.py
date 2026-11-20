@@ -236,7 +236,7 @@ class _LocalHTTPHandler(BaseHTTPRequestHandler):
   def respond(self, status, body, content_type='application/json', cookie=None, *, asset_headers=None, cache_control=None):
     self.send_response(status)
     self.send_header('Content-Type', content_type)
-    if status != 304:
+    if status not in (204, 304):
       self.send_header('Content-Length', str(len(body)))
     self.send_header('Cache-Control', cache_control or ('private, max-age=0, must-revalidate' if asset_headers else 'no-store'))
     for key, value in (asset_headers or {}).items():

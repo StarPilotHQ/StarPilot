@@ -53,8 +53,10 @@ print(json.dumps(dict(native=native,projection=projection)))
         // Choose scenes through the real accessible dropdown.
         await page.getByRole('combobox', { name: 'Preview scene', exact: true }).click()
         await page.getByRole('option', { name: scene.label, exact: true }).click()
-        // After the first render, a scene switch keeps native artwork up instead of falling back to outlines.
-        if (nativeArt && scene !== scenes[0]) assert.equal(await page.locator('[data-preview-source="placeholder"]').count(), 0, `${target}/${scene.id}: no outlines while loading`)
+        if (!nativeArt) {
+          assert.equal(await page.locator('.gx-layout__widget [data-preview-source="sketch"]').count(),
+            await page.evaluate(() => window.editor.renderWidgets.filter(w => !window.editor.profile.runtimePreviewWidgets.includes(w.id)).length), `${target}/${scene.id}: each widget has artwork without a device render`)
+        }
         if (nativeArt) await page.waitForFunction(() => window.editor.state.backdrop.scene === window.editor.state.scene &&
           window.editor.state.backdrop.status === 'ready' && window.editor.state.art.scene === window.editor.state.scene && window.editor.state.art.status === 'ready')
         const state = await page.evaluate(() => ({ scene: window.editor.state.scene, border: window.editor.sceneBorder,

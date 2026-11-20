@@ -71,10 +71,10 @@ export const ONROAD_LAYOUT_TEMPLATE = `
               <span v-if="state.showEditingAids && state.snapGuides.length && !snapInBar" class="gx-layout__stage-chip gx-layout__stage-chip--start" :class="{'gx-layout__stage-chip--with-tap-areas': !projection && state.showFavoriteZones && state.profile !== 'compact'}" aria-hidden="true">{{ snapSummary }}</span>
               <span v-if="!projection && state.showFavoriteZones && state.showEditingAids && state.profile !== 'compact'" class="gx-layout__stage-chip" aria-hidden="true"><i class="bi bi-grid-3x3-gap"></i>Tap areas</span>
               <svg ref="preview" class="gx-layout__preview" :style="{'--layout-glow': state.profile === 'compact' ? '4px' : '14px'}" :viewBox="'0 0 ' + profile.width + ' ' + profile.height" :width="profile.width" :height="profile.height"
-                @pointermove="moveDrag" @pointerup="endDrag" @pointercancel="cancelDrag" @lostpointercapture="cancelDrag" @click="previewClick"
+                @pointerdown="previewPointerDown" @pointermove="moveDrag" @pointerup="endDrag" @pointercancel="cancelDrag" @lostpointercapture="cancelDrag"
                 role="group" :aria-label="projection ? 'StarPort layout preview' : (state.profile === 'large' ? 'Big' : 'Small') + ' layout preview'">
                 <g id="gx-layout-stage">
-                <image v-if="nativeBackdropReady" :href="state.backdrop.url" :width="profile.width" :height="profile.height" preserveAspectRatio="none" data-preview-source="device-backdrop" />
+                <image v-if="nativeBackdropReady" :href="layers.backdrop.url" :width="profile.width" :height="profile.height" preserveAspectRatio="none" data-preview-source="device-backdrop" />
                 <template v-else>
                 <rect width="100%" height="100%" fill="#252b32" />
                 <polygon :points="roadPoints([[0,1],[.4,.45],[.55,.45],[.83,1]])" fill="#303943" />
@@ -132,7 +132,9 @@ export const ONROAD_LAYOUT_TEMPLATE = `
                     <text :x="zone.x + zone.width / 2" :y="zone.y + zone.height - 8" text-anchor="middle" :font-size="state.profile === 'large' ? 20 : 10" fill="#d8c8ff">{{ zone.label }}</text>
                   </g>
                 </g>
-                <g v-for="widget in renderWidgets" :key="widget.id" class="gx-layout__widget" :class="{'is-selected': state.drag?.id === widget.id, 'is-armed': state.touchArmed === widget.id, 'is-editing': state.showEditingAids && state.inspectorPanel === 'edit' && state.selected === widget.id}"
+                <text v-if="artLoading" :x="profile.width / 2" :y="profile.height / 2" text-anchor="middle" dominant-baseline="middle"
+                  :font-size="state.profile === 'compact' ? 16 : 40" font-weight="600" fill="#d8c8ff" role="status">Loading Widgets</text>
+                <g v-for="widget in artLoading ? [] : renderWidgets" :key="widget.id" class="gx-layout__widget" :class="{'is-selected': state.drag?.id === widget.id, 'is-armed': state.touchArmed === widget.id, 'is-editing': state.showEditingAids && state.inspectorPanel === 'edit' && state.selected === widget.id}"
                   :transform="'translate(' + previewX(widget.id) + ' ' + layout[widget.id].y + ')'" tabindex="0" role="button"
                   :aria-label="widget.label + ', x ' + previewX(widget.id) + ', y ' + layout[widget.id].y +
                     (widget.frontmost ? '. Arrow keys move; Shift moves ten pixels; required and always frontmost widget.' :
@@ -140,8 +142,8 @@ export const ONROAD_LAYOUT_TEMPLATE = `
                   :aria-pressed="state.selected === widget.id" @focus="state.selected = widget.id" @keydown="onKey(widget.id, $event)"
                   @pointerdown="startDrag(widget.id, $event)">
                   <rect class="gx-layout__hit" :y="-(widget.visualInsetTop || 0)" :width="widget.width" :height="widget.height + (widget.visualInsetTop || 0) + (widget.visualInsetBottom || 0)" fill="transparent" />
-                  <LayoutWidgetPreview :widget="widget" :palette="widgetColors(widget.id)" :profile="state.profile" :scene="state.scene" :clock24-hour="!!state.draft.clock24Hour" :native="runtimeWidget(widget.id)" :art="state.art" />
-                  <rect class="gx-layout__selection" :y="-(widget.visualInsetTop || 0)" :width="widget.width" :height="widget.height + (widget.visualInsetTop || 0) + (widget.visualInsetBottom || 0)" fill="none" stroke="#b799ff" :stroke-width="state.profile === 'large' ? 5 : 1.5" stroke-dasharray="6 4" />
+                  <LayoutWidgetPreview :widget="widget" :palette="widgetColors(widget.id)" :profile="state.profile" :scene="state.scene" :clock24-hour="!!state.draft.clock24Hour" :native="profile.runtimePreviewWidgets?.includes(widget.id)" :art="layers.art" />
+                  <rect class="gx-layout__selection" v-bind="widget.outline" fill="none" stroke="#b799ff" :stroke-width="state.profile === 'large' ? 5 : 1.5" stroke-dasharray="6 4" />
                   <g v-if="widget.box && state.selected === widget.id && editable" class="gx-layout__resize" role="button" :aria-label="'Resize ' + widget.label"
                     :transform="'translate(' + widget.width + ' ' + widget.height + ')'" @pointerdown="startResize(widget.id, $event)">
                     <circle r="34" fill="transparent" /><circle r="16" fill="#b799ff" stroke="#16121f" stroke-width="4" />
@@ -160,7 +162,7 @@ export const ONROAD_LAYOUT_TEMPLATE = `
                     :x1="guide.axis === 'x' ? guide.value + previewShift(state.drag?.id) : 0" :x2="guide.axis === 'x' ? guide.value + previewShift(state.drag?.id) : profile.width"
                     :y1="guide.axis === 'y' ? guide.value : 0" :y2="guide.axis === 'y' ? guide.value : profile.height" vector-effect="non-scaling-stroke" />
                 </g>
-                <rect v-if="state.showEditingAids && selectionBox" class="gx-layout__outline" :x="selectionBox.x" :y="selectionBox.y" :width="selectionBox.width" :height="selectionBox.height" rx="4" fill="none" stroke="#d4baff" stroke-width="2" vector-effect="non-scaling-stroke" />
+                <rect v-if="state.showEditingAids && selectionBox && !artLoading" class="gx-layout__outline" :x="selectionBox.x" :y="selectionBox.y" :width="selectionBox.width" :height="selectionBox.height" rx="4" fill="none" stroke="#d4baff" stroke-width="2" vector-effect="non-scaling-stroke" />
                 </g>
               </svg>
               </div>

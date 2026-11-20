@@ -36,6 +36,9 @@ class LayoutPreviewRendererTests(unittest.TestCase):
         self.assertEqual(canvas.render.call_args.args[0].viewport_width, width)
         renderer({**payload, 'art': True})
         self.assertEqual(canvas.render_widget_art.call_args.args[0].viewport_width, width)
+        renders = canvas.render_widget_art.call_count
+        renderer({**payload, 'art': True})
+        self.assertEqual(canvas.render_widget_art.call_count, renders)
         self.assertEqual(payload['document']['developerSidebar'], sidebar)
 
   def test_canvas_omits_sample_sidebar_when_hidden(self):
@@ -336,3 +339,27 @@ def test_native_preview_draws_independent_camera_circles_without_camera_input():
       assert circle.call_count == ring.call_count == 1
       assert circle.call_args.args[0].x == right_center.x
       assert circle.call_args.args[0].y == right_center.y
+
+
+def test_closing_the_renderer_forgets_cached_widget_sheets():
+  renderer = LayoutPreviewRenderer()
+  renderer._sheets['sheet'] = b'png'
+  renderer.close()
+  assert not renderer._sheets
+
+
+def test_backdrops_are_reused_per_scene_like_widget_sheets():
+  canvas = Mock(profile=Profile.LARGE, viewport=None)
+  canvas.render.side_effect = lambda state, scene: scene.encode()
+  canvas.render_widget_art.return_value = b'sheet'
+  renderer = LayoutPreviewRenderer()
+  renderer._canvas = canvas
+  document = default_document()
+  with patch('openpilot.starpilot.ui.layout_preview_renderer.rl.is_window_ready', return_value=True):
+    for scene in ('engaged', 'slc_pending', 'engaged'):
+      assert renderer({'document': document, 'profile': 'large', 'scene': scene, 'art': 'backdrop'}) == scene.encode()
+    assert renderer({'document': document, 'profile': 'large', 'scene': 'engaged', 'art': True}) == b'sheet'
+    assert renderer({'document': document, 'profile': 'large', 'scene': 'engaged'}) == b'engaged'
+    renderer({'document': document, 'profile': 'large', 'scene': 'engaged'})
+  assert [c.args[1] for c in canvas.render.call_args_list] == ['engaged', 'slc_pending', 'engaged', 'engaged']
+  assert canvas.render_widget_art.call_count == 1
