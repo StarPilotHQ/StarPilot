@@ -1,4 +1,5 @@
 import unittest
+from opendbc.safety.tests.native_callback import assert_native_callback_finishes
 import pytest
 from opendbc.can import CANPacker
 from opendbc.safety import LEN_TO_DLC
@@ -30,6 +31,10 @@ def rx(name, bus, values):
 
 
 class TestVolvoC1Safety(unittest.TestCase):
+  def test_native_initialization_and_speed_callback_finish(self):
+    address, data, bus = packer.make_can_msg('VehicleSpeed1', 0, {'VehicleSpeed': 72})
+    assert_native_callback_finishes(self, 36, 2, address, bus, data)
+
   def test_exhaustive_only_assigned_profiles_are_admitted(self):
     for param in range(65536):
       status = lib.set_safety_hooks(36, param)
