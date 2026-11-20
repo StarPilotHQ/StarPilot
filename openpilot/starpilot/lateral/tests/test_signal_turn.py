@@ -12,6 +12,7 @@ from openpilot.selfdrive.controls.lib.drive_helpers import clip_curvature
 from openpilot.starpilot.lateral.lane_change_preferences import KEY, LaneChangePolicy, to_value
 from openpilot.starpilot.lateral.lane_change_smoothing import LaneChangeSmoother, limit_rate
 from openpilot.starpilot.lateral.signal_turn import SignalTurnEvidence
+from openpilot.starpilot.lateral.turn_initiation_preferences import KEY as TURN_INITIATION_KEY
 from openpilot.starpilot.navigation.intent import TurnIntent
 
 BASE, DRIVE, OFFSET = 10_000_000_000, 9_000_000_000, 2_000_000_000
@@ -52,7 +53,12 @@ def test_confirmed_forecast_admits_earlier_hint_and_cancels_pending_lane_change(
   params.put(KEY, to_value(LaneChangePolicy()), block=True)
   cp = structs.CarParams.new_message(carFingerprint='real', brand='hyundai', steerControlType='torque')
   cp.safetyConfigs = [structs.CarParams.SafetyConfig.new_message(safetyModel='hyundaiCanfd')]
+  params.put_bool(TURN_INITIATION_KEY, True, block=True)
   intent, helper = TurnIntent(params, cp), DesireHelper()
+  sm, now, _ = frame(-1, direction)
+  sm['carState'].leftBlinker = sm['carState'].rightBlinker = False
+  assert intent.select(sm, now, helper.desire, supported=True, model_stop=False) == log.Desire.none
+  assert intent.automatic_turn_enabled
   for tick in range(5):
     sm, now, model = frame(tick, direction)
     with patch('openpilot.starpilot.lateral.signal_turn.boottime_ns', return_value=now + OFFSET):
