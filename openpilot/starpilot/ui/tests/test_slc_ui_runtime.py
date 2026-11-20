@@ -207,7 +207,9 @@ class TestSlcUiRuntime(unittest.TestCase):
     view.native = NS(ui_state=NS(started=True))
     view._state = state
     view._slc_input = OnroadInput(emitted.append, Profile.LARGE)
-    left, top, right, bottom = speed_limit_bounds(Profile.LARGE, state)
+    bounds = speed_limit_bounds(Profile.LARGE, state)
+    assert bounds is not None
+    left, top, right, bottom = bounds
     x, y = (left + right) / 2, (top + bottom) / 2
     self.assertFalse(view._slc_touch('down', x, y))
     self.assertFalse(view._slc_touch('up', x, y))

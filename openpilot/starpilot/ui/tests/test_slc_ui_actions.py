@@ -185,7 +185,9 @@ class TestSlcTouch(unittest.TestCase):
         emitted = []
         touch = OnroadInput(emitted.append, profile)
         self.assertEqual(slc_controls(profile, current), ())
-        left, top, right, bottom = speed_limit_bounds(profile, current)
+        bounds = speed_limit_bounds(profile, current)
+        assert bounds is not None
+        left, top, right, bottom = bounds
         x, y = (left + right) / 2, (top + bottom) / 2
         touch.press(x, y, current)
         touch.release(x, y, current)

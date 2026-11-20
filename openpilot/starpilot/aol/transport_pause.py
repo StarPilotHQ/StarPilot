@@ -55,7 +55,6 @@ def _healthy_transport_native(sm, cp, cs, session, now_ns, native=None, *, requi
 
 
 def _newer_combined_intent_native(sm, cp, cs, axis, now_ns):
-  # FULL before ACK: intent only; output needs native proof/original deadlines.
   from opendbc.car.volkswagen.long_aol import qualified as volkswagen_long_qualified
   from openpilot.starpilot.car.hyundai.aol import early_native_long_withdrawal_supported
   if (not axis.nativeAcknowledged or not axis.desiredLateral or not axis.lateralActive or
@@ -239,7 +238,6 @@ class TransportPauseFeedback:
       any(event.immediateDisable or event.softDisable or event.userDisable for event in sm['onroadEvents'])):
       return None
     native = independent_lateral_health(sm, cp, cs, self.session, now_ns)
-    # 10Hz LAT grant may precede waiting axis: intent only.
     if (native is None or native.observedMonoTime < max(self.healthy_native_ns, self.lateral_native_ns) or
         (now_ns - axis.sourceCarStateMonoTime > AXIS_MAX_AGE_NS and native.observedMonoTime <= self.healthy_native_ns) or
         not native.pandaInventory or not native.requestedLongitudinal or native.longitudinalAllowed or
@@ -256,13 +254,11 @@ class TransportPauseFeedback:
     from opendbc.car import structs
     ev9 = cp.brand == 'hyundai' and ev9_qualified(cp, marked_only=True)
     from opendbc.car.ford.aol import qualified as ford_qualified
-    # Pedal/Cancel before LONG echo: LAT intent only.
     ford_withdrawal = bool(cp.brand == 'ford' and ford_qualified(cp, marked_only=True) and cp.openpilotLongitudinalControl and
       (cs.brakePressed or not cs.cruiseState.enabled or physical_cancel(cs, cp) or
        not axis.desiredLongitudinal and not axis.longitudinalActive) and not cs.regenBraking and
       cs.cruiseState.available and not cs.doorOpen and not cs.seatbeltUnlatched and
       not cs.vehicleSensorsInvalid and cs.gearShifter == structs.CarState.GearShifter.drive)
-    # Ford angle/curvature: intent-only LONG echo join.
     # Require fresh LAT and all health/fault checks.
     ford_long = bool(ford_qualified(cp, marked_only=True) and cp.openpilotLongitudinalControl)
     from opendbc.car.volkswagen.long_aol import qualified as volkswagen_long_qualified
@@ -308,10 +304,7 @@ class TransportPauseFeedback:
       return None
     native = independent_lateral_health(sm, cp, cs, self.session, now_ns)
     # Brake health may precede axis status.
-    # Keep LAT intent only; physical pedal owns LONG.
-    # Cancel can withdraw raw Panda LONG before its next native axis receipt.
-    # Retain only the already acknowledged LAT-only axis, under the original
-    # source/native deadlines and a fresh matching cruise-withdrawal event.
+    # Cancel needs acknowledged LAT, original deadlines and a fresh withdrawal event.
     ford_cancel_health = bool(ford_withdrawal and not cs.cruiseState.enabled and
       not axis.desiredLongitudinal and not axis.longitudinalActive and
       0 < event_ns <= now_ns and now_ns - event_ns <= AXIS_MAX_AGE_NS and
@@ -394,7 +387,6 @@ class TransportPauseFeedback:
         (max(axis.faultEventMonoTime, event_ns) != self.pending_event if repeated_join else
          axis.faultEventMonoTime != self.pending_event)):
       return False
-    # Pre-event SOFT: intent only, original 30ms join; no reanchoring.
     axis_first = bool(str(axis.faultReason) == 'availabilityPause' and
       not (axis.lateralActive or axis.longitudinalActive or axis.desiredLateral or axis.desiredLongitudinal or axis.nativeAcknowledged) and
       prior is not None and prior[5] == 'none' and prior[11] and prior[13] and
@@ -492,7 +484,6 @@ class TransportPauseFeedback:
     gears = structs.CarState.GearShifter
 
     # PCM-off is not AOL-off: retain intent for location/EPS recovery;
-    # native/session/source guards remain.
     recovering_user = bool((location_fault or eps_recovery) and users)
     stock_angle = recovering_user and cp.brand == 'hyundai' and angle_qualified(cp, marked_only=True)
     stock_hkg = recovering_user and cp.brand == 'hyundai' and (stock_angle or stock_canfd_qualified(cp, marked_only=True) or
@@ -582,7 +573,6 @@ class TransportPauseFeedback:
     faults = [event for event in events if event.immediateDisable or event.softDisable]
     isolated = bool(len(faults) == 1 and faults[0].name == log.OnroadEvent.EventName.selfdrivedLagging and
       faults[0].softDisable and not faults[0].immediateDisable)
-    # Healthy skips policy/native/provenance; critical proof never exempts lag.
     recovering = bool(cp.brand == 'gm' and not faults and reason == 'none' and
       0 < self.lag_withdrawal_ns <= now_ns <= self.lag_withdrawal_ns + SAFETY_MAX_AGE_NS and
       axis.desiredLateral and not axis.lateralActive and axis.nativeAcknowledged and
@@ -660,7 +650,6 @@ class TransportPauseFeedback:
     elif joining:
       self.pending_event = 0
     if matched and cp.brand == 'gm':
-      # Latest inactive proof, not fault age; lag renews no lease, permission or baseline.
       self.lag_withdrawal_ns = stamp
     return True
 
@@ -952,7 +941,6 @@ class TransportPauseFeedback:
     combined = bool(axis.desiredLongitudinal and axis.longitudinalActive)
     if combined:
       # Event-first: NEW occurrence, verified OFF/source-zero, exact join;
-      # never renew pending deadline or old command lease.
       previous = self.signature
       if (previous is None or previous[0] != self.session or previous[5] != 'availabilityPause' or
         previous[7] != self.session or previous[8] != 0 or previous[9] or previous[10] or
