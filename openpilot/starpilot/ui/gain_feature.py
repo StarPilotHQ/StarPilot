@@ -47,7 +47,7 @@ class GainFeature:
                          choices=("Selected controller",), available=allowed, capability=capability, dependencies=dependencies,
                          default_value="Selected controller"))
     apply_note = ("First manual activation requires a driving-process restart."
-                  if capability[0] in GM_VEHICLES else "Applies at restart. Learned steering adjustments pause while custom Kp is active.")
+                  if capability[0] in GM_VEHICLES else "Applies at restart. Only the proportional gain is fixed.")
     rows = [FeatureRow("", "Manual steering response", "Higher values respond more strongly. " + apply_note)]
     rows.append(FeatureRow("torque:gain:mode", "Steering response source",
                            "Custom" if choice.mode == "custom" else "Selected controller", raw,

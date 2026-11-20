@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 
 from opendbc.car.interfaces import get_torque_params
@@ -9,7 +10,7 @@ from openpilot.starpilot.car.volkswagen.model_smoothing import supported as fact
 
 from openpilot.starpilot.lateral.torque_runtime import gm_manual_supported_cp, production_supported_cp
 from openpilot.starpilot.lateral.torque_supported import BOLT_VEHICLES, GM_VEHICLES
-from openpilot.starpilot.lateral.torque_settings import DOCUMENT_KEY, MAX_DOCUMENT_BYTES, GainBasis, parse_document
+from openpilot.starpilot.lateral.torque_settings import DOCUMENT_KEY, MAX_DOCUMENT_BYTES, GainBasis, gain_bounds, parse_document
 from openpilot.starpilot.saved_source import read_saved
 
 REFRESH_NS = 1_000_000_000
@@ -45,6 +46,33 @@ def gain_basis(cp, controller) -> GainBasis:
                    (tune.latAccelFactor, tune.latAccelOffset, tune.friction))
 
 
+def fixed_kp_from_profile(cp, selection, profile) -> float | None:
+  if profile is None or profile.proportional_gain.mode != 'custom' or str(cp.carFingerprint) in GM_VEHICLES or not gain_supported(cp):
+    return None
+  if cp.lateralTuning.which() == 'pid':
+    basis = pid_gain_basis(cp)
+  else:
+    from openpilot.selfdrive.controls.lib.latcontrol_torque import INTERP_SPEEDS, KP_INTERP, STARPILOT_KP
+    tune = cp.lateralTuning.torque
+    table = ((0.,), (STARPILOT_KP,)) if selection.mode.value == 'starpilot' else (tuple(INTERP_SPEEDS), tuple(KP_INTERP))
+    basis = GainBasis(selection.mode.value, table, (tune.latAccelFactor, tune.latAccelOffset, tune.friction))
+  return profile.proportional_gain.custom_value if profile.gain_basis == basis else None
+
+
+def install_fixed_kp(cp, controller, value) -> None:
+  if not gain_supported(cp) or str(cp.carFingerprint) in GM_VEHICLES or type(value) not in (int, float) or not math.isfinite(value):
+    raise ValueError('Invalid fixed proportional gain')
+  basis = gain_basis(cp, controller)
+  low, high = gain_bounds(str(cp.carFingerprint), basis)
+  if not low <= value <= high:
+    raise ValueError('Out-of-range fixed proportional gain')
+  speeds, gains = basis.source_table
+  controller.pid._k_p = [list(speeds), [gain * value / gains[-1] for gain in gains]]
+  if hasattr(controller, 'native_learning_baseline'):
+    from openpilot.starpilot.flm.runtime_adapter_registry import baseline_values
+    controller.native_learning_baseline = baseline_values(controller)
+
+
 def _selected(params, cp, basis: GainBasis) -> float | None:
   try:
     if str(cp.carFingerprint) in BOLT_VEHICLES:
@@ -70,16 +98,13 @@ class GenericGainOwner:
     self.basis = basis
     self.last_refresh_ns: int | None = None
     self.current_table = basis.source_table
-    self._apply(value)
+    if str(cp.carFingerprint) in GM_VEHICLES:
+      self._apply(value)
+    else:
+      install_fixed_kp(cp, controller, value)
 
   def _apply(self, value: float | None) -> None:
-    table = self.basis.source_table
-    if value is not None:
-      if str(self.cp.carFingerprint) in GM_VEHICLES:
-        table = ((0.0,), (value,))
-      else:
-        speeds, gains = table
-        table = (speeds, tuple(gain * value / gains[-1] for gain in gains))
+    table = self.basis.source_table if value is None else ((0.0,), (value,))
     if table != self.current_table:
       self.pid._k_p = [list(row) for row in table]
       self.current_table = table

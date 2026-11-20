@@ -340,6 +340,7 @@ def verify_original_replay(packet, template_engine, replay_bytes):
       data['identity'] != engine.identity or data['baseline_revision'] != engine.baseline_revision or
       data['mode'] != str(engine.factory.mode) or data['turn_assist'] != engine.factory.turn_assist or
       tuple(data.get('manual_baseline',())) != engine.factory.manual_baseline or
+      data.get('manual_kp') != engine.factory.manual_kp or
       data.get('manual_source_epoch','') != engine.factory.manual_source_epoch or
       data['objective'] != asdict(engine.engine.objective)):
     raise ValueError('original context actual selected replay factory')

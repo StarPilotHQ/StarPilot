@@ -46,7 +46,8 @@ def replay_data(packet, *, objective, identity, baseline_revision):
   data = {'version':2 if normalized else 1,'raw_mode':True,
     'cp_bytes':bytes.fromhex(original['cp_bytes_hex']), 'mode':original['mode'],
     'turn_assist':original['turn_assist'], 'manual_baseline':tuple(original['manual_baseline']),
-    'manual_source_epoch':original['manual_source_epoch'], 'objective':asdict(objective),
+    'manual_source_epoch':original['manual_source_epoch'],
+    **({'manual_kp': original['manual_kp']} if 'manual_kp' in original else {}), 'objective':asdict(objective),
     'identity':identity, 'baseline_revision':baseline_revision,'model_revision':original['model_revision'],
     'windows':((first,last),),'checkpoints':tuple((stamp,revision,tuple(tuple(pair) for pair in values)) for stamp,revision,values in original['checkpoints']),
     'frames':frames,'emissions':packet['actual_command_tape']}
@@ -111,6 +112,7 @@ def _stage_engine(original, cutoff, *, context_packet=None):
   data = {'version':1,'raw_mode':True,'cp_bytes':original.factory.cp.as_builder().to_bytes(),
     'mode':str(original.factory.mode),'turn_assist':original.factory.turn_assist,
     'manual_baseline':original.factory.manual_baseline,'manual_source_epoch':original.factory.manual_source_epoch,
+    **({'manual_kp': original.factory.manual_kp} if original.factory.manual_kp is not None else {}),
     'objective':asdict(original.engine.objective),'identity':original.identity,
     'baseline_revision':original.baseline_revision,'model_revision':original.engine.model_revision,
     'windows':tuple(chosen),'checkpoints':tuple((stamp,cp.revision,cp.values) for stamp,cp in original.checkpoints

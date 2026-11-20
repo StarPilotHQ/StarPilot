@@ -198,17 +198,10 @@ class Controls:
     from openpilot.starpilot.lateral.learning_preferences import read_preference
 
     preference = read_preference(self.params, self.CP)
-    from openpilot.starpilot.lateral.torque_supported import GM_VEHICLES
-
-    custom_fixed_gain = self.lateral_gain_owner is not None and str(self.CP.carFingerprint) not in GM_VEHICLES
-    if custom_fixed_gain:
-      # Saved route effects and live trials require the original controller gains.
-      self.route_flm_status = 'context_changed'
-    else:
-      _, self.route_flm_status = self._configure_route_tune(manual_status)
+    _, self.route_flm_status = self._configure_route_tune(manual_status)
     self.global_learning = (
       GlobalRuntime(self.CP, self.CI, self.LaC, confirmed_live_history=load_confirmed_history(self.params))
-      if preference.valid and preference.enabled and not custom_fixed_gain else None
+      if preference.valid and preference.enabled else None
     )
     # Load optional capture and live-trial code before the first control command.
     # Engagement must not compile/import replay and feedback modules in the loop.

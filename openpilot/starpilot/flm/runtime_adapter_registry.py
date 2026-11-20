@@ -235,6 +235,7 @@ class SourceState:
   manual_baseline: tuple[float, ...] = field(default=(), compare=False, repr=False)
   # Internal only: absent current configuration proof is not an explicit OFF.
   configuration_known: bool = True
+  manual_kp: float | None = field(default=None, compare=False, repr=False)
 
 
 def read_source(cp, params, *, now_ns, cp_sha256=None, calibration=(), vehicle_session="", calibration_generation=''):
@@ -273,7 +274,8 @@ def read_source(cp, params, *, now_ns, cp_sha256=None, calibration=(), vehicle_s
       raise ValueError('invalid actual startup turn-assist choice')
     from openpilot.starpilot.lateral.controller_selection import selection_from_bytes
 
-    if selection_from_bytes(cp, raw_by_key['LateralControllerSelection']).source == 'invalid':
+    selection = selection_from_bytes(cp, raw_by_key['LateralControllerSelection'])
+    if selection.source == 'invalid':
       raise ValueError('invalid saved controller configuration')
     reset_raw = raw_by_key['AutoSteeringLearningReset']
     reset = '0' if reset_raw is None else reset_raw.decode('ascii')
@@ -282,9 +284,12 @@ def read_source(cp, params, *, now_ns, cp_sha256=None, calibration=(), vehicle_s
     document = raw_by_key[DOCUMENT_KEY]
     manual = False
     fixed_manual = ()
+    manual_kp = None
     if document is not None:
       profile = parse_document(document).get(str(cp.carFingerprint))
       if profile is not None:
+        from openpilot.starpilot.lateral.gain_runtime import fixed_kp_from_profile
+        manual_kp = fixed_kp_from_profile(cp, selection, profile)
         if cp.lateralTuning.which() == 'torque':
           tune = cp.lateralTuning.torque
           if profile.basis != (float(tune.latAccelFactor), float(tune.latAccelOffset), float(tune.friction)):
@@ -369,6 +374,7 @@ def read_source(cp, params, *, now_ns, cp_sha256=None, calibration=(), vehicle_s
       calibration_generation=calibration_generation,
       persistent_source_epoch=persistent_epoch,
       manual_baseline=fixed_manual,
+      manual_kp=manual_kp,
     )
   except (AttributeError, UnicodeError, TypeError, ValueError, OSError, OverflowError):
     return SourceState(False, False, '', '', now_ns, now_ns + SOURCE_LEASE_NS, cp_sha256, configuration_known=False)

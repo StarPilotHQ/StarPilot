@@ -137,18 +137,21 @@ class TorqueCollectionAdapter:
     if evidence.stage_schema_revision != self.raw_stage_revision:
       raise ValueError('actual raw stage trace')
     manual_baseline = ()
+    manual_kp = None
     if source is not None:
       from openpilot.starpilot.flm.runtime_adapter_registry import car_params_digest
 
       if not source.enabled or source.manual or source.source_epoch != evidence.source_epoch or source.cp_sha256 != car_params_digest(cp):
         raise ValueError('independent current manual configuration source')
       manual_baseline = source.manual_baseline
+      manual_kp = source.manual_kp
     factory = self.factory_type(
       cp,
       evidence.controller_mode,
       turn_assist=evidence.turn_assist,
       manual_baseline=manual_baseline,
-      manual_source_epoch=evidence.source_epoch if manual_baseline else '',
+      manual_source_epoch=evidence.source_epoch if manual_baseline or manual_kp is not None else '',
+      manual_kp=manual_kp,
     )
     controller, vm = factory.create()
     from openpilot.starpilot.flm.native_baseline import static_values

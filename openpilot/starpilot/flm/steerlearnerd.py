@@ -154,7 +154,7 @@ def _collect_applied_output(collector, applied, sm, cp, now_ns):
 
 def _source_config_binding(source):
   return (source.cp_sha256, source.source_epoch, source.reset, source.calibration_generation,
-          source.enabled, source.manual, source.persistent_source_epoch, tuple(source.manual_baseline))
+          source.enabled, source.manual, source.persistent_source_epoch, tuple(source.manual_baseline), source.manual_kp)
 
 
 def _source_config_known(source, now_ns):
@@ -173,7 +173,8 @@ def _source_config_known(source, now_ns):
     type(source.persistent_source_epoch) is str and (not source.persistent_source_epoch or
       len(source.persistent_source_epoch) == 64 and not source.persistent_source_epoch.strip('0123456789abcdef')) and
     type(source.manual_baseline) is tuple and len(source.manual_baseline) in (0, 3) and
-    all(type(value) in (int, float) and math.isfinite(value) for value in source.manual_baseline))
+    all(type(value) in (int, float) and math.isfinite(value) for value in source.manual_baseline) and
+      (source.manual_kp is None or type(source.manual_kp) in (int, float) and math.isfinite(source.manual_kp)))
 
 
 def _pause_historical_collector(collector, reason):

@@ -331,6 +331,10 @@ def _current_controller(cp, params):
   mode = 'native' if cp.lateralTuning.which() == 'pid' else str(read_selection(params, cp).mode)
   factory = PidControllerFactory(cp, mode) if cp.lateralTuning.which() == 'pid' else SelectedControllerFactory(cp, mode, turn_assist=startup.turn_assist)
   controller, _ = factory.create()
+  from openpilot.starpilot.lateral.gain_runtime import create_gain_owner
+  from openpilot.starpilot.lateral.torque_supported import GM_VEHICLES
+  if str(cp.carFingerprint) not in GM_VEHICLES:
+    create_gain_owner(params, cp, controller)
   ci = interfaces[str(cp.carFingerprint)](cp)
   return ci, controller
 

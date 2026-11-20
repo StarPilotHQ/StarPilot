@@ -366,7 +366,7 @@ class _FrictionRecorder:
 class SelectedControllerFactory:
   """Frozen registered CP and selected mode; construct only in learner process."""
 
-  def __init__(self, cp, mode, *, turn_assist=False, manual_baseline=(), manual_source_epoch=""):
+  def __init__(self, cp, mode, *, turn_assist=False, manual_baseline=(), manual_source_epoch="", manual_kp=None):
     from opendbc.car.car_helpers import interfaces
     from openpilot.starpilot.lateral.controller_selection import ControllerMode, policy_for
 
@@ -379,6 +379,7 @@ class SelectedControllerFactory:
     self.turn_assist = bool(turn_assist)
     self.interface_class = interfaces[cp.carFingerprint]
     self.manual_baseline, self.manual_source_epoch = tuple(manual_baseline), manual_source_epoch
+    self.manual_kp = manual_kp
     if self.manual_baseline:
       from openpilot.starpilot.lateral.torque_settings import bounds
 
@@ -397,7 +398,8 @@ class SelectedControllerFactory:
         or any(c not in '0123456789abcdef' for c in manual_source_epoch)
       ):
         raise ValueError('independent fixed manual constructor source')
-    elif manual_source_epoch:
+    elif bool(manual_source_epoch) != (manual_kp is not None) or manual_source_epoch and (
+        type(manual_source_epoch) is not str or len(manual_source_epoch) != 64 or any(c not in '0123456789abcdef' for c in manual_source_epoch)):
       raise ValueError('manual source epoch without selected manual configuration')
 
   def create(self):
@@ -412,6 +414,9 @@ class SelectedControllerFactory:
       controller = create_lateral_controller(self.cp, ci, 0.01, mode=self.mode, turn_assist=self.turn_assist)
     if controller.controller_policy != self.policy:
       raise ValueError('selected policy mismatch')
+    if self.manual_kp is not None:
+      from openpilot.starpilot.lateral.gain_runtime import install_fixed_kp
+      install_fixed_kp(self.cp, controller, self.manual_kp)
     if self.manual_baseline:
       controller.update_torque_parameters(*self.manual_baseline)
     return controller, VehicleModel(self.cp)
@@ -1501,6 +1506,7 @@ class ControllerReplay:
       'mode': str(self.factory.mode),
       'turn_assist': self.factory.turn_assist,
       'manual_baseline': self.factory.manual_baseline,
+      **({'manual_kp': self.factory.manual_kp} if self.factory.manual_kp is not None else {}),
       'manual_source_epoch': self.factory.manual_source_epoch,
       'objective': asdict(self.objective),
       'identity': self.identity,
@@ -1565,6 +1571,7 @@ class ControllerReplay:
       or values.get('mode') != str(factory.mode)
       or values.get('turn_assist') != factory.turn_assist
       or tuple(values.get('manual_baseline', ())) != factory.manual_baseline
+      or values.get('manual_kp') != factory.manual_kp
       or values.get('manual_source_epoch', '') != factory.manual_source_epoch
       or values.get('cp_bytes') != factory.cp.as_builder().to_bytes()
     ):
@@ -1708,8 +1715,9 @@ def factory_from_snapshot(data):
       turn_assist=values['turn_assist'],
       manual_baseline=tuple(values.get('manual_baseline', ())),
       manual_source_epoch=values.get('manual_source_epoch', ''),
+      manual_kp=values.get('manual_kp'),
     )
-  if factory.manual_baseline:
+  if factory.manual_baseline or factory.manual_kp is not None:
     from openpilot.starpilot.flm.runtime_adapter_registry import baseline_values, baseline_revision, selected_descriptor, selected_identity
 
     controller, _ = factory.create()
