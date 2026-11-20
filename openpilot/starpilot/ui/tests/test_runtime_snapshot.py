@@ -1096,7 +1096,7 @@ class TestRuntimeSnapshot(unittest.TestCase):
 
 @pytest.mark.parametrize('brand,standstill,cruise_standstill,cruise_enabled,expected', [
   ('honda', False, False, True, True),
-  ('ford', False, False, True, False),
+  ('ford', False, False, True, True),
   ('toyota', False, False, True, True),
   ('toyota', True, False, True, False),
   ('toyota', False, True, True, False),

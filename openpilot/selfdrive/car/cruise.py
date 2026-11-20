@@ -177,7 +177,6 @@ class VCruiseHelper:
     self.pcm_slc_sample = (float(self.v_cruise_kph), now_ns)
 
   def _update_slc_button_latches(self, CS, enabled, slc_pending: SlcPendingConfirmation | None) -> None:
-    # Ford PCM buttons reach OEM cruise even when a host-side press is consumed.
     for b in CS.buttonEvents:
       button = b.type.raw
       if button not in self.button_timers:
@@ -187,7 +186,6 @@ class VCruiseHelper:
         self.slc_released_suppressed = True
         self.button_timers[button] = 0
       elif (b.pressed and enabled and CS.cruiseState.available and slc_pending is not None and
-            not (self.CP.brand == 'ford' and self.CP.pcmCruise) and
             not (self.CP.pcmCruise and button == ButtonType.accelCruise and
                  (CS.standstill or CS.cruiseState.standstill or not CS.cruiseState.enabled)) and
             button not in self.slc_suppressed_buttons):
