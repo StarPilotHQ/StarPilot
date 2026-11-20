@@ -24,6 +24,7 @@ const tuneBackup = { format: 'starpilot-flm-tune', version: 1, vehicle: 'DECLARE
   controllerMode: 'starpilot', cpSha256: 'a'.repeat(64), createdAt: '2026-11-16T03:00:00Z', checksum: 'declared-ui-checksum',
   manual: [{ page: 'tuning', key: 'torque:surface:highway_center_taper_max', value: '0.5' }], learned: {} }
 const acceptedFindings = new Set()
+const manualLocks = new Set()
 const manual = Object.fromEntries(SURFACE_NAMES.map(name => [name, 0]))
 const hints = [['highway_center_taper_max', .005], ['friction_threshold_low', .002],
   ['friction_threshold_mid', .004], ['friction_threshold_fast', .005], ['friction_threshold_highway', .006]]
@@ -114,10 +115,12 @@ function settings() {
       // This highlighted dial uses the published help; other fixture rows stay generic.
       reason: coordinate === 'highway_center_taper_max' ? 'Adds straight-ahead softening at highway speeds. Higher softens small corrections more; lower keeps more steering response. This changes steering feel, not your target position in the lane. Parked only. Manual overrides lock only the changed setting.' :
         'Shapes small steering corrections at this stage. Higher and lower values change the controller response. Parked only. Manual overrides lock only the changed setting.',
+      coordinateLocked: manualLocks.has(coordinate), learningEligible: !manualLocks.has(coordinate),
       ...(acceptedFindings.has(coordinate) ? {acceptedFindingValue: manual[coordinate] / 100} : {}),
       value: manual[coordinate].toFixed(4), minimum: -25, maximum: 25, step: .25, unit: '%', defaultValue: 0,
       resetAvailable: parked, available: parked, action: true })),
     ...(manualRecovered ? ['crawl','low','mid','fast','highway'].map((speed, index) => ({ coordinate: 'friction_threshold_' + speed,
+      coordinateLocked: index >= 2, learningEligible: index < 2,
       label: 'Recovered speed correction', value: [0,0,.36,.48,.48][index].toFixed(4), unit: '%', available: false, action: false,
       reason: 'Saved by explicit manual recovery. These values stay locked.' })) : []),
     { label: 'Reset all manual overrides', reason: 'Remove the thirty manual overrides.', value: 'Reset', confirm: true, available: parked, action: true }] }
@@ -151,6 +154,7 @@ const server = createServer(async (req, res) => {
       if (pathname === '/api/settings/flm-finding/accept') {
         const hint = hints.find(([name, target]) => body.parameter === name && body.target === target)
         if (!lastReportFresh || !hint || body.assessment !== 'a'.repeat(64)) return json({ error: 'Finding changed' }, 409)
+        manualLocks.delete(body.parameter)
         acceptedFindings.add(body.parameter);manual[body.parameter] = body.target * 100
         return json({ status: 'saved', parameter: body.parameter, value: body.target, learning: 'automatic', for_next_drive: true })
       }
@@ -163,7 +167,7 @@ const server = createServer(async (req, res) => {
       }
       if (pathname === '/api/settings/flm-backup/confirm') {
         assert.equal(body.intent, 'declared-backup-intent');assert.equal(body.confirmed, true)
-        manual.highway_center_taper_max = .5
+        manual.highway_center_taper_max = .5;manualLocks.add('highway_center_taper_max')
         if (backupRecovery) manualRecovered = true
         return json({ complete: true, restored: 1, manual: backupRecovery, unchanged: 0, skipped: [] })
       }
@@ -173,8 +177,15 @@ const server = createServer(async (req, res) => {
       }
       if (pathname.endsWith('/confirm')) {
         assert.equal(body.intent, pending.intent)
-        if (pending.row === SURFACE_NAMES.length) for (const name of SURFACE_NAMES) manual[name] = 0
-        else manual[SURFACE_NAMES[pending.row]] = Number(pending.value)
+        if (pending.row === SURFACE_NAMES.length) {
+          for (const name of SURFACE_NAMES) manual[name] = 0
+          manualLocks.clear()
+        } else {
+          const name = SURFACE_NAMES[pending.row]
+          manual[name] = Number(pending.value)
+          if (manual[name] === 0) manualLocks.delete(name)
+          else manualLocks.add(name)
+        }
         pending = null; return json({ saved: true, page: settings() })
       }
     }
@@ -484,7 +495,7 @@ try {
   await until(() => execute('return window.flm.manualState.status==="ready" && Number(window.flm.manualState.data.rows[arguments[0]].value)===.5', targetIndex))
   assert.equal(requests.at(-1).path, '/api/settings/confirm')
   assert.equal(await execute('return window.flm.offroad.saved'), false, 'Manual save does not fabricate Auto Learn approval')
-  assert(await execute('return document.querySelector("#tuner-dial-highway_center_taper_max").textContent.includes("Manual override saved")'))
+  assert(await execute('const text=document.querySelector("#tuner-dial-highway_center_taper_max").textContent;return text.includes("Manual override")&&text.includes("Auto Learn locked for this setting")'))
   await capture('manual-saved')
   await execute('document.querySelector("#tuner-tab-tune").focus()')
   await command(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'keyboard', actions: [{ type: 'keyDown', value: '\uE014' }, { type: 'keyUp', value: '\uE014' }] }] })
