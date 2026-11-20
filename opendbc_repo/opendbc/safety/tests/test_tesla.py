@@ -28,6 +28,63 @@ def round_angle(apply_angle, can_offset=0):
   return away_round(apply_angle_can + rnd_offset) * 0.1 - 1638.35
 
 
+class TestTeslaNativeCallbacks(unittest.TestCase):
+  def _assert_checksum_callback_finishes(self, param):
+    packet = common.CANPackerSafety('tesla_model3_party').make_can_msg_safety('DI_speed', 0, {'DI_vehicleSpeed': 0})
+    self.assertEqual((packet.addr, packet.bus, packet.data_len_code), (0x257, 0, 8))
+    try:
+      mutant = libsafety_py.libsafety.mutation_get_active_mutant()
+    except AttributeError:
+      mutant = None
+    script = """import sys
+from opendbc.car.structs import CarParams
+from opendbc.safety.tests.libsafety import libsafety_py
+libsafety_py.load(sys.argv[1])
+safety = libsafety_py.libsafety
+if sys.argv[2] != 'None':
+  safety.mutation_set_active_mutant(int(sys.argv[2]))
+print('NATIVE_SETUP_BEGIN', flush=True)
+status = safety.set_safety_hooks(CarParams.SafetyModel.tesla, int(sys.argv[3]))
+print('NATIVE_SETUP_RETURN', flush=True)
+if status != 0:
+  print('NATIVE_SETUP_ASSERTION', flush=True)
+  raise SystemExit(1)
+safety.init_tests()
+packet = libsafety_py.make_CANPacket(0x257, 0, bytes.fromhex(sys.argv[4]))
+print('NATIVE_CALLBACK_BEGIN', flush=True)
+accepted = safety.safety_rx_hook(packet)
+print('NATIVE_CALLBACK_RETURN', flush=True)
+raise SystemExit(0 if accepted else 1)
+"""
+    try:
+      result = subprocess.run([sys.executable, '-c', script, libsafety_py.libpath, str(mutant),
+                               str(param), bytes(packet.data[0:8]).hex()], capture_output=True, text=True, timeout=10)
+    except subprocess.TimeoutExpired as exc:
+      output = exc.stdout or b''
+      if isinstance(output, bytes):
+        output = output.decode(errors='replace')
+      setup_entered = 'NATIVE_SETUP_BEGIN' in output and 'NATIVE_SETUP_RETURN' not in output
+      if 'NATIVE_CALLBACK_BEGIN' not in output and not setup_entered:
+        raise RuntimeError('Native checksum probe did not reach its callback') from exc
+      self.fail('Native checksum callback did not finish within ten seconds')
+    setup_entered = 'NATIVE_SETUP_BEGIN' in result.stdout and 'NATIVE_SETUP_RETURN' not in result.stdout
+    if result.returncode == -signal.SIGSEGV and setup_entered:
+      self.fail('Native initialization faulted on a supported profile: ' + result.stderr)
+    entered = 'NATIVE_CALLBACK_BEGIN' in result.stdout
+    if result.returncode == -signal.SIGSEGV and entered and 'NATIVE_CALLBACK_RETURN' not in result.stdout:
+      self.fail('Native checksum callback faulted on a fully allocated valid packet: ' + result.stderr)
+    asserted = 'NATIVE_SETUP_ASSERTION' in result.stdout or 'NATIVE_CALLBACK_RETURN' in result.stdout
+    if result.returncode not in (0, 1) or not asserted:
+      raise RuntimeError(f'Native checksum probe infrastructure failure ({result.returncode}): {result.stdout}{result.stderr}')
+    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+  def test_stock_checksum_callback_finishes(self):
+    self._assert_checksum_callback_finishes(0)
+
+  def test_longitudinal_checksum_callback_finishes(self):
+    self._assert_checksum_callback_finishes(TeslaSafetyFlags.LONG_CONTROL)
+
+
 class TestTeslaSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest, common.LongitudinalAccelSafetyTest):
 
   DBC = "tesla_model3_party"
@@ -124,48 +181,6 @@ class TestTeslaSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest, 
   def _accel_msg(self, accel: float):
     # For common.LongitudinalAccelSafetyTest
     return self._long_control_msg(10, accel_limits=(accel, max(accel, 0)))
-
-  def test_native_checksum_callback_finishes(self):
-    packet = self._speed_msg(0)
-    self.assertEqual((packet.addr, packet.bus, packet.data_len_code), (0x257, 0, 8))
-    try:
-      mutant = self.safety.mutation_get_active_mutant()
-    except AttributeError:
-      mutant = None
-    script = """import sys
-from opendbc.car.structs import CarParams
-from opendbc.safety.tests.libsafety import libsafety_py
-libsafety_py.load(sys.argv[1])
-safety = libsafety_py.libsafety
-if sys.argv[2] != 'None':
-  safety.mutation_set_active_mutant(int(sys.argv[2]))
-if safety.set_safety_hooks(CarParams.SafetyModel.tesla, int(sys.argv[3])) != 0:
-  print('NATIVE_SETUP_ASSERTION', flush=True)
-  raise SystemExit(1)
-safety.init_tests()
-packet = libsafety_py.make_CANPacket(0x257, 0, bytes.fromhex(sys.argv[4]))
-print('NATIVE_CALLBACK_BEGIN', flush=True)
-accepted = safety.safety_rx_hook(packet)
-print('NATIVE_CALLBACK_RETURN', flush=True)
-raise SystemExit(0 if accepted else 1)
-"""
-    try:
-      result = subprocess.run([sys.executable, '-c', script, libsafety_py.libpath, str(mutant),
-                               str(self.SAFETY_PARAM), bytes(packet.data[0:8]).hex()], capture_output=True, text=True, timeout=10)
-    except subprocess.TimeoutExpired as exc:
-      output = exc.stdout or b''
-      if isinstance(output, bytes):
-        output = output.decode(errors='replace')
-      if 'NATIVE_CALLBACK_BEGIN' not in output:
-        raise RuntimeError('Native checksum probe did not reach its callback') from exc
-      self.fail('Native checksum callback did not finish within ten seconds')
-    entered = 'NATIVE_CALLBACK_BEGIN' in result.stdout
-    if result.returncode == -signal.SIGSEGV and entered and 'NATIVE_CALLBACK_RETURN' not in result.stdout:
-      self.fail('Native checksum callback faulted on a fully allocated valid packet: ' + result.stderr)
-    asserted = 'NATIVE_SETUP_ASSERTION' in result.stdout or 'NATIVE_CALLBACK_RETURN' in result.stdout
-    if result.returncode not in (0, 1) or not asserted:
-      raise RuntimeError(f'Native checksum probe infrastructure failure ({result.returncode}): {result.stdout}{result.stderr}')
-    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
   def test_rx_hook(self):
     # counter check
