@@ -111,7 +111,7 @@ def test_actual_owner_projections_have_no_uncovered_setting(tmp_path):
         assert purpose(row), (page, row.key)
         assert _projection(row)['reason'].startswith(purpose(row))
 
-  for page in ('starport_options', 'driving_options', 'resets'):
+  for page in ('starport_options', 'developer'):
     check(DeviceSettingsOwner(params, lambda: True).snapshot(page).rows, page)
 
   for candidate in (GM.CHEVROLET_BOLT_EUV, GM.CHEVROLET_VOLT, HYUNDAI.HYUNDAI_IONIQ_6,

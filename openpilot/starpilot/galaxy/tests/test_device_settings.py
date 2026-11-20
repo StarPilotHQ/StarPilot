@@ -90,12 +90,13 @@ class DeviceSettingsTest(unittest.TestCase):
     self.parked = True
     self.owner = DeviceSettingsOwner(self.params, lambda: self.parked)
 
-  def test_pages_separate_driving_controls_services_and_resets(self):
+  def test_developer_groups_driving_controls_and_resets_separately_from_services(self):
     from openpilot.starpilot.longitudinal.enhanced_stop_hold import KEY as HOLD_KEY
     service = SimpleNamespace(call=Mock(side_effect=RuntimeError("off")))
     owner = DeviceSettingsOwner(self.params, lambda: self.parked, starport=lambda: service)
-    self.assertEqual([row.key for row in owner.snapshot("driving_options").rows], [KEY, HOLD_KEY])
-    self.assertEqual([row.key for row in owner.snapshot("resets").rows], [DRIVER_MONITORING_RESET, CALIBRATION_RESET])
+    self.assertEqual([row.key for row in owner.snapshot("developer").rows],
+                     [KEY, HOLD_KEY, DRIVER_MONITORING_RESET, CALIBRATION_RESET])
+    self.assertNotIn("resets", PAGES)
     service.call.assert_not_called()
     self.assertEqual(owner.snapshot("starport_options").rows, ())
     self.assertIn("developer", PAGES)
@@ -108,13 +109,13 @@ class DeviceSettingsTest(unittest.TestCase):
     self.assertEqual(params.get_type(HOLD_KEY), ParamKeyType.BOOL)
     self.assertIs(params.get_default_value(HOLD_KEY), False)
     owner = DeviceSettingsOwner(params, lambda: self.parked)
-    row = next(row for row in owner.snapshot("driving_options").rows if row.key == HOLD_KEY)
+    row = next(row for row in owner.snapshot("developer").rows if row.key == HOLD_KEY)
     self.assertEqual((row.label, row.value, row.reason), (LABEL, "Off", DESCRIPTION))
     self.assertTrue(owner.apply(FeatureSettingsRequest(HOLD_KEY, row.source, "On")))
     self.assertTrue(hold_selected(params))
     self.assertFalse(owner.apply(FeatureSettingsRequest(HOLD_KEY, row.source, "Off")))
     self.parked = False
-    self.assertFalse(next(row for row in owner.snapshot("driving_options").rows if row.key == HOLD_KEY).available)
+    self.assertFalse(next(row for row in owner.snapshot("developer").rows if row.key == HOLD_KEY).available)
     self.assertFalse(owner.apply(FeatureSettingsRequest(HOLD_KEY, b"1", "Off")))
     self.parked = True
     self.assertTrue(owner.apply(FeatureSettingsRequest(HOLD_KEY, b"1", "Off")))
@@ -126,7 +127,7 @@ class DeviceSettingsTest(unittest.TestCase):
       self.assertFalse(owner.apply(FeatureSettingsRequest(HOLD_KEY, raw, "On")))
 
   def test_default_off_strict_selection_and_vehicle_admission(self):
-    self.assertEqual(self.owner.snapshot("driving_options").rows[0].value, "Off")
+    self.assertEqual(self.owner.snapshot("developer").rows[0].value, "Off")
     self.assertFalse(selected(self.params, self.cp))
     for raw in (b"0", b"", b"true", b"1\n", b"1" * 9):
       with self.subTest(raw=raw):
@@ -149,7 +150,7 @@ class DeviceSettingsTest(unittest.TestCase):
     self.assertEqual(params.get_type(KEY), ParamKeyType.BOOL)
     self.assertIs(params.get_default_value(KEY), False)
     owner = DeviceSettingsOwner(params, lambda: True)
-    row = owner.snapshot("driving_options").rows[0]
+    row = owner.snapshot("developer").rows[0]
     self.assertEqual(row.value, "Off")
     self.assertTrue(owner.apply(FeatureSettingsRequest(KEY, row.source, "On")))
     self.assertTrue(params.get_bool(KEY))
@@ -160,7 +161,7 @@ class DeviceSettingsTest(unittest.TestCase):
     self.assertEqual(self.path.read_bytes(), b"1")
     self.assertFalse(self.owner.apply(FeatureSettingsRequest(KEY, None, "Off")))
     self.parked = False
-    self.assertFalse(self.owner.snapshot("driving_options").rows[0].available)
+    self.assertFalse(self.owner.snapshot("developer").rows[0].available)
     self.assertFalse(self.owner.apply(FeatureSettingsRequest(KEY, b"1", "Off")))
     self.parked = True
     self.assertFalse(self.owner.apply(FeatureSettingsRequest(KEY, b"1", "yes")))
@@ -168,7 +169,7 @@ class DeviceSettingsTest(unittest.TestCase):
     self.assertTrue(self.owner.apply(FeatureSettingsRequest(KEY, b"1", "Off")))
     self.assertEqual(self.path.read_bytes(), b"0")
     self.path.write_bytes(b"garbage")
-    self.assertFalse(self.owner.snapshot("driving_options").rows[0].available)
+    self.assertFalse(self.owner.snapshot("developer").rows[0].available)
     self.assertFalse(self.owner.apply(FeatureSettingsRequest(KEY, b"garbage", "On")))
 
   def test_real_gateway_preview_save_default_and_authority_recheck(self):
@@ -256,7 +257,7 @@ class DeviceSettingsTest(unittest.TestCase):
 
   def test_driver_monitoring_reset_matches_native_semantics_and_guards_preview(self):
     self.params.put_bool("IsRhdDetected", True, block=True)
-    row = next(row for row in self.owner.snapshot("resets").rows if row.key == DRIVER_MONITORING_RESET)
+    row = next(row for row in self.owner.snapshot("developer").rows if row.key == DRIVER_MONITORING_RESET)
     self.assertTrue(row.available)
     self.assertTrue(self.owner.apply(FeatureSettingsRequest(DRIVER_MONITORING_RESET, b"1", "confirm", confirmation=True)))
     self.assertFalse(Path(self.params.get_param_path("IsRhdDetected")).exists())
@@ -264,7 +265,7 @@ class DeviceSettingsTest(unittest.TestCase):
 
     self.params.put_bool("IsRhdDetected", True, block=True)
     self.params.put_bool("IsDriverViewEnabled", True, block=True)
-    row = next(row for row in self.owner.snapshot("resets").rows if row.key == DRIVER_MONITORING_RESET)
+    row = next(row for row in self.owner.snapshot("developer").rows if row.key == DRIVER_MONITORING_RESET)
     self.assertFalse(row.available)
     self.assertFalse(self.owner.apply(FeatureSettingsRequest(DRIVER_MONITORING_RESET, b"1", "confirm", confirmation=True)))
     self.assertTrue(Path(self.params.get_param_path("IsRhdDetected")).exists())
@@ -403,7 +404,7 @@ class CalibrationResetSettingsTest(unittest.TestCase):
   def test_calibration_reset_adjacent_and_uses_existing_reset_service(self):
     with patch("openpilot.starpilot.galaxy.device_settings.calibration_reset") as reset:
       reset.pending = False
-      rows = self.owner.snapshot("resets").rows
+      rows = self.owner.snapshot("developer").rows
       keys = [row.key for row in rows]
       self.assertEqual(keys[keys.index(DRIVER_MONITORING_RESET) + 1], CALIBRATION_RESET)
       self.assertTrue(rows[keys.index(CALIBRATION_RESET)].available)
@@ -418,7 +419,7 @@ class CalibrationResetSettingsTest(unittest.TestCase):
       self.assertFalse(self.owner.apply(replace(request, value="On")))
       self.parked = False
       self.assertFalse(self.owner.apply(request))
-      self.assertFalse(next(row for row in self.owner.snapshot("resets").rows if row.key == CALIBRATION_RESET).available)
+      self.assertFalse(next(row for row in self.owner.snapshot("developer").rows if row.key == CALIBRATION_RESET).available)
       self.parked = True
       reset.pending = True
       self.assertFalse(self.owner.apply(request))
@@ -430,6 +431,30 @@ class CalibrationResetSettingsTest(unittest.TestCase):
       self.assertFalse(self.owner.apply(request))
       reset.request.assert_not_called()
 
+  def test_driver_monitoring_reset_gateway_requires_confirmation_and_fresh_parked_state(self):
+    self.params.put_bool("IsRhdDetected", True, block=True)
+    context = SimpleNamespace(value=AuthorityContext(True, None, None))
+    context.sample = lambda: context.value
+    gateway = SettingsGateway(self.params, cast(ContextSource, context), clock=lambda: 10.)
+
+    def preview():
+      page = gateway.page("developer", "session", b"generation")
+      index = next(i for i, row in enumerate(page["rows"]) if row["label"] == "Reset Driver Monitoring")
+      self.assertTrue(page["rows"][index]["confirm"])
+      return gateway.preview(page["view"], index, 0, "session", b"generation")
+
+    pending = preview()
+    self.assertTrue(self.params.get_bool("IsRhdDetected"))
+    context.value = replace(context.value, parked=False)
+    with self.assertRaises(SettingsChanged):
+      gateway.confirm(pending["intent"], "session", b"generation")
+    self.assertTrue(self.params.get_bool("IsRhdDetected"))
+    context.value = replace(context.value, parked=True)
+    pending = preview()
+    self.assertTrue(gateway.confirm(pending["intent"], "session", b"generation"))
+    self.assertIsNone(self.params.get("IsRhdDetected"))
+    self.assertTrue(self.params.get_bool("OnroadCycleRequested"))
+
   def test_calibration_reset_gateway_requires_confirmation_and_fresh_parked_state(self):
     with patch("openpilot.starpilot.galaxy.device_settings.calibration_reset") as reset:
       reset.pending = False
@@ -438,7 +463,7 @@ class CalibrationResetSettingsTest(unittest.TestCase):
       context.sample = lambda: context.value
       gateway = SettingsGateway(self.params, cast(ContextSource, context), clock=lambda: 10.)
       def preview():
-        page = gateway.page("resets", "session", b"generation")
+        page = gateway.page("developer", "session", b"generation")
         i = next(i for i,row in enumerate(page["rows"]) if row["label"] == "Reset Calibration")
         self.assertTrue(page["rows"][i]["confirm"])
         return gateway.preview(page["view"], i, 0, "session", b"generation")

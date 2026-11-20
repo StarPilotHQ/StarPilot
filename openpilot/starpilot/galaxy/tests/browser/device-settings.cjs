@@ -24,9 +24,7 @@ const assert = require('node:assert/strict')
       else if (path.endsWith('/pages/starport_options')) data = { page: 'starport_options', title: 'StarPort', view: 'starport', parked, rows: [{label:'Stay on Wi-Fi',value:'On',choices:['Off','On'],available:parked}] }
       else if (path.endsWith('/pages/localization')) data = { page: 'localization', title: 'Localization', view: 'localization', parked, rows: [{label:'Language',value:'English',available:true}] }
       else if (path.endsWith('/pages/developer')) data = { page: 'developer', title: 'Developer', view: 'driving', parked,
-        rows: [{ label: 'Use VOACC', value: enabled ? 'On' : 'Off', choices: ['Off', 'On'], available: parked, action: true, reason: 'Applies next drive.' }, { label: 'Always Hold Enhanced Stops', value: hold ? 'On' : 'Off', choices: ['Off', 'On'], available: parked, action: true, reason: 'Applies next drive.' }] }
-      else if (path.endsWith('/pages/resets')) data = { page: 'resets', title: 'Device resets', view: 'resets', parked,
-        rows: ['Reset Driver Monitoring', 'Reset Calibration'].map(label => ({ label, value: 'Ready', confirm: true, available: parked, action: true })) }
+        rows: [{ label: 'Use VOACC', value: enabled ? 'On' : 'Off', choices: ['Off', 'On'], available: parked, action: true, reason: 'Applies next drive.' }, { label: 'Always Hold Enhanced Stops', value: hold ? 'On' : 'Off', choices: ['Off', 'On'], available: parked, action: true, reason: 'Applies next drive.' }, ...['Reset Driver Monitoring', 'Reset Calibration'].map(label => ({ label, value: 'Ready', confirm: true, available: parked, action: true }))] }
       else if (path.endsWith('/preview')) { writes.push(route.request().postDataJSON()); pendingRow = writes.at(-1).row; data = { intent: 'voacc', proposed: 'On', question: 'Set Use VOACC to On?' } }
       else if (path.endsWith('/confirm')) { if (pendingRow === 1) hold = true; else enabled = true; data = { saved: true } }
       else return route.fulfill({ status: 404, json: { error: 'Unexpected endpoint' } })
@@ -43,7 +41,7 @@ const assert = require('node:assert/strict')
       }
       mount({ initialSection: 'device' })
     })
-    assert.equal(await page.getByRole('button', { name: 'Developer', exact: true }).count(), 0)
+    assert.equal(await page.getByRole('button', { name: 'Developer', exact: true }).count(), 1)
     await page.locator('.gx-row').filter({has:page.getByText('Data & Connections', {exact:true})}).getByRole('button', {name:'Manage'}).click()
     await page.getByText('Reverse proxy', { exact: true }).waitFor()
     await page.getByRole('switch', {name:'Always Allow Uploads',exact:true}).waitFor()
@@ -55,7 +53,7 @@ const assert = require('node:assert/strict')
       assert.equal(await page.getByLabel('Proxy IP address', { exact: true }).isVisible(), true)
     }
     await page.evaluate(() => vm.back())
-    assert.equal(await page.locator('.gx-settings-tabs button').last().textContent(), 'Device & System')
+    assert.equal(await page.locator('.gx-settings-tabs button').last().textContent(), 'Developer')
     assert.equal(await page.getByRole('button',{name:'Localization',exact:true}).count(),0)
     const manage = label => page.locator('.gx-row').filter({has:page.getByText(label,{exact:true})}).getByRole('button',{name:'Manage'})
     assert.equal(await manage('Display').count(), 0)
@@ -92,14 +90,24 @@ const assert = require('node:assert/strict')
     await holdToggle.click()
     await page.waitForFunction(() => vm.state.data?.rows[1]?.value === 'On')
     assert.equal(writes[1].value, 'On')
+    for (const [index, label] of [[2, 'Reset Driver Monitoring'], [3, 'Reset Calibration']]) {
+      const reset = page.locator('.gx-row').filter({ has: page.getByText(label, { exact: true }) }).getByRole('button', { name: 'Reset', exact: true })
+      await reset.click()
+      const dialog = page.getByRole('dialog', { name: 'Confirm Saved Preference' })
+      await dialog.waitFor()
+      assert.equal(writes.at(-1).row, index)
+      await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+      await dialog.waitFor({ state: 'hidden' })
+    }
     parked = false
     await page.evaluate(() => vm.feed.load('developer'))
     assert.equal(await toggle.isDisabled(), true)
     assert.equal(await holdToggle.isDisabled(), true)
-    await page.evaluate(() => mount({ initialPage: 'resets', title: 'Device resets' }))
     await page.getByText('Reset Driver Monitoring', { exact: true }).waitFor()
     await page.getByText('Reset Calibration', { exact: true }).waitFor()
-    assert.equal(await toggle.count(), 0)
+    for (const label of ['Reset Driver Monitoring', 'Reset Calibration']) {
+      assert.equal(await page.locator('.gx-row').filter({ has: page.getByText(label, { exact: true }) }).getByRole('button', { name: 'Reset', exact: true }).isDisabled(), true)
+    }
     assert.deepEqual(errors, [])
     console.log('Device category ordering, merged data/cloud settings, separate StarPort, local browser preferences and Localization navigation passed.')
   } finally { await browser.close() }

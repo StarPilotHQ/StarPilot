@@ -135,16 +135,13 @@ class DeviceSettingsOwner:
 
   def snapshot(self, page="starport_options"):
     parked = self.authorized()
-    if page == "driving_options":
-      title, rows = "Longitudinal options", self._driving_rows(parked)
-    elif page == "resets":
-      title, rows = "Device resets", self._reset_rows()
+    if page == "developer":
+      title, rows = "Developer driving options", self._driving_rows(parked) + self._reset_rows()
     elif page == "starport_options":
       title, rows = "StarPort", self._starport_rows(parked)
     else:
       raise ValueError("Unknown device settings page")
     return FeatureSettingsState(page, title, "Changes apply from the next StarPort connection." if page == "starport_options" else
-                                "The device relearns these settings on the next drive." if page == "resets" else
                                 "Changes apply next drive.", rows, parked)
 
   def apply(self, request):
