@@ -566,9 +566,10 @@ class SelfdriveD:
 
     from openpilot.starpilot.car.hyundai.aol import source_deadline_supported
     input_proof = getattr(self, 'aol_step_input_proof', None)
+    from opendbc.car.mazda.stock_aol import qualified as qualified_mazda
     reconcile_input = bool(input_proof is not None and not REPLAY and self.aol_replay and self.axis_transport_required and
                            (source_deadline_supported(self.CP) or self.ford_source_deadline_supported() or
-                            getattr(self, 'hybrid_input_reconcile', False)) and
+                            qualified_mazda(self.CP, marked_only=True) or getattr(self, 'hybrid_input_reconcile', False)) and
                            input_proof[0] == self.aol_session_id and
                            (input_proof[8] or input_proof[9]))
     self.aol_event_input_reconcile = reconcile_input

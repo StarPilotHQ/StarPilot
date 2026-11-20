@@ -27,10 +27,11 @@ def test_real_gateway_global_slider_saves_restores_and_keeps_layout(tmp_path):
   context = SimpleNamespace(sample=lambda: AuthorityContext(True, None, None))
   gateway = SettingsGateway(params, cast(ContextSource, context))
   page = gateway.page('developer', 'session', b'generation')
-  row = page['rows'][0]
+  index = next(index for index, row in enumerate(page['rows']) if row['label'] == 'Speed display adjustment')
+  row = page['rows'][index]
   assert row['label'] == 'Speed display adjustment' and row['value'] == '0'
   assert row['available'] and row['minimum'] == -5 and row['maximum'] == 5 and row['step'] == .1
-  intent = gateway.preview(page['view'], 0, 0, 'session', b'generation', value='-1.7')['intent']
+  intent = gateway.preview(page['view'], index, 0, 'session', b'generation', value='-1.7')['intent']
   assert gateway.confirm(intent, 'session', b'generation')
   assert AppearanceOwner(Params(str(tmp_path)), lambda: True).developer_snapshot().rows[0].value == '-1.7'
   saved = decode_document(Path(params.get_param_path(PARAM_KEY)).read_bytes())
@@ -120,7 +121,8 @@ def test_gateway_refuses_expired_session_or_concurrent_layout_edit(tmp_path, con
   context = SimpleNamespace(sample=lambda: AuthorityContext(True, None, None))
   gateway = SettingsGateway(params, cast(ContextSource, context))
   page = gateway.page('developer', 'session', b'generation')
-  intent = gateway.preview(page['view'], 0, 0, 'session', b'generation', value='-1.7')['intent']
+  index = next(index for index, row in enumerate(page['rows']) if row['label'] == 'Speed display adjustment')
+  intent = gateway.preview(page['view'], index, 0, 'session', b'generation', value='-1.7')['intent']
   if condition == 'changed-layout':
     document = default_document()
     document['clock24Hour'] = True
