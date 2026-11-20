@@ -191,7 +191,7 @@ export const FlmPage = {
     reviewFinding(idea) {
       if (!this.canReviewFindings || this.findingBusy || !Number.isFinite(idea.target) ||
           !this.review.findings.some(row => row.parameter === idea.parameter && row.target === idea.target)) return
-      const assessment = this.current?.details?.['Offroad assessment hash']
+      const assessment = idea.assessment || this.current?.details?.['Offroad assessment hash']
       if (!/^[0-9a-f]{64}$/.test(assessment || '')) { this.findingError = 'Refresh the drive review before accepting a finding.'; return }
       this.findingError = '';this.findingDraft = { parameter: idea.parameter, target: idea.target, assessment }
     },
@@ -228,8 +228,8 @@ export const FlmPage = {
         if (!read) throw new Error('Could not refresh the device report. No change was sent. Reconnect and try again.')
         if (!this.activePage || this.mode !== 'local') throw new Error('Connect to the parked device before accepting a finding.')
         if (read) {
-          if (this.current?.details?.['Offroad assessment hash'] !== draft.assessment ||
-              !this.review.findings.some(row => row.parameter === draft.parameter && row.target === draft.target))
+          const finding = this.review.findings.find(row => row.parameter === draft.parameter && row.target === draft.target)
+          if (!finding || (finding.assessment || this.current?.details?.['Offroad assessment hash']) !== draft.assessment)
             throw new Error('The drive findings changed. Review the latest finding before accepting it.')
           if (!this.canReviewFindings) throw new Error('The vehicle or settings changed. Review this finding again while parked.')
           if (this.canAcceptFindings) return

@@ -103,6 +103,18 @@ assert.equal(offroadView(recent).configurationState, 'rolled_back')
 assert.deepEqual(offroadView(recent).suggestions.map(r => [r.sourceRoute, r.earlierDrive]),
   [['earlier-partial-drive', true], ['earlier-full-drive', true]])
 assert.equal(offroadView(recent).partial, false, 'A partial historical finding must not relabel the latest completed drive')
+const pendingReview = structuredClone(recent)
+pendingReview.current.details['Recorded suggestion assessments'] = [
+  ['turn_in_boost_right', 'a'.repeat(64), 'b'.repeat(64)], ['unwind_taper_left', 'c'.repeat(64), 'd'.repeat(64)],
+]
+assert(validTrainingResults(pendingReview))
+assert.deepEqual(offroadView(pendingReview).suggestions.map(row => row.assessment), ['a'.repeat(64), 'c'.repeat(64)])
+for (const links of [[['turn_in_boost_right', 'invalid', 'b'.repeat(64)]],
+  [['ff_gain_left', 'a'.repeat(64), 'b'.repeat(64)]],
+  [pendingReview.current.details['Recorded suggestion assessments'][0], pendingReview.current.details['Recorded suggestion assessments'][0]]]) {
+  const bad = structuredClone(pendingReview);bad.current.details['Recorded suggestion assessments'] = links
+  assert.equal(offroadView(bad), null)
+}
 const allSources = structuredClone(recent)
 allSources.current.details['Recorded coordinate recommendations'] = [...SURFACE_NAMES, ...FRICTION_NAMES].map(name => [name, 0, .005, 6, 'unconfirmed'])
 allSources.current.details['Recorded suggestion sources'] = [...SURFACE_NAMES, ...FRICTION_NAMES].map(name => [name, 'earlier-full-drive'])

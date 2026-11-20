@@ -15,6 +15,10 @@ from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
 from openpilot.starpilot.flm.training_report import report_path, READ_MAX_BYTES, _report_bounded
 
+REVIEW_FIELDS = ('completed_route', 'vehicle', 'analysis_counts', 'recorded_tracking', 'source_sha256', 'assessment_sha256',
+                'recommendations', 'suggestions', 'suggestion_count', 'source_is_latest', 'latest_recording', 'skipped_routes',
+                'partial_drive', 'partial_segments', 'omitted_segments', 'recommendation_sources', 'recommendation_assessments')
+
 
 class StatusReport:
   def __init__(self, *, path=None, clock_ns=time.monotonic_ns):
@@ -27,6 +31,11 @@ class StatusReport:
     self.diagnostics = None
 
   def set(self, value, *, diagnostic_value=None):
+    review = value.get('pending_review', self.previous)
+    if value.get('status') == 'unavailable' and not value.get('completed_route') and type(review) is dict and review:
+      diagnostic_value = value if diagnostic_value is None else diagnostic_value
+      value = {**{key: review[key] for key in REVIEW_FIELDS if key in review}, **value,
+               'retained_analysis': False, 'retained_decision': review.get('reason', 'waiting_for_completed_drive')}
     changed = (self.current.get('status'), self.current.get('reason')) != (value.get('status'), value.get('reason'))
     self.current = dict(value)
     if self.diagnostics is not None:
@@ -34,7 +43,7 @@ class StatusReport:
         self.diagnostics.observe(value if diagnostic_value is None else diagnostic_value)
       except (OSError, ValueError, TypeError, AttributeError) as error:
         self.diagnostics.error = f'Diagnostic state could not be recorded: {type(error).__name__}'
-    if value.get('completed_route') and value.get('status') != 'fitting':
+    if value.get('completed_route') and value.get('status') not in ('fitting', 'unavailable'):
       self.previous = dict(value)
     if changed:
       self.next_ns = 0
@@ -42,10 +51,7 @@ class StatusReport:
   def analyzing(self, value):
     # Keep the last completed findings and saved values readable during a fit.
     # They are historical display data, never current application or permission.
-    fields = ('completed_route', 'vehicle', 'analysis_counts', 'recorded_tracking', 'source_sha256', 'assessment_sha256',
-              'recommendations', 'suggestions', 'suggestion_count', 'source_is_latest', 'latest_recording', 'skipped_routes',
-              'partial_drive', 'partial_segments', 'omitted_segments', 'recommendation_sources')
-    previous = {key: self.previous[key] for key in fields if key in self.previous}
+    previous = {key: self.previous[key] for key in REVIEW_FIELDS if key in self.previous}
     if previous:
       previous['retained_decision'] = self.previous.get('retained_decision', self.previous.get('reason', 'waiting_for_completed_drive'))
       if self.previous.get('configuration_state') in ('ready_for_next_drive', 'accepted', 'accepted_after_drive', 'retained_after_drive', 'rolled_back'):
@@ -75,7 +81,7 @@ class StatusReport:
       result = dict(latest['result'])
       ordered = []
       for index, row in enumerate(cache.checkpoints()):
-        value = row['result']
+        value = row['result'].get('pending_review', row['result'])
         if 'assessment_sha256' not in value:
           continue
         document = cache.get(value['assessment_sha256'])
@@ -190,6 +196,8 @@ class StatusReport:
         details['More recorded suggestions omitted'] = False
         if 'recommendation_sources' in value:
           details['Recorded suggestion sources'] = value['recommendation_sources']
+        if 'recommendation_assessments' in value:
+          details['Recorded suggestion assessments'] = value['recommendation_assessments']
     proposal = value.get('suggestion')
     if proposal is not None:
       details['Full surface coordinates'] = [[n, proposal['values'][n]] for n in NAMES]

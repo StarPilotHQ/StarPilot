@@ -544,27 +544,35 @@ def recent_findings(cache, results, display):
     stamp = receipt.get('last_intact_wall_ns') if partial else receipt.get('completed_wall_ns')
     if type(stamp) is not int or stamp <= 0:
       raise ValueError('Original recent-drive chronology required')
-    return scope, partial, stamp
+    return scope, partial, stamp, assessment.get('review_settings_sha256')
 
   try:
-    current_scope, _, _ = source(latest)
-    current = route_values(latest['configured_values']) if 'configured_values' in latest else (
-      ZERO if latest.get('saved_adjustments') == 0 else None
-    )
+    current_scope, _, _, current_settings = source(latest)
+    if 'configured_values' in latest:
+      current = route_values(latest['configured_values'])
+    elif 'review_values' in latest:
+      current = route_values(latest['review_values'])
+    else:
+      current = ZERO if latest.get('saved_adjustments') == 0 else None
   except (KeyError, OSError, TypeError, ValueError):
     return display
   if current is None:
     return display
+
+  def is_compatible(scope, settings):
+    return scope == current_scope or (type(settings) is str and len(settings) == 64 and not settings.strip('0123456789abcdef')
+      and settings == current_settings and replace(scope, persistent_source_epoch=current_scope.persistent_source_epoch) == current_scope)
+
   compatible = []
   for index, value in enumerate(results[:MAX_CHECKPOINTS + 1]):
     try:
-      scope, partial, stamp = source(value)
+      scope, partial, stamp, settings = source(value)
     except (KeyError, OSError, TypeError, ValueError):
       continue
-    if scope == current_scope:
+    if is_compatible(scope, settings):
       compatible.append((stamp, index, partial, value))
-  found, origins, blocked, seen = {}, {}, set(), set()
-  for _, _, partial, value in sorted(compatible, key=lambda row: (-row[0], row[1])):
+  found, origins, assessments, blocked, seen = {}, {}, {}, set(), set()
+  for _, _, _partial, value in sorted(compatible, key=lambda row: (-row[0], row[1])):
     if value['source_sha256'] in seen:
       continue
     if len(seen) >= MAX_CHECKPOINTS:
@@ -581,6 +589,20 @@ def recent_findings(cache, results, display):
           or type(row.get('baseline')) not in (int, float) or row['baseline'] != current[name]
           or type(row.get('reason')) is not str or len(row['reason']) > 240):
         continue
+      try:
+        provenance = value.get('recommendation_assessments', ())
+        links = [link for link in provenance if type(link) in (list, tuple) and len(link) == 3 and link[0] == name]
+        if len(links) > 1:
+          continue
+        routes = dict(value.get('recommendation_sources', ()))
+        origin = dict(value, assessment_sha256=links[0][1], source_sha256=links[0][2], completed_route=routes[name]) if links else value
+        if links:
+          origin['partial_drive'] = cache.get(links[0][1])['kind'] == 'partial_assessment'
+        origin_scope, origin_partial, _, origin_settings = source(origin)
+        if not is_compatible(origin_scope, origin_settings):
+          continue
+      except (KeyError, OSError, TypeError, ValueError):
+        continue
       target = row.get('target')
       if target is None or row.get('reason') in (
         'conflicting_recorded_candidates', 'heldout_profile_does_not_support_training_step', 'controller_checks_did_not_support_change'
@@ -595,13 +617,13 @@ def recent_findings(cache, results, display):
       if name in found and (found[name]['target'] - current[name]) * (target - current[name]) < 0:
         blocked.add(name)
       elif name not in found:
-        found[name] = dict(row, reason='partial_drive_provisional_only') if partial else dict(row)
-        origins[name] = value['completed_route']
+        found[name] = dict(row, reason='partial_drive_provisional_only') if origin_partial else dict(row)
+        origins[name] = origin['completed_route']
+        assessments[name] = [name, origin['assessment_sha256'], origin['source_sha256']]
   rows = [found[name] for name in NAMES if name in found and name not in blocked]
-  if rows == display.get('recommendations', []) and all(origins[row['parameter']] == display.get('completed_route') for row in rows):
-    return display
   return dict(display, recommendations=rows, recommendation_count=len(rows),
-              recommendation_sources=[[row['parameter'], origins[row['parameter']]] for row in rows])
+              recommendation_sources=[[row['parameter'], origins[row['parameter']]] for row in rows],
+              recommendation_assessments=[assessments[row['parameter']] for row in rows])
 
 
 def reported_checkpoint(cache, results):
@@ -722,6 +744,10 @@ class OffroadWorker:
       settings.append((key, None if raw is None else hashlib.sha256(raw).hexdigest()))
     return _digest((scope.document(), settings))
 
+  def _review_settings(self, cp):
+    from openpilot.starpilot.flm.review_settings import review_settings
+    return review_settings(cp, self.params)
+
   def _snapshot(self, route):
     values = []
     for key in SETTINGS:
@@ -780,6 +806,14 @@ class OffroadWorker:
       result.update(recorded)
     if self.evidence_bank is not None:
       result['evidence_revision'] = self.evidence_bank.revision()
+    if 'assessment_sha256' not in result:
+      from openpilot.starpilot.flm.offroad_daemon import REVIEW_FIELDS
+      for checkpoint in reversed(self.cache.checkpoints()):
+        previous = checkpoint['result']
+        review = previous.get('pending_review', previous)
+        if type(review) is dict and 'assessment_sha256' in review and review.get('recommendations'):
+          result['pending_review'] = {key: review[key] for key in (*REVIEW_FIELDS, 'status', 'reason') if key in review}
+          break
     self.cache.checkpoint({'input_fingerprint': fingerprint, 'result': result})
     return result
 
@@ -914,6 +948,10 @@ class OffroadWorker:
       report['current_scope'] = scope.document()
     locked = state.get('locked', {})
     current = dict(ZERO) | state.get('starting', {}) if row is None else dict(row['values'])
+    recorded['review_values'] = current
+    review_settings = self._review_settings(assessment.cp)
+    if review_settings is not None:
+      report['review_settings_sha256'] = review_settings
     recorded['recommendations'] = recorded_recommendations(assessment, current, report)
 
     if scope is None:
@@ -1088,6 +1126,7 @@ class OffroadWorker:
         result['saved_adjustments'] = 0
       if not authorized() or read_saved(self.params, KEY, MAX_BYTES) != (expected, True):
         raise RouteInputCancelled('Partial source or settings changed before checkpoint')
+      result = recent_findings(self.cache, [result, *[r['result'].get('pending_review', r['result']) for r in self.cache.checkpoints()]], result)
       self.cache.checkpoint({'input_fingerprint': self._snapshot(route), 'result': result})
       self.pending_failure_data = None
       return result  # No native fit, trial resolution, evidence-bank insertion or Params write.
@@ -1434,7 +1473,8 @@ class OffroadWorker:
       raise ValueError('Offroad source changed before checkpoint')
     if self.evidence_bank is not None:
       result['evidence_revision'] = self.evidence_bank.revision()
+    result = recent_findings(self.cache, [result, *[r['result'].get('pending_review', r['result']) for r in self.cache.checkpoints()]], result)
     self.cache.checkpoint({'input_fingerprint': self._snapshot(route), 'result': result})
     self.pending_failure_data = None
-    return recent_findings(self.cache, [result, *[row['result'] for row in self.cache.checkpoints()]], result)
+    return result
 

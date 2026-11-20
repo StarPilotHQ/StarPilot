@@ -219,5 +219,18 @@ try {
   assert.match(unknown.findingError, /Could not confirm/)
   unknown.canReviewFindings = false;unknown.reviewFinding(idea)
   assert.equal(unknown.findingDraft, null)
+  const pending = accepting()
+  const originalFinding = { ...idea, assessment: 'c'.repeat(64) }
+  pending.review.findings = [originalFinding]
+  pending.reviewFinding(originalFinding)
+  pending.load = async () => { pending.current.details['Offroad assessment hash'] = 'd'.repeat(64);return true }
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options })
+    return { ok: true, json: async () => ({ status: 'saved', parameter: idea.parameter, value: idea.target, learning: 'automatic' }) }
+  }
+  await pending.acceptFinding()
+  assert.equal(calls.length, 3, 'A newly analyzed route must not invalidate an unchanged original finding')
+  assert.equal(JSON.parse(calls[2].options.body).assessment, 'c'.repeat(64))
+  assert.equal(pending.findingError, '')
 } finally { globalThis.fetch = acceptanceFetch }
 console.log('Accept finding survives stale polling, refreshes exact authority, refuses changed/driving/offline data and never retries a write')

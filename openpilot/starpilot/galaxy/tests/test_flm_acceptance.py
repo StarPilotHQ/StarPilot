@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 import http.client
+import hashlib
 import json
 import threading
 import unittest
@@ -27,6 +28,10 @@ class TestFindingAcceptance(unittest.TestCase):
     self.addCleanup(self.fixture.doCleanups)
     self.settings, self.params = self.fixture.gateway, self.fixture.params
     self.cp = self.fixture.fixture.context.value.cp
+    from openpilot.starpilot.flm.offroad_store import KEY, remember
+    self.fixture.row['state'] = 'accepted_after_drive'
+    self.fixture.raw = remember(None, self.fixture.row)
+    self.params.put(KEY, self.fixture.raw, block=True)
     self.cache = AssessmentCache(directory_for_params(self.params))
     self.source = 'c' * 64
     self.assessment = self.cache.put({'kind': 'completed_assessment', 'assessment': {
@@ -35,6 +40,12 @@ class TestFindingAcceptance(unittest.TestCase):
       'Original completed route hash': self.source, 'Offroad assessment hash': self.assessment,
       'Recorded coordinate recommendations': [['ff_gain_left', 0., .005, 6, 'recorded_provisional_suggestion']]}}}
     self.reports = SimpleNamespace(snapshot=lambda: deepcopy(self.report))
+    def declared_scope(cp, params):
+      raw = read_saved(params, DOCUMENT_KEY, 16384)[0]
+      return self.fixture.scope if raw is None else replace(self.fixture.scope, persistent_source_epoch=hashlib.sha256(raw).hexdigest())
+    scope_patch = patch('openpilot.starpilot.galaxy.flm_acceptance.current_scope', side_effect=declared_scope)
+    scope_patch.start()
+    self.addCleanup(scope_patch.stop)
 
   def accept(self, name='ff_gain_left', target=.005, **kwargs):
     return accept_finding(self.settings, self.reports, {'parameter': name, 'target': target, 'assessment': self.assessment},
@@ -46,7 +57,9 @@ class TestFindingAcceptance(unittest.TestCase):
   def test_every_supported_coordinate_can_be_accepted_without_locking_it(self):
     for name in ROUTE_NAMES:
       with self.subTest(name=name):
-        self.report['current']['details']['Recorded coordinate recommendations'] = [[name, 0., .001, 6, 'recorded_provisional_suggestion']]
+        previous = selected_manual(self.cp, self.params)
+        baseline = self.fixture.row['values'][name] if previous is None else dict(previous.values)[name]
+        self.report['current']['details']['Recorded coordinate recommendations'] = [[name, baseline, .001, 6, 'recorded_provisional_suggestion']]
         result = self.accept(name, .001)
         self.assertEqual(result['learning'], 'automatic')
         selected = selected_manual(self.cp, self.params)
@@ -64,10 +77,108 @@ class TestFindingAcceptance(unittest.TestCase):
     self.assertTrue(first['for_next_drive'])
     self.assertNotIn('qualified', first)
     self.assertEqual(selected_manual(self.cp, self.params).locked, ())
+    selected = dict(selected_manual(self.cp, self.params).values)
+    for name in ('friction_threshold_mid', 'friction_threshold_fast', 'friction_threshold_highway'):
+      self.assertEqual(selected[name], self.fixture.row['values'][name], 'Accepting one finding must preserve the existing automatic tune')
 
   def test_canonical_report_without_envelope_identity_uses_exact_original_car_params(self):
     self.report.pop('vehicle')
     self.assertEqual(self.accept()['learning'], 'automatic')
+
+  def test_review_keeps_original_sources_when_a_different_drive_becomes_current(self):
+    from openpilot.starpilot.flm.review_settings import review_settings
+
+    document = self.cache.get(self.assessment)
+    document['assessment'].update(current_scope=self.fixture.scope.document(), review_settings_sha256=review_settings(self.cp, self.params))
+    self.assessment = self.cache.put(document)
+    details = self.report['current']['details']
+    details['Recorded coordinate recommendations'].append(['unwind_taper_right', 0., .005, 4, 'recorded_provisional_suggestion'])
+    details['Recorded suggestion assessments'] = [[name, self.assessment, self.source] for name in ('ff_gain_left', 'unwind_taper_right')]
+    details['Offroad assessment hash'] = 'd' * 64
+    details['Original completed route hash'] = 'e' * 64
+    self.accept()
+    details['Offroad assessment hash'] = 'f' * 64
+    self.accept('unwind_taper_right')
+    selected = selected_manual(self.cp, self.params)
+    self.assertEqual(selected.locked, ())
+    self.assertEqual(dict(selected.values)['ff_gain_left'], .005)
+    self.assertEqual(dict(selected.values)['unwind_taper_right'], .005)
+
+  def test_carried_review_does_not_bypass_controller_reset_or_scalar_compatibility(self):
+    for change in ('controller_revision', 'reset_generation', 'review_settings_sha256'):
+      with self.subTest(change=change):
+        document = self.cache.get(self.assessment)
+        document['assessment']['current_scope'] = self.fixture.scope.document()
+        if change == 'review_settings_sha256':
+          document['assessment'][change] = 'f' * 64
+        else:
+          document['assessment']['current_scope'][change] = 'other-controller' if change == 'controller_revision' else 'f'
+        self.assessment = self.cache.put(document)
+        self.report['current']['details']['Offroad assessment hash'] = self.assessment
+        before = self.raw()
+        with self.assertRaises(ValueError):
+          self.accept()
+        self.assertEqual(self.raw(), before)
+
+  def test_original_finding_source_changes_are_refused(self):
+    details = self.report['current']['details']
+    for links in ([['ff_gain_left', 'd' * 64, self.source]], [['ff_gain_left', self.assessment, 'd' * 64]],
+                  [['ff_gain_left', self.assessment, self.source]] * 2):
+      with self.subTest(links=links):
+        details['Recorded suggestion assessments'] = links
+        before = self.raw()
+        with self.assertRaises(ValueError):
+          self.accept()
+        self.assertEqual(self.raw(), before)
+
+  def test_acceptance_does_not_restart_a_used_unreviewed_automatic_trial(self):
+    from openpilot.starpilot.flm.offroad_store import KEY, remember
+
+    pending = remember(None, dict(self.fixture.row, state='ready_for_next_drive'))
+    self.params.put(KEY, pending, block=True)
+    for started in (False, True):
+      with self.subTest(started=started):
+        if started:
+          self.assertTrue(self.cache.claim_trial(self.fixture.row['analysis_sha256'], 'a' * 32))
+        before = self.raw()
+        with self.assertRaisesRegex(ValueError, 'next-drive review'):
+          self.accept()
+        self.assertEqual(self.raw(), before)
+        self.assertEqual(self.fixture.stored(), pending)
+
+  def test_pending_review_identity_ignores_only_coordinate_acceptance(self):
+    from openpilot.starpilot.flm.offroad_worker import OffroadWorker
+
+    worker = OffroadWorker.__new__(OffroadWorker)
+    worker.params = self.params
+    before = worker._review_settings(self.cp)
+    self.assertIsNotNone(before)
+    self.accept()
+    self.assertEqual(worker._review_settings(self.cp), before)
+    self.params.put_bool('TurnAssist', True, block=True)
+    self.assertNotEqual(worker._review_settings(self.cp), before)
+
+  def test_new_manual_lock_or_changed_baseline_is_not_overwritten_by_an_old_finding(self):
+    from openpilot.starpilot.lateral.torque_settings import parse_document, serialize_document
+
+    self.accept()
+    self.report['current']['details']['Recorded coordinate recommendations'][0][2] = .006
+    before = self.raw()
+    with self.assertRaisesRegex(ValueError, 'setting changed'):
+      self.accept(target=.006)
+    self.assertEqual(self.raw(), before)
+    profiles = parse_document(before)
+    profile = profiles[str(self.cp.carFingerprint)]
+    assert profile.manual_coordinates is not None
+    assert profile.manual_coordinates.automatic is not None
+    automatic = tuple(name for name in profile.manual_coordinates.automatic if name != 'ff_gain_left')
+    profiles[str(self.cp.carFingerprint)] = replace(profile, manual_coordinates=replace(profile.manual_coordinates, automatic=automatic))
+    self.params.put(DOCUMENT_KEY, json.loads(serialize_document(profiles)), block=True)
+    before = self.raw()
+    self.report['current']['details']['Recorded coordinate recommendations'][0][2] = .005
+    with self.assertRaisesRegex(ValueError, 'manually locked'):
+      self.accept()
+    self.assertEqual(self.raw(), before)
 
   def test_refuses_changed_target_conflicts_missing_review_and_nonfinite_values_without_writes(self):
     for change in ('target', 'conflict', 'stale', 'missing_cache', 'wrong_vehicle', 'wrong_cp', 'disabled', 'nonfinite', 'onroad'):
@@ -135,7 +246,8 @@ class TestFindingAcceptance(unittest.TestCase):
     self.accept()
     backup = self.fixture.owner.export()
     selected = selected_manual(self.cp, self.params)
-    self.assertEqual(selected.automatic, ('ff_gain_left',))
+    expected = tuple(name for name in ROUTE_NAMES if name == 'ff_gain_left' or self.fixture.row['values'][name] != 0)
+    self.assertEqual(selected.automatic, expected)
     self.params.remove(DOCUMENT_KEY)
     preview = self.fixture.preview(backup, mode='manual')
     result = self.fixture.confirm(preview)

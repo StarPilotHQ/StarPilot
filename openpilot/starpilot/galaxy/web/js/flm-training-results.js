@@ -56,7 +56,8 @@ export function validTrainingResults(value) {
         key === 'GLOBAL source observation refusals' ? validSourceRefusals(item) :
         key === 'Recorded steering response' ? item === null || recordedSteeringView(item) !== null :
         key === 'Recorded coordinate recommendations' ? validCoordinateRecommendations(item) :
-        key === 'Recorded suggestion sources' ? validSuggestionSources(item) : detailValue(item)))
+        key === 'Recorded suggestion sources' ? validSuggestionSources(item) :
+        key === 'Recorded suggestion assessments' ? validSuggestionAssessments(item) : detailValue(item)))
 }
 export function validSavedHistory(value) {
   return keysAre(value, ['status', 'historicalOnly', 'profiles']) && ['readable', 'unavailable'].includes(value.status) &&
@@ -310,6 +311,12 @@ function validSuggestionSources(rows) {
       text(row[1], 180) && row[1].length > 0)
 }
 
+function validSuggestionAssessments(rows) {
+  return Array.isArray(rows) && rows.length <= 35 && new Set(rows.map(row => row?.[0])).size === rows.length &&
+    rows.every(row => Array.isArray(row) && row.length === 3 && [...SURFACE_NAMES, ...FRICTION_NAMES].includes(row[0]) &&
+      row.slice(1).every(value => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value)))
+}
+
 export function offroadView(report) {
   const details = report?.current?.details
   if (!record(details) || !text(details['Completed drive analyzed'], 180) || !details['Completed drive analyzed'] ||
@@ -325,6 +332,9 @@ export function offroadView(report) {
   const sources = details['Recorded suggestion sources'] ?? []
   if (!validSuggestionSources(sources) || sources.some(([name]) => !recommendations?.some(row => row[0] === name))) return null
   const sourceFor = Object.fromEntries(sources)
+  const assessments = details['Recorded suggestion assessments'] ?? []
+  if (!validSuggestionAssessments(assessments) || assessments.some(([name]) => !recommendations?.some(row => row[0] === name))) return null
+  const assessmentFor = Object.fromEntries(assessments.map(([name, hash]) => [name, hash]))
   const savedCount = details['Saved route adjustment count']
   const partial = details['Drive analysis is partial'] === true
   const partialSegments = details['Partial drive segments']
@@ -354,6 +364,7 @@ export function offroadView(report) {
     suggestions: (recommendations === undefined ? rows.map(([parameter, delta, windows, qualification]) => ({ parameter, delta, windows, qualification })) :
       recommendations.map(([parameter, baseline, target, windows, reason]) => ({ parameter, baseline, target,
         delta: target === null ? null : target - baseline, windows, reason, sourceRoute: sourceFor[parameter] ?? details['Completed drive analyzed'],
+        ...(assessmentFor[parameter] ? { assessment: assessmentFor[parameter] } : {}),
         earlierDrive: sourceFor[parameter] !== undefined && sourceFor[parameter] !== details['Completed drive analyzed'],
         qualification: 'controller_native_checks_not_passed' }))
         .filter(row => row.target === null || row.target !== { ...savedSurface, ...savedFriction }[row.parameter])).filter(isConsistentSuggestion),

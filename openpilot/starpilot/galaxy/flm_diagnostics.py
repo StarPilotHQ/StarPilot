@@ -77,7 +77,8 @@ def diagnostics(report, params):
   result['current']['analysis'] = {key: details[key] for key in (
     'Recorded steering observations', 'Retained control windows', 'Retained tracking windows', 'Recorded drive coverage',
     'Drives in steering evidence history', 'Saved route adjustment count', 'Saved route configuration state',
-            'Recorded coordinate recommendations', 'Recorded suggestion sources', 'Controller and encoder check windows', 'Automatic tune refusal reasons',
+            'Recorded coordinate recommendations', 'Recorded suggestion sources', 'Recorded suggestion assessments',
+            'Controller and encoder check windows', 'Automatic tune refusal reasons',
             'Recorded vehicle identity', 'Drive analysis is partial', 'Partial drive segments', 'Omitted recorded segments') if key in details}
   result['current']['skipped_drives'] = _result({'skipped_routes': details.get('Skipped recorded drives', [])})['skipped_drives']
   if params is None:

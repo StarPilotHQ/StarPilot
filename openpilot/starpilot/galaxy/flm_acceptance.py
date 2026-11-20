@@ -4,7 +4,10 @@ import math
 import re
 
 from openpilot.starpilot.flm.manual_coordinates import ManualCoordinates, context, selected_manual
+from openpilot.starpilot.flm.review_settings import review_settings
 from openpilot.starpilot.flm.offroad_cache import AssessmentCache, directory_for_params
+from openpilot.starpilot.flm.offroad_store import KEY, MAX_BYTES, NAMESPACE, RouteScope
+from openpilot.starpilot.flm.offroad_runtime import current_scope
 from openpilot.starpilot.flm.offroad_surface import ROUTE_NAMES
 from openpilot.starpilot.flm.runtime_adapter_registry import car_params_digest
 from openpilot.starpilot.lateral.controller_selection import read_selection, DOCUMENT_KEY as CONTROLLER_KEY
@@ -17,7 +20,7 @@ from openpilot.starpilot.saved_source import read_saved
 def _finding(report, parameter, target, assessment):
   current = report.get('current') or {}
   details = current.get('details') or {}
-  if current.get('fresh') is not True or details.get('Offroad assessment hash') != assessment:
+  if current.get('fresh') is not True:
     raise ValueError('Refresh the drive findings before accepting this change.')
   rows = details.get('Recorded coordinate recommendations', ())
   matches = [row for row in rows if type(row) is list and len(row) == 5 and row[0] == parameter and row[2] == target
@@ -25,7 +28,16 @@ def _finding(report, parameter, target, assessment):
                'conflicting_recorded_candidates', 'heldout_profile_does_not_support_training_step', 'controller_checks_did_not_support_change')]
   if len(matches) != 1:
     raise ValueError('This finding is no longer available. Refresh the drive review.')
-  return report.get('vehicle'), details.get('Original completed route hash'), tuple(matches[0])
+  provenance = details.get('Recorded suggestion assessments', ())
+  if type(provenance) not in (list, tuple):
+    raise ValueError('The original finding source is unavailable.')
+  links = [row for row in provenance if type(row) in (list, tuple) and len(row) == 3 and row[0] == parameter]
+  if len(links) > 1 or links and (links[0][1] != assessment or type(links[0][2]) is not str
+                               or re.fullmatch('[0-9a-f]{64}', links[0][2]) is None):
+    raise ValueError('The original finding source changed. Refresh the review.')
+  if not links and details.get('Offroad assessment hash') != assessment:
+    raise ValueError('Refresh the drive findings before accepting this change.')
+  return report.get('vehicle'), links[0][2] if links else details.get('Original completed route hash'), tuple(matches[0])
 
 
 def accept_finding(settings, reports, payload, *, authorized):
@@ -40,7 +52,8 @@ def accept_finding(settings, reports, payload, *, authorized):
     if ctx.cp is None or not ctx.parked or ctx.editing_saved_vehicle or not owner.authority('torque') or not authorized():
       raise ValueError('Park with the current vehicle connected before accepting a finding.')
     cp = ctx.cp
-    dependencies = {key: read_saved(settings.params, key, MAX_DOCUMENT_BYTES) for key in (CONTROLLER_KEY, LEARNING_KEY, 'ForceAutoTuneOff')}
+    dependencies = {key: read_saved(settings.params, key, MAX_BYTES if key == KEY else MAX_DOCUMENT_BYTES)
+                    for key in (CONTROLLER_KEY, LEARNING_KEY, 'ForceAutoTuneOff', KEY)}
     if not all(value[1] for value in dependencies.values()):
       raise ValueError('The saved learning settings are unreadable.')
     selection = read_selection(settings.params, cp)
@@ -65,6 +78,18 @@ def accept_finding(settings, reports, payload, *, authorized):
     if (document.get('kind') not in ('completed_assessment', 'partial_assessment') or
         route['cp_sha256'] != car_params_digest(cp) or route['source_sha256'] != found[1]):
       raise ValueError('The original drive review does not match this vehicle.')
+    from openpilot.starpilot.flm.learned_lifecycle import decode
+
+    scope = current_scope(cp, settings.params)
+    origin_scope = document['assessment'].get('current_scope')
+    if origin_scope is not None and replace(RouteScope(**origin_scope).validate(), persistent_source_epoch=scope.persistent_source_epoch) != scope:
+      raise ValueError('This finding belongs to a different controller setup. Review its current findings.')
+    origin_settings = document['assessment'].get('review_settings_sha256')
+    if origin_settings is not None and origin_settings != review_settings(cp, settings.params):
+      raise ValueError('The steering settings changed since this finding. Review the current findings.')
+    active = decode(dependencies[KEY][0]).get(NAMESPACE, {}).get(scope.key())
+    if active is not None and active['state'] == 'ready_for_next_drive':
+      raise ValueError('Complete the saved tune’s next-drive review before accepting another finding. The other findings remain available.')
     raw, readable = read_saved(settings.params, DOCUMENT_KEY, MAX_DOCUMENT_BYTES)
     if not readable:
       raise ValueError('Saved steering settings are unreadable. Nothing was changed.')
@@ -81,9 +106,18 @@ def accept_finding(settings, reports, payload, *, authorized):
       from openpilot.starpilot.flm.runtime_adapter_registry import digest
       if previous.compatibility != digest(current_compatibility(cp, settings.params)):
         raise ValueError('Review the recovered tune before accepting this finding.')
-    values = dict.fromkeys(ROUTE_NAMES, 0.) | ({} if previous is None else dict(previous.values))
+    source_values = dict(active['values']) if active is not None else {} if previous is None else dict(previous.values)
+    values = dict.fromkeys(ROUTE_NAMES, 0.) | source_values
+    if previous is not None and any(values[name] != dict(previous.values)[name] for name in previous.locked):
+      raise ValueError('The saved automatic tune conflicts with a manual setting. Review the saved tune.')
+    if previous is not None and parameter in previous.locked:
+      raise ValueError('This setting is manually locked. Select Default before accepting a finding.')
+    if values[parameter] not in (found[2][1], target):
+      raise ValueError('This setting changed since the finding. Review the current value.')
     values[parameter] = target
     automatic = set(() if previous is None else previous.automatic or ()) | {parameter}
+    if active is not None:
+      automatic.update(name for name, value in source_values.items() if value != 0 and (previous is None or name not in previous.locked))
     accepted = ManualCoordinates(identity, tuple(values.items()), '' if previous is None else previous.compatibility,
                                  tuple(name for name in ROUTE_NAMES if name in automatic)).validate()
     profiles[fingerprint] = replace(profile, manual_coordinates=accepted)
@@ -92,7 +126,7 @@ def accept_finding(settings, reports, payload, *, authorized):
       fresh = settings.context.sample()
       return (authorized() and fresh.parked and fresh.cp_raw == ctx.cp_raw and owner.authority('parked_preferences')
               and owner.authority('torque') and _finding(reports.snapshot(), parameter, target, assessment) == found
-              and all(read_saved(settings.params, key, MAX_DOCUMENT_BYTES) == value for key, value in dependencies.items()))
+              and all(read_saved(settings.params, key, MAX_BYTES if key == KEY else MAX_DOCUMENT_BYTES) == value for key, value in dependencies.items()))
 
     if not permitted():
       raise ValueError('The vehicle or finding changed. Review it again.')
