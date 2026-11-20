@@ -28,11 +28,11 @@ def estimator_messages(cp):
     events[service] = event
   events['lateralDelay'].lateralDelay = {
     'version': 1, 'status': 'estimated', 'validBlocks': 10, 'lateralDelay': .34,
-    'lateralDelayEstimate': .347, 'lateralDelayEstimateStd': .01}
+    'lateralDelayEstimate': .347, 'lateralDelayEstimateStd': .01, 'calPerc': 100}
   events['lateralTorqueParameters'].lateralTorqueParameters = {
     'version': 1, 'valid': True, 'useParams': True, 'totalBucketPoints': 1000,
     'latAccelFactorFiltered': cp.lateralTuning.torque.latAccelFactor * .9,
-    'frictionCoefficientFiltered': cp.lateralTuning.torque.friction * 17 / 18}
+    'frictionCoefficientFiltered': cp.lateralTuning.torque.friction * 17 / 18, 'calPerc': 100}
   events['vehicleParameters'].vehicleParameters = {
     'valid': True, 'sensorValid': True, 'posenetValid': True, 'steerRatioValid': True, 'steerRatio': cp.steerRatio + .5}
   return events
@@ -143,3 +143,78 @@ def test_reference_refresh_is_not_a_setting_change_or_write_dependency(tmp_path)
   request = FeatureSettingsRequest(row.key, row.source, '.62', vehicle_fingerprint=row.vehicle_fingerprint,
                                    capability=row.capability, dependencies=row.dependencies)
   assert owner.apply(request)
+
+
+def test_fresh_collecting_progress_is_shown_without_inventing_a_learned_value(tmp_path):
+  _, params, owner, sm, _ = setup_sources(tmp_path)
+  params.remove('LiveDelay')
+  params.remove('LiveTorqueParameters')
+  sm.data['lateralTorqueParameters'].valid = False
+  sm.data['lateralTorqueParameters'].calPerc = 14
+  sm.data['lateralDelay'].status = 'unestimated'
+  sm.data['lateralDelay'].calPerc = 22
+  refs = learned_references(owner, now_ns=NOW)
+  assert refs['torque:factor:value'] == refs['torque:friction:value'] == 'Learning · 14%'
+  assert refs['steering_delay'] == 'Learning · 22%'
+
+
+def test_current_progress_is_appended_to_historical_values_only_when_fresh(tmp_path):
+  _, _, owner, sm, _ = setup_sources(tmp_path)
+  sm.data['lateralTorqueParameters'].valid = False
+  sm.data['lateralTorqueParameters'].calPerc = 14
+  sm.data['lateralDelay'].status = 'unestimated'
+  sm.data['lateralDelay'].calPerc = 22
+  refs = learned_references(owner, now_ns=NOW)
+  assert refs['torque:factor:value'] == 'Last learned · 2.700 · 14%'
+  assert refs['torque:friction:value'] == 'Last learned · 0.085 · 14%'
+  assert refs['steering_delay'] == 'Last learned · 0.347 s · 22%'
+  sm.logMonoTime['lateralDelay'] = NOW - 3_000_000_000
+  assert learned_references(owner, now_ns=NOW)['steering_delay'] == 'Last learned · 0.347 s'
+
+
+@pytest.mark.parametrize('percent', [0, 50, 99])
+def test_partial_live_estimate_keeps_its_value_and_adds_progress(tmp_path, percent):
+  _, _, owner, sm, _ = setup_sources(tmp_path)
+  sm.data['lateralTorqueParameters'].calPerc = percent
+  sm.data['lateralDelay'].calPerc = percent
+  refs = learned_references(owner, now_ns=NOW)
+  assert refs['torque:factor:value'] == f'Live learned · 2.700 · {percent}%'
+  assert refs['torque:friction:value'] == f'Live learned · 0.085 · {percent}%'
+  assert refs['steering_delay'] == f'Live learned · 0.347 s · {percent}%'
+
+
+@pytest.mark.parametrize('condition', ['disabled', 'bad_percent', 'wrong_version', 'wrong_car', 'offroad'])
+def test_progress_requires_current_qualified_estimator_identity(tmp_path, condition):
+  cp, _, owner, sm, _ = setup_sources(tmp_path)
+  torque = sm.data['lateralTorqueParameters']
+  torque.calPerc = 14
+  if condition == 'disabled':
+    torque.useParams = False
+  elif condition == 'bad_percent':
+    torque.calPerc = 101
+  elif condition == 'wrong_version':
+    torque.version = 2
+  elif condition == 'wrong_car':
+    other = cp.as_reader().as_builder()
+    other.carVin = 'OTHER'
+    sm.data['carParams'] = other
+  else:
+    sm.data['deviceState'].started = False
+  assert '14%' not in learned_references(owner, now_ns=NOW).get('torque:factor:value', '')
+
+
+def test_device_rows_and_galaxy_projection_share_current_progress(tmp_path, monkeypatch):
+  from openpilot.starpilot.galaxy.settings import _projection
+  _, _, owner, sm, _ = setup_sources(tmp_path)
+  sm.data['lateralTorqueParameters'].valid = False
+  sm.data['lateralTorqueParameters'].calPerc = 14
+  sm.data['lateralDelay'].status = 'unestimated'
+  sm.data['lateralDelay'].calPerc = 22
+  monkeypatch.setattr('openpilot.starpilot.ui.learned_steering.time.monotonic_ns', lambda: NOW)
+  rows = owner.snapshot('torque/developer', parked=True, system_long=False, lateral_context=True, metric=False).rows
+  expected = {'steering_delay': '22%', 'torque:factor:value': '14%', 'torque:friction:value': '14%'}
+  found = {row.key: row for row in rows if row.key in expected}
+  assert found.keys() == expected.keys()
+  for key, suffix in expected.items():
+    assert found[key].learned_value.endswith(suffix)
+    assert _projection(found[key])['learnedValue'] == found[key].learned_value
