@@ -399,12 +399,14 @@ class ModelReceiptOwner:
     self.pair_load = None
     self._identity_since_ns = time.monotonic_ns()
     self._last_publication_ns = 0
+    self._remote = None
 
   def start(self) -> None:
     self.load = None
     self.pair_load = None
     self._identity_since_ns = time.monotonic_ns()
     self._last_publication_ns = 0
+    self._remote = None
     try:
       clear_receipt(self.receipt_file)
       clear_receipt(pair_receipt_path(self.receipt_file))
@@ -428,8 +430,13 @@ class ModelReceiptOwner:
       self.report("artifact-digest-unavailable")
       return None
 
-  def publish(self, publisher, now_ns: int) -> bool:
-    """Repeat actual load identity so routes started after warm-up retain it."""
+  def publish(self, publisher, now_ns: int, remote: Callable[[], object] | None = None) -> bool:
+    """Repeat actual load identity so routes started after warm-up retain it.
+
+    remote, while a Jetson may drive: returns its runtime (active, sha256,
+    checkpoint). The local receipt stays what this process loaded; the
+    Jetson's model is published beside it as a separate 'modeld.jetlink'
+    marker, which logged_model_load never reads as a load."""
     if self._last_publication_ns and now_ns - self._last_publication_ns < 5_000_000_000:
       return False
     if self.pair_load is not None:
@@ -452,10 +459,36 @@ class ModelReceiptOwner:
                                                 'sinceMonoNs': self._identity_since_ns}}))
       publisher.send('modelIdentity', message)
       self._last_publication_ns = now_ns
-      return True
     except Exception:
       self.report('publication-failed')
       return False
+    if remote is not None:
+      self._publish_remote(publisher, now_ns, remote)
+    return True
+
+  def _publish_remote(self, publisher, now_ns: int, remote: Callable[[], object]) -> None:
+    try:
+      runtime = remote()
+      active = bool(getattr(runtime, 'active', False))
+      sha256 = getattr(runtime, 'sha256', None) if active else None
+      checkpoint = getattr(runtime, 'checkpoint', None) if active else None
+      if not (isinstance(sha256, str) and re.fullmatch(r'[0-9a-f]{64}', sha256)):
+        active, sha256, checkpoint = False, None, None
+      checkpoint = checkpoint if isinstance(checkpoint, str) and len(checkpoint) <= 256 else None
+      if self._remote is None or self._remote[1] != sha256:
+        self._remote = (now_ns, sha256)
+        from openpilot.common.swaglog import cloudlog
+        cloudlog.event('modeld.jetlink', version=1, active=active, sha256=sha256, checkpoint=checkpoint)
+      if not active:
+        return
+      from openpilot.cereal import messaging
+      message = messaging.new_message(None, valid=True, logMonoTime=now_ns)
+      message.logMessage = json.dumps({'msg': {'event': 'modeld.jetlink', 'version': 1, 'active': True,
+                                               'sha256': sha256, 'checkpoint': checkpoint,
+                                               'sinceMonoNs': self._remote[0]}})
+      publisher.send('modelIdentity', message)
+    except Exception:
+      self.report('remote-publication-failed')
 
   def loaded(self, prepared: PreparedArtifact | None, variant: ModelVariant,
              fallback_reason: str | None = None, *, model_id: str = BUNDLED_CURRENT) -> bool:

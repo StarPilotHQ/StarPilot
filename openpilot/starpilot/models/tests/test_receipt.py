@@ -201,5 +201,47 @@ class TestModelReceipt(unittest.TestCase):
     self.assertEqual(reasons, ['log-failed'])
 
 
+  def test_jetson_identity_published_beside_local_receipt(self):
+    from collections import namedtuple
+    from openpilot.cereal import messaging
+    Runtime = namedtuple('Runtime', 'state active sha256 checkpoint')
+    sha = 'ab' * 32
+
+    class Publisher:
+      def __init__(self):
+        self.raw = []
+      def send(self, _service, message):
+        self.raw.append(json.loads(str(messaging.log_from_bytes(message.to_bytes()).logMessage))['msg'])
+
+    reasons = []
+    owner = ModelReceiptOwner(self.path, reasons.append, record=lambda _load: None)
+    owner.load = self.load
+    publisher = Publisher()
+    runtime = Runtime('active', True, sha, 'ckpt')
+    t = self.load.loaded_mono_ns + 1
+    with mock.patch('openpilot.common.swaglog.cloudlog.event') as record:
+      self.assertTrue(owner.publish(publisher, t, remote=lambda: runtime))
+      self.assertFalse(owner.publish(publisher, t + 1, remote=lambda: runtime))  # rate limit holds
+      self.assertTrue(owner.publish(publisher, t + 5_000_000_000, remote=lambda: runtime))
+      self.assertEqual(record.call_count, 1)  # once per Jetson model, not per heartbeat
+      self.assertEqual(record.call_args.kwargs['sha256'], sha)
+      self.assertEqual([m['event'] for m in publisher.raw], ['modeld.loaded', 'modeld.jetlink'] * 2)
+      self.assertEqual(publisher.raw[1], {'event': 'modeld.jetlink', 'version': 1, 'active': True, 'sha256': sha,
+                                          'checkpoint': 'ckpt', 'sinceMonoNs': t})
+      # The Jetson marker is never read as a local load.
+      self.assertIsNone(logged_model_load(json.dumps({'process': self.load.pid, 'msg': publisher.raw[1]})))
+
+      publisher.raw.clear()
+      self.assertTrue(owner.publish(publisher, t + 10_000_000_000, remote=lambda: Runtime('waiting', False, None, None)))
+      self.assertEqual([m['event'] for m in publisher.raw], ['modeld.loaded'])
+      self.assertEqual(record.call_args.kwargs['active'], False)
+
+      publisher.raw.clear()
+      self.assertTrue(owner.publish(publisher, t + 15_000_000_000, remote=lambda: Runtime('active', True, 'not-a-sha', None)))
+      self.assertEqual([m['event'] for m in publisher.raw], ['modeld.loaded'])
+      self.assertTrue(owner.publish(publisher, t + 20_000_000_000, remote=lambda: None))  # link off
+      self.assertTrue(owner.publish(publisher, t + 25_000_000_000, remote=mock.Mock(side_effect=OSError)))
+    self.assertEqual(reasons, ['remote-publication-failed'])
+
 if __name__ == "__main__":
   unittest.main()
