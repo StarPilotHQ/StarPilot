@@ -62,7 +62,7 @@ class TestHondaInterceptor(unittest.TestCase):
       data[5] = pedal_crc(data)
     return message[0], bytes(data), message[2]
 
-  def _assert_callbacks_finish(self, words):
+  def _assert_callbacks_finish(self, words, experience=0):
     try:
       mutant = libsafety_py.libsafety.mutation_get_active_mutant()
     except AttributeError:
@@ -82,6 +82,10 @@ if safety.set_safety_hooks(structs.CarParams.SafetyModel.hondaNidec, word) != 0:
   print('NATIVE_SETUP_ASSERTION', flush=True)
   raise SystemExit(1)
 safety.init_tests()
+safety.set_alternative_experience(int(sys.argv[4]))
+if safety.set_safety_hooks(structs.CarParams.SafetyModel.hondaNidec, word) != 0:
+  print('NATIVE_SETUP_ASSERTION', flush=True)
+  raise SystemExit(1)
 packer = CANPacker('acura_ilx_2016_can_generated' if word in (4, 36) else 'honda_civic_touring_2016_can_generated')
 message = packer.make_can_msg('POWERTRAIN_DATA', 0, {'ACC_STATUS': 0}) if word in (0, 4) else create_command(packer, 0.0, 0)
 packet = libsafety_py.make_CANPacket(message[0], message[2], message[1])
@@ -93,7 +97,7 @@ raise SystemExit(0 if accepted else 1)
     for word in words:
       with self.subTest(word=word):
         try:
-          result = subprocess.run([sys.executable, '-c', script, libsafety_py.libpath, str(mutant), str(word)],
+          result = subprocess.run([sys.executable, '-c', script, libsafety_py.libpath, str(mutant), str(word), str(experience)],
                                   cwd=Path(__file__).resolve().parents[3], capture_output=True, text=True, timeout=10)
         except subprocess.TimeoutExpired as exc:
           output = exc.stdout or b''
@@ -115,6 +119,9 @@ raise SystemExit(0 if accepted else 1)
 
   def test_all_stock_honda_rx_callbacks_finish_without_native_memory_faults(self):
     self._assert_callbacks_finish((0, 4))
+
+  def test_stock_aol_rx_callbacks_finish_without_native_memory_faults(self):
+    self._assert_callbacks_finish((0, 4), experience=32)
 
   def test_both_tracks_enable_reserved_bits_and_crc_are_required(self):
     for word in (32, 36):
