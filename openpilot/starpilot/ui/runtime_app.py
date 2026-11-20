@@ -570,32 +570,44 @@ class StarShellSession:
       wire = event.slcCruiseEvent.wheelAction
       if (int(wire.sourceCarStateMonoTime) > int(ui_state.sm.logMonoTime["carState"]) or
           int(wire.sourceCarControlMonoTime) > int(ui_state.sm.logMonoTime["carControl"])) and now_ns <= int(wire.validUntilMonoTime):
+        if int(wire.actionCode) == 10:
+          self._wheel_pending.appendleft(event)
+          break
         self._wheel_pending.append(event)
         continue
-      command = self._wheel_consumer.accept(event, ui_state.params, ui_state.CP, ui_state.sm, now_ns=now_ns)
+      if int(wire.actionCode) == 10 and any(
+          str(p.slcCruiseEvent.wheelAction.sessionId) != str(wire.sessionId) for p in self._wheel_pending):
+        continue
+      command = self._wheel_consumer.accept(event, ui_state.params, ui_state.CP, ui_state.sm, now_ns=now_ns,
+                                            consume=int(wire.actionCode) != 10)
       if command is None or command.action == 0:
         continue
       authorized = (self._bookmark_authority() if command.action == 8 else
                     self._favorite_authority(allow_personality_notice=command.action == 1))
       if not authorized:
         continue
-      actions = self._native_favorite_actions()
       try:
         if command.action == 1:
           if self._wheel_personality is not None:
             self._wheel_personality()
         elif command.action in (5, 7, 8):
           key = {5: EXPERIMENTAL, 6: TRAFFIC, 7: SWITCHBACK, 8: BOOKMARK}[command.action]
-          action = actions.get(key)
+          action = self._native_favorite_actions().get(key)
           if action is not None and action.available and action.invoke is not None:
             action.invoke()
         elif command.action == 10 and self.slc_actions is not None:
           from openpilot.starpilot.ui.onroad_state import SlcActionKind
           state = self._live_slc_message(now_ns)
-          if state is not None and not state.hasPending:
-            self.slc_actions.dispatch(SlcUiRequest(SlcActionKind.ADOPT, str(state.sessionId), int(state.decisionId),
-                                                  int(state.presentationId), float(state.speedLimit)),
-                                      wheel_observed_ns=command.observed_ns)
+          if state is not None and state.hasPending:
+            continue
+          applied = state is not None and self.slc_actions.dispatch(
+            SlcUiRequest(SlcActionKind.ADOPT, str(state.sessionId), int(state.decisionId),
+                         int(state.presentationId), float(state.speedLimit)), wheel_observed_ns=command.observed_ns)
+          if applied:
+            self._wheel_consumer.accept(event, ui_state.params, ui_state.CP, ui_state.sm, now_ns=now_ns)
+          elif now_ns < int(wire.validUntilMonoTime):
+            self._wheel_pending.appendleft(event)
+            break
         elif command.action in (11, 12, 13):
           slot = self.favorites_owner.snapshot().slots[command.action - 11]
           if slot.available and slot.request is not None:
