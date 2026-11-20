@@ -19,7 +19,7 @@ PRODUCER_SOURCE_HASHES = (
   ('openpilot', 'system/camerad/cameras/camera_qcom2.cc', 'b34c24c9984a0ac086f7b961cb7ff09d0501231da50aaad0e676bb3dc3f2edd9'),
   ('openpilot', 'system/camerad/cameras/camera_common.cc', 'bd9a416a6ee21047b4deec6df04276d8717cd92fe14de43f3e9daff86b62bb8f'),
   ('openpilot', 'selfdrive/modeld/modeld.py', '58dc00dcfc6a497469ce71698f71650abcc5c995b299d560b576d291422eed3b'),
-  ('openpilot', 'starpilot/car/volkswagen/model_smoothing.py', 'dd5d0ddaf77fe05960b673557b1b9f649d303ddfdad77a5185c7b3156fc6bbd2'),
+  ('openpilot', 'starpilot/car/volkswagen/model_smoothing.py', 'f26a0db1992a99d41b2b63626bc24ed6538cc89d9cfd4e96008e8c86126d7540'),
   ('openpilot', 'starpilot/car/hyundai/model_smoothing.py', '28b1b8c64dd2d8e83f1bc71d39de7f797741d0911b39b7184a6e2d7d34d75243'),
   ('openpilot', 'selfdrive/modeld/fill_model_msg.py', 'b3916c34d1073d0c26a7a8adc51e7b148f63a1ac68b388226170fd0f8b8b56b4'),
   ('openpilot', 'system/sensord/sensord.py', '7c79ab07d775622a43001e5a9b9ccc9a7bafb065940185849b33eefc2fd26420'),
