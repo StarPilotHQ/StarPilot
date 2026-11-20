@@ -207,6 +207,14 @@ class TestToyotaSafetyBase(common.CarSafetyTest, common.LongitudinalAccelSafetyT
 
     msg = self._speed_msg(0, quality_flag=False)
     self.assertFalse(self._rx(msg))
+    for wheel in ('FR', 'FL', 'RR', 'RL'):
+      with self.subTest(wheel=wheel):
+        self.safety.set_safety_hooks(self.SAFETY_MODEL, self.SAFETY_PARAM)
+        self.assertTrue(self._rx(self._speed_msg(0)))
+        self.safety.set_controls_allowed(True)
+        fault = self.packer.make_can_msg_safety('WHEEL_SPEEDS', 0, {'WHEEL_SPEED_%s_FAULT' % wheel: 1})
+        self.assertFalse(self._rx(fault))
+        self.assertFalse(self.safety.get_controls_allowed())
 
   def test_vehicle_speed_measurements(self):
     # OVERRIDDEN: 72.22_ is the max speed in m/s
