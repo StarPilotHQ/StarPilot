@@ -73,7 +73,6 @@ def _finding_review(report, params, cache):
   from opendbc.car.structs import car
   from openpilot.starpilot.flm.manual_coordinates import load
   from openpilot.starpilot.flm.offroad_surface import ROUTE_NAMES
-  from openpilot.starpilot.flm.runtime_adapter_registry import car_params_digest
   from openpilot.starpilot.galaxy.flm_acceptance import review_binding_issue
   from openpilot.starpilot.lateral.controller_selection import read_selection
   from openpilot.starpilot.schema_cache import inspect_cache
@@ -90,20 +89,20 @@ def _finding_review(report, params, cache):
   with car.CarParams.from_bytes(payload, traversal_limit_in_words=1024 * 1024 // 8) as cp:
     if cp.notCar or cp.carFingerprint != preference.get('vehicle'):
       return {'status': 'parked_configuration_unavailable'}
-    digest = car_params_digest(cp)
     _, manual_state = load(cp, read_selection(params, cp).mode, params)
-  details = (report.get('current') or {}).get('details') or {}
-  findings, checked = {}, {}
-  for name, review, source in details.get('Recorded suggestion assessments', ())[:len(ROUTE_NAMES)]:
-    if name not in ROUTE_NAMES:
-      continue
-    binding = (review, source)
-    if binding not in checked:
-      try:
-        checked[binding] = review_binding_issue(cache.get(review), digest, source) or 'matches_parked_configuration'
-      except (OSError, ValueError, TypeError, KeyError):
-        checked[binding] = 'assessment_unavailable'
-    findings[name] = checked[binding]
+    details = (report.get('current') or {}).get('details') or {}
+    findings, checked = {}, {}
+    for name, review, source in details.get('Recorded suggestion assessments', ())[:len(ROUTE_NAMES)]:
+      if name not in ROUTE_NAMES:
+        continue
+      binding = (review, source)
+      if binding not in checked:
+        try:
+          _, issue = review_binding_issue(cache, review, cp, source)
+          checked[binding] = issue or 'matches_parked_fingerprint'
+        except (OSError, ValueError, TypeError, KeyError):
+          checked[binding] = 'assessment_unavailable'
+      findings[name] = checked[binding]
   if (read_saved(params, key, 1024 * 1024) != snapshot
       or read_saved(params, 'IsOffroad', 1) != (b'1', True)):
     return {'status': 'parked_configuration_unavailable'}

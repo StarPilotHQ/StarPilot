@@ -65,7 +65,7 @@ class TorqueFeature:
       current = self._manual_context()
       saved = None if profile is None else profile.manual_coordinates
       matches = profile is None or (profile.basis == basis and profile.flm is None
-        and (saved is None or saved.context == current) and self._manual_compatible(saved))
+        and (saved is None or saved.matches_context(current)) and self._manual_compatible(saved))
       values = dict(saved.values) if saved is not None else dict.fromkeys(NAMES, 0.)
       locked = () if saved is None else saved.locked
       accepted = () if saved is None else saved.automatic or ()
@@ -114,7 +114,7 @@ class TorqueFeature:
     current = self._manual_context()
     saved = prior.manual_coordinates
     if (name not in NAMES or prior.basis != basis or prior.flm is not None
-        or saved is not None and (saved.context != current or not self._manual_compatible(saved))):
+        or saved is not None and (not saved.matches_context(current) or not self._manual_compatible(saved))):
       raise ValueError("Manual tune context changed")
     values = dict(saved.values) if saved is not None else dict.fromkeys(NAMES, 0.)
     values[name] = float(request.value) / 100

@@ -4,7 +4,7 @@ import math
 import re
 
 from openpilot.starpilot.flm.manual_coordinates import ManualCoordinates, context, selected_manual
-from openpilot.starpilot.flm.review_settings import review_settings
+from openpilot.starpilot.flm.review_settings import review_settings, same_review_controller
 from openpilot.starpilot.flm.offroad_cache import AssessmentCache, directory_for_params
 from openpilot.starpilot.flm.offroad_store import KEY, MAX_BYTES, NAMESPACE, RouteScope
 from openpilot.starpilot.flm.offroad_runtime import current_scope
@@ -44,22 +44,37 @@ REVIEW_REFUSALS = {
   'vehicle_identity_unavailable': 'The vehicle must identify itself before a finding from this review can be accepted.',
   'unexpected_review_type': 'This drive review is unavailable for accepting findings. Refresh the findings.',
   'recording_mismatch': 'This finding’s recording no longer matches its drive review. Refresh the findings.',
-  'vehicle_configuration_mismatch': 'This finding was recorded with a different vehicle configuration. Review a drive from the current setup.',
+  'vehicle_mismatch': 'This finding belongs to a different vehicle fingerprint. Review a drive from the current vehicle.',
+  'review_fingerprint_unavailable': 'This older finding is missing its recorded vehicle fingerprint. Review a newer drive.',
 }
 
 
-def review_binding_issue(document, vehicle_digest, source_digest):
+def review_binding_issue(cache, assessment, cp, source_digest):
+  document = cache.get(assessment)
   kind = document.get('kind')
   if kind == 'identity_review':
-    return 'vehicle_identity_unavailable'
+    return document, 'vehicle_identity_unavailable'
   if kind not in ('completed_assessment', 'partial_assessment'):
-    return 'unexpected_review_type'
+    return document, 'unexpected_review_type'
   route = document['assessment']['route']
   if route['source_sha256'] != source_digest:
-    return 'recording_mismatch'
-  if route['cp_sha256'] != vehicle_digest:
-    return 'vehicle_configuration_mismatch'
-  return None
+    return document, 'recording_mismatch'
+  fingerprint = document['assessment'].get('vehicle')
+  if fingerprint is None and route['cp_sha256'] != car_params_digest(cp):
+    # Older documents stored their vehicle in the checkpoint, not inside the
+    # assessment. Only a checkpoint for this exact recording can supply it.
+    vehicles = set()
+    for checkpoint in cache.checkpoints():
+      result = checkpoint['result']
+      for review in (result, result.get('pending_review', {})):
+        vehicle = review.get('vehicle')
+        if (type(vehicle) is str and vehicle and review.get('assessment_sha256') == assessment
+            and review.get('source_sha256') == source_digest and review.get('completed_route') == route.get('route_id')):
+          vehicles.add(vehicle)
+    if len(vehicles) != 1:
+      return document, 'review_fingerprint_unavailable'
+    fingerprint = next(iter(vehicles))
+  return document, 'vehicle_mismatch' if fingerprint is not None and fingerprint != str(cp.carFingerprint) else None
 
 
 def accept_finding(settings, reports, payload, *, authorized):
@@ -86,25 +101,23 @@ def accept_finding(settings, reports, payload, *, authorized):
     if not preference.valid or not preference.enabled:
       raise ValueError('Enable Auto Learn before accepting a finding for continued learning.')
     found = _finding(reports.snapshot(), parameter, target, assessment)
-    # The canonical reader omits the report envelope's vehicle; the original
-    # cached assessment's exact CarParams digest below is mandatory either way.
     if found[0] not in (None, str(cp.carFingerprint)):
       raise ValueError('This finding belongs to a different vehicle.')
     directory = directory_for_params(settings.params)
     if not directory.exists():
       raise ValueError('The original drive review is unavailable. Refresh the findings.')
-    document = AssessmentCache(directory).get(assessment)
-    issue = review_binding_issue(document, car_params_digest(cp), found[1])
+    document, issue = review_binding_issue(AssessmentCache(directory), assessment, cp, found[1])
     if issue is not None:
       raise ValueError(REVIEW_REFUSALS[issue])
     from openpilot.starpilot.flm.learned_lifecycle import decode
 
     scope = current_scope(cp, settings.params)
     origin_scope = document['assessment'].get('current_scope')
-    if origin_scope is not None and replace(RouteScope(**origin_scope).validate(), persistent_source_epoch=scope.persistent_source_epoch) != scope:
-      raise ValueError('This finding belongs to a different controller setup. Review its current findings.')
     origin_settings = document['assessment'].get('review_settings_sha256')
-    if origin_settings is not None and origin_settings != review_settings(cp, settings.params):
+    settings_match = origin_settings is not None and origin_settings == review_settings(cp, settings.params)
+    if origin_scope is not None and not same_review_controller(RouteScope(**origin_scope).validate(), scope, same_fingerprint=settings_match):
+      raise ValueError('This finding belongs to a different controller setup. Review its current findings.')
+    if origin_settings is not None and not settings_match:
       raise ValueError('The steering settings changed since this finding. Review the current findings.')
     active = decode(dependencies[KEY][0]).get(NAMESPACE, {}).get(scope.key())
     if active is not None and active['state'] == 'ready_for_next_drive':

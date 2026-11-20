@@ -2,8 +2,18 @@
 
 import hashlib
 import json
+from dataclasses import replace
 
 from openpilot.starpilot.flm.manual_coordinates import baseline_settings
+
+
+def same_review_controller(previous, current, *, same_fingerprint):
+  # The numeric revision includes the full CarParams digest. Where a verified
+  # fingerprint matches across different CarParams, callers must separately
+  # check the review settings hash, which includes the active steering basis.
+  if same_fingerprint and previous.cp_sha256 != current.cp_sha256:
+    previous = replace(previous, cp_sha256=current.cp_sha256, baseline_revision=current.baseline_revision)
+  return replace(previous, persistent_source_epoch=current.persistent_source_epoch) == current
 
 
 def review_settings(cp, params):

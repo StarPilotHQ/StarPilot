@@ -103,11 +103,15 @@ def test_same_actual_context_loads_once_and_does_not_write_history(tmp_path, cp)
   assert read_saved(params, 'AutomaticSteeringLiveTrials', 65536) == (None, True)
 
 
-def test_changed_vehicle_context_refuses_instead_of_retagging(tmp_path, cp):
+def test_same_fingerprint_preserves_settings_but_changed_basis_or_fingerprint_refuses(tmp_path, cp):
   params = PrivateParams(tmp_path)
   raw = save(params, cp, manual(cp, center_taper_max=.01))
   cp.mass = 1800.
+  assert dict(load(cp, default_selection(cp).mode, params)[0].profile.values)['center_taper_max'] == .01
+  cp.lateralTuning.torque.friction += .01
   assert load(cp, default_selection(cp).mode, params) == (None, 'context_changed')
+  cp.carFingerprint = 'other-platform'
+  assert load(cp, default_selection(cp).mode, params) == (None, 'not_configured')
   assert read_saved(params, DOCUMENT_KEY, 16384) == (raw, True)
 
 

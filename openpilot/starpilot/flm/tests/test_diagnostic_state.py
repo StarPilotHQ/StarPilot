@@ -224,9 +224,10 @@ class TestDiagnosticState(unittest.TestCase):
     parked = car_params_digest(cp)
     cp.mass += 50
     old, source = car_params_digest(cp), 'a' * 64
-    def assessment(digest):
-      return cache.put({'kind': 'partial_assessment', 'assessment': {'route': {'cp_sha256': digest, 'source_sha256': source}}})
-    older, matching = assessment(old), assessment(parked)
+    def assessment(digest, vehicle):
+      return cache.put({'kind': 'partial_assessment', 'assessment': {
+        'vehicle': vehicle, 'route': {'cp_sha256': digest, 'source_sha256': source}}})
+    older, matching = assessment(old, 'other-platform'), assessment(parked, str(cp.carFingerprint))
     report = {'preference': {'valid': True, 'parked': True, 'vehicle': str(cp.carFingerprint)}, 'current': {'details': {
       'Recorded suggestion assessments': [
         ['turn_in_boost_left', older, source], ['turn_in_boost_right', matching, 'b' * 64],
@@ -237,8 +238,8 @@ class TestDiagnosticState(unittest.TestCase):
     review = self.exported(report)['finding_review']
     self.assertEqual(review['manual_coordinates'], 'not_configured')
     self.assertEqual(review['findings'], {
-      'turn_in_boost_left': 'vehicle_configuration_mismatch', 'turn_in_boost_right': 'recording_mismatch',
-      'unwind_taper_right': 'matches_parked_configuration', 'unwind_taper_left': 'assessment_unavailable',
+      'turn_in_boost_left': 'vehicle_mismatch', 'turn_in_boost_right': 'recording_mismatch',
+      'unwind_taper_right': 'matches_parked_fingerprint', 'unwind_taper_left': 'assessment_unavailable',
     })
     self.assertEqual({p.name: p.read_bytes() for p in cache.directory.iterdir()}, before)
     for private in (parked, old, cp.carVin):

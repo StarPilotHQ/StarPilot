@@ -85,6 +85,50 @@ class TestFindingAcceptance(unittest.TestCase):
     self.report.pop('vehicle')
     self.assertEqual(self.accept()['learning'], 'automatic')
 
+  def test_same_fingerprint_accepts_older_partial_review_without_retagging_its_recording(self):
+    from openpilot.starpilot.flm.review_settings import review_settings
+
+    self.accept()
+    self.report.pop('vehicle')
+    fingerprint = str(self.cp.carFingerprint)
+    for legacy, name in ((True, 'unwind_taper_right'), (False, 'turn_in_boost_left')):
+      with self.subTest(legacy=legacy):
+        document = self.cache.get(self.assessment)
+        origin = replace(self.fixture.scope, cp_sha256='d' * 64, baseline_revision='e' * 64)
+        report = document['assessment']
+        report.update(current_scope=origin.document(), review_settings_sha256=review_settings(self.cp, self.params))
+        report['route'].update(route_id='00000002--a950fb753d', cp_sha256=origin.cp_sha256)
+        document['kind'] = 'partial_assessment'
+        if not legacy:
+          report['vehicle'] = fingerprint
+        self.assessment = self.cache.put(document)
+        self.report['current']['details'].update({
+          'Recorded coordinate recommendations': [[name, 0., .005, 6, 'partial_drive_provisional_only']],
+          'Recorded suggestion assessments': [[name, self.assessment, self.source]],
+        })
+        if legacy:
+          self.cache.checkpoint({'input_fingerprint': 'a' * 64, 'result': {
+            'vehicle': fingerprint, 'assessment_sha256': self.assessment, 'source_sha256': self.source,
+            'completed_route': report['route']['route_id'], 'status': 'collecting', 'reason': 'partial_drive_provisional_only',
+          }})
+        else:
+          wrong_vehicle = deepcopy(document)
+          wrong_vehicle['assessment']['vehicle'] = 'another-fingerprint'
+          digest = self.cache.put(wrong_vehicle)
+          detail = self.report['current']['details']['Recorded suggestion assessments'][0]
+          original = self.assessment
+          detail[1] = self.assessment = digest
+          before = self.raw()
+          with self.assertRaisesRegex(ValueError, 'different vehicle fingerprint'):
+            self.accept(name)
+          self.assertEqual(self.raw(), before)
+          detail[1] = self.assessment = original
+        self.assertEqual(self.accept(name)['learning'], 'automatic')
+        self.assertEqual(self.cache.get(self.assessment), document)
+    selected = selected_manual(self.cp, self.params)
+    self.assertEqual(set(selected.automatic) & {'ff_gain_left', 'unwind_taper_right', 'turn_in_boost_left'},
+                     {'ff_gain_left', 'unwind_taper_right', 'turn_in_boost_left'})
+
   def test_review_keeps_original_sources_when_a_different_drive_becomes_current(self):
     from openpilot.starpilot.flm.review_settings import review_settings
 

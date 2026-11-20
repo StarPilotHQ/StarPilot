@@ -524,6 +524,7 @@ def newer_original_refusal(cache, receipt, scope, values):
 def recent_findings(cache, results, display):
   """Keep compatible provisional findings; never merge save decisions or evidence counts."""
   from openpilot.starpilot.flm.offroad_surface import route_bounds, route_values
+  from openpilot.starpilot.flm.review_settings import same_review_controller
 
   latest = results[0]
   if latest.get('status') not in ('collecting', 'ready_for_next_drive', 'accepted_after_drive', 'retained_after_drive', 'rolled_back'):
@@ -544,10 +545,13 @@ def recent_findings(cache, results, display):
     stamp = receipt.get('last_intact_wall_ns') if partial else receipt.get('completed_wall_ns')
     if type(stamp) is not int or stamp <= 0:
       raise ValueError('Original recent-drive chronology required')
-    return scope, partial, stamp, assessment.get('review_settings_sha256')
+    vehicle = assessment.get('vehicle', value.get('vehicle'))
+    if vehicle is not None and value.get('vehicle') != vehicle:
+      raise ValueError('Recent finding vehicle fingerprint changed')
+    return scope, partial, stamp, assessment.get('review_settings_sha256'), vehicle
 
   try:
-    current_scope, _, _, current_settings = source(latest)
+    current_scope, _, _, current_settings, current_vehicle = source(latest)
     if 'configured_values' in latest:
       current = route_values(latest['configured_values'])
     elif 'review_values' in latest:
@@ -559,17 +563,19 @@ def recent_findings(cache, results, display):
   if current is None:
     return display
 
-  def is_compatible(scope, settings):
+  def is_compatible(scope, settings, vehicle):
+    if current_vehicle is not None and vehicle is not None and vehicle != current_vehicle:
+      return False
     return scope == current_scope or (type(settings) is str and len(settings) == 64 and not settings.strip('0123456789abcdef')
-      and settings == current_settings and replace(scope, persistent_source_epoch=current_scope.persistent_source_epoch) == current_scope)
+      and settings == current_settings and same_review_controller(scope, current_scope, same_fingerprint=bool(vehicle and vehicle == current_vehicle)))
 
   compatible = []
   for index, value in enumerate(results[:MAX_CHECKPOINTS + 1]):
     try:
-      scope, partial, stamp, settings = source(value)
+      scope, partial, stamp, settings, vehicle = source(value)
     except (KeyError, OSError, TypeError, ValueError):
       continue
-    if is_compatible(scope, settings):
+    if is_compatible(scope, settings, vehicle):
       compatible.append((stamp, index, partial, value))
   found, origins, assessments, blocked, seen = {}, {}, {}, set(), set()
   for _, _, _partial, value in sorted(compatible, key=lambda row: (-row[0], row[1])):
@@ -598,8 +604,8 @@ def recent_findings(cache, results, display):
         origin = dict(value, assessment_sha256=links[0][1], source_sha256=links[0][2], completed_route=routes[name]) if links else value
         if links:
           origin['partial_drive'] = cache.get(links[0][1])['kind'] == 'partial_assessment'
-        origin_scope, origin_partial, _, origin_settings = source(origin)
-        if not is_compatible(origin_scope, origin_settings):
+        origin_scope, origin_partial, _, origin_settings, origin_vehicle = source(origin)
+        if not is_compatible(origin_scope, origin_settings, origin_vehicle):
           continue
       except (KeyError, OSError, TypeError, ValueError):
         continue
@@ -943,7 +949,7 @@ class OffroadWorker:
                       partial_segments=[len(assessment.receipt.decoded_segments), len(assessment.receipt.segments)],
                       omitted_segments=[list(row) for row in assessment.receipt.omitted_segments])
     report = assessment.report()
-    report.update(policy=POLICY, road_improvement_confirmed=False)
+    report.update(policy=POLICY, road_improvement_confirmed=False, vehicle=recorded['vehicle'])
     if scope is not None:
       report['current_scope'] = scope.document()
     locked = state.get('locked', {})

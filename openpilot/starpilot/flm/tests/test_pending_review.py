@@ -65,7 +65,7 @@ def test_review_only_rebases_unchanged_knobs_after_acceptance(review):
   assert recent_findings(review.cache, [latest, first], latest)['recommendations'] == []
 
 
-@pytest.mark.parametrize('field,value', (('cp_sha256', 'd' * 64), ('baseline_revision', 'd' * 64),
+@pytest.mark.parametrize('field,value', (('baseline_revision', 'd' * 64),
   ('controller_revision', 'different-controller'), ('controller_mode', 'native'), ('reset_generation', '1')))
 def test_matching_review_settings_never_bridge_a_different_vehicle_or_controller(review, field, value):
   from openpilot.starpilot.flm.tests.test_offroad_backend import scope
@@ -76,6 +76,26 @@ def test_matching_review_settings_never_bridge_a_different_vehicle_or_controller
     document = review.cache.get(result['assessment_sha256'])
     document['assessment']['review_settings_sha256'] = 'e' * 64
     result['assessment_sha256'] = review.cache.put(document)
+  assert recent_findings(review.cache, [latest, first], latest)['recommendations'] == []
+
+
+def test_same_fingerprint_keeps_pending_reviews_after_car_params_change(review):
+  from openpilot.starpilot.flm.tests.test_offroad_backend import scope
+
+  first = review.driving
+  latest = review.result(4, profile=replace(scope(), cp_sha256='d' * 64, baseline_revision='e' * 64))
+  for result in (first, latest):
+    document = review.cache.get(result['assessment_sha256'])
+    result['vehicle'] = document['assessment']['vehicle'] = 'HYUNDAI_SONATA_HYBRID'
+    document['assessment']['review_settings_sha256'] = 'f' * 64
+    result['assessment_sha256'] = review.cache.put(document)
+  pending = recent_findings(review.cache, [latest, first], latest)
+  assert pending['recommendations'] == first['recommendations']
+  assert all(link[1] == first['assessment_sha256'] for link in pending['recommendation_assessments'])
+  assert pending['saved_adjustments'] == 0
+  document = review.cache.get(first['assessment_sha256'])
+  first['vehicle'] = document['assessment']['vehicle'] = 'another-fingerprint'
+  first['assessment_sha256'] = review.cache.put(document)
   assert recent_findings(review.cache, [latest, first], latest)['recommendations'] == []
 
 

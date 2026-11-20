@@ -135,7 +135,11 @@ def test_readonly_coordinate_ownership_distinguishes_acceptance_lock_and_context
   assert rows['unwind_taper_right']['coordinateLocked'] is True and rows['unwind_taper_right']['learningEligible'] is False
   assert 'acceptedFindingValue' not in rows['unwind_taper_right']
   assert rows['turn_in_boost_left']['coordinateLocked'] is False and rows['turn_in_boost_left']['learningEligible'] is True
-  cp.mass += 1  # Different configuration: a saved acceptance cannot assert current learning eligibility.
+  cp.mass += 1
+  rows = {r.key.removeprefix('torque:surface:'): _projection(r) for r in editor.manual_rows(capability, parked)}
+  assert rows['unwind_taper_left']['learningEligible'] is True
+  cp.lateralTuning.torque.friction += .01
+  editor, capability = feature(cp, params, {'parked': parked})
   rows = {r.key.removeprefix('torque:surface:'): _projection(r) for r in editor.manual_rows(capability, parked)}
   assert rows['unwind_taper_left']['learningEligible'] is False
   assert 'Eligible for Auto Learn' not in rows['unwind_taper_left']['reason']
