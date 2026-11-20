@@ -256,6 +256,13 @@ class DiscordFollowUpTest(unittest.TestCase):
       job.start("hi", "not a handle")
     self.assertIsNone(job._thread)
 
+  def test_a_failed_fork_check_is_raised_and_retried(self):
+    official = mock.Mock(side_effect=[OSError("no metadata"), True])
+    job = StarPortLogSender(lambda **_: ("logs.zip", b"zip"), sender=mock.Mock(), summary=lambda: SUMMARY, url=lambda: URL, official=official)
+    with self.assertRaises(OSError):
+      job.status()
+    self.assertFalse(job.status()["fork"])
+
   def test_custom_forks_are_flagged_but_can_still_send(self):
     from openpilot.starpilot.system.starport.bugsink_transport import is_official_repo, repo_name
     for origin, repo in (("https://github.com/StarPilotHQ/StarPilot.git", "StarPilotHQ/StarPilot"),

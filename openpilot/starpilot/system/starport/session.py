@@ -305,12 +305,15 @@ class Session:
   DISCOVERY_TIMEOUT = 60.0
 
   def __init__(self, peer, cert: str, key: str, log: Callable[..., None] | None = None, ca: str | None = None, *,
-               receive_timeout: float = 3.0, send_timeout: float = 3.0, handshake_timeout: float = 15.0):
+               receive_timeout: float = 3.0, send_timeout: float = 3.0, handshake_timeout: float = 15.0,
+               version_wait: float | None = None):
     self.peer = peer
     self._log = log
     self.receive_timeout = self._timeout(receive_timeout)
     self.send_timeout = self._timeout(send_timeout)
     self.handshake_timeout = self._timeout(handshake_timeout)
+    # Relaying adapters ping until the car starts its own session
+    self.version_wait = max(self.handshake_timeout, self._timeout(version_wait)) if version_wait is not None else self.handshake_timeout
     self.authenticated = False
     self.head_unit_subject: str = ""
     self.incoming = ssl.MemoryBIO()
@@ -473,14 +476,15 @@ class Session:
   def authenticate(self) -> None:
     # Some wireless adapters send a control keepalive before their version request.
     # A pong keeps the transport alive; version, TLS and certificate checks remain mandatory.
-    deadline = time.monotonic() + self.handshake_timeout
+    started = time.monotonic()
+    deadline = started + self.version_wait
     pings = 0
     while True:
       channel, kind, data = self.receive(deadline=deadline)
       if channel != 0 or kind != MSG_PING_REQUEST:
         break
       pings += 1
-      if pings > 8 or len(data) > 64:
+      if pings > 8 + 3 * (time.monotonic() - started) or len(data) > 64:
         raise ValueError('Excessive pre-version Android Auto keepalive')
       fields = parse_fields(data)
       timestamps = fields.get(1, [])

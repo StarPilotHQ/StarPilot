@@ -512,3 +512,28 @@ def test_a_reset_during_a_session_is_written_at_once(sup, monkeypatch):
 def test_only_galaxy_can_reset_the_handshake():
   from openpilot.starpilot.system.starport import daemon
   assert "reset_handshake" in daemon.AUTHENTICATED_COMMANDS
+
+
+def test_unofficial_dongle_starts_at_the_other_reply(ladder):
+  assert ladder.strategy(CAR, False, unofficial=True).rung == "other_reply"
+  assert ladder.strategy(CAR, False, unofficial=True).modern_reply is True
+
+
+def test_unofficial_dongle_still_reaches_standard_after_a_full_pass(ladder):
+  seen = []
+  for _ in range(len(sl.RUNGS)):
+    strategy = ladder.strategy(CAR, False, unofficial=True)
+    seen.append(strategy.rung)
+    if refuse(ladder, strategy, adapter=True, unofficial=True) in ("wrapped", "exhausted"):
+      break
+  assert seen[0] == "other_reply" and "standard" not in seen
+  assert ladder.strategy(CAR, False, unofficial=True).rung == "standard"
+
+
+def test_unofficial_dongle_keeps_what_worked(ladder):
+  ladder.worked(CAR, sl.resolve("standard", False))
+  assert ladder.strategy(CAR, False, unofficial=True).rung == "standard"
+
+
+def test_other_receivers_still_start_at_standard(ladder):
+  assert ladder.strategy(CAR, False).rung == "standard"
