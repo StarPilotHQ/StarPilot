@@ -90,14 +90,13 @@ def test_missing_status_cannot_grant_host_lateral():
 
 @pytest.mark.parametrize('counter', range(15))
 @pytest.mark.parametrize('lag', [0, 1])
-def test_only_equal_counters_keep_host_active(counter, lag):
+def test_supported_counter_relationship_keeps_host_active(counter, lag):
   ci = interface()
   step(ci, 40, True)
   packet = status((counter << 4) | 1, 0x80 | ((counter - lag) % 15))
-  assert pscm_status_validation_class(packet) == (8, True, lag == 0)
+  assert pscm_status_validation_class(packet) == (8, True, True)
   step(ci, 41, True, packet)
-  assert ci.CC.lat_active == (lag == 0)
-  assert ci.CS.pscm_rearm_required == (lag != 0)
+  assert ci.CC.lat_active and not ci.CS.pscm_rearm_required
   incoming, messages = step(ci, 42, False, packet)
   assert messages == forwarded(incoming)
 
