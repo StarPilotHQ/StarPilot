@@ -67,6 +67,8 @@ class TorqueFeature:
       matches = profile is None or (profile.basis == basis and profile.flm is None
         and (saved is None or saved.context == current) and self._manual_compatible(saved))
       values = dict(saved.values) if saved is not None else dict.fromkeys(NAMES, 0.)
+      locked = () if saved is None else saved.locked
+      accepted = () if saved is None else saved.automatic or ()
       common = {"source": raw, "capability": capability, "related_source": token,
         "dependencies": self._dependents(SELECTION_KEY, *TORQUE_NUMBERS, "ForceAutoTuneOff")}
       reason = ("Parked only. Saved for the next drive; zero restores this stage's original baseline. " +
@@ -78,17 +80,19 @@ class TorqueFeature:
         rows.append(FeatureRow("torque:surface:" + name, name.replace("_", " ").capitalize(),
           f"{100 * values[name]:.4f}", step=.25, minimum=100 * low, maximum=100 * high, unit="%",
           available=allowed and matches,
-          reason='Accepted finding. Auto Learn remains enabled for this setting.' if saved is not None and name in (saved.automatic or ()) else reason,
-          accepted_finding_value=values[name] if saved is not None and name in (saved.automatic or ()) else None,
+          reason='Change confirmed. Eligible for Auto Learn.' if name in accepted and matches else reason,
+          accepted_finding_value=values[name] if name in accepted else None,
+          coordinate_locked=name in locked, learning_eligible=matches and name not in locked,
           default_value="0", **common))
       if saved is not None and saved.route_format:
         from openpilot.starpilot.flm.offroad_surface import CURVE_NAMES
         for name in CURVE_NAMES:
           rows.append(FeatureRow('torque:surface:' + name, name.replace('_', ' ').capitalize(),
             f'{100 * values[name]:.4f}', unit='%', available=False,
-            accepted_finding_value=values[name] if name in (saved.automatic or ()) else None,
-            reason=('Accepted finding. Auto Learn remains enabled for this setting.' if name in (saved.automatic or ()) else
-                    'This setting stays locked; other settings can learn.' if name in saved.locked else 'Auto Learn is enabled for this setting.'), **common))
+            accepted_finding_value=values[name] if name in accepted else None,
+            coordinate_locked=name in locked, learning_eligible=matches and name not in locked,
+            reason=(reason if not matches else 'Change confirmed. Eligible for Auto Learn.' if name in accepted else
+                    'Manual override. Auto Learn is locked for this setting.' if name in locked else 'Eligible for Auto Learn.'), **common))
       if saved is not None:
         rows.append(FeatureRow("torque:surface:reset", "Reset manual tune", "Reset", choices=("Reset",),
           available=allowed, reason="Remove manual overrides, including any restored speed adjustments. Auto Learn history is preserved.", **common))

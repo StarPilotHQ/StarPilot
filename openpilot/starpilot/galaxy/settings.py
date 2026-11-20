@@ -418,6 +418,8 @@ def _projection(row: FeatureRow) -> dict:
                            "selected-profile" if row.key in ("profile:global_acceleration", "profile:global_braking") else None),
           **({"coordinate": row.key.removeprefix("torque:surface:")} if row.key.startswith("torque:surface:") and row.key != "torque:surface:reset" else {}),
           **({"acceptedFindingValue": row.accepted_finding_value} if row.accepted_finding_value is not None else {}),
+          **({"coordinateLocked": row.coordinate_locked} if row.coordinate_locked is not None else {}),
+          **({"learningEligible": row.learning_eligible} if row.learning_eligible is not None else {}),
           "heading": is_heading(row.key), "collapsed": bool(row.collapsed),
           **({"previewSound": row.key} if row.key in SOUND_SPECS else {})}
 

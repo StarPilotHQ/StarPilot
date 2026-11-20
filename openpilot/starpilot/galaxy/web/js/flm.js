@@ -11,7 +11,7 @@ import { FlmBackup } from './flm-backup.js'
 import { PlotGraph, PlotsPage, chartGeometry } from "./plots.js"
 import { validTrainingResults, readable, detailText, surfaceRows, coordinateText, trackingView, measurementText, validTrackingValues, trackingPlotView, sourceSeconds, validLearningPreference, SURFACE_GROUPS, tunerStatus, learningReason, sourceCaptureCounts, historyTitle, offroadView, FRICTION_NAMES, offroadCoordinateEvidence, recommendationText } from "./flm-training-results.js"
 
-import { reviewModel, dialPercent, ideaStatus, ideaExplanation, ideaValue, ideaHeading, curvePointLabel, ideaDetails } from "./flm-review.js"
+import { reviewModel, dialPercent, ideaStatus, ideaExplanation, ideaValue, ideaHeading, curvePointLabel, ideaDetails, coordinateStatus } from "./flm-review.js"
 import { parkedAnalysisProgress } from './flm-training-results.js'
 
 const VIEWS = ["overview", "tune", "activity", "plots"]
@@ -188,6 +188,7 @@ export const FlmPage = {
     },
   },
   methods: {
+    coordinateStatus,
     reviewFinding(idea) {
       if (!this.canReviewFindings || this.findingBusy || !Number.isFinite(idea.target) ||
           !this.review.findings.some(row => row.parameter === idea.parameter && row.target === idea.target)) return
@@ -442,7 +443,7 @@ export const FlmPage = {
         <section v-if="recoveredManualCurve.length" class="gx-card gx-tuner__saved-list" aria-labelledby="tuner-recovered-title">
           <h3 id="tuner-recovered-title">Selected speed settings</h3>
           <p>Accepted findings keep learning. Manually selected values stay locked.</p>
-          <div v-for="row in recoveredManualCurve" :key="row.coordinate"><span>{{ parameterLabel(row.coordinate) }}</span><strong>{{ dialPercent(Number(row.value) / 100) }}</strong><small>{{ row.reason }}</small></div>
+          <div v-for="row in recoveredManualCurve" :key="row.coordinate"><span>{{ parameterLabel(row.coordinate) }}</span><strong>{{ dialPercent(Number(row.value) / 100) }}</strong><small>{{ coordinateStatus(row) ? coordinateStatus(row).label + " · " + coordinateStatus(row).learning : row.reason }}</small></div>
           <p>Reset manual tune to remove the recovered settings.</p>
         </section>
 
@@ -453,7 +454,7 @@ export const FlmPage = {
               <div v-if="manualErrorText" class="gx-tuner__manual-error" tabindex="-1"><GxNotice tone="danger">{{ manualErrorText }}</GxNotice><details v-if="manualWrite?.status === 'unconfirmed' && manualState.error" class="gx-tuner__disclosure"><summary>Connection details</summary><p>{{ manualState.error }}</p></details></div><div v-if="manualReadbackText" class="gx-tuner__manual-readback" tabindex="-1"><GxNotice>{{ manualReadbackText }}</GxNotice></div>
               <p v-if="!manualState.data" class="gx-tuner__caption">{{ manualState.status === 'loading' ? 'Loading saved manual tune…' : 'Manual tuning unavailable. Reconnecting…' }}</p>
               <p v-else-if="!manualRows.length" class="gx-tuner__caption">{{ manualState.data.rows[0]?.reason || 'Manual tuning is unavailable for this controller.' }}</p>
-              <article v-for="{ row, index } in manualRows" :key="row.coordinate" :id="'tuner-dial-' + row.coordinate" tabindex="-1" class="gx-tuner__dial" :class="{ 'has-ideas': dialIdeas(row.coordinate).length }"><div class="gx-tuner__dial-status"><span class="gx-tuner__badge" :data-tone="dialIdeas(row.coordinate).length ? 'review' : 'neutral'">{{ dialIdeas(row.coordinate).length ? 'Drive finding' : 'Manual setting' }}</span><span v-if="Number.isFinite(Number(row.value)) && Number(row.value) !== 0" class="gx-tuner__badge" data-tone="manual">Manual override saved</span><span v-if="dialState(row.coordinate)?.applied != null && dialState(row.coordinate)?.applied !== 0" class="gx-tuner__badge" data-tone="saved">Auto Learn applied {{ dialPercent(dialState(row.coordinate).applied) }}</span><span v-else-if="dialState(row.coordinate)?.saved" class="gx-tuner__badge" data-tone="saved">Auto Learn saved {{ dialPercent(dialState(row.coordinate).saved) }}</span></div>
+              <article v-for="{ row, index } in manualRows" :key="row.coordinate" :id="'tuner-dial-' + row.coordinate" tabindex="-1" class="gx-tuner__dial" :class="{ 'has-ideas': dialIdeas(row.coordinate).length }"><div class="gx-tuner__dial-status"><span v-if="dialIdeas(row.coordinate).length || !coordinateStatus(row)" class="gx-tuner__badge" :data-tone="dialIdeas(row.coordinate).length ? 'review' : 'neutral'">{{ dialIdeas(row.coordinate).length ? 'Drive finding' : 'Manual setting' }}</span><span v-if="coordinateStatus(row)" class="gx-tuner__badge" :data-tone="coordinateStatus(row).tone">{{ coordinateStatus(row).label }}</span><small v-if="coordinateStatus(row)">{{ coordinateStatus(row).learning }}</small><span v-if="dialState(row.coordinate)?.applied != null && dialState(row.coordinate)?.applied !== 0" class="gx-tuner__badge" data-tone="saved">Auto Learn applied {{ dialPercent(dialState(row.coordinate).applied) }}</span><span v-else-if="dialState(row.coordinate)?.saved" class="gx-tuner__badge" data-tone="saved">Auto Learn saved {{ dialPercent(dialState(row.coordinate).saved) }}</span></div>
                 <div v-for="idea in dialIdeas(row.coordinate)" :key="idea.parameter" class="gx-tuner__dial-idea"><strong>{{ findingAccepted(idea) ? 'Accepted for next drive' : ideaStatus(idea) }}</strong><p>{{ ideaExplanation(idea) }}</p><details class="gx-tuner__disclosure"><summary>Recorded values</summary><dl class="gx-tuner__exact-values"><template v-for="value in ideaDetails(idea)" :key="value.label"><dt>{{ value.label }}</dt><dd>{{ value.value }}</dd></template></dl><p>Your manual value below is separate.</p></details></div>
                 <GalaxySettingRow :row="{ ...row, label: parameterLabel(row.coordinate) }" :compact="true" :index="index" :busy="manualBusy" :disabled="!!manualState.error" :save-value="saveManual" @reset-default="resetManualDefault" />
               </article>
