@@ -19,14 +19,13 @@ def test_factory_selects_only_live_supported_continental_radar(candidate, alpha_
   if can_filter:
     fingerprint[0][0x2AA] = 8
   cp = CarInterface.get_params(candidate, fingerprint, [], alpha_long, False, False)
-  if candidate in ARS510_RADAR_CAR and not cp.flags & ToyotaFlags.DISABLE_RADAR:
+  if candidate in ARS510_RADAR_CAR:
+    # with or without alpha long's radar disable: the disable leaves the radar bus running
     assert cp.flags & ToyotaFlags.ARS510_RADAR, 'AUTOMATIC_CONTINENTAL_RADAR'
     assert not cp.flags & ToyotaFlags.ARS510_FUSED and not cp.radarUnavailable
     assert isinstance(RadarInterface(cp).ars510, AccRadarInterface)
   else:
     assert not cp.flags & (ToyotaFlags.ARS510_RADAR | ToyotaFlags.ARS510_FUSED)
-    if candidate in ARS510_RADAR_CAR:
-      assert cp.radarUnavailable and RadarInterface(cp).ars510 is None
 
 
 def set_bits(data, start, length, value):

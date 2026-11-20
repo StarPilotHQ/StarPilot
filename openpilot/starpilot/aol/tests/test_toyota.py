@@ -140,7 +140,7 @@ class TestHighlanderAol(unittest.TestCase):
         with self.subTest(car=car, alpha=alpha):
           cp = CarInterface.get_params(car, gen_empty_fingerprint(), [], alpha, False, False)
           cp.flags |= int(ToyotaFlags.ARS510_RADAR)
-          expected = car == CAR.TOYOTA_RAV4_TSS2_2022 and not alpha
+          expected = car == CAR.TOYOTA_RAV4_TSS2_2022  # the ACC target receiver also runs under the radar disable
           self.assertEqual(qualified(cp), expected)
           cp.alternativeExperience = 32
           self.assertEqual(qualified(cp, marked_only=True), expected)
