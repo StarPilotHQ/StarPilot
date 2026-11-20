@@ -179,11 +179,11 @@ class StopLightDetector:
         self.commit_clear_since_s = None
 
   def _commit_ford_standstill(self, frame: StopFrame, extent: float) -> None:
-    # Commit only an already established, geometry-qualified stopped hold.
-    # The model action corroborates that hold; it cannot acquire a light alone.
+    # A stopped lead owns its own stop; its short forecast cannot identify a light.
+    # The model action corroborates an established hold, never acquires a light alone.
     if (frame.car_fingerprint in FORD_STOP_NAMES and frame.standstill is True and
         frame.pedal_override is False and frame.model_should_stop is True and
-        frame.longitudinal_stop_active is True and
+        frame.longitudinal_stop_active is True and frame.lead is not None and frame.lead.present is False and
         self.standstill_reason == 'light' and self.standstill_model_stopped and
         extent < FROZEN_RAW_STOP_DISTANCE_M):
       self._commit(frame, extent, True, True, 0.0)
