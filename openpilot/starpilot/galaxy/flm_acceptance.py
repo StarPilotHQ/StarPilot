@@ -130,7 +130,7 @@ def accept_finding(settings, reports, payload, *, authorized):
     profiles = {} if raw is None else parse_document(raw)
     fingerprint = str(cp.carFingerprint)
     profile = profiles.get(fingerprint, PlatformProfile(basis, FieldChoice(), FieldChoice()))
-    if profile.basis != basis or profile.flm is not None:
+    if profile.basis != basis or profile.active_legacy_flm:
       raise ValueError('Review the existing manual tune before accepting this finding.')
     previous = selected_manual(cp, settings.params)
     if previous is not None and previous.compatibility:

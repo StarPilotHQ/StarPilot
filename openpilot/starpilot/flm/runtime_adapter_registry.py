@@ -308,11 +308,9 @@ def read_source(cp, params, *, now_ns, cp_sha256=None, calibration=(), vehicle_s
               float(tune.latAccelOffset),
               float(tune.friction) if friction is None else friction,
             )
-        # Scalar and geometry choices are immutable baseline inputs. Automatic
-        # FF residuals never write them; a manually owned FLM surface stays fixed.
-        manual = profile.flm is not None
-        if profile.geometry is not None and profile.geometry.learning == 'force_off':
-          preference = type(preference)(False, preference.valid, preference.source, preference.raw)
+        # Geometry choices still control the selected baseline. The separate
+        # Auto Learn preference controls FLM, which cannot replace an active manual surface.
+        manual = profile.active_legacy_flm
     else:
       # Validate legacy scalar choices and bind their exact bytes to the source
       # epoch. They stay fixed baseline inputs, not automatic profile ownership.

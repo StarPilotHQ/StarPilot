@@ -235,7 +235,7 @@ const REASONS = {
   more_independent_eligible_tracking_required: "The drive was analyzed. More complete independent steering windows are needed before saving a tune.",
   bounded_trial_configured_for_next_drive: "Auto Learn saved your steering adjustments for the next drive.",
   recorded_steering_window_inputs_unavailable: "The recording is missing inputs needed to verify its recommendations. The saved tune was kept.",
-  saved_gm_flm_profile_blocks_learning: "Auto Learn is paused because this vehicle has an older saved FLM profile.",
+  saved_gm_flm_profile_blocks_learning: "Auto Learn is paused while an older manual FLM tune is active.",
   saved_gm_force_off_blocks_learning: "A saved GM steering setting turns off Auto Learn for this vehicle.",
   controller_collection_required: "Waiting for active steering before collecting samples.",
   fresh_physical_residual_window_required: "Checking the car's current steering response.",

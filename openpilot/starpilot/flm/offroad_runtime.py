@@ -71,10 +71,8 @@ def configuration_data(cp, ci, controller, params, *, manual_status):
   if document is not None:
     profile = parse_document(document).get(str(cp.carFingerprint))
     if profile is not None:
-      if profile.flm is not None:
+      if profile.active_legacy_flm:
         raise ValueError('saved_gm_flm_profile_blocks_learning')
-      if profile.geometry is not None and profile.geometry.learning == 'force_off':
-        raise ValueError('saved_gm_force_off_blocks_learning')
       if profile.manual_coordinates is not None:
         from openpilot.starpilot.flm.manual_coordinates import selected_manual
         selected_manual(cp, params)

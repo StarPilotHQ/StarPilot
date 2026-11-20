@@ -64,7 +64,7 @@ class TorqueFeature:
       token = self._manual_token()
       current = self._manual_context()
       saved = None if profile is None else profile.manual_coordinates
-      matches = profile is None or (profile.basis == basis and profile.flm is None
+      matches = profile is None or (profile.basis == basis and not profile.active_legacy_flm
         and (saved is None or saved.matches_context(current)) and self._manual_compatible(saved))
       values = dict(saved.values) if saved is not None else dict.fromkeys(NAMES, 0.)
       locked = () if saved is None else saved.locked
@@ -113,7 +113,7 @@ class TorqueFeature:
       return {**profiles, fingerprint: replace(prior, manual_coordinates=None)}
     current = self._manual_context()
     saved = prior.manual_coordinates
-    if (name not in NAMES or prior.basis != basis or prior.flm is not None
+    if (name not in NAMES or prior.basis != basis or prior.active_legacy_flm
         or saved is not None and (not saved.matches_context(current) or not self._manual_compatible(saved))):
       raise ValueError("Manual tune context changed")
     values = dict(saved.values) if saved is not None else dict.fromkeys(NAMES, 0.)

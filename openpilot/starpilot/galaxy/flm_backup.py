@@ -295,7 +295,7 @@ class FlmBackup:
     tune = ctx.cp.lateralTuning.torque
     basis = (float(tune.latAccelFactor), float(tune.latAccelOffset), float(tune.friction))
     previous = profiles.get(str(ctx.cp.carFingerprint), PlatformProfile(basis, FieldChoice(), FieldChoice()))
-    if previous.basis != basis or previous.flm is not None:
+    if previous.basis != basis or previous.active_legacy_flm:
       raise BackupRefused('The existing manual baseline differs. Review it before recovering a tune.')
     prior = {} if previous.manual_coordinates is None else dict(previous.manual_coordinates.values)
     changes = [[name, prior.get(name, 0), value] for name, value in manual.values if value != prior.get(name, 0)]

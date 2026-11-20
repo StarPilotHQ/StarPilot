@@ -54,6 +54,10 @@ class PlatformProfile:
   flm: GmFlmBinding | None = None
   manual_coordinates: ManualCoordinates | None = None
 
+  @property
+  def active_legacy_flm(self) -> bool:
+    return self.flm is not None and self.flm.applied
+
 
 class LegacyMode(StrEnum):
   ABSENT = "absent"
@@ -214,7 +218,7 @@ def parse_document(raw: bytes) -> dict[str, PlatformProfile]:
       manual = ManualCoordinates.from_document(value["manualCoordinates"])
       if manual.automatic is not None and document['schemaVersion'] < 6:
         raise ValueError('Accepted findings require their explicit document version')
-      if flm is not None:
+      if flm is not None and flm.applied:
         raise ValueError("Only one manual surface may be selected")
     profiles[fingerprint] = PlatformProfile(basis, _choice(value["factor"]), _choice(value["friction"]), gain, gain_basis, geometry, flm, manual)
   return profiles
