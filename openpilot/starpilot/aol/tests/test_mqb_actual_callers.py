@@ -40,7 +40,7 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
                                                                startup_delivery_delay=0, startup_delivery_services=(), receipt_sink=None,
                                                                route2c_start=False, startup_block_until=0, startup_expect_expiry=False,
                                                                startup_probe_denials=False, startup_stall=None, startup_stall_mode='frozen',
-                                                               startup_floor_dip=False, cancel_delivery_delay=0):
+                                                               startup_floor_dip=False, cancel_delivery_delay=0, brake_delivery_delay=0):
   pq = candidate == CAR.VOLKSWAGEN_SHARAN_MK2
   with ExitStack() as cleanup:
     cleanup.enter_context(OpenpilotPrefix())
@@ -352,6 +352,9 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
         assert not command.latActive and not command.longActive
       if startup_floor_dip and command.latActive and not card.aol_card_intent.startup_granted:
         assert now <= card.aol_card_intent.startup_arm_ns + 200_000_000
+      if brake_delivery_delay and 66 <= tick < 75:
+        assert card.aol_card_intent.allowed_latch
+        assert command.latActive and not command.longActive
       if early_brake and tick == 60:
         assert not state.brakePressed and state.steeringPressed
         if pq_real_fault:
@@ -453,6 +456,8 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
         frames = [message for message in frames if message.which() not in startup_delivery_services]
       if startup_event_delay and 35 <= tick < 35 + startup_event_delay:
         frames = [message for message in frames if message.which() != 'onroadEvents']
+      if brake_delivery_delay and 65 <= tick < 65 + brake_delivery_delay - 1:
+        frames = [message for message in frames if message.which() != 'aolAxisState']
       if cancel_delivery_delay and 55 <= tick < 55 + cancel_delivery_delay:
         frames = [message for message in frames if message.which() not in ('aolAxisState', 'onroadEvents')]
       if cancel_axis_delay and 55 <= tick < 55 + cancel_axis_delay:
@@ -1100,3 +1105,10 @@ def test_mqb_cancel_receipt_binds_exact_current_raw_press(veto):
                            ts_nanos={'GRA_ACC_01': {'GRA_Abbrechen': signal}})
   observation = (object() if veto == 'foreign_state' else state, received, stamp, stamp)
   assert cancel_source(cp, state, parser, observation, now) == (now if veto == 'none' else 0)
+
+
+@pytest.mark.parametrize('phase', range(10))
+@pytest.mark.parametrize('delay', (1, 2))
+def test_mqb_brake_withdraws_long_and_preserves_lateral(phase, delay):
+  test_mqb_full_engagement_brake_reverse_drive_actual_callers(
+    'manual', True, 0, False, True, native_phase=phase, brake_delivery_delay=delay)

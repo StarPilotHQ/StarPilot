@@ -175,6 +175,7 @@ class TransportPauseFeedback:
     self.longitudinal_cancel_ns = 0
     self.last_cancel_source_ns = 0
     self.honda_brake_ns = 0
+    self.volkswagen_brake_event = None
     self.honda_cancel_ns = 0
     self.gm_withdrawal_ns = 0
     self.retention_qualified = False
@@ -265,8 +266,14 @@ class TransportPauseFeedback:
     cancel_event_ns = int(sm.logMonoTime['onroadEvents'])
     volkswagen_cancel = bool(0 < cancel_event_ns <= now_ns and now_ns - cancel_event_ns <= AXIS_MAX_AGE_NS and
       any(event.name == log.OnroadEvent.EventName.buttonCancel and event.userDisable for event in sm['onroadEvents']))
-    volkswagen_withdrawal = bool(volkswagen_long_qualified(cp, marked_only=True) and cs.cruiseState.available and
-      (physical_cancel(cs, cp) or volkswagen_cancel or
+    volkswagen_long = volkswagen_long_qualified(cp, marked_only=True)
+    volkswagen_brake_context = bool(volkswagen_long and not cs.gasPressed and
+      not cs.regenBraking and not cs.doorOpen and not cs.seatbeltUnlatched and not cs.vehicleSensorsInvalid and
+      cs.gearShifter in (structs.CarState.GearShifter.drive, structs.CarState.GearShifter.sport,
+                        structs.CarState.GearShifter.eco, structs.CarState.GearShifter.manumatic))
+    volkswagen_brake = volkswagen_brake_context and cs.brakePressed
+    volkswagen_withdrawal = bool(volkswagen_long and cs.cruiseState.available and
+      (volkswagen_brake or physical_cancel(cs, cp) or volkswagen_cancel or
        0 < self.longitudinal_cancel_ns <= now_ns <= self.longitudinal_cancel_ns + SAFETY_MAX_AGE_NS or
        not axis.desiredLongitudinal and not axis.longitudinalActive))
     early_long = gm or cp.brand == 'hyundai' and early_native_long_withdrawal_supported(cp) or ev9 or ford_withdrawal or ford_long or volkswagen_withdrawal
@@ -280,6 +287,10 @@ class TransportPauseFeedback:
       not cs.brakePressed and not cs.gasPressed and not cs.doorOpen and not cs.seatbeltUnlatched and
       cs.gearShifter in (structs.CarState.GearShifter.drive, structs.CarState.GearShifter.sport,
                         structs.CarState.GearShifter.low, structs.CarState.GearShifter.brake))
+    brake_event = self.volkswagen_brake_event
+    released_volkswagen_brake = bool(volkswagen_withdrawal and volkswagen_brake_context and not cs.brakePressed and brake_event is not None and
+      brake_event[1:] == (event_ns, self.session, producer, self.availability_epoch) and
+      0 <= now_ns - brake_event[0] <= AXIS_MAX_AGE_NS)
     if (not latched or self.failed or self.paused or self.pending_event or self.retention_started_ns or
       not self.session or str(axis.sessionId) != self.session or
       not producer or producer != self.availability_producer or
@@ -297,7 +308,8 @@ class TransportPauseFeedback:
       now_ns - int(sm.logMonoTime['onroadEvents']) > 1_500_000_000 or
       any(event.immediateDisable or event.softDisable or
           event.userDisable and not (ev9_main_off and event.name == log.OnroadEvent.EventName.wrongCarMode or
-            (gm_pedal or classic_brake) and event.name == log.OnroadEvent.EventName.pedalPressed or
+            (gm_pedal or classic_brake or volkswagen_brake and volkswagen_withdrawal or released_volkswagen_brake) and
+            event.name == log.OnroadEvent.EventName.pedalPressed or
             volkswagen_withdrawal and event.name in (log.OnroadEvent.EventName.buttonCancel, log.OnroadEvent.EventName.pcmDisable) or
             ford_withdrawal and event.name in (log.OnroadEvent.EventName.pedalPressed, log.OnroadEvent.EventName.pcmDisable,
               log.OnroadEvent.EventName.buttonCancel)) for event in sm['onroadEvents'])):
@@ -318,7 +330,9 @@ class TransportPauseFeedback:
       native.sourcePandaStatesMonoTime < int(sm.logMonoTime['pandaStates']) and
       all(not slot.controlsAllowed for slot, config in zip(sm['pandaStates'], cp.safetyConfigs, strict=True)
           if str(config.safetyModel) not in ('silent', 'noOutput')))
-    if (native is None or not native.pandaInventory or not native.requestedLongitudinal or
+    vw_brake_lateral_only = bool((volkswagen_brake and volkswagen_withdrawal or released_volkswagen_brake) and
+      not axis.desiredLongitudinal and not axis.longitudinalActive and native is not None and not native.longitudinalAllowed)
+    if (native is None or not native.pandaInventory or not (native.requestedLongitudinal or vw_brake_lateral_only) or
         native.longitudinalAllowed and not (brake_health or raw_longitudinal_withdrawal(
           cp, cs, sm, native, session=self.session, now_ns=now_ns)) or
         native.observedMonoTime < self.lateral_native_ns or
@@ -328,6 +342,9 @@ class TransportPauseFeedback:
     if not (len(owners) == 1 and (early_long or not native.pandaInventory[owners[0]].controlsAllowed and
       not sm['pandaStates'][owners[0]].controlsAllowed)):
       return None
+    if volkswagen_brake and volkswagen_withdrawal and not axis.desiredLongitudinal and not axis.longitudinalActive and any(
+        event.name == log.OnroadEvent.EventName.pedalPressed and event.userDisable for event in sm['onroadEvents']):
+      self.volkswagen_brake_event = (now_ns, event_ns, self.session, producer, self.availability_epoch)
     return native
 
   def _ordinary_warning_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, latched, producer):
@@ -1266,6 +1283,7 @@ class TransportPauseFeedback:
       if not latched or cp_identity(cp) != self.cp or self.session and str(axis.sessionId) != self.session:
         self.ordinary_warning_retained = False
         self.ordinary_brake_proof = None
+        self.volkswagen_brake_event = None
         self.ordinary_warning_pending_baseline = None
         self.temporary_eps_event_ns = 0
         self.hkg_eps_join_until_ns = 0
@@ -1422,6 +1440,20 @@ class TransportPauseFeedback:
       if cp.brand == 'volkswagen' and current and continuity:
         from openpilot.starpilot.car.volkswagen.aol import retain_eps_recovery
         if retain_eps_recovery(self, sm, cp, cs, axis, now_ns, latched=latched, producer=intent_producer_session):
+          self.sequence, self.signature = int(axis.sequence), signature
+          return False
+      if self.volkswagen_brake_event is not None and (
+          now_ns - self.volkswagen_brake_event[0] > AXIS_MAX_AGE_NS or
+          int(sm.logMonoTime['onroadEvents']) != self.volkswagen_brake_event[1]):
+        self.volkswagen_brake_event = None
+      if (cp.brand == 'volkswagen' and (cs.brakePressed or self.volkswagen_brake_event is not None) and current and continuity and
+          any(event.name == log.OnroadEvent.EventName.pedalPressed and event.userDisable for event in sm['onroadEvents'])):
+        brake_native = self._native_long_withdrawal_lateral_current(sm, cp, cs, axis, now_ns,
+          latched=latched, producer=intent_producer_session)
+        if brake_native is not None:
+          self.lateral_baseline_ns = stamp
+          self.lateral_source_ns = int(axis.sourceCarStateMonoTime)
+          self.lateral_native_ns = int(brake_native.observedMonoTime)
           self.sequence, self.signature = int(axis.sequence), signature
           return False
       if current and continuity and self._ordinary_warning_intent_current(sm, cp, cs, axis, stamp, now_ns,
