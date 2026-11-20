@@ -246,8 +246,11 @@ class SchemaPolicyTest(unittest.TestCase):
 
   def test_reviewed_native_enum_is_only_permitted_core_extension(self):
     path = 'opendbc_repo/opendbc/car/car.capnp'
-    self.assertEqual(self.policy['reviewed_enum_additions'], {path: {'enum': 'SafetyModel', 'field': 'teslaPreap @39;'}})
+    self.assertEqual(self.policy['reviewed_enum_additions'],
+                     {path: {'enum': 'SafetyModel', 'fields': ['teslaPreap @39;', 'leapmotor @40;']}})
     for before, after in ((b'teslaPreap @39;', b'teslaPreap @40;'),
+                          (b'leapmotor @40;', b'leapmotor @41;'),
+                          (b'leapmotor @40;', b'leapmotor @40;\n    extraFork @41;'),
                           (b'teslaPreap @39;', b'teslaPreap @39;\n    extraFork @40;'),
                           (b'teslaPreap @39;', b'teslaPreap @39;\n    extraBool @62 :Bool;')):
       changed = copy.copy(self.schemas)
