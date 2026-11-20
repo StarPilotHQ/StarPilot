@@ -180,6 +180,39 @@ class TestDiagnosticState(unittest.TestCase):
     self.assertEqual(result['learning_diagnostics']['status'], 'not_recorded')
     self.assertEqual(list(path_for_params(self.params).parent.iterdir()), before)
 
+  def test_volt_download_distinguishes_a_legacy_flm_profile_from_an_explicit_learning_override(self):
+    from opendbc.car.gm.interface import CarInterface
+    from opendbc.car.gm.values import CAR
+    from openpilot.starpilot.flm.offroad_runtime import configuration_data
+    from openpilot.starpilot.flm.torque_surface import GmFlmBinding
+    from openpilot.starpilot.lateral.controller_selection import read_selection
+    from openpilot.starpilot.lateral.torque_settings import DOCUMENT_KEY, FieldChoice, GeometryProfile, PlatformProfile, serialize_document
+
+    cp = CarInterface.get_non_essential_params(CAR.CHEVROLET_VOLT_ASCM)
+    tune = cp.lateralTuning.torque
+    basis = (float(tune.latAccelFactor), float(tune.latAccelOffset), float(tune.friction))
+    self.params.put_bool('OpenpilotEnabledToggle', True, block=True)
+    mode = str(read_selection(self.params, cp).mode)
+    descriptor = SimpleNamespace(domain='torque', controller_mode=mode)
+    cases = (
+      (PlatformProfile(basis, FieldChoice(), FieldChoice(), flm=GmFlmBinding(mode, 'volt', basis)),
+       'saved_gm_flm_profile_blocks_learning', 'legacy GM FLM profile'),
+      (PlatformProfile(basis, FieldChoice(), FieldChoice(),
+                       geometry=GeometryProfile((float(cp.steerRatio), float(cp.steerActuatorDelay) + .2), learning='force_off')),
+       'saved_gm_force_off_blocks_learning', 'explicitly turns off learning'),
+    )
+    for profile, reason, explanation in cases:
+      with self.subTest(reason=reason):
+        raw = serialize_document({str(cp.carFingerprint): profile})
+        self.params.put(DOCUMENT_KEY, json.loads(raw), block=True)
+        before = self.params.get(DOCUMENT_KEY)
+        with patch('openpilot.starpilot.flm.runtime_adapter_registry.selected_descriptor', return_value=descriptor):
+          with self.assertRaisesRegex(ValueError, '^' + reason + '$'):
+            configuration_data(cp, None, None, self.params, manual_status='not_configured')
+        result = self.exported({'current': {'reason': reason}})
+        self.assertIn(explanation, result['current']['explanation'])
+        self.assertEqual(self.params.get(DOCUMENT_KEY), before)
+
   def test_malformed_nested_diagnostic_data_does_not_enter_the_download(self):
     journal = DiagnosticState(self.params)
     journal.observe({'status': 'collecting', 'reason': 'recording_for_offroad_analysis'})
