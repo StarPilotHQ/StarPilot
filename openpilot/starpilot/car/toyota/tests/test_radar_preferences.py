@@ -93,14 +93,17 @@ def test_automatic_factory_card_and_radard_parse_live_target(candidate):
 
 
 @pytest.mark.parametrize('candidate', [CAR.TOYOTA_RAV4_TSS2_2022, CAR.TOYOTA_RAV4_TSS2_2023])
-def test_disabled_radar_withdraws_a_previous_receiver_without_changing_authority(candidate):
+def test_disabled_radar_keeps_acc_target_receiver_without_changing_authority(candidate):
+  # alpha long's UDS disable stops the radar's car-bus output only; the radar bus keeps sending the ACC target
   from opendbc.car.toyota.ars510_preferences import configure_radar
-  cp = CarInterface.get_params(candidate, gen_empty_fingerprint(), [], False, False, False)
-  cp.flags |= int(ToyotaFlags.DISABLE_RADAR | ToyotaFlags.ARS510_FUSED)
+  cp = CarInterface.get_params(candidate, gen_empty_fingerprint(), [], True, False, False)
+  assert cp.flags & ToyotaFlags.DISABLE_RADAR
+  cp.flags |= int(ToyotaFlags.ARS510_FUSED)
   before = cp.to_dict()
-  assert not configure_radar(cp)
+  assert configure_radar(cp)
   expected = before.copy()
-  expected['flags'] &= ~int(ToyotaFlags.ARS510_RADAR | ToyotaFlags.ARS510_FUSED)
-  expected['radarUnavailable'] = True
+  expected['flags'] = (expected['flags'] & ~int(ToyotaFlags.ARS510_FUSED)) | int(ToyotaFlags.ARS510_RADAR)
+  expected['radarUnavailable'] = False
   assert cp.to_dict() == expected
-  assert RadarInterface(cp).ars510 is None
+  assert cp.flags & ToyotaFlags.DISABLE_RADAR and cp.openpilotLongitudinalControl
+  assert RadarInterface(cp).ars510 is not None
