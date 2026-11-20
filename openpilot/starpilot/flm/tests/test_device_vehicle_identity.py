@@ -199,9 +199,9 @@ class TestRegisteredDeviceVehicleIdentity(unittest.TestCase):
     old_revision = namespace['revision'](old_root, *(old_root / path.relative_to(root) for path in files), names, native)
     descriptor = selected_descriptor(self.cp, ci, controller)
     assert descriptor is not None
-    self.assertEqual(known_vin_revision(reviewed_root, *reviewed, names, native), old_revision)
-    self.assertIsNone(known_vin_revision(root, *files, names, native))
-    self.assertEqual(descriptor.controller_revision, revision(root, *files, names, native))
+    self.assertEqual(known_vin_revision(reviewed_root, reviewed[0], reviewed[1], names, native), old_revision)
+    self.assertIsNone(known_vin_revision(root, files[0], files[1], names, native))
+    self.assertEqual(descriptor.controller_revision, revision(root, files[0], files[1], names, native))
     self.assertNotEqual(descriptor.controller_revision, old_revision)
     scope = current_scope(self.cp, self.params)
     previous: dict[str, Any] = {}
@@ -238,7 +238,7 @@ class TestRegisteredDeviceVehicleIdentity(unittest.TestCase):
 
     root, files, names, native, paths, _, _ = self.selected_sources()
     copied = self.root / 'source-mutations'
-    self.assertIsNone(known_vin_revision(root, *files, names, native))
+    self.assertIsNone(known_vin_revision(root, files[0], files[1], names, native))
     self.copy_reviewed_identity_sources(root, copied, paths)
     selected = tuple(copied / path.relative_to(root) for path in files)
     baseline = known_vin_revision(copied, selected[0], selected[1], names, native)
