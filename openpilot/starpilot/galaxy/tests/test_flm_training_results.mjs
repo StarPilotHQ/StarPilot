@@ -73,6 +73,24 @@ assert.equal(offroadView(completed).evidenceDrives, null, 'Older reports must no
 assert.equal(tunerStatus(completed, true, true).title, 'Completed drive analyzed', 'Parked status must not mask completed analysis')
 assert.match(tunerStatus(completed, true, true).description, /left your tune unchanged/)
 assert.equal(completed.current.application.applied, false)
+const ignitionWait = { ...report(), preference: { version: 1, valid: true, enabled: true, parked: true,
+  vehicle: 'TOYOTA_RAV4_PRIME', controller: 'torque' } }
+ignitionWait.current.reason = 'waiting_for_ignition_off'
+const waitingStatus = tunerStatus(ignitionWait, false, true, '', true)
+assert.equal(waitingStatus.title, 'Waiting to analyze your drive')
+assert.match(waitingStatus.description, /ignition on.*ignition turns off/)
+assert.equal(ignitionWait.current.application.applied, false)
+assert.notEqual(tunerStatus(ignitionWait, false, true, '', false).key, 'waiting-parked', 'An old blocker is not current permission evidence')
+for (const reason of ['waiting_for_valid_deviceState', 'waiting_for_fresh_pandaStates', 'waiting_for_vehicle_offroad',
+  'waiting_for_vehicle_to_switch_off', 'waiting_for_connected_panda_status', 'waiting_for_panda_controls_to_disarm',
+  'waiting_for_panda_fault_to_clear', 'waiting_for_shutdown_to_finish', 'waiting_for_parked_permission']) {
+  ignitionWait.current.reason = reason
+  assert.equal(tunerStatus(ignitionWait, false, true, '', true).key, 'waiting-parked', reason)
+}
+ignitionWait.preference.parked = false
+assert.notEqual(tunerStatus(ignitionWait, true, true, '', true).key, 'waiting-parked')
+ignitionWait.preference.parked = true; ignitionWait.preference.enabled = false
+assert.equal(tunerStatus(ignitionWait, false, true, '', true).key, 'off')
 const earlierDrive = structuredClone(completed)
 Object.assign(earlierDrive.current.details, {
   'Latest completed recording reviewed': 'declared-newer-manual-drive',

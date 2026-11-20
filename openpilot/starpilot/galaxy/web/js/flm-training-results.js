@@ -258,6 +258,17 @@ const REASONS = {
   accepted_target_currently_acknowledged: "The controller acknowledged the accepted correction.",
 }
 export function learningReason(reason) {
+  if (reason === 'waiting_for_ignition_off' || reason === 'waiting_for_vehicle_to_switch_off')
+    return 'The vehicle interface still reports ignition on. Drive analysis starts after the ignition turns off.'
+  if (/^waiting_for_(valid|fresh)_(deviceState|pandaStates|peripheralState)$/.test(reason))
+    return 'Waiting for current vehicle status before analyzing the recorded drive.'
+  if (reason === 'waiting_for_controls_to_disengage' || reason === 'waiting_for_panda_controls_to_disarm')
+    return 'Drive analysis is waiting for steering controls to disengage.'
+  if (reason === 'waiting_for_panda_fault_to_clear') return 'Drive analysis is paused while the vehicle interface reports a fault.'
+  if (reason === 'waiting_for_connected_panda_status') return 'Waiting for the vehicle interface before analyzing the recorded drive.'
+  if (reason === 'waiting_for_shutdown_to_finish') return 'Drive analysis is waiting for shutdown to finish.'
+  if (reason === 'waiting_for_vehicle_offroad' || reason === 'waiting_for_parked_permission')
+    return 'Drive analysis is waiting for the vehicle to be offroad.'
   if (reason === 'vehicle_identity_unavailable') return 'This drive was reviewed on its own. Automatic saving is waiting for the car to identify itself.'
   if (reason === "Assessment cache full") return "FLM ran out of space in its review history. The latest analysis could not be saved; this does not mean your saved tune was erased."
   if (Object.hasOwn(REASONS, reason)) return REASONS[reason]
@@ -415,6 +426,8 @@ export function tunerStatus(report, live = false, choiceLive = false, error = ""
     return { key: "off", tone: "muted", title: "Auto Learn is off", description: "No driving samples are being collected by the learner. Turn it on in steering settings to begin." }
   if (reportFresh && current?.status === 'fitting' && ['analyzing_last_completed_drive', 'checking_recorded_steering_recommendations'].includes(current.reason))
     return { key: 'fitting', tone: 'active', title: 'Analyzing your drive', description: learningReason(current.reason) + (offroadView(report)?.retained ? ' Earlier drive findings remain below while this analysis runs.' : '') }
+  if (reportFresh && preference?.valid && preference.enabled && preference.parked && current?.reason?.startsWith('waiting_for_'))
+    return { key: 'waiting-parked', tone: 'muted', title: 'Waiting to analyze your drive', description: learningReason(current.reason) }
   const route = reportFresh && (!preference || preference.parked) ? offroadView(report) : null
   if (route) {
     if (route.partial)

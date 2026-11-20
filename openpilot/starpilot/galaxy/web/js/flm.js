@@ -117,6 +117,11 @@ export const FlmPage = {
     },
 
     connectionTone() { return this.error || !this.choiceLive ? 'muted' : this.preference?.enabled ? 'ready' : 'muted' },
+    connectionState() {
+      if (!this.choiceLive) return 'Waiting for vehicle status'
+      if (this.preference.parked) return 'Parked'
+      return this.currentApplied ? 'Learned tune in use' : 'Driving'
+    },
     current() { return this.report?.current },
     preference() { return validLearningPreference(this.report?.preference) ? this.report.preference : null },
     choiceLive() { return !this.error && !!this.preference && Math.max(0, this.now - this.receivedAt) <= 2000 },
@@ -392,7 +397,7 @@ export const FlmPage = {
         <p>{{ parameterLabel(findingDraft.parameter) }}: {{ dialPercent(findingDraft.target) }}</p><p>Use this value for your next drive. Auto Learn can keep improving this setting.</p>
         <div class="gx-dialog__actions"><button type="button" class="gx-btn gx-btn--tonal" :disabled="findingBusy" @click="findingDraft = null">Cancel</button>
         <button type="button" class="gx-btn" :disabled="findingBusy || !canReviewFindings" @click="acceptFinding">{{ findingPhase === 'checking' ? 'Checking…' : findingBusy ? 'Saving…' : 'Accept finding' }}</button></div></GxDialog>
-      <div v-if="view !== 'plots'" class="gx-tuner__connection" role="status"><span class="gx-tuner__status-dot" :data-tone="connectionTone" aria-hidden="true"></span><span>{{ connectionLabel }}</span><span class="gx-tuner__connection-state">{{ currentApplied ? 'Learned tune in use' : preference?.parked ? 'Parked' : live ? 'Driving · use not confirmed' : 'State not confirmed' }}</span></div>
+      <div v-if="view !== 'plots'" class="gx-tuner__connection" role="status"><span class="gx-tuner__status-dot" :data-tone="connectionTone" aria-hidden="true"></span><span>{{ connectionLabel }}</span><span class="gx-tuner__connection-state">{{ connectionState }}</span></div>
       <GxDialog v-if="manualResetRequested && manualState.pending" labelledby="manual-tune-confirm-title" @close="cancelManualReset"><h3 id="manual-tune-confirm-title">Reset manual tune?</h3><p>{{ manualState.pending.question }}</p><div class="gx-dialog__actions"><button type="button" class="gx-btn gx-btn--tonal" @click="cancelManualReset">Cancel</button><button type="button" class="gx-btn" @click="confirmManualReset">Reset</button></div></GxDialog>
       <nav class="gx-tuner__tabs" role="tablist" aria-label="Tuner views">
         <button v-for="tab in ['overview', 'tune', 'activity', 'plots']" :key="tab" type="button" role="tab" :id="'tuner-tab-' + tab" :aria-controls="'tuner-panel-' + tab" :aria-selected="view === tab" :tabindex="view === tab ? 0 : -1" @click="selectView(tab)" @keydown="tabKey">{{ tab === 'overview' ? 'Overview' : tab === 'tune' ? 'Your tune' : tab === 'activity' ? 'Activity' : 'Live plots' }}</button>
