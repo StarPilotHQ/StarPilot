@@ -5,8 +5,10 @@ import importlib.util
 from collections import Counter
 import json
 import os
+import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -431,6 +433,29 @@ def test_function(value):
         catalog = mutation._discover_test_catalog()
       self.assertEqual(catalog[path.name], [legacy.id(), 'pytest:' + str(path) + '::test_function[1]',
                                            'pytest:' + str(path) + '::test_function[2]'])
+
+  def test_external_registered_callers_keep_distinct_catalogs_and_family_targets(self):
+    with TemporaryDirectory() as directory:
+      root = Path(directory)
+      native = root / 'opendbc_repo'
+      native.mkdir()
+      (native / 'test_native_mutation_fixture.py').write_text('def test_baseline():\n  assert True\n')
+      paths = [root / 'openpilot/starpilot/car/nissan/tests/test_aol.py',
+               root / 'openpilot/starpilot/car/rivian/tests/test_aol_native.py',
+               root / 'openpilot/starpilot/aol/tests/test_pq_aol.py']
+      for path in paths:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("import pytest\n@pytest.mark.parametrize('value', [1, 2])\ndef test_native(value):\n  assert value > 0\n")
+      with patch.object(mutation, 'ROOT', native), patch.object(mutation, 'SAFETY_TESTS_DIR', native), \
+           patch.object(mutation, 'BLUEPILOT_SAFETY_DIR', native / 'absent'), \
+           patch.object(unittest.TestLoader, 'loadTestsFromName', return_value=unittest.TestSuite()), patch.dict(sys.modules):
+        catalog = mutation._discover_test_catalog()
+        self.assertEqual(set(catalog), {'test_native_mutation_fixture.py'} | {path.relative_to(root).as_posix() for path in paths})
+        for family, path in zip(('nissan', 'rivian', 'volkswagen'), paths, strict=True):
+          site = SimpleNamespace(origin_file=native / 'opendbc/safety/modes' / (family + '.h'))
+          expected = ['pytest:' + str(path) + '::test_native[1]', 'pytest:' + str(path) + '::test_native[2]']
+          self.assertEqual(catalog[path.relative_to(root).as_posix()], expected)
+          self.assertEqual(mutation.build_priority_tests(site, catalog, []), expected)
 
 
 if __name__ == "__main__":
