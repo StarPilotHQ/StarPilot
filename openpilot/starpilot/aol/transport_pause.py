@@ -270,7 +270,9 @@ class TransportPauseFeedback:
     volkswagen_cancel = bool(0 < cancel_event_ns <= now_ns and now_ns - cancel_event_ns <= AXIS_MAX_AGE_NS and
       any(event.name == log.OnroadEvent.EventName.buttonCancel and event.userDisable for event in sm['onroadEvents']))
     volkswagen_withdrawal = bool(volkswagen_long_qualified(cp, marked_only=True) and cs.cruiseState.available and
-      (physical_cancel(cs, cp) or volkswagen_cancel or not axis.desiredLongitudinal and not axis.longitudinalActive))
+      (physical_cancel(cs, cp) or volkswagen_cancel or
+       0 < self.longitudinal_cancel_ns <= now_ns <= self.longitudinal_cancel_ns + SAFETY_MAX_AGE_NS or
+       not axis.desiredLongitudinal and not axis.longitudinalActive))
     early_long = gm or cp.brand == 'hyundai' and early_native_long_withdrawal_supported(cp) or ev9 or ford_withdrawal or ford_long or volkswagen_withdrawal
     from openpilot.starpilot.car.gm.aol import f1_conventional_lateral_owner, gm_physical_pedal_withdrawal
     gm_pedal = gm_physical_pedal_withdrawal(cp, cs) and not f1_conventional_lateral_owner(cp)
@@ -778,11 +780,13 @@ class TransportPauseFeedback:
       return None
 
     classic = classic_qualified(cp, marked_only=True)
+    from opendbc.car.volkswagen.long_aol import qualified as volkswagen_long_qualified
+    volkswagen = volkswagen_long_qualified(cp, marked_only=True)
     if (not latched or self.failed or self.paused or self.pending_event or
         not self.session or str(axis.sessionId) != self.session or
-        classic and (not self.availability_producer or axis.intentProducerSessionId != self.availability_producer or
+        (classic or volkswagen) and (not self.availability_producer or axis.intentProducerSessionId != self.availability_producer or
                      axis.intentIntegrityEpoch != self.availability_epoch) or
-        not (qualified(cp, marked_only=True) or ev9_qualified(cp, marked_only=True) or mixed_qualified(cp, marked_only=True) or classic) or
+        not (qualified(cp, marked_only=True) or ev9_qualified(cp, marked_only=True) or mixed_qualified(cp, marked_only=True) or classic or volkswagen) or
         not self.lateral_baseline_ns or not 0 <= now_ns - self.lateral_baseline_ns <= AXIS_MAX_AGE_NS or
         str(axis.faultReason) != 'none' or not axis.nativeAcknowledged or
         not axis.desiredLateral or not axis.lateralActive or cs.accFaulted or
@@ -1609,6 +1613,11 @@ class TransportPauseFeedback:
         stamp - axis.sourceCarStateMonoTime <= AXIS_MAX_AGE_NS)
       if native is None and latched and current and continuity and baseline:
         native = _newer_combined_intent_native(sm, cp, cs, axis, now_ns)
+      from opendbc.car.volkswagen.long_aol import qualified as volkswagen_long_qualified
+      if (current and continuity and baseline and volkswagen_long_qualified(cp, marked_only=True) and
+          self._longitudinal_cancel_current(sm, cp, cs, axis, now_ns, latched=latched,
+            cancel_source_ns=cancel_source_ns, withdrawal_required=False) is not None):
+        self.longitudinal_cancel_ns = self.last_cancel_source_ns = int(cancel_source_ns)
       lateral_native = (self._native_long_withdrawal_lateral_current(sm, cp, cs, axis, now_ns,
         latched=latched, producer=intent_producer_session)
         if native is None and current and continuity and baseline else None)

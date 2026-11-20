@@ -1,4 +1,4 @@
-"""Restore the manual Golf's factory PID/PopV2 target and timing contract."""
+"""Restore the manual Golf's factory PID target timing for verified Small models."""
 import math
 
 from opendbc.car import structs
@@ -27,9 +27,15 @@ def supported(cp):
               ((pid.kpV[0], .6), (pid.kiV[0], .2), (pid.kf, .00006))))
 
 
+STABLE_PID_MODELS = {
+  'pop223': POPV2_SHA256,
+  'spz_polaris_vega': '863de9a72463f9ce51b69b47600db7dcd77c45d232f4913c389f9ea398e3fb2e',
+}
+
+
 def seconds(cp, load):
-  return .1 if (supported(cp) and isinstance(load, ModelLoad) and load.model_id == 'pop223' and
-                load.variant == ModelVariant.SMALL and load.artifact_sha256 == POPV2_SHA256 and
+  return .1 if (supported(cp) and isinstance(load, ModelLoad) and load.model_id in STABLE_PID_MODELS and
+                load.variant == ModelVariant.SMALL and load.artifact_sha256 == STABLE_PID_MODELS[load.model_id] and
                 load.fallback_reason is None) else 0.
 
 

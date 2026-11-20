@@ -536,6 +536,7 @@ class Car:
     cancel_boot_ns = (time.clock_gettime_ns(time.CLOCK_BOOTTIME)
                       if (getattr(self.CI.CS, 'ev6_aol_source_healthy', False) or
                           qualified_honda_stock_aol(self.CP, marked_only=True) or
+                          self.CP.brand == 'volkswagen' and self.CP.openpilotLongitudinalControl or
                           qualified_gm(self.CP) and (is_bolt_present_no_acc_pedal_profile(self.CP) or
                                                      f1_conventional_lateral_owner(self.CP)) and
                           int(self.CP.alternativeExperience) in (32, 96)) else 0)
@@ -892,6 +893,10 @@ class Car:
   def aol_cancel_source(self, CS, now_ns: int) -> int:
     """Bind Cancel to this parsed CAN batch and its local monotonic receipt."""
     observation = getattr(self, '_aol_can_observation', None)
+    if self.CP.brand == 'volkswagen':
+      from opendbc.car import Bus
+      from openpilot.starpilot.car.volkswagen.aol import cancel_source
+      return cancel_source(self.CP, CS, self.CI.can_parsers[Bus.pt], observation, now_ns)
     if getattr(getattr(self, 'CP', None), 'brand', '') == 'honda' and qualified_honda_stock_aol(self.CP, marked_only=True):
       from opendbc.car import Bus
       parser = self.CI.can_parsers[Bus.pt]

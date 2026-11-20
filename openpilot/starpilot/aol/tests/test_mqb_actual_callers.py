@@ -39,7 +39,8 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
                                                                cancel_steering=True, cancel_axis_expiry=False, startup_event_delay=0,
                                                                startup_delivery_delay=0, startup_delivery_services=(), receipt_sink=None,
                                                                route2c_start=False, startup_block_until=0, startup_expect_expiry=False,
-                                                               startup_probe_denials=False, startup_stall=None, startup_stall_mode='frozen'):
+                                                               startup_probe_denials=False, startup_stall=None, startup_stall_mode='frozen',
+                                                               startup_floor_dip=False, cancel_delivery_delay=0):
   pq = candidate == CAR.VOLKSWAGEN_SHARAN_MK2
   with ExitStack() as cleanup:
     cleanup.enter_context(OpenpilotPrefix())
@@ -165,6 +166,7 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
     request = 0
     startup_vetoes_checked = False
     route2c_denials_checked = False
+    floor_vetoes_checked = False
     reverse_event_vetoes_checked = False
     cancel_join_vetoes_checked = False
     for tick in range(120):
@@ -179,7 +181,8 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
         assert not quiet.get_controls_allowed()
         assert native.get_current_safety_mode() != quiet.get_current_safety_mode()
 
-      brake = (60 if early_brake else 65) <= tick < 75 or (brake_held_engagement and tick < 29) or (reverse_boot and not reverse_unbraked and tick < 40)
+      brake = (((60 if early_brake else 65) <= tick < 75 and not startup_floor_dip) or
+               (brake_held_engagement and tick < 29) or (reverse_boot and not reverse_unbraked and tick < 40))
       reverse = 85 <= tick < 95 or (reverse_boot and tick < 35)
       if route2c_start:
         reverse = 20 <= tick < 35 or 85 <= tick < 95
@@ -203,6 +206,9 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
                        'GRA_Tip_Setzen': int(engage_on_set and (tick in (20, 50) if creep_start else tick == 20))},
         'ACC_02': {'ACC_Gesetzte_Zeitluecke': 1},
       }
+      if startup_floor_dip and 39 <= tick < 48:
+        overrides['ESP_19'] = dict.fromkeys(('ESP_VL_Radgeschw_02', 'ESP_VR_Radgeschw_02',
+                                           'ESP_HL_Radgeschw_02', 'ESP_HR_Radgeschw_02'), 0)
       if pq:
         overrides = {
           'Motor_2': {'MO2_Sta_GRA': int(ordinary and not alpha), 'MO2_BLS': int(brake)},
@@ -284,6 +290,7 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
           assert not waiting(cs=bad)
           for field, value in (('failed', True), ('paused', True), ('pending_event', now),
                                ('sequence', card.sm['aolAxisState'].sequence + 1), ('cp', ('foreign',))):
+            assert feedback is not None
             bad_feedback = copy(feedback)
             setattr(bad_feedback, field, value)
             assert not waiting(tracker=bad_feedback), field
@@ -325,6 +332,9 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
             reverse_event_vetoes_checked = True
           assert owner.startup_arm_ns == anchor
           startup_vetoes_checked = True
+      if startup_floor_dip and getattr(card.aol_card_intent, 'startup_floor_pending', False) and not floor_vetoes_checked:
+        assert_floor_recovery_vetoes(card, state, now)
+        floor_vetoes_checked = True
       if startup_probe_denials and not route2c_denials_checked and card.aol_card_intent.startup_ready:
         assert_readiness_denials(card, state, now)
         route2c_denials_checked = True
@@ -338,6 +348,10 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
             'authority_message': card.pm.messages['starpilotCarState'].as_builder() if 'starpilotCarState' in card.pm.messages else None,
             'companion': 'starpilotCarState' in card.pm.messages,
             'timeout': stalled and startup_stall_mode == 'frozen-timeout'} if startup_stall is not None else {}))
+      if startup_floor_dip and state.vEgo <= cp.minSteerSpeed:
+        assert not command.latActive and not command.longActive
+      if startup_floor_dip and command.latActive and not card.aol_card_intent.startup_granted:
+        assert now <= card.aol_card_intent.startup_arm_ns + 200_000_000
       if early_brake and tick == 60:
         assert not state.brakePressed and state.steeringPressed
         if pq_real_fault:
@@ -380,7 +394,12 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
             bad_sources = copy(card.sm)
             bad_sources.logMonoTime = dict(card.sm.logMonoTime)
             bad_sources.logMonoTime['onroadEvents'] = now - 30_000_001
-            assert retained(sources=bad_sources) is None
+            assert feedback is not None
+            bad_feedback = copy(feedback)
+            bad_feedback.longitudinal_cancel_ns = 0
+            assert retained(sources=bad_sources, feedback=bad_feedback) is None
+            if feedback.longitudinal_cancel_ns:
+              assert retained(sources=bad_sources) is not None
           cancel_join_vetoes_checked = True
       if cancel_axis_expiry and tick == 58:
         assert not card.aol_card_intent.allowed_latch
@@ -434,6 +453,8 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
         frames = [message for message in frames if message.which() not in startup_delivery_services]
       if startup_event_delay and 35 <= tick < 35 + startup_event_delay:
         frames = [message for message in frames if message.which() != 'onroadEvents']
+      if cancel_delivery_delay and 55 <= tick < 55 + cancel_delivery_delay:
+        frames = [message for message in frames if message.which() not in ('aolAxisState', 'onroadEvents')]
       if cancel_axis_delay and 55 <= tick < 55 + cancel_axis_delay:
         frames = [message for message in frames if message.which() != 'aolAxisState']
       card.sm.update_msgs(now / 1e9, frames)
@@ -518,7 +539,7 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
       assert not any(lat_commands[35:]) and not any(long_commands)
       assert card.aol_card_intent.startup_aborted and not card.aol_card_intent.allowed_latch
       return
-    assert any(lat_commands[45:60] if reverse_boot else lat_commands[35:60])
+    assert any(lat_commands[60:74] if startup_floor_dip else lat_commands[45:60] if reverse_boot else lat_commands[35:60])
     assert any(lat_commands[76:84])  # braking released long, not qualified lateral intent
     assert not any(lat_commands[86:95])
     assert any(lat_commands[100:])
@@ -1012,3 +1033,70 @@ def test_route2c_card_stall_preserves_original_deadline(phase, stall, mode):
       )
       if intent.observedMonoTime > deadline:
         assert not intent.allowedLatch and not intent.lateralArmed
+
+
+@pytest.mark.parametrize('phase', range(10))
+def test_mqb_cold_start_floor_dip_recovers_on_fresh_drive_feedback(phase):
+  test_mqb_full_engagement_brake_reverse_drive_actual_callers(
+    'manual', True, 0, False, False, parked_boot=True, reverse_boot=True,
+    reverse_unbraked=True, delayed_heartbeat=True, native_phase=phase, cold_creep=True, route2c_start=True,
+    startup_delivery_delay=1, startup_delivery_services=('aolAxisState', 'onroadEvents'), startup_floor_dip=True)
+
+
+@pytest.mark.parametrize('phase', range(10))
+@pytest.mark.parametrize('delay', (1, 2))
+def test_mqb_cancel_receipt_precedes_both_status_publications(phase, delay):
+  test_mqb_full_engagement_brake_reverse_drive_actual_callers(
+    'manual', True, 0, False, True, cruise_cancel=True, native_phase=phase, cancel_delivery_delay=delay)
+
+
+def assert_floor_recovery_vetoes(card, state, now):
+  from copy import copy
+  from dataclasses import replace
+  from openpilot.starpilot.aol.runtime import current_native
+  proof = current_native(card.sm, card.CP, now_ns=now, axis_session_id=card.aol_axis_session())
+  assert proof is not None
+  def observe(cs=state, native=proof, stamp=now, producer=card.slc_producer_session, owner=card.aol_card_intent):
+    candidate = copy(owner)
+    candidate.observe_startup_readiness(card.sm, cs, native=native, panda_ready=True, now_ns=stamp, producer=producer)
+    return candidate
+  assert observe().startup_floor_pending
+  for field, value in (('canValid', False), ('canTimeout', True), ('steerFaultPermanent', True),
+                       ('steerFaultTemporary', True), ('accFaulted', True), ('steeringDisengage', True)):
+    cs = structs.CarState(**state.to_dict())
+    setattr(cs, field, value)
+    result = observe(cs=cs)
+    assert not result.startup_floor_pending and not result.allowed_latch
+  for native in (None, replace(proof, axisSessionId='foreign'), replace(proof, pandaInventory=())):
+    result = observe(native=native)
+    assert not result.startup_floor_pending and not result.allowed_latch
+  assert not observe(stamp=now + 30_000_001).startup_floor_pending
+  assert not observe(producer='foreign').startup_floor_pending
+  off = copy(card.aol_card_intent)
+  off.settings = replace(off.settings, enabled=False)
+  assert not observe(owner=off).startup_floor_pending
+
+
+@pytest.mark.parametrize('veto', ('none', 'held', 'stale_receipt', 'future_receipt', 'stale_signal', 'future_signal', 'no_raw_press', 'foreign_state'))
+def test_mqb_cancel_receipt_binds_exact_current_raw_press(veto):
+  from types import SimpleNamespace
+  from openpilot.starpilot.car.volkswagen.aol import cancel_source, policy_for
+  cp = CarInterface.get_params(CAR.VOLKSWAGEN_GOLF_MK7, {bus: ({0xFD: 8} if bus == 1 else {}) for bus in range(8)}, [], True, False, False)
+  cp.fingerprintSource = structs.CarParams.FingerprintSource.fw
+  addition = policy_for(cp).safety_param_addition
+  assert addition
+  cp.safetyConfigs[-1].safetyParam |= addition
+  cp.alternativeExperience = 32
+  state = structs.CarState(canValid=True, gearShifter=structs.CarState.GearShifter.drive)
+  state.cruiseState.available = True
+  state.buttonEvents = [structs.CarState.ButtonEvent(type=structs.CarState.ButtonEvent.Type.cancel, pressed=veto != 'held')]
+  now, stamp, received = 10_000_000_000, 20_000_000_000, 10_000_000_000
+  if veto == 'stale_receipt':
+    received -= 30_000_001
+  if veto == 'future_receipt':
+    received += 1
+  signal = stamp - 30_000_001 if veto == 'stale_signal' else stamp + 1 if veto == 'future_signal' else stamp
+  parser = SimpleNamespace(vl={'GRA_ACC_01': {'GRA_Abbrechen': int(veto != 'no_raw_press')}},
+                           ts_nanos={'GRA_ACC_01': {'GRA_Abbrechen': signal}})
+  observation = (object() if veto == 'foreign_state' else state, received, stamp, stamp)
+  assert cancel_source(cp, state, parser, observation, now) == (now if veto == 'none' else 0)

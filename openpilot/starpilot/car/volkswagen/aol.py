@@ -95,6 +95,10 @@ class VolkswagenStockCardIntent(AolCardIntent):
     self.startup_ready = False
     self.startup_identity = None
     self.startup_observation_identity = None
+    self.startup_floor_pending = False
+    self.startup_floor_source_ns = 0
+    self.startup_floor_seen_ns = 0
+    self.startup_floor_event_ns = 0
     self.reverse_pause = False
     super().__init__(settings, explicit_latch=True, lkas_button_supported=False,
                      preserve_unassigned_cancel=self.cruise_lateral)
@@ -198,7 +202,9 @@ class VolkswagenStockCardIntent(AolCardIntent):
     from openpilot.starpilot.aol.runtime import AXIS_MAX_AGE_NS, SAFETY_MAX_AGE_NS, current_axis
     from openpilot.starpilot.aol.transport_pause import _configured_transport_native, cp_identity
     self.startup_ready = False
-    if (self.startup_granted or self.startup_aborted or not self.settings.enabled or self.pause_lateral or
+    floor_pending = self.startup_floor_pending
+    self.startup_floor_pending = False
+    if (self.startup_granted or not self.settings.enabled or self.pause_lateral or
         self.settings.main_action == AOL_TOGGLE or self.settings.lkas_action == AOL_TOGGLE or
         not long_qualified(self.cp, marked_only=True) or
         self.cp.transmissionType != structs.CarParams.TransmissionType.manual):
@@ -232,7 +238,8 @@ class VolkswagenStockCardIntent(AolCardIntent):
           now_ns - axis.sourceCarStateMonoTime > AXIS_MAX_AGE_NS or
           not 0 < axis.validUntilMonoTime - axis.observedMonoTime <= AXIS_MAX_AGE_NS or
           not sm.seen['onroadEvents'] or not sm.valid['onroadEvents'] or not sm.alive['onroadEvents'] or
-          not self.startup_arm_ns <= event_ns == axis.faultEventMonoTime <= axis.observedMonoTime or
+          not (0 < event_ns == axis.faultEventMonoTime <= axis.observedMonoTime and
+               (self.startup_arm_ns <= event_ns or event_ns == self.startup_floor_event_ns)) or
           now_ns - event_ns > 1_500_000_000 or
           any(e.immediateDisable or e.softDisable or e.userDisable for e in sm['onroadEvents']) or
           not cs.canValid or cs.canTimeout or not cs.cruiseState.available or
@@ -242,6 +249,31 @@ class VolkswagenStockCardIntent(AolCardIntent):
                                 structs.CarState.GearShifter.eco, structs.CarState.GearShifter.manumatic)):
         return
       if proof.requestedLongitudinal or proof.longitudinalAllowed or axis.desiredLongitudinal or axis.longitudinalActive:
+        return
+      if floor_pending and not 0 <= now_ns - self.startup_floor_seen_ns <= AXIS_MAX_AGE_NS:
+        return
+      at_floor = min(abs(cs.vEgo), abs(cs.vEgoRaw)) <= max(self.cp.minSteerSpeed, .3) or cs.standstill
+      if at_floor:
+        if floor_pending or (self.allowed_latch and self.startup_release_ns and not self.startup_aborted and now_ns <= deadline):
+          # A physical floor withdrawal ends this attempt; no armed lease survives it.
+          self.startup_floor_pending = True
+          self.startup_floor_source_ns = self.startup_floor_seen_ns = now_ns
+          self.allowed_latch = self.main_startup_pending = False
+          self.startup_aborted = True
+        return
+      if floor_pending:
+        self.startup_floor_pending = True
+        self.startup_floor_seen_ns = now_ns
+        if (axis.sourceCarStateMonoTime > self.startup_floor_source_ns and not cs.brakePressed and not cs.regenBraking and
+            not axis.desiredLateral and not axis.lateralActive and not proof.requestedLateral and not proof.lateralAllowed):
+          self.startup_floor_pending = False
+          self.startup_aborted = False
+          self.main_startup_pending = self.startup_ready = True
+          self.startup_arm_ns = axis.sourceCarStateMonoTime
+          self.startup_floor_event_ns = event_ns
+          self.startup_release_ns = 0
+        return
+      if self.startup_aborted:
         return
       if self.startup_release_ns:
         if (self.allowed_latch and identity == self.startup_identity and
@@ -483,3 +515,18 @@ def retain_reverse_withdrawal(feedback, sm, cp, cs, axis, now_ns, *, latched, pr
     return retained
   except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
     return False
+
+
+def cancel_source(cp, cs, parser, observation, now_ns):
+  """Bind a physical MQB Cancel edge to its fresh parsed CAN receipt."""
+  if (not long_qualified(cp, marked_only=True) or observation is None or observation[0] is not cs or
+      not cs.canValid or cs.canTimeout or not cs.cruiseState.available or
+      not any(e.type == ButtonType.cancel and e.pressed for e in cs.buttonEvents)):
+    return 0
+  _, received_ns, source_ns, boot_ns = observation
+  stamp = int(parser.ts_nanos.get('GRA_ACC_01', {}).get('GRA_Abbrechen', 0))
+  if (parser.vl.get('GRA_ACC_01', {}).get('GRA_Abbrechen') != 1 or
+      not 0 < received_ns <= now_ns or now_ns - received_ns > 30_000_000 or
+      not 0 < stamp <= source_ns <= boot_ns or boot_ns - stamp > 30_000_000 or source_ns - stamp > 30_000_000):
+    return 0
+  return received_ns
