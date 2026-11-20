@@ -36,6 +36,11 @@ class SendBusy(Exception):
   pass
 
 
+def official_install() -> bool:
+  from openpilot.starpilot.system.starport.bugsink_transport import device_metadata, is_official_repo
+  return is_official_repo(device_metadata().get("repo"))
+
+
 def webhook_url(override_path: Path = WEBHOOK_OVERRIDE_PATH) -> str:
   try:
     override = override_path.read_text().strip()
@@ -53,6 +58,8 @@ def clean_message(value) -> str:
   if not isinstance(value, str):
     raise SendRejected("The message must be text.")
   message = CONTROL.sub(" ", value).strip()
+  if not message:
+    raise SendRejected("Add a short note about what happened.")
   if len(message) > MESSAGE_LIMIT:
     raise SendRejected(f"Keep the message to {MESSAGE_LIMIT} characters.")
   return message
@@ -172,7 +179,7 @@ def send(data: bytes, name: str, note: str, summary: dict, url: str | None = Non
            f"Head unit: {summary.get('head_unit') or 'unknown'}",
            f"Setup: {summary.get('setup') or 'unknown'}",
            f"Handshake: {summary.get('handshake') or 'unknown'}",
-           f"Branch {summary.get('branch', '?')} @ {str(summary.get('commit', '?'))[:10]}",
+           f"Repo {summary.get('repo', '?')} · Branch {summary.get('branch', '?')} @ {str(summary.get('commit', '?'))[:10]}",
            f"Note: {note.strip() or '(none)'}",
            f"Follow-up: Discord `{discord}`" if discord else "Follow-up: not requested"]
   payload = {"content": "\n".join(lines)[:1900], "username": "StarPilot diagnostics", "allowed_mentions": {"parse": []}}
@@ -241,15 +248,22 @@ class StarPortLogSender:
   """One send at a time, off the request thread; the page polls status()."""
 
   def __init__(self, bundle: Callable[..., tuple[str, bytes]], *, sender: Callable[..., str | None] = send,
-               summary: Callable[[], dict] = device_summary, url: Callable[[], str] = webhook_url):
-    self._bundle, self._sender, self._summary, self._url = bundle, sender, summary, url
+               summary: Callable[[], dict] = device_summary, url: Callable[[], str] = webhook_url,
+               official: Callable[[], bool] = official_install):
+    self._bundle, self._sender, self._summary, self._url, self._official = bundle, sender, summary, url, official
     self._lock = threading.Lock()
     self._thread: threading.Thread | None = None
     self._state = {"state": "idle", "message": ""}
+    self._fork: bool | None = None
 
   def status(self) -> dict:
     with self._lock:
-      return {**self._state, "available": bool(self._url()), "messageLimit": MESSAGE_LIMIT}
+      if self._fork is None:
+        try:
+          self._fork = not self._official()
+        except Exception:
+          self._fork = False
+      return {**self._state, "available": bool(self._url()), "fork": self._fork, "messageLimit": MESSAGE_LIMIT}
 
   def start(self, message, discord="") -> dict:
     note, handle = clean_message(message), clean_discord(discord)
