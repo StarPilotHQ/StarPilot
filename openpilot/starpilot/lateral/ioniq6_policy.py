@@ -799,7 +799,7 @@ class Ioniq6TorquePolicy:
     return friction
 
   def turn_assist_active(self, CS) -> bool:
-    return bool(self.turn_assist and math.isfinite(CS.vEgo) and
+    return bool(self.turn_assist and getattr(self.parent, "turn_assist_maneuver", False) and math.isfinite(CS.vEgo) and
                 CS.vEgo >= self.turn_assist_min_speed and not CS.standstill and
                 CS.gearShifter == structs.CarState.GearShifter.drive and
                 not CS.steeringPressed and not CS.steerFaultTemporary and not CS.steerFaultPermanent)

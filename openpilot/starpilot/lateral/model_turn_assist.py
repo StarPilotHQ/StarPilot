@@ -154,17 +154,20 @@ class ModelTurnAssist:
   def __init__(self):
     self.reset()
 
-  def reset(self):
+  def reset_turn(self):
     self.turn_hold_curvature = 0.0
     self.turn_hold_standstill_t = 0.0
     self.turn_hold_swept = 0.0
     self.turn_hold_handoff_t = 0.0
     self.turn_blinker_swept = 0.0
+    self.turn_hold_done = False
+
+  def reset(self):
+    self.reset_turn()
     self.twitch_guard_armed = False
     self.stop_hold_curvature = None
     self.output_curvature = None
     self.curvature = 0.0
-    self.turn_hold_done = False
 
   def update_stopped(self, CS, new_desired_curvature):
     if CS.leftBlinker or CS.rightBlinker or self.output_curvature is None:
@@ -174,7 +177,7 @@ class ModelTurnAssist:
       self.output_curvature = self.curvature
     return self.output_curvature
 
-  def update(self, CS, model_v2, CC, new_desired_curvature):
+  def update(self, CS, model_v2, CC, new_desired_curvature, *, turn_admitted=True, anticipate=True):
     blinker_dir = float(CS.rightBlinker) - float(CS.leftBlinker)
     stop_dist = stopping_distance(CS.vEgo, CS.aEgo)
     entering = CS.aEgo < -STOP_HOLD_MIN_DECEL and stop_dist < STOP_HOLD_DIST and abs(self.curvature) < STOP_HOLD_MAX_CURVATURE
@@ -204,7 +207,7 @@ class ModelTurnAssist:
       self.turn_blinker_swept = 0.0
     else:
       self.turn_blinker_swept += max(CS.vEgo * self.curvature * blinker_dir, 0.0) * DT_CTRL
-    if CS.vEgo >= CURVATURE_HOLD_RELEASE_SPEED:
+    if not turn_admitted or CS.vEgo >= CURVATURE_HOLD_RELEASE_SPEED:
       self.turn_hold_curvature = 0.0
       self.turn_hold_standstill_t = 0.0
       self.turn_hold_swept = 0.0
@@ -257,7 +260,7 @@ class ModelTurnAssist:
         self.turn_hold_done = False
       if blinker_dir != 0.0 and (not self.turn_hold_done):
         turn_candidate = new_desired_curvature if CC.latActive else 0.0
-        if CC.latActive and CS.vEgo < CURVATURE_HOLD_PLAN_SOURCE_SPEED:
+        if anticipate and CC.latActive and CS.vEgo < CURVATURE_HOLD_PLAN_SOURCE_SPEED:
           plan_curvature = get_plan_spatial_curvature(model_v2) * CURVATURE_HOLD_PLAN_SCALE
           plan_curvature = max(min(plan_curvature, CURVATURE_HOLD_PLAN_CAP), -CURVATURE_HOLD_PLAN_CAP)
           onset = get_plan_turn_onset_dist(model_v2)
@@ -284,7 +287,7 @@ class ModelTurnAssist:
         hold_dir = math.copysign(1.0, self.turn_hold_curvature)
         if new_desired_curvature * hold_dir < abs(self.turn_hold_curvature):
           new_desired_curvature = self.turn_hold_curvature
-    if (CC.latActive and (blinker_dir != 0.0) and (model_v2.meta.laneChangeState == 0) and
+    if (turn_admitted and anticipate and CC.latActive and (blinker_dir != 0.0) and (model_v2.meta.laneChangeState == 0) and
         (TURN_LEAD_MIN_SPEED <= CS.vEgo < TURN_LEAD_MAX_SPEED) and (new_desired_curvature * blinker_dir > -TURN_LEAD_MODEL_OPPOSE)):
       d_near = max(min(TURN_LEAD_T * CS.vEgo, TURN_LEAD_MAX_M), TURN_LEAD_MIN_M)
       turning = self.curvature * blinker_dir > CURVATURE_HOLD_CONFIRM_MIN

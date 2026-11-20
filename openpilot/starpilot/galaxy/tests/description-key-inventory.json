@@ -191,7 +191,7 @@
   "lane_change:require_cruise",
   "lane_change:reset",
   "lane_change:speed",
-  "lane_change:turn_signal_guidance",
+  "lane_change:automatic_turn_initiation",
   "lane_change:width",
   "lane_change_factor_high_ang",
   "lane_change_factor_high_curv",

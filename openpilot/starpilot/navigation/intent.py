@@ -104,17 +104,30 @@ def matching_turn_signal(sm, now_ns: int, *, supported: bool) -> bool:
 class TurnIntent:
   def __init__(self, params=None, cp=None):
     from openpilot.starpilot.lateral.auto_lane_change import steering_capable
-    from openpilot.starpilot.lateral.lane_change_preferences import LiveLaneChangePolicy
-    self.guidance = LiveLaneChangePolicy(params) if params is not None else None
+    from openpilot.starpilot.lateral.turn_initiation_preferences import TurnInitiationPreference
+    self.guidance = TurnInitiationPreference(params) if params is not None else None
     self.steering_capable = steering_capable(cp)
     self.signal_model = SignalTurnEvidence()
+    self.automatic_turn_enabled = False
     self.signal_stop_hold = False
     self.signal_stop_completed = False
     self.key = None
     self.stop_hold = False
 
   def select(self, sm, now_ns: int, current_desire, *, supported: bool, model_stop: bool):
-    nav = current_instruction(sm, now_ns) if supported else None
+    try:
+      cs = sm['carState']
+      signaling = bool(cs.leftBlinker or cs.rightBlinker)
+      preferred = self.guidance.sample(now_ns, signaling=signaling,
+                                       maneuver_active=current_desire != log.Desire.none) if self.guidance is not None else False
+    except (AttributeError, KeyError, TypeError):
+      preferred = False
+    self.automatic_turn_enabled = bool(preferred and supported and self.steering_capable)
+    if not self.automatic_turn_enabled:
+      self.key = None
+      self.stop_hold = self.signal_stop_hold = self.signal_stop_completed = False
+      return current_desire
+    nav = current_instruction(sm, now_ns)
     key = (nav.sessionId, nav.startedMonoTime) if nav is not None else None
     if key != self.key:
       self.key, self.stop_hold = key, False
@@ -145,9 +158,7 @@ class TurnIntent:
     try:
       cs, cc, device, plan = (sm[name] for name in ('carState', 'carControl', 'deviceState', 'longitudinalPlan'))
       signaling = bool(cs.leftBlinker or cs.rightBlinker)
-      policy = self.guidance.sample(now_ns, signaling=signaling,
-                                    maneuver_active=current_desire != log.Desire.none)
-      if (not supported or not self.steering_capable or not policy.turn_signal_guidance or
+      if (not supported or not self.steering_capable or not self.automatic_turn_enabled or
           current_desire != log.Desire.none or not cc.latActive or
           not cs.canValid or cs.canTimeout or str(cs.gearShifter) != 'drive' or
           not math.isfinite(cs.vEgo) or (cs.vEgo >= 20 * CV.MPH_TO_MS and

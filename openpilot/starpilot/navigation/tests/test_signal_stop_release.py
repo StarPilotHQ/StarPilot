@@ -23,7 +23,11 @@ def case(tmp_path):
                      leftBlinker=True, rightBlinker=False, leftBlindspot=False, rightBlindspot=False),
           carControl=NS(latActive=True), deviceState=NS(started=True, startedMonoTime=1),
           longitudinalPlan=NS(shouldStop=False, modelMonoTime=NOW))
-  return TurnIntent(params, cp), sm
+  from openpilot.starpilot.lateral.turn_initiation_preferences import KEY
+  params.put_bool(KEY, True, block=True)
+  owner = TurnIntent(params, cp)
+  owner.guidance.sample(NOW - 1)
+  return owner, sm
 
 
 def sample(owner, sm, model_stop=False, supported=True, desire=log.Desire.none):
@@ -107,10 +111,7 @@ def test_signal_cancel_releases_approach_latch_and_existing_desire_is_preserved(
 
 @pytest.mark.parametrize('guard', ['lateral', 'device', 'unsupported', 'plan-source', 'off', 'passive'])
 def test_completed_stop_never_bypasses_remaining_admission(case, guard):
-  from dataclasses import replace
-  import json
-  from pathlib import Path
-  from openpilot.starpilot.lateral.lane_change_preferences import KEY, LaneChangePolicy, to_value
+  from openpilot.starpilot.lateral.turn_initiation_preferences import KEY
   owner, sm = case
   sm['carState'].standstill = True
   assert sample(owner, sm) == log.Desire.none
@@ -122,8 +123,8 @@ def test_completed_stop_never_bypasses_remaining_admission(case, guard):
   elif guard == 'plan-source':
     sm['longitudinalPlan'].modelMonoTime = NOW + 1
   elif guard == 'off':
-    Path(owner.guidance.params.get_param_path(KEY)).write_text(json.dumps(to_value(replace(LaneChangePolicy(), turn_signal_guidance=False))))
-    owner.guidance.last_read_ns = 0
+    owner.guidance.params.put_bool(KEY, False, block=True)
+    owner.guidance.last_read_ns = None
   elif guard == 'passive':
     owner.steering_capable = False
   assert sample(owner, sm, supported=guard != 'unsupported') == log.Desire.none

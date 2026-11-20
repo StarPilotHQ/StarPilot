@@ -45,6 +45,7 @@ def _rows(car, sequence, *, profile='2023', matched_frozen_cp=False, passive=Fal
       versions[1].fwVersion = b'IONIQ6-240206'
   ci = interfaces[car](cp)
   controller = LatControlTorque(cp.as_reader(), ci, DT_CTRL, turn_assist=turn_assist, controller_mode=controller_mode)
+  controller.turn_assist_maneuver = True  # Frozen vectors cover the downstream controller after maneuver admission.
   if direct_original_controller:
     # The older frozen vectors called the controller directly, before the
     # original controlsd drive loop replaced the PID gain curve each tick.

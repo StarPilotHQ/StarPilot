@@ -793,7 +793,7 @@ class FeatureSettingsOwner:
     row = self._bool_row("TurnAssist", "Turn Assist", configurable and self.authority("torque") and supported and capability is not None)
     return replace(row, capability=capability, dependencies=(),
                    reason=row.reason if row.value not in ("On", "Off") else
-                          ("Uses steering-angle feedback during rolling low-speed turns, above about 0.1 mph or the vehicle minimum. " +
+                          ("Unlocks assistance for a signaled turn once speed reaches 2 mph or less. Existing steering limits still apply. " +
                            "Never at standstill. Applies next drive.") if row.available else
                           "Turn Assist is available on supported vehicles when settings can be changed")
 

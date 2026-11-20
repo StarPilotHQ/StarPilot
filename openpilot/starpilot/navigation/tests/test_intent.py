@@ -115,9 +115,15 @@ def test_native_planner_navigation_cap_and_default_equivalence():
   assert changed
 
 
-def test_turn_stop_hold_reuses_planner_stop_until_standstill(sm):
+def test_turn_stop_hold_reuses_planner_stop_until_standstill(sm, tmp_path):
+  from openpilot.common.params import Params
   from openpilot.starpilot.navigation.intent import TurnIntent
-  owner = TurnIntent()
+  params = Params(str(tmp_path))
+  params.put_bool('AutomaticTurnInitiation', True, block=True)
+  owner = TurnIntent(params)
+  assert owner.guidance is not None
+  assert owner.guidance.sample(NOW)
+  owner.steering_capable = True
   sm['longitudinalPlan'] = NS(modelMonoTime=NOW, shouldStop=False)
   sm.logMonoTime['longitudinalPlan'] = NOW
   sm.valid['longitudinalPlan'] = sm.alive['longitudinalPlan'] = True
