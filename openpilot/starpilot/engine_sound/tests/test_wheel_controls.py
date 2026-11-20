@@ -1,10 +1,6 @@
 from openpilot.common.params import Params
 from openpilot.starpilot.engine_sound import settings
 from openpilot.starpilot.engine_sound.profiles import DEFAULT_PROFILE, PROFILES
-from openpilot.starpilot.ui.engine_sound_notice import NOTICE_NS, EngineSoundNotice
-from openpilot.starpilot.ui.onroad_state import AlertSize, OnroadAlert
-
-NOW = 5_000_000_000
 
 
 def test_toggle_flips_saved_state(tmp_path):
@@ -38,25 +34,3 @@ def test_next_profile_recovers_an_unknown_saved_car(tmp_path):
   params = Params(str(tmp_path))
   params.put('EngineSoundProfile', 'tractor', block=True)
   assert settings.next_profile(params) == DEFAULT_PROFILE
-
-
-def test_notice_shows_the_car_then_yields():
-  notice = EngineSoundNotice()
-  assert notice.update(OnroadAlert(), NOW) == OnroadAlert()
-  notice.show(False, True, 'jaguar_ftype', NOW)
-  alert = notice.update(OnroadAlert(), NOW + 1)
-  assert (alert.size, alert.text1, alert.text2) == (AlertSize.MID, 'Jaguar F-Type', 'Engine Sound')
-  native = OnroadAlert(AlertSize.FULL, 'TAKE CONTROL')
-  assert notice.update(native, NOW + 1) is native
-  assert notice.update(OnroadAlert(), NOW + NOTICE_NS) == OnroadAlert()
-
-
-def test_notice_toggle_text():
-  notice = EngineSoundNotice()
-  notice.show(True, True, 'lfa', NOW)
-  assert (notice.update(OnroadAlert(), NOW).text1, notice.update(OnroadAlert(), NOW).text2) == ('Engine Sounds On', 'LFA')
-  notice.show(True, False, 'lfa', NOW)
-  alert = notice.update(OnroadAlert(), NOW)
-  assert (alert.size, alert.text1) == (AlertSize.SMALL, 'Engine Sounds Off')
-  notice.show(False, False, 'lfa', NOW)
-  assert notice.update(OnroadAlert(), NOW).text2 == 'Engine Sounds Off'

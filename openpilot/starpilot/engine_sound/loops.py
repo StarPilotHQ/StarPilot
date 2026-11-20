@@ -112,6 +112,7 @@ class LoopSynth:
 
   def render(self, rpm: float, load: float, frames: int, volume: float = 1.0) -> np.ndarray:
     p = self.profile
+    volume *= 10 ** (p.trim_db / 20)
     load = min(max(load, 0.0), 1.0)
     ramp = np.arange(1, frames + 1, dtype=np.float64) / frames
     rpm_ramp = self.rpm + (rpm - self.rpm) * ramp

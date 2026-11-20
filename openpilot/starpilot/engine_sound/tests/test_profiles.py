@@ -1,7 +1,12 @@
+from dataclasses import replace
+
+import numpy as np
 import pytest
 
+from openpilot.starpilot.engine_sound.loops import BUNDLED_ROOT, LoopSynth, load_bank
 from openpilot.starpilot.engine_sound.model import EngineModel
 from openpilot.starpilot.engine_sound.profiles import PROFILES, RACE_GEARS, RACE_REDLINE
+from openpilot.starpilot.engine_sound.synth import Synth
 
 DT = 0.01
 SUPER_GT_RECORDED_FROM = 3250.0
@@ -29,6 +34,17 @@ def test_super_gt_is_geared_short_and_holds_revs(name):
 def test_super_gt2_plays_its_own_lower_bank():
   assert PROFILES['nissan_super_gt'].loops == 'nissan_super_gt' and PROFILES['nissan_super_gt2'].loops == 'nissan_super_gt2'
   assert (PROFILES['nissan_super_gt'].label, PROFILES['nissan_super_gt2'].label) == ('Nissan Super GT1', 'Nissan Super GT2')
+
+
+@pytest.mark.parametrize('voice', ('loops', 'synth'))
+def test_trim_scales_the_whole_voice(voice):
+  base = replace(PROFILES['supra_turbo'], trim_db=0.0)
+  def level(trim_db):
+    profile = replace(base, trim_db=trim_db)
+    synth = LoopSynth(profile, load_bank(BUNDLED_ROOT / profile.loops)) if voice == 'loops' else Synth(profile)
+    out = np.concatenate([synth.render(2000.0, 0.3, 480, 0.05) for _ in range(50)])[4800:]
+    return float(np.sqrt(np.mean(out ** 2)))
+  assert level(6.0) / level(0.0) == pytest.approx(10 ** (6 / 20), rel=0.02)
 
 
 @pytest.mark.parametrize('name', SUPER_GTS)
