@@ -161,20 +161,19 @@ class Controls:
     self.pose_calibrator = PoseCalibrator()
     self.calibrated_pose: Pose | None = None
 
-    self.lateral_gain_owner = None
     self.LoC = LongControl(self.CP, startup_preferences=self.vehicle_startup_preferences)
     self.VM = VehicleModel(self.CP)
     self.LaC: LatControl
     self.LaC = create_lateral_controller(
       self.CP, self.CI, DT_CTRL, mode=self.lateral_controller_selection.mode, turn_assist=self.vehicle_startup_preferences.turn_assist
     )
+    self.lateral_gain_owner = create_gain_owner(self.params, self.CP, self.LaC)
     if isinstance(self.LaC, LatControlTorque):
       # Only the actual startup owner reads configuration; replay clones stay pure.
       if manual_effects is not None and (manual_effects.profile.context[1] != str(self.LaC.controller_mode) or
                                          not manual_effects.compatible(self.CP, self.CI, self.LaC, self.params)):
         manual_effects, manual_status = None, 'context_changed'
       self.LaC.manual_flm_effects, self.LaC.manual_flm_status = manual_effects, manual_status
-      self.lateral_gain_owner = create_gain_owner(self.params, self.CP, self.LaC)
       cloudlog.info(
         {
           "event": "torque controller selected",
@@ -199,9 +198,17 @@ class Controls:
     from openpilot.starpilot.lateral.learning_preferences import read_preference
 
     preference = read_preference(self.params, self.CP)
-    route_effects, self.route_flm_status = self._configure_route_tune(manual_status)
+    from openpilot.starpilot.lateral.torque_supported import GM_VEHICLES
+
+    custom_fixed_gain = self.lateral_gain_owner is not None and str(self.CP.carFingerprint) not in GM_VEHICLES
+    if custom_fixed_gain:
+      # Saved route effects and live trials require the original controller gains.
+      self.route_flm_status = 'context_changed'
+    else:
+      _, self.route_flm_status = self._configure_route_tune(manual_status)
     self.global_learning = (
-      GlobalRuntime(self.CP, self.CI, self.LaC, confirmed_live_history=load_confirmed_history(self.params)) if preference.valid and preference.enabled else None
+      GlobalRuntime(self.CP, self.CI, self.LaC, confirmed_live_history=load_confirmed_history(self.params))
+      if preference.valid and preference.enabled and not custom_fixed_gain else None
     )
     # Load optional capture and live-trial code before the first control command.
     # Engagement must not compile/import replay and feedback modules in the loop.

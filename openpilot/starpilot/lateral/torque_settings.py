@@ -192,8 +192,6 @@ def parse_document(raw: bytes) -> dict[str, PlatformProfile]:
     gain = FieldChoice()
     gain_basis = None
     if "proportionalGain" in value:
-      if fingerprint not in GAIN_VEHICLES:
-        raise ValueError("Unsupported gain profile")
       gain = _choice(value["proportionalGain"])
       gain_basis = parse_gain_basis(value["gainBasis"])
       low, high = gain_bounds(fingerprint, gain_basis)
@@ -311,7 +309,7 @@ def parse_gain_basis(value: object) -> GainBasis:
   if not isinstance(value, dict) or set(value) != {"controller", "sourceTable", "torqueBasis"}:
     raise ValueError("Malformed gain basis")
   table, basis = value["sourceTable"], value["torqueBasis"]
-  if (value["controller"] not in ("standard", "starpilot") or
+  if (value["controller"] not in ("standard", "starpilot", "pid") or
       not isinstance(table, (list, tuple)) or len(table) != 2 or
       any(not isinstance(row, (list, tuple)) or not row for row in table) or
       len(table[0]) != len(table[1]) or len(table[0]) > 32 or
@@ -327,15 +325,15 @@ def gain_bounds(fingerprint: str, basis: GainBasis) -> tuple[float, float]:
   # Keep the qualified five-Bolt range unchanged, including STANDARD.
   if fingerprint in BOLT_VEHICLES:
     return 0.3, 0.9
-  if fingerprint not in GAIN_VEHICLES:
+  if fingerprint not in PLATFORMS:
     raise ValueError("Unsupported gain profile")
   source = basis.source_table[1][-1]
-  return 0.5 * source, 1.5 * source
+  return (0.5 * source, 1.5 * source) if fingerprint in GAIN_VEHICLES else (round(0.8 * source, 8), round(1.1 * source, 8))
 
 
 def replace_gain(profiles: dict[str, PlatformProfile], fingerprint: str, basis: GainBasis,
                  mode: str, value: float | None, *, review: bool = False) -> dict[str, PlatformProfile]:
-  if fingerprint not in GAIN_VEHICLES or mode not in ("source", "custom"):
+  if fingerprint not in PLATFORMS or mode not in ("source", "custom"):
     raise ValueError("Unsupported gain edit")
   low, high = gain_bounds(fingerprint, basis)
   if value is not None and (not _finite_number(value) or not low <= value <= high):

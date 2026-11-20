@@ -275,6 +275,12 @@ class FeatureSettingsOwner:
       return None
     try:
       from openpilot.starpilot.lateral.torque_runtime import production_supported_cp
+      if group == "gain" and cp.lateralTuning.which() == "pid":
+        from openpilot.starpilot.lateral.gain_runtime import gain_supported, pid_gain_basis
+        if gain_supported(cp):
+          basis = pid_gain_basis(cp)
+          return (str(cp.carFingerprint), str(cp.brand), str(cp.steerControlType), "pid", bool(cp.dashcamOnly),
+                  *basis.torque_basis, str(cp.carVin) if getattr(cp, "carVin", None) else None, basis.source_table)
       if group == "torque" and production_supported_cp(cp):
         tune = cp.lateralTuning.torque
         return (str(cp.carFingerprint), str(cp.brand), str(cp.steerControlType), str(cp.lateralTuning.which()),
@@ -1116,7 +1122,7 @@ class FeatureSettingsOwner:
         rows.append(learning_row)
     elif page == FeaturePage.DEVELOPER_LATERAL:
       title = 'Developer Parameters'
-      capability = self._capability("torque")
+      capability = self._capability("torque") or self._capability("gain")
       allowed = configurable and self.authority("torque") and capability is not None
       _, numeric_rows = self.torque.rows(capability, allowed, repair_allowed=parked and allowed)
       from openpilot.starpilot.ui.delay_feature import DelayFeature

@@ -2,8 +2,8 @@
 
 import json
 
-from openpilot.starpilot.lateral.torque_runtime import gm_manual_supported_cp as supported_cp
-from openpilot.starpilot.lateral.torque_supported import BOLT_VEHICLES
+from openpilot.starpilot.lateral.gain_runtime import gain_supported, pid_gain_basis
+from openpilot.starpilot.lateral.torque_supported import BOLT_VEHICLES, GM_VEHICLES
 from openpilot.starpilot.lateral.controller_selection import DOCUMENT_KEY as SELECTION_KEY, ControllerMode, selection_from_bytes
 from openpilot.starpilot.lateral.torque_settings import (DOCUMENT_KEY, GainBasis, FieldChoice, gain_bounds, parse_document, replace_gain, serialize_document)
 from openpilot.starpilot.ui.feature_settings_state import FeatureRow
@@ -15,8 +15,10 @@ class GainFeature:
 
   def _basis(self, capability):
     cp = self.owner.vehicle_params()
-    if cp is None or not supported_cp(cp) or capability != self.owner._capability("torque"):
+    if cp is None or not gain_supported(cp) or capability != (self.owner._capability("torque") or self.owner._capability("gain")):
       raise ValueError("Qualified vehicle unavailable")
+    if cp.lateralTuning.which() == "pid":
+      return pid_gain_basis(cp)
     if not self.owner._readable(SELECTION_KEY):
       raise ValueError("Controller selection unavailable")
     selection = selection_from_bytes(cp, self.owner._raw(SELECTION_KEY))
@@ -44,17 +46,17 @@ class GainFeature:
               FeatureRow("torque:gain:mode", "Steering response source", "Custom", raw,
                          choices=("Selected controller",), available=allowed, capability=capability, dependencies=dependencies,
                          default_value="Selected controller"))
-    rows = [FeatureRow("", "Manual steering response",
-                       "Higher values respond more strongly; lower values respond more gently. First manual activation " +
-                       "requires a driving-process restart; an active tuning owner refreshes changes during the drive.")]
+    apply_note = ("First manual activation requires a driving-process restart."
+                  if capability[0] in GM_VEHICLES else "Applies at restart. Learned steering adjustments pause while custom Kp is active.")
+    rows = [FeatureRow("", "Manual steering response", "Higher values respond more strongly. " + apply_note)]
     rows.append(FeatureRow("torque:gain:mode", "Steering response source",
                            "Custom" if choice.mode == "custom" else "Selected controller", raw,
                            choices=("Selected controller", "Custom"), available=allowed, capability=capability, dependencies=dependencies,
                            default_value="Selected controller"))
     if choice.mode == "custom":
       low, high = gain_bounds(capability[0], basis)
-      rows.append(FeatureRow("torque:gain:value", "Steering response", f"{choice.custom_value:.2f}", raw,
-                             minimum=low, maximum=high, step=0.05, available=allowed,
+      rows.append(FeatureRow("torque:gain:value", "Steering response (Kp)", f"{choice.custom_value:.2f}", raw,
+                             minimum=low, maximum=high, step=0.05 if capability[0] in GM_VEHICLES else 0.01, available=allowed,
                              default_value="Selected controller", default_key="torque:gain:mode",
                              capability=capability, dependencies=dependencies))
     return tuple(rows)
@@ -65,8 +67,9 @@ class GainFeature:
       required = {"ForceAutoTuneOff", SELECTION_KEY}
       if request.capability is not None and request.capability[0] in BOLT_VEHICLES:
         required.add("AdvancedLateralTune")
-      return (owner.authority("torque") and request.vehicle_fingerprint == owner.vehicle_fingerprint() and
-              request.capability is not None and request.capability == owner._capability("torque") and
+      return ((request.capability is not None and request.capability[0] in GM_VEHICLES or owner.authority("parked_preferences")) and
+              owner.authority("torque") and request.vehicle_fingerprint == owner.vehicle_fingerprint() and
+              request.capability is not None and request.capability == (owner._capability("torque") or owner._capability("gain")) and
               required.issubset(key for key, _ in request.dependencies) and
               owner._readable(DOCUMENT_KEY) and owner._raw(DOCUMENT_KEY) == request.expected and
               all(owner._readable(key) and owner._raw(key) == value for key, value in request.dependencies))
