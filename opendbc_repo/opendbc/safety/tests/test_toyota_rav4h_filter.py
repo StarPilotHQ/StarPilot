@@ -46,6 +46,13 @@ class TestRav4hFilterNative(unittest.TestCase):
       self.assertEqual(self.safety.aol_get_permission_mask(), 0)
       self.assertFalse(self.safety.safety_tx_hook(self.packer.make_can_msg_safety("ACC_CONTROL", 0, {"ACCEL_CMD": .1})))
 
+    for ae in (33, 161, 289):
+      with self.subTest(ae=ae):
+        self.init(0x9049, ae)
+        self.physical(cruise=True)
+        self.assertEqual(self.safety.aol_get_request_mask(), 0)
+        self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+
   def test_exact_factory_stock_profiles_are_distinct_from_filters(self):
     # These exact words now select bare stock PCM, never adapter longitudinal.
     for word in (0x5249, 0x564D, 0x5749):

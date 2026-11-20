@@ -692,7 +692,8 @@ class TestToyotaHighlanderAol(unittest.TestCase):
       self.assertEqual(self.safety.aol_get_permission_mask(), 0)
 
   def test_exact_profile_admission_and_reset(self):
-    for word, ae in ((585, 96), (585, 544), (72, 32), (329, 32), (1096, 32), (73, 33), (73, 289), (73, 416)):
+    for word, ae in ((585, 96), (585, 544), (72, 32), (329, 32), (1096, 32),
+                     (73, 33), (73, 161), (73, 289), (73, 416)):
       self.init(word, ae)
       self.physical()
       self.assertEqual(self.safety.aol_get_request_mask(), 0)
@@ -704,9 +705,9 @@ class TestToyotaHighlanderAol(unittest.TestCase):
     self.assertEqual(self.safety.aol_get_permission_mask(), 0)
 
   def test_prius_filter_axis_permissions_and_tx_laws(self):
-    for word, stock in ((4169, False), (4681, True)):
-      with self.subTest(word=word):
-        self.init(word=word)
+    for (word, stock), ae in itertools.product(((4169, False), (4681, True)), (32, 160, 288)):
+      with self.subTest(word=word, ae=ae):
+        self.init(word=word, ae=ae)
         self.physical(cruise=True)
         self.assertEqual(self.safety.aol_get_request_mask(), 1 if stock else 3)
         self.assertEqual(self.safety.aol_get_permission_mask(), 1 if stock else 3)
