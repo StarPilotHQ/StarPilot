@@ -45,6 +45,19 @@ class ToggleBackupTest(unittest.TestCase):
     self.assertGreater(result['unchanged'], 20)
     self.assertEqual(self.fixture.params.get('GithubSshKeys'), 'private')
 
+  def test_portable_layout_excludes_rotation_and_restore_disables_it(self):
+    snapshot = self.layout.snapshot()
+    wheel = snapshot['document']['layouts']['large']['steering_wheel']
+    wheel.update(x=1300, y=100, rotate=True)
+    saved = self.layout.save({key: snapshot[key] for key in ('document', 'revision')}, session_valid=lambda: True)
+    self.assertTrue(saved['document']['layouts']['large']['steering_wheel']['rotate'])
+    backup = self.owner.export()
+    self.assertNotIn('rotate', backup['layout']['layouts']['large']['steering_wheel'])
+    self.assertTrue(self.restore(backup)['complete'])
+    restored = self.layout.snapshot()['document']['layouts']['large']['steering_wheel']
+    self.assertFalse(restored.get('rotate', False))
+    self.assertEqual((restored['x'], restored['y']), (1300, 100))
+
   def test_restore_uses_existing_owner_and_validates_before_writes(self):
     self.fixture.params.put_bool('AlwaysAllowUploads', False, block=True)
     backup = self.owner.export()

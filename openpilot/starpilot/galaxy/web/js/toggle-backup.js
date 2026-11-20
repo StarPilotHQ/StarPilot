@@ -86,8 +86,11 @@ export const ToggleBackup = {
         if (legacy) {
           const current = await this.request("./api/ui/layout")
           if (current.editable !== true) throw new Error("Park the vehicle before restoring the layout.")
+          const wheel = draft.layouts?.large?.steering_wheel
+          if (wheel && typeof wheel === "object") delete wheel.rotate
           const result = await this.request("./api/ui/layout", { revision: current.revision, document: draft })
           if (!result.valid) throw new Error("Layout restore could not be verified.")
+          if (result.failed?.length) throw new Error("Layout restored, but these options did not change: " + result.failed.join(", "))
           this.notice = "Layout and colors restored."
         } else {
           const result = await this.request("./api/settings/restore", draft)
@@ -108,7 +111,7 @@ export const ToggleBackup = {
     <p v-if="busy" class="gx-note gx-maintenance__feedback" role="status"><span class="gx-spinner" aria-hidden="true"></span> Working…</p>
     <GxNotice v-if="notice" tone="success">{{ notice }}</GxNotice><GxNotice v-if="error" tone="danger">{{ error }}</GxNotice>
     <GxDialog v-if="draft" :inert="busy" labelledby="gx-toggle-restore-title" @close="draft=null"><h3 id="gx-toggle-restore-title">Restore {{ legacy ? 'layout' : 'toggles' }}?</h3>
-      <p>{{ legacy ? 'Replace your saved layout and colors?' : 'Apply the compatible saved toggles, layout and colors from this backup? Unavailable settings will be skipped.' }} Keep the vehicle parked.</p>
+      <p>{{ legacy ? 'Replace your saved layout and colors?' : 'Apply the compatible saved toggles, layout and colors from this backup? Unavailable settings will be skipped.' }} Keep the vehicle parked. Restoring a layout turns off Big UI steering wheel rotation.</p>
       <div class="gx-actions"><button type="button" class="gx-btn gx-btn--tonal" @click="draft=null">Cancel</button><button type="button" class="gx-btn" @click="restoreBackup">Restore</button></div>
     </GxDialog>
     <GxDialog v-if="resetDraft" :inert="busy" labelledby="gx-toggle-reset-title" @close="resetDraft=null">

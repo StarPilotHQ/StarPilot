@@ -14,7 +14,7 @@ import { GalaxySettingRow, switchRow } from "./galaxy-setting-row.js"
 import { showDraftChange } from "./save-feedback.js"
 import { snapTargets, snapMove, snapResize, snapThreshold } from "./layout-snap.js"
 
-import { PROFILES, ROAD_COLORS, PATH_MODES, HEX, PROJECTION_DISPLAY_SWITCHES, layoutDocument, previewDocument, withDisplay, orderedWidgetIds, widgetPalette, withAlpha, widgetSize, placementLimits, clampBox, clampPlacement, overlapsReserved, previewPoint, validDocument, validSnapshot } from "./onroad-layout-document.js"
+import { PROFILES, ROAD_COLORS, PATH_MODES, HEX, PROJECTION_DISPLAY_SWITCHES, layoutDocument, previewDocument, withDisplay, orderedWidgetIds, widgetPalette, withAlpha, widgetSize, placementLimits, clampBox, clampPlacement, overlapsReserved, previewPoint, validDocument, validSnapshot, wheelRotationAvailable } from "./onroad-layout-document.js"
 export { layoutDocument, previewDocument, withDisplay, orderedWidgetIds, widgetPalette, withAlpha, widgetSize, placementLimits, clampBox, clampPlacement, overlapsReserved, previewPoint, validDocument, validSnapshot } from "./onroad-layout-document.js"
 
 const previewVisibilityKey = projection => "gx-layout-preview-visibility-v2:" + (projection ? "starport" : "comma")
@@ -712,6 +712,10 @@ export const OnroadLayoutPage = {
       (!this.layout[id].enabled || (this.state.drag?.fromTray && this.state.drag.id === id))) },
     availableProfiles() { return this.state.data?.supportedProfiles || (this.state.data?.activeProfile ? [this.state.data.activeProfile] : []) },
     selectedWidget() { return this.profile?.widgets[this.state.selected] },
+    canRotateWheel() {
+      return wheelRotationAvailable(this.selectedWidget, this.state.profile,
+        this.projection || this.state.data?.metadata?.projection === true)
+    },
     sizeChoice() {
       const signal = this.selectedWidget?.kind === 'network_signal'
       return { label: signal ? 'Style' : 'Size', options: signal ? Object.keys(this.selectedWidget.sizes) : ['big', 'small'] }
@@ -1423,6 +1427,17 @@ export const OnroadLayoutPage = {
       const before = clone(this.state.draft)
       this.selectedPosition.opacity = value
       this.recordChange(before, this.state.profile + ":" + this.state.selected + ":opacity")
+    },
+    setWheelRotation(value) {
+      if (!this.editable || this.state.drag || this.state.layerDrag || !this.canRotateWheel ||
+        !this.selectedPosition?.enabled || !["On", "Off"].includes(value)) return
+      const rotate = value === "On"
+      if ((this.selectedPosition.rotate === true) === rotate) return
+      this.finishColorEdit()
+      const before = clone(this.state.draft)
+      this.selectedPosition.rotate = rotate
+      this.recordChange(before)
+      this.state.notice = ""
     },
     setWidgetBackground(value) {
       if (!this.editable || this.state.drag || this.state.layerDrag || !this.selectedWidget?.backgroundToggle) return

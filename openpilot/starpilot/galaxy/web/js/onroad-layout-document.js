@@ -8,6 +8,8 @@ export const PATH_MODES = ["default", "color", "rainbow", "acceleration"]
 export const HEX = /^#[0-9a-fA-F]{8}$/
 const keysEqual = (value, keys) => value && typeof value === "object" && !Array.isArray(value) &&
   Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key))
+const largeWheel = (widget, profile, projection) => !projection && profile === "large" && widget?.kind === "steering_wheel"
+export const wheelRotationAvailable = (widget, profile, projection) => largeWheel(widget, profile, projection) && widget.rotateToggle === true
 const positive = (value) => Number.isFinite(value) && value > 0 && value <= 8192
 const object = (value) => value && typeof value === "object" && !Array.isArray(value)
 const frontmostOrder = (order, profile) => {
@@ -175,8 +177,10 @@ export function validDocument(document, metadata) {
     return keysEqual(layout, Object.keys(profile.widgets)) && Object.entries(layout).every(([id, position]) => {
       const widget = profile.widgets[id], limits = placementLimits(profile, id, layout)
       const resizable = widget.resizable, box = widget.box, opacity = widget.opacity
+      const rotate = wheelRotationAvailable(widget, name, metadata?.projection === true) && object(position) && Object.hasOwn(position, "rotate")
       return keysEqual(position, ["x", "y", "enabled", ...(resizable ? ["size"] : []), ...(box ? ["width", "height"] : []),
-        ...(opacity ? ["opacity"] : []), ...(widget.iconSize ? ["display"] : []), ...(widget.backgroundToggle ? ["background"] : []), ...(widget.collapseToggle ? ["collapse"] : []), ...(widget.bluetoothToggle ? ["bluetooth"] : []), ...(widget.wifiNameHeight ? ["wifiName"] : []), ...(widget.sizes ? ["size"] : []), ...(widget.scale ? ["scale"] : [])]) &&
+        ...(opacity ? ["opacity"] : []), ...(widget.iconSize ? ["display"] : []), ...(widget.backgroundToggle ? ["background"] : []), ...(widget.collapseToggle ? ["collapse"] : []), ...(widget.bluetoothToggle ? ["bluetooth"] : []), ...(widget.wifiNameHeight ? ["wifiName"] : []), ...(widget.sizes ? ["size"] : []), ...(widget.scale ? ["scale"] : []), ...(rotate ? ["rotate"] : [])]) &&
+        (!rotate || typeof position.rotate === "boolean") &&
         (!widget.iconSize || ["words", "icons"].includes(position.display)) &&
         (!widget.backgroundToggle || typeof position.background === "boolean") &&
         (!widget.collapseToggle || typeof position.collapse === "boolean") &&
@@ -210,7 +214,7 @@ export function validSnapshot(data) {
     new Set(data.metadata.roadColorFields.map((field) => field.id)).size !== ROAD_COLORS.length ||
     !data.metadata.roadColorFields.every((field) => ROAD_COLORS.includes(field.id) && typeof field.label === "string" && HEX.test(field.default)) ||
     (data.activeProfile != null && !profiles.includes(data.activeProfile))) return false
-  for (const profile of Object.values(data.metadata.profiles)) {
+  for (const [name, profile] of Object.entries(data.metadata.profiles)) {
     if (profile.widgetOrder != null && (!Array.isArray(profile.widgetOrder) ||
       profile.widgetOrder.length !== Object.keys(profile.widgets || {}).length ||
       new Set(profile.widgetOrder).size !== profile.widgetOrder.length ||
@@ -264,6 +268,7 @@ export function validSnapshot(data) {
         !object(widget.opacity) || ![widget.opacity.min, widget.opacity.max, widget.opacity.default].every(Number.isInteger) ||
         widget.opacity.min < 0 || widget.opacity.max > 100 || widget.opacity.min > widget.opacity.default ||
         widget.opacity.default > widget.opacity.max)) return false
+      if (Object.hasOwn(widget, "rotateToggle") && !wheelRotationAvailable(widget, name, projection)) return false
       if (widget.collapseToggle != null && (!projection || widget.kind !== "now_playing" || widget.collapseToggle !== true)) return false
       if (widget.bluetoothToggle != null && (widget.kind !== "network_signal" || widget.bluetoothToggle !== true)) return false
       if (widget.wifiNameHeight != null && (widget.kind !== "network_signal" || !positive(widget.wifiNameHeight))) return false

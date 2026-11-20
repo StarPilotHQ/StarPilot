@@ -457,6 +457,75 @@ assert.equal(wheelEditor.state.draft.layouts.large.steering_wheel.size, 240)
 wheelEditor.resetLayout()
 assert.equal(wheelEditor.layout.steering_wheel.size, 50)
 assert.equal(wheelEditor.state.draft.layouts.large.steering_wheel.size, 240)
+function rotationSnapshot() {
+  const sample = snapshot()
+  sample.metadata.profiles.large.widgets.steering_wheel.rotateToggle = true
+  sample.metadata.profiles.large.widgets.steering_wheel.default.rotate = false
+  sample.defaults.layouts.large.steering_wheel.rotate = false
+  return sample
+}
+
+{
+  const sample = rotationSnapshot()
+  assert.equal(validSnapshot(sample), true, "Version 16 documents may omit the new opt-in")
+  const wheel = sample.document.layouts.large.steering_wheel
+  wheel.rotate = true
+  assert.equal(validSnapshot(sample), true)
+  assert.equal(previewDocument(sample.document).layouts.large.steering_wheel.rotate, true)
+  for (const invalid of [null, "true", 1]) {
+    wheel.rotate = invalid
+    assert.equal(validSnapshot(sample), false)
+  }
+  wheel.rotate = false
+  sample.document.layouts.compact.steering_wheel.rotate = false
+  assert.equal(validSnapshot(sample), false)
+  delete sample.document.layouts.compact.steering_wheel.rotate
+  sample.metadata.profiles.compact.widgets.steering_wheel.rotateToggle = true
+  assert.equal(validSnapshot(sample), false)
+  delete sample.metadata.profiles.compact.widgets.steering_wheel.rotateToggle
+  sample.document.layouts.large.driver_monitor.rotate = true
+  assert.equal(validSnapshot(sample), false)
+  delete sample.document.layouts.large.driver_monitor.rotate
+  delete sample.metadata.profiles.large.widgets.steering_wheel.rotateToggle
+  assert.equal(validSnapshot(sample), false, "Capability metadata is required for the new field")
+}
+
+{
+  const { vm, calls } = editor()
+  vm.state.data = rotationSnapshot()
+  vm.state.data.supportedProfiles = ["large", "compact"]
+  vm.state.draft = copy(vm.state.data.document)
+  vm.state.selected = "steering_wheel"
+  assert.equal(vm.canRotateWheel, true)
+  vm.setWheelRotation("On")
+  assert.equal(vm.layout.steering_wheel.rotate, true)
+  vm.undo()
+  assert.equal(vm.layout.steering_wheel.rotate, undefined)
+  vm.redo()
+  vm.save()
+  assert.equal(calls.at(-1).layouts.large.steering_wheel.rotate, true)
+  vm.selectProfile("compact")
+  vm.state.selected = "steering_wheel"
+  assert.equal(vm.canRotateWheel, false)
+  vm.setWheelRotation("On")
+  assert.equal(vm.layout.steering_wheel.rotate, undefined)
+  vm.resetLayout()
+  assert.equal(vm.state.draft.layouts.large.steering_wheel.rotate, true)
+  vm.selectProfile("large")
+  vm.state.selected = "steering_wheel"
+  vm.state.data.metadata.projection = true
+  assert.equal(vm.canRotateWheel, false)
+  vm.setWheelRotation("Off")
+  assert.equal(vm.layout.steering_wheel.rotate, true)
+  delete vm.state.data.metadata.projection
+  vm.setWheelRotation("Off")
+  assert.equal(vm.layout.steering_wheel.rotate, false)
+  vm.setWheelRotation("On")
+  vm.resetLayout()
+  assert.equal(vm.layout.steering_wheel.rotate, false)
+  assert.match(ONROAD_LAYOUT_TEMPLATE, /v-if="canRotateWheel"[^\n]*Rotate with steering/)
+}
+
 const dragWheel = editor()
 dragWheel.vm.state.selected = "steering_wheel"
 dragWheel.vm.resizeSelected({ target: { value: "240" } })

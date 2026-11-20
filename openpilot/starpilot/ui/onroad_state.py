@@ -220,6 +220,7 @@ class OnroadState:
   lead_indicator_source_fresh: bool = False
   customization: dict = field(default_factory=default_document)
   wheel_acceleration: float | None = None
+  wheel_rotation: float = 0.0
   torque_source_available: bool = True
   torque_drive_frame: int | None = None
   experimental_action_token: str = ""

@@ -32,6 +32,7 @@ from openpilot.starpilot.ui.traffic_status import TrafficDisplayProjector
 from openpilot.starpilot.ui.drive_mode_notice import DriveModeNotice
 from openpilot.starpilot.controllers.mode_actions import SwitchbackStatusOwner
 from openpilot.starpilot.ui.wheel_feedback import observe_wheel_acceleration
+from openpilot.starpilot.ui.wheel_rotation import observe_wheel_rotation, read_rotation
 from openpilot.starpilot.ui.torque_feedback import observe_torque_feedback
 from openpilot.starpilot.ui.live_developer_sidebar import DeveloperMetrics
 
@@ -426,6 +427,10 @@ class RuntimeSnapshotAdapter:
     if (self._appearance_read_ns is None or now_ns < self._appearance_read_ns or
         now_ns - self._appearance_read_ns >= 1_000_000_000):
       self._customization_value = read_customization(self.ui_state.params)
+      rotation_raw, rotation_readable = read_rotation(self.ui_state.params)
+      self._customization_value['layouts']['large']['steering_wheel'].pop('rotate', None)
+      if rotation_readable and rotation_raw == b'1':
+        self._customization_value['layouts']['large']['steering_wheel']['rotate'] = True
       self._appearance_value = onroad_appearance(self.ui_state.params)
       self._navigation_enabled = _flag(self.ui_state.params, "NavigationEnabled")
       self._show_curve_status = _flag(self.ui_state.params, "ShowCSCStatus")
@@ -749,6 +754,7 @@ class RuntimeSnapshotAdapter:
                          torque_is_demand=torque.source == "lateral_acceleration_demand",
                          torque_drive_frame=after if started else None, drive_frame=after if started else None, observed_ns=now_ns,
                          wheel_acceleration=observe_wheel_acceleration(display_car),
+                         wheel_rotation=observe_wheel_rotation(display_car),
                          aol_latched=aol_latched, aol_armed_at_stop=armed_at_stop,
                          lateral_active=display_lat_active, longitudinal_active=display_long_active,
                          longitudinal_overridden=longitudinal_overridden,

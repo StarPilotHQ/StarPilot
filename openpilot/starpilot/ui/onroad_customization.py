@@ -44,6 +44,7 @@ class WidgetPlacement(TypedDict):
   opacity: NotRequired[int]
   bluetooth: NotRequired[bool]
   wifiName: NotRequired[bool]
+  rotate: NotRequired[bool]
   scale: NotRequired[int]
 
 
@@ -69,6 +70,7 @@ class Widget(TypedDict):
   sizes: NotRequired[dict[str, list[int]]]
   scale: NotRequired[dict[str, int]]
   bluetoothToggle: NotRequired[bool]
+  rotateToggle: NotRequired[bool]
   wifiNameHeight: NotRequired[int]
   anchorShift: NotRequired[float]
   expandable: NotRequired[bool]
@@ -112,6 +114,8 @@ PROFILES: dict[str, LayoutProfile] = {
                 "speed_limit": _widget("Speed limit", "speed_limit", *LIMIT_RECTS['compact'][2:], *LIMIT_RECTS['compact'][:2]),
                 "steering_wheel": _widget("Steering wheel", "steering_wheel", 50, 50, 21, 176),
                 "driver_monitor": _widget("Driver monitoring", "driver_monitor", 60, 60, 16, 10)}}}
+
+PROFILES['large']['widgets']['steering_wheel']['rotateToggle'] = True
 
 for _profile in PROFILES:
   _owner = 'cruise_limits' if _profile == 'large' else 'speed_limit'
@@ -642,6 +646,9 @@ def validate_document(value):
         placement['y'] = bounds['y'] + bounds['height'] - JETLINK_SIZE[1]
       scalable = key == 'driver_monitor' or key == 'steering_wheel' and value['version'] >= 4
       expected = {"x", "y", "enabled"} | ({"size"} if scalable else set())
+      has_rotation = widget.get('rotateToggle') and type(placement) is dict and 'rotate' in placement
+      if has_rotation:
+        expected.add('rotate')
       if widget.get("box"):
         expected |= {"width", "height", "opacity"}
       elif widget.get("opacity"):
@@ -652,6 +659,8 @@ def validate_document(value):
         expected |= {"scale", "bluetooth", "wifiName"}
       if type(placement) is not dict or set(placement) != expected or type(placement["enabled"]) is not bool:
         raise ValueError("Invalid widget placement")
+      if has_rotation and type(placement['rotate']) is not bool:
+        raise ValueError('Invalid wheel rotation setting')
       if widget.get("box"):
         validate_map_box(placement, widget)
       elif widget.get("opacity"):

@@ -287,6 +287,8 @@ export const ONROAD_LAYOUT_TEMPLATE = `
                   :disabled="!editAvailable || !!state.drag || !!state.layerDrag" :save-value="(index, value) => setSpeedSources('speedSourcesCard', value === 'On')" />
                 <div v-if="!projection && selectedWidget.kind === 'cruise_limits'" class="gx-row"><div class="gx-row__info"><span class="gx-row__label">Show set speed</span></div>
                   <label class="gx-switch"><input type="checkbox" role="switch" aria-label="Show set speed" :checked="state.draft.showMaxSpeed !== false" :disabled="!editAvailable || !!state.drag || !!state.layerDrag" @change="setShowMaxSpeed"><span class="gx-switch__track"></span><span class="gx-switch__thumb"></span></label></div>
+                <GalaxySettingRow feedback="draft" v-if="canRotateWheel" :row="switchRow('Rotate with steering', selectedPosition.rotate === true, 'Device only. Layout backups do not include this option.')" :index="0"
+                  :disabled="!editAvailable || !!state.drag || !!state.layerDrag" :save-value="(index, value) => setWheelRotation(value)" />
                 <GalaxySettingRow feedback="draft" v-if="projection && selectedWidget.kind === 'steering_wheel'" :row="switchRow('Brake & Acceleration Colors', state.draft.wheelPedalFeedback === true)" :index="0"
                   :disabled="!editAvailable || !!state.drag || !!state.layerDrag" :save-value="(index, value) => setProjectionDisplay('wheelPedalFeedback', value)" />
                 <GalaxySettingRow feedback="draft" v-if="!projection && selectedWidget.kind === 'steering_wheel' && displayRow('ShowBrakeStatus')" :row="switchRow('Brake & Acceleration Colors', displayValue('ShowBrakeStatus') === 'On')" :index="0"

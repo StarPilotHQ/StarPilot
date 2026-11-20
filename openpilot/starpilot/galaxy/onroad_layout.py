@@ -12,6 +12,7 @@ from openpilot.starpilot.ui.onroad_customization import (
   MAX_BYTES, PARAM_KEY, customization_metadata, decode_document, default_document, validate_document,
 )
 from openpilot.starpilot.ui.presentation import Profile
+from openpilot.starpilot.ui.wheel_rotation import read_rotation, take_rotation, write_rotation
 from openpilot.starpilot.galaxy.setting_descriptions import description
 
 # Display preferences edited with the layout but saved in their own params. Groups order the editor.
@@ -28,8 +29,9 @@ class LayoutChanged(Exception):
   pass
 
 
-def _revision(raw: bytes | None, rows=()) -> str:
+def _revision(raw: bytes | None, rows=(), rotation: bytes | None = None) -> str:
   digest = hashlib.sha256(b"\x00" if raw is None else b"\x01" + raw)
+  digest.update(b"\x00" if rotation is None else b"\x01" + rotation)
   for row in rows:
     digest.update(repr((row.key, row.source, row.related_source, row.dependencies)).encode())
   return digest.hexdigest()
@@ -55,6 +57,10 @@ class OnroadLayoutOwner:
         document = decode_document(raw)
       except (ValueError, TypeError, UnicodeError, RecursionError):
         valid = False
+    rotation, rotation_readable = read_rotation(self.params)
+    take_rotation(document)
+    if rotation_readable and rotation == b'1':
+      document['layouts']['large']['steering_wheel']['rotate'] = True
     parked = self.parked()
     rows = self._display_rows()
     lead_readable = read_lead_info(self.params).readable
@@ -71,8 +77,8 @@ class OnroadLayoutOwner:
     metadata = customization_metadata()
     for profile in metadata["profiles"].values():
       profile["widgets"]["rear_fog"]["hidden"] = main_bus(self.vehicle_params()) is None
-    return {"document": document, "defaults": default_document(), "revision": _revision(raw, rows),
-            "metadata": metadata, "editable": readable and parked, "valid": valid,
+    return {"document": document, "defaults": default_document(), "revision": _revision(raw, rows, rotation),
+            "metadata": metadata, "editable": readable and rotation_readable and parked, "valid": valid,
             "activeProfile": None, "display": display, "failed": []}
 
   def save(self, payload: dict, *, session_valid: Callable[[], bool]) -> dict:
@@ -87,19 +93,43 @@ class OnroadLayoutOwner:
             for key, value in display.items())):
       raise ValueError("Invalid display preferences")
     document = validate_document(document)
+    rotate = take_rotation(document)
     encoded = json.dumps(document, separators=(",", ":"), allow_nan=False).encode()
     if len(encoded) > MAX_BYTES:
       raise ValueError("Layout is too large")
     source, readable = read_saved(self.params, PARAM_KEY, MAX_BYTES)
-    if not readable:
+    rotation, rotation_readable = read_rotation(self.params)
+    if not readable or not rotation_readable:
       raise OSError("Saved layout is unavailable")
-    if payload["revision"] != _revision(source, tuple(rows.values())):
+    if payload["revision"] != _revision(source, tuple(rows.values()), rotation):
       raise LayoutChanged("Saved layout changed; reload before saving")
-    result = commit_exact(self.params, key=PARAM_KEY, max_bytes=MAX_BYTES, raw=encoded, expected=source,
-                          authorized=lambda: session_valid() and self.parked(), temp_prefix=".onroad-layout-")
-    if not result.committed or not result.verified:
+    def authorized():
+      return session_valid() and self.parked()
+
+    # Rotation-only saves must not rewrite or create the layout document.
+    layout_changed = encoded != source
+    if layout_changed and rotate != (rotation == b'1'):
+      try:
+        current = decode_document(source) if source is not None else default_document()
+        take_rotation(current)
+        layout_changed = current != document
+      except (ValueError, TypeError, UnicodeError, RecursionError):
+        pass
+    if layout_changed:
+      result = commit_exact(self.params, key=PARAM_KEY, max_bytes=MAX_BYTES, raw=encoded, expected=source,
+                            authorized=lambda: authorized() and read_rotation(self.params) == (rotation, True),
+                            temp_prefix=".onroad-layout-")
+      if not result.committed or not result.verified:
+        raise LayoutChanged("Layout could not be saved; check that the device is parked and reload")
+    elif not authorized():
       raise LayoutChanged("Layout could not be saved; check that the device is parked and reload")
-    failed = self._save_display(display, rows, session_valid)
+    expected_layout = encoded if layout_changed else source
+    failed = []
+    if rotate != (rotation == b'1'):
+      if not write_rotation(self.params, rotate, rotation,
+                            lambda: authorized() and read_saved(self.params, PARAM_KEY, MAX_BYTES) == (expected_layout, True)):
+        failed.append("Rotate with steering")
+    failed += self._save_display(display, rows, session_valid)
     return {**self.snapshot(), "failed": failed}
 
   def disable_map(self, session_valid: Callable[[], bool]) -> bool:
