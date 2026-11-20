@@ -1112,7 +1112,9 @@ def test_wheel_confirmation_hint_preserves_toyota_resume(brand, standstill, crui
   ui.sm.put('controlsState', NS(longControlState='pid'))
   adapter = RuntimeSnapshotAdapter(ui)
   assert adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad.slc_wheel_confirmation_available == expected
-  ui.sm.logMonoTime['carControl'] = NOW - 200_000_000
+  ui.sm.logMonoTime['carControl'] = NOW - 50_000_000
+  assert adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad.slc_wheel_confirmation_available == expected
+  ui.sm.logMonoTime['carControl'] = NOW - 201_000_000
   assert not adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad.slc_wheel_confirmation_available
 
 
