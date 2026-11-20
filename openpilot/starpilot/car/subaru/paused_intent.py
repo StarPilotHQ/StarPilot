@@ -22,7 +22,7 @@ class StoppedIntentProof:
 
 def stopped_state(cp, state):
   return bool(cp.carFingerprint == CAR.SUBARU_IMPREZA_2020 and qualified(cp, marked_only=True) and
-    state.canValid and not state.canTimeout and state.standstill and state.brakePressed and
+    state.canValid and not state.canTimeout and state.standstill and state.vEgoRaw == 0. and
     isfinite(state.vEgo) and isfinite(state.vEgoRaw) and
     state.gearShifter == structs.CarState.GearShifter.drive and state.cruiseState.available and
     not state.cruiseState.enabled and not state.gasPressed and not state.regenBraking and

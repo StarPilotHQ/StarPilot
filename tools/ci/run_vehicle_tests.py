@@ -279,6 +279,7 @@ RELEASE_TARGETS = (
   "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_main_during_temporary_eps_waits_for_clear",
   "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_stopped_feedback_gap_retains_only_armed_intent",
   "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_stopped_source_gap_retains_intent_without_renewing_output",
+  "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_stopped_brake_release_source_gap_keeps_armed_intent",
   "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_paused_subaru_restriction_keeps_armed_intent",
   "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_subaru_eps_clear_during_blinker_pause_keeps_armed_intent",
   "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py::test_actual_subaru_family_eps_recovery_join",

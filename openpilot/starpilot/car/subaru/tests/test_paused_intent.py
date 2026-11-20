@@ -48,7 +48,7 @@ def test_stopped_source_retains_original_intent_only_and_never_reanchors():
   assert not retain_stopped_source(sd, state, intent, stamp, stamp + 30_000_000)
 
 
-@pytest.mark.parametrize('fault', ('moving', 'brake', 'main', 'acc', 'gas', 'regen', 'can', 'timeout',
+@pytest.mark.parametrize('fault', ('moving', 'wheel_speed', 'main', 'acc', 'gas', 'regen', 'can', 'timeout',
   'eps', 'permanent', 'door', 'belt', 'sensors', 'driver_off', 'cancel', 'reverse', 'epoch', 'producer',
   'integrity', 'drain', 'future_pair', 'queue', 'critical', 'active_lat', 'desired_lat', 'active_long',
   'desired_long', 'enabled', 'authority_lost', 'new_state', 'off', 'settings', 'pause', 'raw_epoch',
@@ -56,7 +56,7 @@ def test_stopped_source_retains_original_intent_only_and_never_reanchors():
   'native_long', 'native_inventory', 'native_session', 'hard_event', 'user_off', 'no_history'))
 def test_stopped_source_independent_vetoes_remain_authoritative(fault):
   sd, state, intent, stamp, _, native = source_case()
-  physical = {'moving': ('standstill', False), 'brake': ('brakePressed', False), 'gas': ('gasPressed', True),
+  physical = {'moving': ('standstill', False), 'wheel_speed': ('vEgoRaw', 0.1), 'gas': ('gasPressed', True),
     'regen': ('regenBraking', True), 'can': ('canValid', False), 'timeout': ('canTimeout', True),
     'eps': ('steerFaultTemporary', True), 'permanent': ('steerFaultPermanent', True), 'door': ('doorOpen', True),
     'belt': ('seatbeltUnlatched', True), 'sensors': ('vehicleSensorsInvalid', True), 'driver_off': ('steeringDisengage', True)}
@@ -379,3 +379,18 @@ def test_subaru_temporary_intent_depends_on_accepted_proof_not_actuation_phase(
     latched=True, producer=PRODUCER)
   assert retained == (current_role != 'active' or native_granted)
   assert (leases(feedback), feedback.signature, sm['aolAxisState'].to_dict()) == before
+
+
+@pytest.mark.parametrize('brake_pressed', (False, True))
+def test_stopped_source_proof_depends_on_zero_wheel_speed_not_brake(brake_pressed):
+  sd, state, intent, stamp, feedback, _ = source_case()
+  state.brakePressed = brake_pressed
+  record_stopped_intent(sd, state, sd.sm.messages['aolAxisState'], stamp)
+  proof = sd.aol_stopped_intent_proof
+  assert proof is not None
+  before = leases(feedback), feedback.signature, intent.validUntilMonoTime, sd.aol_axis_decision
+  for age in (30_000_001, 35_000_000, 100_000_000, 190_000_000):
+    assert retain_stopped_source(sd, state, intent, stamp, stamp + age)
+    assert sd.aol_stopped_intent_proof is proof
+    assert (leases(feedback), feedback.signature, intent.validUntilMonoTime, sd.aol_axis_decision) == before
+  assert not retain_stopped_source(sd, state, intent, stamp, stamp + 200_000_001)

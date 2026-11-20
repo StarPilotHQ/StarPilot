@@ -102,6 +102,8 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
         temporary = not guard_brake_release and 225 <= tick < 260
         main = not 310 <= tick < 350 and (tick >= 30 or not main_only)
         stopped = stop_resume and (125 <= tick < 135 if hard_stop_native_first or host_first_stop or stop_creep_eps else 185 <= tick < 195)
+        if stopped_source_gap == 2 and stopped:
+          brake = elapsed < 130
         if stop_creep_eps:
           stopped = tick < 135 and (cold_stop or tick >= 125)
           brake = bool(stopped and tick < 129)
@@ -285,7 +287,8 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
             expired, _ = controls.state_control()
           assert not expired.latActive and not expired.longActive
         driven_new = selfdrive_step(sd, published, new_native, previous_controls, cp, safety, now, calibration='calibrated',
-                                   source_timeout=source_missing or stopped_source_gap and 130 <= elapsed <= 133)
+                                   source_timeout=source_missing or stopped_source_gap and
+                                     (166 <= elapsed <= 169 if stopped_source_gap == 2 else 130 <= elapsed <= 133))
         if deadline_gap and elapsed == gap_tick:
           current = driven_new['aolAxisState'].aolAxisState
           assert current.lateralActive and not sd.aol_authority_lost, 'SUBARU_FRESH_SUCCESSOR_LOST_LATERAL'
@@ -732,3 +735,14 @@ def test_actual_subaru_stop_creep_restriction_preserves_armed_intent(
   CAR.SUBARU_IMPREZA_2025, CAR.SUBARU_FORESTER, CAR.SUBARU_OUTBACK, CAR.SUBARU_OUTBACK_2023))
 def test_actual_subaru_family_stop_creep_restriction(candidate, subaru_native_pair, tmp_path):
   test_actual_subaru_stop_creep_restriction_preserves_armed_intent(subaru_native_pair, tmp_path, 2, False, candidate=candidate)
+
+
+def test_actual_stopped_brake_release_source_gap_keeps_armed_intent(subaru_native_pair, tmp_path):
+  test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(
+    CAR.SUBARU_IMPREZA_2020, subaru_native_pair, tmp_path, main_only=True,
+    stop_resume=True, hard_stop_native_first=True, stopped_source_gap=2)
+  rows = json.loads((tmp_path / (str(CAR.SUBARU_IMPREZA_2020) + '-True-actual.json')).read_text())
+  paused = [row for row in rows if 166 <= row['elapsed'] <= 170]
+  assert any(row['fault'] == 'availabilityPause' for row in paused)
+  assert all(row['cardLatch'] and row['armed'] and not row['lat'] and not row['long'] and row['permission'] == 0 for row in paused)
+  assert all('controlsMismatch' not in row['events'] for row in rows)
