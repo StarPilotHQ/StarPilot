@@ -48,6 +48,11 @@ class TestModelReceipt(unittest.TestCase):
     with self.assertRaises(ReceiptUnavailable):
       write_receipt(replace(self.load, model_id="unknown"), self.path)
 
+  def test_conditional_switch_recovery_has_its_own_reason(self):
+    load = replace(self.load, fallback_reason='conditional-switch-failed')
+    write_receipt(load, self.path)
+    self.assertEqual(read_receipt(self.path), load)
+
   def test_symlink_fifo_and_unowned_directory_are_unavailable(self):
     target = self.root / "outside"
     target.write_bytes(b"untouched")

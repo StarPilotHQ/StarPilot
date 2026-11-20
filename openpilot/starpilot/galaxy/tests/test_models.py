@@ -136,6 +136,11 @@ class LocalModelManagerHttpTest(unittest.TestCase):
         status, snapshot = request('/api/models/manager')
         self.assertEqual(status, 200)
         self.assertFalse(snapshot['randomizer'])
+        self.assertFalse(snapshot['conditionalModel']['enabled'])
+        self.assertTrue(snapshot['capabilities']['conditionalModel'])
+        self.assertEqual(request('/api/models/conditional_model', {'thresholdMph': 60})[0], 200)
+        self.assertEqual(preferences(manager.root)['conditionalModel']['thresholdMph'], 60)
+        self.assertEqual(request('/api/models/conditional_model', {'selected': 'unknown'})[0], 409)
         self.assertIsNone(snapshot['downloadProgress'])
         self.assertEqual(request('/api/models/jetlink', {'mode': 'usb'})[0], 200)
         self.assertEqual(link.mode, 'usb')
@@ -160,6 +165,8 @@ class LocalModelManagerHttpTest(unittest.TestCase):
         self.assertEqual(preferences(manager.root)['blacklistedModels'], ['gwm8223'])
         self.assertEqual(request('/api/models/active', {'profile': 'small', 'model': 'bundled-current'})[0], 409)
         parked[0] = False
+        self.assertEqual(request('/api/models/conditional_model', {'selected': 'highway'})[0], 409)
+        self.assertEqual(preferences(manager.root)['conditionalModel']['thresholdMph'], 60)
         self.assertEqual(request('/api/models/jetlink', {'mode': 'off'})[0], 409)
         self.assertEqual(link.mode, 'usb')
         self.assertEqual(request('/api/models/laboratory', pair)[0], 200)
@@ -170,6 +177,7 @@ class LocalModelManagerHttpTest(unittest.TestCase):
         self.assertEqual(request('/api/models/jetlink', {'mode': 'off'}, forwarded=True)[0], 503)
         self.assertEqual(link.mode, 'usb')
         self.assertEqual(request('/api/models/manager', forwarded=True)[0], 503)
+        self.assertEqual(request('/api/models/conditional_model', {'selected': 'highway'}, forwarded=True)[0], 503)
         self.assertEqual(request('/api/models/laboratory', forwarded=True)[0], 503)
       finally:
         server.shutdown()

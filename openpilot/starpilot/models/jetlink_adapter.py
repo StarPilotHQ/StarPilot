@@ -104,34 +104,7 @@ def _adapter_class():
       from openpilot.starpilot.models.runner import CatalogModelState
       if not isinstance(small, CatalogModelState):
         return None
-      from tinygrad import Device
-      import numpy as np
-
-      queues = [q for name, q in small.input_queues.items() if q.device != "NPY" and name not in FRAME_INPUTS]
-      buffers = [q.uop.base.buffer for q in queues]
-      views = []
-      for buffer in buffers:
-        if not buffer.is_allocated() or not hasattr(buffer.get_storage().host, "mv"):
-          raise ValueError("Small model history has no allocated host mapping")
-        view = buffer.as_memoryview(allow_zero_copy=True)
-        if view.readonly or view.nbytes != buffer.nbytes:
-          raise ValueError("Small model history mapping is not writable or complete")
-        views.append(np.frombuffer(view, dtype=np.uint8))
-      devices = tuple(Device[name] for name in dict.fromkeys(q.device for q in queues))
-      arrays = tuple(small.npy.values())
-
-      def reset():
-        # The local history is idle at a handover. Keep the existing buffers
-        # and synchronize their device before zeroing their mapped storage.
-        for device in devices:
-          device.synchronize()
-        for view in views:
-          view.fill(0)
-        small.prev_desire.fill(0)
-        for array in arrays:
-          array.fill(0)
-
-      return reset
+      return small.handoff_reset()
 
   return StarPilotAdapter
 

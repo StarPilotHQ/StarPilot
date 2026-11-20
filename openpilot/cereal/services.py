@@ -70,6 +70,8 @@ _services: dict[str, tuple] = {
   "aolSafetyWire": (True, 10., 10),
   "aolIntentWire": (True, 100., 10),
   "laneChangeAssistWire": (True, 20., 10),
+  "conditionalModelState": (True, 20., 1),
+  "conditionalModelAck": (True, 100., 10),
   "mapdOut": (True, 20., 10),
   "mapdExtendedOut": (True, 1., 1),
   "mapdIn": (True, 1., 1),

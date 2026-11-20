@@ -316,8 +316,11 @@ def main(demo=False):
   # a Jetson, PC or phone on the port looks like a chestnut to cable_connected(): the cable counts with Jetlink off only
   chestnut_available = chestnut_present() or (cable_connected() and not jetlink_adapter.link_on() and not usb_host_connected())
   recovery_small_only = os.getenv("STARPILOT_MODELD_RECOVERY_SMALL_ONLY") == "1"
-  selection = resolve_runtime(chestnut_available=chestnut_available and not recovery_small_only, randomize=not recovery_small_only)
-  requested_model_id = requested_runtime_id(chestnut_available)
+  recovery_model = os.getenv('STARPILOT_CONDITIONAL_RECOVERY_MODEL') if recovery_small_only else None
+  recovery_options = {'small_override': recovery_model} if recovery_model else {}
+  selection = resolve_runtime(chestnut_available=chestnut_available and not recovery_small_only,
+                              randomize=not recovery_small_only, **recovery_options)
+  requested_model_id = recovery_model or requested_runtime_id(chestnut_available)
   from openpilot.starpilot.models.laboratory import freeze_request
   from openpilot.starpilot.models.laboratory_runner import LaboratoryPair, load_laboratory_pair
   from openpilot.starpilot.models.runtime_bridge.runtime import bind_laboratory_request
@@ -454,6 +457,14 @@ def main(demo=False):
   initial_chestnut_fallback = CHESTNUT and model is None
   if model is None:
     model = small_model
+  from openpilot.starpilot.models.manager import preferences
+  from openpilot.starpilot.models.conditional_runtime import ConditionalModelRuntime
+  conditional_runtime = ConditionalModelRuntime(small_model, small_prepared, preferences(MODEL_ROOT)['conditionalModel'],
+                              root=MODEL_ROOT, cam_w=cam_w, cam_h=cam_h,
+                              enabled=model is small_model and not CHESTNUT and not jetlink_adapter.link_on() and not recovery_small_only)
+  conditional_loaded_id = small_model.model_id
+  if recovery_small_only and conditional_runtime.config['enabled']:
+    conditional_runtime.owner.error = 'Single-model recovery is running; live switching is disabled until the next drive'
   if isinstance(model, LaboratoryPair):
     import hashlib
     import json
@@ -462,7 +473,7 @@ def main(demo=False):
   else:
     receipt_owner.loaded(big_prepared if model.chestnut else small_prepared,
                          ModelVariant.CHESTNUT if model.chestnut else ModelVariant.SMALL,
-                         "chestnut-run-stalled" if recovery_small_only else
+                         "conditional-switch-failed" if recovery_model else "chestnut-run-stalled" if recovery_small_only else
                          "chestnut-load-failed" if initial_chestnut_fallback else
                          "selected-load-failed" if (selected_small_failed and not model.chestnut) or requested_model_id != model.model_id else None,
                          model_id=model.model_id)
@@ -485,10 +496,11 @@ def main(demo=False):
   config_realtime_process(7, 54)
 
   # messaging
-  pub_socks = ["modelIdentity", "modelV2", "drivingModelData", "cameraOdometry", "laneChangeAssistWire"] + (["chestnutGpuState"] if CHESTNUT else [])
+  pub_socks = (["modelIdentity", "modelV2", "drivingModelData", "cameraOdometry", "laneChangeAssistWire", "conditionalModelState"] +
+               (["chestnutGpuState"] if CHESTNUT else []))
   pm = PubMaster(pub_socks)
   sm = SubMaster(["deviceState", "carState", "narrowRoadCameraState", "extrinsicsCalibration", "driverMonitoringState",
-                  "carControl", "controlsState", "lateralDelay", "starpilotNavigation", "longitudinalPlan"])
+                  "carControl", "controlsState", "lateralDelay", "starpilotNavigation", "longitudinalPlan", "selfdriveState"])
 
   publish_state = PublishState()
   params = Params()
@@ -557,6 +569,13 @@ def main(demo=False):
       meta_extra = meta_main
 
     sm.update(0)
+    handoff = conditional_runtime.before_frame(sm)
+    if handoff is not None:
+      model, small_prepared, _ = handoff
+      prev_action = log.ModelDataV2.Action(desiredCurvature=float(sm['controlsState'].curvature))
+      DH = DesireHelper(runtime_lane_policy)
+      frame_dropped_filter.x = 0.
+      run_count = 0
     turn_models = (model.lateral, model.longitudinal) if isinstance(model, LaboratoryPair) else (model,)
     turn_supported = all(state.npy.get('desire') is not None and state.npy['desire'].shape[-1] == 8 for state in turn_models)
     desire = navigation_turn.select(sm, time.monotonic_ns(), DH.desire,
@@ -617,30 +636,46 @@ def main(demo=False):
     model.lat_delay = lat_delay
     model.frame_drop_ratio = frame_drop_ratio
     mt1 = time.perf_counter()
+    conditional_action = None
     try:
       send_chestnut = (chestnut_state is not None and
                        run_count % round(ModelConstants.MODEL_RUN_FREQ / SERVICE_LIST['chestnutGpuState'].frequency) == 0)
       model_output = model.run(bufs, transforms, inputs, chestnut_state.send if send_chestnut else None)
+      if conditional_runtime.owner.phase == 'switching':
+        conditional_action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego)
       laboratory_action = (model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego)
                            if isinstance(model, LaboratoryPair) else None)
     except Exception:
-      if not model.chestnut:
+      if conditional_runtime.owner.phase == 'switching':
+        cloudlog.exception('Conditional Model candidate failed; retaining the previous model')
+        conditional_runtime.owner.abort('Candidate inference failed; previous model restored', time.monotonic_ns())
+        model, small_prepared, _ = conditional_runtime.owner.models[conditional_runtime.owner.active]
+        prev_action = log.ModelDataV2.Action(desiredCurvature=float(sm['controlsState'].curvature))
+        DH = DesireHelper(runtime_lane_policy)
+        conditional_action = None
+        model.lat_delay, model.frame_drop_ratio = lat_delay, frame_drop_ratio
+        model_output = model.run(bufs, transforms, inputs)
+      elif not model.chestnut:
         raise
-      # fallback to small model
-      fallback_reason = "chestnut-load-failed"
-      if model is jetlink_model:
-        model.close()
-        fallback_reason = None
       else:
-        drop_chestnut()
-        params.put_bool("ChestnutActive", False)
-      cloudlog.exception("big model failed, fall back to small")
-      model = small_model
-      receipt_owner.loaded(small_prepared, ModelVariant.SMALL, fallback_reason, model_id=model.model_id)
-      if chestnut_state is not None:
-        chestnut_state.big = False
-      run_count = 0
-      model_output = None
+        # Existing Chestnut/Jetlink fallback is owned below.
+        model_output = None
+      if model.chestnut:
+        # fallback to small model
+        fallback_reason = "chestnut-load-failed"
+        if model is jetlink_model:
+          model.close()
+          fallback_reason = None
+        else:
+          drop_chestnut()
+          params.put_bool("ChestnutActive", False)
+        cloudlog.exception("big model failed, fall back to small")
+        model = small_model
+        receipt_owner.loaded(small_prepared, ModelVariant.SMALL, fallback_reason, model_id=model.model_id)
+        if chestnut_state is not None:
+          chestnut_state.big = False
+        run_count = 0
+        model_output = None
     mt2 = time.perf_counter()
     model_execution_time = mt2 - mt1
     if model is jetlink_model and HOOKS.handed_over(model):
@@ -653,6 +688,11 @@ def main(demo=False):
       cloudlog.event("jetlinkHandover", state=HOOKS.state(model), handovers=model.handovers)
 
     if model_output is not None and vipc_dropped_frames == 0:
+      if conditional_runtime.owner.models and model.model_id != conditional_loaded_id:
+        small_model = model
+        receipt_owner.loaded(small_prepared, ModelVariant.SMALL, model_id=model.model_id)
+        cloudlog.event('conditionalModelHandover', model_id=model.model_id, request=conditional_runtime.owner.request)
+        conditional_loaded_id = model.model_id
       modelv2_send = messaging.new_message('modelV2')
       drivingdata_send = messaging.new_message('drivingModelData')
       posenet_send = messaging.new_message('cameraOdometry')
@@ -661,7 +701,8 @@ def main(demo=False):
         assert laboratory_action is not None
         action = laboratory_action
       else:
-        action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego)
+        action = (conditional_action if conditional_action is not None else
+                  model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego))
       filter_action(action, prev_action, v_ego, subaru_tau + volkswagen_tau + kona_tau)
       prev_action = action
       fill_model_msg(modelv2_send, model_output, action,
@@ -719,6 +760,9 @@ def main(demo=False):
         pm.send('laneChangeAssistWire', lane_status_msg)
       pm.send('drivingModelData', drivingdata_send)
       pm.send('cameraOdometry', posenet_send)
+    settled_frame = (model_output is not None and vipc_dropped_frames == 0 and
+                     modelv2_send.valid and drivingdata_send.valid and posenet_send.valid)
+    conditional_runtime.publish(pm, sm, int(modelv2_send.logMonoTime) if settled_frame else 0)
     last_vipc_frame_id = meta_main.frame_id
 
 if __name__ == "__main__":

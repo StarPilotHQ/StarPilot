@@ -11,7 +11,7 @@ from openpilot.starpilot.models.receipt import process_start_ticks, read_receipt
 from openpilot.starpilot.models.status import ModelLoad, ModelOutput, ModelProcess, ModelStatus, project_status, project_laboratory_status
 
 
-MODEL_SERVICES = ("managerState", "modelV2", "drivingModelData")
+MODEL_SERVICES = ("managerState", "modelV2", "drivingModelData", "conditionalModelState")
 
 
 def _stamp(sm: Any, service: str, now_mono_ns: int) -> tuple[int, bool]:
@@ -80,7 +80,11 @@ class ModelStatusSource:
     self.sm.update(0)
     from openpilot.selfdrive.modeld.helpers import chestnut_present
     from openpilot.starpilot.models.manager import requested_runtime_id
-    return snapshot(self.sm, self.params, self.clock(), requested_id=requested_runtime_id(chestnut_present()))
+    requested = requested_runtime_id(chestnut_present())
+    conditional = self.conditional_json()
+    if conditional is not None and conditional['phase'] in ('ready', 'switching', 'recovering'):
+      requested = conditional['activeModel']
+    return snapshot(self.sm, self.params, self.clock(), requested_id=requested)
 
   def json(self) -> dict[str, object]:
     status = self.snapshot()
@@ -90,7 +94,29 @@ class ModelStatusSource:
             "variant": status.variant.value if status.variant is not None else None,
             "health": status.health.value, "fallbackReason": status.fallback_reason,
             "artifactSha256": status.artifact_sha256, "pendingNextStart": status.pending_next_start,
+            "conditionalModelState": self.conditional_json(),
             "laboratory": self.laboratory_json(self.laboratory_configuration())}
+
+  def conditional_json(self) -> dict | None:
+    now = self.clock()
+    process = _process(self.sm, now, process_start_ticks)
+    if process is None or not _stamp(self.sm, 'conditionalModelState', now)[1]:
+      return None
+    try:
+      state = self.sm['conditionalModelState']
+      if (int(state.processPid), int(state.processStartTicks)) != (process.pid, process.start_ticks):
+        return None
+      fresh_output = bool(0 < int(state.sessionStartMonoTime) <= int(state.frameMonoTime) <= now and
+                         all(_stamp(self.sm, name, now)[1] and int(state.frameMonoTime) <= self.sm.logMonoTime[name]
+                             for name in ('modelV2', 'drivingModelData')))
+      return {'session': str(state.session), 'requestId': str(state.requestId), 'phase': str(state.phase),
+              'activeModel': str(state.activeModel), 'highwayModel': str(state.highwayModel), 'cityModel': str(state.cityModel),
+              'error': str(state.error), 'canSwitch': bool(fresh_output and state.canSwitch),
+              'paused': bool(state.paused), 'targetMode': str(state.targetMode),
+              'thresholdMph': int(state.thresholdMph), 'unavailableReason': str(state.unavailableReason),
+              'transitionSeconds': float(state.transitionSeconds)}
+    except (AttributeError, KeyError, ValueError, TypeError):
+      return None
 
   @staticmethod
   def laboratory_configuration() -> dict:

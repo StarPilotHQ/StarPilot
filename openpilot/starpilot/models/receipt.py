@@ -23,7 +23,7 @@ MAX_RECEIPT_BYTES = 1024
 MAX_ARTIFACT_BYTES = 2 * 1024 * 1024 * 1024
 _PREFIX = re.compile(r"[A-Za-z0-9_-]{1,32}\Z")
 _DIGEST = re.compile(r"[0-9a-f]{64}\Z")
-_REASONS = {None, "chestnut-load-failed", "chestnut-run-stalled", "selected-load-failed"}
+_REASONS = {None, "chestnut-load-failed", "chestnut-run-stalled", "selected-load-failed", "conditional-switch-failed"}
 
 
 class ReceiptUnavailable(ValueError):

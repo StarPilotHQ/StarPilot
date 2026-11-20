@@ -234,6 +234,8 @@ class SelfdriveD:
     self.initialized = False
     self.enabled = False
     self.active = False
+    from openpilot.starpilot.models.conditional_runtime import ConditionalModelGate
+    self.conditional_model_gate = ConditionalModelGate()
     self.mismatch_counter = 0
     self.cruise_mismatch_counter = 0
     self.last_steering_pressed_frame = 0
@@ -1300,6 +1302,8 @@ class SelfdriveD:
     for alert_type in DEPARTURE_ALERTS:
       if alert_type not in retained_types:
         self.AM.alerts.pop(alert_type, None)
+    if getattr(self, 'conditional_model_gate', None) is not None:
+      self.conditional_model_gate.update_alerts(alerts, self.AM, self.sm.frame)
     self.AM.add_many(self.sm.frame, alerts)
     self.AM.process_alerts(self.sm.frame, clear_event_types)
     from openpilot.starpilot.audio.availability_warning import AvailabilityWarningDelivery
@@ -2312,6 +2316,10 @@ class SelfdriveD:
         self.events.add(EventName.controlsMismatch)
         lost_active_aol |= pause
     was_enabled = self.enabled
+    conditional_gate = getattr(self, 'conditional_model_gate', None)
+    conditional_hold = conditional_gate.step(self, CS) if conditional_gate is not None else False
+    if conditional_hold:
+      self.events.add(EventName.selfdriveInitializing)
     if self.aol_replay and source_current and was_enabled and (
         CS.doorOpen or any(event in LONGITUDINAL_ONLY_EVENTS for event in self.events.names)):
       # Ordinary cruise is withdrawn; its legacy permission is no longer expected.
@@ -2406,6 +2414,8 @@ class SelfdriveD:
     if (getattr(self, 'hkg_angle_steering', False) and self.aol_axis_decision.lateral_active and
         EventName.steerSaturated in self.events.names and ET.WARNING not in self.state_machine.current_alert_types):
       self.state_machine.current_alert_types.append(ET.WARNING)
+    if conditional_hold:
+      self.aol_axis_decision = AxisDecision()
     axis_published = bool(not REPLAY and self.aol_replay and self.axis_transport_required)
     if axis_published:
       self.aol_axis_publication_deferred = bool(not previous_deferred and self.defer_expired_axis_publication(CS, initial_state))

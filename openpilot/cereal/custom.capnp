@@ -1594,3 +1594,32 @@ struct LiveTrackingResponseWitness @0xdaa1a9f0d8968e31 {
  residualRmse @6 :Float64; validUntilMonoTime @7 :UInt64;
 }
 
+struct ConditionalModelState {
+  session @0 :Text;
+  requestId @1 :Text;
+  phase @2 :Text;
+  activeModel @3 :Text;
+  highwayModel @4 :Text;
+  cityModel @5 :Text;
+  error @6 :Text;
+  frameMonoTime @7 :UInt64;
+  canSwitch @8 :Bool;
+  processPid @9 :UInt32;
+  processStartTicks @10 :UInt64;
+  sessionStartMonoTime @11 :UInt64;
+  transitionSeconds @12 :Float32;
+  fallbackModel @13 :Text;
+  paused @14 :Bool;
+  targetMode @15 :Text;
+  thresholdMph @16 :UInt16;
+  unavailableReason @17 :Text;
+}
+
+struct ConditionalModelAck {
+  session @0 :Text;
+  requestId @1 :Text;
+  holding @2 :Bool;
+  stateMonoTime @3 :UInt64;
+  idle @4 :Bool;
+}
+

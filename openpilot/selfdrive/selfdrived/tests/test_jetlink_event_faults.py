@@ -29,6 +29,7 @@ class Sources:
     self.recv_frame = dict.fromkeys(self.data, self.frame)
     self.recv_frame['alertDebug'] = self.recv_frame['lateralManeuverPlan'] = 0
     self.logMonoTime = dict.fromkeys(self.data, 100_000_000_000)
+    self.services = list(self.data)
     self['controlsState'].lateralControlState.init('pidState')
     self['extrinsicsCalibration'].calStatus = log.ExtrinsicsCalibration.Status.calibrated
     self['deviceState'].freeSpacePercent = 100
@@ -79,7 +80,7 @@ def events_drive():
 
 @pytest.mark.parametrize('fault,event', [('comm', EventName.commIssue),
   ('posenet', EventName.posenetInvalid), ('localizer', EventName.locationdTemporaryError),
-  ('can', EventName.canError), ('radar', EventName.canError), ('process', EventName.processNotRunning)])
+  ('can', EventName.canError), ('radar', EventName.radarFault), ('process', EventName.processNotRunning)])
 def test_real_selfdrived_faults_survive_jetlink_swap(fault, event):
   drive, cs = events_drive()
   with patch('openpilot.selfdrive.selfdrived.helpers.time.monotonic', return_value=100.):

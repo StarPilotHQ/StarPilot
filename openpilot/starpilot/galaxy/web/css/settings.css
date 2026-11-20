@@ -321,13 +321,16 @@ input[type="range"].gx-slider:active::-moz-range-thumb {
 .gx-model-manager { --panel-padding: var(--sp-4); gap: var(--sp-3); }
 .gx-model-manager .gx-btn, .gx-model-card__progress { min-height: var(--touch-target); padding: 6px var(--sp-4); }
 
-/* Single / pair mode switch */
-.gx-tabs.gx-model-mode { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; border-radius: var(--radius-full);
+/* Driving model settings tabs */
+.gx-tabs.gx-model-mode { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 4px; border-radius: var(--radius-full);
   border: 1px solid var(--glass-border); background: var(--surface-container-high); }
 .gx-model-mode > button { display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-2); min-height: 40px; border: 0; border-radius: var(--radius-full);
   background: transparent; color: var(--on-surface-variant); font: inherit; font-weight: var(--fw-bold); cursor: pointer; transition: background-color var(--motion-fast), color var(--motion-fast); }
 .gx-model-mode > button[aria-pressed="true"] { background: var(--primary); color: var(--on-primary); box-shadow: 0 4px 12px var(--primary-glow); }
 .gx-model-mode > button:disabled { opacity: .5; cursor: not-allowed; }
+@media (max-width: 480px) {
+  .gx-model-mode > button { flex-direction: column; gap: 2px; padding: 6px 2px; font-size: var(--fs-sm); }
+}
 
 /* Driving and Laboratory controls */
 .gx-model-driving__body, .gx-model-laboratory { display: grid; gap: var(--sp-3); }

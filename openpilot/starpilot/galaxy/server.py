@@ -548,7 +548,8 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
         from openpilot.common.params import Params
         from openpilot.starpilot.models.manager import ModelManager
         authority = context_source(Params())
-        model_manager_source = ModelManager(parked=authority.parked, refresh_catalog=True)
+        model_manager_source = ModelManager(parked=authority.parked, refresh_catalog=True,
+                                            live_status=lambda: model_status().get('conditionalModelState'))
         server.model_authority = authority
       server.model_manager_source = model_manager_source
       return model_manager_source
@@ -1738,7 +1739,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
                       '/api/ui/layout', '/api/ui/layout/preview', '/api/favorites/slots',
                       '/api/maps/start', '/api/maps/cancel',
                         '/api/bluetooth/action', '/api/controllers/action',
-                      '/api/models/active', '/api/models/preferences', '/api/models/download', '/api/models/download_all',
+                      '/api/models/active', '/api/models/conditional_model', '/api/models/preferences', '/api/models/download', '/api/models/download_all',
                       '/api/models/cancel', '/api/models/delete', '/api/models/refresh_manifest', '/api/models/jetlink',
                       '/api/models/laboratory', '/api/models/laboratory/download', '/api/models/laboratory/delete',
                       '/api/sounds/preview', '/api/sounds/download', '/api/sounds/cancel', '/api/software/action', '/api/drives/ignore',

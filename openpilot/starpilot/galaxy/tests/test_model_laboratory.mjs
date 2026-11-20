@@ -81,13 +81,15 @@ assert.equal(download.requests[1].url,'./api/models/laboratory/download');assert
 await download.reply(1,{message:'Starting download'});await download.reply(2,{...p,download:{downloading:true,jobId:'job',progress:'40%'}});await downloading
 const canceling=download.feed.action('cancel');assert.equal(download.requests[3].url,'./api/models/cancel');assert.deepEqual(JSON.parse(download.requests[3].options.body),{jobId:'job'})
 await download.reply(3,{message:'Cancelling'});await download.reply(4,p);await canceling;download.feed.stop()
-// Model Laboratory lives on the Models page: Single model / Model pair mode switcher and eGPU variants on the model rows
+// Split Model has its own tab alongside Single Model and Conditional Model.
 const template = ModelsPage.template
 const labCard = template.indexOf('id="gx-model-laboratory"')
-assert.ok(template.indexOf('Single model') < labCard && labCard < template.indexOf('gx-model-list'))
-assert.match(template,/aria-label="Lateral model"/)
-assert.match(template,/aria-label="Longitudinal model"/)
-assert.ok(template.includes(`@click="setDriveMode('pair')"><i aria-hidden="true" class="bi bi-bezier2"></i> Model pair</button>`))
+assert.ok(template.indexOf('Single Model') < labCard && labCard < template.indexOf('gx-model-list'))
+assert.match(template,/aria-label="Steering model"/)
+assert.match(template,/aria-label="Speed model"/)
+assert.ok(template.includes(`@click="setDriveMode('split')"><i aria-hidden="true" class="bi bi-bezier2"></i> Split Model</button>`))
+assert.match(template, /setDriveMode\('conditional'\)/)
+assert.match(template, /Use Split Model/)
 assert.match(template,/Verified downloads/)
 assert.match(template,/eGPU variant/)
 assert.match(template,/Pairable/)
@@ -107,7 +109,7 @@ console.log('Model Laboratory contracts passed')
 assert.match(template,/steers · \{\{ labModelLabel\(labConfig\.longitudinalModel\) \}\} paces/)
 assert.match(template,/The pair takes effect the next time the driving model starts/)
 assert.match(template,/row\?\.small \|\| row\?\.modelLabEligible/)
-assert.match(template,/Pair lateral judgment from one model with longitudinal judgment from another\./)
+assert.match(template,/One model for steering, another for speed\. Requires Chestnut\./)
 
 const malformedSave=fixture();malformedSave.feed.start();await malformedSave.reply(0,p)
 const malformedSaving=malformedSave.feed.action('save',null,p.configuration)

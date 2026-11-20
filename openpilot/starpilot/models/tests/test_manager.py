@@ -401,6 +401,124 @@ class ModelManagerTest(unittest.TestCase):
     with patch.object(self.manager, 'jetlink_owner', return_value=owner), self.assertRaises(ModelError):
       self.manager.action('active', {'profile': 'big', 'model': ''})
 
+  def enable_conditional_model(self):
+    self.download()
+    return self.manager.action('conditional_model', {'enabled': True, 'highway': DEFAULT_SMALL, 'city': 'gwm8223'})
+
+  def test_conditional_model_always_starts_city_and_preserves_single_model_preference(self):
+    self.manager.gpu_present = lambda: False
+    result = self.enable_conditional_model()
+    self.assertEqual(result['activeSmallModel'], 'gwm8223')
+    self.assertEqual(preferences(self.root)['small'], DEFAULT_SMALL)
+    for _ in range(3):
+      self.assertEqual(resolve_runtime(False, root=self.root).small_id, 'gwm8223')
+    self.manager.action('conditional_model', {'enabled': False})
+    self.assertEqual(resolve_runtime(False, root=self.root).small_id, DEFAULT_SMALL)
+
+  def test_conditional_recovery_override_is_not_saved_as_next_drive_start(self):
+    self.enable_conditional_model()
+    before = (self.root / 'preferences.json').read_bytes()
+    self.assertEqual(resolve_runtime(False, root=self.root, small_override=DEFAULT_SMALL).small_id, DEFAULT_SMALL)
+    self.assertEqual(resolve_runtime(False, root=self.root).small_id, 'gwm8223')
+    self.assertEqual((self.root / 'preferences.json').read_bytes(), before)
+    with self.assertRaises(ModelError):
+      resolve_runtime(False, root=self.root, small_override='unknown-model')
+
+  def test_conditional_model_has_only_enabled_models_and_speed(self):
+    result = self.enable_conditional_model()['conditionalModel']
+    self.assertEqual(result, {'enabled': True, 'city': 'gwm8223', 'highway': DEFAULT_SMALL, 'thresholdMph': 50})
+    self.manager.action('conditional_model', {'thresholdMph': 60})
+    self.assertEqual(preferences(self.root)['conditionalModel']['thresholdMph'], 60)
+
+  def test_conditional_model_rejects_invalid_and_removed_settings_without_writes(self):
+    before = preferences(self.root)
+    for payload in ({}, {'unknown': True}, {'enabled': 1}, {'selected': 'highway'}, {'automatic': False},
+                    {'cityDelaySeconds': 10}, {'session': 'a' * 32}, {'city': '../escape'}, {'city': 'cinquev3'},
+                    {'city': None}, {'thresholdMph': True}, {'thresholdMph': 0}, {'thresholdMph': 101}, {'thresholdMph': 50.5}):
+      with self.subTest(payload=payload), self.assertRaises(ModelError):
+        self.manager.action('conditional_model', payload)
+      self.assertEqual(preferences(self.root), before)
+
+  def test_conditional_model_defaults_to_fifty_mph_with_identical_models_allowed(self):
+    payload = {'enabled': True, 'city': DEFAULT_SMALL, 'highway': DEFAULT_SMALL}
+    result = self.manager.action('conditional_model', payload)
+    self.assertEqual(result['conditionalModel']['thresholdMph'], 50)
+    before = (self.root / 'preferences.json').read_bytes()
+    self.manager.action('conditional_model', payload)
+    self.assertEqual((self.root / 'preferences.json').read_bytes(), before)
+
+  def test_legacy_manual_configuration_migrates_to_city_start_and_automatic_only(self):
+    self.download()
+    legacy = {'enabled': True, 'highway': DEFAULT_SMALL, 'city': 'gwm8223', 'selected': 'highway',
+              'automatic': False, 'thresholdMph': 60, 'cityDelaySeconds': 300}
+    atomic_json(self.root / 'preferences.json', {'small': DEFAULT_SMALL, 'smallProfiles': legacy, 'liveRequest': {'model': DEFAULT_SMALL}})
+    result = preferences(self.root)
+    self.assertEqual(result['conditionalModel'], {'enabled': True, 'highway': DEFAULT_SMALL, 'city': 'gwm8223', 'thresholdMph': 60})
+    self.assertNotIn('liveRequest', result)
+    self.assertEqual(resolve_runtime(False, root=self.root).small_id, 'gwm8223')
+    self.manager.action('conditional_model', {'thresholdMph': 50})
+    saved = json.loads((self.root / 'preferences.json').read_text())
+    self.assertNotIn('smallProfiles', saved)
+    self.assertNotIn('liveRequest', saved)
+
+  def test_conditional_model_rejects_onroad_and_boundary_race(self):
+    self.enable_conditional_model()
+    before = (self.root / 'preferences.json').read_bytes()
+    for parked in (lambda: False, unittest.mock.Mock(side_effect=[True, False])):
+      self.manager.parked = parked
+      with self.assertRaisesRegex(ModelError, 'vehicle off'):
+        self.manager.action('conditional_model', {'thresholdMph': 60})
+      self.assertEqual((self.root / 'preferences.json').read_bytes(), before)
+
+  def test_conditional_model_verifies_both_and_preserves_corrupt_city_fallback(self):
+    self.enable_conditional_model()
+    (self.root / 'gwm8223/gwm8223_driving_tinygrad.pkl').write_bytes(b'corrupt')
+    before = preferences(self.root)
+    with self.assertRaisesRegex(ModelError, 'verify both'):
+      self.manager.action('conditional_model', {'thresholdMph': 60})
+    self.assertEqual(preferences(self.root), before)
+    self.assertEqual(resolve_runtime(False, root=self.root).small_id, DEFAULT_SMALL)
+
+  def test_conditional_model_arbitrates_randomizer_single_selection_and_delete(self):
+    self.enable_conditional_model()
+    for action, payload in (('preferences', {'randomizer': True}), ('active', {'profile': 'small', 'model': DEFAULT_SMALL}),
+                            ('delete', {'model': 'gwm8223'})):
+      with self.subTest(action=action), self.assertRaises(ModelError):
+        self.manager.action(action, payload)
+    self.manager.action('conditional_model', {'enabled': False})
+    self.manager.action('preferences', {'randomizer': True})
+    with self.assertRaisesRegex(ModelError, 'Randomizer off'):
+      self.manager.action('conditional_model', {'enabled': True})
+
+  def test_conditional_model_failed_commit_and_busy_job_preserve_configuration(self):
+    self.enable_conditional_model()
+    before = (self.root / 'preferences.json').read_bytes()
+    with patch('openpilot.starpilot.models.manager.atomic_json', side_effect=OSError('disk full')), self.assertRaises(OSError):
+      self.manager.action('conditional_model', {'thresholdMph': 60})
+    with patch.object(self.manager, '_job_busy', return_value=True), self.assertRaisesRegex(ModelError, 'download'):
+      self.manager.action('conditional_model', {'thresholdMph': 60})
+    self.assertEqual((self.root / 'preferences.json').read_bytes(), before)
+
+  def test_malformed_conditional_configuration_cannot_enable_from_legacy_fallback(self):
+    self.enable_conditional_model()
+    saved = preferences(self.root)
+    for value in (None, [], {'enabled': True}, saved['conditionalModel'] | {'selected': 'highway'}):
+      atomic_json(self.root / 'preferences.json', saved | {'conditionalModel': value, 'smallProfiles': saved['conditionalModel']})
+      self.assertFalse(preferences(self.root)['conditionalModel']['enabled'])
+      self.assertEqual(resolve_runtime(False, root=self.root).small_id, DEFAULT_SMALL)
+
+  def test_conditional_model_partial_updates_preserve_other_preferences(self):
+    self.enable_conditional_model()
+    other = ModelManager(root=self.root, parked=lambda: True, gpu_present=lambda: False)
+    self.addCleanup(other.close)
+    other.action('preferences', {'userFavorites': ['gwm8223']})
+    other.action('conditional_model', {'thresholdMph': 60})
+    self.manager.action('conditional_model', {'highway': 'gwm8223'})
+    saved = preferences(self.root)
+    self.assertEqual(saved['userFavorites'], ['gwm8223'])
+    self.assertEqual(saved['conditionalModel'], {'enabled': True, 'city': 'gwm8223', 'highway': 'gwm8223', 'thresholdMph': 60})
+    self.assertEqual(saved['small'], DEFAULT_SMALL)
+
   def test_hardware_profiles_and_selected_delete(self):
     self.download()
     with self.assertRaises(ModelError):

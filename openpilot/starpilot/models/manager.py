@@ -29,6 +29,7 @@ from openpilot.starpilot.models.catalog import (
 RESOURCE_URL = "https://huggingface.co/buckets/StarPilot-Driving/StarPilot-Resources/resolve"
 from openpilot.common.hardware import PC
 from openpilot.starpilot.storage import starpilot_storage_root
+from openpilot.starpilot.models import conditional_model
 
 _HOST_MODELS = os.environ.get("STARPILOT_MODEL_DIR", "") if PC else ""
 ROOT = (Path(_HOST_MODELS) if _HOST_MODELS else starpilot_storage_root() / "models" if PC else Path("/data/models")) / GENERATION
@@ -206,7 +207,7 @@ def catalog(root: Path = ROOT) -> dict[str, dict]:
 
 def preferences(root: Path = ROOT) -> dict:
   default = {"small": DEFAULT_SMALL, "big": "", "userFavorites": [], "sortMode": "name",
-             "randomizer": False, "blacklistedModels": []}
+             "randomizer": False, "blacklistedModels": [], "conditionalModel": conditional_model.defaults()}
   try:
     saved = read_json(root / "preferences.json", 16384)
     entries = model_entries(root)
@@ -222,6 +223,7 @@ def preferences(root: Path = ROOT) -> dict:
       default["randomizer"] = saved["randomizer"]
     if saved.get("sortMode") in ("name", "date", "date_oldest", "community", "series", "favorites", "released"):
       default["sortMode"] = saved["sortMode"]
+    default["conditionalModel"] = conditional_model.configuration(saved | {"randomizer": default["randomizer"]}, entries)
   except (OSError, ValueError, TypeError):
     pass
   return default
@@ -309,7 +311,7 @@ class RuntimeSelection:
 
 def requested_runtime_id(chestnut_available: bool, *, root: Path = ROOT) -> str:
   prefs = preferences(root)
-  return prefs["big"] if chestnut_available and prefs["big"] else prefs["small"]
+  return prefs["big"] if chestnut_available and prefs["big"] else conditional_model.starting_model(prefs)
 
 
 def randomize_next_start(chestnut_available: bool, *, root: Path = ROOT, chooser=random.choice) -> dict:
@@ -330,10 +332,12 @@ def randomize_next_start(chestnut_available: bool, *, root: Path = ROOT, chooser
     return prefs
 
 
-def resolve_runtime(chestnut_available: bool, *, root: Path = ROOT, randomize: bool = False) -> RuntimeSelection:
+def resolve_runtime(chestnut_available: bool, *, root: Path = ROOT, randomize: bool = False, small_override: str | None = None) -> RuntimeSelection:
   prefs = randomize_next_start(chestnut_available, root=root) if randomize else preferences(root)
   entries = catalog(root)
-  small, big = prefs["small"], prefs["big"]
+  if small_override is not None and (small_override not in entries or entries[small_override].get('uses_external_gpu')):
+    raise ModelError('Invalid recovery Small model')
+  small, big = small_override or conditional_model.starting_model(prefs), prefs["big"]
   small_path = verified_artifact(small, entries, root)
   shipped = small == DEFAULT_SMALL and small_path is None
   if shipped:
@@ -354,11 +358,13 @@ def resolve_runtime(chestnut_available: bool, *, root: Path = ROOT, randomize: b
 
 class ModelManager:
   def __init__(self, *, root: Path = ROOT, parked: Callable[[], bool] | None = None,
-               gpu_present: Callable[[], bool] | None = None, opener=urlopen, jetlink=None, refresh_catalog: bool = False):
+               gpu_present: Callable[[], bool] | None = None, opener=urlopen, jetlink=None, refresh_catalog: bool = False,
+               live_status: Callable[[], dict | None] = lambda: None):
     self.root, self.opener = root, opener
     self.refresh_catalog = refresh_catalog
     self.last_refresh_attempt: float | None = None
     self.jetlink = jetlink
+    self.live_status = live_status
     self.parked = parked or (lambda: False)
     if gpu_present is None:
       from openpilot.selfdrive.modeld.helpers import chestnut_present
@@ -614,6 +620,7 @@ class ModelManager:
       from openpilot.starpilot.models.laboratory import configuration
       entries, prefs = catalog(self.root), preferences(self.root)
       parked, gpu = self.parked(), self.gpu_present()
+      live = self.live_status()
       job = self._job_status()
       owner = self.jetlink_owner()
       jetlink = owner.snapshot()
@@ -637,9 +644,11 @@ class ModelManager:
                        "unavailableReason": "" if installed else "Checking artifact" if checking else
                        "Download required" if published else f"{GENERATION} download not published"})
       count = sum(bool(row["installed"]) for row in models)
-      return {"schemaVersion": 1, "models": models, "activeSmallModel": prefs["small"], "activeBigModel": active_big,
+      return {"schemaVersion": 1, "models": models, "activeSmallModel": conditional_model.starting_model(prefs), "activeBigModel": active_big,
+              "conditionalModel": prefs["conditionalModel"],
+              "conditionalModelState": live,
               "jetlinkBig": jetlink_big, "bigNoneLabel": big_none, "laboratory": configuration(self.root),
-              "currentModel": prefs["big"] if gpu and prefs["big"] else prefs["small"], "userFavorites": prefs["userFavorites"],
+              "currentModel": prefs["big"] if gpu and prefs["big"] else conditional_model.starting_model(prefs), "userFavorites": prefs["userFavorites"],
               "sortMode": prefs["sortMode"], "randomizer": prefs["randomizer"], "blacklistedModels": prefs["blacklistedModels"],
               "summary": {"total": len(models), "installed": count, "missing": len(models)-count},
               "jobId": job.get("jobId", ""), "cancelRequested": job.get("cancelRequested", False),
@@ -649,6 +658,7 @@ class ModelManager:
               "downloadProgress": self._download_progress(job),
               "isOnroad": not parked, "gpuAvailable": gpu, "jetlink": jetlink,
               "capabilities": {"configureLaboratory": not job["downloading"], "select": True, "download": parked,
+                               "conditionalModel": parked and not job["downloading"] and not prefs["randomizer"],
                                "downloadAll": parked, "cancel": True,
                                "jetlink": parked, "refresh": parked, "favorites": True, "delete": parked, "randomizer": True, "exclusions": True}}
 
@@ -660,6 +670,8 @@ class ModelManager:
     if not isinstance(payload, dict):
       raise ModelError("Invalid model request")
     with self.lock:
+      if action == "conditional_model":
+        return self._configure_conditional_model(payload)
       if action == "jetlink":
         self._require_parked()
         return self.jetlink_owner().configure(payload)
@@ -693,6 +705,8 @@ class ModelManager:
           raise ModelError("Invalid sort mode")
         with state_lock(self.root):
           saved = preferences(self.root)
+          if payload.get("randomizer") is True and saved["conditionalModel"]["enabled"]:
+            raise ModelError("Disable Conditional Model before enabling Model Randomizer")
           saved.update(payload)
           atomic_json(self.root / "preferences.json", saved)
         return {**self.snapshot(), "message": "Model preferences saved"}
@@ -773,6 +787,8 @@ class ModelManager:
           if jetlink:
             self._require_parked()
           saved = preferences(self.root)
+          if profile == "small" and saved["conditionalModel"]["enabled"]:
+            raise ModelError("Choose a highway/city profile or disable profiles before choosing Active Small")
           if saved["randomizer"]:
             raise ModelError("Turn Model Randomizer off before choosing a model")
           job = self._read_job()
@@ -795,13 +811,38 @@ class ModelManager:
           saved = preferences(self.root)
           if self._job_busy():
             raise ModelError("Wait for the model download to finish before deleting a model")
-          if mid in (saved["small"], saved["big"]):
+          if mid in (saved["small"], saved["big"], *(saved["conditionalModel"][role] for role in conditional_model.CONDITIONS)):
             raise ModelError("Select another model before deleting this one")
           self._require_parked()
           path.unlink(missing_ok=True)
           self.checked.pop(f"{mid}:standard", None)
         return {"message": "Downloaded model deleted"}
       raise ModelError("Unknown model action")
+
+  def _configure_conditional_model(self, payload: dict) -> dict:
+    self._require_parked()
+    if not payload or set(payload) - set(conditional_model.defaults()):
+      raise ModelError('Invalid Conditional Model configuration')
+    with state_lock(self.root):
+      saved = preferences(self.root)
+      value = saved['conditionalModel'] | payload
+      if not conditional_model.validate(value, model_entries(self.root)):
+        raise ModelError('Choose local Small models and a speed from 10 to 100 mph')
+      if saved['randomizer']:
+        raise ModelError('Turn Model Randomizer off before configuring Conditional Model')
+      if self._job_busy():
+        raise ModelError('Wait for the model download to finish before configuring Conditional Model')
+      entries = catalog(self.root)
+      if value['enabled']:
+        for mid in {value[name] for name in conditional_model.CONDITIONS}:
+          if not self._installed(mid, entries):
+            raise ModelError('Download and verify both Small models first')
+      self._require_parked()
+      saved['conditionalModel'] = value
+      atomic_json(self.root / 'preferences.json', saved)
+    logging.info('Conditional Model configured: enabled=%s city=%s highway=%s threshold_mph=%s',
+                 value['enabled'], value['city'], value['highway'], value['thresholdMph'])
+    return {**self.snapshot(), 'message': 'Conditional Model saved for the next drive'}
 
   def _refresh(self) -> None:
     url = f"{RESOURCE_URL}/manifests/model_names_{GENERATION}.json"

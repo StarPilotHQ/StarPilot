@@ -3,9 +3,10 @@ import time
 import tempfile
 import unittest
 import uuid
+from unittest.mock import patch
 
 from openpilot.starpilot.models.catalog import BUNDLED_CURRENT
-from openpilot.starpilot.models.runtime import snapshot
+from openpilot.starpilot.models.runtime import ModelStatusSource, snapshot
 from openpilot.starpilot.models.status import ModelHealth, ModelLoad, ModelVariant
 
 
@@ -50,6 +51,29 @@ class TestRuntimeSnapshot(unittest.TestCase):
     self.sm.valid["drivingModelData"] = True
     self.sm.logMonoTime["managerState"] = 100
     self.assertEqual(self.status().health, ModelHealth.UNAVAILABLE)
+
+  def test_conditional_switch_permission_requires_owned_publisher_and_both_fresh_outputs(self):
+    conditional = SimpleNamespace(processPid=421, processStartTicks=54321, session='session', requestId='request',
+                           phase='ready', activeModel='cheddar', highwayModel='cheddar', cityModel='city',
+                           error='', canSwitch=True, sessionStartMonoTime=1_800_000_000,
+                           frameMonoTime=1_990_000_000, transitionSeconds=.25, paused=False, targetMode='city', thresholdMph=50, unavailableReason='')
+    self.sm.messages['conditionalModelState'] = conditional
+    self.sm.logMonoTime['conditionalModelState'] = 1_995_000_000
+    self.sm.valid['conditionalModelState'] = self.sm.alive['conditionalModelState'] = True
+    source = ModelStatusSource(FakeParams(), sm=self.sm, clock=lambda: 2_000_000_000)
+    with patch('openpilot.starpilot.models.runtime.process_start_ticks', return_value=54321):
+      self.assertTrue(source.conditional_json()['canSwitch'])
+      self.sm.valid['drivingModelData'] = False
+      self.assertFalse(source.conditional_json()['canSwitch'])
+      self.sm.valid['drivingModelData'] = True
+      conditional.frameMonoTime = 1_799_000_000
+      self.assertFalse(source.conditional_json()['canSwitch'])
+      conditional.frameMonoTime = 1_990_000_000
+      conditional.processStartTicks = 54322
+      self.assertIsNone(source.conditional_json())
+      conditional.processStartTicks = 54321
+      self.sm.logMonoTime['conditionalModelState'] = 1_000_000_000
+      self.assertIsNone(source.conditional_json())
 
   def test_pid_reuse_or_actual_variant_mismatch_does_not_claim_identity(self):
     self.assertEqual(self.status(process_ticks=54322).health, ModelHealth.IDENTITY_UNAVAILABLE)

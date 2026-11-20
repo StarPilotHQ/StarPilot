@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { GalaxySettingRow, settingControl } from "../web/js/galaxy-setting-row.js"
 import { ModelStatusFeed, ModelManagerFeed, ModelsPage, modelActionAllowed, fitsModelProfile, formatRate, formatEta, describeProgress } from "../web/js/models.js"
 
 const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve() }
@@ -47,6 +48,13 @@ normal.feed.stop()
 await normal.reply(1, payload)
 assert.equal(normal.states.at(-1).status, "idle")
 assert.equal(normal.timers.size, 0)
+
+const conditionalRecovery = fixture()
+conditionalRecovery.feed.start()
+await conditionalRecovery.reply(0, { ...payload, fallbackReason: 'conditional-switch-failed' })
+assert.equal(conditionalRecovery.states.at(-1).status, 'ready')
+assert.equal(conditionalRecovery.states.at(-1).data.fallbackReason, 'conditional-switch-failed')
+conditionalRecovery.feed.stop()
 
 const late = fixture()
 late.feed.start()
@@ -201,6 +209,44 @@ await download
 assert.equal(management.unauthorized, 0)
 assert.equal(management.timers.size, 0)
 
+const conditionalPayload = { ...managerPayload, conditionalModel: { enabled: true, highway: 'small', city: 'pending', thresholdMph: 50 },
+  capabilities: { ...managerPayload.capabilities, conditionalModel: true, randomizer: true } }
+assert.equal(modelActionAllowed(conditionalPayload, 'conditional_model'), true)
+for (const denied of [{isOnroad:true}, {isOnroad:undefined}, {randomizer:true}, {downloading:true}]) {
+  assert.equal(modelActionAllowed({...conditionalPayload, ...denied}, 'conditional_model'), false)
+}
+assert.equal(modelActionAllowed(conditionalPayload, 'select-small', small), false)
+assert.equal(modelActionAllowed(conditionalPayload, 'enable-randomizer'), false)
+assert.equal(modelActionAllowed(conditionalPayload, 'delete', { ...pending, installed: true }), false)
+assert.deepEqual(ModelsPage.computed.conditionalModels.call({ models: managerPayload.models, conditionalModel: conditionalPayload.conditionalModel })
+  .map(m => m.value), ['small', 'pending'])
+const conditional = managerFixture()
+conditional.manager.start()
+await conditional.reply(0, conditionalPayload)
+const speedSave = conditional.manager.action('conditional_model', null, { thresholdMph: 60 })
+assert.equal(conditional.requests[1].url, './api/models/conditional_model')
+assert.deepEqual(JSON.parse(conditional.requests[1].options.body), { thresholdMph: 60 })
+assert.equal(conditional.manager.data.conditionalModel.thresholdMph, 50)
+;[...conditional.timers.values()].find(t => t.ms === 10000).fn()
+assert.equal(conditional.manager.data, null)
+assert.equal(await conditional.manager.action('conditional_model', null, { thresholdMph: 70 }), null)
+await conditional.reply(1, { message: 'late success' })
+if (conditional.requests[2]) await conditional.reply(2, { ...conditionalPayload, conditionalModel: { ...conditionalPayload.conditionalModel, thresholdMph: 60 } })
+await speedSave
+conditional.manager.stop()
+for (const phase of ['waiting', 'switching', 'recovering', 'ready']) {
+  assert.equal(ModelsPage.computed.conditionalSwitchPending.call({status:{conditionalModelState:{phase}}}), phase !== 'ready')
+}
+const speedRow = ModelsPage.computed.conditionalSpeedRow.call({conditionalModel:{thresholdMph:50}})
+assert.equal(speedRow.value, '50')
+assert.equal(settingControl(speedRow), 'slider')
+assert.equal(ModelsPage.components.GalaxySettingRow, GalaxySettingRow)
+const settingsWrites=[]
+const settingsPage={configureConditionalModel: async update => { settingsWrites.push(update); return true }}
+await ModelsPage.methods.saveConditionalSetting.call(settingsPage, 0, 'On')
+await ModelsPage.methods.saveConditionalSetting.call(settingsPage, 1, '60')
+assert.deepEqual(settingsWrites, [{enabled:true}, {thresholdMph:60}])
+
 const access = managerFixture()
 access.manager.start()
 await access.reply(0, { code: "access_unavailable" }, 503)
@@ -252,8 +298,8 @@ console.log('Randomizer and exclusion interactions passed')
 
 assert.match(ModelsPage.template, /Selections apply next onroad cycle/)
 assert.doesNotMatch(ModelsPage.template, /Onroad: switching/)
-// Active Small, Active Big summary items, and the Laboratory pair's lateral and longitudinal pickers
-assert.equal((ModelsPage.template.match(/class="gx-model-control[\s"]/g) || []).length, 4)
+assert.match(ModelsPage.template, /Conditional driving models/)
+assert.match(ModelsPage.template, /Starts each drive in City/)
 // the library tab is only a view: every model is one tap away, and a sleeping GPU never hides anything
 assert.equal(ModelsPage.data().tab, 'both')
 assert.equal(ModelsPage.computed.libraryTab.call({ tab: 'gpu' }), 'gpu')
@@ -402,6 +448,11 @@ const pairPage = { selectionUncertain: false, status: {}, runtime: { status: 're
 assert.equal(ModelsPage.computed.runningModelLabel.call(pairPage), 'Small model/Big model')
 assert.equal(ModelsPage.computed.runningModelLabel.call({ ...pairPage, runtime: { status: 'stale', data: pairData } }), 'Status unavailable')
 assert.equal(ModelsPage.computed.runningModelLabel.call({ ...pairPage, runtime: { status: 'ready', data: { ...pairData, laboratory: { ...pairData.laboratory, active: false } } } }), 'Laboratory output unavailable')
+for (const [health, expected] of [['loading', 'Loading…'], ['stale', 'Model output stale'], ['failed', 'Model status mismatch'],
+  ['identity-unavailable', 'Identity unverified']]) {
+  assert.equal(ModelsPage.computed.runningModelLabel.call({ ...pairPage,
+    runtime: { status: 'ready', data: { ...pairData, laboratory: null, health } } }), expected)
+}
 assert.match(ModelsPage.template, /fallback choices/)
 const pendingStart = data => ModelsPage.computed.pendingNextStart.call({ runtime: { status: 'ready', data } })
 assert.equal(pendingStart({ ...pairData, pendingNextStart: false }), false)
@@ -409,6 +460,35 @@ assert.equal(pendingStart({ ...pairData, pendingNextStart: true }), true)
 assert.equal(pendingStart({ ...pairData, laboratory: { ...pairData.laboratory, pendingNextStart: true } }), true)
 assert.equal(ModelsPage.computed.pendingNextStart.call({ runtime: { status: 'stale', data: { pendingNextStart: true } } }), false)
 assert.equal(ModelsPage.template.match(/v-if="pendingNextStart"> · saved changes pending next start/g).length, 2)
+
+// Browsing settings must never change the driving configuration.
+{
+  const page = { ...ModelsPage.data(), lab: { configuration: { enabled: true } }, conditionalModel: { enabled: true },
+    runLabAction: () => { throw new Error('Tab navigation wrote configuration') },
+    enablePair: () => { throw new Error('Tab navigation enabled Split Model') } }
+  assert.equal(ModelsPage.computed.driveMode.call(page), 'split')
+  for (const mode of ['conditional', 'single', 'split']) {
+    ModelsPage.methods.setDriveMode.call(page, mode)
+    assert.equal(ModelsPage.computed.driveMode.call(page), mode)
+  }
+  ModelsPage.methods.setDriveMode.call(page, 'invalid')
+  assert.equal(page.driveView, 'split')
+  assert.equal(ModelsPage.computed.driveMode.call({ driveView: null, lab: null, conditionalModel: { enabled: true } }), 'conditional')
+  assert.equal(ModelsPage.computed.driveMode.call({ driveView: null, lab: null, conditionalModel: { enabled: false } }), 'single')
+  const conditionalTemplate = ModelsPage.template.slice(ModelsPage.template.indexOf(`<template v-else-if="driveMode === 'conditional'">`),
+    ModelsPage.template.indexOf('id="gx-model-laboratory"'))
+  assert.match(conditionalTemplate, /Conditional driving models/)
+  assert.match(conditionalTemplate, /Starts each drive in City/)
+  assert.match(conditionalTemplate, /Switching conditional models/)
+  assert.doesNotMatch(conditionalTemplate, /Road selection|Start the drive in|cooldown|cityDelaySeconds|type="number"|Switch to Highway|Switch to City/)
+  assert.match(conditionalTemplate, /Wait before engaging/)
+  const single = ModelsPage.template.slice(ModelsPage.template.indexOf(`<template v-if="driveMode === 'single'">`),
+    ModelsPage.template.indexOf(`<template v-else-if="driveMode === 'conditional'">`))
+  assert.doesNotMatch(single, /id="gx-small-/)
+  const saved = await ModelsPage.methods.saveLabPair.call({ disposed: false, labActionAvailable: () => true,
+    runLabAction: async () => ({ message: 'saved' }), enablePair: () => { throw new Error('Saving enabled Split Model') } })
+  assert.equal(saved.message, 'saved')
+}
 
 // Merged page: search, row list, Single model / Model pair mode switcher, and pair saving.
 {

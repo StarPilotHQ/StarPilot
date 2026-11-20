@@ -3,6 +3,8 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 import os
+import resource
+import time
 from pathlib import Path
 from typing import Any
 import weakref
@@ -11,6 +13,7 @@ import numpy as np
 from tinygrad import Tensor, dtypes
 
 from openpilot.cereal import log
+from openpilot.common.swaglog import cloudlog
 from openpilot.selfdrive.controls.lib.drive_helpers import MIN_SPEED, smooth_value
 from openpilot.selfdrive.modeld.constants import ModelConstants, Plan
 from openpilot.selfdrive.modeld.helpers import load_oob
@@ -51,18 +54,25 @@ def load_verified_model(cam_w: int, cam_h: int, artifact_path: Path, behavior_ve
 
   if expected_sha256 is None:
     raise ValueError("selected catalog model has no verified digest")
+  started = time.monotonic()
   with state_lock(ROOT if root is None else root):
     identity = artifact_identity(artifact_path)
     prepared = prepare_artifact(artifact_path, identity)
     if prepared.sha256 != expected_sha256:
       raise ValueError("selected catalog model changed before loading")
+    verified_at = time.monotonic()
     model = CatalogModelState(cam_w, cam_h, artifact_path, behavior_version, chestnut)
     if coherent_warp is not None:
       model.move_warp_output(coherent_warp)
+    loaded_at = time.monotonic()
     model.warmup()
     if artifact_identity(artifact_path) != identity:
       raise ValueError("selected catalog model changed while loading")
     model.model_id = model_id
+    cloudlog.event("modeld.catalog_load", model_id=model_id, chestnut=chestnut,
+                   verify_seconds=verified_at - started, load_seconds=loaded_at - verified_at,
+                   warmup_seconds=time.monotonic() - loaded_at,
+                   process_peak_rss_kib=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
     return model, prepared
 
 
@@ -240,6 +250,31 @@ class CatalogModelState:
     self.last_warp: SharedCameraWarp | None = None
     self._pending_frame: tuple | None = None
     self._last_shared_warp: SharedCameraWarp | None = None
+
+  def handoff_reset(self) -> Callable[[], None]:
+    """Prepare an in-place reset; captured JIT buffers must keep their addresses."""
+    from tinygrad import Device
+    queues = [q for name, q in self.input_queues.items() if q.device != 'NPY' and name != 'mapped_gpu_image']
+    views = []
+    for queue in queues:
+      buffer = queue.uop.base.buffer
+      if not buffer.is_allocated() or not hasattr(buffer.get_storage().host, 'mv'):
+        raise ValueError('Small model history has no allocated host mapping')
+      view = buffer.as_memoryview(allow_zero_copy=True)
+      if view.readonly or view.nbytes != buffer.nbytes:
+        raise ValueError('Small model history mapping is not writable or complete')
+      views.append(np.frombuffer(view, dtype=np.uint8))
+    devices = tuple(Device[name] for name in dict.fromkeys(q.device for q in queues))
+    arrays = tuple(self.npy.values())
+    def reset():
+      for device in devices:
+        device.synchronize()
+      for view in views:
+        view.fill(0)
+      self.prev_desire.fill(0)
+      for array in arrays:
+        array.fill(0)
+    return reset
 
   def _validate_shared_warp(self, shared: SharedCameraWarp, pointers: tuple[int, int], transforms: tuple[bytes, bytes]) -> None:
     if (not isinstance(shared, SharedCameraWarp) or self.camera_warp_descriptor is None or

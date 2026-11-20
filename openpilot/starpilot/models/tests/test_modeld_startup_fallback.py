@@ -3,7 +3,7 @@
 import ast
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -18,6 +18,31 @@ def main_body():
   return next(node for node in ast.parse(MODEL_SOURCE.read_text()).body if isinstance(node, ast.FunctionDef) and node.name == "main").body
 
 
+@pytest.mark.parametrize('failure_at', ['run', 'action'])
+def test_live_candidate_failure_restores_resident_previous_in_production_frame_path(failure_at):
+  from openpilot.starpilot.models.conditional_protocol import ResidentSwitch
+  statement = next(node for item in main_body() for node in ast.walk(item)
+                   if isinstance(node, ast.Try) and any(isinstance(child, ast.Call) and ast.unparse(child.func) == 'model.run'
+                                                        for child in ast.walk(node)))
+  previous = SimpleNamespace(chestnut=False, model_id='highway', run=Mock(return_value={'good': True}))
+  candidate = SimpleNamespace(chestnut=False, run=Mock(return_value={}), get_action_from_model=Mock())
+  getattr(candidate, 'run' if failure_at == 'run' else 'get_action_from_model').side_effect = RuntimeError('candidate failed')
+  reset = Mock()
+  owner = ResidentSwitch({'highway': (previous, 'prepared', reset)}, 'highway', now=1)
+  owner.active, owner.phase = 'city', 'switching'
+  env = {'model': candidate, 'conditional_runtime': SimpleNamespace(owner=owner), 'cloudlog': Mock(),
+         'chestnut_state': None, 'run_count': 0, 'bufs': {}, 'transforms': {}, 'inputs': {},
+         'prev_action': None, 'lat_action_t': 0., 'long_action_t': 0., 'v_ego': 0.,
+         'lat_delay': .1, 'frame_drop_ratio': 0., 'time': SimpleNamespace(monotonic_ns=lambda: 50),
+         'log': SimpleNamespace(ModelDataV2=SimpleNamespace(Action=Mock())),
+         'sm': {'controlsState': SimpleNamespace(curvature=.01)}, 'DesireHelper': Mock(), 'runtime_lane_policy': object()}
+  exec(compile(ast.fix_missing_locations(ast.Module(body=[statement], type_ignores=[])), str(MODEL_SOURCE), 'exec'), env)
+  assert env['model'] is previous and env['model_output'] == {'good': True}
+  assert owner.phase == 'recovering' and owner.active == 'highway'
+  reset.assert_called_once()
+  previous.run.assert_called_once_with({}, {}, {})
+
+
 def test_realtime_starts_after_model_load_and_receipt():
   # Inspect startup without importing modeld's GPU runtime or loading artifacts.
   calls = [(node.lineno, ast.unparse(node.func)) for statement in main_body() for node in ast.walk(statement) if isinstance(node, ast.Call)]
@@ -28,6 +53,28 @@ def test_realtime_starts_after_model_load_and_receipt():
   startup_receipt = next(statement for statement in ast.walk(ast.Module(body=main_body(), type_ignores=[])) if isinstance(statement, ast.Expr)
                          and isinstance(statement.value, ast.Call) and ast.unparse(statement.value.func) == "receipt_owner.loaded")
   assert max(line("load_small") + line("loader.join")) < startup_receipt.lineno < line("config_realtime_process")[0] < line("PubMaster")[0]
+
+
+@pytest.mark.parametrize('selected_missing', [False, True])
+def test_small_profile_startup_failure_uses_existing_verified_fallback(selected_missing):
+  function = next(node for statement in main_body() for node in ast.walk(statement)
+                  if isinstance(node, ast.FunctionDef) and node.name == 'load_small')
+  shipped = Path('/verified/shipped.pkl')
+  selected = Path('/verified/city.pkl')
+  runner, prepared = object(), object()
+  load = Mock(side_effect=[(runner, prepared)] if selected_missing else [RuntimeError('warmup failed'), (runner, prepared)])
+  env = {'selection': SimpleNamespace(small_id='city', small_path=None if selected_missing else selected,
+                                      small_version='v15', small_sha256='b' * 64),
+         'cam_w': 1928, 'cam_h': 1208, 'coherent_warp': None, 'load_verified_model': load,
+         'DEFAULT_SMALL': 'cheddar', 'DEFAULT_SMALL_SHA256': 'a' * 64,
+         'BY_ID': {'cheddar': SimpleNamespace(version='v15')}, 'cloudlog': Mock()}
+  exec(compile(ast.fix_missing_locations(ast.Module(body=[function], type_ignores=[])), str(MODEL_SOURCE), 'exec'), env)
+  with patch('openpilot.starpilot.models.manager.shipped_default', return_value=shipped):
+    assert env['load_small']() == (runner, prepared, True)
+  assert load.call_args.args[2:7] == (shipped, 'v15', False, 'cheddar', 'a' * 64)
+  assert load.call_count == (1 if selected_missing else 2)
+  with patch('openpilot.starpilot.models.manager.shipped_default', return_value=None), pytest.raises(RuntimeError, match='missing or corrupt'):
+    env['load_small']()
 
 
 def test_jetlink_gets_the_frames_delay_before_every_run():
@@ -71,6 +118,7 @@ def test_inference_failure_uses_runner_identity(runner_chestnut, stored_active):
              "chestnut_state": chestnut_state, "run_count": 1, "ModelConstants": SimpleNamespace(MODEL_RUN_FREQ=20),
              "SERVICE_LIST": {"chestnutGpuState": SimpleNamespace(frequency=1)}, "bufs": {}, "transforms": {}, "inputs": {},
              "small_prepared": object(), "ModelVariant": ModelVariant, "jetlink_model": None, "drop_chestnut": Mock(), "cloudlog": Mock()}
+  env['conditional_runtime'] = SimpleNamespace(owner=SimpleNamespace(phase='disabled'))
   code = compile(ast.fix_missing_locations(ast.Module(body=[fallback], type_ignores=[])), str(MODEL_SOURCE), "exec")
   if runner_chestnut:
     exec(code, env)
@@ -103,6 +151,7 @@ def test_remote_inference_failure_does_not_change_chestnut_status():
   env = {"model": failed_model, "small_model": small_model, "params": params, "receipt_owner": receipt,
          "chestnut_state": None, "run_count": 1, "bufs": {}, "transforms": {}, "inputs": {},
          "small_prepared": object(), "ModelVariant": ModelVariant, "jetlink_model": failed_model, "drop_chestnut": Mock(), "cloudlog": Mock()}
+  env['conditional_runtime'] = SimpleNamespace(owner=SimpleNamespace(phase='disabled'))
   execute([fallback], env)
   failed_model.close.assert_called_once_with()
   env["drop_chestnut"].assert_not_called()
@@ -177,6 +226,8 @@ def test_observed_availability_and_big_eligibility(monkeypatch, present, cable, 
 def test_big_worker_waits_before_load_and_failure_requests_fresh_small_process(custom, timeout, worker_alive, laboratory, monkeypatch):
   from openpilot.starpilot.models import manager
   monkeypatch.setattr(manager, "shipped_default", lambda: Path("bundled-small"))
+  from openpilot.starpilot.models import conditional_runtime
+  monkeypatch.setattr(conditional_runtime, 'ConditionalModelRuntime', Mock())
   body = main_body()
   start = next(i for i, node in enumerate(body) if isinstance(node, ast.Assign) and ast.unparse(node.targets[0]) == "st")
   end = next(i for i, node in enumerate(body) if ast.unparse(node).startswith("config_realtime_process("))
@@ -233,7 +284,7 @@ def test_big_worker_waits_before_load_and_failure_requests_fresh_small_process(c
          "CP": SimpleNamespace(brand="mock"), "demo": False,
          "wait_for_chestnut_power": lambda CP, timeout: events.append("power"),
          "jetlink_adapter": SimpleNamespace(hooks=lambda: hooks, coherent_warp=lambda: None), "drop_chestnut": Mock(),
-         "release_compile_pool": Mock(), "gc": Mock()}
+         "release_compile_pool": Mock(), "gc": Mock(), 'MODEL_ROOT': Path('/test-models'), 'recovery_model': None}
   if laboratory:
     from openpilot.starpilot.models.laboratory_runner import LaboratoryPair
     pair = object.__new__(LaboratoryPair)
@@ -363,7 +414,7 @@ def test_recovery_child_resolves_small_without_randomizer_or_amd(monkeypatch):
   params = Mock()
   env: dict = {"chestnut_present": lambda: True, "cable_connected": lambda: True,
          "chestnut_compiled": Mock(side_effect=AssertionError("Big compiled probe forbidden")),
-         "Params": lambda: params, "os": SimpleNamespace(getenv=lambda key: "1")}
+         "Params": lambda: params, "os": SimpleNamespace(getenv=lambda key: "1" if key == 'STARPILOT_MODELD_RECOVERY_SMALL_ONLY' else None)}
   execute(body[start:end], env)
   manager.resolve_runtime.assert_called_once_with(chestnut_available=False, randomize=False)
   manager.requested_runtime_id.assert_called_once_with(True)
@@ -378,7 +429,7 @@ def test_recovery_small_receipt_reports_runtime_stall_not_load_failure():
   receipt = Mock()
   env: dict = {'model': SimpleNamespace(chestnut=False, model_id='bundled-current'), 'small_prepared': object(),
          'receipt_owner': receipt, 'ModelVariant': ModelVariant, 'initial_chestnut_fallback': False,
-         'recovery_small_only': True, 'selected_small_failed': False, 'requested_model_id': 'requested-big'}
+         'recovery_small_only': True, 'selected_small_failed': False, 'requested_model_id': 'requested-big', 'recovery_model': None}
   execute([statement], env)
   assert receipt.loaded.call_args.args[1:3] == (ModelVariant.SMALL, 'chestnut-run-stalled')
   assert receipt.loaded.call_args.kwargs['model_id'] == 'bundled-current'

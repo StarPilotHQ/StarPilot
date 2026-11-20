@@ -155,7 +155,7 @@ def manager_thread() -> None:
   ignore += [x for x in os.getenv("BLOCK", "").split(",") if len(x) > 0]
 
   sm = messaging.SubMaster(['deviceState', 'carParams', 'pandaStates', 'modelV2', 'drivingModelData',
-                               'narrowRoadCameraState', 'wideRoadCameraState'], poll='deviceState')
+                               'narrowRoadCameraState', 'wideRoadCameraState', 'conditionalModelState', 'conditionalModelAck'], poll='deviceState')
   pm = messaging.PubMaster(['managerState'])
 
   params.put_bool("IsOffroad", True, block=True)

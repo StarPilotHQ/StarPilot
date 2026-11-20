@@ -4,6 +4,7 @@ import { GxState } from "./state.js"
 import { GxNotice } from "./notice.js"
 import { connectionError } from "./polling.js"
 import { GalaxySelect } from "./galaxy-select.js"
+import { GalaxySettingRow, switchRow } from "./galaxy-setting-row.js"
 import { reportSave } from "./save-feedback.js"
 
 // Read-only model identity; a saved label never proves what modeld loaded.
@@ -64,7 +65,7 @@ export class ModelStatusFeed {
       if (data?.schemaVersion !== 1 || !ids.length || new Set(ids).size !== ids.length ||
           data.catalog.some(m => typeof m.id !== "string" || !m.id || typeof m.name !== "string" || typeof m.selectable !== "boolean") ||
           !ids.includes(data.requestedId) || !(data.loadedId === null || ids.includes(data.loadedId)) || !variants.includes(data.variant) ||
-          !states.includes(data.health) || ![null, "chestnut-load-failed", "chestnut-run-stalled", "selected-load-failed"].includes(data.fallbackReason) ||
+          !states.includes(data.health) || ![null, "chestnut-load-failed", "chestnut-run-stalled", "selected-load-failed", "conditional-switch-failed"].includes(data.fallbackReason) ||
           !(digest === null || typeof digest === "string" && /^[0-9a-f]{64}$/.test(digest)) ||
           typeof data.pendingNextStart !== "boolean" ||
           (data.pendingNextStart && (data.loadedId === null || data.requestedId === data.loadedId)) ||
@@ -203,10 +204,10 @@ export function describeProgress(data, models = []) {
 }
 
 
-const actionPaths = { "select-small": "active", "select-big": "active", favorite: "preferences", unfavorite: "preferences",
+const actionPaths = { conditional_model: "conditional_model", "select-small": "active", "select-big": "active", favorite: "preferences", unfavorite: "preferences",
   "enable-randomizer": "preferences", "disable-randomizer": "preferences", exclude: "preferences", include: "preferences",
   download: "download", downloadAll: "download_all", cancel: "cancel", delete: "delete", refresh: "refresh_manifest", jetlink: "jetlink" }
-const actionCapabilities = { "select-small": "select", "select-big": "select", favorite: "favorites", unfavorite: "favorites",
+const actionCapabilities = { conditional_model: "conditionalModel", "select-small": "select", "select-big": "select", favorite: "favorites", unfavorite: "favorites",
   "enable-randomizer": "randomizer", "disable-randomizer": "randomizer", exclude: "exclusions", include: "exclusions",
   download: "download", downloadAll: "downloadAll", cancel: "cancel", delete: "delete", refresh: "refresh", jetlink: "jetlink" }
 
@@ -218,7 +219,9 @@ export function modelActionAllowed(data, action, model = null) {
   if (!data || data.capabilities?.[actionCapabilities[action]] !== true) return false
   if (data.isOnroad !== false && !["favorite", "unfavorite", "cancel", "select-small", "select-big", "enable-randomizer", "disable-randomizer", "exclude", "include"].includes(action)) return false
   if (action === "jetlink") return data.jetlink !== undefined
+  if (action === "conditional_model") return !data.downloading && !data.randomizer
   if (["select-small", "select-big"].includes(action)) {
+    if (action === "select-small" && data.conditionalModel?.enabled) return false
     if (action === "select-big" && data.jetlinkBig && data.isOnroad !== false) return false
     if (data.downloading && data.refreshing !== true || data.randomizer === true) return false
     if (action === "select-big" && model === null) return true
@@ -229,9 +232,10 @@ export function modelActionAllowed(data, action, model = null) {
   if (action === "downloadAll") return !data.downloading && data.models.some(m => !m.installed && m.downloadAvailable === true)
   if (action === "cancel") return data.downloading === true
   if (action === "delete") return !data.downloading && !!model && !model.builtin && model.deletable !== false &&
-    (model.installed || model.partial) && ![data.currentModel, data.activeSmallModel, data.activeBigModel].includes(model.value)
+    (model.installed || model.partial) && ![data.currentModel, data.activeSmallModel, data.activeBigModel,
+      data.conditionalModel?.highway, data.conditionalModel?.city].includes(model.value)
   if (["exclude", "include"].includes(action)) return !!model
-  if (["enable-randomizer", "disable-randomizer"].includes(action)) return !data.downloading
+  if (["enable-randomizer", "disable-randomizer"].includes(action)) return !data.downloading && !data.conditionalModel?.enabled
   return ["favorite", "unfavorite"].includes(action) ? !!model : action === "refresh" && !data.downloading
 }
 
@@ -339,7 +343,8 @@ export class ModelManagerFeed {
         this.publish({ loading: false, data, error: "" })
       }
     }
-    if (this.poll === null) this.poll = this.later(() => this.load(), this.data?.jetlink?.mode !== "off" && this.data?.jetlink ? 1000 : 2000)
+    if (this.poll === null) this.poll = this.later(() => this.load(), this.data?.conditionalModel?.enabled ? 200 :
+      this.data?.jetlink?.mode !== "off" && this.data?.jetlink ? 1000 : 2000)
     return this.data
   }
   async action(action, model = null, extra = {}) {
@@ -351,7 +356,7 @@ export class ModelManagerFeed {
     if (!modelActionAllowed(this.data, action, model)) return null
     const data = this.data
     const key = model?.value || ""
-    let payload = action === "jetlink" ? extra : {}
+    let payload = ["jetlink", "conditional_model"].includes(action) ? extra : {}
     if (action.startsWith("select-")) payload = { profile: action === "select-big" ? "big" : "small", model: key }
     else if (["favorite", "unfavorite"].includes(action)) {
       const userFavorites = data.models.filter(m => m.userFavorite && m.value !== key).map(m => m.value)
@@ -524,7 +529,7 @@ const ModelDownloadProgress = {
 
 export const ModelsPage = {
   name: "ModelsPage",
-  components: { WikiHelp, GxDialog, GxState, GalaxySelect, GxNotice, ModelDownloadProgress },
+  components: { WikiHelp, GxDialog, GxState, GalaxySelect, GalaxySettingRow, GxNotice, ModelDownloadProgress },
   props: {
     mode: { type: String, required: true },
     unauthorized: { type: Function, required: true },
@@ -538,10 +543,26 @@ export const ModelsPage = {
       summary: { installed: 0, missing: 0, total: 0 }, status: { isOnroad: true },
       runtime: { status: "idle", data: null, error: "" }, dialog: null, pendingChoice: null,
       lab: null, labError: "", labDirty: false, labConfig: { enabled: false, lateralModel: "", longitudinalModel: "" }, focused: false,
-      pairView: null,
+      driveView: null,
     }
   },
   computed: {
+    conditionalModel() { return this.status.conditionalModel || { enabled: false, highway: "", city: "", thresholdMph: 50 } },
+    conditionalSwitchPending() {
+      return ['waiting', 'switching', 'recovering'].includes(this.status.conditionalModelState?.phase)
+    },
+    conditionalEnabledRow() {
+      return switchRow('Enable Conditional Model', this.conditionalModel.enabled)
+    },
+    conditionalSpeedRow() {
+      return { label: 'Highway speed', value: String(this.conditionalModel.thresholdMph ?? 50),
+        minimum: 10, maximum: 100, step: 1, unit: 'mph', defaultValue: '50', resetAvailable: true,
+        available: true, action: true }
+    },
+    conditionalModels() {
+      return this.models.filter(m => fitsModelProfile(m, "small") &&
+        (m.selectable || [this.conditionalModel.highway, this.conditionalModel.city].includes(m.value)))
+    },
     currentLabel() { return this.models.find(m => m.value === this.currentModel)?.label || this.currentModel || "" },
     runningModelLabel() {
       if (!this.selectionUncertain && this.status.jetlink?.active) return "Jetlink remote model"
@@ -552,6 +573,10 @@ export const ModelsPage = {
       if (pair?.active) return [pair.lateralModel, pair.longitudinalModel].map(id => model.catalog.find(m => m.id === id)?.name || id).join("/")
       if (pair?.lateralModel) return "Laboratory output unavailable"
       if (model.health === "unavailable") return "No running model"
+      if (model.health === "loading") return "Loading…"
+      if (model.health === "stale") return "Model output stale"
+      if (model.health === "failed") return "Model status mismatch"
+      if (model.health === "identity-unavailable") return "Identity unverified"
       if (!model.loadedId) return model.health === "loading" ? "Loading…" : "Identity unverified"
       return model.catalog.find(item => item.id === model.loadedId)?.name || model.loadedId
     },
@@ -626,7 +651,7 @@ export const ModelsPage = {
       return this.status.gpuAvailable ? "" : "An external GPU is not detected. Active Small is used; your Big selection is saved for later."
     },
     jetlinkOpen() { return !!this.status.jetlink && this.status.jetlink.mode !== "off" },
-    driveMode() { return this.pairView ?? (this.lab?.configuration.enabled ? "pair" : "single") },
+    driveMode() { return this.driveView ?? (this.lab?.configuration.enabled ? "split" : this.conditionalModel.enabled ? "conditional" : "single") },
     labRows() { return new Map(laboratoryModels(this.lab).map(m => [m.value, m])) },
     labReady() { return laboratoryReady(this.lab) },
     labCandidates() { return this.labReady.filter(m => m.value !== this.labConfig.lateralModel) },
@@ -692,7 +717,7 @@ export const ModelsPage = {
   methods: {
     focusLaboratory() {
       if (this.focus !== "laboratory" || this.focused) return
-      if (this.driveMode !== "pair") this.pairView = "pair"
+      if (this.driveMode !== "split") this.driveView = "split"
       this.$nextTick(() => {
         const card = this.$refs.laboratory
         if (!card) return
@@ -726,20 +751,11 @@ export const ModelsPage = {
         this.labDirty = false
         if (this.lab) this.labConfig = laboratoryDraft(this.lab, this.labConfig, false)
       }
-      if (result && !this.disposed && this.driveMode === "pair" && !this.lab?.configuration.enabled && this.labActionAvailable("enable")) return this.enablePair()
       return result
     },
     enablePair() { return reportSave(() => this.runLabAction("enable")) },
-    async setDriveMode(mode) {
-      if (mode === this.driveMode) return null
-      if (mode === "single") {
-        this.pairView = "single"
-        const result = this.lab?.configuration.enabled ? await reportSave(() => this.runLabAction("disable")) : true
-        this.pairView = null
-        return result
-      }
-      this.pairView = "pair"
-      return this.labActionAvailable("enable") ? this.enablePair() : null
+    setDriveMode(mode) {
+      if (["single", "split", "conditional"].includes(mode)) this.driveView = mode
     },
     activeRoles(model) {
       const roles = []
@@ -776,7 +792,7 @@ export const ModelsPage = {
         if (this.disposed) return
         const result = await this.laboratory.action(action, model, this.labConfig)
         if (!this.disposed && result) {
-          this.message = action === "save" ? "Model pair saved for the next start." : result.message || "Updated"
+          this.message = action === "save" ? "Split Model models saved for the next start." : result.message || "Updated"
           this.trackingProgress = action === "download"
           if (["enable", "disable", "delete", "save"].includes(action)) {
             this.labDirty = false
@@ -861,6 +877,17 @@ export const ModelsPage = {
         if (result) this.message = result.message
       } finally { this.pendingChoice = null; this.busy = "" }
     },
+    async configureConditionalModel(update) {
+      if (!this.canAction("conditional_model")) return false
+      this.busy = "conditional_model:"
+      try {
+        const result = await reportSave(() => this.manager.action("conditional_model", null, update))
+        return result || false
+      } finally { this.busy = "" }
+    },
+    saveConditionalSetting(index, value) {
+      return this.configureConditionalModel(index === 0 ? { enabled: value === 'On' } : { thresholdMph: Number(value) })
+    },
     async runAction(action, model = null) {
       if (this.disposed || !this.canAction(action, model)) return
       if (action.startsWith("select-")) this.pendingChoice = { action, value: model?.value || "" }
@@ -898,7 +925,7 @@ export const ModelsPage = {
 
       <template v-else>
         <header class="gx-settings__header gx-page-header"><div><h2>Models</h2>
-          <p>Choose what drives your car, pair models, and manage downloads.</p></div>
+          <p>Choose one model, split control, or automatic speed-based switching.</p></div>
         <WikiHelp /></header>
         <GxNotice v-if="message" tone="info">{{ message }}</GxNotice>
         <GxNotice v-if="error" tone="danger" title="Models">{{ error }}</GxNotice>
@@ -916,13 +943,16 @@ export const ModelsPage = {
         <section class="gx-card gx-model-driving">
           <div class="gx-panel gx-model-driving__body">
             <div class="gx-tabs gx-model-mode" role="group" aria-label="Driving models">
-              <button type="button" :aria-pressed="driveMode === 'single'" :disabled="!!busy || labLocked && driveMode !== 'single'" @click="setDriveMode('single')"><i aria-hidden="true" class="bi bi-cpu"></i> Single model</button>
-              <button type="button" :aria-pressed="driveMode === 'pair'" :disabled="!!busy || labLocked" @click="setDriveMode('pair')"><i aria-hidden="true" class="bi bi-bezier2"></i> Model pair</button>
+              <button type="button" :aria-pressed="driveMode === 'single'" @click="setDriveMode('single')"><i aria-hidden="true" class="bi bi-cpu"></i> Single Model</button>
+              <button type="button" :aria-pressed="driveMode === 'split'" @click="setDriveMode('split')"><i aria-hidden="true" class="bi bi-bezier2"></i> Split Model</button>
+              <button type="button" :aria-pressed="driveMode === 'conditional'" @click="setDriveMode('conditional')"><i aria-hidden="true" class="bi bi-signpost-split"></i> Conditional Model</button>
             </div>
 
-            <div class="gx-panel-stage" :style="{'--panel-direction': driveMode === 'pair' ? 1 : -1}">
+            <div class="gx-panel-stage" :style="{'--panel-direction': driveMode === 'split' ? 1 : -1}">
               <div :key="driveMode" class="gx-model-driving__body">
             <template v-if="driveMode === 'single'">
+              <p class="gx-model-reason">One model handles all driving.</p>
+              <GxNotice v-if="conditionalModel.enabled" tone="info">Conditional Model is enabled. Turn it off in Conditional Model to choose Active Small here.</GxNotice>
               <div class="gx-model-driving__summary" role="group" aria-label="Active models">
                 <div class="gx-model-control gx-model-summary-item">
                   <span class="gx-model-summary-item__meta"><i aria-hidden="true" class="bi bi-cpu"></i> Active Small · On-device</span>
@@ -946,7 +976,27 @@ export const ModelsPage = {
               </div>
               <p v-if="status.randomizer" class="gx-model-reason">A different verified model is chosen each start. {{ status.gpuAvailable && activeBigModel ? 'Big GPU' : 'Small on-device' }} models are used. {{ (status.blacklistedModels || []).length }} excluded. Favorites only mark your preferred models.</p>
               <p v-if="gpuNote" class="gx-model-reason">{{ gpuNote }}</p>
-              <p class="gx-model-reason">{{ laboratoryEnabled ? 'Small/Big selections are saved as fallback choices. Turn off Laboratory to use them normally at the next start.' : 'Selections take effect the next time the driving model starts.' }}</p>
+              <p class="gx-model-reason">{{ laboratoryEnabled ? 'Small/Big selections are saved as fallback choices. Turn off Split Model to use them normally at the next start.' : 'Selections take effect the next time the driving model starts.' }}</p>
+            </template>
+
+            <template v-else-if="driveMode === 'conditional'">
+              <p class="gx-model-reason">Starts each drive in City and automatically selects Highway at your chosen speed, only while fully disengaged.</p>
+              <GxNotice v-if="conditionalSwitchPending" tone="warn">Switching conditional models · Wait before engaging.</GxNotice>
+              <GxNotice v-if="status.conditionalModelState?.error" tone="warn">{{ status.conditionalModelState.error }}</GxNotice>
+              <GxNotice v-else-if="status.conditionalModelState?.unavailableReason" tone="info">{{ status.conditionalModelState.unavailableReason }}</GxNotice>
+              <GxNotice v-if="laboratoryEnabled && !status.conditionalModelState?.unavailableReason" tone="info">Split Model takes priority while enabled.</GxNotice>
+              <GalaxySettingRow :row="conditionalEnabledRow" :index="0" :busy="!!busy" :disabled="!actionAvailable('conditional_model')" :save-value="saveConditionalSetting" feedback="none" />
+              <div class="gx-model-driving__selects" role="group" aria-label="Conditional driving models">
+                <div v-for="condition in ['city', 'highway']" :key="condition" class="gx-model-control">
+                  <label :for="'gx-conditional-' + condition">{{ condition === 'highway' ? 'Highway model' : 'City model' }}</label>
+                  <GalaxySelect :id="'gx-conditional-' + condition" class="gx-field" :value="conditionalModel[condition]" :disabled="!!busy || !actionAvailable('conditional_model')" @change="configureConditionalModel({[condition]: $event.target.value})">
+                    <option v-for="m in conditionalModels" :key="m.value" :value="m.value" :disabled="!m.selectable">{{ m.label }}{{ m.selectable ? '' : ' · ' + m.unavailableReason }}</option>
+                  </GalaxySelect>
+                </div>
+              </div>
+              <GalaxySettingRow :row="conditionalSpeedRow" :index="1" :busy="!!busy" :disabled="!actionAvailable('conditional_model')" :save-value="saveConditionalSetting" feedback="none" @reset-default="configureConditionalModel({thresholdMph: 50})" />
+              <GxNotice v-if="status.randomizer" tone="info">Turn off Model Randomizer to enable Conditional Model.</GxNotice>
+              <span class="gx-chip gx-model-driving__running">Running now: {{ runningModelLabel }}</span>
             </template>
 
             <div v-else id="gx-model-laboratory" ref="laboratory" class="gx-model-laboratory">
@@ -957,22 +1007,24 @@ export const ModelsPage = {
                 </div>
                 <span class="gx-chip gx-model-driving__running">Running now: {{ runningModelLabel }}<template v-if="pendingNextStart"> · saved changes pending next start</template></span>
               </div>
-              <GxNotice v-if="labError" tone="danger" title="Model Laboratory">{{ labError }}</GxNotice>
+              <GxNotice v-if="labError" tone="danger" title="Split Model">{{ labError }}</GxNotice>
               <GxNotice v-if="lab?.configurationError" tone="danger">{{ lab.configurationError }}</GxNotice>
-              <p v-if="!lab && !labError" class="gx-note">Loading Model Laboratory…</p>
+              <p v-if="!lab && !labError" class="gx-note">Loading Split Model…</p>
               <template v-if="lab">
-                <p class="gx-model-reason">Pair lateral judgment from one model with longitudinal judgment from another.</p>
+                <p class="gx-model-reason">One model for steering, another for speed. Requires Chestnut.</p>
+                <p v-if="conditionalModel.enabled" class="gx-model-reason">Conditional Model remains your Small fallback while Split Model is enabled.</p>
+                <button type="button" class="gx-btn" :disabled="!!busy || !labActionAvailable(lab.configuration.enabled ? 'disable' : 'enable')" @click="lab.configuration.enabled ? runLabAction('disable') : enablePair()">{{ lab.configuration.enabled ? 'Turn off Split Model' : 'Use Split Model' }}</button>
                 <div class="gx-model-driving__selects">
                   <div class="gx-model-control">
-                    <label class="gx-row__label" for="gx-lab-lateral">Lateral model <small class="gx-model-driving__random-hint">steering &amp; path</small></label>
-                    <GalaxySelect id="gx-lab-lateral" class="gx-field" aria-label="Lateral model" :disabled="labLocked" :value="labConfig.lateralModel" @change="changeLateral($event.target.value)">
+                    <label class="gx-row__label" for="gx-lab-lateral">Steering model <small class="gx-model-driving__random-hint">path &amp; lane position</small></label>
+                    <GalaxySelect id="gx-lab-lateral" class="gx-field" aria-label="Steering model" :disabled="labLocked" :value="labConfig.lateralModel" @change="changeLateral($event.target.value)">
                       <option value="">Choose a model</option>
                       <option v-for="m in labReady" :key="m.value" :value="m.value">{{ m.label }} · {{ m.version }}</option>
                     </GalaxySelect>
                   </div>
                   <div class="gx-model-control">
-                    <label class="gx-row__label" for="gx-lab-longitudinal">Longitudinal model <small class="gx-model-driving__random-hint">speed &amp; lead pacing</small></label>
-                    <GalaxySelect id="gx-lab-longitudinal" class="gx-field" aria-label="Longitudinal model" :disabled="labLocked" :value="labConfig.longitudinalModel" @change="changeLongitudinal($event.target.value)">
+                    <label class="gx-row__label" for="gx-lab-longitudinal">Speed model <small class="gx-model-driving__random-hint">acceleration &amp; braking</small></label>
+                    <GalaxySelect id="gx-lab-longitudinal" class="gx-field" aria-label="Speed model" :disabled="labLocked" :value="labConfig.longitudinalModel" @change="changeLongitudinal($event.target.value)">
                       <option value="">Choose a model</option>
                       <option v-for="m in labCandidates" :key="m.value" :value="m.value">{{ m.label }} · {{ m.version }}</option>
                     </GalaxySelect>
@@ -1057,8 +1109,8 @@ export const ModelsPage = {
 
           <div v-if="!sorted.length" class="gx-empty">No models match these filters. <button type="button" class="gx-btn gx-btn--tonal" @click="clearFilters">Show all models</button></div>
           <ul v-else class="gx-model-list" aria-label="Models">
-            <li class="gx-model-item" :class="{'gx-model-item--pair': driveMode === 'pair', 'gx-model-card--polaris': isPolaris(m), 'gx-model-card--selected': rowState(m) === 'active'}" v-for="m in visibleModels" :key="m.value">
-              <template v-if="driveMode === 'pair'">
+            <li class="gx-model-item" :class="{'gx-model-item--pair': driveMode === 'split', 'gx-model-card--polaris': isPolaris(m), 'gx-model-card--selected': rowState(m) === 'active'}" v-for="m in visibleModels" :key="m.value">
+              <template v-if="driveMode === 'split'">
                 <div class="gx-model-item__row gx-model-item__row--pair">
                   <div class="gx-model-item__ver">
                     <span v-if="m.version" class="gx-model-spec gx-model-spec--ver">{{ m.version }}</span>

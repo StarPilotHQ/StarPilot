@@ -2637,6 +2637,8 @@ struct Event {
     aolSafetyWire @124 :Data;
     aolIntentWire @125 :Data;
     laneChangeAssistWire @126 :Data;
+    conditionalModelState @154 :Custom.ConditionalModelState;
+    conditionalModelAck @155 :Custom.ConditionalModelAck;
 
     # DO change the name of the field and struct
     # DON'T change the ID (e.g. @107)
