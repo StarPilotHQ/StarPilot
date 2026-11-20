@@ -41,6 +41,8 @@ def _explanation(reason):
     'Known vehicle and no manual coordinates required': 'This older build rejected its vehicle/settings identity before route analysis. In the parked ' +
       'analysis path, missing or invalid recorded vehicle identity causes this refusal; it does not establish route corruption.',
     'Valid manual coordinate settings required': 'Saved manual steering settings require review; existing choices were preserved.',
+    'Manual coordinate settings require review: context_changed':
+      'The saved steering settings do not match the vehicle configuration or controller for this recording.',
     'partial_drive_provisional_only': 'Intact portions were analyzed. This partial recording can provide suggestions, not automatic changes.',
     'bounded_trial_configured_for_next_drive': 'A bounded adjustment was saved for the next drive.',
     'no_consistent_adjustment_in_completed_drive': 'The analyzed evidence did not support a consistent adjustment.',
@@ -64,6 +66,48 @@ def _result(value):
   result['skipped_drives'] = [{'recording': _reason(row[0])[:180], 'reason': _reason(row[1])}
                              for row in (skipped[:16] if type(skipped) is list else ()) if type(row) is list and len(row) == 2]
   return result
+
+
+def _finding_review(report, params, cache):
+  """Compare retained findings to the cached parked configuration without exporting it."""
+  from opendbc.car.structs import car
+  from openpilot.starpilot.flm.manual_coordinates import load
+  from openpilot.starpilot.flm.offroad_surface import ROUTE_NAMES
+  from openpilot.starpilot.flm.runtime_adapter_registry import car_params_digest
+  from openpilot.starpilot.galaxy.flm_acceptance import review_binding_issue
+  from openpilot.starpilot.lateral.controller_selection import read_selection
+  from openpilot.starpilot.schema_cache import inspect_cache
+
+  preference = report.get('preference') or {}
+  if preference.get('valid') is not True or preference.get('parked') is not True:
+    return {'status': 'parked_configuration_unavailable'}
+  key = 'CarParamsPersistent'
+  snapshot = read_saved(params, key, 1024 * 1024)
+  raw, readable = snapshot
+  payload = inspect_cache(key, raw).payload if readable and raw is not None else None
+  if payload is None:
+    return {'status': 'parked_configuration_unavailable'}
+  with car.CarParams.from_bytes(payload, traversal_limit_in_words=1024 * 1024 // 8) as cp:
+    if cp.notCar or cp.carFingerprint != preference.get('vehicle'):
+      return {'status': 'parked_configuration_unavailable'}
+    digest = car_params_digest(cp)
+    _, manual_state = load(cp, read_selection(params, cp).mode, params)
+  details = (report.get('current') or {}).get('details') or {}
+  findings, checked = {}, {}
+  for name, review, source in details.get('Recorded suggestion assessments', ())[:len(ROUTE_NAMES)]:
+    if name not in ROUTE_NAMES:
+      continue
+    binding = (review, source)
+    if binding not in checked:
+      try:
+        checked[binding] = review_binding_issue(cache.get(review), digest, source) or 'matches_parked_configuration'
+      except (OSError, ValueError, TypeError, KeyError):
+        checked[binding] = 'assessment_unavailable'
+    findings[name] = checked[binding]
+  if (read_saved(params, key, 1024 * 1024) != snapshot
+      or read_saved(params, 'IsOffroad', 1) != (b'1', True)):
+    return {'status': 'parked_configuration_unavailable'}
+  return {'status': 'checked', 'scope': 'Stored parked configuration at download', 'manual_coordinates': manual_state, 'findings': findings}
 
 
 def diagnostics(report, params):
@@ -120,6 +164,11 @@ def diagnostics(report, params):
       files = list(directory.iterdir())
       result['storage'] = {'status': 'readable', 'documents': len(files), 'bytes': sum(path.lstat().st_size for path in files)}
       result['checkpoints'] = [_result(row['result']) for row in cache.checkpoints()]
+      if details.get('Recorded suggestion assessments'):
+        try:
+          result['finding_review'] = _finding_review(report, params, cache)
+        except (OSError, RuntimeError, ValueError, TypeError, KeyError, KjException):
+          result['finding_review'] = {'status': 'unavailable'}
   except (OSError, ValueError, TypeError, KeyError) as error:
     result['storage'] = {'status': 'unavailable', 'reason': _reason(error)}
   result['storage']['scope'] = 'Parked route analysis in the current settings store only'

@@ -210,6 +210,42 @@ class TestDiagnosticState(unittest.TestCase):
     self.assertIn('independent', result['checkpoints'][0]['explanation'])
     self.assertEqual(result['learning_diagnostics']['status'], 'not_recorded')
 
+  def test_download_distinguishes_old_configuration_from_changed_finding_source(self):
+    from opendbc.car.toyota.interface import CarInterface
+    from opendbc.car.toyota.values import CAR
+    from openpilot.starpilot.flm.runtime_adapter_registry import car_params_digest
+    from openpilot.starpilot.schema_cache import put_cache
+
+    cp = CarInterface.get_non_essential_params(CAR.TOYOTA_COROLLA_TSS2)
+    cp.carVin = 'JTDAC3EH0B3000000'
+    self.params.put_bool('IsOffroad', True, block=True)
+    put_cache(self.params, 'CarParamsPersistent', cp.as_reader(), block=True)
+    cache = AssessmentCache(directory_for_params(self.params))
+    parked = car_params_digest(cp)
+    cp.mass += 50
+    old, source = car_params_digest(cp), 'a' * 64
+    def assessment(digest):
+      return cache.put({'kind': 'partial_assessment', 'assessment': {'route': {'cp_sha256': digest, 'source_sha256': source}}})
+    older, matching = assessment(old), assessment(parked)
+    report = {'preference': {'valid': True, 'parked': True, 'vehicle': str(cp.carFingerprint)}, 'current': {'details': {
+      'Recorded suggestion assessments': [
+        ['turn_in_boost_left', older, source], ['turn_in_boost_right', matching, 'b' * 64],
+        ['unwind_taper_right', matching, source], ['unwind_taper_left', 'f' * 64, source],
+      ],
+    }}}
+    before = {p.name: p.read_bytes() for p in cache.directory.iterdir()}
+    review = self.exported(report)['finding_review']
+    self.assertEqual(review['manual_coordinates'], 'not_configured')
+    self.assertEqual(review['findings'], {
+      'turn_in_boost_left': 'vehicle_configuration_mismatch', 'turn_in_boost_right': 'recording_mismatch',
+      'unwind_taper_right': 'matches_parked_configuration', 'unwind_taper_left': 'assessment_unavailable',
+    })
+    self.assertEqual({p.name: p.read_bytes() for p in cache.directory.iterdir()}, before)
+    for private in (parked, old, cp.carVin):
+      self.assertNotIn(private, json.dumps(self.exported(report)))
+    self.params.put_bool('IsOffroad', False, block=True)
+    self.assertEqual(self.exported(report)['finding_review']['status'], 'parked_configuration_unavailable')
+
   def test_native_cache_is_reported_separately_from_parked_route_analysis(self):
     from openpilot.cereal import messaging
     from openpilot.starpilot.schema_cache import put_cache

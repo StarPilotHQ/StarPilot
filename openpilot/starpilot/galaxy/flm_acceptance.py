@@ -40,6 +40,28 @@ def _finding(report, parameter, target, assessment):
   return report.get('vehicle'), links[0][2] if links else details.get('Original completed route hash'), tuple(matches[0])
 
 
+REVIEW_REFUSALS = {
+  'vehicle_identity_unavailable': 'The vehicle must identify itself before a finding from this review can be accepted.',
+  'unexpected_review_type': 'This drive review is unavailable for accepting findings. Refresh the findings.',
+  'recording_mismatch': 'This finding’s recording no longer matches its drive review. Refresh the findings.',
+  'vehicle_configuration_mismatch': 'This finding was recorded with a different vehicle configuration. Review a drive from the current setup.',
+}
+
+
+def review_binding_issue(document, vehicle_digest, source_digest):
+  kind = document.get('kind')
+  if kind == 'identity_review':
+    return 'vehicle_identity_unavailable'
+  if kind not in ('completed_assessment', 'partial_assessment'):
+    return 'unexpected_review_type'
+  route = document['assessment']['route']
+  if route['source_sha256'] != source_digest:
+    return 'recording_mismatch'
+  if route['cp_sha256'] != vehicle_digest:
+    return 'vehicle_configuration_mismatch'
+  return None
+
+
 def accept_finding(settings, reports, payload, *, authorized):
   if (type(payload) is not dict or set(payload) != {'parameter', 'target', 'assessment'} or payload['parameter'] not in ROUTE_NAMES
       or type(payload['target']) not in (int, float) or not math.isfinite(payload['target']) or
@@ -72,12 +94,9 @@ def accept_finding(settings, reports, payload, *, authorized):
     if not directory.exists():
       raise ValueError('The original drive review is unavailable. Refresh the findings.')
     document = AssessmentCache(directory).get(assessment)
-    if document.get('kind') == 'identity_review':
-      raise ValueError('The vehicle must identify itself before a finding from this review can be accepted.')
-    route = document['assessment']['route']
-    if (document.get('kind') not in ('completed_assessment', 'partial_assessment') or
-        route['cp_sha256'] != car_params_digest(cp) or route['source_sha256'] != found[1]):
-      raise ValueError('The original drive review does not match this vehicle.')
+    issue = review_binding_issue(document, car_params_digest(cp), found[1])
+    if issue is not None:
+      raise ValueError(REVIEW_REFUSALS[issue])
     from openpilot.starpilot.flm.learned_lifecycle import decode
 
     scope = current_scope(cp, settings.params)
