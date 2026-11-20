@@ -5,6 +5,7 @@ import ast
 import subprocess
 import sys
 import unittest
+from unittest.mock import Mock
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -46,3 +47,23 @@ class LiveSteeringServiceInventoryTest(unittest.TestCase):
       with self.subTest(binary=binary):
         self.assertIn(service.encode(), (ROOT / binary).read_bytes(),
                       f'{binary}: rebuild after changing the native service registry')
+
+
+class VisionBufferAllocatorTest(unittest.TestCase):
+  def test_device_build_uses_ion_without_a_build_host_device_node(self):
+    source = ast.parse((ROOT / 'msgq_repo/SConscript').read_text())
+    first = next(i for i, node in enumerate(source.body) if isinstance(node, ast.Assign)
+                 and any(isinstance(target, ast.Name) and target.id == 'vipc_files' for target in node.targets))
+    allocator = compile(ast.Module(body=source.body[first:first + 2], type_ignores=[]), '<visionipc build>', 'exec')
+    for arch, ion_present, expected in (('comma_arm64', False, 'visionbuf_ion.cc'),
+                                        ('comma_arm64', True, 'visionbuf_ion.cc'),
+                                        ('aarch64', False, 'visionbuf.cc'),
+                                        ('x86_64', False, 'visionbuf.cc'),
+                                        ('Darwin', False, 'visionbuf.cc'),
+                                        ('aarch64', True, 'visionbuf_ion.cc')):
+      with self.subTest(arch=arch, ion_present=ion_present):
+        node = Mock()
+        node.exists.return_value = ion_present
+        context = {'arch': arch, 'File': Mock(return_value=node)}
+        exec(allocator, context)
+        self.assertEqual(context['vipc_files'][-1], expected)

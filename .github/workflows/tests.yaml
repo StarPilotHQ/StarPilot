@@ -45,6 +45,7 @@ jobs:
       run: |
         python3 -m unittest tools.laptop_device_build.tests.test_runtime_dependencies -v
         python3 -c 'from pathlib import Path; assert b"starting pandad (comma hardware)" in Path("openpilot/selfdrive/pandad/pandad").read_bytes(), "Shipped pandad must use the comma hardware build profile"'
+        python3 -c 'from pathlib import Path; paths = ("openpilot/system/camerad/camerad", "msgq_repo/msgq/visionipc/_visionipc.so", "openpilot/system/loggerd/encoderd", "openpilot/tools/replay/replay"); assert all(b"/dev/ion\0" in Path(p).read_bytes() for p in paths), "Shipped camera buffers must use ION"'
     - name: Test one-shot branch migration
       run: python3 -m unittest discover -s scripts/tests -v
     - name: Validate tracked dependencies
@@ -93,7 +94,7 @@ jobs:
       env:
         GOTOOLCHAIN: local
       run: |
-        sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update && sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends pkg-config zlib1g-dev
+        sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config zlib1g-dev
         (cd mapd_repo && go mod download)
         PYTHONPATH="$GITHUB_WORKSPACE" python3 -m openpilot.starpilot.maps.package_shadow
     - name: Build devel
@@ -218,7 +219,7 @@ jobs:
       env:
         RAYLIB_BACKEND: headless
         STARPILOT_TEST_DIAGNOSTICS: ci-results/host-test-diagnostics/unittest
-      run: tools/op.sh test --jobs 2 --json-output unit-test-results.json
+      run: tools/op.sh test --json-output unit-test-results.json
     - name: Test GM vehicle configurations and CAN behavior
       if: ${{ !cancelled() && steps.build.outcome == 'success' }}
       timeout-minutes: 5
@@ -303,7 +304,7 @@ jobs:
         .venv/bin/python -c "import av; assert 'libx264' in av.codecs_available"
     - name: Provide Mesa software graphics for pixel-level tests
       if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-      run: sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update && sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y libegl1 libgles-dev libgl1-mesa-dri
+      run: sudo apt-get update && sudo apt-get install -y libegl1 libgles-dev libgl1-mesa-dri
     - name: Test every assigned custom pytest node serially
       if: ${{ !cancelled() && steps.build.outcome == 'success' }}
       timeout-minutes: 20
@@ -410,7 +411,7 @@ jobs:
         go-version: '1.25.1'
         cache-dependency-path: mapd_repo/go.sum
     - name: Install native build dependencies
-      run: sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update && sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends pkg-config zlib1g-dev
+      run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config zlib1g-dev
     - name: Test and build pinned map provider
       run: python3 tools/ci/run_map_tests.py --output ci-results/map-provider
     - name: Save test and build evidence
