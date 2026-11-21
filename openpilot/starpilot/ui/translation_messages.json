@@ -11418,7 +11418,7 @@
       ]
     },
     {
-      "source": "Polaris models aren't made or endorsed by comma. They're community fine-tunes of comma's RDFv4.",
+      "source": "Polaris models aren't made or endorsed by comma. They're community fine-tunes of comma's driving models.",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/models.js"
       ]

@@ -9174,8 +9174,8 @@ msgid "Plots & Analysis"
 msgstr "Đồ thị và phân tích"
 
 #: openpilot/starpilot/galaxy/web/js/models.js
-msgid "Polaris models aren't made or endorsed by comma. They're community fine-tunes of comma's RDFv4."
-msgstr "Mô hình Polaris không do comma tạo hoặc chứng thực. Đây là bản tinh chỉnh RDFv4 của comma do cộng đồng thực hiện."
+msgid "Polaris models aren't made or endorsed by comma. They're community fine-tunes of comma's driving models."
+msgstr "Mô hình Polaris không do comma tạo hoặc chứng thực. Đây là bản tinh chỉnh các mô hình lái xe của comma do cộng đồng thực hiện."
 
 #: openpilot/starpilot/galaxy/web/js/plots.js
 msgid "Poor"
