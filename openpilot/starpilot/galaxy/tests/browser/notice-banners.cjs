@@ -18,6 +18,7 @@ const assert = require('node:assert/strict')
       template: `<GxNotice tone="danger">This page could not finish loading.<template #actions><button class="gx-btn" @click="clicks++">Reload page</button></template></GxNotice>
         <output>{{ clicks }}</output>
         <GxNotice v-for="tone in ['info', 'success', 'warn', 'danger']" :tone="tone" :title="tone"><p>A message that wraps onto multiple lines on narrow screens, with enough detail to explain what happens next.</p><p>Additional guidance.</p><template #actions><button class="gx-btn gx-btn--tonal">Choose another file with a longer name</button><a class="gx-btn" href="#fixture">Open settings</a></template></GxNotice>
+        <section class="gx-card gx-tuner__section"><div class="gx-actions"><button class="gx-btn">Download tune</button></div><GxNotice tone="success">Tune backup download started.</GxNotice></section>
         <GxNotice busy>Connecting to your comma…</GxNotice>
         <GxNotice>Unable to load https://example.com/abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz</GxNotice>
         <BluetoothNotice feature="Replay"/>`,
@@ -34,6 +35,8 @@ const assert = require('node:assert/strict')
         const icon = banner.querySelector('.gx-alert__icon').getBoundingClientRect()
         const actions = banner.querySelector('.gx-alert__actions')
         const issues = []
+        const style = getComputedStyle(banner)
+        if ([style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft].some(value => parseFloat(value) < 16)) issues.push('insufficient banner padding')
         if (Math.abs((icon.top + icon.bottom) / 2 - (body.top + body.bottom) / 2) > 1) issues.push('icon vertical centering')
         if (banner.scrollWidth > banner.clientWidth || body.right > box.right) issues.push('overflow')
         if (actions) {

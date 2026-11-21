@@ -1,3 +1,4 @@
+import { WikiHelp } from './wiki-help.js'
 import { GxDialog } from "./dialog.js"
 import { GxState } from "./state.js"
 import { GxNotice } from "./notice.js"
@@ -523,7 +524,7 @@ const ModelDownloadProgress = {
 
 export const ModelsPage = {
   name: "ModelsPage",
-  components: { GxDialog, GxState, GalaxySelect, GxNotice, ModelDownloadProgress },
+  components: { WikiHelp, GxDialog, GxState, GalaxySelect, GxNotice, ModelDownloadProgress },
   props: {
     mode: { type: String, required: true },
     unauthorized: { type: Function, required: true },
@@ -531,7 +532,7 @@ export const ModelsPage = {
   },
   data() {
     return {
-      polarisAbout: false, loading: true, error: "", message: "", trackingProgress: false, busy: "", selectionUncertain: true, disposed: false,
+      showAllModels: false, polarisAbout: false, loading: true, error: "", message: "", trackingProgress: false, busy: "", selectionUncertain: true, disposed: false,
       sortMode: "release_date", userFilter: "all", communityFilter: "all", tab: readTab(), pairableFilter: false, search: "", failureDismissed: false,
       models: [], currentModel: "", activeSmallModel: "", activeBigModel: "", capabilities: {},
       summary: { installed: 0, missing: 0, total: 0 }, status: { isOnroad: true },
@@ -587,6 +588,7 @@ export const ModelsPage = {
         .sort((a, b) => (MODEL_SORTS[this.sortMode]?.(a, b) || 0) ||
           (a.label || a.value).localeCompare(b.label || b.value, undefined, { sensitivity: "base", numeric: true }))
     },
+    visibleModels() { return this.showAllModels ? this.sorted : this.sorted.slice(0, 15) },
     progressInfo() {
       const info = describeProgress(this.status, this.models)
       if (this.status.downloading === true) return this.status.refreshing === true && !this.status.downloadProgress ? { ...info, indeterminate: true, title: "Checking the model catalog" } : info
@@ -634,6 +636,12 @@ export const ModelsPage = {
     labLocked() { return !this.lab || this.lab.download?.downloading },
   },
   watch: {
+    sortMode() { this.showAllModels = false },
+    userFilter() { this.showAllModels = false },
+    communityFilter() { this.showAllModels = false },
+    tab() { this.showAllModels = false },
+    pairableFilter() { this.showAllModels = false },
+    search() { this.showAllModels = false },
     "status.downloading"(value) { if (value) this.failureDismissed = false },
     loading(value) { if (!value) this.focusLaboratory() },
   },
@@ -890,7 +898,8 @@ export const ModelsPage = {
 
       <template v-else>
         <header class="gx-settings__header gx-page-header"><div><h2>Models</h2>
-          <p>Choose what drives your car, pair models, and manage downloads.</p></div></header>
+          <p>Choose what drives your car, pair models, and manage downloads.</p></div>
+        <WikiHelp /></header>
         <GxNotice v-if="message" tone="info">{{ message }}</GxNotice>
         <GxNotice v-if="error" tone="danger" title="Models">{{ error }}</GxNotice>
         <GxNotice v-if="status.isOnroad" tone="warn">Selections apply next onroad cycle. Park before downloading models or changing Jetlink.</GxNotice>
@@ -1008,7 +1017,7 @@ export const ModelsPage = {
                 <label class="gx-switch"><input type="checkbox" role="switch" aria-label="Charge phone over USB" :checked="status.jetlink.chargePhone === true" :disabled="!actionAvailable('jetlink')" @change="toggleJetlinkCharge($event)"><span class="gx-switch__track"></span><span class="gx-switch__thumb"></span></label>
               </div>
               <p class="gx-model-reason">Set up parked with a USB 3 data cable and separate power. Keep the computer awake; keep the iPhone app open and unlocked.</p>
-              <div class="gx-actions"><a class="gx-btn gx-btn--tonal" href="https://github.com/StarPilotHQ/StarPilot/blob/Dom/openpilot/starpilot/models/JETLINK.md" target="_blank" rel="noopener noreferrer"><i class="bi bi-box-arrow-up-right" aria-hidden="true"></i> Open Jetlink setup guide</a></div>
+              <div class="gx-actions"><a class="gx-btn gx-btn--tonal" href="https://github.com/StarPilotHQ/StarPilot/blob/testing/openpilot/starpilot/models/JETLINK.md" target="_blank" rel="noopener noreferrer"><i class="bi bi-box-arrow-up-right" aria-hidden="true"></i> Open Jetlink setup guide</a></div>
             </div>
           </details>
         </section>
@@ -1048,7 +1057,7 @@ export const ModelsPage = {
 
           <div v-if="!sorted.length" class="gx-empty">No models match these filters. <button type="button" class="gx-btn gx-btn--tonal" @click="clearFilters">Show all models</button></div>
           <ul v-else class="gx-model-list" aria-label="Models">
-            <li class="gx-model-item" :class="{'gx-model-item--pair': driveMode === 'pair', 'gx-model-card--polaris': isPolaris(m), 'gx-model-card--selected': rowState(m) === 'active'}" v-for="m in sorted" :key="m.value">
+            <li class="gx-model-item" :class="{'gx-model-item--pair': driveMode === 'pair', 'gx-model-card--polaris': isPolaris(m), 'gx-model-card--selected': rowState(m) === 'active'}" v-for="m in visibleModels" :key="m.value">
               <template v-if="driveMode === 'pair'">
                 <div class="gx-model-item__row gx-model-item__row--pair">
                   <div class="gx-model-item__ver">
@@ -1190,6 +1199,9 @@ export const ModelsPage = {
               </div>
             </li>
           </ul>
+          <button v-if="sorted.length > 15" type="button" class="gx-btn gx-btn--tonal" :aria-expanded="showAllModels" @click="showAllModels = !showAllModels">
+            {{ showAllModels ? "Show fewer models" : "Show " + (sorted.length - 15) + " more models" }}
+          </button>
         </section>
 
       </template>

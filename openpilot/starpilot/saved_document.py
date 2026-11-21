@@ -34,7 +34,7 @@ class WriteResult:
 
 
 def commit_exact(params, *, key: str, max_bytes: int, raw: bytes, expected: bytes | None,
-                 authorized: Callable[[], bool], temp_prefix: str) -> WriteResult:
+                 authorized: Callable[[], bool], temp_prefix: str, lock_root: Path | None = None) -> WriteResult:
   """Stage outside the lock; recheck authority and source before replacement."""
   if not authorized():
     return WriteResult(False, False)
@@ -46,7 +46,7 @@ def commit_exact(params, *, key: str, max_bytes: int, raw: bytes, expected: byte
   committed = False
   try:
     destination = Path(params.get_param_path(key))
-    root = destination.parent.parent
+    root = destination.parent.parent if lock_root is None else lock_root
     with tempfile.NamedTemporaryFile(prefix=temp_prefix, dir=root, delete=False) as stage:
       temporary = stage.name
       stage.write(raw)

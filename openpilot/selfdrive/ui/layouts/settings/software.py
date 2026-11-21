@@ -232,11 +232,17 @@ class SoftwareLayout(Widget):
       ui_state.params.put_bool(AUTOMATIC_DOWNLOADS, enabled, block=True)
 
   def _on_error_log(self):
-    try:
-      text = Path("/data/error_logs/error.txt").read_text(encoding="utf-8", errors="replace")
-    except OSError:
-      text = tr("No error log found.")
-    gui_app.push_widget(ConfirmDialog(text, tr("OK"), cancel_text="", rich=True))
+    error = ui_state.params.get("LastUpdateException") or ""
+    if isinstance(error, bytes):
+      error = error.decode("utf-8", "replace")
+    if error:
+      text = error[:4096]
+    else:
+      try:
+        text = Path("/data/error_logs/error.txt").read_text(encoding="utf-8", errors="replace")
+      except OSError:
+        text = tr("No error log found.")
+    gui_app.push_widget(ConfirmDialog(text, tr("OK"), cancel_text="", rich=not bool(error)))
 
   def _on_install_update(self):
     if not ui_state.is_offroad() or not ui_state.params.get_bool("UpdateAvailable"):

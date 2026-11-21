@@ -29,7 +29,8 @@ def large_layout():
     layout._prev_onroad = True
     settings = Mock()
     settings._panels = {panel: NS(instance=Mock()) for panel in PanelType}
-    layout._layouts = {runtime_app.MainState.HOME: Mock(), runtime_app.MainState.SETTINGS: settings,
+    layout._home_layout = Mock(current_state=runtime_app.HomeLayoutState.HOME)
+    layout._layouts = {runtime_app.MainState.HOME: layout._home_layout, runtime_app.MainState.SETTINGS: settings,
                        runtime_app.MainState.ONROAD: Mock()}
     layout._sidebar.set_callbacks(on_settings=layout._on_settings_clicked, on_flag=layout._on_bookmark_clicked)
     layout._sidebar._render = Mock()

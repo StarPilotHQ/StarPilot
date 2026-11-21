@@ -40,6 +40,39 @@ class PiPSettingsTests(unittest.TestCase):
     self.assertEqual(self.params.get_type(MASK).name, "JSON")
     self.assertEqual(self.row("pip:mask:right:x").value, "315.0")
 
+  def test_turning_pip_on_adds_side_cameras_to_saved_layout(self):
+    import json
+    from openpilot.starpilot.ui.onroad_customization import PARAM_KEY, default_document, read_customization
+    document = default_document()
+    document["layouts"]["large"]["pip_left"]["enabled"] = False
+    document["layouts"]["compact"]["pip_right"]["enabled"] = False
+    layout = Path(self.params.get_param_path(PARAM_KEY))
+    layout.write_bytes(json.dumps(document).encode())
+    from openpilot.starpilot.system.starport.projection_layout import (ProjectionLayoutSource, decode_layout_for_viewport,
+                                                                       default_layout_for_viewport)
+    viewport = (1920, 1080)
+    projection = default_layout_for_viewport(viewport)
+    projection["widgets"]["pip_right"]["enabled"] = False
+    self.owner.projection_source = ProjectionLayoutSource(Path(self.params.get_param_path(PARAM_KEY)).parent / "projection.json")
+    projection_path = Path(self.owner.projection_source.path)
+    projection_path.write_bytes(json.dumps(projection).encode())
+    action = row_change(self.row(ENABLED))
+    assert action is not None and action.value == "On"
+    self.assertTrue(self.owner.apply(action))
+    saved = read_customization(self.params)
+    self.assertTrue(all(saved["layouts"][profile][key]["enabled"]
+                        for profile in ("large", "compact") for key in ("pip_left", "pip_right")))
+    projected = decode_layout_for_viewport(projection_path.read_bytes(), viewport)
+    self.assertTrue(projected["widgets"]["pip_left"]["enabled"] and projected["widgets"]["pip_right"]["enabled"])
+    # A camera removed while PiP is on stays removed; turning PiP off does not touch the layout.
+    document = json.loads(layout.read_bytes())
+    document["layouts"]["large"]["pip_left"]["enabled"] = False
+    layout.write_bytes(json.dumps(document).encode())
+    off = row_change(self.row(ENABLED))
+    assert off is not None and off.value == "Off"
+    self.assertTrue(self.owner.apply(off))
+    self.assertFalse(read_customization(self.params)["layouts"]["large"]["pip_left"]["enabled"])
+
   def test_explicit_edit_preserves_other_bytes_and_rejects_stale_source(self):
     action = row_change(self.row(BLINKER))
     assert action is not None
@@ -78,7 +111,7 @@ class PiPSettingsTests(unittest.TestCase):
     path = Path(self.params.get_param_path(MASK))
     path.write_bytes(original)
     page = self.owner.snapshot(include_editor=True)
-    self.assertEqual(page.title, 'Blind Spot Camera and Preview')
+    self.assertEqual(page.title, 'Blind Spot Camera & Preview')
     self.assertFalse(any(row.key.startswith(FORMAT_PREFIX) for row in page.rows))
     self.assertEqual(path.read_bytes(), original)
     editor, source = self.owner.editor_with_source()

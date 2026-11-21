@@ -61,19 +61,11 @@ class TestProjectionLayoutOwner(unittest.TestCase):
     self.assertIsNone(value['defaults'])
     self.assertIn('actual screen', value['reason'])
 
-  def test_jetlink_widget_available_when_selected_and_placement_retained_when_off(self):
+  def test_big_model_widget_available_without_jetlink_or_chestnut(self):
     self.screen()
-    self.assertFalse(self.owner.snapshot()['metadata']['widgets']['jetlink_status']['available'])
-    for mode in (1, 2):
+    for mode in (0, 1, 2):
       self.params.jetlink_mode = mode
-      self.assertTrue(self.owner.snapshot()['metadata']['widgets']['jetlink_status']['available'])
-    payload = self.payload()
-    payload['document']['widgets']['jetlink_status'].update(enabled=True, x=700, y=500)
-    self.owner.save(payload, session_valid=lambda: True)
-    self.params.jetlink_mode = 0
-    snapshot = self.owner.snapshot()
-    self.assertFalse(snapshot['metadata']['widgets']['jetlink_status']['available'])
-    self.assertEqual(snapshot['document'], payload['document'])
+      self.assertNotIn('available', self.owner.snapshot()['metadata']['widgets']['jetlink_status'])
 
   def test_defaults_valid_false_then_exact_saved_document(self):
     self.screen()

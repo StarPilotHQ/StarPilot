@@ -1,11 +1,8 @@
-"""Regression checks for qualified values, saved geometry and request feedback."""
+"""Regression checks for qualified values, saved geometry and action requests."""
 from dataclasses import replace
-from unittest.mock import Mock
 
 from openpilot.starpilot.ui.onroad_state import ObservationKind, OnroadInput, OnroadState, SlcActionKind, SlcUiRequest, SpeedLimitObservation
 from openpilot.starpilot.ui.onroad_customization import default_document, validate_document, rgba
-from openpilot.starpilot.ui.slc_action_dispatch import SlcActionDispatcher
-from openpilot.starpilot.ui.tests.test_slc_ui_actions import native_state, NOW
 from openpilot.starpilot.speed_limits.speed_domain import adjusted_limit, OffsetBand, OffsetSchedule
 from openpilot.starpilot.speed_limits.runtime import Runtime
 from openpilot.starpilot.speed_limits.runtime_settings import parse
@@ -49,27 +46,14 @@ def test_v4_migration_preserves_settings_and_clamps_only_enlarged_widgets():
   doc['palette']['cardFill'] = '#12345678'
   doc['speedSources'] = True
   doc['layouts']['large']['cruise_limits'].update(x=1654, y=75)
-  doc['layouts']['large']['speed_limit_actions'].update(x=1654, y=500)
   old_speed = dict(doc['layouts']['large']['current_speed'])
   migrated = validate_document(doc)
-  assert migrated['version'] == 15
+  assert migrated['version'] == 16
   assert migrated['layouts']['large']['cruise_limits']['x'] == 1391
-  assert migrated['layouts']['large']['speed_limit_actions'] == {'x': 1678, 'y': 325, 'enabled': True}
   assert migrated['layouts']['large']['current_speed'] == old_speed
   assert migrated['speedSources'] is True
   assert rgba(migrated, 'cardFill', 'large', 'cruise_limits') == (18, 52, 86, 120)
   assert validate_document(migrated) == migrated
-
-
-def test_feedback_requires_matching_receipts():
-  now = [NOW]
-  dispatcher = SlcActionDispatcher(Mock(), lambda _: native_state(), lambda: now[0])
-  assert dispatcher.dispatch(SlcUiRequest(SlcActionKind.ACCEPT, 'drive-session', 7, 9, 22))
-  obs = road().speed_limit
-  assert dispatcher.feedback(obs) == 'Waiting…'
-  obs = replace(obs, action_sequence_id=NOW, action_status='accept')
-  assert dispatcher.feedback(obs) == 'Limit accepted'
-  assert dispatcher.feedback(replace(obs, session_id='next-drive')) == ''
 
 
 def test_publisher_receipt_survives_next_cycle_and_resets_with_session():

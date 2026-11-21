@@ -146,7 +146,9 @@ def test_native_history_counts_real_emissions_and_preserves_each_hold(native_his
 
 @pytest.mark.parametrize('reason,scored,attempts', (
   ('original_hint_requires_exact_unclipped_native_pair', None, 1),
-  ('same_state_controller_checks_only', 49, 1),
+  ('same_state_controller_checks_only', 0, 1),
+  ('same_state_controller_checks_only', 1, len(TRAINING_FRACTIONS)),
+  ('same_state_controller_checks_only', 49, len(TRAINING_FRACTIONS)),
   ('same_state_controller_checks_only', 50, len(TRAINING_FRACTIONS)),
   ('candidate_dependent_quality_refusal', None, len(TRAINING_FRACTIONS)),
 ))
@@ -161,3 +163,13 @@ def test_only_original_source_refusal_ends_redundant_strength_search(reason, sco
   assert fitted is None and proof['selected_fraction'] is None
   assert len(proof['attempts']) == checker.call_count == attempts
   assert proof['heldout_windows_not_evaluated'] == ('d', 'e', 'f')
+
+
+def test_sparse_numerical_credit_never_replaces_real_native_emissions(native_history):
+  cp, controls, chain, commands = native_history
+  retained = set(sorted({output.apply_ns for output in chain})[:24])
+  fewer = tuple(output for output in chain if output.apply_ns in retained)
+  result = check_original_native(cp, controls, fewer, commands, require_change=False)
+  assert not result['qualified'] and result['reason'] == 'insufficient_original_native_delivery'
+  unchanged = check_original_native(cp, controls, chain, commands, require_change=True)
+  assert not unchanged['qualified'], 'A complete unchanged history cannot earn a changed tune'

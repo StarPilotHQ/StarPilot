@@ -58,6 +58,44 @@ class TestHondaCurrentCaller(unittest.TestCase):
   def test_radarless_alpha_civic_eps_2_with_gas_override(self):
     self.run_current_caller(candidate=CAR.HONDA_CIVIC_2022, word=10, alpha=True, hybrid=True, eps_pedal='gas')
 
+  def test_radarless_alpha_civic_short_eps_before_native_refresh(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC_2022, word=10, alpha=True, hybrid=True,
+                            eps_pedal='gas', eps_end=82)
+
+  def test_radarless_alpha_repeated_eps_before_native_refresh(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC_2022, word=10, alpha=True, hybrid=True,
+                            eps_pedal='gas', eps_end=82, eps_repeat=(85, 88))
+
+  def test_radarless_alpha_repeated_eps_with_brake_before_native_refresh(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC_2022, word=10, alpha=True, hybrid=True,
+                            eps_pedal='brake', eps_end=82, eps_repeat=(85, 88))
+
+  def test_classic_stock_repeated_eps_with_gas_before_native_refresh(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC_BOSCH, word=0,
+                            eps_pedal='gas', eps_end=82, eps_repeat=(85, 88))
+
+  def test_classic_stock_repeated_eps_with_brake_before_native_refresh(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC_BOSCH, word=0,
+                            eps_pedal='brake', eps_end=82, eps_repeat=(85, 88))
+
+  def test_nidec_stock_repeated_eps_with_gas_before_native_refresh(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC, word=0,
+                            eps_pedal='gas', eps_end=82, eps_repeat=(85, 88))
+
+  def test_nidec_stock_repeated_eps_with_brake_before_native_refresh(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC, word=0,
+                            eps_pedal='brake', eps_end=82, eps_repeat=(85, 88))
+
+  def test_classic_stock_brake_held_across_short_eps_recovery(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC_BOSCH, word=0,
+                            eps_pedal='brake', eps_end=82, eps_brake_end=95)
+
+  def test_alpha_cancel_across_late_host_publication(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC_2022, word=10, alpha=True, hybrid=True, host_scenario='cancel_gap')
+
+  def test_alpha_native_brake_precedes_host_and_health(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC_2022, word=10, alpha=True, hybrid=True, native_brake_first=True)
+
   def test_diagnostic_during_recovered_reverse(self):
     self.run_current_caller(candidate=CAR.HONDA_CIVIC_BOSCH, word=0, fault='diagnostic')
 
@@ -65,7 +103,8 @@ class TestHondaCurrentCaller(unittest.TestCase):
     self.run_current_caller(candidate=CAR.HONDA_CIVIC_BOSCH, word=0, fault='relay')
 
   def run_current_caller(self, *, candidate, word, fault=None, alternate_brake=False, alpha=False, speed_mps=12.5,
-                         pedal=False, host_scenario=None, serialized=False, eps_pedal=None, hybrid=False):
+                         pedal=False, host_scenario=None, serialized=False, eps_pedal=None, hybrid=False, eps_end=95,
+                         eps_repeat=None, eps_brake_end=None, native_brake_first=False):
     safety = libsafety_py.libsafety
     with (
       OpenpilotPrefix(),
@@ -155,25 +194,29 @@ class TestHondaCurrentCaller(unittest.TestCase):
       tx_parser = CANParser(tx_dbc.name, tx_messages, ci.CC.CAN.lkas)
       previous, driven, receipt = structs.CarControl(), {}, None
       controls_published, controls_latest, driven_new = {}, {}, {}
+      delayed_host = []
       base = time.monotonic_ns() + 100_000_000
       try:
         for tick in range(145):
           now = base + tick * 10_000_000
           reengage = host_scenario == 'long_reengage' and tick >= 131
-          cancelled = host_scenario == 'cancel' and tick >= 40
+          cancelled = host_scenario in ('cancel', 'cancel_gap') and tick >= 40
           if host_scenario == 'settings_off' and tick == 135:
             from openpilot.starpilot.aol.intent import read_settings
             saved.put_bool('AlwaysOnLateral', False, block=True)
             card.aol_card_intent.settings = read_settings(saved)
             sd.aol_settings = read_settings(saved)
           # SET press/release is the real first ordinary native grant, preceding engaged HB.
+          eps_active = 80 <= tick < eps_end or eps_repeat is not None and eps_repeat[0] <= tick < eps_repeat[1]
+          brake_active = ((51 if native_brake_first else 50) <= tick < 55 or
+                          eps_pedal == 'brake' and (eps_active or eps_brake_end is not None and 80 <= tick < eps_brake_end))
           incoming = stream.frames(
-            cruise_button=2 if host_scenario == 'cancel' and tick == 40 else
+            cruise_button=2 if host_scenario in ('cancel', 'cancel_gap') and tick == 40 else
               3 if tick == 20 or host_scenario == 'long_reengage' and tick == 130 else 0,
-            cruise=int(21 <= tick < 50 and not cancelled or reengage),
-            brake=50 <= tick < 55 or eps_pedal == 'brake' and 80 <= tick < 95,
-            eps=(2 if eps_pedal else 6) if 80 <= tick < 95 else 0,
-            gas=20 if eps_pedal == 'gas' and 80 <= tick < 95 else 0,
+            cruise=int(21 <= tick < (51 if native_brake_first else 50) and not cancelled or reengage),
+            brake=brake_active,
+            eps=(2 if eps_pedal else 6) if eps_active else 0,
+            gas=20 if eps_pedal == 'gas' and eps_active else 0,
             steering_torque=1301 if eps_pedal and 80 <= tick < 95 else 0,
             gear=2 if 110 <= tick < 125 else None,
             lkas=0, speed_kph=speed_mps * 3.6,
@@ -267,20 +310,35 @@ class TestHondaCurrentCaller(unittest.TestCase):
           self.assertAlmostEqual(cs.vEgoRaw, speed_mps, places=5)
           self.assertFalse(cs.standstill or cs.seatbeltUnlatched)
           self.assertFalse(cs.steerFaultPermanent)
-          self.assertEqual(cs.steerFaultTemporary, 80 <= tick < 95)
+          self.assertEqual(cs.steerFaultTemporary, eps_active)
           self.assertEqual(cs.gearShifter, structs.CarState.GearShifter.reverse if 110 <= tick < 125 else structs.CarState.GearShifter.drive)
-          self.assertEqual(cs.brakePressed, 50 <= tick < 55 or eps_pedal == 'brake' and 80 <= tick < 95)
+          self.assertEqual(cs.brakePressed, brake_active)
           self.assertTrue(cs.cruiseState.available)
-          self.assertEqual(cs.cruiseState.enabled, 21 <= tick < 50 and not cancelled or reengage)
+          self.assertEqual(cs.cruiseState.enabled, 21 <= tick < (51 if native_brake_first else 50) and not cancelled or reengage)
           intent = decode_intent(published['aolIntentWire'].aolIntentWire)
           self.assertIsNotNone(intent)
           # Initial receipt is unavailable until actual negotiator completes its zero acknowledgment.
           absent = messaging.new_message('aolSafetyWire', 0, valid=False, logMonoTime=now)
           current_receipt = receipt if receipt is not None else absent
-          driven_new = selfdrive_step(
-            sd, published, current_receipt, controls_published, cp, safety, now, calibration='calibrated',
-            driver_lockout=host_scenario == 'driver_lockout' and tick >= 135,
-            driver_monitoring_valid=not (host_scenario == 'driver_lockout' and tick >= 140))
+          early_order = None
+          if native_brake_first and tick == 50:
+            def native_brake_edge():
+              physical = stream.frames(cruise=1, brake=True, speed_kph=speed_mps * 3.6)
+              for address, payload, bus in physical:
+                self.assertTrue(safety.safety_rx_hook(libsafety_py.make_CANPacket(address, bus, payload)))
+              self.assertFalse(safety.get_controls_allowed())
+            receipt, early_order = pandad.step(driven, published, now, after_health_read=native_brake_edge)
+            current_receipt = receipt
+          if host_scenario == 'cancel_gap' and 40 <= tick <= 42:
+            delayed_host.append(published)
+            driven_new = {}
+          else:
+            driven_new = selfdrive_step(
+              sd, published, current_receipt, controls_published, cp, safety, now, calibration='calibrated',
+              queued=tuple(delayed_host), panda_health=panda.as_reader() if early_order is not None else None,
+              driver_lockout=host_scenario == 'driver_lockout' and tick >= 135,
+              driver_monitoring_valid=not (host_scenario == 'driver_lockout' and tick >= 140))
+            delayed_host.clear()
           retained = dict(driven)
           driven.update(driven_new)
           for service, event in retained.items():
@@ -289,8 +347,8 @@ class TestHondaCurrentCaller(unittest.TestCase):
               self.assertLessEqual(int(event.logMonoTime), now)
           # Held producer snapshots are only for native observation. Simulated
           # receivers get each actual new publication once, never a restamp.
-          order = None
-          if tick % 10 == 0:
+          order = early_order
+          if tick % 10 == 0 and early_order is None:
             receipt, order = pandad.step(driven, published, now)
           feed(controls, now, tick, enabled=sd.enabled, active=sd.active)
           plan = messaging.new_message('longitudinalPlan', valid=True, logMonoTime=now)
@@ -379,7 +437,7 @@ class TestHondaCurrentCaller(unittest.TestCase):
               if not previous.latActive:
                 self.assertEqual((tx['torque'], tx['request']), (0, False), row)
             else:
-              if (alpha and address in (0x1DF, 0x1C8) or pedal and address == 0x200) and tick == (40 if host_scenario == 'cancel' else 50):
+              if (alpha and address in (0x1DF, 0x1C8) or pedal and address == 0x200) and tick == (40 if host_scenario in ('cancel', 'cancel_gap') else 50):
                 # Card applies the prior Controls envelope. Cancel or brake has
                 # already revoked LONG; the native hook must reject this
                 # in-flight positive command before the new envelope arrives.
@@ -402,16 +460,22 @@ class TestHondaCurrentCaller(unittest.TestCase):
             self.assertTrue(command.latActive, row)
             self.assertTrue(any(t.get('accepted') and t.get('request') and t.get('torque') for t in row['TX']), row)
             self.assertTrue(intent.allowedLatch, row)
-          if eps_pedal and 82 <= tick < 95:
+          if eps_pedal and tick >= 82 and eps_active:
             self.assertTrue(cs.steerFaultTemporary and cs.steeringPressed, row)
             self.assertTrue(cs.brakePressed if eps_pedal == 'brake' else cs.gasPressed, row)
             self.assertTrue(card.aol_card_intent.allowed_latch, row)
             self.assertFalse(command.latActive or command.longActive or row['permission'] & 1, row)
-          if tick == 90 or tick == 120 and fault != "relay":
+          if tick == 90 and eps_end == 95 or tick == 120 and fault != "relay":
             self.assertTrue(card.aol_card_intent.allowed_latch, row)
             self.assertTrue(intent.lateralArmed, row)
             self.assertFalse(command.latActive or command.longActive, row)
             self.assertFalse(row['permission'] & 1, row)
+          if eps_end == 82 and 82 <= tick < 90:
+            self.assertEqual(cs.steerFaultTemporary, eps_active, row)
+            self.assertTrue(intent.allowedLatch, row)
+            self.assertFalse(command.latActive or command.longActive, row)
+          if eps_end == 82 and tick == 95:
+            self.assertTrue(intent.allowedLatch and command.latActive, row)
           if tick < 20:
             self.assertFalse(intent.allowedLatch or command.latActive or command.longActive, row)
           if host_scenario == "driver_lockout" and 135 <= tick < 140:
@@ -441,10 +505,22 @@ class TestHondaCurrentCaller(unittest.TestCase):
           if host_scenario == "long_reengage" and tick == 144:
             self.assertTrue(command.latActive and command.longActive, row)
             self.assertEqual(row["permission"], 3, row)
+          if host_scenario == 'cancel_gap' and tick >= 40:
+            self.assertEqual(intent.allowedLatch, not 110 <= tick < 125, row)
+            self.assertFalse(command.longActive, row)
+            if tick == 43:
+              self.assertFalse(previous.latActive or previous.longActive, row)
+            if tick >= 44:
+              self.assertNotIn('controlsMismatch', row['events'], row)
+          if native_brake_first and tick == 50:
+            self.assertTrue(receipt is not None and early_order is not None, row)
+            self.assertTrue(intent.allowedLatch and command.latActive, row)
+            self.assertFalse(command.longActive, row)
+            self.assertNotIn('controlsMismatch', row['events'], row)
           if cancelled and tick >= 42:
             self.assertTrue(card.aol_card_intent.allowed_latch and intent.lateralArmed, row)
             self.assertFalse(command.longActive or row['permission'] & 2, row)
-            if tick < 80 or 105 <= tick < 110 or tick >= 135:
+            if (tick < 80 or 105 <= tick < 110 or tick >= 135) and not (host_scenario == 'cancel_gap' and 42 <= tick <= 43):
               self.assertTrue(command.latActive and row['permission'] & 1, row)
             if (95 <= tick < 105 or 125 <= tick < 135) and not row['permission'] & 1:
               self.assertFalse(command.latActive, row)

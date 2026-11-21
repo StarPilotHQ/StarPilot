@@ -162,7 +162,7 @@ export const FavoritesPage = {
             </GalaxySelect></label>
             <label v-if="slot.key === '__starpilot_controller_action__:set_speed'">Set speed (device units)<input class="gx-field" type="number" min="5" max="145" step="1" :value="slot.value ?? 30" :disabled="disabled" @change="speed(index, $event)"></label>
             <label>Label<input class="gx-field" type="text" maxlength="32" :aria-label="'Quick Select ' + (index + 1) + ' label'" :value="slot.label" :disabled="disabled || !slot.key" @change="label(index, $event)"></label>
-            <div class="gx-row"><div class="gx-row__info"><span class="gx-row__label">Show onroad · Big and Small UI</span></div>
+            <div class="gx-row"><div class="gx-row__info"><span class="gx-row__label">Show onroad · Big & Small UI</span></div>
               <label class="gx-switch"><input type="checkbox" role="switch" :aria-label="'Show favorite ' + (index + 1) + ' onroad'" :checked="slot.show_onroad" :disabled="disabled || !slot.enabled || !slot.key" @change="toggle(index, 'show_onroad', $event)"><span class="gx-switch__track"></span><span class="gx-switch__thumb"></span></label></div>
             <p v-if="slot.key" class="gx-note">{{ state.data.states[index].stateLabel }}<template v-if="state.data.states[index].reason"> · {{ state.data.states[index].reason }}</template></p>
             <button class="gx-btn gx-btn--tonal" type="button" :disabled="disabled || !slot.key" @click="feed.update(index, {key:null})">Clear slot</button>

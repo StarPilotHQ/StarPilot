@@ -195,7 +195,7 @@ class TestSlcUiRuntime(unittest.TestCase):
 
   def test_projection_does_not_claim_the_removed_use_button(self):
     from openpilot.starpilot.system.starport.projection_onroad import ProjectionOnroad
-    from openpilot.starpilot.ui.onroad_state import slc_action_bounds
+    from openpilot.starpilot.ui.onroad_state import speed_limit_bounds
 
     sm, cp = replay_inputs()
     runtime = accepted_runtime(sm, cp, parse({'SpeedLimitController': True, 'SLCPriority1': 'Dashboard'}), session_id='projection')
@@ -207,8 +207,10 @@ class TestSlcUiRuntime(unittest.TestCase):
     view.native = NS(ui_state=NS(started=True))
     view._state = state
     view._slc_input = OnroadInput(emitted.append, Profile.LARGE)
-    first, last = slc_action_bounds(Profile.LARGE, state)
-    x, y = (first[0] + last[2]) / 2, (first[1] + last[3]) / 2
+    bounds = speed_limit_bounds(Profile.LARGE, state)
+    assert bounds is not None
+    left, top, right, bottom = bounds
+    x, y = (left + right) / 2, (top + bottom) / 2
     self.assertFalse(view._slc_touch('down', x, y))
     self.assertFalse(view._slc_touch('up', x, y))
     self.assertFalse(emitted)

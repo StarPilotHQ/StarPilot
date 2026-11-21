@@ -5,6 +5,7 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 
 from openpilot.common.params import Params
 from openpilot.starpilot.galaxy.access import GalaxyAccessOwner
@@ -42,6 +43,43 @@ class TestOnroadLayoutOwner(unittest.TestCase):
     self.assertEqual(result['document']['layouts']['large'], large['document']['layouts']['large'])
     self.assertEqual(self.params.get(PARAM_KEY), compact['document'])
     self.assertNotEqual(initial['revision'], result['revision'])
+
+  def test_rotation_is_local_and_never_changes_layout_bytes(self):
+    initial = self.owner.snapshot()
+    document = initial['document']
+    wheel = document['layouts']['large']['steering_wheel']
+    wheel['rotate'] = True
+    enabled = self.owner.save({'revision': initial['revision'], 'document': document}, session_valid=lambda: True)
+    self.assertIsNone(self.params.get(PARAM_KEY))
+    self.assertTrue(enabled['document']['layouts']['large']['steering_wheel']['rotate'])
+    self.assertNotEqual(initial['revision'], enabled['revision'])
+    with self.assertRaises(LayoutChanged):
+      self.owner.save({'revision': initial['revision'], 'document': document}, session_valid=lambda: True)
+
+    document['roadColors']['large']['pathMode'] = 'rainbow'
+    wheel.update(x=1300, y=100)
+    updated = self.owner.save({'revision': enabled['revision'], 'document': document}, session_valid=lambda: True)
+    raw = Path(self.params.get_param_path(PARAM_KEY)).read_bytes()
+    self.assertNotIn('rotate', json.loads(raw)['layouts']['large']['steering_wheel'])
+    self.assertEqual(json.loads(raw)['roadColors']['large']['pathMode'], 'rainbow')
+    wheel['rotate'] = False
+    disabled = self.owner.save({'revision': updated['revision'], 'document': document}, session_valid=lambda: True)
+    self.assertFalse(disabled['document']['layouts']['large']['steering_wheel'].get('rotate', False))
+    self.assertEqual(Path(self.params.get_param_path(PARAM_KEY)).read_bytes(), raw)
+
+  def test_rotation_save_failure_is_visible_without_claiming_it_applied(self):
+    initial = self.owner.snapshot()
+    initial['document']['layouts']['large']['steering_wheel']['rotate'] = True
+    payload = {key: initial[key] for key in ('revision', 'document')}
+    self.parked = False
+    with self.assertRaises(LayoutChanged):
+      self.owner.save(payload, session_valid=lambda: True)
+    self.parked = True
+    with patch('openpilot.starpilot.galaxy.onroad_layout.write_rotation', return_value=False):
+      failed = self.owner.save(payload, session_valid=lambda: True)
+    self.assertEqual(failed['failed'], ['Rotate with steering'])
+    self.assertFalse(failed['document']['layouts']['large']['steering_wheel'].get('rotate', False))
+    self.assertIsNone(self.params.get(PARAM_KEY))
 
   def test_disable_map_turns_only_the_big_screen_map_off_and_only_when_it_was_on(self):
     self.assertFalse(self.owner.disable_map(lambda: True), 'nothing saved yet')

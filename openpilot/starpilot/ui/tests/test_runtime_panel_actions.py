@@ -771,7 +771,9 @@ class TestRuntimePanelActions(unittest.TestCase):
   def test_runtime_snapshot_marks_only_evidenced_controls_available(self):
     shown = self.layout.star.adapter.build(ShellMode.SETTINGS, Destination.SOFTWARE, now_ns=NOW)
     self.assertTrue(shown.software.automatic_updates)
-    self.assertEqual(shown.software.available_actions, frozenset({SoftwareRequest.OPEN_UNINSTALL_CONFIRMATION}))
+    self.assertEqual(shown.software.available_actions, frozenset({
+      SoftwareRequest.OPEN_UNINSTALL_CONFIRMATION, SoftwareRequest.OPEN_ERROR_LOG,
+    }))
     self.assertNotIn(DeviceRequest.RESET_DRIVER_MONITORING, shown.device.available_actions)
     self.assertNotIn(DeviceRequest.OPEN_GALAXY, shown.device.available_actions)
     self.assertIsNone(shown.device.galaxy_paired)
@@ -931,7 +933,9 @@ class TestRuntimePanelActions(unittest.TestCase):
       branch_dialog.callback(native_software.DialogResult.CONFIRM)
       self.ui.params.put.assert_called_once_with("UpdaterTargetBranch", "new", block=True)
       effect.assert_called_once()
-      self.assertFalse(self.layout._deliver_settings_request(SoftwareAction(SoftwareRequest.OPEN_ERROR_LOG)))
+      with patch.object(self.software, "_on_error_log") as open_error_log:
+        self.assertTrue(self.layout._deliver_settings_request(SoftwareAction(SoftwareRequest.OPEN_ERROR_LOG)))
+        open_error_log.assert_called_once_with()
       self.assertFalse(self.layout._deliver_settings_request(SoftwareAction(SoftwareRequest.SET_AUTOMATIC_UPDATES, False)))
 
 

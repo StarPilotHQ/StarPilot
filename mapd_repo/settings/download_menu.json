@@ -2064,5 +2064,124 @@
         "max_lat": -14.157381542325423
       }
     }
+  },
+  "ca_province": {
+    "AB": {
+      "full_name": "Alberta",
+      "bounding_box": {
+        "min_lon": -120.0043,
+        "min_lat": 48.99251,
+        "max_lon": -110.0018,
+        "max_lat": 60.00254
+      }
+    },
+    "BC": {
+      "full_name": "British Columbia",
+      "bounding_box": {
+        "min_lon": -141.7761,
+        "min_lat": 46.41459,
+        "max_lon": -114.049,
+        "max_lat": 60.00678
+      }
+    },
+    "MB": {
+      "full_name": "Manitoba",
+      "bounding_box": {
+        "min_lon": -102.014,
+        "min_lat": 48.99056,
+        "max_lon": -88.12183,
+        "max_lat": 60.00845
+      }
+    },
+    "NB": {
+      "full_name": "New Brunswick",
+      "bounding_box": {
+        "min_lon": -69.05975,
+        "min_lat": 44.19205,
+        "max_lon": -62.88575,
+        "max_lat": 48.38075
+      }
+    },
+    "NL": {
+      "full_name": "Newfoundland and Labrador",
+      "bounding_box": {
+        "min_lon": -67.87079,
+        "min_lat": 44.45787,
+        "max_lon": -44.17684,
+        "max_lat": 60.50864
+      }
+    },
+    "NT": {
+      "full_name": "Northwest Territories",
+      "bounding_box": {
+        "min_lon": -136.6974,
+        "min_lat": 59.9896,
+        "max_lon": -101.976,
+        "max_lat": 81.65483
+      }
+    },
+    "NS": {
+      "full_name": "Nova Scotia",
+      "bounding_box": {
+        "min_lon": -67.24728,
+        "min_lat": 42.10691,
+        "max_lon": -58.22593,
+        "max_lat": 47.89793
+      }
+    },
+    "NU": {
+      "full_name": "Nunavut",
+      "bounding_box": {
+        "min_lon": -120.737,
+        "min_lat": 51.1268,
+        "max_lon": -53.26943,
+        "max_lat": 84.95198
+      }
+    },
+    "ON": {
+      "full_name": "Ontario",
+      "bounding_box": {
+        "min_lon": -95.15965,
+        "min_lat": 41.66009,
+        "max_lon": -74.30998,
+        "max_lat": 57.50826
+      }
+    },
+    "PE": {
+      "full_name": "Prince Edward Island",
+      "bounding_box": {
+        "min_lon": -64.60236,
+        "min_lat": 45.82497,
+        "max_lon": -61.24878,
+        "max_lat": 47.68573
+      }
+    },
+    "QC": {
+      "full_name": "Quebec",
+      "bounding_box": {
+        "min_lon": -79.8404,
+        "min_lat": 44.98552,
+        "max_lon": -57.08908,
+        "max_lat": 62.6262
+      }
+    },
+    "SK": {
+      "full_name": "Saskatchewan",
+      "bounding_box": {
+        "min_lon": -110.0069,
+        "min_lat": 48.9876,
+        "max_lon": -101.3614,
+        "max_lat": 60.00052
+      }
+    },
+    "YT": {
+      "full_name": "Yukon",
+      "bounding_box": {
+        "min_lon": -141.2389,
+        "min_lat": 59.99739,
+        "max_lon": -123.8021,
+        "max_lat": 70.16293
+      }
+    }
   }
 }

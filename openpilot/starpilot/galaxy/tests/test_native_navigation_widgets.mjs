@@ -1,6 +1,7 @@
+import { compile } from "../web/vendor/vue/vue.esm-browser.js"
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import { OnroadLayoutPage, validSnapshot, validDocument, widgetSize, clampPlacement } from "../web/js/onroad-layout.js"
+import { LayoutWidgetPreview, OnroadLayoutPage, validSnapshot, validDocument, widgetSize, clampPlacement } from "../web/js/onroad-layout.js"
 
 // Use the server's real registry so a UI gate cannot silently reject a newly exposed widget.
 const data = JSON.parse(execFileSync(process.env.PYTHON || "python3", ["-c", `
@@ -10,11 +11,24 @@ print(json.dumps(dict(document=default_document(), defaults=default_document(), 
                      revision="native", editable=True, valid=True, activeProfile="large", supportedProfiles=["large"])))
 `], { encoding: "utf8" }))
 assert.equal(validSnapshot(data), true)
-for (const version of [11, 12, 13, 14, 15]) {
-  assert.equal(validSnapshot({ ...data, document: { ...data.document, version } }), true)
-  assert.equal(validSnapshot({ ...data, defaults: { ...data.defaults, version } }), true)
-}
-for (const version of [9, 10, 16]) {
+const signalEdges = JSON.parse(execFileSync(process.env.PYTHON || "python3", ["-c", `
+import json
+from openpilot.starpilot.ui.onroad_customization import SIGNAL_SIZES, default_document, signal_size, validate_document, widget_bounds
+documents = []
+for style in SIGNAL_SIZES:
+  document = default_document()
+  placed = document['layouts']['large']['network_signal']
+  placed.update(size=style, scale=50, enabled=True, wifiName=True)
+  bounds = widget_bounds('large', 'network_signal')
+  width, height = signal_size(placed)
+  placed.update(x=bounds['x'] + bounds['width'] - width, y=bounds['y'] + bounds['height'] - height)
+  documents.append(validate_document(document))
+print(json.dumps(documents))
+`], { encoding: "utf8" }))
+for (const document of signalEdges) assert.equal(validDocument(document, data.metadata), true)
+assert.equal(validSnapshot(data), true)
+assert.equal(data.document.version, 16)
+for (const version of [9, 10, 15, 17]) {
   assert.equal(validSnapshot({ ...data, document: { ...data.document, version } }), false)
   assert.equal(validSnapshot({ ...data, defaults: { ...data.defaults, version } }), false)
 }
@@ -91,41 +105,69 @@ assert.equal(vm.layout.nav_map.enabled, true)
 assert.equal(vm.layout.nav_map.opacity, 35)
 assert.equal(validSnapshot({ ...data, document: vm.state.draft }), true)
 
-// Use actual native geometry for source attachment, bounds, and the transient timer.
-assert.deepEqual(data.metadata.profiles.large.widgets.cruise_limits.sourcesExtent, {inline:114, card:122, actionGap:8})
+// Use actual native geometry for source growth, bounds, and the transient timer.
+assert.deepEqual(data.metadata.profiles.large.widgets.cruise_limits.sourcesExtent, {inline:114, card:122})
 vm.state.draft = structuredClone(data.document)
 vm.state.selected = "cruise_limits"
 vm.setSpeedSources("speedSources", true)
-assert.equal(vm.layout.speed_limit_actions.y, 449)
 vm.setSpeedSources("speedSourcesCard", true)
-assert.equal(vm.layout.speed_limit_actions.y, 457)
+assert.equal(vm.layout.cruise_limits.y, 75)
 vm.setSpeedSources("speedSources", false)
-assert.equal(vm.layout.speed_limit_actions.y, 325)
 const overlapping = structuredClone(data.document)
 overlapping.layouts.large.cruise_limits.y = 550
 assert.equal(validDocument(overlapping, data.metadata), false)
-// Disable torque while testing source attachment at the lower screen edge.
+// Disable torque while testing sources at the lower screen edge.
 vm.layout.torque_bar.enabled = false
 vm.layout.cruise_limits.x = 1300
-vm.layout.speed_limit_actions.x = 1324
 vm.layout.cruise_limits.y = 690
-vm.layout.speed_limit_actions.y = 940
 vm.setSpeedSources("speedSources", true)
-assert.equal(vm.layout.cruise_limits.y, 500)
-assert.equal(vm.layout.speed_limit_actions.y, 882)
+assert.equal(vm.layout.cruise_limits.y, 1050 - vm.profile.widgets.cruise_limits.height)
 assert.equal(validDocument(vm.state.draft, data.metadata), true)
 const beyondNewPromptWidth = JSON.parse(JSON.stringify(vm.state.draft))
 beyondNewPromptWidth.layouts.large.cruise_limits.x = 1430
 assert.equal(validDocument(beyondNewPromptWidth, data.metadata), false)
-
-Object.assign(vm.layout.speed_limit_actions, {x:600, y:500})
 vm.setSpeedSources("speedSources", false)
-assert.deepEqual([vm.layout.speed_limit_actions.x, vm.layout.speed_limit_actions.y], [600, 500])
+const signal = vm.profile.widgets.network_signal, signalBounds = signal.bounds || vm.profile.bounds
+assert.equal(signal.label, "Connections")
+vm.layout.network_signal.enabled = true
+vm.state.selected = "network_signal"
+vm.setWidgetSize("horizontal")
+assert.deepEqual(widgetSize(signal, vm.layout.network_signal), signal.sizes.horizontal)
+assert.ok(vm.layout.network_signal.x + signal.sizes.horizontal[0] <= signalBounds.x + signalBounds.width)
+assert.equal(validDocument(vm.state.draft, data.metadata), true)
+vm.setWidgetSize("vertical")
+assert.deepEqual(widgetSize(signal, vm.layout.network_signal), signal.sizes.vertical)
+// Every style shrinks from full size down to 30%; growing back pulls it inside the screen.
+assert.deepEqual(signal.scale, {min: 30, max: 100, default: 100})
+assert.equal(vm.layout.network_signal.scale, 100)
+assert.equal(vm.layout.network_signal.bluetooth, true)
+vm.setWidgetToggle("bluetooth", "Off")
+assert.equal(vm.layout.network_signal.bluetooth, false)
+vm.setWidgetToggle("bluetooth", "On")
+assert.equal(vm.layout.network_signal.bluetooth, true)
+for (const style of ["ring", "horizontal", "vertical"]) {
+  vm.setWidgetSize(style)
+  for (const scale of [30, 50, 100]) {
+    vm.scaleInput({ target: { value: String(scale) } })
+    assert.deepEqual(widgetSize(signal, vm.layout.network_signal), signal.sizes[style].map(side => Math.round(side * scale / 100)))
+    assert.equal(validDocument(vm.state.draft, data.metadata), true)
+  }
+}
+vm.scaleInput({ target: { value: "30" } })
+vm.scaleInput({ target: { value: "25" } })
+assert.equal(vm.layout.network_signal.scale, 30)
+vm.layout.network_signal.x = signalBounds.x + signalBounds.width - widgetSize(signal, vm.layout.network_signal)[0]
+vm.scaleInput({ target: { value: "100" } })
+assert.ok(vm.layout.network_signal.x + signal.sizes.vertical[0] <= signalBounds.x + signalBounds.width)
+assert.equal(validDocument(vm.state.draft, data.metadata), true)
+const badScale = JSON.parse(JSON.stringify(vm.state.draft))
+badScale.layouts.large.network_signal.scale = 20
+assert.equal(validDocument(badScale, data.metadata), false)
 vm.state.profile = "compact"
 vm.add("stopped_timer")
 assert.equal(vm.layout.stopped_timer.enabled, true)
 assert.equal(validDocument(vm.state.draft, data.metadata), true)
-assert.deepEqual(clampPlacement(vm.profile, "speed_limit_actions", 146, 44, vm.layout), {x:146, y:44})
+assert.deepEqual(clampPlacement(vm.profile, "steering_wheel", 146, 44, vm.layout), {x:146, y:44})
 console.log("Native Big widgets: real metadata, optional add/move/remove, map resize/opacity and undo passed")
 
 // C4 has the same independent native navigation switch; StarPort is another document.
@@ -137,3 +179,20 @@ assert.equal(compact.document.layouts.compact.nav_card.enabled, true)
 compact.document.layouts.compact.nav_card.enabled = false
 assert.equal(validDocument(compact.document, compact.metadata), true)
 assert.equal(compact.document.layouts.large.nav_card.enabled, true)
+
+// Exercise the rendered fallback, not just the stored toggle value.
+const renderSignal = compile(LayoutWidgetPreview.template, { decodeEntities: value => value.replaceAll("&amp;", "&") })
+function previewText(node) {
+  if (!node || typeof node !== "object") return ""
+  if (Array.isArray(node)) return node.map(previewText).join(" ")
+  return typeof node.children === "string" ? node.children : previewText(node.children)
+}
+for (const size of ["ring", "horizontal", "vertical"]) {
+  for (const bluetooth of [true, false]) {
+    const tree = renderSignal({ widget: { kind: "network_signal", size, width: 268, height: 196, bluetooth },
+      palette: {}, profile: "large", scene: "engaged", sprite: null, native: false }, [])
+    const text = previewText(tree)
+    assert.equal(text.includes("iPhone 15"), bluetooth, `${size} Bluetooth preview follows the toggle`)
+    if (!bluetooth) assert(!text.includes("Connected") && !text.includes("AirPods"))
+  }
+}

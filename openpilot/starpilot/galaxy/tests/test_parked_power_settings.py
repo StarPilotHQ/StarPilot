@@ -16,7 +16,7 @@ class ParkedPowerSettingsTest(unittest.TestCase):
     self.assertIsNone(self.params.get(KEY))
     self.assertEqual([(r['value'], r['minimum'], r['maximum'], r['step'], r['unit']) for r in page['rows'][1:]],
                      [('30', 1, 30, 1, 'h'), ('11.8', 11.8, 12.5, 0.1, 'V')])
-    for index, value in ((1, 6), (2, 12.1), (0, 'On')):
+    for index, value in ((1, 6), (2, 12.1), (0, 'Custom limits')):
       page = self.page('power')
       intent = self.gateway.preview(page['view'], index, 0, self.session, self.generation, value=value)
       self.assertTrue(self.gateway.confirm(intent['intent'], self.session, self.generation))

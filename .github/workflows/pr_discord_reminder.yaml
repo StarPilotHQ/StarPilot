@@ -1,0 +1,111 @@
+name: PR Discord reminder
+
+# Only trusted workflow code runs. Never check out or execute PR contents here.
+on:
+  pull_request_target:
+    types: [opened]
+  push:
+    branches: [stable, testing]
+    paths: [.github/workflows/pr_discord_reminder.yaml]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: pr-discord-reminder-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  remind:
+    if: github.repository == 'StarPilotHQ/StarPilot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: read
+      pull-requests: write
+    steps:
+      - name: Validate and send one reminder for a newly opened PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: python
+        run: |
+          import json
+          import os
+          import urllib.request
+
+          REPO = "StarPilotHQ/StarPilot"
+          MARKER = "<!-- starpilot-pr-discord-reminder-v1 -->"
+          BODY = ("Thank you for your PR! To increase communication and responsiveness, "
+                  "please open a ticket describing your PR in the StarPilot discord at "
+                  "[https://firestar.link/discord](https://firestar.link/discord)\n\n" + MARKER)
+
+          def remind(event, request):
+              if event.get("action") != "opened" or "pull_request" not in event:
+                  return "not a newly opened PR"
+              if event.get("repository", {}).get("full_name") != REPO:
+                  raise ValueError("Unexpected repository")
+              number = event["pull_request"].get("number")
+              if type(number) is not int or number <= 0:
+                  raise ValueError("Invalid PR number")
+              path = f"/repos/{REPO}/issues/{number}/comments"
+              page = 1
+              while True:
+                  comments = request("GET", f"{path}?per_page=100&page={page}")
+                  if any(c.get("user", {}).get("login") == "github-actions[bot]"
+                         and MARKER in (c.get("body") or "") for c in comments):
+                      return "reminder already present"
+                  if len(comments) < 100:
+                      break
+                  page += 1
+              request("POST", path, {"body": BODY})
+              return "reminder posted"
+
+          def self_test():
+              event = {"action": "opened", "repository": {"full_name": REPO},
+                       "pull_request": {"number": 123, "head": {"repo": {"fork": True}}}}
+              def check(payload, pages, expected, posts):
+                  calls = []
+                  def request(method, path, body=None):
+                      calls.append((method, path, body))
+                      return pages.pop(0) if method == "GET" else {}
+                  assert remind(payload, request) == expected
+                  assert sum(c[0] == "POST" for c in calls) == posts
+                  for method, path, body in calls:
+                      if method == "POST":
+                          assert body == {"body": BODY}
+              check(event, [[]], "reminder posted", 1)
+              bot = {"user": {"login": "github-actions[bot]"}, "body": MARKER}
+              check(event, [[bot]], "reminder already present", 0)
+              check(event, [[{}] * 100, [bot]], "reminder already present", 0)
+              check(event, [[{"user": {"login": "someone"}, "body": MARKER}]],
+                    "reminder posted", 1)
+              for action in ("reopened", "synchronize", "closed", "edited"):
+                  check(dict(event, action=action), [], "not a newly opened PR", 0)
+              check({}, [], "not a newly opened PR", 0)
+              for bad in ("123; echo unsafe", 0, -1, True):
+                  try:
+                      remind(dict(event, pull_request={"number": bad}), None)
+                  except ValueError:
+                      pass
+                  else:
+                      raise AssertionError("Invalid PR number accepted")
+              print("Self-tests passed: fork PR, rerun deduplication, pagination, spoofed marker, event guards, invalid input")
+
+          self_test()
+          if os.environ["GITHUB_EVENT_NAME"] == "pull_request_target":
+              with open(os.environ["GITHUB_EVENT_PATH"]) as stream:
+                  event = json.load(stream)
+              def request(method, path, body=None):
+                  req = urllib.request.Request(
+                      "https://api.github.com" + path,
+                      data=json.dumps(body).encode() if body is not None else None,
+                      method=method,
+                      headers={"Authorization": "Bearer " + os.environ["GH_TOKEN"],
+                               "Accept": "application/vnd.github+json",
+                               "Content-Type": "application/json",
+                               "X-GitHub-Api-Version": "2022-11-28"})
+                  with urllib.request.urlopen(req, timeout=30) as response:
+                      return json.load(response)
+              print(remind(event, request))
+          else:
+              print("Validation only; no PR comments sent")

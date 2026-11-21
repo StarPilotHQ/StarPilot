@@ -35,7 +35,7 @@ class TestSavedTorquePage(unittest.TestCase):
   def test_retained_tune_restores_normal_and_developer_pages_and_can_save(self):
     page = self.page()
     rows = {row['label']: row for row in page['rows']}
-    self.assertEqual(set(rows), {'Turn Signal Guidance', 'Steering Controller', 'Turn Assist', 'Prep My Vehicle for Tuning',
+    self.assertEqual(set(rows), {'Automatic Turn Initiation', 'Steering Controller', 'Turn Assist', 'Prep My Vehicle for Tuning',
                                 'Use StarPilot Auto Learn', 'Highway Smoothing'})
     developer = self.page('torque/developer')
     advanced = {row['label']: row for row in developer['rows']}
@@ -103,11 +103,20 @@ class TestSavedTorquePage(unittest.TestCase):
     self.assertEqual(self.params.get('TorqueOverrideDocument')['vehicles']['HYUNDAI_IONIQ_6']['friction']['mode'], 'source')
 
 
-  def test_turn_signal_guidance_is_on_and_saves_off_through_galaxy(self):
-    from openpilot.starpilot.lateral.lane_change_preferences import read_saved
+  def test_automatic_turn_initiation_is_off_and_saves_on_through_galaxy(self):
+    from openpilot.starpilot.lateral.lane_change_preferences import KEY as LANE_KEY, LaneChangePolicy, read_saved, to_value
+    from openpilot.starpilot.lateral.turn_initiation_preferences import KEY as TURN_KEY
+    self.params.put(LANE_KEY, to_value(LaneChangePolicy(auto_lane_change=True, one_per_signal=False)), block=True)
+    before = read_saved(self.params)
     page = self.page()
-    index = next(i for i, row in enumerate(page['rows']) if row['label'] == 'Turn Signal Guidance')
-    self.assertEqual(page['rows'][index]['value'], 'On')
+    index = next(i for i, row in enumerate(page['rows']) if row['label'] == 'Automatic Turn Initiation')
+    self.assertEqual(page['rows'][index]['value'], 'Off')
+    preview = self.gateway.preview(page['view'], index, 0, 'session', b'generation', value='On')
+    self.assertTrue(self.gateway.confirm(preview['intent'], 'session', b'generation'))
+    self.assertTrue(self.params.get_bool(TURN_KEY))
+    self.assertEqual(read_saved(self.params), before)
+    page = self.page()
     preview = self.gateway.preview(page['view'], index, 0, 'session', b'generation', value='Off')
     self.assertTrue(self.gateway.confirm(preview['intent'], 'session', b'generation'))
-    self.assertFalse(read_saved(self.params).policy.turn_signal_guidance)
+    self.assertFalse(self.params.get_bool(TURN_KEY))
+    self.assertEqual(read_saved(self.params), before)

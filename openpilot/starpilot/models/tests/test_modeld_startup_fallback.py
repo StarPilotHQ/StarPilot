@@ -404,11 +404,11 @@ def test_failed_selected_small_uses_only_verified_rdf_or_refuses_startup(monkeyp
   if fallback_failure is None:
     assert env['load_small']() == (rdf, 'rdf-prepared', True)
   else:
-    with pytest.raises(RuntimeError, match='Shipped RDFv4' if fallback_failure == 'missing' else 'RDF failed'):
+    with pytest.raises(RuntimeError, match='Shipped Cheddar' if fallback_failure == 'missing' else 'RDF failed'):
       env['load_small']()
   stock.assert_not_called()
   if fallback_failure != 'missing':
-    assert loader.call_args.args == (1928, 1208, shipped, 'v15', False, DEFAULT_SMALL, DEFAULT_SMALL_SHA256)
+    assert loader.call_args.args == (1928, 1208, shipped, 'v16', False, DEFAULT_SMALL, DEFAULT_SMALL_SHA256)
 
 
 @pytest.mark.parametrize("opened", [("QCOM",), ("QCOM", "AMD")])

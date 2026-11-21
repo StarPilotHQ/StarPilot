@@ -207,6 +207,14 @@ class TestToyotaSafetyBase(common.CarSafetyTest, common.LongitudinalAccelSafetyT
 
     msg = self._speed_msg(0, quality_flag=False)
     self.assertFalse(self._rx(msg))
+    for wheel in ('FR', 'FL', 'RR', 'RL'):
+      with self.subTest(wheel=wheel):
+        self.safety.set_safety_hooks(self.SAFETY_MODEL, self.SAFETY_PARAM)
+        self.assertTrue(self._rx(self._speed_msg(0)))
+        self.safety.set_controls_allowed(True)
+        fault = self.packer.make_can_msg_safety('WHEEL_SPEEDS', 0, {'WHEEL_SPEED_%s_FAULT' % wheel: 1})
+        self.assertFalse(self._rx(fault))
+        self.assertFalse(self.safety.get_controls_allowed())
 
   def test_vehicle_speed_measurements(self):
     # OVERRIDDEN: 72.22_ is the max speed in m/s
@@ -684,7 +692,8 @@ class TestToyotaHighlanderAol(unittest.TestCase):
       self.assertEqual(self.safety.aol_get_permission_mask(), 0)
 
   def test_exact_profile_admission_and_reset(self):
-    for word, ae in ((585, 96), (585, 544), (72, 32), (329, 32), (1096, 32), (73, 33), (73, 289), (73, 416)):
+    for word, ae in ((585, 96), (585, 544), (72, 32), (329, 32), (1096, 32),
+                     (73, 33), (73, 161), (73, 289), (73, 416)):
       self.init(word, ae)
       self.physical()
       self.assertEqual(self.safety.aol_get_request_mask(), 0)
@@ -696,9 +705,9 @@ class TestToyotaHighlanderAol(unittest.TestCase):
     self.assertEqual(self.safety.aol_get_permission_mask(), 0)
 
   def test_prius_filter_axis_permissions_and_tx_laws(self):
-    for word, stock in ((4169, False), (4681, True)):
-      with self.subTest(word=word):
-        self.init(word=word)
+    for (word, stock), ae in itertools.product(((4169, False), (4681, True)), (32, 160, 288)):
+      with self.subTest(word=word, ae=ae):
+        self.init(word=word, ae=ae)
         self.physical(cruise=True)
         self.assertEqual(self.safety.aol_get_request_mask(), 1 if stock else 3)
         self.assertEqual(self.safety.aol_get_permission_mask(), 1 if stock else 3)

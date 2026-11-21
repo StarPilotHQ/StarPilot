@@ -549,6 +549,19 @@ class TestHyundaiBlendedAlphaAol(unittest.TestCase):
           self.assertEqual(self.safety.safety_fwd_hook(2, address), -1)
           self.assertEqual(self.safety.safety_fwd_hook(0, address), 2)
 
+  def test_heartbeat_loss_requires_a_new_neutral_gesture_sample(self):
+    for word in (0x2004, 0x2014):
+      with self.subTest(word=word):
+        self.counter, self.now = 0, 1_000_000
+        self.reset(word)
+        self.warm()
+        self.assertEqual(self.request(1), 0)
+        self.safety.set_aol_test_heartbeat(False)
+        self.assertEqual(self.request(0), 0)
+        self.safety.set_aol_test_heartbeat(True)
+        self.feed(lda=True)
+        self.assertEqual(self.request(1), 0)
+
 
 class TestHyundaiBlendedHda2Integrity(unittest.TestCase):
   def setUp(self):

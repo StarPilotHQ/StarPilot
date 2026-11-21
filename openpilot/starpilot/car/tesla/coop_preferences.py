@@ -1,10 +1,10 @@
-"""Frozen Model 3 cooperative steering selection."""
+"""Frozen Model 3/Y cooperative steering selection."""
 from opendbc.car.tesla.values import CAR, TeslaSafetyFlags, TeslaFlags
 
 
 def supported(cp):
   try:
-    if (cp.brand != 'tesla' or cp.carFingerprint != CAR.TESLA_MODEL_3 or cp.passive or cp.dashcamOnly or cp.notCar or
+    if (cp.brand != 'tesla' or cp.carFingerprint not in (CAR.TESLA_MODEL_3, CAR.TESLA_MODEL_Y) or cp.passive or cp.dashcamOnly or cp.notCar or
         cp.alternativeExperience not in (0, 32) or len(cp.safetyConfigs) != 1 or int(cp.safetyConfigs[0].safetyModel.raw) != 10 or
         cp.flags & ~int(TeslaFlags.MISSING_DAS_SETTINGS | TeslaFlags.HAS_VEHICLE_BUS | TeslaFlags.AOL_SCREEN_BUTTON)):
       return False

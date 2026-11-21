@@ -1,4 +1,5 @@
 import unittest
+from opendbc.safety.tests.native_callback import assert_native_callback_finishes
 
 from opendbc.safety.tests.common import make_msg
 from opendbc.safety.tests.libsafety import libsafety_py
@@ -11,6 +12,19 @@ class TestTeslaPreapRadar(unittest.TestCase):
              0x20A: (8, (0x159,)), 0x308: (8, (0x209,)), 0x30A: (8, (0x2D9,)),
              0x405: (8, (0x2B9,)), 0x398: (8, (0x2A9,)), 0xE: (8, (0x199,)),
              0x115: (6, (0x129, 0x1A9)), 0x118: (6, (0x119, 0x169))}
+
+  def test_native_gateway_rx_callbacks_finish(self):
+    for parameter in (2, 6):
+      for address in (0x45, 0x398):
+        with self.subTest(parameter=parameter, address=address):
+          packet = self.source(address)[0]
+          assert_native_callback_finishes(self, 39, parameter, address, 0, bytes(packet.data[0:8]))
+
+  def test_native_gateway_rejects_host_tx_without_ticket(self):
+    packet = self.source(0x45)[0]
+    for parameter in (2, 6):
+      with self.subTest(parameter=parameter):
+        assert_native_callback_finishes(self, 39, parameter, 0x219, 1, bytes(packet.data[0:8]), receive=False)
 
   def setUp(self):
     self.safety = libsafety_py.libsafety

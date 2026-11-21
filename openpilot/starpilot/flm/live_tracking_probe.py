@@ -819,6 +819,7 @@ def probe_endpoint(
     or current_vehicle_model_anchor != getattr(control, 'vehicle_model_anchor', None)
     or digest(vm_regime(dict(control.replay_inputs), current_vehicle_model_anchor)) != binding.vehicle_model_generation
     or tuple(factory.manual_baseline) != tuple(source.manual_baseline)
+    or factory.manual_kp != source.manual_kp
     or car_params_digest(factory.cp) != binding.cp_sha256
     or (control.identity, control.source_epoch, control.baseline_revision, control.controller_revision, control.native_identity)
     != (binding.identity, binding.source_epoch, binding.baseline_revision, binding.controller_revision, binding.native_identity)

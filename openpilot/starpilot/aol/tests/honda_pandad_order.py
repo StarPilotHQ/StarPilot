@@ -31,7 +31,10 @@ class PandadOrder:
     assert result, self.process.poll()
     return result
 
-  def step(self, driven, published, now):
+  def step(self, driven, published, now, *, after_health_read=None):
+    health_controls = bool(self.safety.get_controls_allowed()) if after_health_read is not None else None
+    if after_health_read is not None:
+      after_health_read()
     before = self.status()
     axis_event = driven['aolAxisState']
     axis = axis_event.aolAxisState
@@ -83,7 +86,7 @@ class PandadOrder:
             mode,
             word,
             32,
-            bool(self.safety.get_controls_allowed()),
+            bool(self.safety.get_controls_allowed()) if health_controls is None else health_controls,
             not bool(self.safety.safety_config_valid()),
             False,
             (int(bool(self.safety.get_relay_malfunction())) | self.reported_diagnostic_mask),

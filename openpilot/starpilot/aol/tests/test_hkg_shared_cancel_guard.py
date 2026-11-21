@@ -239,7 +239,7 @@ def test_shared_cancel_source_is_actual_parser_evidence(role):
   if role == 'wrong_bus':
     state.buttonEvents = [structs.CarState.ButtonEvent(type='cancel', pressed=True)]
   received = now - 30_000_001 if role == 'expired_receipt' else now
-  caller = NS(CI=ci, _aol_can_observation=(state, received, now, now))
+  caller = NS(CP=cp, CI=ci, _aol_can_observation=(state, received, now, now))
   source = Car.aol_cancel_source(cast(Car, caller), state, now)
   assert (source == now) == (role == 'marked')
   assert source == 0 or ci.CS.ev6_aol_source_healthy

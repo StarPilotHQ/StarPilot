@@ -108,16 +108,19 @@ class StopLightDetector:
     self.standstill_reason: str | None = None
     self.committed = False
     self.standstill_committed = False
+    self.released_standstill_light = False
     self.commit_distance_m = 0.0
     self.commit_clear_since_s: float | None = None
     self.last_observed_mono_s: float | None = None
     self.last_model_tick_mono_s: float | None = None
 
   def invalidate(self) -> None:
-    committed, distance, stopped = self.committed, self.commit_distance_m, self.standstill_committed
+    committed, distance, stopped, released = (self.committed, self.commit_distance_m,
+                                               self.standstill_committed, self.released_standstill_light)
     self.reset()
     # Missing evidence cannot acquire a stop or prove that a committed one cleared.
     self.committed, self.commit_distance_m, self.standstill_committed = committed, distance, stopped
+    self.released_standstill_light = released
 
   def _reset_light(self) -> None:
     # Retain filter alpha across resets; clear its state and latches.
@@ -133,7 +136,16 @@ class StopLightDetector:
       self.committed = False
       self.standstill_committed = False
       self.commit_clear_since_s = None
+      self.released_standstill_light = False
       return
+    if self.released_standstill_light:
+      if frame.standstill is False:
+        self.released_standstill_light = False
+      elif frame.standstill is True and frame.model_should_stop is True:
+        self.committed = self.standstill_committed = True
+        self.commit_distance_m = 0.0
+        self.standstill_reason = 'light'
+        self.released_standstill_light = False
     clear_launch = (frame.standstill is True and frame.longitudinal_launch_active is True and
                     frame.longitudinal_stop_active is False and
                     frame.model_should_stop is False and model_stopping is False and frame.forcing_stop is False and
@@ -150,23 +162,28 @@ class StopLightDetector:
                            self.commit_distance_m) + STOP_MODEL_RELEASE_MARGIN_M
       clear = (horizon is not None and model_stopping is False and frame.model_should_stop is False and
                horizon >= clear_distance)
+      clear_stationary_light = (launch_clear and self.standstill_reason == 'light' and
+                                frame.stop_sign_confirmed is False and frame.dashboard_stop_sign is False and
+                                frame.lead is not None and frame.lead.present is False)
       if clear:
-        if self.commit_clear_since_s is None:
-          self.commit_clear_since_s = frame.now_mono_s
-        elif frame.now_mono_s - self.commit_clear_since_s >= 0.5:
+        if clear_stationary_light or (self.commit_clear_since_s is not None and
+                                      frame.now_mono_s - self.commit_clear_since_s >= 0.5):
+          self.released_standstill_light = clear_stationary_light
           self.committed = False
           self.standstill_committed = False
           self.commit_clear_since_s = None
           self._reset_light()
+        elif self.commit_clear_since_s is None:
+          self.commit_clear_since_s = frame.now_mono_s
       else:
         self.commit_clear_since_s = None
 
   def _commit_ford_standstill(self, frame: StopFrame, extent: float) -> None:
-    # Commit only an already established, geometry-qualified stopped hold.
-    # The model action corroborates that hold; it cannot acquire a light alone.
+    # A stopped lead owns its own stop; its short forecast cannot identify a light.
+    # The model action corroborates an established hold, never acquires a light alone.
     if (frame.car_fingerprint in FORD_STOP_NAMES and frame.standstill is True and
         frame.pedal_override is False and frame.model_should_stop is True and
-        frame.longitudinal_stop_active is True and
+        frame.longitudinal_stop_active is True and frame.lead is not None and frame.lead.present is False and
         self.standstill_reason == 'light' and self.standstill_model_stopped and
         extent < FROZEN_RAW_STOP_DISTANCE_M):
       self._commit(frame, extent, True, True, 0.0)

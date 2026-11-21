@@ -343,7 +343,7 @@ def resolve_runtime(chestnut_available: bool, *, root: Path = ROOT, randomize: b
     shipped = True
     small_path = shipped_default()
   if small_path is None:
-    raise ModelError("Shipped RDFv4 is missing or corrupt; reinstall the validated model package")
+    raise ModelError("Shipped Cheddar is missing or corrupt; reinstall the validated model package")
   big_path = verified_artifact(big, entries, root) if big not in ("", BUNDLED_CURRENT) and chestnut_available else None
   allow_big = chestnut_available and big_path is not None
   return RuntimeSelection(small, small_path, entries[small]["version"], big, big_path,

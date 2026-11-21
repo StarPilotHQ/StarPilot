@@ -1,4 +1,4 @@
-"""Original G90 CAN lead hysteresis, fed by a scoped fresh radar provider."""
+"""Classic Hyundai CAN lead hysteresis, fed by a scoped fresh radar provider."""
 import math
 from dataclasses import dataclass
 
@@ -77,8 +77,9 @@ class LeadObservation:
 
 
 def eligible(cp):
-  from opendbc.car.hyundai.values import CAR
-  return (cp.carFingerprint == CAR.GENESIS_G90 and cp.openpilotLongitudinalControl and
+  from opendbc.car.hyundai.values import CAR, HyundaiFlags, is_blended
+  return (cp.brand == 'hyundai' and not cp.flags & HyundaiFlags.CANFD and not is_blended(cp) and
+          cp.carFingerprint != CAR.KIA_RAY_EV and cp.openpilotLongitudinalControl and
           not cp.passive and not cp.dashcamOnly and not cp.notCar)
 
 

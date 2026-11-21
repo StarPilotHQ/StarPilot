@@ -1,3 +1,4 @@
+import { WikiHelp } from './wiki-help.js'
 import { requestJson } from "./startup.js"
 import { GxNotice } from "./notice.js"
 import { GxState } from "./state.js"
@@ -27,7 +28,7 @@ export const choiceRow = (label, value, choices, reason = '') => ({ label, value
 
 export const NetworksPage = {
   name: "NetworksPage",
-  components: { GxNotice, GxState, GalaxySettingRow, GalaxyHotspot, GxDialog },
+  components: { WikiHelp, GxNotice, GxState, GalaxySettingRow, GalaxyHotspot, GxDialog },
   props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true } },
   data: () => ({ snapshot: null, busy: false, error: '', openUuid: null, adding: false, joiningSsid: '', joinPassword: '',
     hiddenOpen: false, hiddenSsid: '', showJoinPassword: false, forgetUuid: null, timer: null, controller: null, generation: 0, active: false }),
@@ -174,7 +175,7 @@ export const NetworksPage = {
     },
   },
   template: `<section class="gx-driving gx-networks" aria-label="Networks">
-    <header class="gx-settings__header gx-page-header"><div><h2>Networks</h2><p>Wi-Fi priority, cellular data, and local hotspot access.</p></div></header>
+    <header class="gx-settings__header gx-page-header"><div><h2>Networks</h2><p>Wi-Fi priority, cellular data, and local hotspot access.</p></div><WikiHelp /></header>
     <GxState v-if="mode !== 'local'">Connect to your comma to manage its networks.</GxState>
     <GxState v-else-if="!snapshot && !error" loading>Loading network settings…</GxState>
     <template v-if="snapshot">
@@ -220,7 +221,7 @@ export const NetworksPage = {
             </div>
           </div>
         </div>
-        <GalaxySettingRow :row="switchRow('Pause Galaxy hotspot while joining Wi-Fi', snapshot.pauseHotspot, 'Briefly pauses the hotspot during a drive so joining Wi-Fi does not disturb StarPort.')" :index="0"
+        <GalaxySettingRow :row="switchRow('Pause Galaxy hotspot while joining Wi-Fi', snapshot.pauseHotspot, 'Briefly pauses the hotspot whenever the comma joins Wi-Fi. Only needed if joins disturb StarPort.')" :index="0"
           :busy="busy" :disabled="!snapshot.editable" :save-value="(index, value) => send({ action: 'pauseHotspot', value: value === 'On' })" />
       </section>
       <section class="gx-card gx-settings__section"><div class="gx-section__header"><i class="bi bi-broadcast" aria-hidden="true"></i><span class="gx-section__title">Nearby networks</span><span v-if="adding && availableNetworks.length" class="gx-section__count">{{ availableNetworks.length }}</span>

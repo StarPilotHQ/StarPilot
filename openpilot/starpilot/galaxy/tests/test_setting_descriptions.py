@@ -101,7 +101,7 @@ def test_actual_owner_projections_have_no_uncovered_setting(tmp_path):
   from openpilot.starpilot.ui.pip_owner import PiPOwner
   from openpilot.starpilot.ui.vasm_owner import VASMOwner
   from openpilot.starpilot.ui.sentry_owner import SentryOwner
-  from openpilot.starpilot.galaxy.developer_settings import DeveloperSettingsOwner
+  from openpilot.starpilot.galaxy.device_settings import DeviceSettingsOwner
   from openpilot.starpilot.ui.presentation import Profile
   params = Params(str(tmp_path))
 
@@ -111,7 +111,8 @@ def test_actual_owner_projections_have_no_uncovered_setting(tmp_path):
         assert purpose(row), (page, row.key)
         assert _projection(row)['reason'].startswith(purpose(row))
 
-  check(DeveloperSettingsOwner(params, lambda: True).snapshot().rows, 'developer')
+  for page in ('starport_options', 'developer'):
+    check(DeviceSettingsOwner(params, lambda: True).snapshot(page).rows, page)
 
   for candidate in (GM.CHEVROLET_BOLT_EUV, GM.CHEVROLET_VOLT, HYUNDAI.HYUNDAI_IONIQ_6,
                     TOYOTA.TOYOTA_RAV4_TSS2_2023, FORD.FORD_ESCAPE_MK4):
@@ -131,10 +132,11 @@ def test_actual_owner_projections_have_no_uncovered_setting(tmp_path):
 
 def test_manual_coordinate_purposes_preserve_startup_and_context_warnings():
   from openpilot.starpilot.flm.canonical_surface_adapter import NAMES
-  startup = "Parked only. Saved for the next drive; zero restores this stage's original baseline. Manual overrides pause Auto Learn."
+  from openpilot.starpilot.flm.offroad_surface import ROUTE_NAMES
+  startup = "Parked only. Saved for the next drive; zero restores this stage's original baseline. Only changed settings are locked."
   changed = "Vehicle tune, controller or effect definition changed. Reset this manual tune before editing."
-  assert set(FLM_DESCRIPTIONS) == set(NAMES)
-  assert len(set(FLM_DESCRIPTIONS.values())) == len(NAMES)
+  assert set(FLM_DESCRIPTIONS) == set(ROUTE_NAMES)
+  assert len(set(FLM_DESCRIPTIONS.values())) == len(ROUTE_NAMES)
   for name in NAMES:
     row = FeatureRow('torque:surface:' + name, 'Manual correction', '0', reason=startup)
     assert 'higher' in purpose(row).lower() and 'lower' in purpose(row).lower()

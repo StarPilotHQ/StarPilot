@@ -24,22 +24,18 @@ export const FlmBackup = {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } }) }
       catch (error) { if (error.status === 401) this.unauthorized();throw error }
     },
-    async exportTune(share = false) {
+    async downloadTune() {
       if (this.busy || this.bluetooth) return
       this.busy = true;this.error = this.notice = ''
       try {
         const text = JSON.stringify(await this.request('./api/flm/backup'))
         parseTune(text)
         const file = new File([text], 'starpilot-flm-tune.json', { type: 'application/json' })
-        if (share && navigator.canShare?.({ files: [file] })) {
-          await navigator.share({ files: [file], title: 'FLM tune backup' });this.notice = 'Tune shared.'
-        } else {
-          const url = URL.createObjectURL(file), link = document.createElement('a')
-          try { link.href = url;link.download = file.name;document.body.append(link);link.click() }
-          finally { link.remove();setTimeout(() => URL.revokeObjectURL(url), 1000) }
-          this.notice = share ? 'Backup download started. Share the file from your downloads.' : 'Tune backup download started.'
-        }
-      } catch (error) { if (error.name !== 'AbortError') this.error = error.message || 'Could not export the tune.' }
+        const url = URL.createObjectURL(file), link = document.createElement('a')
+        try { link.href = url;link.download = file.name;document.body.append(link);link.click() }
+        finally { link.remove();setTimeout(() => URL.revokeObjectURL(url), 1000) }
+        this.notice = 'Tune backup download started.'
+      } catch (error) { this.error = error.message || 'Could not download the tune.' }
       finally { this.busy = false }
     },
     async chooseFile(event) {
@@ -68,17 +64,16 @@ export const FlmBackup = {
       try {
         const result = await this.request('./api/settings/flm-backup/confirm', { intent, confirmed: true })
         if (result.complete !== true) throw new Error(result.error || 'Restore stopped. Refresh your tune before retrying.')
-        this.pending = this.draft = null;this.notice = result.manual ? 'Manual tune recovered. Auto Learn is paused; your learning history is preserved.' : result.restored ? `${result.restored} ${result.restored === 1 ? 'setting' : 'settings'} restored. Current application is shown separately.` : 'Your saved settings already match this backup.'
+        this.pending = this.draft = null;this.notice = result.manual ? 'Tune recovered. Manual values stay locked; other settings can keep learning.' : result.restored ? `${result.restored} ${result.restored === 1 ? 'setting' : 'settings'} restored. Current application is shown separately.` : 'Your saved settings already match this backup.'
         this.$emit('restored')
       } catch (error) { this.pending = null;this.error = error.message || 'Could not confirm the restore. Refresh your tune before retrying.';this.$emit('restored') }
       finally { this.busy = false }
     },
   },
-  template: `<details class="gx-card gx-tuner__section gx-tuner__disclosure" data-role="flm-backup"><summary>Back up, share or restore your tune</summary>
-    <p>Export manual sliders and saved Auto Learn setups as a file. Import reviews compatibility before anything changes. Files are shared only when you choose.</p>
+  template: `<details class="gx-card gx-tuner__section gx-tuner__disclosure" data-role="flm-backup"><summary>Back up or restore your tune</summary>
+    <p>Download manual sliders and saved Auto Learn setups as a backup file. Import reviews compatibility before anything changes.</p>
     <p v-if="bluetooth">Connect over Wi-Fi to transfer tune files.</p><div v-else class="gx-actions">
-      <button type="button" class="gx-btn gx-btn--tonal" :disabled="busy" @click="exportTune()">Export tune</button>
-      <button type="button" class="gx-btn gx-btn--tonal" :disabled="busy" @click="exportTune(true)">Share tune</button>
+      <button type="button" class="gx-btn gx-btn--tonal" :disabled="busy" @click="downloadTune()">Download tune</button>
       <button type="button" class="gx-btn gx-btn--tonal" :disabled="busy || !parked" @click="$refs.file.click()">Import tune</button>
       <input ref="file" class="gx-sr-only" type="file" accept=".json,application/json" aria-label="Choose FLM tune backup" @change="chooseFile"></div>
     <p v-if="!parked">Park and switch off the vehicle to restore settings.</p><p v-if="busy" role="status">Working…</p>
@@ -88,7 +83,7 @@ export const FlmBackup = {
       <div class="gx-flm-backup-choices" role="radiogroup" aria-label="Restore section"><label><input name="flm-import-mode" type="radio" value="learned" v-model="mode" :disabled="!Object.keys(draft.learned).length || busy"> Auto Learn setup</label>
       <label><input name="flm-import-mode" type="radio" value="manual" v-model="mode" :disabled="!draft.manual.length || busy"> Manual sliders</label>
       <label><input name="flm-import-mode" type="radio" value="recovery" v-model="mode" :disabled="draft.version !== 2 || busy"> Recover as manual tune</label></div>
-      <p>Auto Learn setup restores a setup this comma already knows. On a wiped or replacement comma, choose Recover as manual tune. Manual recovery pauses Auto Learn.</p>
+      <p>Auto Learn setup restores a setup this comma already knows. On a wiped or replacement comma, choose Recover as manual tune. Recovered manual values stay locked; accepted findings can keep learning.</p>
       <GxNotice v-if="error" tone="danger">{{ error }}</GxNotice><div class="gx-actions"><button type="button" class="gx-btn gx-btn--tonal" :disabled="busy" @click="draft=null">Cancel</button>
       <button type="button" class="gx-btn" :disabled="busy || !parked" @click="review">Review restore</button></div></GxDialog>
     <GxDialog v-if="pending" labelledby="flm-restore-title" @close="!busy && (pending=null)"><h3 id="flm-restore-title">Restore this tune?</h3>

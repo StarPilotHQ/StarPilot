@@ -24,7 +24,7 @@ DESCRIPTIONS = {
   'ReduceMotion': 'Reduces interface animations for a steadier display.',
   'IsMetric': 'On displays speed and distance in kilometers; Off uses miles. Saved speed-limit offsets keep their physical values.',
   'IsRhdDetected': 'Sets the initial steering-wheel side used by driver monitoring. Applies next drive; automatic side detection continues.',
-  'lane_change:turn_signal_guidance': 'Uses your turn signal to help the model choose a turning path at intersections.',
+  'lane_change:automatic_turn_initiation': 'Allows the model to anticipate a signaled intersection turn.',
   'AlphaLongitudinalEnabled': ('Let StarPilot control acceleration and braking instead of factory ACC. ' +
                               'Takes effect next drive. May disable factory Automatic Emergency Braking.'),
   'lane_change:enabled': 'Enables lane-change assistance after you signal. With Automatic Lane Changes off, give the wheel a nudge to begin.',
@@ -54,7 +54,7 @@ DESCRIPTIONS = {
   'TurnAssist': 'Uses steering-angle feedback to assist rolling low-speed turns above the vehicle minimum steering speed.',
   'LateralControllerSelection': 'Chooses the stock steering controller or the vehicle-specific StarPilot controller.',
   'ForceAutoTuneOff': ('StarPilot’s FLM tuning will attempt to automatically correct torque profiles as you drive. ' +
-                       'On allows automatic learning; Off disables it. Nonzero manual FLM overrides pause Auto Learn.'),
+                       'On allows automatic learning; Off disables it. Manual FLM overrides lock only the settings you change.'),
   'torque_prepare_firestar': 'Prepares steering settings for a tuning-request recording. Turning it off restores the previous settings.',
   'SteerLatAccel': 'Sets the legacy lateral-acceleration-to-torque conversion. Review the vehicle-specific tuning profile before applying it.',
   'SteerFriction': 'Sets legacy steering friction compensation. Review the vehicle-specific tuning profile before applying it.',
@@ -67,14 +67,16 @@ DESCRIPTIONS = {
   'ForceStops': 'Improves stopping behavior at traffic lights and enables automatic stopping at detected stop signs. Press the accelerator to continue.',
   'ForceStopDistanceOffset': 'Moves the planned stopping point. Positive values stop farther forward; negative values stop earlier.',
   'LeadApproachBuffer': 'Gradually adds following distance when approaching a slower or braking lead vehicle.',
+  'LowSpeedCruiseOnSet': ('Uses the vehicle’s minimum engagement speed as the floor when pressing SET with StarPilot cruise. ' +
+                         'SET uses your current speed when you are above that floor.'),
   'ExperimentalSpeedNudge': ('Gently recovers toward set speed when Experimental mode hesitates on a clear road. ' +
                             'Leads, stops, curve limits and driver overrides retain priority.'),
   'FasterLeadTakeoff': ('Improves launches from a stop and responds sooner when a lead starts moving. ' +
                         'Selected acceleration profiles, stop detection and vehicle limits still apply.'),
   'CustomPersonalities': 'Uses your following-time and jerk settings for the selected driving personality.',
   'profile:stopped_gap': 'Adds this distance to the following gap behind a stopped lead vehicle.',
-  'profile:global_acceleration': 'Chooses the acceleration curve used by personalities set to Selected Profile.',
-  'profile:global_braking': 'Chooses the braking response used by personalities set to Selected Profile.',
+  'profile:global_acceleration': 'Chooses the acceleration curve used by personalities set to Use global preset.',
+  'profile:global_braking': 'Chooses the braking response used by personalities set to Use global preset.',
   'reset_profiles': 'Restores the default acceleration, braking and following curves and presets.',
   'CurveSpeedController': 'Adjusts cruise speed for curves ahead using available learned cornering preferences.',
   'CurveSpeedControllerNoLead': 'Pauses curve-speed adjustments while following a lead vehicle.',
@@ -119,8 +121,6 @@ DESCRIPTIONS = {
   'RemoteStartBootsComma': 'Wakes comma during GM remote start.',
   'HKGRemoteStartBootsComma': 'Wakes comma during Hyundai, Kia or Genesis remote climate operation.',
   'IgnoreIgnitionLine': 'Uses GM CAN ignition instead of the harness ignition signal.',
-  'heading:starport': 'Settings for connecting Android Auto to the car through StarPort.',
-  'StarPortNewSetup': 'Shows the guided StarPort setup with a live checklist instead of the classic setup screens.',
   'StarPortAllowHevc': 'Lets a car that offers only H.265 video receive H.265; a car with an H.264 mode keeps H.264.',
   'StarPortKeyframeTest': 'Sends every H.265 frame as a keyframe and logs the car\'s acknowledgments, to diagnose H.265-only cars.',
   'StarPortTallHevc': 'Uses the car\'s 1080x1920 H.265 screen mode instead of 720x1280, to diagnose H.265-only cars. Needs Allow H.265 video on.',
@@ -196,7 +196,6 @@ DESCRIPTIONS = {
 
 # These are initialization explanations, not a second defaults table.
 INITIALIZATION = {
-  'StarPortNewSetup': 'Applies the next time the setup screen opens.',
   'StarPortAllowHevc': 'Applies from the next StarPort connection.',
   'StarPortKeyframeTest': 'Applies from the next StarPort connection.',
   'StarPortTallHevc': 'Applies from the next StarPort connection.',
@@ -354,6 +353,13 @@ FLM_DESCRIPTIONS = {
     'Higher fades it more; lower keeps more. The fade can be limited by Curvy unwind floor relief. No effect with ' +
     'FF gain at zero.'),
 }
+FLM_DESCRIPTIONS.update({
+  'friction_threshold_' + speed: (
+    'Shapes small steering corrections at ' + label + '. Higher makes compensation build more gradually; ' +
+    'lower makes it respond sooner. Auto Learn can refine an accepted finding.')
+  for speed, label in (('crawl', 'crawling speeds'), ('low', 'low speeds'), ('mid', 'medium speeds'),
+                       ('fast', 'higher speeds'), ('highway', 'highway speeds'))
+})
 
 
 def purpose(row):

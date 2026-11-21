@@ -5571,6 +5571,8 @@ public:
 
   inline  ::uint16_t getStatusCode() const;
 
+  inline bool getPerceivedStop() const;
+
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -5662,6 +5664,9 @@ public:
 
   inline  ::uint16_t getStatusCode();
   inline void setStatusCode( ::uint16_t value);
+
+  inline bool getPerceivedStop();
+  inline void setPerceivedStop(bool value);
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -21803,6 +21808,20 @@ inline  ::uint16_t SlcState::ConditionalModeState::Builder::getStatusCode() {
 inline void SlcState::ConditionalModeState::Builder::setStatusCode( ::uint16_t value) {
   _builder.setDataField< ::uint16_t>(
       ::capnp::bounded<3>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool SlcState::ConditionalModeState::Reader::getPerceivedStop() const {
+  return _reader.getDataField<bool>(
+      ::capnp::bounded<34>() * ::capnp::ELEMENTS);
+}
+
+inline bool SlcState::ConditionalModeState::Builder::getPerceivedStop() {
+  return _builder.getDataField<bool>(
+      ::capnp::bounded<34>() * ::capnp::ELEMENTS);
+}
+inline void SlcState::ConditionalModeState::Builder::setPerceivedStop(bool value) {
+  _builder.setDataField<bool>(
+      ::capnp::bounded<34>() * ::capnp::ELEMENTS, value);
 }
 
 inline bool SlcAction::Reader::hasSessionId() const {

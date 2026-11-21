@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import struct
 import tempfile
@@ -12,11 +13,12 @@ from openpilot.starpilot.ui.layout_preview_transport import (
 from openpilot.starpilot.ui.onroad_customization import default_document
 
 
-def png(width=2, height=1):
+def png(width=2, height=1, *, widget_art=None):
   def chunk(tag, data):
     return struct.pack('!I', len(data)) + tag + data + struct.pack('!I', zlib.crc32(tag + data))
   pixels = b''.join(b'\x00' + b'\x00\x00\x00\xff' * width for _ in range(height))
   return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('!IIBBBBB', width, height, 8, 6, 0, 0, 0)) +
+          (chunk(b'tEXt', b'starpilot-widget-art\0' + json.dumps(widget_art).encode()) if widget_art is not None else b'') +
           chunk(b'IDAT', zlib.compress(pixels)) + chunk(b'IEND', b''))
 
 

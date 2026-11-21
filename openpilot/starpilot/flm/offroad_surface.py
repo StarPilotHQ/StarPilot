@@ -7,6 +7,7 @@ per-coordinate bounds, sign and 25% stage envelopes remain authoritative.
 
 import hashlib
 import math
+import re
 from openpilot.starpilot.flm.canonical_surface_adapter import CanonicalSurfaceEffects, MANIFEST_SHA256, NAMES
 
 LEGACY_REVISION = 'route-reference-relative-v2'
@@ -18,6 +19,33 @@ LEGACY_MANIFEST_SHA256 = hashlib.sha256((MANIFEST_SHA256 + ':' + LEGACY_REVISION
 ROUTE_MANIFEST_SHA256 = hashlib.sha256(
   repr((MANIFEST_SHA256, REVISION, CURVE_NAMES, CURVE_SPEEDS, 'fraction_of_actual_selected_threshold', (-0.25, 0.25))).encode()
 ).hexdigest()
+
+
+def revision_for_manual(manual):
+  if manual is None or not manual.locked:
+    return REVISION
+  mask = sum(1 << ROUTE_NAMES.index(name) for name in manual.locked)
+  return f'route-coordinate-locks-v1-{"r" if manual.compatibility else "c"}-{mask:09x}'
+
+
+def revision_locks(revision):
+  if revision == REVISION:
+    return (), False
+  matched = re.fullmatch(r'route-coordinate-locks-v1-([cr])-([0-9a-f]{9})', revision) if type(revision) is str else None
+  if matched is None or not 0 < int(matched[2], 16) < 1 << len(ROUTE_NAMES):
+    raise ValueError('Unknown route coordinate-lock revision')
+  names = tuple(name for i, name in enumerate(ROUTE_NAMES) if int(matched[2], 16) & (1 << i))
+  if matched[1] == 'c' and any(name not in NAMES for name in names):
+    raise ValueError('Canonical manual settings have thirty coordinates')
+  return names, matched[1] == 'c'
+
+
+def current_revision(revision):
+  try:
+    revision_locks(revision)
+    return True
+  except ValueError:
+    return False
 
 
 def route_bounds(name):
@@ -42,7 +70,9 @@ def route_values(values, *, legacy_allowed=False):
 
 
 class RouteSurfaceEffects(CanonicalSurfaceEffects):
-  def __init__(self, coordinates, baseline_revision, *, accumulated):
+  def __init__(self, coordinates, baseline_revision, *, accumulated, revision=REVISION):
+    self.revision = revision
+    locks, canonical_manual = revision_locks(revision)
     values = route_values(accumulated, legacy_allowed=True)
     if type(coordinates) is not dict or any(name not in NAMES for name in coordinates):
       raise ValueError('Original canonical frame anchor required')
@@ -50,6 +80,25 @@ class RouteSurfaceEffects(CanonicalSurfaceEffects):
     self.route_values = {name: self.values[name] if name in NAMES else values[name] for name in ROUTE_NAMES}
     self.curve_values = tuple(values[name] for name in CURVE_NAMES)
     self.full_profile_sha256 = hashlib.sha256(repr((ROUTE_MANIFEST_SHA256, self.full_profile_sha256, self.curve_values)).encode()).hexdigest()
+    self.manual_surface = None
+    self.automatic_surface = self.surface
+    self.relative_values = self.values
+    if locks:
+      if any(values[name] == 0 for name in locks):
+        raise ValueError('A locked coordinate must have an explicit nondefault value')
+      self.full_profile_sha256 = hashlib.sha256(repr((revision, self.full_profile_sha256)).encode()).hexdigest()
+    if canonical_manual:
+      from openpilot.starpilot.flm.canonical_surface_adapter import WINDOWS
+      raw = dict(self.math._GM_NEUTRAL)
+      for name in WINDOWS:
+        raw[name] *= 1 + self.values[name]
+      manual, automatic = dict(raw), dict(raw)
+      for name in NAMES:
+        if name not in WINDOWS:
+          (manual if name in locks else automatic)[name] = self.values[name]
+      self.manual_surface = self.math.GmSurface('torque_universal', manual)
+      self.automatic_surface = self.math.GmSurface('torque_universal', automatic)
+      self.relative_values = {name: 0.0 if name in locks else value for name, value in self.values.items()}
     # Original threshold phase weights are in [0,1], with an existing .82..1.18
     # clamp. Refuse a profile whose curve could breach the composed 25% bound
     # at ANY phase, before admitting it to a real controller.
@@ -77,16 +126,23 @@ class RouteSurfaceEffects(CanonicalSurfaceEffects):
 
   def _scale(self, frame):
     if frame.setpoint == 0.0:
-      return 1.0
+      if self.manual_surface is None:
+        return 1.0
+      return self.math._gm_get_flm_full_surface_center_taper_scale(self.manual_surface, self.manual_surface.profile, 0.0, frame.speed, True)
     m = self.math
     phase = m._gm__flm_full_surface_transition_phase(self.surface, frame.setpoint, frame.jerk)
     side = 'left' if frame.setpoint >= 0 else 'right'
     # These are relative settings of the ACTUAL selected FF, not an added
     # legacy FF term gated by an unrelated amplitude's onset/cutoff.
     relative = (
-      1.0 + self.values['ff_gain_' + side] + self.values['turn_in_boost_' + side] * max(phase, 0.0) - self.values['unwind_taper_' + side] * max(-phase, 0.0)
+      1.0 + self.relative_values['ff_gain_' + side] + self.relative_values['turn_in_boost_' + side] * max(phase, 0.0)
+      - self.relative_values['unwind_taper_' + side] * max(-phase, 0.0)
     )
-    remaining = m._gm_get_flm_full_surface_ff_scale(self.surface, self.surface.profile, frame.setpoint, frame.jerk, frame.speed, False)
+    automatic = self.automatic_surface
+    remaining = m._gm_get_flm_full_surface_ff_scale(automatic, automatic.profile, frame.setpoint, frame.jerk, frame.speed, False)
+    if self.manual_surface is not None:
+      manual = self.manual_surface
+      remaining *= m._gm_get_flm_full_surface_ff_scale(manual, manual.profile, frame.setpoint, frame.jerk, frame.speed, True)
     center = m._gm_get_flm_full_surface_center_taper_scale(self.surface, self.surface.profile, frame.setpoint, frame.speed, True)
     return relative * remaining * center
 
@@ -132,13 +188,13 @@ class RouteSurfaceEffects(CanonicalSurfaceEffects):
     return self._ff(frame)
 
 
-def replay_source(values, baseline_revision):
+def replay_source(values, baseline_revision, *, revision=REVISION):
   """Child-only numeric probe; never builds a live envelope or authority."""
   from openpilot.starpilot.flm.selected_effects import EffectReplaySource
 
   complete = route_values(values, legacy_allowed=True)
   obj = EffectReplaySource.from_coordinates({NAMES[0]: complete[NAMES[0]]}, baseline_revision, accumulated={name: complete[name] for name in NAMES})
-  obj.source = RouteSurfaceEffects({NAMES[0]: complete[NAMES[0]]}, baseline_revision, accumulated=complete)
+  obj.source = RouteSurfaceEffects({NAMES[0]: complete[NAMES[0]]}, baseline_revision, accumulated=complete, revision=revision)
   obj.original_effect_anchor = obj.source.original_effect_anchor
   obj.applied_coordinates = obj.source.applied_coordinates
   return obj

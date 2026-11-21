@@ -65,9 +65,10 @@ def render_weather(fonts, state, client, center_shift=0):
   icon_size = height * .76
   draw_weather_icon(x + height * .09, y + height * .1, icon_size,
                     reading.code if reading else None, reading.is_day if reading else True)
-  text = '--°' if reading is None else f'{reading.temperature_c if state.metric else reading.temperature_c * 1.8 + 32:.0f}°'
-  text += 'C' if state.metric else 'F'
+  text = 'No data' if reading is None else f'{reading.temperature_c if state.metric else reading.temperature_c * 1.8 + 32:.0f}°'
+  if reading is not None:
+    text += 'C' if state.metric else 'F'
   color = rl.Color(*rgba(state.customization, 'text', profile, 'weather'))
-  fonts.draw(text, FontRole.SEMI_BOLD, size, x + height, y + height * .09, color)
-  fonts.draw('Open-Meteo' if reading else 'Outside', FontRole.NORMAL, 16 if large else 8,
+  fonts.draw(text, FontRole.SEMI_BOLD, size if reading else size * .65, x + height, y + height * .09, color)
+  fonts.draw('Open-Meteo' if reading else 'Weather', FontRole.NORMAL, 16 if large else 8,
              x + height, y + height * .69, rl.Color(199, 174, 247, min(color.a, 220)))

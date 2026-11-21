@@ -36,6 +36,17 @@ def _explanation(reason):
     'more_independent_eligible_tracking_required': 'Analysis needs more independent, eligible steering evidence before proposing a change.',
     'recorded_tracking_suggestion_not_yet_qualified_for_automatic_application':
       'Analysis produced suggestions; the evidence required for automatic saving is not complete.',
+    'vehicle_identity_unavailable': 'This recording was reviewed on its own. A physical vehicle identity was unavailable, ' +
+      'so no saved Auto Learn tune was loaded, no cross-drive evidence was combined and no adjustment was saved automatically.',
+    'Known vehicle and no manual coordinates required': 'This older build rejected its vehicle/settings identity before route analysis. In the parked ' +
+      'analysis path, missing or invalid recorded vehicle identity causes this refusal; it does not establish route corruption.',
+    'Valid manual coordinate settings required': 'Saved manual steering settings require review; existing choices were preserved.',
+    'saved_gm_flm_profile_blocks_learning': 'Auto Learn is paused because an older manual GM FLM tune is active.',
+    'saved_gm_force_off_blocks_learning': 'A saved GM steering setting explicitly turns off learning for this vehicle.',
+    'Manual or explicitly disabled tuning selected':
+      'This older report did not distinguish a legacy GM FLM profile from a saved GM setting that turns learning off.',
+    'Manual coordinate settings require review: context_changed':
+      'The saved steering settings do not match the vehicle configuration or controller for this recording.',
     'partial_drive_provisional_only': 'Intact portions were analyzed. This partial recording can provide suggestions, not automatic changes.',
     'bounded_trial_configured_for_next_drive': 'A bounded adjustment was saved for the next drive.',
     'no_consistent_adjustment_in_completed_drive': 'The analyzed evidence did not support a consistent adjustment.',
@@ -61,6 +72,47 @@ def _result(value):
   return result
 
 
+def _finding_review(report, params, cache):
+  """Compare retained findings to the cached parked configuration without exporting it."""
+  from opendbc.car.structs import car
+  from openpilot.starpilot.flm.manual_coordinates import load
+  from openpilot.starpilot.flm.offroad_surface import ROUTE_NAMES
+  from openpilot.starpilot.galaxy.flm_acceptance import review_binding_issue
+  from openpilot.starpilot.lateral.controller_selection import read_selection
+  from openpilot.starpilot.schema_cache import inspect_cache
+
+  preference = report.get('preference') or {}
+  if preference.get('valid') is not True or preference.get('parked') is not True:
+    return {'status': 'parked_configuration_unavailable'}
+  key = 'CarParamsPersistent'
+  snapshot = read_saved(params, key, 1024 * 1024)
+  raw, readable = snapshot
+  payload = inspect_cache(key, raw).payload if readable and raw is not None else None
+  if payload is None:
+    return {'status': 'parked_configuration_unavailable'}
+  with car.CarParams.from_bytes(payload, traversal_limit_in_words=1024 * 1024 // 8) as cp:
+    if cp.notCar or cp.carFingerprint != preference.get('vehicle'):
+      return {'status': 'parked_configuration_unavailable'}
+    _, manual_state = load(cp, read_selection(params, cp).mode, params)
+    details = (report.get('current') or {}).get('details') or {}
+    findings, checked = {}, {}
+    for name, review, source in details.get('Recorded suggestion assessments', ())[:len(ROUTE_NAMES)]:
+      if name not in ROUTE_NAMES:
+        continue
+      binding = (review, source)
+      if binding not in checked:
+        try:
+          _, issue = review_binding_issue(cache, review, cp, source)
+          checked[binding] = issue or 'matches_parked_fingerprint'
+        except (OSError, ValueError, TypeError, KeyError):
+          checked[binding] = 'assessment_unavailable'
+      findings[name] = checked[binding]
+  if (read_saved(params, key, 1024 * 1024) != snapshot
+      or read_saved(params, 'IsOffroad', 1) != (b'1', True)):
+    return {'status': 'parked_configuration_unavailable'}
+  return {'status': 'checked', 'scope': 'Stored parked configuration at download', 'manual_coordinates': manual_state, 'findings': findings}
+
+
 def diagnostics(report, params):
   current = report.get('current') or {}
   details = current.get('details') or {}
@@ -72,8 +124,9 @@ def diagnostics(report, params):
   result['current']['analysis'] = {key: details[key] for key in (
     'Recorded steering observations', 'Retained control windows', 'Retained tracking windows', 'Recorded drive coverage',
     'Drives in steering evidence history', 'Saved route adjustment count', 'Saved route configuration state',
-            'Recorded coordinate recommendations', 'Recorded suggestion sources', 'Controller and encoder check windows', 'Automatic tune refusal reasons',
-            'Drive analysis is partial', 'Partial drive segments', 'Omitted recorded segments') if key in details}
+            'Recorded coordinate recommendations', 'Recorded suggestion sources', 'Recorded suggestion assessments',
+            'Controller and encoder check windows', 'Automatic tune refusal reasons',
+            'Recorded vehicle identity', 'Drive analysis is partial', 'Partial drive segments', 'Omitted recorded segments') if key in details}
   result['current']['skipped_drives'] = _result({'skipped_routes': details.get('Skipped recorded drives', [])})['skipped_drives']
   if params is None:
     result['storage'] = {'status': 'unavailable'}
@@ -114,6 +167,11 @@ def diagnostics(report, params):
       files = list(directory.iterdir())
       result['storage'] = {'status': 'readable', 'documents': len(files), 'bytes': sum(path.lstat().st_size for path in files)}
       result['checkpoints'] = [_result(row['result']) for row in cache.checkpoints()]
+      if details.get('Recorded suggestion assessments'):
+        try:
+          result['finding_review'] = _finding_review(report, params, cache)
+        except (OSError, RuntimeError, ValueError, TypeError, KeyError, KjException):
+          result['finding_review'] = {'status': 'unavailable'}
   except (OSError, ValueError, TypeError, KeyError) as error:
     result['storage'] = {'status': 'unavailable', 'reason': _reason(error)}
   result['storage']['scope'] = 'Parked route analysis in the current settings store only'
@@ -164,3 +222,23 @@ def download(report, params):
     return _reason(value) if type(value) is str else value
 
   return 'starpilot-flm-logs.json', json.dumps(clean(diagnostics(report, params)), indent=2, allow_nan=False).encode()
+
+
+def with_dashboard_diagnostics(body, owner, authority=None):
+  """Attach privacy-limited existing dashboard state without starting its analyzer."""
+  summary: dict[str, Any] = {'status': 'not_started'}
+  if owner is not None:
+    try:
+      summary = owner.diagnostics()
+    except (AttributeError, OSError, RuntimeError, ValueError, TypeError):
+      summary = {'status': 'unavailable'}
+  if authority is not None:
+    try:
+      state = authority.status()
+      summary['vehicle_permission'] = {'allowed': state['allowed'], 'reason': _reason(state.get('reason') or 'available'),
+                                       'effective_started': authority.effective()}
+    except (AttributeError, OSError, RuntimeError, ValueError, TypeError, KeyError):
+      summary['vehicle_permission'] = {'allowed': False, 'reason': 'Vehicle status unavailable'}
+  result = json.loads(body)
+  result['dashboard_statistics'] = summary
+  return json.dumps(result, indent=2, allow_nan=False).encode()

@@ -62,10 +62,11 @@ def test_inactive_lateral_resets_override(vehicle_model):
 @pytest.mark.parametrize(("candidate", "enabled", "expected"), (
   (CAR.TESLA_MODEL_3, False, False),
   (CAR.TESLA_MODEL_3, True, True),
-  (CAR.TESLA_MODEL_Y, True, False),
+  (CAR.TESLA_MODEL_Y, False, False),
+  (CAR.TESLA_MODEL_Y, True, True),
   (CAR.TESLA_MODEL_S_PREAP, True, False),
 ))
-def test_safety_flag_is_model_3_only(candidate, enabled, expected):
+def test_safety_flag_is_modern_model_3_y_only(candidate, enabled, expected):
   params = CarInterface.get_params(candidate, gen_empty_fingerprint(), [], False, False, True)
   from openpilot.starpilot.car.tesla.coop_preferences import prepare
   prepare(params, enabled)

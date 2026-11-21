@@ -27,6 +27,7 @@ from openpilot.starpilot.longitudinal.profile_runtime import TRAFFIC_CRUISE_BRAK
 from openpilot.starpilot.longitudinal.lead_approach_runtime import KEY as LEAD_APPROACH_KEY
 from openpilot.starpilot.longitudinal.lead_takeoff_preferences import KEY as LEAD_TAKEOFF_KEY
 from openpilot.starpilot.longitudinal.encouragement import KEY as NUDGE_KEY
+from openpilot.selfdrive.car.cruise import LOW_SPEED_CRUISE_ON_SET
 from openpilot.starpilot.longitudinal.planner_selection import KEY as PLANNER_SELECTION_KEY, save_selection
 
 from openpilot.starpilot.longitudinal.profile_document import (
@@ -86,7 +87,8 @@ from openpilot.starpilot.controllers.toyota_cruise import capability as toyota_c
 AGGRESSIVE_COOLING_KEY = "AggressiveCoolingEnabled"
 AGGRESSIVE_COOLING_DESCRIPTION = ("Runs the fan sooner and harder to keep the comma 10-16 °C (18-29 °F) cooler on hot days, " +
                                   "at the cost of more fan noise. Applies next drive.")
-GLOBAL_BOOL_PREFERENCES = frozenset((LEAD_APPROACH_KEY, LEAD_TAKEOFF_KEY, NUDGE_KEY, "DisengageOnAccelerator", AGGRESSIVE_COOLING_KEY))
+GLOBAL_BOOL_PREFERENCES = frozenset((LEAD_APPROACH_KEY, LEAD_TAKEOFF_KEY, NUDGE_KEY, LOW_SPEED_CRUISE_ON_SET,
+                                     "DisengageOnAccelerator", AGGRESSIVE_COOLING_KEY))
 
 
 def cooling_available() -> bool:
@@ -112,6 +114,7 @@ BOOL_DEFAULTS = {
   LEAD_APPROACH_KEY: False,
   LEAD_TAKEOFF_KEY: False,
   NUDGE_KEY: True,
+  LOW_SPEED_CRUISE_ON_SET: False,
   "DisengageOnAccelerator": False,
   AGGRESSIVE_COOLING_KEY: False,
   CURVE_MASTER_KEY: False, CURVE_NO_LEAD_KEY: False,
@@ -275,6 +278,12 @@ class FeatureSettingsOwner:
       return None
     try:
       from openpilot.starpilot.lateral.torque_runtime import production_supported_cp
+      if group == "gain" and cp.lateralTuning.which() == "pid":
+        from openpilot.starpilot.lateral.gain_runtime import gain_supported, pid_gain_basis
+        if gain_supported(cp):
+          basis = pid_gain_basis(cp)
+          return (str(cp.carFingerprint), str(cp.brand), str(cp.steerControlType), "pid", bool(cp.dashcamOnly),
+                  *basis.torque_basis, str(cp.carVin) if getattr(cp, "carVin", None) else None, basis.source_table)
       if group == "torque" and production_supported_cp(cp):
         tune = cp.lateralTuning.torque
         return (str(cp.carFingerprint), str(cp.brand), str(cp.steerControlType), str(cp.lateralTuning.which()),
@@ -793,7 +802,7 @@ class FeatureSettingsOwner:
     row = self._bool_row("TurnAssist", "Turn Assist", configurable and self.authority("torque") and supported and capability is not None)
     return replace(row, capability=capability, dependencies=(),
                    reason=row.reason if row.value not in ("On", "Off") else
-                          ("Uses steering-angle feedback during rolling low-speed turns, above about 0.1 mph or the vehicle minimum. " +
+                          ("Unlocks assistance for a signaled turn once speed reaches 2 mph or less. Existing steering limits still apply. " +
                            "Never at standstill. Applies next drive.") if row.available else
                           "Turn Assist is available on supported vehicles when settings can be changed")
 
@@ -882,7 +891,7 @@ class FeatureSettingsOwner:
       rows = [self._bool_row("AlwaysAllowUploads", "Always Allow Uploads", self.authority("preferences"),
                              "Allow queued full logs and videos on metered networks. Uses mobile data.")]
     elif page == "power":
-      title = "Power and Cooling"
+      title = "Power & Cooling"
       if cooling_available():
         rows.append(self._bool_row(AGGRESSIVE_COOLING_KEY, "Aggressive Cooling", self.authority("preferences"),
                                    AGGRESSIVE_COOLING_DESCRIPTION))
@@ -890,7 +899,7 @@ class FeatureSettingsOwner:
       rows = [FeatureRow("", "Always On Lateral", "Keep steering assistance active independently of cruise control", page=FeaturePage.AOL, available=True),
               FeatureRow("", "Lane Changes", "Configure lane-change speed, automatic timing, and driver nudges", page=FeaturePage.LANE_CHANGE, available=True),
               FeatureRow("", "Lane Centering", "Adjust lane positioning, lane detection, and steering alerts", page=FeaturePage.LANE, available=True),
-              FeatureRow("", "Steering and Torque", "Select the steering controller and tune its response", page=FeaturePage.TORQUE, available=True),
+              FeatureRow("", "Steering & Torque", "Select the steering controller and tune its response", page=FeaturePage.TORQUE, available=True),
               FeatureRow('', 'Developer Parameters', 'Advanced steering parameters and total actuator delay',
                          page=FeaturePage.DEVELOPER_LATERAL, available=True),
               FeatureRow("", "Curve Speed Controller", "Adjust how speed is reduced for curves ahead", page=FeaturePage.CURVE, available=True),
@@ -1096,7 +1105,7 @@ class FeatureSettingsOwner:
       rows.extend(self.torque.manual_rows(capability, parked and self.authority("torque") and
                                          self.authority("parked_preferences") and capability is not None))
     elif page == FeaturePage.TORQUE:
-      title = "Steering and Torque"
+      title = "Steering & Torque"
       rows.extend(FordBluePilotFeature(self).rows(parked))
       controller_row = self.controller.row()
       if controller_row is not None:
@@ -1116,7 +1125,7 @@ class FeatureSettingsOwner:
         rows.append(learning_row)
     elif page == FeaturePage.DEVELOPER_LATERAL:
       title = 'Developer Parameters'
-      capability = self._capability("torque")
+      capability = self._capability("torque") or self._capability("gain")
       allowed = configurable and self.authority("torque") and capability is not None
       _, numeric_rows = self.torque.rows(capability, allowed, repair_allowed=parked and allowed)
       from openpilot.starpilot.ui.delay_feature import DelayFeature
@@ -1268,6 +1277,9 @@ class FeatureSettingsOwner:
       rows.append(self._bool_row(NUDGE_KEY, "Experimental Speed Nudge", self.authority("preferences"),
                                 reason="Gently recovers toward set speed when Experimental mode hesitates on a clear road. " +
                                        "Leads, stops, curve limits and driver overrides retain priority."))
+      rows.append(self._bool_row(LOW_SPEED_CRUISE_ON_SET, "Low-Speed Cruise Start", self.authority("preferences"),
+                                reason="Lets StarPilot SET at your current speed down to the vehicle’s minimum engagement speed. " +
+                                       "Factory cruise still uses the car’s minimum speed."))
       if self._galaxy():
         rows.append(self._bool_row("DisengageOnAccelerator", "Disengage on Accelerator Pedal", self.authority("preferences")))
       document, raw, valid = self._document()
@@ -1283,7 +1295,7 @@ class FeatureSettingsOwner:
                                tuple(preset_label(choice) for choice in choices) if valid else (),
                                available=allowed and valid,
                                reason=(CATEGORY_HELP[category] if category == 'braking' else
-                                       'Personalities set to Selected Profile follow this choice; explicit overrides stay unchanged.'),
+                                       'Personalities set to Use global preset follow this choice; explicit overrides stay unchanged.'),
                                default_value=preset_label('dom_default' if category == 'acceleration' else DEFAULT_DECELERATION_PROFILE)))
       unit_value, unit_raw, unit_valid = self._value("IsMetric")
       unit_valid = unit_valid and unit_value in ("0", "1") and self._readable("IsMetric")

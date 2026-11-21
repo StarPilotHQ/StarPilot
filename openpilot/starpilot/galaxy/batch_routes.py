@@ -1,5 +1,7 @@
 """Galaxy stored-record, layout-preview and drive-state HTTP routes."""
 
+import hashlib
+
 from openpilot.starpilot.galaxy.crash_reports import CrashChanged, CrashMissing, CrashUnavailable
 from openpilot.starpilot.galaxy.settings import SettingsChanged, SettingsUnavailable
 from openpilot.starpilot.galaxy.sentry_events import ID as SENTRY_EVENT_ID, SentryEventsUnavailable
@@ -108,6 +110,11 @@ def preview_layout(self, payload, projection_layout_owner, layout_owner, layout_
     else:
       headers, cache = {}, None
       if payload.get('art') is True:
+        digest = hashlib.sha256(image).hexdigest()
+        if self.headers.get('X-Widget-Digest') == digest:
+          self.respond(204, b'', cache_control='no-store')
+          return
+        headers['X-Widget-Digest'] = digest
         # Proxies that re-encode PNGs drop the tEXt chunk, so the sprite sheet also rides in a header.
         header = widget_art_header(image)
         if header:

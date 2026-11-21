@@ -31,6 +31,7 @@ from openpilot.starpilot.lateral.torque_shaping import (
 HKG_CANFD_BASE_FRICTION_THRESHOLD = 0.39
 IONIQ_6_2025_HIGHWAY_FRICTION_THRESHOLD_INCREASE = 0.50
 IONIQ_6_STANDARD_FRICTION_THRESHOLD_INCREASE = 0.65
+IONIQ_6_STANDARD_HIGHWAY_FRICTION_THRESHOLD_INCREASE = 0.15
 
 IONIQ_6_CARS = (CAR.HYUNDAI_IONIQ_6,)
 
@@ -798,7 +799,7 @@ class Ioniq6TorquePolicy:
     return friction
 
   def turn_assist_active(self, CS) -> bool:
-    return bool(self.turn_assist and math.isfinite(CS.vEgo) and
+    return bool(self.turn_assist and getattr(self.parent, "turn_assist_maneuver", False) and math.isfinite(CS.vEgo) and
                 CS.vEgo >= self.turn_assist_min_speed and not CS.standstill and
                 CS.gearShifter == structs.CarState.GearShifter.drive and
                 not CS.steeringPressed and not CS.steerFaultTemporary and not CS.steerFaultPermanent)
@@ -883,6 +884,7 @@ class Ioniq6TorquePolicy:
       friction_threshold = self.surface_math.friction_threshold(self.surface, CS.vEgo, setpoint, desired_lateral_jerk) / max(center_taper, 1e-3)
     if not self.is_2025 and not CS.steeringPressed and not self.prev_steering_pressed:
       friction_threshold *= 1.0 + IONIQ_6_STANDARD_FRICTION_THRESHOLD_INCREASE * float(np.interp(CS.vEgo, [3.0, 12.0], [0.0, 1.0]))
+      friction_threshold *= 1.0 + IONIQ_6_STANDARD_HIGHWAY_FRICTION_THRESHOLD_INCREASE * float(np.interp(CS.vEgo, [20.0, 27.0], [0.0, 1.0]))
     if self.surface is None and not self.is_2025 and not CS.steeringPressed and not self.prev_steering_pressed:
       friction_threshold += get_ioniq_6_2023_center_friction_increment(
         CS.vEgo, setpoint, measurement, desired_lateral_jerk, future_desired_lateral_accel) / max(center_taper, 1e-3)

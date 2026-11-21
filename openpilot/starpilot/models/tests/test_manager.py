@@ -57,7 +57,7 @@ class ModelManagerTest(unittest.TestCase):
     from openpilot.common.file_chunker import package_file
     source = self.root / 'shipped-source.pkl'
     source.write_bytes(self.data)
-    package_file(source, self.root / 'shipped/rdf43_driving_tinygrad.pkl')
+    package_file(source, self.root / 'shipped/cheddar_driving_tinygrad.pkl')
     source.unlink()
     for attribute, value in (('DEFAULT_SMALL_SHA256', hashlib.sha256(self.data).hexdigest()), ('DEFAULT_SMALL_SIZE', len(self.data))):
       identity = patch('openpilot.starpilot.models.manager.' + attribute, value)
@@ -670,18 +670,18 @@ class ModelManagerTest(unittest.TestCase):
 
   def test_randomizer_avoids_repeat_ignores_favorites_and_respects_exclusions(self):
     self.install_fixture('gwm8223')
-    self.install_fixture('rdf43')
+    self.install_fixture('cheddar')
     self.manager.action('preferences', {'randomizer': True, 'userFavorites': ['gwm8223'],
                                        'blacklistedModels': ['gwm8223', BUNDLED_CURRENT]})
-    self.assertEqual(randomize_next_start(False, root=self.root)['small'], 'rdf43')
-    self.assertEqual(randomize_next_start(False, root=self.root)['small'], 'rdf43')
+    self.assertEqual(randomize_next_start(False, root=self.root)['small'], 'cheddar')
+    self.assertEqual(randomize_next_start(False, root=self.root)['small'], 'cheddar')
     self.manager.action('preferences', {'blacklistedModels': []})
     seen = []
     def choose(options):
       seen.extend(options)
       return options[0]
     randomize_next_start(False, root=self.root, chooser=choose)
-    self.assertNotIn('rdf43', seen)
+    self.assertNotIn('cheddar', seen)
     self.assertIn('gwm8223', seen)
     self.assertEqual(seen, ['gwm8223'])
 

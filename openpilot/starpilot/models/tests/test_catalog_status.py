@@ -26,6 +26,7 @@ class TestModelCatalogStatus(unittest.TestCase):
           digest.update(block)
     self.assertEqual(digest.hexdigest(), entry.source_sha256)
     self.assertEqual(resolve_selection("rdf43").version, "v15")
+    self.assertEqual((entry.model_id, entry.name, entry.version), ("cheddar", "Cheddar", "v16"))
     with self.assertRaises(ValueError):
       resolve_selection("unknown-model")
     with self.assertRaises(ValueError):

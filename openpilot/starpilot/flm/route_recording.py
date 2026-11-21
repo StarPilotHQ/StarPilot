@@ -13,6 +13,7 @@ from openpilot.starpilot.flm.offroad_surface import (
   LEGACY_REVISION,
   ROUTE_NAMES,
   route_bounds,
+  current_revision,
 )
 
 BASES = ('torque-selected-stage-snapshot-v1', 'pid-selected-stage-snapshot-v2')
@@ -25,8 +26,30 @@ SCOPE_PREFIX = 'route.scope.'
 MAX_ROUTE_STAGE_VALUES = 40 + 2 * len(ROUTE_NAMES) + 8
 
 
+def schema_parts(schema):
+  if schema in SCHEMAS:
+    configured = schema in CONFIGURED_SCHEMAS
+    revision = REVISION if configured else schema.rsplit('@', 1)[1]
+    return SCHEMAS[schema], revision, configured
+  if type(schema) is str and schema.endswith('+configured-v1') and schema.count('@') == 1:
+    base, revision = schema.removesuffix('+configured-v1').split('@')
+    if base in BASES and current_revision(revision):
+      return base, revision, True
+  return None
+
+
+def schema_base(schema):
+  parts = schema_parts(schema)
+  return None if parts is None else parts[0]
+
+
+def configured_schema(schema):
+  parts = schema_parts(schema)
+  return parts is not None and parts[2]
+
+
 def _valid(values, scope, revision=REVISION):
-  if revision not in (REVISION, LEGACY_REVISION):
+  if revision != LEGACY_REVISION and not current_revision(revision):
     raise ValueError('Unknown route revision')
   names = NAMES if revision == LEGACY_REVISION else ROUTE_NAMES
   if type(values) is not tuple or tuple(n for n, _ in values) != tuple(names) or type(scope) is not str or len(scope) != 64 or scope.strip('0123456789abcdef'):
@@ -41,9 +64,10 @@ def encode(evidence):
   if evidence.route_effect_revision:
     revision = evidence.route_effect_revision
     schema = evidence.stage_schema_revision
-    suffix = '+configured-v1' if schema in CONFIGURED_SCHEMAS else ''
-    if revision not in (REVISION, LEGACY_REVISION) or schema not in SCHEMAS or schema != SCHEMAS[schema] + '@' + revision + suffix:
+    parts = schema_parts(schema)
+    if parts is None or parts[1] != revision:
       raise ValueError('Explicit matching route revision required')
+    suffix = parts[2]
     if evidence.live_applied_coordinates or evidence.effect_trace is not None:
       raise ValueError('Route and live trial metadata remain distinct')
     _valid(evidence.route_applied_coordinates, evidence.route_configuration_scope, revision)
@@ -60,7 +84,7 @@ def encode(evidence):
     return evidence.stage_values + tuple((PREFIX + n, v) for n, v in evidence.route_applied_coordinates) + settings + words
   if (
     evidence.route_applied_coordinates or evidence.route_configuration_scope
-    or evidence.route_configured_coordinates or evidence.stage_schema_revision in SCHEMAS
+    or evidence.route_configured_coordinates or schema_base(evidence.stage_schema_revision) is not None
   ):
     raise ValueError('Route metadata cannot omit revision')
   return evidence.stage_values
@@ -72,12 +96,12 @@ def decode(schema, pairs):
 
 
 def decode_configuration(schema, pairs):
-  if schema not in SCHEMAS:
+  parts = schema_parts(schema)
+  if parts is None:
     if any(n.startswith('route.') for n, _ in pairs):
       raise ValueError('Unknown route stage schema')
     return pairs, (), '', '', ()
-  configured_version = schema in CONFIGURED_SCHEMAS
-  revision = REVISION if configured_version else schema.rsplit('@', 1)[1]
+  _, revision, configured_version = parts
   names = NAMES if revision == LEGACY_REVISION else ROUTE_NAMES
   tail = len(names) * (2 if configured_version else 1) + 8
   if not tail <= len(pairs) <= 40 + tail:
@@ -136,6 +160,8 @@ def with_actual_route(evidence, controller):
       and evidence.valid
       and not (evidence.manual or evidence.override or evidence.fault)
     )
+    if not current and getattr(controller, 'manual_flm_effects', None) is not None:
+      raise ValueError('Manual locks require their actual current route-stage witness')
     if current:
       configured = owner.values
       source = owner.source
@@ -158,12 +184,13 @@ def with_actual_route(evidence, controller):
         inhibited = inputs.get('active') == 1.0 and any(inputs.get(name) == 1.0 for name in ('safety_limited', 'curvature_limited'))
         if any(calls) or not inhibited:
           raise ValueError('Partial route execution cannot be recorded as applied')
-  _valid(values, getattr(controller, 'route_flm_scope_key', ''))
+  revision = REVISION if owner is None else owner.source.revision
+  _valid(values, getattr(controller, 'route_flm_scope_key', ''), revision)
   return replace(
     evidence,
-    stage_schema_revision=evidence.stage_schema_revision + '@' + REVISION + '+configured-v1',
+    stage_schema_revision=evidence.stage_schema_revision + '@' + revision + '+configured-v1',
     route_applied_coordinates=values,
     route_configured_coordinates=configured,
-    route_effect_revision=REVISION,
+    route_effect_revision=revision,
     route_configuration_scope=getattr(controller, 'route_flm_scope_key', ''),
   )

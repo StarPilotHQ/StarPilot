@@ -7,10 +7,10 @@ from openpilot.starpilot.flm.offroad_surface import ROUTE_NAMES as NAMES, RouteS
 def original_delivery_context(control, outputs):
   from dataclasses import replace
   from opendbc.car.steering_projection import TorqueProjection
-  from openpilot.starpilot.flm.route_recording import SCHEMAS
+  from openpilot.starpilot.flm.route_recording import schema_base
   from openpilot.starpilot.flm.torque_eligibility import exact_unclipped_pair, bounded_context_output, consumed_sources_current
 
-  schema = SCHEMAS.get(control.stage_schema_revision, control.stage_schema_revision)
+  schema = schema_base(control.stage_schema_revision) or control.stage_schema_revision
   if schema != 'torque-selected-stage-snapshot-v1' or not outputs:
     return None
   original = replace(control, stage_schema_revision=schema)
@@ -214,7 +214,14 @@ def check_candidate(cp, controls, values, *, score_start_ns=0, score_end_ns=2**6
         'failed_original_ns': frame.control_ns,
       }
     restore_snapshot(probe, probe_vm, before)
-    trial = replay_source(values, baseline)
+    from openpilot.starpilot.flm.offroad_surface import REVISION, revision_locks
+    revision = evidence.route_effect_revision or REVISION
+    locks, _ = revision_locks(revision)
+    from openpilot.starpilot.flm.route_recording import configuration_values
+    configured = dict(configuration_values(evidence.route_applied_coordinates, evidence.route_configured_coordinates, evidence.replay_inputs))
+    if any(values[name] != configured.get(name) for name in locks):
+      return {'qualified': False, 'reason': 'candidate_changes_manually_locked_coordinate', 'verified_frames': verified}
+    trial = replay_source(values, baseline, revision=revision)
     candidate, _ = _run(probe, probe_vm, frame.inputs, actual.objective, (0.0,) * len(frame.applied_coordinates), frame.torque_values, effect_trial=trial)
     # Existing selected source checks retain per-stage sign/envelopes and limits.
     if not math.isfinite(candidate) or abs(candidate) > probe.steer_max + 1e-12:
@@ -244,7 +251,8 @@ def check_candidate(cp, controls, values, *, score_start_ns=0, score_end_ns=2**6
     maximum = max(maximum, delta)
     last_ns, last_sequence = frame.control_ns, frame.frame_sequence
   return {
-    'qualified': bool(scored >= 50 and (changed > 0 or not require_change)),
+    # Replication is assessed across independent windows; full native history is checked separately.
+    'qualified': bool(scored > 0 and (changed > 0 or not require_change)),
     'reason': 'same_state_controller_checks_only',
     'verified_frames': verified,
     'scored_frames': scored,

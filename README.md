@@ -11,9 +11,6 @@
 **StarPilot** is a custom fork of [comma.ai's openpilot](https://comma.ai/openpilot),
 an open source driver assistance system.
 
-**This is the StarPilot 7.0 testing channel (`Dom`, planned name `testing`). Feature migration,
-vehicle qualification, and Auto Learn validation are still in progress.**
-
 Openpilot provides
 * Automated Lane Centering
 * Adaptive Cruise Control

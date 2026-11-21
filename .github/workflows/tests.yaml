@@ -45,6 +45,7 @@ jobs:
       run: |
         python3 -m unittest tools.laptop_device_build.tests.test_runtime_dependencies -v
         python3 -c 'from pathlib import Path; assert b"starting pandad (comma hardware)" in Path("openpilot/selfdrive/pandad/pandad").read_bytes(), "Shipped pandad must use the comma hardware build profile"'
+        python3 -c 'from pathlib import Path; paths = ("openpilot/system/camerad/camerad", "msgq_repo/msgq/visionipc/_visionipc.so", "openpilot/system/loggerd/encoderd", "openpilot/tools/replay/replay"); assert all(b"/dev/ion\0" in Path(p).read_bytes() for p in paths), "Shipped camera buffers must use ION"'
     - name: Test one-shot branch migration
       run: python3 -m unittest discover -s scripts/tests -v
     - name: Validate tracked dependencies

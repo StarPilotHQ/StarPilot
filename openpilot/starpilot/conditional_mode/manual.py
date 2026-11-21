@@ -28,6 +28,9 @@ MEDIA_LONG_NS = CRUISE_LONG_PRESS * 10_000_000  # Convert 100 Hz ticks to source
 MEDIA_VERY_LONG_NS = VERY_LONG_PRESS * 10_000_000
 ButtonType = car.CarState.ButtonEvent.Type
 
+_EV6_MEDIA_REQUIRED = int(HyundaiFlags.CANFD | HyundaiFlags.EV)
+_EV6_MEDIA_EXCLUDED = int(HyundaiFlags.CCNC | HyundaiFlags.CANFD_ANGLE_STEERING)
+
 
 def ioniq6_media_eligible(CP: car.CarParams) -> bool:
   """Legacy name shared by the Ioniq 6 and restored first-generation EV6 path.
@@ -37,9 +40,8 @@ def ioniq6_media_eligible(CP: car.CarParams) -> bool:
   """
   if CP.carFingerprint == HYUNDAI_CAR.HYUNDAI_IONIQ_6:
     return config_index(CP) is not None and CanBus(CP).ECAN in (1, 5)
-  required = HyundaiFlags.CANFD | HyundaiFlags.EV
   return (CP.brand == 'hyundai' and CP.carFingerprint == HYUNDAI_CAR.KIA_EV6 and
-          CP.flags & required == required and not CP.flags & (HyundaiFlags.CCNC | HyundaiFlags.CANFD_ANGLE_STEERING) and
+          CP.flags & _EV6_MEDIA_REQUIRED == _EV6_MEDIA_REQUIRED and not CP.flags & _EV6_MEDIA_EXCLUDED and
           config_index(CP) is not None and CanBus(CP).ECAN in (0, 1, 4, 5))
 
 

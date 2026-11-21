@@ -400,3 +400,40 @@ def test_reviewed_force_stop_addition_rejects_other_changes(historical, tmp_path
   changed = parser.load(str(path), imports=[CEREAL_PATH, str(files('opendbc') / 'car')])
   with pytest.raises(AssertionError):
     compare_node(historical.StarPilotLongitudinalPlan, changed.StarPilotLongitudinalPlan)
+
+
+def test_additive_perceived_stop_preserves_defaults_and_incumbent_relay(historical):
+  old = historical.SlcState.ConditionalModeState.new_message(
+    version=1, sessionId='scene', sequence=3, observedMonoTime=40, validUntilMonoTime=50,
+    driveStartMonoTime=10, modelMonoTime=20, carStateMonoTime=30, settingsRevision=7,
+    settingsFingerprint='settings', choice='stock', hasOverride=True,
+    experimental=False, status='ready', reason='observed', statusCode=2)
+  incumbent = old.to_dict()
+  with custom.SlcState.ConditionalModeState.from_bytes(old.to_bytes()) as decoded:
+    assert not decoded.perceivedStop
+    assert {name: decoded.to_dict()[name] for name in incumbent} == incumbent
+    current = decoded.as_builder()
+  current.perceivedStop = True
+  expected = current.to_dict()
+  with historical.SlcState.ConditionalModeState.from_bytes(current.to_bytes()) as prior:
+    assert prior.to_dict() == incumbent
+    relayed = prior.as_builder().to_bytes()
+  with custom.SlcState.ConditionalModeState.from_bytes(relayed) as recovered:
+    assert recovered.to_dict() == expected
+
+
+@pytest.mark.parametrize(('before', 'after'), [
+  ('perceivedStop @16 :Bool;', 'perceivedStop @16 :Bool = true;'),
+  ('perceivedStop @16 :Bool;', 'perceivedStop @16 :UInt8;'),
+  ('hasOverride @11 :Bool;', 'hasOverride @11 :Bool = true;'),
+  ('perceivedStop @16 :Bool;', 'perceivedStop @16 :Bool; unreviewed @17 :Bool;'),
+])
+def test_reviewed_perceived_stop_rejects_other_changes(historical, tmp_path, before, after):
+  source = Path(CEREAL_PATH, 'custom.capnp').read_text()
+  assert source.count(before) == 1
+  path = tmp_path / 'unreviewed-perceived-stop.capnp'
+  path.write_text(source.replace(before, after))
+  parser = capnp.SchemaParser()
+  changed = parser.load(str(path), imports=[CEREAL_PATH, str(files('opendbc') / 'car')])
+  with pytest.raises(AssertionError):
+    compare_node(historical.SlcState.ConditionalModeState, changed.SlcState.ConditionalModeState)

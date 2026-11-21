@@ -192,3 +192,15 @@ def test_galaxy_requires_fresh_explicit_park_even_with_ignition_off(fixture, ign
   assert f.source.status(require_park=True)['allowed'] == (gear == 'park')
   f.sm.logMonoTime['carState'] = 1
   assert not f.source.status(require_park=True)['allowed']
+
+
+def test_actuation_recovery_requires_ignition_off_even_in_park(fixture):
+  f = fixture
+  assert f.source.status(require_ignition_off=True)['allowed']
+  for field in ('ignitionLine', 'ignitionCan'):
+    setattr(f.sm.values['pandaStates'][0], field, True)
+    assert f.source.allowed()  # Other callers retain normal parked semantics.
+    assert not f.source.status(require_ignition_off=True)['allowed']
+    setattr(f.sm.values['pandaStates'][0], field, False)
+  f.sm.alive['pandaStates'] = False
+  assert not f.source.status(require_ignition_off=True)['allowed']

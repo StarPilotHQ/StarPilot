@@ -50,6 +50,11 @@ export function laneStrengthSaved(value, row) {
 }
 
 export function presentedSetting(row) {
+  if (row.displayScale === "selected-profile") {
+    const display = value => value === "StarPilot Default" ? "Normal" : value
+    return { ...row, value: display(row.value), defaultValue: display(row.defaultValue),
+      choices: row.choices.filter(choice => choice !== "StarPilot Default") }
+  }
   if (row.displayScale !== "lane-strength") return row
   return { ...row, value: laneStrengthDisplay(row.value, row),
     defaultValue: row.defaultValue == null ? row.defaultValue : laneStrengthDisplay(row.defaultValue, row),
@@ -76,7 +81,8 @@ export const GalaxySettingRow = {
     presentedRow() { return presentedSetting(this.row) },
     control() { return settingControl(this.row) },
     showDefault() {
-      const value = this.presentedRow.value, initial = this.presentedRow.defaultValue
+      const source = this.row.displayScale === "selected-profile" ? this.row : this.presentedRow
+      const value = source.value, initial = source.defaultValue
       if (initial === null || initial === undefined || this.row.page) return false
       return Number.isFinite(Number(value)) && Number.isFinite(Number(initial)) ? Number(value) !== Number(initial) : String(value) !== String(initial)
     },
@@ -263,7 +269,7 @@ export const GalaxySettingRow = {
         <div class="gx-slider-meta"><span>{{ Number(bounds.min.toPrecision(7)) }} to {{ Number((bounds.numericMax ?? bounds.max).toPrecision(7)) }} {{ presentedRow.unit }}<template v-if="bounds.auto"> · Auto at right</template></span><span>Step: {{ Number(bounds.step.toPrecision(7)) }} {{ presentedRow.unit }}</span></div>
       </div>
       <GalaxySelect v-else-if="control === 'select'" class="gx-field" :aria-label="row.label" :value="currentValue" :disabled="dimmed" @change="onSelect">
-        <option v-for="choice in row.choices" :key="choice" :value="choice">{{ choice }}</option>
+        <option v-for="choice in presentedRow.choices" :key="choice" :value="choice">{{ choice }}</option>
       </GalaxySelect>
       <button v-else-if="control === 'group'" type="button" class="gx-btn gx-btn--tonal" :disabled="dimmed" @click="$emit('open', row.page)">Manage</button>
       <button v-else-if="control === 'action' && row.action" type="button" class="gx-btn gx-btn--tonal" :disabled="dimmed" @click="$emit('review', index, row.confirm ? 0 : 1)">{{ row.repairValue === 'Reset' || /reset|default/i.test(row.label) ? 'Reset' : row.repairValue ? 'Set ' + row.repairValue : row.label }}</button>

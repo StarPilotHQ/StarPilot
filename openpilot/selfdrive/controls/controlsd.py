@@ -29,7 +29,9 @@ from openpilot.starpilot.car.hyundai.lateral_fault import LateralFaultLatch
 from openpilot.starpilot.feature_runtime import enabled as feature_enabled
 from openpilot.starpilot.vehicle_preferences import VehicleStartupPreferences
 from openpilot.starpilot.lateral.pause import LateralPause, read_settings as read_lateral_pause
-from openpilot.starpilot.lateral.model_turn_assist import ModelTurnAssist, update_twitch_guard
+from openpilot.starpilot.lateral.model_turn_assist import CURVATURE_HOLD_CONFIRM_MIN, ModelTurnAssist, update_twitch_guard
+from openpilot.starpilot.lateral.turn_unlock import TurnUnlock
+from openpilot.starpilot.lateral.turn_initiation_preferences import TurnInitiationPreference
 from openpilot.starpilot.aol.runtime import (
   current_axis,
   current_native,
@@ -49,7 +51,9 @@ from openpilot.starpilot.lateral.lane_feedback import feedback_message
 from openpilot.starpilot.lateral.lane_clearance import current_delay, interface_dimensions
 from openpilot.starpilot.lateral.lane_change_preferences import LiveLaneChangePolicy
 from openpilot.starpilot.lateral.lane_change_smoothing import LaneChangeSmoother, limit_rate
+from openpilot.starpilot.lateral.auto_lane_change import paired_clocks_ns
 from openpilot.starpilot.lateral.lane_runtime import LaneCenteringHost, runtime_supported as lane_runtime_supported
+from openpilot.starpilot.lateral.live_preferences import LiveSteeringPreferences
 from openpilot.starpilot.lateral.torque_runtime import TorqueHost, runtime_enabled as torque_runtime_enabled
 from openpilot.starpilot.feature_capabilities import lateral_supported
 from openpilot.starpilot.lateral.controller_selection import learning_allowed, read_selection
@@ -125,17 +129,26 @@ class Controls:
     self.curvature = 0.0
     self.desired_curvature = 0.0
     self.model_turn_assist = ModelTurnAssist()
+    self.turn_unlock = TurnUnlock()
+    self.turn_initiation_preferences = TurnInitiationPreference(self.params)
     self.lane_centering_controller = (
       LaneCenteringController(body=interface_dimensions(self.CI, self.CP), body_required=True) if predict_lane_clearance else LaneCenteringController()
     )
     self.highway_correction_gain = HighwayCorrectionGain()
     self.highway_smoothing_supported = lateral_supported(self.CP)
-    self.highway_gain = read_gain(self.params) if self.highway_smoothing_supported else 1.0
+    self.live_steering_preferences = (
+      LiveSteeringPreferences(self.params) if self.highway_smoothing_supported and os.getenv("REPLAY") != "1" else None)
+    preferences = self.live_steering_preferences
+    self.highway_gain = (preferences.current.highway_gain if preferences is not None else read_gain(self.params)) if self.highway_smoothing_supported else 1.0
     self.lateral_pause = LateralPause(read_lateral_pause(self.params), self.params)
-    self.lane_change_preferences = LiveLaneChangePolicy(self.params, now_ns=0 if os.getenv('REPLAY') == '1' else time.monotonic_ns())
+    self.lane_change_preferences = LiveLaneChangePolicy(
+      self.params, now_ns=0 if os.getenv('REPLAY') == '1' else time.monotonic_ns(),
+      settings_reader=(lambda: preferences.current.lane_change) if preferences is not None else None)
     self.lane_change_policy = self.lane_change_preferences.applied
     self.lane_change_smoother = LaneChangeSmoother()
-    self.lane_centering_host = LaneCenteringHost(self.params) if lane_runtime_supported(self.CP) else None
+    self.lane_centering_host = LaneCenteringHost(
+      self.params, settings_reader=(lambda: preferences.current.lane_centering) if preferences is not None else None,
+    ) if lane_runtime_supported(self.CP) else None
     self.torque_host = (
       TorqueHost(self.params, self.CP, allow_learning=(self.torque_learning_allowed if self.lateral_controller_selection.policy is not None else None))
       if torque_runtime_enabled(self.CP, self.params)
@@ -148,20 +161,19 @@ class Controls:
     self.pose_calibrator = PoseCalibrator()
     self.calibrated_pose: Pose | None = None
 
-    self.lateral_gain_owner = None
     self.LoC = LongControl(self.CP, startup_preferences=self.vehicle_startup_preferences)
     self.VM = VehicleModel(self.CP)
     self.LaC: LatControl
     self.LaC = create_lateral_controller(
       self.CP, self.CI, DT_CTRL, mode=self.lateral_controller_selection.mode, turn_assist=self.vehicle_startup_preferences.turn_assist
     )
+    self.lateral_gain_owner = create_gain_owner(self.params, self.CP, self.LaC)
     if isinstance(self.LaC, LatControlTorque):
       # Only the actual startup owner reads configuration; replay clones stay pure.
       if manual_effects is not None and (manual_effects.profile.context[1] != str(self.LaC.controller_mode) or
                                          not manual_effects.compatible(self.CP, self.CI, self.LaC, self.params)):
         manual_effects, manual_status = None, 'context_changed'
       self.LaC.manual_flm_effects, self.LaC.manual_flm_status = manual_effects, manual_status
-      self.lateral_gain_owner = create_gain_owner(self.params, self.CP, self.LaC)
       cloudlog.info(
         {
           "event": "torque controller selected",
@@ -186,9 +198,10 @@ class Controls:
     from openpilot.starpilot.lateral.learning_preferences import read_preference
 
     preference = read_preference(self.params, self.CP)
-    route_effects, self.route_flm_status = self._configure_route_tune(manual_status)
+    _, self.route_flm_status = self._configure_route_tune(manual_status)
     self.global_learning = (
-      GlobalRuntime(self.CP, self.CI, self.LaC, confirmed_live_history=load_confirmed_history(self.params)) if preference.valid and preference.enabled else None
+      GlobalRuntime(self.CP, self.CI, self.LaC, confirmed_live_history=load_confirmed_history(self.params))
+      if preference.valid and preference.enabled else None
     )
     # Load optional capture and live-trial code before the first control command.
     # Engagement must not compile/import replay and feedback modules in the loop.
@@ -227,7 +240,7 @@ class Controls:
 
       manual_effects, manual_status = load_manual_coordinates(self.CP, self.lateral_controller_selection.mode, self.params)
     self.torque_learning_allowed = bool(
-      manual_status == 'not_configured' and learning_allowed(self.params, self.CP, selection=self.lateral_controller_selection)
+      manual_status in ('not_configured', 'configured') and learning_allowed(self.params, self.CP, selection=self.lateral_controller_selection)
     )
     return manual_effects, manual_status
 
@@ -492,6 +505,26 @@ class Controls:
     else:
       new_desired_curvature = model_v2.action.desiredCurvature if CC.latActive else self.curvature
     assist = self.turn_assist_enabled()
+    lane_policy_now_ns = int(self.sm.logMonoTime['carState']) if os.getenv('REPLAY') == '1' else time.monotonic_ns()
+    self.refresh_lane_change_policy(CS, model_v2, lane_policy_now_ns)
+    direction = int(CS.rightBlinker) - int(CS.leftBlinker)
+    turn_valid = bool(CS.canValid and not CS.canTimeout and self.sm.all_checks(['carState']) and
+                      not CS.steerFaultTemporary and not CS.steerFaultPermanent and
+                      CS.gearShifter in (car.CarState.GearShifter.drive, car.CarState.GearShifter.low))
+    if not turn_valid:
+      self.turn_unlock.reset()
+    if direction != self.turn_unlock.direction:
+      self.model_turn_assist.reset_turn()
+    unlocked = self.turn_unlock.sample(CS, valid=turn_valid,
+      driver_confirmed=bool(direction and not CS.standstill and CS.steeringPressed and
+                            CS.steeringTorque * direction < 0 and self.curvature * direction > CURVATURE_HOLD_CONFIRM_MIN),
+      lateral_active=CC.latActive, curvature=self.curvature)
+    automatic_turn = self.turn_initiation_preferences.sample(lane_policy_now_ns,
+      signaling=bool(CS.leftBlinker or CS.rightBlinker), maneuver_active=model_v2.meta.laneChangeState != LaneChangeState.off)
+    turn_admitted = self.turn_unlock.permits(unlocked=unlocked, automatic=automatic_turn,
+      lateral_ready=CC.latActive and not CS.steeringPressed and self.sm.all_checks(['modelV2', 'longitudinalPlan']),
+      stopping=model_v2.action.shouldStop or long_plan.shouldStop, driver_braking=CS.brakePressed,
+      blindspot=CS.leftBlindspot if direction < 0 else CS.rightBlindspot)
     rolling = math.isfinite(CS.vEgo) and CS.vEgo > max(0.1 * CV.MPH_TO_MS, self.CP.minSteerSpeed)
     assist_ready = (
       assist
@@ -504,7 +537,8 @@ class Controls:
     if assist_ready and rolling and not CS.standstill:
       self.model_turn_assist.curvature = self.curvature
       self.model_turn_assist.twitch_guard_armed = update_twitch_guard(self.model_turn_assist.twitch_guard_armed, CS.vEgo, CS.standstill)
-      new_desired_curvature = self.model_turn_assist.update(CS, model_v2, CC, new_desired_curvature)
+      new_desired_curvature = self.model_turn_assist.update(CS, model_v2, CC, new_desired_curvature,
+                                                           turn_admitted=turn_admitted, anticipate=automatic_turn)
     elif assist_ready:
       self.model_turn_assist.curvature = self.curvature
       new_desired_curvature = self.model_turn_assist.update_stopped(CS, new_desired_curvature)
@@ -513,7 +547,10 @@ class Controls:
       self.model_turn_assist.reset()
       self.model_turn_assist.twitch_guard_armed = update_twitch_guard(False, CS.vEgo, CS.standstill)
     if self.highway_smoothing_supported:
-      if self.sm.frame % 100 == 0:
+      preferences = getattr(self, "live_steering_preferences", None)
+      if preferences is not None:
+        self.highway_gain = preferences.current.highway_gain
+      elif self.sm.frame % 100 == 0:
         self.highway_gain = read_gain(self.params)
       predicted = None
       if self.sm.all_checks(['modelV2']):
@@ -576,8 +613,10 @@ class Controls:
       if result.candidate_curvature is not None:
         new_desired_curvature = result.candidate_curvature
     previous_curvature = self.desired_curvature
-    lane_policy_now_ns = int(self.sm.logMonoTime['carState']) if os.getenv('REPLAY') == '1' else time.monotonic_ns()
-    self.refresh_lane_change_policy(CS, model_v2, lane_policy_now_ns)
+    turn_now_ns, turn_boot_ns, turn_skew_ns = paired_clocks_ns()
+    intersection_turn = self.lane_change_smoother.turn_evidence.observe(
+      self.sm, model_v2, model_ns=int(self.sm.logMonoTime["modelV2"]), now_ns=turn_now_ns, now_boot_ns=turn_boot_ns,
+      valid=bool(self.sm.all_checks(["modelV2"])), enabled=assist_ready and turn_admitted, clock_skew_ns=turn_skew_ns)
     factor = self.lane_change_smoother.factor(
       active=bool(CC.latActive and CS.canValid and not CS.canTimeout and self.sm.all_checks(['modelV2']) and self.lane_change_policy.enabled),
       lane_change_state=model_v2.meta.laneChangeState,
@@ -586,7 +625,7 @@ class Controls:
       duration=self.lane_change_policy.duration_s,
       previous=previous_curvature,
       desired=new_desired_curvature,
-      turn_assist=assist,
+      turn_assist=assist, intersection_turn=intersection_turn,
     )
     new_desired_curvature = limit_rate(CS.vEgo, previous_curvature, new_desired_curvature, factor)
     self.desired_curvature, curvature_limited = clip_curvature(CS.vEgo, previous_curvature, new_desired_curvature, lp.roll)
@@ -647,6 +686,7 @@ class Controls:
         automatic = None
     if cycle_timing is not None:
       cycle_timing.mark()
+    self.LaC.turn_assist_maneuver = turn_admitted and direction * self.desired_curvature > 0.0
     steer, lateral_output, lac_log = self.LaC.update(
       CC.latActive, CS, self.VM, lp, self.steer_limited_by_safety, self.desired_curvature, curvature_limited, lat_delay
     )
@@ -927,7 +967,14 @@ def main():
       cloudlog.warning("Controls normal scheduling preference unavailable")
   else:
     set_core_affinity([4, 5])
-  controls.run()
+  preferences = controls.live_steering_preferences
+  if preferences is not None:
+    preferences.start()
+  try:
+    controls.run()
+  finally:
+    if preferences is not None:
+      preferences.close()
 
 
 if __name__ == "__main__":

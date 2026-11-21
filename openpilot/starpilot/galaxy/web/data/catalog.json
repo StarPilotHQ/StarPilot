@@ -16,7 +16,7 @@
       "availability": "local-only",
       "children": [
         {
-          "name": "Blind Spot Camera and Preview",
+          "name": "Blind Spot Camera & Preview",
           "path": "/cameras/pip",
           "icon": "bi-camera-video",
           "description": "Adjust the camera crop with a live cabin preview.",
@@ -163,7 +163,7 @@
       "availability": "local-only"
     },
     {
-      "name": "Tuning and Analysis",
+      "name": "Tuning & Analysis",
       "path": "/tuning",
       "icon": "bi-sliders2",
       "description": "Automatic steering tuning, measured corrections and live plots",
@@ -178,7 +178,7 @@
       "visibility": "authenticated",
       "children": [
         {
-          "name": "Spotify and Phone Audio",
+          "name": "Spotify & Phone Audio",
           "path": "/starport/audio",
           "icon": "bi-spotify",
           "description": "Play Spotify or forward phone music through your comma to your car",

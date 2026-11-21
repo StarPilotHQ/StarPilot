@@ -15,7 +15,7 @@ def modern_aol_supported(cp):
         cp.flags & ~int(TeslaFlags.MISSING_DAS_SETTINGS | TeslaFlags.HAS_VEHICLE_BUS | TeslaFlags.AOL_SCREEN_BUTTON)):
       return False
     word = int(cp.safetyConfigs[0].safetyParam)
-    return (word in BASE_WORDS | AOL_WORDS and (not word & 256 or cp.carFingerprint == CAR.TESLA_MODEL_3) and
+    return (word in BASE_WORDS | AOL_WORDS and
             bool(word & 1) == bool(cp.openpilotLongitudinalControl) and
             bool(word & 512) == bool(cp.flags & TeslaFlags.AOL_SCREEN_BUTTON) and
             (not word & 512 or bool(cp.flags & TeslaFlags.HAS_VEHICLE_BUS)))

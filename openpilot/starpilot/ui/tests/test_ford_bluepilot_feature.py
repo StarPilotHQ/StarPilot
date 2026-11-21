@@ -61,7 +61,7 @@ def test_compact_menu_has_three_controllers_and_versioned_options_page(tmp_path)
   assert options.label == "BluePilot Controller Options" and options.value == BLUEPILOT_VERSION
   assert options.page == FeaturePage.BLUEPILOT and options.available
   assert feature_parent_page(options.page) == FeaturePage.TORQUE
-  assert feature_parent_title(options.page) == "Steering and Torque"
+  assert feature_parent_title(options.page) == "Steering & Torque"
   assert PINION not in {row.key for row in FordBluePilotFeature(o).rows(True)}
   assert rows(o)[PINION].available
 

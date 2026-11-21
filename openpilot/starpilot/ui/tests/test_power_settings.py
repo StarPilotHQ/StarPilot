@@ -233,7 +233,7 @@ class PowerSettingsTests(unittest.TestCase):
       self.assertTrue(state.editor)
       self.assertEqual(state.save_hint, 'Changes require confirmation')
       row = state.rows[0]
-      index = next(i for i, button in enumerate(value_buttons(state, row)) if button[0] == 'On')
+      index = next(i for i, button in enumerate(value_buttons(state, row)) if button[0] == 'Custom limits')
       session._display_ui(FeatureUiAction('action', row, index))
 
     def fake_dialog(_question, _button, callback):
@@ -306,7 +306,7 @@ class PowerSettingsTests(unittest.TestCase):
       dialog = pushed.call_args.args[0]
       dialog._callback(DialogResult.CONFIRM)
       self.assertTrue(read_saved(self.params).policy.enabled)
-      self.assertEqual(page._scroller.items[1].description, "on")
+      self.assertTrue(page._scroller.items[1].description.startswith("custom limits."))
       page._scroller.items[2].click()
       picker = pushed.call_args.args[0]
       self.assertIn("6 h", picker.options)

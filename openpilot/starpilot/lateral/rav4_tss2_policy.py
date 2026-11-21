@@ -4,6 +4,7 @@ import math
 import numpy as np
 
 from opendbc.car import structs
+from openpilot.common.constants import CV
 from opendbc.car.toyota.values import CAR
 from openpilot.starpilot.lateral.torque_shaping import get_standard_friction_threshold, sigmoid
 
@@ -30,7 +31,10 @@ def friction_threshold(speed, setpoint, jerk):
 
 
 def center_output_scale(setpoint, speed):
-  return 1.0 - .12 * center_envelope(setpoint, speed)
+  speed_weight = float(np.interp(max(speed, 0.0), [15 * CV.MPH_TO_MS, 20 * CV.MPH_TO_MS,
+                                                   40 * CV.MPH_TO_MS, 50 * CV.MPH_TO_MS], [0., 1., 1., 0.]))
+  center_weight = float(np.interp(abs(setpoint), [.30, .65], [1., 0.]))
+  return 1.0 - (.12 + .08 * speed_weight * center_weight) * center_envelope(setpoint, speed)
 
 
 class Rav4TSS2TorquePolicy:

@@ -1,3 +1,4 @@
+import { WikiHelp } from './wiki-help.js'
 import { GxState } from "./state.js"
 import { GxNotice } from "./notice.js"
 import { TroubleshootPage, TmuxPage } from "./diagnostic-tools.js"
@@ -11,7 +12,7 @@ import { BluetoothNotice, bluetoothConnection } from "./bluetooth-notice.js"
 
 export const Logs = {
   name: "Logs",
-  components: { GxState, GxNotice, BluetoothNotice, SystemMonitor, TroubleshootPage, TmuxPage, MenuTile },
+  components: { WikiHelp, GxState, GxNotice, BluetoothNotice, SystemMonitor, TroubleshootPage, TmuxPage, MenuTile },
   props: {
     path: { type: String, required: true }, mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
     tools: { type: Array, required: true }
@@ -19,7 +20,7 @@ export const Logs = {
   data: () => ({
     crashes: { reports: [], scanIncomplete: false, listLimited: false, status: "idle", error: "", selected: null, preview: null, previewStatus: "idle", deleting: false, storageBytes: 0, reportCount: 0 }, search: "",
     starportLogs: { sessions: [], others: [], status: "idle", error: "" }, bluetooth: bluetoothConnection(),
-    logSend: { state: "idle", message: "", available: true, error: "" }, sendNote: "", sendDiscord: "", messageLimit: MESSAGE_LIMIT
+    logSend: { state: "idle", message: "", available: true, fork: false, error: "" }, sendNote: "", sendDiscord: "", messageLimit: MESSAGE_LIMIT
   }),
   computed: {
     visibleReports() { return this.crashes.reports.filter((item) => item.name.toLowerCase().includes(this.search.toLowerCase())) },
@@ -61,7 +62,7 @@ export const Logs = {
   },
   template: `
     <div class="gx-view">
-      <h2 v-if="path === '/logs'">Logs & Diagnostics</h2>
+      <header v-if="path === '/logs'" class="gx-settings__header gx-page-header"><div><h2>Logs & Diagnostics</h2></div><WikiHelp /></header>
       <p v-if="path === '/logs'" class="gx-note">Logs, diagnostics, drive state, and help.</p>
       <div v-if="path === '/logs'" class="gx-grid">
         <MenuTile v-for="tool in tools" :key="tool.path" :icon="tool.icon" :title="tool.name"
@@ -70,10 +71,7 @@ export const Logs = {
           :disabled="mode !== 'local' && tool.availability === 'local-only'" @select="go(tool.path)" />
       </div>
       <section v-else-if="path === '/logs/help'" class="gx-settings">
-        <header class="gx-settings__header gx-page-header"><div><h2>Help & Community</h2><p>Guides and help from the community.</p></div></header>
-        <section class="gx-card"><div class="gx-section__header"><i class="bi bi-book" aria-hidden="true"></i><span class="gx-section__title">Wiki</span></div>
-          <div class="gx-panel"><p class="gx-note">Find setup guides, feature explanations, and troubleshooting steps for StarPilot and Android Auto.</p>
-            <a class="gx-btn gx-btn--tonal" href="https://wiki.firestar.link/" target="_blank" rel="noopener noreferrer">Open the Wiki</a></div></section>
+        <header class="gx-settings__header gx-page-header"><div><h2>Help & Community</h2><p>Guides and help from the community.</p></div><WikiHelp path="/logs/help" /></header>
         <section class="gx-card"><div class="gx-section__header"><i class="bi bi-discord" aria-hidden="true"></i><span class="gx-section__title">Discord</span></div>
           <div class="gx-panel"><p class="gx-note">Ask the community for help, share what you have tried, and follow StarPilot announcements.</p>
             <a class="gx-btn gx-btn--tonal" href="https://firestar.link/discord" target="_blank" rel="noopener noreferrer">Join Discord</a></div></section>
@@ -83,7 +81,7 @@ export const Logs = {
       <template v-else-if="path === '/logs/monitor'"><SystemMonitor :mode="mode" :unauthorized="unauthorized" /></template>
       <template v-else-if="path === '/logs/crashes' && mode === 'local'">
 
-        <h2>Crash Reports</h2>
+        <header class="gx-settings__header gx-page-header"><div><h2>Crash Reports</h2></div><WikiHelp /></header>
         <p class="gx-note">Local reports saved when a process stops unexpectedly.</p>
         <GxNotice tone="danger" v-if="crashes.error">{{ crashes.error }}</GxNotice>
         <div class="gx-crash-controls"><button type="button" class="gx-btn" :disabled="crashes.deleting" @click="crashFeed.remove(null)">Delete All</button><span>{{ crashes.scanIncomplete ? 'At least ' : '' }}{{ crashes.reportCount }} reports · {{ crashes.storageIncomplete ? 'At least ' : '' }}{{ storedSize(crashes.storageBytes) }} stored</span><input class="gx-field" type="search" v-model="search" placeholder="Search report names" aria-label="Search crash reports"></div>
@@ -100,16 +98,17 @@ export const Logs = {
       </template>
       <section v-else-if="path === '/logs/starport' && mode === 'local'" class="gx-settings gx-starport-logs" aria-labelledby="gx-starport-logs-title">
         <header class="gx-settings__header gx-page-header"><div><h2 id="gx-starport-logs-title">StarPort Logs</h2>
-          <p>The last 20 connection sessions, newest first. The archive includes every session, a readable report for each, StarPort settings, the car view's renderer logs, and a snapshot of the device (Wi-Fi, Bluetooth and kernel logs, build, CPU load). Hardware addresses are masked.</p></div></header>
+          <p>The last 20 connection sessions, newest first. The archive includes every session, a readable report for each, StarPort settings, the car view's renderer logs, and a snapshot of the device (Wi-Fi, Bluetooth and kernel logs, build, CPU load). Hardware addresses are masked.</p></div><WikiHelp /></header>
         <BluetoothNotice v-if="bluetooth" feature="Log downloads">Log summaries remain available.</BluetoothNotice>
         <div class="gx-settings__controls gx-actions"><a v-if="!bluetooth" class="gx-btn" :href="bundleUrl()" download><i class="bi bi-file-earmark-zip" aria-hidden="true"></i><span>Download all logs</span><span class="gx-starport-logs__format">ZIP</span></a><button type="button" class="gx-btn gx-btn--tonal" @click="starportFeed.load()"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i><span>Refresh</span></button></div>
+        <GxNotice v-if="logSend.fork" class="gx-starport-send__fork" tone="warn" title="This device is running a StarPilot fork">Custom forks may have changed StarPort or be out of date. Make sure your branch is up to date with StarPilotHQ before sending, or share the logs with your branch's maintainer or in the StarPilot Discord.</GxNotice>
         <section v-if="logSend.available" class="gx-card gx-panel gx-starport-send" aria-labelledby="gx-starport-send-title">
           <div class="gx-section__header"><i class="bi bi-send" aria-hidden="true"></i><span id="gx-starport-send-title" class="gx-section__title">Send StarPort logs</span></div>
-          <p class="gx-note">Only for StarPort issues. For anything else, ask in the Discord. Sends the same archive as Download all logs straight from the device. Add a short note about what happened.</p>
+          <p class="gx-note">Only for StarPort issues. For anything else, ask in the Discord. Sends the same archive as Download all logs straight from the device. A short note about what happened is required.</p>
           <div class="gx-starport-send__row">
-            <div class="gx-starport-send__field"><input class="gx-field" type="text" v-model="sendNote" :maxlength="messageLimit" placeholder="What happened? (optional)" aria-label="Note for the developer" :disabled="logSend.state === 'sending'" @keydown.enter="sendLogs"><span class="gx-starport-send__count" aria-live="polite">{{ sendNote.length }}/{{ messageLimit }}</span></div>
+            <div class="gx-starport-send__field"><input class="gx-field" type="text" v-model="sendNote" :maxlength="messageLimit" placeholder="What happened?" aria-label="Note for the developer" :disabled="logSend.state === 'sending'" @keydown.enter="sendLogs"><span class="gx-starport-send__count" aria-live="polite">{{ sendNote.length }}/{{ messageLimit }}</span></div>
             <input class="gx-field" type="text" v-model="sendDiscord" maxlength="40" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Discord username (optional)" aria-label="Discord username for a follow-up" :disabled="logSend.state === 'sending'" @keydown.enter="sendLogs">
-            <button type="button" class="gx-btn" :disabled="logSend.state === 'sending'" @click="sendLogs"><i class="bi bi-send" aria-hidden="true"></i><span>Send StarPort logs</span></button>
+            <button type="button" class="gx-btn" :disabled="logSend.state === 'sending' || !sendNote.trim()" @click="sendLogs"><i class="bi bi-send" aria-hidden="true"></i><span>Send StarPort logs</span></button>
           </div>
           <GxState v-if="logSend.state === 'sending'" loading>{{ logSend.message || 'Sending logs' }}…</GxState>
           <GxNotice v-else-if="logSend.state === 'sent'" tone="success">{{ logSend.message }}</GxNotice>

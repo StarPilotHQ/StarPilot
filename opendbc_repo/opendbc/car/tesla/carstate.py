@@ -32,7 +32,8 @@ class CarState(CarStateBase):
       self.hands_on_level = 0
       self.das_control = {}
       return
-    self.cooperative_steering = CP.carFingerprint == CAR.TESLA_MODEL_3 and bool(CP.safetyConfigs[0].safetyParam & TeslaSafetyFlags.COOP_STEERING)
+    self.cooperative_steering = (CP.carFingerprint in (CAR.TESLA_MODEL_3, CAR.TESLA_MODEL_Y) and
+                                bool(CP.safetyConfigs[0].safetyParam & TeslaSafetyFlags.COOP_STEERING))
     self.can_define = CANDefine(DBC[CP.carFingerprint][Bus.party])
     self.shifter_values = self.can_define.dv["DI_systemStatus"]["DI_gear"]
 

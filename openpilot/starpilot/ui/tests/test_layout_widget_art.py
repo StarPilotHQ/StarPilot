@@ -39,12 +39,12 @@ def test_native_preview_sidebar_choice_is_strict_and_does_not_change_saved_layou
 
 
 def test_widget_art_registry_is_shared_with_native_and_projection_metadata():
-  from openpilot.starpilot.system.starport.projection_layout import layout_metadata_for_viewport
+  from openpilot.starpilot.system.starport.projection_layout import SPRITE_WIDGETS, layout_metadata_for_viewport
   metadata = customization_metadata()['profiles']
   for profile, ids in RUNTIME_PREVIEW_WIDGETS.items():
     assert metadata[profile]['runtimePreviewWidgets'] == list(ids)
     assert all(key in metadata[profile]['widgets'] for key in ids)
-  assert layout_metadata_for_viewport((2880, 1080))['runtimePreviewWidgets'] == list(RUNTIME_PREVIEW_WIDGETS['large'])
+  assert layout_metadata_for_viewport((2880, 1080))['runtimePreviewWidgets'] == list(dict.fromkeys((*RUNTIME_PREVIEW_WIDGETS['large'], *SPRITE_WIDGETS)))
 
 
 @pytest.mark.parametrize('profile', ['large', 'compact'])
@@ -79,6 +79,20 @@ def test_native_prompt_art_parses_in_galaxy_and_reports_obscured_widgets(profile
       png = canvas.render_widget_art(sample_state(scene, document), document['layouts'][profile])
       with Image.open(io.BytesIO(png)) as image:
         native = json.loads(image.info['starpilot-widget-art'])
+        for key in ('speed_limit' if profile == 'compact' else 'cruise_limits', 'current_speed'):
+          sign = native['sprites'].get(key)
+          if sign is None:
+            continue
+          x, y = sign['x'], sign['y']
+          bounds = image.crop((x, y, x + sign['width'], y + sign['height'])).getchannel('A').getbbox()
+          if bounds:
+            left, top, right, bottom = bounds
+            if key == 'current_speed':
+              ink_left, ink_top, ink_width, ink_height = sign['ink']
+              assert [ink_top, ink_height] == [top, bottom - top] and ink_left <= left and ink_left + ink_width >= right
+              assert ink_width > (right - left) * 1.3, "room for a three-digit speed"
+            else:
+              assert sign['ink'] == [left, top, right - left, bottom - top], (scene, key)
       assert len(native['sprites']) == len(RUNTIME_PREVIEW_WIDGETS[profile])
       for key in (obscured, 'clock', 'driving_mode_descriptions'):
         assert native['sprites'][key]['visible'] is visible, (scene, key)
@@ -209,7 +223,8 @@ def test_large_wheel_art_is_drawn_inside_its_crop_with_or_without_sidebar(monkey
   drawn = rl.draw_texture_pro.call_args.args[2]
   crop = rl.image_crop.call_args.args[1]
   assert crop.x <= drawn.x < drawn.x + drawn.width <= crop.x + crop.width
-  assert crop.y <= drawn.y < drawn.y + drawn.height <= crop.y + crop.height
+  top = (viewport or Profile.LARGE.size)[1] - crop.y - crop.height
+  assert top <= drawn.y < drawn.y + drawn.height <= top + crop.height
   color = rl.draw_texture_pro.call_args.args[-1]
   assert (color.r, color.g, color.b) == (255, 0, 0), 'The braking wheel must remain visible and red'
 

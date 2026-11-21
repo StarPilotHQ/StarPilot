@@ -17,7 +17,7 @@ class TestDelaySettings(TestCase):
       self.context.value = AuthorityContext(True, cp, cp.to_bytes())
       hub = self.page('hub')
       lateral = [row['label'] for row in hub['rows'] if row.get('page') in ('aol', 'lane_change', 'lane', 'torque', 'torque/developer')]
-      self.assertEqual(lateral, ['Always On Lateral', 'Lane Changes', 'Lane Centering', 'Steering and Torque', 'Developer Parameters'])
+      self.assertEqual(lateral, ['Always On Lateral', 'Lane Changes', 'Lane Centering', 'Steering & Torque', 'Developer Parameters'])
       page = self.page('torque/developer')
       self.assertEqual(page['title'], 'Developer Parameters')
       index = next(i for i, row in enumerate(page['rows']) if row['label'] == 'Actuator delay')

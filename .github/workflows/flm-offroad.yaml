@@ -75,15 +75,22 @@ jobs:
             openpilot/starpilot/flm/tests/test_offroad_coordinate_policy.py \
             openpilot/starpilot/flm/tests/test_offroad_retained_trials.py \
             openpilot/starpilot/flm/tests/test_offroad_process_lifecycle.py \
+            openpilot/starpilot/flm/tests/test_offroad_analysis_progress.py \
             openpilot/starpilot/flm/tests/test_route_recording_clocks.py \
             openpilot/starpilot/flm/tests/test_configured_route_recording.py \
             openpilot/starpilot/flm/tests/test_observed_maneuvers.py \
             openpilot/starpilot/flm/tests/test_pid_coordinate_proposals.py \
             openpilot/starpilot/flm/tests/test_offroad_equal_native_output.py \
             openpilot/starpilot/flm/tests/test_offroad_fault_isolation.py \
+            openpilot/starpilot/flm/tests/test_device_vehicle_identity.py \
             openpilot/starpilot/galaxy/tests/test_drive_history.py \
+            openpilot/starpilot/galaxy/tests/test_flm_acceptance.py \
             --json-output ci-results/flm-offroad.json
           .venv/bin/python -m pytest -q --import-mode=importlib \
+            openpilot/starpilot/flm/tests/test_steering_compatibility.py \
+            openpilot/starpilot/flm/tests/test_offroad_nonemitted_controls.py \
+            openpilot/starpilot/flm/tests/test_pending_review.py \
+            openpilot/starpilot/flm/tests/test_observed_maneuvers.py \
             openpilot/starpilot/flm/tests/test_upstream_producer_transport.py \
             openpilot/starpilot/flm/tests/test_clock_resolution_budget.py \
             openpilot/starpilot/flm/tests/test_consumption_join_clocks.py \

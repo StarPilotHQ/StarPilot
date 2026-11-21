@@ -395,11 +395,10 @@ def test_retained_limits_keep_original_source_and_have_no_actions(profile, vienn
 
 
 @pytest.mark.parametrize('profile', list(Profile))
-def test_retained_sign_has_no_proposal_arrow_when_actions_are_hidden(profile, drawing):
+def test_retained_sign_has_no_proposal_arrow_without_a_chooser(profile, drawing):
   current = state()
-  current.customization['layouts'][profile]['speed_limit_actions']['enabled'] = False
   observation = replace(current.speed_limit, kind=ObservationKind.ABSENT, source='none', speed_limit_mps=None,
-                        last_received_speed_limit_mps=50 / 3.6, last_received_source='map')
+                        last_received_speed_limit_mps=50 / 3.6, last_received_source='map', action_enabled=False)
   font = fonts(profile)
   render_sign(SpeedLimitWidget(font, profile), replace(current, speed_limit=observation))
   assert foreground_calls(font.draw)[0].args[0] == 'OSM'

@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import re
 from datetime import UTC, datetime
 import urllib.error
 import urllib.parse
@@ -68,6 +69,22 @@ class Sender:
       return False
 
 
+GITHUB_REPO = re.compile(r"(?:(?:https?|ssh|git)://)?(?:[^@/\s]+@)?github\.com[:/]([^/\s]+/[^/\s]+?)(?:\.git)?/?", re.IGNORECASE)
+OFFICIAL_REPO = "starpilothq/starpilot"
+
+
+def repo_name(origin) -> str:
+  """owner/name of a GitHub remote; never the raw URL, which can carry credentials."""
+  if not isinstance(origin, str) or not origin.strip():
+    return "unknown"
+  match = GITHUB_REPO.fullmatch(origin.strip())
+  return match.group(1) if match else "other"
+
+
+def is_official_repo(repo) -> bool:
+  return isinstance(repo, str) and repo.lower() == OFFICIAL_REPO
+
+
 def device_metadata():
   values = {"device_id": os.getenv("DONGLE_ID", "unknown"), "commit": os.getenv("GIT_COMMIT", "unknown")}
   try:
@@ -75,7 +92,7 @@ def device_metadata():
     from openpilot.common.params import Params
     from openpilot.common.version import get_build_metadata
     build = get_build_metadata()
-    values.update(commit=build.openpilot.git_commit, branch=build.channel)
+    values.update(commit=build.openpilot.git_commit, branch=build.channel, repo=repo_name(build.openpilot.git_origin))
     values.update(device_id=Params().get("DongleId") or values["device_id"], device=HARDWARE.get_device_type())
   except Exception:
     pass

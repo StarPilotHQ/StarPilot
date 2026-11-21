@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { validTrainingResults, trainingSummary, detailText, learningReason, offroadView, tunerStatus, SURFACE_NAMES, FRICTION_NAMES, surfaceRows, offroadCoordinateEvidence } from "../web/js/flm-training-results.js"
+import { parkedAnalysisProgress, validTrainingResults, trainingSummary, detailText, learningReason, offroadView, tunerStatus, SURFACE_NAMES, FRICTION_NAMES, surfaceRows, offroadCoordinateEvidence } from "../web/js/flm-training-results.js"
 
 const report = () => ({ version: 1, current: { fresh: true, ageSeconds: .1, enabled: true,
   status: "collecting", reason: "independent_evidence", progress: { samples: 140, blocks: 3, requiredBlocks: 16 },
@@ -73,6 +73,24 @@ assert.equal(offroadView(completed).evidenceDrives, null, 'Older reports must no
 assert.equal(tunerStatus(completed, true, true).title, 'Completed drive analyzed', 'Parked status must not mask completed analysis')
 assert.match(tunerStatus(completed, true, true).description, /left your tune unchanged/)
 assert.equal(completed.current.application.applied, false)
+const ignitionWait = { ...report(), preference: { version: 1, valid: true, enabled: true, parked: true,
+  vehicle: 'TOYOTA_RAV4_PRIME', controller: 'torque' } }
+ignitionWait.current.reason = 'waiting_for_ignition_off'
+const waitingStatus = tunerStatus(ignitionWait, false, true, '', true)
+assert.equal(waitingStatus.title, 'Waiting to analyze your drive')
+assert.match(waitingStatus.description, /ignition on.*ignition turns off/)
+assert.equal(ignitionWait.current.application.applied, false)
+assert.notEqual(tunerStatus(ignitionWait, false, true, '', false).key, 'waiting-parked', 'An old blocker is not current permission evidence')
+for (const reason of ['waiting_for_valid_deviceState', 'waiting_for_fresh_pandaStates', 'waiting_for_vehicle_offroad',
+  'waiting_for_vehicle_to_switch_off', 'waiting_for_connected_panda_status', 'waiting_for_panda_controls_to_disarm',
+  'waiting_for_panda_fault_to_clear', 'waiting_for_shutdown_to_finish', 'waiting_for_parked_permission']) {
+  ignitionWait.current.reason = reason
+  assert.equal(tunerStatus(ignitionWait, false, true, '', true).key, 'waiting-parked', reason)
+}
+ignitionWait.preference.parked = false
+assert.notEqual(tunerStatus(ignitionWait, true, true, '', true).key, 'waiting-parked')
+ignitionWait.preference.parked = true; ignitionWait.preference.enabled = false
+assert.equal(tunerStatus(ignitionWait, false, true, '', true).key, 'off')
 const earlierDrive = structuredClone(completed)
 Object.assign(earlierDrive.current.details, {
   'Latest completed recording reviewed': 'declared-newer-manual-drive',
@@ -103,6 +121,18 @@ assert.equal(offroadView(recent).configurationState, 'rolled_back')
 assert.deepEqual(offroadView(recent).suggestions.map(r => [r.sourceRoute, r.earlierDrive]),
   [['earlier-partial-drive', true], ['earlier-full-drive', true]])
 assert.equal(offroadView(recent).partial, false, 'A partial historical finding must not relabel the latest completed drive')
+const pendingReview = structuredClone(recent)
+pendingReview.current.details['Recorded suggestion assessments'] = [
+  ['turn_in_boost_right', 'a'.repeat(64), 'b'.repeat(64)], ['unwind_taper_left', 'c'.repeat(64), 'd'.repeat(64)],
+]
+assert(validTrainingResults(pendingReview))
+assert.deepEqual(offroadView(pendingReview).suggestions.map(row => row.assessment), ['a'.repeat(64), 'c'.repeat(64)])
+for (const links of [[['turn_in_boost_right', 'invalid', 'b'.repeat(64)]],
+  [['ff_gain_left', 'a'.repeat(64), 'b'.repeat(64)]],
+  [pendingReview.current.details['Recorded suggestion assessments'][0], pendingReview.current.details['Recorded suggestion assessments'][0]]]) {
+  const bad = structuredClone(pendingReview);bad.current.details['Recorded suggestion assessments'] = links
+  assert.equal(offroadView(bad), null)
+}
 const allSources = structuredClone(recent)
 allSources.current.details['Recorded coordinate recommendations'] = [...SURFACE_NAMES, ...FRICTION_NAMES].map(name => [name, 0, .005, 6, 'unconfirmed'])
 allSources.current.details['Recorded suggestion sources'] = [...SURFACE_NAMES, ...FRICTION_NAMES].map(name => [name, 'earlier-full-drive'])
@@ -192,3 +222,26 @@ adjustedSlider.current.details['Full surface coordinates'][0][1] = .005
 assert.match(offroadCoordinateEvidence(adjustedSlider, SURFACE_NAMES[0]), /Auto Learn saved: \+0.005 for the next drive/)
 assert(surfaceRows(adjustedSlider, false).every(row => row.applied === null))
 console.log('Saved curve and slider adjustments, unsaved recommendations, absent history and current application reconcile without writes')
+
+// Current scan counts must never come from an earlier retained assessment.
+const scan = report();scan.current.status = 'fitting';scan.current.reason = 'analyzing_last_completed_drive'
+scan.current.details['Original route segments reviewed'] = [99, 99]
+assert.equal(parkedAnalysisProgress(scan).percent, null)
+for (const [phase, percent] of [['reading', 20], ['verifying', 20], ['checking', null]]) {
+  scan.current.details['Parked analysis progress'] = [phase, 2, 10]
+  assert(validTrainingResults(scan))
+  assert.equal(parkedAnalysisProgress(scan).percent, percent)
+  assert.equal(parkedAnalysisProgress(scan).detail, '2 of 10 sections read in this recording')
+}
+for (const counts of [[11, 10], [-1, 10], [true, 10], [1, 181], [1.5, 10], [null, null]]) {
+  scan.current.details['Parked analysis progress'] = ['reading', ...counts]
+  assert.equal(parkedAnalysisProgress(scan).percent, null)
+  assert.equal(parkedAnalysisProgress(scan).total, null)
+}
+scan.current.details = {};scan.current.reason = 'loading_parked_analysis'
+assert.equal(parkedAnalysisProgress(scan).phase, 'preparing')
+for (const reason of ['not_a_phase', 'constructor', 'toString']) {
+  scan.current.reason = reason;assert.equal(parkedAnalysisProgress(scan), null)
+}
+scan.current.status = 'collecting';assert.equal(parkedAnalysisProgress(scan), null)
+console.log('Current section progress, indeterminate checks, retained-count separation and malformed-count refusal passed')

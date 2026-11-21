@@ -305,12 +305,15 @@ class Session:
   DISCOVERY_TIMEOUT = 60.0
 
   def __init__(self, peer, cert: str, key: str, log: Callable[..., None] | None = None, ca: str | None = None, *,
-               receive_timeout: float = 3.0, send_timeout: float = 3.0, handshake_timeout: float = 15.0):
+               receive_timeout: float = 3.0, send_timeout: float = 3.0, handshake_timeout: float = 15.0,
+               version_wait: float | None = None):
     self.peer = peer
     self._log = log
     self.receive_timeout = self._timeout(receive_timeout)
     self.send_timeout = self._timeout(send_timeout)
     self.handshake_timeout = self._timeout(handshake_timeout)
+    # Relaying adapters ping until the car starts its own session
+    self.version_wait = max(self.handshake_timeout, self._timeout(version_wait)) if version_wait is not None else self.handshake_timeout
     self.authenticated = False
     self.head_unit_subject: str = ""
     self.incoming = ssl.MemoryBIO()
@@ -473,14 +476,15 @@ class Session:
   def authenticate(self) -> None:
     # Some wireless adapters send a control keepalive before their version request.
     # A pong keeps the transport alive; version, TLS and certificate checks remain mandatory.
-    deadline = time.monotonic() + self.handshake_timeout
+    started = time.monotonic()
+    deadline = started + self.version_wait
     pings = 0
     while True:
       channel, kind, data = self.receive(deadline=deadline)
       if channel != 0 or kind != MSG_PING_REQUEST:
         break
       pings += 1
-      if pings > 8 or len(data) > 64:
+      if pings > 8 + 3 * (time.monotonic() - started) or len(data) > 64:
         raise ValueError('Excessive pre-version Android Auto keepalive')
       fields = parse_fields(data)
       timestamps = fields.get(1, [])
@@ -750,6 +754,8 @@ class ProjectionSession(Session):
     self.audio = None  # MediaAudio, attached by the supervisor when Spotify plays through Android Auto
     self.input_events = 0
     self.touch: TouchMapper | None = None
+    self.touch_units: dict[str, str] = {}  # touch geometry -> saved "pixels" or "touchscreen"
+    self.on_touch_units: Callable[[str, str], None] | None = None
     self.touch_events: deque[TouchEvent] = deque(maxlen=128)
     self.keys = KeyTracker()
     self.media_control: Callable[[str], None] | None = None  # non-blocking; set by the supervisor
@@ -816,13 +822,19 @@ class ProjectionSession(Session):
       if self.mode is not None:
         self.touch = TouchMapper(config, self.mode.width, self.mode.height, self.mode.margin_width, self.mode.margin_height,
                                  content_left=self.mode.content_left, content_top=self.mode.content_top)
+        if self.touch.content_space:
+          saved = self.touch_units.get(self.touch.key)
+          self.touch.content_pixels = saved != "touchscreen"
+          self.touch.calibrating = saved is None
       self.event("input_opened", channel=channel["id"], keycodes=list(config.keycodes),
                  touch=f"{config.touch_width}x{config.touch_height}", display_id=channel.get("display_id"),
                  mapping={"touch_width": self.touch.touch_width, "touch_height": self.touch.touch_height,
                           "video_width": self.touch.video_width, "video_height": self.touch.video_height,
                           "content_left": self.touch.left, "content_top": self.touch.top,
                           "content_width": self.touch.content_width, "content_height": self.touch.content_height,
-                          "content_space": self.touch.content_space} if self.touch is not None else None)
+                          "content_space": self.touch.content_space,
+                          "content_pixels": self.touch.content_pixels, "key": self.touch.key,
+                          "touch_setup": self.touch.calibrating} if self.touch is not None else None)
     except (TimeoutError, ValueError) as error:
       self.event("input_unavailable", channel=channel["id"], error=str(error))
 
@@ -982,10 +994,22 @@ class ProjectionSession(Session):
         disposition = "no_mapper" if self.touch is None else "unfocused" if not self.focused else "no_touch_event"
         if self.touch is not None and self.focused:
           try:
+            switched, calibrating = self.touch.units_switched, self.touch.calibrating
             mapped = self.touch.decode(data)
+            units = "touchscreen" if self.touch.units_switched and not switched else \
+              self.touch.calibrated if calibrating and not self.touch.calibrating else None
+            if units is not None:
+              self.event("touch_units_switched" if switched != self.touch.units_switched else "touch_setup_done",
+                         channel=channel, units=units, key=self.touch.key)
+              if self.on_touch_units is not None:
+                self.on_touch_units(self.touch.key, units)
+              if calibrating:
+                mapped = [TouchEvent("setup", 0.0, 1.0)]  # setup done: show the confirmation
             self.touch_events.extend(mapped)
             if mapped:
               disposition = "queued"
+            elif calibrating:
+              disposition = "touch_setup"
           except ValueError as error:
             disposition = "invalid"
             self.event("input_invalid", channel=channel, kind=kind, error=str(error))

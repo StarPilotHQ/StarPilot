@@ -18,6 +18,12 @@ class TestHomeActions(unittest.TestCase):
     self.assertEqual(self.actions, [HomeAction(HomeActionKind.OPEN_SETTINGS)])
     self.assertFalse(self.state.experimental_enabled)
 
+  def test_compact_right_edge_is_upstream_alerts_pill_zone(self):
+    handler = HomeInput(Profile.COMPACT, self.actions.append)
+    handler.press(500, 200, 10)
+    handler.release(500, 200, 10.5, self.state)
+    self.assertEqual(self.actions, [HomeAction(HomeActionKind.OPEN_ALERTS)])
+
   def test_long_press_requests_one_change_and_consumes_release(self):
     for enabled in (False, True):
       with self.subTest(enabled=enabled):

@@ -23486,3 +23486,30 @@ msgstr "Cải thiện cách dừng xe tại đèn giao thông và cho phép tự
 msgid "Enhanced Stops"
 msgstr "Dừng xe nâng cao"
 
+msgid "Blind Spot Camera & Preview"
+msgstr "Camera điểm mù và xem trước"
+
+msgid "Blind Spot Camera & Preview saved settings"
+msgstr "Cài đặt đã lưu của camera điểm mù và xem trước"
+
+msgid "Setup & Settings"
+msgstr "Thiết lập và cài đặt"
+
+msgid "Show onroad · Big & Small UI"
+msgstr "Hiển thị khi lái xe · Giao diện lớn và nhỏ"
+
+msgid "Speed & longitudinal"
+msgstr "Tốc độ và điều khiển dọc"
+
+msgid "Spotify & Phone Audio"
+msgstr "Spotify và âm thanh điện thoại"
+
+msgid "Steering & Torque"
+msgstr "Đánh lái và mô-men xoắn"
+
+msgid "Steering & buttons"
+msgstr "Đánh lái và nút bấm"
+
+msgid "Storage & Account"
+msgstr "Bộ nhớ và tài khoản"
+

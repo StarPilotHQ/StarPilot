@@ -266,8 +266,8 @@ def init_overlay() -> None:
 # Audited legacy release, pinned by Git commit identity. Other releases must
 # satisfy the modern source manifest contract.
 TRUSTED_LEGACY_RELEASES = {
-  'StarPilot': frozenset({'c2e5e469ee8fefc3cffb514dc2e1a1fb82a421d6', '7ab42497b4590153c88560c7e2c2f3ff8317c6d4'}),
-  'stable': frozenset({'7ab42497b4590153c88560c7e2c2f3ff8317c6d4'}),
+  'StarPilot': frozenset({'c2e5e469ee8fefc3cffb514dc2e1a1fb82a421d6', '0b2061df8d2a931feaf34943e3460510d160f99e'}),
+  'stable': frozenset({'0b2061df8d2a931feaf34943e3460510d160f99e'}),
 }
 LEGACY_OS_MARKER = '.git/starpilot-retain-agnos'
 
@@ -361,7 +361,7 @@ def finalize_update(progress=None) -> None:
   cloudlog.info("done finalizing overlay")
 
 
-def handle_agnos_update() -> None:
+def handle_agnos_update(progress=None) -> None:
   cur_version = HARDWARE.get_os_version()
   config = run(["bash", "-c", r"unset AGNOS_VERSION AGNOS_UPDATE_POLICY; source launch_env.sh && " +
                 "printf '%s\\n%s\\n' \"$AGNOS_VERSION\" \"${AGNOS_UPDATE_POLICY:-auto}\""], OVERLAY_MERGED).splitlines()
@@ -386,7 +386,7 @@ def handle_agnos_update() -> None:
   if not os.path.isfile(manifest_path):  # releases before the openpilot/ move
     manifest_path = os.path.join(OVERLAY_MERGED, "system/hardware/tici/agnos.json")
   target_slot_number = get_target_slot_number()
-  flash_agnos_update(manifest_path, target_slot_number, cloudlog)
+  flash_agnos_update(manifest_path, target_slot_number, cloudlog, progress=progress)
 
 
 class Updater:
@@ -746,13 +746,13 @@ class Updater:
                          current_os=HARDWARE.get_os_version(), invalidate=invalidate, rollback=rollback, progress=installed_progress,
                          selected_commit=selected_commit, versions_only=versions_only)
     except FastUpdateIncompatible:
-      if not automatic:
+      if not automatic and (selected_commit is None or rollback):
         raise
-      return self.normal_update(branch, commit, parked, progress)
+      return self.normal_update(branch, commit, parked, progress, selected_commit=selected_commit)
     finally:
       source.close()
 
-  def normal_update(self, branch: str, commit: str, parked, progress) -> str:
+  def normal_update(self, branch: str, commit: str, parked, progress, *, selected_commit=None) -> str:
     def admitted():
       if not parked() or self.get_commit_hash(BASEDIR) != commit:
         raise FastUpdateError("Update source or parked state changed")
@@ -764,7 +764,7 @@ class Updater:
     self.params.put("UpdaterState", "checking...", block=True)
     if phone_uplink_active():
       raise FastUpdateError("Software downloads are disabled while using phone internet")
-    if not self.fetch_update():
+    if not self.fetch_update(selected_commit=selected_commit, admitted=admitted):
       raise FastUpdateError("Target branch is no longer available")
     admitted()
     self.params.put_bool("UpdateAvailable", True, block=True)
@@ -833,9 +833,9 @@ class Updater:
     validate_update_revision(OVERLAY_MERGED, "HEAD", branch)
     cloudlog.info("git reset success: %s", '\n'.join(r))
 
-    # TODO: show agnos download progress
     if AGNOS and not legacy_return:
-      handle_agnos_update()
+      self.progress('agnos', 'Checking AGNOS operating system update...', background=background)
+      handle_agnos_update(progress=lambda detail, percent: self.progress('agnos', detail, background=background, percent=percent))
 
     # Create the finalized, ready-to-swap update
     self.params.put("UpdaterState", "finalizing update...", block=True)

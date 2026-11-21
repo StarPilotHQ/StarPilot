@@ -29,7 +29,7 @@ class CarControllerParams:
 
     if CP.flags & HyundaiFlags.CANFD:
       self.STEER_MAX = 270 if CP.flags & HyundaiFlags.CANFD_ANGLE_STEERING else 409
-      self.STEER_DRIVER_ALLOWANCE = 250
+      self.STEER_DRIVER_ALLOWANCE = 250 if CP.flags & HyundaiFlags.CANFD_ANGLE_STEERING else 100
       self.STEER_DRIVER_MULTIPLIER = 2
       self.STEER_THRESHOLD = 250
       self.STEER_DELTA_UP = 2
@@ -389,7 +389,7 @@ class CAR(Platforms):
     [HyundaiCarDocs("Hyundai Kona Electric (with HDA II, Korea only) 2023", video="https://www.youtube.com/watch?v=U2fOCmcQ8hw",
                     car_parts=CarParts.common([CarHarness.hyundai_r]))],
     CarSpecs(mass=1740, wheelbase=2.66, steerRatio=13.6, tireStiffnessFactor=0.385),
-    flags=HyundaiFlags.EV | HyundaiFlags.CANFD_NO_RADAR_DISABLE,
+    flags=HyundaiFlags.EV | HyundaiFlags.CANFD_NO_RADAR_DISABLE | HyundaiFlags.CCNC,
     radar_dbc=HYUNDAI_MRR35_RADAR_DBC,
   )
   HYUNDAI_KONA_HEV = HyundaiPlatformConfig(
