@@ -19,7 +19,7 @@ class SystemMonitorStorageTest(unittest.TestCase):
     (self.root / 'meminfo').write_text('MemTotal: 4096000 kB\nMemAvailable: 1024000 kB\n')
     (self.root / 'uptime').write_text('300 0\n')
     self.recordings = Path('/data/media/0/realdata')
-    self.devices = {Path('/data'): 1, self.recordings: 2}
+    self.devices = {Path('/data'): 1, Path('/data/media'): 1, self.recordings: 2}
     self.sizes = {Path('/data'): (21, 30, 7.6), self.recordings: (598, 916, 273)}
     self.calls = []
 
