@@ -93,6 +93,7 @@ class VolkswagenStockCardIntent(AolCardIntent):
     self.startup_granted = False
     self.startup_aborted = False
     self.startup_ready = False
+    self.startup_drive_identity = None
     self.startup_identity = None
     self.startup_observation_identity = None
     self.startup_floor_pending = False
@@ -177,6 +178,11 @@ class VolkswagenStockCardIntent(AolCardIntent):
         (not self.cruise_lateral or not lateral_output_inhibited(self.cp, state))):
       deferred = self.startup_deferred or (was_reverse and self.main_startup_pending and
         not self.allowed_latch and longitudinal_speed_event(self.cp, state) and abs(state.vEgo) < self.cp.minEnableSpeed)
+      if (not deferred and not was_reverse and self.main_startup_pending and not self.startup_arm_ns and
+          long_qualified(self.cp, marked_only=True) and self.cp.transmissionType == structs.CarParams.TransmissionType.manual):
+        if not self.startup_ready:
+          return
+        self.startup_drive_identity = self.startup_observation_identity
       if deferred and not self.startup_granted:
         if not self.startup_arm_ns:
           self.startup_arm_ns = now_ns
@@ -209,7 +215,7 @@ class VolkswagenStockCardIntent(AolCardIntent):
         not long_qualified(self.cp, marked_only=True) or
         self.cp.transmissionType != structs.CarParams.TransmissionType.manual):
       return
-    if not self.startup_deferred and (not self.main_startup_pending or not self.reverse_pause):
+    if not self.startup_deferred and not self.main_startup_pending:
       return
     try:
       axis = current_axis(sm, now_ns=now_ns)
@@ -225,6 +231,20 @@ class VolkswagenStockCardIntent(AolCardIntent):
                   tuple(p.hardwareSerial for p in proof.pandaInventory))
       if not self.startup_deferred:
         self.startup_observation_identity = identity
+        if not self.reverse_pause:
+          event_ns = int(sm.logMonoTime['onroadEvents'])
+          self.startup_ready = bool(
+            axis.observedMonoTime == int(sm.logMonoTime['aolAxisState']) and axis.sequence > 0 and
+            0 < axis.sourceCarStateMonoTime <= axis.observedMonoTime <= now_ns and
+            now_ns - axis.sourceCarStateMonoTime <= AXIS_MAX_AGE_NS and
+            0 < axis.validUntilMonoTime - axis.observedMonoTime <= AXIS_MAX_AGE_NS and
+            sm.seen['onroadEvents'] and sm.valid['onroadEvents'] and sm.alive['onroadEvents'] and
+            0 < event_ns == axis.faultEventMonoTime <= axis.observedMonoTime and now_ns - event_ns <= 1_500_000_000 and
+            not any(e.immediateDisable or e.softDisable or e.userDisable for e in sm['onroadEvents']) and
+            not (axis.desiredLateral or axis.lateralActive or axis.desiredLongitudinal or axis.longitudinalActive) and
+            not (proof.requestedLateral or proof.lateralAllowed or proof.requestedLongitudinal or proof.longitudinalAllowed) and
+            min(abs(cs.vEgo), abs(cs.vEgoRaw)) > max(self.cp.minSteerSpeed, .3) and
+            not (cs.doorOpen or cs.seatbeltUnlatched or cs.vehicleSensorsInvalid or cs.steeringDisengage or cs.buttonEvents))
         return
       if identity != self.startup_identity:
         return
@@ -435,11 +455,22 @@ def awaiting_initial_request(cp, cs, sm, native, feedback, intent, *, now_ns, pr
     reverse_event_pending = bool(axis is not None and 0 < event_ns < arm <= axis.sourceCarStateMonoTime and
       event_ns < axis.faultEventMonoTime <= axis.observedMonoTime and
       any(event.name == log.OnroadEvent.EventName.reverseGear and event.userDisable for event in sm['onroadEvents']))
+    drive_identity = getattr(intent, 'startup_drive_identity', None)
+    identity = None if drive_identity is None or axis is None or native is None else (
+      cp_identity(cp), str(axis.sessionId), producer, int(axis.intentIntegrityEpoch), native.pandaSerial,
+      tuple(p.hardwareSerial for p in native.pandaInventory))
+    granted_in_window = bool(drive_identity is not None and identity == drive_identity and
+      axis is not None and axis.desiredLateral and not axis.lateralActive and
+      arm <= axis.sourceCarStateMonoTime <= arm + SAFETY_MAX_AGE_NS and
+      native is not None and native.pandaInventory and native.requestedLateral and native.lateralAllowed and
+      0 < arm <= native.observedMonoTime <= arm + SAFETY_MAX_AGE_NS and
+      0 <= now_ns - native.observedMonoTime <= AXIS_MAX_AGE_NS)
     return bool(intent.settings.enabled and intent.settings.main_action != AOL_TOGGLE and intent.settings.lkas_action != AOL_TOGGLE and
       intent.allowed_latch and not intent.pause_lateral and not feedback.ever_lateral_active and
       not feedback.failed and not feedback.paused and not feedback.pending_event and not feedback.retention_started_ns and
       feedback.cp == cp_identity(cp) and
-      0 < arm <= now_ns <= arm + SAFETY_MAX_AGE_NS and
+      0 < arm <= now_ns and (now_ns <= arm + SAFETY_MAX_AGE_NS or granted_in_window) and
+      (drive_identity is None or identity == drive_identity) and
       cs.canValid and not cs.canTimeout and cs.cruiseState.available and not lateral_output_inhibited(cp, cs) and
       not cs.accFaulted and not cs.vehicleSensorsInvalid and not cs.doorOpen and not cs.seatbeltUnlatched and
       not cs.steeringDisengage and not cs.brakePressed and not cs.regenBraking and not cs.buttonEvents and
@@ -455,7 +486,7 @@ def awaiting_initial_request(cp, cs, sm, native, feedback, intent, *, now_ns, pr
       axis.intentProducerSessionId == producer and producer and
       0 < axis.sourceCarStateMonoTime <= axis.observedMonoTime <= now_ns and
       now_ns - axis.sourceCarStateMonoTime <= AXIS_MAX_AGE_NS and
-      native is not None and not native.lateralAllowed and not native.requestedLongitudinal and
+      native is not None and (not native.lateralAllowed or granted_in_window) and not native.requestedLongitudinal and
       not native.longitudinalAllowed and native.observedMonoTime <= now_ns and
       _configured_transport_native(sm, cp, axis.sessionId, now_ns, native,
         require_longitudinal=False, allow_restricted_lateral=True) is not None and
