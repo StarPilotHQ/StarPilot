@@ -687,7 +687,11 @@ class RuntimeSnapshotAdapter:
       display_message(sm, "carOutput", now_ns, after_frame=after) if started else None,
       display_message(sm, "vehicleParameters", now_ns, after_frame=after) if started else None, cp,
     )
-    display_lat_active = bool(display_control.latActive) if display_control is not None else False
+    legacy_2025_lateral_off = bool(
+      cp is not None and getattr(cp, 'carFingerprint', '') == 'SUBARU_LEGACY_2025' and
+      display_control is not None and not getattr(getattr(display_control, 'hudControl', None), 'lanesVisible', True)
+    )
+    display_lat_active = bool(display_control.latActive) if (display_control is not None and not legacy_2025_lateral_off) else False
     display_long_active = bool(display_control.longActive) if display_control is not None else False
     long_engaged = bool(display_selfdrive is not None and getattr(display_selfdrive, 'enabled', False))
     if getattr(ui, 'aol_runtime', False):
@@ -742,10 +746,25 @@ class RuntimeSnapshotAdapter:
           weather_location = (fix[1].latitude, fix[1].longitude)
           break
     aol_latched = (display_aol_latch(sm, now_ns, after_frame=after)
-                   if started and getattr(ui, "aol_runtime", False) else None)
-    armed_at_stop = bool(aol_latched and cp is not None and getattr(cp, 'brand', '') == 'subaru' and display_car_valid and
-                         display_car.standstill and str(display_car.gearShifter) == 'drive' and
-                         not display_car.steerFaultTemporary and not display_car.steerFaultPermanent and not display_car.accFaulted)
+                   if started and getattr(ui, "aol_runtime", False) and not legacy_2025_lateral_off else None)
+    if cp is not None and getattr(cp, 'carFingerprint', '') == 'SUBARU_LEGACY_2025':
+      armed_at_stop = False
+      if (aol_latched and display_car_valid and
+          str(getattr(display_car, 'gearShifter', '')) in ('drive', 'manumatic') and
+          not getattr(display_car, 'steerFaultTemporary', False) and
+          not getattr(display_car, 'steerFaultPermanent', False) and
+          not getattr(display_car, 'accFaulted', False)):
+        min_steer_speed = max(float(getattr(cp, 'minSteerSpeed', 0.0) or 0.0), 0.3)
+        raw_v = getattr(display_car, 'vEgo', None)
+        car_speed = _finite(abs(float(raw_v))) if raw_v is not None else None
+        armed_at_stop = bool(
+          getattr(display_car, 'standstill', False) or
+          (car_speed is not None and car_speed <= min_steer_speed)
+        )
+    else:
+      armed_at_stop = bool(aol_latched and cp is not None and getattr(cp, 'brand', '') == 'subaru' and display_car_valid and
+                           display_car.standstill and str(display_car.gearShifter) == 'drive' and
+                           not display_car.steerFaultTemporary and not display_car.steerFaultPermanent and not display_car.accFaulted)
     drive_mode_source = display_message(sm, 'starpilotCarState', now_ns, after_frame=after) if started else None
     alert = self._drive_mode_notice.update(
       drive_mode_source, display_car, cp=cp, drive_frame=after,

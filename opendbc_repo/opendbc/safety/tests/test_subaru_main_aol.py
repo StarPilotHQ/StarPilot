@@ -5,7 +5,7 @@ from opendbc.safety.tests.libsafety import libsafety_py
 from opendbc.safety.tests import test_subaru_stock_aol as stock_module
 
 
-@pytest.fixture(params=(17, 209, 465, 4096, 4104, 4608, 4616))
+@pytest.fixture(params=(17, 145, 209, 401, 465, 4096, 4104, 4608, 4616))
 def owner(request):
   item = stock_module.TestSubaruStockAol(methodName='runTest')
   item.setUp()
@@ -71,7 +71,7 @@ def test_new_physical_acc_source_is_required_before_main_edge(owner):
 def test_acc_wire_checksum_and_counter_cannot_be_faked_by_host(owner):
   neutral(owner)
   assert owner.feed() == 1
-  bus = 1 if owner.param in (17, 209, 465) else 2
+  bus = 1 if owner.param in (17, 145, 209, 401, 465) else 2
   bad = owner.frame('ES_Distance', {}, bus)
   raw = bytearray(bytes(bad.data))
   raw[0] ^= 1
@@ -97,9 +97,9 @@ def test_acc_fault_cannot_be_bypassed_by_stock_enable_packets(owner):
   assert owner.feed() == 1
   assert owner.feed(acc_fault=True) == 0
   for enabled in (0, 1):
-    name = 'ES_Status' if owner.param in (17, 209, 465) else 'CruiseControl'
+    name = 'ES_Status' if owner.param in (17, 145, 209, 401, 465) else 'CruiseControl'
     values = {'Cruise_Activated': enabled, 'Cruise_On': 1} if name == 'CruiseControl' else {'Cruise_Activated': enabled}
-    assert owner.safety.safety_rx_hook(owner.frame(name, values, 1 if owner.param in (17, 209, 465) else 0))
+    assert owner.safety.safety_rx_hook(owner.frame(name, values, 1 if owner.param in (17, 145, 209, 401, 465) else 0))
     owner.safety.aol_set_host_request(1)
     assert owner.safety.aol_get_permission_mask() == 0
 
@@ -114,5 +114,31 @@ def test_impreza_main_setting_cannot_select_unqualified_native_output(param, exp
     for _ in range(20):
       assert item.feed() == 0
     assert not item.safety.safety_tx_hook(item.frame('ES_LKAS', {}, 0))
+  finally:
+    item.tearDown()
+
+
+def test_legacy_2025_cvt_manual_gears():
+  item = stock_module.TestSubaruStockAol(methodName='runTest')
+  item.setUp()
+  try:
+    item.configure(145)
+    neutral(item)
+    assert item.feed() == 1
+    for gear in (137, 145, 153, 161, 169, 177, 185, 193):
+      assert item.feed(gear=gear) == 1
+    assert item.feed(gear=3) == 0
+    assert item.feed(gear=145) == 1
+
+    # Pressing MAIN while in Park (gear=4) then shifting to Drive grants permission.
+    assert item.feed(main=False, gear=4, speed=0) == 0
+    assert item.feed(main=True, gear=4, speed=0) == 0
+    assert item.feed(main=True, gear=3, speed=0) == 0
+    assert item.feed(main=True, gear=121, speed=54) == 1
+
+    item.configure(17)
+    neutral(item)
+    assert item.feed() == 1
+    assert item.feed(gear=137) == 0
   finally:
     item.tearDown()

@@ -160,6 +160,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"LeadDepartingAlert", {PERSISTENT, BOOL, "0"}},
     {"LoudBlindspotAlert", {PERSISTENT, BOOL, "0"}},
     {"LoudBlindspotAlertWhenDisengaged", {PERSISTENT, BOOL, "0"}},
+    {"LoudBlindspotAlertMuteAtStandstill", {PERSISTENT, BOOL, "0"}},
     {"SignalMetrics", {PERSISTENT, BOOL, "0"}},
     {"PIPPreviewEnabled", {PERSISTENT, BOOL, "0"}},
     {"PIPPreviewMask", {PERSISTENT | DONT_LOG, JSON, "{\"width\":1928,\"height\":1208,\"center_left\":[315,548],\"center_right\":[1571,539],\"crop_size\":580}"}},

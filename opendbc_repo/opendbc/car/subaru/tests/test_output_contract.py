@@ -71,9 +71,13 @@ def test_dash_uses_current_request_without_mutating_physical_template(car, enabl
     if any(frame[0] == 0x322 for frame in sends):
       expected = controller.angle_was_active if car in ANGLE_CARS else (lat_active if marked else enabled)
       dash = decoder.vl['ES_LKAS_State']
-      if car in ANGLE_CARS or marked or enabled:
-        assert bool(dash['LKAS_ACTIVE']) == expected
-      assert dash['LKAS_Dash_State'] == (2 if expected else 0)
+      if car == CAR.SUBARU_LEGACY_2025:
+        assert bool(dash['LKAS_ACTIVE'])
+        assert dash['LKAS_Dash_State'] == (2 if expected else (1 if state.out.cruiseState.available else 0))
+      else:
+        if car in ANGLE_CARS or marked or enabled:
+          assert bool(dash['LKAS_ACTIVE']) == expected
+        assert dash['LKAS_Dash_State'] == (2 if expected else 0)
       assert state.es_lkas_state_msg == original
       checked += 1
   assert checked == 5
