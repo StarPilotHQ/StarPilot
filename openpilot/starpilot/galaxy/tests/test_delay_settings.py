@@ -11,6 +11,27 @@ class TestDelaySettings(TestCase):
   setUp = fixtures.SettingsGatewayTest.setUp
   page = fixtures.SettingsGatewayTest.page
 
+  def test_longitudinal_developer_save_reset_and_vehicle_scope(self):
+    from openpilot.starpilot.longitudinal.developer_tuning import FIELDS, read_tuning
+    cp = interfaces['HONDA_CIVIC'].get_non_essential_params('HONDA_CIVIC')
+    assert cp.openpilotLongitudinalControl
+    self.context.value = AuthorityContext(True, cp, cp.to_bytes())
+    self.assertIn('profiles/developer', [row.get('page') for row in self.page('hub')['rows']])
+    for key, (label, _, minimum, maximum, _, _) in FIELDS.items():
+      page = self.page('profiles/developer')
+      index = next(i for i, row in enumerate(page['rows']) if row['label'] == label)
+      chosen = round((minimum + maximum) / 2, 2)
+      intent = self.gateway.preview(page['view'], index, 0, self.session, self.generation, value=chosen)
+      self.assertTrue(self.gateway.confirm(intent['intent'], self.session, self.generation))
+      self.assertAlmostEqual(read_tuning(self.params, cp)[key], chosen)
+      changed = cp.as_reader().as_builder()
+      changed.flags ^= 1
+      self.assertEqual(read_tuning(self.params, changed), {})
+      page = self.page('profiles/developer')
+      intent = self.gateway.preview(page['view'], index, 0, self.session, self.generation, reset_default=True)
+      self.assertTrue(self.gateway.confirm(intent['intent'], self.session, self.generation))
+      self.assertEqual(read_tuning(self.params, cp), {})
+
   def test_all_controllers_actual_gateway_save_reset_and_menu(self):
     for identity in ('HYUNDAI_IONIQ_6', 'HONDA_CIVIC', 'NISSAN_LEAF'):
       cp = interfaces[identity].get_non_essential_params(identity)

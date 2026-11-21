@@ -29,7 +29,8 @@ def main():
   cloudlog.info("plannerd got CarParams: %s", CP.brand)
 
   ldw = LaneDepartureWarning()
-  longitudinal_planner = LongitudinalPlanner(CP)
+  from openpilot.starpilot.longitudinal.developer_tuning import read_tuning
+  longitudinal_planner = LongitudinalPlanner(CP, developer_tuning=read_tuning(params, CP))
   replay = 'REPLAY' in os.environ
   conditional = ConditionalPlannerHost(params) if feature_enabled(params, CP, 'conditional', os.environ) else None
   slc = SavedSlcLifecycle(params, CP, os.environ) if slc_transport_capable(CP, os.environ) else None

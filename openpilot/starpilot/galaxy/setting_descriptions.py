@@ -364,6 +364,10 @@ FLM_DESCRIPTIONS.update({
 
 def purpose(row):
   key = row.key
+  if key.startswith("longdev:"):
+    from openpilot.starpilot.longitudinal.developer_tuning import FIELDS, PREFIX
+    field = FIELDS.get(key.removeprefix(PREFIX).removesuffix(":reset"))
+    return field[-1] if field is not None else None
   if key in DESCRIPTIONS:
     return DESCRIPTIONS[key]
   if key.startswith(('wheel:', 'conditional:button:')):

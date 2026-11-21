@@ -203,6 +203,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"PauseLateralOnSignal", {PERSISTENT, BOOL, "0"}},
     {"LateralResumeDelay", {PERSISTENT, FLOAT, "0.0"}},
     {"SteeringDelayPreferences", {PERSISTENT, JSON, ""}},
+    {"LongitudinalDeveloperPreferences", {PERSISTENT, JSON, ""}},
     {"TurnAssist", {PERSISTENT, BOOL, "1"}},
     {"AutomaticTurnInitiation", {PERSISTENT, BOOL, "0"}},
     {"HighwaySmoothingDefaultApplied", {PERSISTENT, BOOL}},

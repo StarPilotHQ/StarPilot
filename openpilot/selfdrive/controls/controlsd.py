@@ -161,7 +161,9 @@ class Controls:
     self.pose_calibrator = PoseCalibrator()
     self.calibrated_pose: Pose | None = None
 
-    self.LoC = LongControl(self.CP, startup_preferences=self.vehicle_startup_preferences)
+    from openpilot.starpilot.longitudinal.developer_tuning import read_tuning
+    self.LoC = LongControl(self.CP, startup_preferences=self.vehicle_startup_preferences,
+                           developer_tuning=read_tuning(self.params, self.CP))
     self.VM = VehicleModel(self.CP)
     self.LaC: LatControl
     self.LaC = create_lateral_controller(

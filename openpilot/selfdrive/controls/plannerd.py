@@ -324,7 +324,8 @@ def starpilot_main():
   cloudlog.info("plannerd got CarParams: %s", CP.brand)
 
   ldw = LaneDepartureWarning()
-  longitudinal_planner = LongitudinalPlanner(CP)
+  from openpilot.starpilot.longitudinal.developer_tuning import read_tuning
+  longitudinal_planner = LongitudinalPlanner(CP, developer_tuning=read_tuning(params, CP))
   nudge_preferences = NudgePreferences(params)
   # Saved-on features start only for a finalized, supported driving owner. Their
   # current-source and longitudinal authority checks still run every frame.

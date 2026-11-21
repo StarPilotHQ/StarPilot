@@ -906,6 +906,8 @@ class FeatureSettingsOwner:
               FeatureRow("", "Speed Limit Controller", "Choose speed-limit sources, offsets, and confirmation behavior", page=FeaturePage.SLC, available=True),
               FeatureRow("", "Long Planner", "Tune acceleration, braking, and following distances", page=FeaturePage.PROFILES, available=True),
               FeatureRow("", "Driving Modes", "Choose Automatic, Chill or Experimental", page=FeaturePage.CONDITIONAL, available=True),
+              FeatureRow("", "Developer Parameters", "Advanced acceleration and braking parameters",
+                         page=FeaturePage.DEVELOPER_LONGITUDINAL, available=True),
               FeatureRow("", "Wheel Controls", "Assign steering-wheel buttons and cruise behavior", page=FeaturePage.WHEEL, available=True)]
       if (self._long_pitch_capability() is not None or self._bolt_disable_capability() is not None or
           self._auto_hold_capability() is not None or self._toyota_sng_capability() is not None or self._jeep_hold_capability() is not None or
@@ -1123,6 +1125,10 @@ class FeatureSettingsOwner:
       learning_row = self.controller.learning_row()
       if learning_row is not None:
         rows.append(learning_row)
+    elif page == FeaturePage.DEVELOPER_LONGITUDINAL:
+      from openpilot.starpilot.ui.longitudinal_developer import rows as longitudinal_developer_rows
+      title = "Developer Parameters"
+      rows.extend(longitudinal_developer_rows(self))
     elif page == FeaturePage.DEVELOPER_LATERAL:
       title = 'Developer Parameters'
       capability = self._capability("torque") or self._capability("gain")
@@ -1562,6 +1568,9 @@ class FeatureSettingsOwner:
       return self.traffic_profiles.apply(request)
     if key in TORQUE_CONFIRM_ACTIONS or key.startswith("torque:"):
       return self.torque.apply(request)
+    if key.startswith('longdev:'):
+      from openpilot.starpilot.ui.longitudinal_developer import apply as apply_longitudinal_developer
+      return apply_longitudinal_developer(self, request)
     if key in ('steering_delay', 'steering_delay_reset'):
       from openpilot.starpilot.ui.delay_feature import DelayFeature
       return DelayFeature(self).apply(request)

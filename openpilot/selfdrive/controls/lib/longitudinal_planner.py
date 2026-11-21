@@ -114,8 +114,13 @@ def get_cruise_accel(e2e, v_cruise, v_ego, a_cruise_prev, angle_steers, CP, dt, 
 
 
 class LongitudinalPlanner:
-  def __init__(self, CP, init_v=0.0, init_a=0.0, dt=DT_MDL, clock_ns: Callable[[], int] = time.monotonic_ns):
+  def __init__(self, CP, init_v=0.0, init_a=0.0, dt=DT_MDL, clock_ns: Callable[[], int] = time.monotonic_ns, *,
+               developer_tuning=None):
     self.CP = CP
+    tuning = developer_tuning or {}
+    self.action_delay_override = tuning.get("delay")
+    self.stop_speed = tuning.get("stop_speed", .3)
+    self.max_accel_override = tuning.get("max_accel")
     self.mpc = LongitudinalMpc(dt=dt)
     self.model_lead_history = ModelLeadHistory()
     self.fcw = False
@@ -174,6 +179,8 @@ class LongitudinalPlanner:
     self.plan_drive_id = drive_id
     faster_takeoffs = bool(faster_lead_takeoff)
     accel_ceiling = TAKEOFF_ACCEL_MAX if faster_takeoffs else ACCEL_MAX
+    if self.max_accel_override is not None:
+      accel_ceiling = min(accel_ceiling, self.max_accel_override)
     sample_now_ns = self.clock_ns() if now_ns is None else now_ns
     if len(sm['carControl'].orientationNED) == 3:
       accel_coast = get_coast_accel(sm['carControl'].orientationNED[1])
@@ -351,12 +358,13 @@ class LongitudinalPlanner:
     # Save starting point for next iteration
     a_prev = self.output_a_target
 
-    action_t =  self.CP.longitudinalActuatorDelay + DT_MDL
+    action_delay = self.CP.longitudinalActuatorDelay if self.action_delay_override is None else self.action_delay_override
+    action_t = action_delay + DT_MDL
     output_a_target_mpc = get_accel_from_plan(self.v_desired_trajectory, self.a_desired_trajectory, CONTROL_N_T_IDX,
                                               action_t=action_t)
     output_should_stop_mpc = forecast_should_stop(
       self.CP, self.v_desired_trajectory, CONTROL_N_T_IDX, action_t,
-      fallback=should_stop(v_ego, output_a_target_mpc))
+      fallback=should_stop(v_ego, output_a_target_mpc, self.stop_speed))
     output_a_target_e2e = sm['modelV2'].action.desiredAcceleration
     output_should_stop_e2e = sm['modelV2'].action.shouldStop
     if (self.force_stop_plan.resume_override and not self.force_stop_plan.forcing and
@@ -434,7 +442,7 @@ class LongitudinalPlanner:
                      any(lead.present for lead in (sm['radarState'].leadOne, sm['radarState'].leadTwo))))
       if button_target is not None:
         self.a_cruise = button_target
-    cruise_should_stop = should_stop(v_ego, self.a_cruise)
+    cruise_should_stop = should_stop(v_ego, self.a_cruise, self.stop_speed)
 
     encouraged_model = self.encouragement.update(
       sm, self.CP, now_ns=sample_now_ns, drive_id=drive_id, dt=self.dt, target_speed=v_cruise,
