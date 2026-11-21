@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from opendbc.car.structs import car
 from openpilot.common.params import Params
 from openpilot.starpilot.speed_limits import offset_document as od
 from openpilot.starpilot.speed_limits.runtime_settings import read_params
@@ -24,8 +25,8 @@ class SlcOffsetFeatureTests(unittest.TestCase):
     self.addCleanup(temporary.cleanup)
     self.params = Params(temporary.name)
     self.parked = True
-    self.cp: NS | None = NS(carFingerprint="TOYOTA_COROLLA_TSS2", openpilotLongitudinalControl=True, pcmCruise=False,
-                 notCar=False, dashcamOnly=False, passive=False)
+    self.cp: car.CarParams | None = car.CarParams(brand="toyota", carFingerprint="TOYOTA_COROLLA_TSS2",
+                                                openpilotLongitudinalControl=True)
     self.owner = FeatureSettingsOwner(self.params, lambda _group: self.parked,
                                       vehicle_fingerprint=lambda: self.cp.carFingerprint if self.cp else None,
                                       vehicle_params=lambda: self.cp)
@@ -205,8 +206,7 @@ class SlcOffsetFeatureTests(unittest.TestCase):
 
   def test_global_units_do_not_require_longitudinal_a_fingerprint_or_migration(self):
     document = od.OffsetDocument(od.IMPERIAL_BOUNDS, (5 * od.MPH_TO_MPS,) * 7)
-    for cp in (None, NS(carFingerprint="STOCK_CRUISE", openpilotLongitudinalControl=False,
-                       notCar=False, dashcamOnly=False, passive=False)):
+    for cp in (None, car.CarParams(carFingerprint="STOCK_CRUISE")):
       for saved in (None, document):
         with self.subTest(vehicle=cp, saved=saved):
           self.cp = cp
