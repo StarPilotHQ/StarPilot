@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 
 from panda import Panda, PandaDFU, PandaProtocolMismatch, McuType, FW_PATH
+from panda.python.legacy_spi import migrate_legacy_tres_firmware
 from openpilot.common.basedir import BASEDIR
 from openpilot.common.params import Params
 from openpilot.common.hardware import HARDWARE
@@ -36,7 +37,19 @@ def flash_panda(panda_serial: str, choice: FirmwareChoice = DEFAULT_FIRMWARE_CHO
 
   if panda.bootstub or panda_signature != fw_signature:
     cloudlog.info("Panda firmware out of date, update required")
-    panda.flash(fn=fw_path)
+    if not panda.bootstub and panda.get_type() == Panda.HW_TYPE_TRES and panda.is_connected_spi() and HARDWARE.get_device_type() == "tizi":
+      panda.reset(enter_bootstub=True, reconnect=False)
+      if Panda.wait_for_panda(panda_serial, timeout=1):
+        panda.reconnect()
+        if not panda.bootstub:
+          raise PandaProtocolMismatch("TRES did not enter bootstub for firmware update")
+        panda.flash(fn=fw_path)
+      elif migrate_legacy_tres_firmware(fw_path, expected_serial=panda_serial):
+        panda.reconnect()
+      else:
+        raise PandaProtocolMismatch("TRES bootstub could not be reached")
+    else:
+      panda.flash(fn=fw_path)
     cloudlog.info("Done flashing")
 
   if panda.bootstub:
@@ -124,6 +137,7 @@ def main() -> None:
     cloudlog.exception("pandad.uncaught_exception")
 
   count = 0
+  legacy_migration_attempted = False
   while not do_exit:
     try:
       cloudlog.event("pandad.flash_and_connect", count=count)
@@ -142,9 +156,21 @@ def main() -> None:
         wait_for_internal_panda()
 
       panda_serials = Panda.list()
+      choice = None
+      if not panda_serials and not legacy_migration_attempted and HARDWARE.get_device_type() == "tizi":
+        legacy_migration_attempted = True
+        HARDWARE.reset_internal_panda()
+        time.sleep(0.2)
+        choice = startup_choice(Params())
+        filename = firmware_path(FW_PATH, McuType.H7.config.app_fn, choice)
+        if (serial := migrate_legacy_tres_firmware(filename)) is not None:
+          if not Panda.wait_for_panda(serial, timeout=5):
+            raise PandaProtocolMismatch("Legacy Panda migration did not start current firmware")
+          panda_serials = Panda.list()
       if len(panda_serials):
         cloudlog.info(f"{len(panda_serials)} panda found, connecting - {panda_serials}")
-        choice = startup_choice(Params())
+        if choice is None:
+          choice = startup_choice(Params())
         if len(set(panda_serials)) != len(panda_serials):
           raise ValueError('Duplicate Panda hardware serial')
         selected_firmware = {serial: flash_panda(serial, choice) for serial in panda_serials}
