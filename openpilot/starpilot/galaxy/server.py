@@ -1411,6 +1411,8 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
           self.json(400, {'error': 'Unexpected FLM log query'})
           return
         filename, body = training_results_source.download()
+        from openpilot.starpilot.galaxy.flm_diagnostics import with_dashboard_diagnostics
+        body = with_dashboard_diagnostics(body, drive_stats_source, getattr(server, 'drive_stats_authority', None))
         if self.require_session():
           self.attachment(filename, body, 'application/json; charset=utf-8')
       elif path == '/api/flm/training-results':
@@ -1723,6 +1725,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
                       '/api/connect/proxy', '/api/connect/provider', '/api/auth/login', '/api/auth/logout', '/api/settings/preview', '/api/settings/confirm',
                       '/api/settings/recovery/preview', '/api/settings/recovery/confirm',
                       '/api/settings/flm-backup/preview', '/api/settings/flm-backup/confirm',
+                      '/api/settings/flm-finding/accept',
                       '/api/settings/reset-default', '/api/settings/restore', '/api/recordings/action',
                       '/api/replay/start', '/api/replay/control', '/api/replay/stop',
                       '/api/replay/export-start',
@@ -1800,6 +1803,24 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
           self.json(409 if authorized() else 401, {'error': str(error) if authorized() else 'Sign in to Galaxy'})
         except (SettingsUnavailable, OSError, RuntimeError, ValueError, TypeError):
           self.json(503, {'error': 'Tune restore is unavailable. Refresh the saved tune before retrying.'})
+        else:
+          self.json(200 if authorized() else 401, result if authorized() else {'error': 'Sign in to Galaxy'})
+        return
+      if path == '/api/settings/flm-finding/accept':
+        identity = self.settings_session()
+        if identity is None:
+          self.json(401, {'error': 'Sign in to Galaxy'})
+          return
+        from openpilot.starpilot.galaxy.flm_acceptance import accept_finding
+        def authorized():
+          return self.settings_session() == identity
+        try:
+          with effect_lock:
+            result = accept_finding(feature_settings(), training_results_source, payload, authorized=authorized)
+        except (ValueError, SettingsChanged) as error:
+          self.json(409 if authorized() else 401, {'error': str(error) if authorized() else 'Sign in to Galaxy'})
+        except (SettingsUnavailable, OSError, RuntimeError, TypeError, KeyError):
+          self.json(503, {'error': 'Could not confirm this finding was saved. Refresh the saved settings before trying again.'})
         else:
           self.json(200 if authorized() else 401, result if authorized() else {'error': 'Sign in to Galaxy'})
         return
@@ -2557,18 +2578,6 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
               self.json(200, {'status': current})
             else:
               self.json(401, {'error': 'Sign in to Galaxy'})
-          return
-        if action == 'new_setup' and set(payload) == {'action', 'enabled'} and type(payload['enabled']) is bool:
-          # The way back to the classic screens, so it works with the StarPort service off or broken.
-          from openpilot.starpilot.system.starport import new_setup
-          if not configuration_allowed():
-            self.json(403, {'error': 'Park before changing the setup screens'})
-          elif not new_setup.set_enabled(payload['enabled']):
-            self.json(503, {'error': 'Could not save the setup screen choice'})
-          elif self.settings_session() == identity:
-            self.json(200, {'newSetup': new_setup.enabled()})
-          else:
-            self.json(401, {'error': 'Sign in to Galaxy'})
           return
         if not starport_setup_owner().enabled():
           self.json(409, {'error': 'Enable StarPort first'})

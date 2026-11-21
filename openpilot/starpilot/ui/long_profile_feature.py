@@ -14,7 +14,7 @@ LABELS = {
   "JerkAcceleration": "acceleration jerk", "JerkDeceleration": "deceleration jerk",
   "JerkSpeed": "speed jerk", "JerkSpeedDecrease": "speed decrease jerk", "JerkDanger": "danger jerk",
 }
-PRESET_LABELS = {"selected_profile": "Selected Profile","dom_default": "StarPilot Default", "standard": "Normal", "eco": "Comfort", "sport": "Sport",
+PRESET_LABELS = {"selected_profile": "Use global preset","dom_default": "StarPilot Default", "standard": "Normal", "eco": "Comfort", "sport": "Sport",
                  "sport_plus": "Sport+", "custom": "Custom", "close": "Close", "medium": "Medium", "far": "Far",
                  "traffic": "Traffic", "legacy_close": "Legacy Close", "legacy_medium": "Legacy Medium", "legacy_far": "Legacy Far"}
 VALUE_HELP = {
@@ -28,10 +28,10 @@ VALUE_HELP = {
 }
 CATEGORY_HELP = {
   "acceleration": "Limits acceleration by speed. Comfort is gentler; Sport and Sport+ allow stronger acceleration. " +
-                  "Selected Profile follows the global choice. " +
+                  "Use global preset follows the global choice. " +
                   "An explicit choice overrides it; StarPilot Default keeps vehicle behavior.",
   "braking": "Comfort/Normal/Sport (m/s²): global 0.6/1.2/2.4; explicit personality 0.5/1.0/2.0. " +
-             "Selected Profile inherits global values. These separate scales preserve existing tuning. " +
+             "Use global preset inherits global values. These separate scales preserve existing tuning. " +
              "StarPilot Default keeps native cruise braking. Lead and stop braking retain priority.",
   "following": "Sets following time by speed and overrides the low/high-speed values. Default uses those values; higher times leave more space.",
 }

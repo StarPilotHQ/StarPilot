@@ -18,6 +18,12 @@ CURVE_SLOWING_DELTA_MPS = 1.0
 _HIDDEN_REASONS = frozenset((Reason.SCENE_UNAVAILABLE.value, Reason.UNAVAILABLE.value))
 
 
+def stop_observed(state: OnroadState) -> bool:
+  """Fresh planner perception only; never evidence that braking is active."""
+  perception = state.conditional_perception
+  return bool(state.alert.size != AlertSize.FULL and perception is not None and perception.perceived_stop)
+
+
 def reason(state: OnroadState) -> str | None:
   """Resolve the accepted planner reason, including its authoritative held status."""
   preview = state.visual_preview

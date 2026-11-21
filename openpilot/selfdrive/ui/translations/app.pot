@@ -23470,3 +23470,39 @@ msgstr ""
 #: openpilot/starpilot/ui/sounds_owner.py
 msgid "Warns when signaling toward a detected blind-spot vehicle with steering assistance off or paused. Independent of Loud Blindspot Alert. Hazards do not trigger it."
 msgstr ""
+
+#: openpilot/starpilot/galaxy/web/js/pip.js openpilot/starpilot/galaxy/web/js/settings.js openpilot/starpilot/ui/pip_owner.py
+msgid "Blind Spot Camera & Preview"
+msgstr ""
+
+#: openpilot/starpilot/galaxy/web/js/pip.js
+msgid "Blind Spot Camera & Preview saved settings"
+msgstr ""
+
+#: openpilot/starpilot/galaxy/web/js/spotify.js
+msgid "Setup & Settings"
+msgstr ""
+
+#: openpilot/starpilot/galaxy/web/js/favorites.js
+msgid "Show onroad · Big & Small UI"
+msgstr ""
+
+#: openpilot/starpilot/galaxy/web/js/driving.js
+msgid "Speed & longitudinal"
+msgstr ""
+
+#: openpilot/starpilot/galaxy/web/js/spotify.js openpilot/starpilot/galaxy/web/js/starport.js
+msgid "Spotify & Phone Audio"
+msgstr ""
+
+#: openpilot/starpilot/ui/feature_settings_owner.py
+msgid "Steering & Torque"
+msgstr ""
+
+#: openpilot/starpilot/galaxy/web/js/driving.js
+msgid "Steering & buttons"
+msgstr ""
+
+#: openpilot/starpilot/galaxy/web/js/spotify.js
+msgid "Storage & Account"
+msgstr ""

@@ -313,6 +313,9 @@ class CarController(CarControllerBase):
 
     self.lka_steering_cmd_counter = 0
     self.bolt_steering_pending: tuple[int, int] | None = None
+    self.bolt_pedal_recovery = is_bolt_pedal_profile(CP)
+    self.bolt_pedal_last_command = None
+    self.bolt_pedal_rejection_ns = None
     self.bolt_steering_receipt_seeded = False
     self.lka_icon_status_last = (False, False)
 
@@ -463,6 +466,17 @@ class CarController(CarControllerBase):
       self.regen_paddle_pressed = commanded_accel < -.02
     return self.regen_paddle_pressed
 
+  def observe_pedal_rejections(self, can_packets):
+    pending = self.bolt_pedal_last_command
+    if pending is None:
+      return
+    raw, sent_ns = pending
+    for stamp, packets in can_packets:
+      for address, data, bus in packets:
+        if (address == 0x200 and bus == 192 and bytes(data) == raw and
+            sent_ns <= stamp <= sent_ns + 40_000_000):
+          self.bolt_pedal_rejection_ns = stamp
+
   def observe_steering_receipts(self, can_packets):
     for stamp, packets in can_packets:
       for address, raw, bus in packets:
@@ -545,6 +559,15 @@ class CarController(CarControllerBase):
 
     # Send CAN commands.
     can_sends = []
+    if self.bolt_pedal_rejection_ns is not None:
+      pending = self.bolt_pedal_last_command
+      rejected_ns = self.bolt_pedal_rejection_ns
+      self.bolt_pedal_rejection_ns = None
+      if pending is not None and pending[1] <= rejected_ns <= now_nanos <= pending[1] + 40_000_000:
+        # A rejected active counter never reached the interceptor; fill it with zero output.
+        can_sends.append(gmcan.create_pedal_command(self.packer_pt, 0., pending[0][4] & 0xF))
+        self.bolt_pedal_last_command = None
+
     cc_gateway = self.CP.carFingerprint in CC_GATEWAY_STOCK_CAR or self.volt_cc_profile
     stock_cruise_fresh = (not cc_gateway or
                           (CS.cc_gateway_cruise_ts_nanos > 0 and
@@ -898,7 +921,10 @@ class CarController(CarControllerBase):
         if self.bolt_acc_pedal_stop_hold:
           pedal = 0.0
           self.pedal_steady = 0.0
-        can_sends.append(gmcan.create_pedal_command(self.packer_pt, pedal, (self.frame // 4) % 16))
+        pedal_command = gmcan.create_pedal_command(self.packer_pt, pedal, (self.frame // 4) % 16)
+        can_sends.append(pedal_command)
+        if self.bolt_pedal_recovery:
+          self.bolt_pedal_last_command = (bytes(pedal_command.dat), now_nanos) if pedal_command.dat[4] & 0x80 else None
         if CC.enabled:
           self.paddle_handoff_frames = 2
         feed_release = bool(self.paddle_handoff_frames)

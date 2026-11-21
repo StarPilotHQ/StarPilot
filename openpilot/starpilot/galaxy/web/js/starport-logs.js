@@ -113,7 +113,7 @@ export class StarPortLogSend {
 
   apply(body) {
     if (!this.active || !body) return
-    this.publish({ state: body.state, message: body.message || "", available: body.available !== false, error: "" })
+    this.publish({ state: body.state, message: body.message || "", available: body.available !== false, fork: body.fork === true, error: "" })
     this.queuePoll(body.state === "sending")
   }
 
@@ -139,6 +139,10 @@ export class StarPortLogSend {
     if (!this.active) return false
     const text = String(message ?? "").trim()
     const handle = String(discord ?? "").trim()
+    if (!text) {
+      this.publish({ error: "Add a short note about what happened." })
+      return false
+    }
     if (text.length > MESSAGE_LIMIT) {
       this.publish({ error: `Keep the message to ${MESSAGE_LIMIT} characters.` })
       return false

@@ -1,4 +1,4 @@
-from collections import deque
+from collections import Counter, deque
 
 from opendbc.car import structs, get_safety_config
 from opendbc.car.interfaces import CarInterfaceBase
@@ -44,8 +44,14 @@ class CarInterface(CarInterfaceBase):
     actuators, messages = super().apply(c, now_nanos)
     if self.CP.carFingerprint == CAR.POLESTAR_2:
       if not self.CC.lat_active:
-        # Preserve source counters and cadence instead of resampling the latest frame.
-        messages = list(self.stock_relay)
+        # Panda only retains four source packets per address. After a backlog,
+        # resume each stream with its newest packet instead of bursting stale copies.
+        counts = Counter(address for address, _, _ in self.stock_relay)
+        if max(counts.values(), default=0) > 4:
+          latest = {frame[0]: index for index, frame in enumerate(self.stock_relay)}
+          messages = [frame for index, frame in enumerate(self.stock_relay) if index == latest[frame[0]]]
+        else:
+          messages = list(self.stock_relay)
       self.stock_relay.clear()
     return actuators, messages
 

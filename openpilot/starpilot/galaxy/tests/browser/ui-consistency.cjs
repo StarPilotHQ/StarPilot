@@ -12,7 +12,7 @@ const { resolve } = require('node:path')
   const catalog = JSON.parse(readFileSync(resolve(__dirname, '../../web/data/catalog.json')))
   let local = false, delayed = false
   const groups = [['aol', 'Always On Lateral'], ['lane_change', 'Lane Changes'],
-    ['torque', 'Steering and Torque'], ['lane', 'Lane Centering'],
+    ['torque', 'Steering & Torque'], ['lane', 'Lane Centering'],
     ['profiles','Long Planner'], ['standard','Standard Personality']]
 
   await page.route('**/data/runtime.json', route => route.fulfill({

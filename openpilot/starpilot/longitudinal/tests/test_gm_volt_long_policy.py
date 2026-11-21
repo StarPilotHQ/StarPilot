@@ -35,6 +35,9 @@ from openpilot.selfdrive.controls.lib.longcontrol import LongControl
 from openpilot.common.params import Params
 from openpilot.starpilot.lateral.lane_change_preferences import LiveLaneChangePolicy
 from openpilot.starpilot.lateral.lane_change_smoothing import LaneChangeSmoother
+from openpilot.starpilot.lateral.model_turn_assist import ModelTurnAssist
+from openpilot.starpilot.lateral.turn_initiation_preferences import TurnInitiationPreference
+from openpilot.starpilot.lateral.turn_unlock import TurnUnlock
 
 
 def observed_lead(controls):
@@ -102,6 +105,9 @@ def controls_fixture(alpha=False):
   saved = TemporaryDirectory()
   finalize(controls, saved.cleanup)
   controls.params = Params(saved.name)
+  controls.model_turn_assist = ModelTurnAssist()
+  controls.turn_unlock = TurnUnlock()
+  controls.turn_initiation_preferences = TurnInitiationPreference(controls.params)
   controls.highway_correction_gain = HighwayCorrectionGain()
   controls.highway_smoothing_supported = lateral_supported(controls.CP)
   controls.highway_gain = read_gain(controls.params) if controls.highway_smoothing_supported else 1.0

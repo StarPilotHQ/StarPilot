@@ -263,7 +263,7 @@ class FeatureSettingsOwnerTests(unittest.TestCase):
     self.assertTrue(self.owner.apply(request))
     self.assertFalse(self.owner.apply(request))
     preset = self._row("standard/acceleration", "profile:standard:acceleration")
-    self.assertEqual(preset.default_value, "Selected Profile")
+    self.assertEqual(preset.default_value, "Use global preset")
     self.assertEqual(self._row("profiles", "profile:global_braking").default_value, "Comfort")
 
   def test_strength_has_actual_runtime_admission_percent_range_and_source_guard(self):
@@ -452,8 +452,8 @@ class FeatureSettingsOwnerTests(unittest.TestCase):
 
   def test_readable_presets_keep_saved_tokens_and_numeric_help(self):
     preset = self._row("aggressive/acceleration", "profile:aggressive:acceleration")
-    self.assertEqual(preset.value, "Selected Profile")
-    self.assertEqual(preset.choices, ("Selected Profile", "StarPilot Default", "Normal", "Comfort", "Sport", "Sport+"))
+    self.assertEqual(preset.value, "Use global preset")
+    self.assertEqual(preset.choices, ("Use global preset", "StarPilot Default", "Normal", "Comfort", "Sport", "Sport+"))
     self.assertTrue(self.owner.apply(FeatureSettingsRequest(preset.key, preset.source, "Sport+",
                                                           vehicle_fingerprint=preset.vehicle_fingerprint)))
     document = required_document(Path(self.params.get_param_path("LongitudinalPersonalityProfiles")).read_bytes())

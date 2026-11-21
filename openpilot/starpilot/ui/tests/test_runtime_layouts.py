@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from openpilot.common.params import Params
+from openpilot.selfdrive.ui.layouts.sidebar import Sidebar
 
 
 _param_dir = tempfile.TemporaryDirectory(prefix="starpilot-ui-layout-test-")
@@ -52,9 +53,12 @@ class TestOptInLayouts(unittest.TestCase):
       settings = Mock()
       settings._panels = {panel: NS(instance=Mock()) for panel in PanelType}
       settings._panels[PanelType.TOGGLES].instance._scroller._items = []
-      layout._layouts = {runtime_app.MainState.HOME: Mock(), runtime_app.MainState.SETTINGS: settings,
+      layout._home_layout = Mock(current_state=runtime_app.HomeLayoutState.HOME)
+      layout._layouts = {runtime_app.MainState.HOME: layout._home_layout, runtime_app.MainState.SETTINGS: settings,
                          runtime_app.MainState.ONROAD: camera}
       layout._current_mode = runtime_app.MainState.HOME
+      layout._rect = runtime_app.rl.Rectangle(0, 0, 2160, 1080)
+      layout._sidebar = NS(is_visible=True)
 
     with patch.object(runtime_app, "validate_runtime_fonts"), patch.object(runtime_app, "validate_runtime_assets"), \
          patch.object(runtime_app.MainLayout, "__init__", parent_init), \
@@ -71,7 +75,6 @@ class TestOptInLayouts(unittest.TestCase):
         layout._set_current_layout(runtime_app.MainState.HOME)
         layout._render_main_content()
       body_render.assert_called_once()
-      layout._rect = Mock()
       session.snapshot.return_value = NS(home=NS(paired=False))
       with patch.object(runtime_app.ui_state, "is_body", False), patch.object(layout.page, "render") as custom_render:
         layout._render_main_content()
@@ -85,6 +88,44 @@ class TestOptInLayouts(unittest.TestCase):
       layout.close()
     session.close.assert_called_once()
     camera.close.assert_called_once()
+
+  def test_large_home_shows_upstream_offroad_alert_screen_only_while_it_is_open(self):
+    layout = runtime_app.StarMainLayout.__new__(runtime_app.StarMainLayout)
+    layout._current_mode = runtime_app.MainState.HOME
+    layout._rect = runtime_app.rl.Rectangle(0, 0, 2160, 1080)
+    layout._sidebar = Mock(spec=Sidebar, is_visible=True)
+    layout.page = Mock()
+    layout._home_layout = home = Mock(current_state=runtime_app.HomeLayoutState.HOME)
+    with patch.object(runtime_app.ui_state, "is_body", False), \
+         patch.object(runtime_app.MainLayout, "_render_main_content") as upstream_render:
+      layout._render_main_content()
+      upstream_render.assert_not_called()
+      layout.page.render.assert_called_once_with(layout._rect)
+      # Upstream's alert refresh, header pills and pill taps run over the StarPilot home, in its header row.
+      rect = home.set_rect.call_args.args[0]
+      self.assertEqual((rect.x, rect.width), (300, 1860))
+      home._update_state.assert_called_once()
+      home._render_notifs.assert_called_once()
+      home._process_mouse_events.assert_called_once()
+
+      home.current_state = runtime_app.HomeLayoutState.ALERTS  # a new offroad alert or a pill tap
+      layout._render_main_content()
+      upstream_render.assert_called_once()
+      layout.page.render.assert_called_once()
+
+  def test_upstream_home_refreshes_offroad_alerts_before_drawing(self):
+    from openpilot.selfdrive.ui.layouts.home import HomeLayout
+    home = HomeLayout.__new__(HomeLayout)
+    home._rect = runtime_app.rl.Rectangle(300, 0, 1860, 1080)
+    home.last_refresh = 0
+    home.update_available = False
+    home.update_notif_rect = runtime_app.rl.Rectangle(0, 0, 200, 70)
+    home.alert_notif_rect = runtime_app.rl.Rectangle(0, 0, 220, 70)
+    # StarMainLayout only calls _update_state, so the alert refresh must live there, not in _render.
+    with patch.object(HomeLayout, "_refresh") as refresh:
+      home._update_state()
+    refresh.assert_called_once()
+    self.assertEqual(home.alert_notif_rect.x, 340)
 
   def test_compact_constructor_replaces_scroller_pages_and_keeps_camera_owner(self):
     session = self._session()

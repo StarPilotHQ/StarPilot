@@ -14,7 +14,7 @@ from openpilot.starpilot.conditional_mode.policy import ModeChoice
 from openpilot.starpilot.ui.onroad_customization import offset as widget_offset, placement, rgba, widget_size
 from openpilot.starpilot.ui.onroad_state import AlertSize, ObservationKind, OnroadState, is_lane_change_notice, manual_slc_confirmation
 from openpilot.starpilot.ui.onroad_curve import controlling as curve_controlling
-from openpilot.starpilot.ui.onroad_conditional import reason as conditional_reason, status as conditional_status, stop_active
+from openpilot.starpilot.ui.onroad_conditional import reason as conditional_reason, status as conditional_status, stop_active, stop_observed
 from openpilot.starpilot.ui.presentation import BitmapFonts, FontRole, Profile
 from openpilot.starpilot.ui.onroad_widget_style import draw_widget_frame
 from openpilot.starpilot.ui.wheel_feedback import WheelFeedbackFade
@@ -244,7 +244,7 @@ class MiciSidebarWidgets:
   def _conditional(self, center: rl.Rectangle, state: OnroadState) -> None:
     conditional = conditional_status(state)
     preview = state.visual_preview
-    if stop_active(state):
+    if stop_active(state) or stop_observed(state):
       self._stop_icon(center)
     elif (preview is not None and preview.curve_curvature is not None and state.alert.size != AlertSize.FULL) or curve_controlling(state):
       self._curve_icon(center)

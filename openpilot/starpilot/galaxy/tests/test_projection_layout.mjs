@@ -96,7 +96,7 @@ assert.equal(validDocument({...data.document, largeUiGammaTrial: 1}, data.metada
 data.document.largeUiGammaTrial = false
 assert.match(OnroadLayoutPage.template, /'Large UI Gamma Effect'/)
 assert.doesNotMatch(OnroadLayoutPage.template, /Effect Trial|type="checkbox" :checked="state\.draft\.wheelPedalFeedback/)
-assert.match(OnroadLayoutPage.template, /switchRow\('Brake and Acceleration Colors', state\.draft\.wheelPedalFeedback === true\)/)
+assert.match(OnroadLayoutPage.template, /switchRow\('Brake & Acceleration Colors', state\.draft\.wheelPedalFeedback === true\)/)
 const gammaChanges = []
 const gammaVm = { projection: true, editable: true,
   state: { draft: { largeUiGammaTrial: false }, drag: null, layerDrag: null, notice: '' },

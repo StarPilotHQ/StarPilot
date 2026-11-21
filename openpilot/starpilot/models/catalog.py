@@ -7,9 +7,9 @@ from pathlib import Path
 
 
 BUNDLED_CURRENT = "bundled-current"
-DEFAULT_SMALL = "rdf43"
-DEFAULT_SMALL_SHA256 = "e23f65b3790a2092348024603966717506c2ad1fae10b4312bdfe1f2b932df61"
-DEFAULT_SMALL_SIZE = 125895084
+DEFAULT_SMALL = "cheddar"
+DEFAULT_SMALL_SHA256 = "e72274cbb666f1e81c4750de8593c7d9409e13751339f9fd3e74febd36bc96bd"
+DEFAULT_SMALL_SIZE = 86376298
 GENERATION = "v26"
 COMPILER_REVISION = "9d0446a4ba8a532c8b674fb6ad795af015cd9dcf"
 ARTIFACT_ABI = "tinygrad_single_v1_arena"
@@ -32,20 +32,20 @@ class ModelEntry:
 BUNDLED = (
   ModelEntry(
     model_id=BUNDLED_CURRENT,
-    name="Regret Driven Framework V4",
+    name="Cheddar",
     source_sha256=DEFAULT_SMALL_SHA256,
-    source_path="openpilot/selfdrive/modeld/models/rdf43_driving_tinygrad.pkl",
+    source_path="openpilot/selfdrive/modeld/models/cheddar_driving_tinygrad.pkl",
     compiler_revision="9d0446a4ba8a532c8b674fb6ad795af015cd9dcf",
     artifact_abi=ARTIFACT_ABI,
     selectable=True,
-    version="v15",
+    version="v16",
   ),
 )
 
 CATALOG = BUNDLED + tuple(ModelEntry(
   model_id=m["id"], name=m["name"],
   source_sha256=DEFAULT_SMALL_SHA256 if m["id"] == DEFAULT_SMALL else "",
-  source_path="openpilot/selfdrive/modeld/models/rdf43_driving_tinygrad.pkl" if m["id"] == DEFAULT_SMALL else "",
+  source_path="openpilot/selfdrive/modeld/models/cheddar_driving_tinygrad.pkl" if m["id"] == DEFAULT_SMALL else "",
   compiler_revision=COMPILER_REVISION, artifact_abi=ARTIFACT_ABI, selectable=True,
   version=m["version"], uses_external_gpu=bool(m.get("uses_external_gpu", False)),
 ) for m in json.loads(CATALOG_PATH.read_text())["models"])

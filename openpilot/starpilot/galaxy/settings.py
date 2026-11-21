@@ -30,7 +30,7 @@ from openpilot.starpilot.ui.feature_settings_state import (
   FeatureRow, FeatureSettingsRequest, FEATURE_CONFIRM_ACTIONS, is_heading, is_long_confirm_action, row_change, row_default,
 )
 from openpilot.starpilot.saved_source import read_saved
-from openpilot.starpilot.galaxy.developer_settings import CALIBRATION_RESET, DRIVER_MONITORING_RESET, DeveloperSettingsOwner
+from openpilot.starpilot.galaxy.device_settings import CALIBRATION_RESET, DRIVER_MONITORING_RESET, KEY as VOACC_KEY, HOLD_KEY, DeviceSettingsOwner
 from openpilot.starpilot.speed_limits.vision_gate import diagnostic_choice_enabled
 from openpilot.starpilot.parked_evidence import ParkedEvidence, RESUME_SKEW_NS, fresh_offroad, host_parked
 from openpilot.starpilot.ui.pip_owner import EDITOR as PIP_EDITOR, FORMAT_PREFIX as PIP_FORMAT_PREFIX, RESET as PIP_RESET, PiPOwner, validated_editor_draft
@@ -39,7 +39,8 @@ from openpilot.starpilot.ui.sentry_owner import RESET as SENTRY_RESET, SentryOwn
 from openpilot.starpilot.ui.vasm_owner import ANNOTATION as VASM_ANNOTATION, RESET as VASM_RESET, VASMOwner, validated_annotation
 
 
-PAGES = frozenset(("hub", "localization", "developer", "vehicle", "slc", "lane", "lane_change", "profiles", "personalities",
+PAGES = frozenset(("hub", "developer", "localization", "starport_options", "vehicle",
+                   "slc", "lane", "lane_change", "profiles", "personalities",
                    "traffic", "aggressive", "standard", "relaxed",
                    "curve", "torque", "torque/developer", "tuning", "torque/bluepilot", "aol", "wheel", "appearance", "display",
                    "data", "power", "sounds", "pip", "sentry", "vasm",
@@ -57,11 +58,9 @@ CAR_CONTROL_SECTIONS = (
   ("longitudinal", "Longitudinal (Speed & Following)",
    ("profiles", "conditional", "curve", "slc", "aggressive", "standard", "relaxed", "traffic")),
   ("wheel", "Wheel Controls", ("wheel",)),
-  ("visual", "Visual (Display & UI)", ("appearance", "pip")),
+  ("visual", "Visual (Display & UI)", ("display", "appearance", "pip")),
   ("sounds", "Sounds & Alerts", ("sounds",)),
-  ("device", "Device & Data", ("display", "data")),
-  ("localization", "Localization", ("localization",)),
-  ("developer", "Developer", ("developer",)),
+  ("device", "Device & System", ("data", "starport_options", "localization")),
 )
 
 
@@ -148,8 +147,8 @@ def _onroad_preference(page: str, key: str) -> bool:
   # Regular saved choices are consumed by their runtime owners. Only explicit
   # multi-key reset/repair operations need the offroad transaction boundary;
   # their owners independently recheck that requirement at commit time.
-  return bool(page not in ("developer", "power") and key and key != SETUP_ACTION and key not in (
-    "IsRhdDetected", "AlphaLongitudinalEnabled", "reset_profiles", "curve_reset", "slc_reset",
+  return bool(page not in ("starport_options", "power") and key and key != SETUP_ACTION and key not in (
+    VOACC_KEY, HOLD_KEY, DRIVER_MONITORING_RESET, CALIBRATION_RESET, "IsRhdDetected", "AlphaLongitudinalEnabled", "reset_profiles", "curve_reset", "slc_reset",
     "conditional:reset", "conditional:manual_reset",
   ) and not is_long_confirm_action(key) and not key.startswith("torque_repair:"))
 
@@ -415,8 +414,12 @@ def _projection(row: FeatureRow) -> dict:
           "confirm": bool(row.key in CONFIRM_ACTIONS or is_long_confirm_action(row.key) or
                           row.key in (PIP_RESET, PIP_EDITOR, VASM_RESET, VASM_ANNOTATION) or row.key.startswith(PIP_FORMAT_PREFIX)),
           "repairValue": row.repair_value, "defaultValue": row.default_value, "resetAvailable": row_default(row) is not None,
-          "displayScale": "lane-strength" if row.key == "LaneCenteringStrength" else None,
+          "displayScale": ("lane-strength" if row.key == "LaneCenteringStrength" else
+                           "selected-profile" if row.key in ("profile:global_acceleration", "profile:global_braking") else None),
           **({"coordinate": row.key.removeprefix("torque:surface:")} if row.key.startswith("torque:surface:") and row.key != "torque:surface:reset" else {}),
+          **({"acceptedFindingValue": row.accepted_finding_value} if row.accepted_finding_value is not None else {}),
+          **({"coordinateLocked": row.coordinate_locked} if row.coordinate_locked is not None else {}),
+          **({"learningEligible": row.learning_eligible} if row.learning_eligible is not None else {}),
           "heading": is_heading(row.key), "collapsed": bool(row.collapsed),
           **({"previewSound": row.key} if row.key in SOUND_SPECS else {})}
 
@@ -480,7 +483,7 @@ def _question(row: FeatureRow, request: FeatureSettingsRequest) -> str:
   if key == "reset_profiles":
     return "Reset invalid saved profiles and turn their saved switch off?"
   if key in ("profile:global_acceleration", "profile:global_braking"):
-    return (f"Save {row.label.lower()} as {request.value}? Personalities set to Selected Profile follow this choice; " +
+    return (f"Save {row.label.lower()} as {request.value}? Personalities set to Use global preset follow this choice; " +
             "explicit personality overrides stay unchanged.")
   if key == "torque:surface:reset":
     return "Remove the thirty manual overrides for this vehicle? Saved Auto Learn history is kept."
@@ -628,15 +631,14 @@ class SettingsGateway:
       return fresh.cp_raw == ctx.cp_raw
     return VASMOwner(self.params, parked)
 
-  def _developer_owner(self, ctx: AuthorityContext, *, live: bool = False,
-                       session_valid: Callable[[], bool] = lambda: True) -> DeveloperSettingsOwner:
+  def _device_settings_owner(self, ctx: AuthorityContext, *, live: bool = False,
+                             session_valid: Callable[[], bool] = lambda: True) -> DeviceSettingsOwner:
     def authorized() -> bool:
       if not session_valid():
         return False
       fresh = self.context.sample() if live else ctx
       return bool(fresh.parked and not fresh.editing_saved_vehicle and fresh.cp_raw == ctx.cp_raw)
-    return DeveloperSettingsOwner(self.params, authorized,
-                                  starport=self.starport)
+    return DeviceSettingsOwner(self.params, authorized, starport=self.starport)
 
   def _localization_owner(self, ctx: AuthorityContext, *, live: bool = False,
                           session_valid: Callable[[], bool] = lambda: True) -> LocalizationSettingsOwner:
@@ -649,8 +651,12 @@ class SettingsGateway:
   def _state(self, page: str, ctx: AuthorityContext):
     if page == "localization":
       return self._localization_owner(ctx).snapshot()
+    if page == "starport_options":
+      return self._device_settings_owner(ctx).snapshot(page)
     if page == "developer":
-      return self._developer_owner(ctx).snapshot()
+      state = self._appearance_owner(ctx).developer_snapshot()
+      driving = self._device_settings_owner(ctx).snapshot("developer")
+      return replace(state, subtitle="Advanced driving and display settings.", rows=driving.rows + state.rows)
     if page == "appearance":
       return self._appearance_owner(ctx).snapshot(Profile.COMPACT, include_large=True)
     if page == "sounds":
@@ -664,7 +670,7 @@ class SettingsGateway:
                    if row.key in (HOURS, VOLTS) else row for row in state.rows)
       cooling = self._owner(ctx).snapshot("power", parked=ctx.parked, system_long=False, lateral_context=False,
                                           metric=ctx.metric, configure_while_driving=True)
-      return replace(state, title="Power and Cooling", rows=rows + tuple(cooling.rows))
+      return replace(state, title="Power & Cooling", rows=rows + tuple(cooling.rows))
     if page == "display":
       return self._display_owner(ctx).snapshot(Profile.COMPACT if HARDWARE.get_device_type() == "mici" else Profile.LARGE)
     if page == "pip":
@@ -677,6 +683,12 @@ class SettingsGateway:
                                       system_long=_qualified(ctx, "long"),
                                       lateral_context=_qualified(ctx, "lane") or (page == "lane" and _qualified(ctx, "lane_live")),
                                       metric=ctx.metric, configure_while_driving=True)
+    if page == "data":
+      state = replace(state, title="Data & Connections")
+    if page == "hub":
+      state = replace(state, rows=state.rows + (
+        FeatureRow("", "Developer", "Advanced driving and display settings", page="developer", available=True),
+      ))
     if page in ("torque", "torque/developer"):
       state = replace(state, rows=tuple(row for row in state.rows if row.key not in ("torque:factor:reset", "torque:friction:reset")))
     if ctx.editing_saved_vehicle:
@@ -878,7 +890,9 @@ class SettingsGateway:
         raise SettingsChanged("Default or saved settings changed")
     if intent.page == "pip":
       return self._pip_owner(ctx, live=True, session_valid=session_valid).apply(intent.request)
-    if intent.page == "appearance":
+    if intent.page == "developer" and intent.request.key in (VOACC_KEY, HOLD_KEY, DRIVER_MONITORING_RESET, CALIBRATION_RESET):
+      return self._device_settings_owner(ctx, live=True, session_valid=session_valid).apply(intent.request)
+    if intent.page in ("appearance", "developer"):
       return self._appearance_owner(ctx, live=True, session_valid=session_valid).apply(intent.request)
     if intent.page == "sounds":
       return self._sounds_owner(ctx, live=True, session_valid=session_valid).apply(intent.request)
@@ -892,7 +906,7 @@ class SettingsGateway:
       return self._vasm_owner(ctx, live=True, session_valid=session_valid).apply(intent.request)
     if intent.page == "localization":
       return self._localization_owner(ctx, live=True, session_valid=session_valid).apply(intent.request)
-    if intent.page == "developer":
-      return self._developer_owner(ctx, live=True, session_valid=session_valid).apply(intent.request)
+    if intent.page == "starport_options":
+      return self._device_settings_owner(ctx, live=True, session_valid=session_valid).apply(intent.request)
     owner = self._owner(ctx, live=True, session_valid=session_valid)
     return owner.apply(intent.request, reset_default=True) if intent.recovery_default else owner.apply(intent.request)

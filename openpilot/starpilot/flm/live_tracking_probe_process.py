@@ -184,6 +184,7 @@ def probe_replay_snapshot(replay, prefix_controls, *, endpoint_output=None):
       'mode': mode,
       'turn_assist': factory.turn_assist,
       'manual_baseline': factory.manual_baseline,
+      **({'manual_kp': factory.manual_kp} if factory.manual_kp is not None else {}),
       'manual_source_epoch': factory.manual_source_epoch,
       'objective': _plain(replay.objective, Objective),
       'identity': replay.identity,

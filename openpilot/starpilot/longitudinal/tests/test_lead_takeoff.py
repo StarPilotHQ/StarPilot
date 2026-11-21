@@ -250,3 +250,98 @@ def test_actual_takeoff_metadata_uses_fresh_prefix_without_force_stop_authority(
   sm.valid['modelV2'] = False
   assert owner.sample(sm, cp, now_ns=sm.stamp+1_000_000, now_boot_ns=sm.stamp+2_001_000_000,
                       drive_id=STOP_DRIVE, follow_seconds=1.45, traffic_mode=False, takeoff_enabled=True) == StopPlan()
+
+
+@pytest.mark.parametrize('cap', [1.2, 2., 3.5, 4.])
+def test_highlander_departure_preserves_floor_without_maximum_pulse(cap):
+  lead = replace(frame().leads[0], distance=5., speed=1., acceleration=.5)
+  policy = LeadTakeoff()
+  for tick in range(20):
+    result = policy.step(True, frame(tick, leads=(lead,), acceleration_max=cap,
+                                    maximum_breakaway=False), .2, False)
+    assert result == (.35 if tick >= 7 else .25, False)
+
+
+def test_highlander_departure_preserves_native_target_user_cap_and_safety():
+  lead = replace(frame().leads[0], distance=5., speed=1., acceleration=.5)
+  f = frame(leads=(lead,), acceleration_max=3.5, maximum_breakaway=False)
+  assert LeadTakeoff().step(True, f, .8, False) == (.8, False)
+  assert LeadTakeoff().step(True, replace(f, acceleration_max=.15), 0., False) == (.15, False)
+  for changes in ({"blocked": True}, {"mpc_accel": -.1}, {"eligible": False},
+                  {"model_ns": NOW-150_000_001}):
+    assert LeadTakeoff().step(True, replace(f, **changes), -.2, True) == (-.2, True)
+  assert LeadTakeoff().step(False, f, .2, True) == (.2, True)
+
+
+@pytest.mark.parametrize('fingerprint,maximum', [
+  ('TOYOTA_HIGHLANDER_TSS2', False), ('TOYOTA_HIGHLANDER', True),
+  ('TOYOTA_COROLLA_TSS2', True), ('HYUNDAI_IONIQ_6', True),
+  ('HYUNDAI_KONA_EV', True), ('HONDA_CIVIC', True),
+])
+@pytest.mark.parametrize('hybrid', [False, True])
+def test_maximum_breakaway_exception_is_exact_highlander_tss2(fingerprint, maximum, hybrid):
+  from opendbc.car.toyota.values import ToyotaFlags
+  from openpilot.starpilot.longitudinal.tests.test_conditional_handoff import Frame as NativeFrame
+  if hybrid:
+    maximum = True
+  sm = NativeFrame()
+  sm.recv_time = dict.fromkeys(sm, (NOW-5_000_000)/1e9)
+  sm['carState'].vEgo, sm['carState'].standstill = 0., True
+  cp = NS(carFingerprint=fingerprint, flags=ToyotaFlags.HYBRID if hybrid else 1048,
+          openpilotLongitudinalControl=True, passive=False, dashcamOnly=False, notCar=False)
+  observed = project(sm, cp, stop_plan=StopPlan(model_ns=NOW-5_000_000, takeoff_light_observed=True),
+                     now_ns=NOW, drive_id=DRIVE, acceleration_max=3.5, mpc_accel=0., follow_seconds=1.45)
+  assert observed is not None and observed.maximum_breakaway is maximum
+  lead = replace(frame().leads[0], distance=5., speed=1., acceleration=.5)
+  selected = replace(frame(leads=(lead,), acceleration_max=3.5), maximum_breakaway=observed.maximum_breakaway)
+  assert LeadTakeoff().step(True, selected, .2, False) == (3.5 if maximum else .25, False)
+
+
+def test_every_other_registered_platform_retains_maximum_breakaway():
+  from opendbc.car.values import PLATFORMS
+  for fingerprint in PLATFORMS:
+    for hybrid in (False, True):
+      expected = fingerprint != 'TOYOTA_HIGHLANDER_TSS2' or hybrid
+      test_maximum_breakaway_exception_is_exact_highlander_tss2(fingerprint, expected, hybrid)
+
+
+@pytest.mark.parametrize('cap', [None, .2, 1.2, 2.])
+def test_gas_highlander_actual_factory_planner_keeps_confirmed_departure_floor(cap, monkeypatch):
+  from opendbc.car.toyota.interface import CarInterface
+  from opendbc.car.toyota.values import CAR
+  from openpilot.selfdrive.controls.lib.longitudinal_planner import LongitudinalPlanner
+  from openpilot.starpilot.longitudinal.profile_runtime import SelectedProfileTuning
+  from openpilot.starpilot.longitudinal.tests.test_conditional_handoff import Frame as NativeFrame
+  cp = CarInterface.get_non_essential_params(CAR.TOYOTA_HIGHLANDER_TSS2)
+  assert cp.openpilotLongitudinalControl and cp.flags == 1048
+  owner = LongitudinalPlanner(cp)
+  calls = []
+  step = owner.lead_takeoff.step
+  def record_step(enabled, projected, target, should_stop):
+    result = step(enabled, projected, target, should_stop)
+    calls.append((projected, target, result))
+    return result
+  monkeypatch.setattr(owner.lead_takeoff, "step", record_step)
+  for tick in range(12):
+    now = NOW + tick * 50_000_000
+    sm = NativeFrame()
+    sm.logMonoTime = dict.fromkeys(sm, now-5_000_000)
+    sm.recv_time = dict.fromkeys(sm, (now-5_000_000)/1e9)
+    sm['carState'].vEgo, sm['carState'].standstill = 0., True
+    sm['selfdriveState'].experimentalMode = False
+    sm['modelV2'].action.shouldStop = True
+    sm['modelV2'].action.desiredAcceleration = .2
+    lead = sm['radarState'].leadOne
+    lead.present, lead.radar, lead.radarTrackId = True, True, 7
+    lead.modelProb, lead.dRel, lead.vLead, lead.vLeadK, lead.vRel, lead.aLeadK, lead.yRel = .99, 7., 1., 1., 1., .3, 0.
+    def stop(follow, source=sm):
+      return StopPlan(model_ns=source.logMonoTime['modelV2'], takeoff_light_observed=True)
+    owner.update(sm, faster_lead_takeoff=True, now_ns=now, takeoff_drive_id=DRIVE, force_stop_provider=stop,
+                 selected_profiles=SelectedProfileTuning(acceleration_max=cap) if cap is not None else None)
+  assert not owner.output_should_stop
+  projected, native_target, result = calls[-1]
+  assert projected is not None
+  assert result == (max(native_target, min(.35, projected.acceleration_max)), False)
+  assert owner.output_a_target == pytest.approx(result[0])
+  if cap is not None:
+    assert owner.output_a_target <= cap + 1e-6

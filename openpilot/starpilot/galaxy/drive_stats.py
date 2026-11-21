@@ -15,7 +15,7 @@ import threading
 import time
 
 from openpilot.starpilot.galaxy.drive_history import DriveHistory, MAX_ROOT_ENTRIES, MAX_STATS_SEGMENTS_PER_ROUTE
-from openpilot.starpilot.galaxy.drive_analysis import ANALYSIS_VERSION
+from openpilot.starpilot.galaxy.drive_analysis import ANALYSIS_VERSION, recording_inventory
 from openpilot.starpilot.storage import galaxy_storage_root
 
 SOURCE_LIMITATIONS = frozenset({'Route has no observed duration', 'End of route was not recorded',
@@ -50,6 +50,8 @@ def _valid_record(value: object) -> bool:
     return False
   if type(value.get('complete')) is not bool or type(value.get('ignored')) is not bool:
     return False
+  if type(value.get('partial', False)) is not bool or value.get('partial') and value['complete']:
+    return False
   if type(value.get('segmentCount')) is not int or not 0 <= value['segmentCount'] <= MAX_STATS_SEGMENTS_PER_ROUTE:
     return False
   for key in ('startTime', 'endTime'):
@@ -83,14 +85,18 @@ def _valid_record(value: object) -> bool:
           len(revision) != 5 or any(type(part) is not int or part < 0 for part in revision)
           for key, revision in manifest.items())):
     return False
-  if value['complete'] and (value.get('startTime') is None or value.get('endTime') is None or
+  if _has_stats(value) and (value.get('startTime') is None or value.get('endTime') is None or
       any(value.get(key) is None for key in ('distanceMeters', 'durationSeconds', 'engagedSeconds')) or
       value['endTime'] < value['startTime'] or value['engagedSeconds'] > value['durationSeconds']):
     return False
   return True
 
 
-def _route_signature(root: Path, route: dict) -> tuple[str, dict]:
+def _has_stats(record):
+  return record.get('complete') is True or record.get('partial') is True
+
+
+def _route_signature(root: Path, route: dict, allowed: Callable[[], bool] = lambda: True) -> tuple[str, dict]:
   parts = []
   manifest = {}
   for segment in route.get('segments', []):
@@ -104,14 +110,27 @@ def _route_signature(root: Path, route: dict) -> tuple[str, dict]:
       except OSError:
         pass
     parts.append((segment.get('number'), name, files))
-  encoded = json.dumps(parts, sort_keys=True, separators=(',', ':')).encode()
+  # History intentionally omits locked/empty directories. Keep those sources in
+  # the signature so their repair, deletion, or newly acquired lock retries the
+  # same route and replaces its partial coverage.
+  inventory = recording_inventory(root, route.get('routeId', ''), allowed)
+  encoded = json.dumps((parts, inventory), sort_keys=True, separators=(',', ':')).encode()
   source = hashlib.sha256(encoded + json.dumps(manifest, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
   return source, manifest
 
 
-def _only_deleted_sources(previous: dict, current: dict) -> bool:
+def _only_deleted_sources(previous: dict, current: dict, *, root: Path, route_id: str) -> bool:
   old = previous.get('sourceManifest')
-  return isinstance(old, dict) and all(old.get(key) == revision for key, revision in current.items())
+  if not isinstance(old, dict) or any(old.get(key) != revision for key, revision in current.items()):
+    return False
+  try:
+    inventory = recording_inventory(root, route_id, lambda: True)
+  except Exception:
+    return False
+  present = {f'{name}/{source[0]}' for name, record in inventory.items() for source in record[2]}
+  # A source hidden from DriveHistory by a new lock is still present. It must
+  # be reanalyzed, rather than mistaken for logger cleanup of completed data.
+  return not any(key in present for key in old.keys() - current.keys())
 
 
 def _personal_records(drives: list[dict], zone: tzinfo) -> list[dict]:
@@ -168,8 +187,8 @@ class DriveStatsOwner:
                                                                     max_segments=MAX_ROOT_ENTRIES)
     self.root = Path(self.history.root) if self.root is None else self.root
     if analyzer is None:
-      from openpilot.starpilot.galaxy.drive_analysis import analyze_route
-      analyzer = analyze_route
+      from openpilot.starpilot.galaxy.drive_analysis import analyze_recorded_route
+      analyzer = analyze_recorded_route
     self.analyzer = analyzer
     self.permitted = permitted if permitted is not None else lambda: False
     self.clock = clock if clock is not None else lambda: datetime.now(UTC).timestamp()
@@ -367,17 +386,24 @@ class DriveStatsOwner:
         route_id = route.get('routeId')
         if type(route_id) is not str or len(route_id) > 180:
           continue
-        signature, manifest = _route_signature(self.root, route)
+        try:
+          signature, manifest = _route_signature(self.root, route, self._allowed)
+        except Exception:
+          # An unreadable/racy route cannot prevent analysis of other drives.
+          # Retry its inventory on the next scan; no unverifiable stats publish.
+          with self._lock:
+            self._scan_incomplete = True
+          continue
         with self._lock:
           existing = self._records.get(route_id)
           if existing and existing.get('legacySummary') is True:
             continue
           failed = self._failures.get(route_id)
-          if (existing and existing.get('sourceSignature') == signature and existing.get('complete') and
+          if (existing and existing.get('sourceSignature') == signature and _has_stats(existing) and
               existing.get('analysisVersion', 0) >= ANALYSIS_VERSION):
             continue
           if (existing and existing.get('complete') and manifest != existing.get('sourceManifest') and
-              _only_deleted_sources(existing, manifest)):
+              _only_deleted_sources(existing, manifest, root=self.root, route_id=route_id)):
             prior_signature = existing['sourceSignature']
             existing['sourceSignature'] = signature
             try:
@@ -403,9 +429,10 @@ class DriveStatsOwner:
         with self._lock:
           existing = self._records.get(route_id)
           failed = self._failures.get(route_id)
-          if existing and existing.get('complete') and existing.get('sourceSignature') != signature:
+          if existing and _has_stats(existing) and existing.get('sourceSignature') != signature:
             prior = existing.copy()
             existing['complete'] = False
+            existing['partial'] = False
             existing['reason'] = 'sourceChanged'
             try:
               self._save()
@@ -416,7 +443,7 @@ class DriveStatsOwner:
         self._cursor = (start + offset + 1) % len(candidates)
         try:
           result = self.analyzer(self.root, route, permitted=self._allowed)
-          if _route_signature(self.root, route) != (signature, manifest):
+          if _route_signature(self.root, route, self._allowed) != (signature, manifest):
             raise ValueError('Route source changed during analysis')
           if not isinstance(result, dict) or result.get('routeId') != route_id:
             raise ValueError('Invalid route analysis')
@@ -425,6 +452,7 @@ class DriveStatsOwner:
           record = {key: result.get(key) for key in ('routeId', 'startTime', 'endTime', 'distanceMeters',
                     'durationSeconds', 'engagedSeconds', 'engagedPercent', 'aolSeconds', 'aolPercent', 'model',
                     'distractedMoments', 'unresponsiveMoments', 'complete', 'reason', 'segmentCount')}
+          record['partial'] = result.get('partial', False)
           record['ignored'] = bool(existing and existing.get('ignored'))
           record['analysisVersion'] = result.get('analysisVersion', ANALYSIS_VERSION)
           record['sourceSignature'] = signature
@@ -442,7 +470,7 @@ class DriveStatsOwner:
             refreshing_complete = (current and current.get('complete') and current.get('sourceSignature') == signature)
             if record['complete'] or not refreshing_complete:
               self._records[route_id] = record
-            if record['complete']:
+            if _has_stats(record):
               self._failures.pop(route_id, None)
             else:
               self._failures[route_id] = self._failure(signature, prior_failure, record.get('reason') or 'Incomplete recording')
@@ -533,6 +561,22 @@ class DriveStatsOwner:
       return {identifier: self._records[identifier]['startTime'] for identifier in route_ids
               if identifier in self._records and self._records[identifier].get('startTime') is not None}
 
+  def diagnostics(self) -> dict:
+    """Existing worker/cache state only; no routes, locations or new instrumentation."""
+    with self._lock:
+      reasons = defaultdict(int)
+      for failed in self._failures.values():
+        reason = failed['reason']
+        safe = reason in SOURCE_LIMITATIONS or reason in ('OSError', 'ValueError', 'RuntimeError', 'FileNotFoundError',
+                                                       'PermissionError', 'TimeoutError', 'RouteInputError', 'KeyError')
+        reasons[reason if safe else 'route_analysis_error'] += 1
+      return {'status': 'readable', 'scheduler_running': self._scheduler is not None and self._scheduler.is_alive(),
+              'worker_running': self._worker is not None and self._worker.is_alive(),
+              'analysis_permitted': self._allowed(), 'scanned': self._scanned, 'scan_incomplete': self._scan_incomplete,
+              'pending': self._pending, 'cached_routes': len(self._records),
+              'complete_routes': sum(r['complete'] for r in self._records.values()), 'failed_routes': len(self._failures),
+              'cache_corrupt': self._corrupt, 'failure_reasons': dict(reasons)}
+
   def snapshot(self, timezone: str = "UTC") -> dict:
     with self._lock:
       result = self._snapshot_locked(timezone)
@@ -554,7 +598,7 @@ class DriveStatsOwner:
     day = now.date()
     monday = day - timedelta(days=day.weekday())
     dates = [(monday + timedelta(days=n)).isoformat() for n in range(7)]
-    complete = [r for r in self._records.values() if r['complete'] and not r['ignored']]
+    complete = [r for r in self._records.values() if _has_stats(r) and not r['ignored']]
     complete.sort(key=lambda r: (r.get('startTime') or 0, r['routeId']), reverse=True)
     recent = sorted(self._records.values(), key=lambda r: (r.get('startTime') or 0, r['routeId']), reverse=True)
     week = [r for r in complete if datetime.fromtimestamp(r['startTime'], zone).date().isoformat() in dates]
@@ -594,7 +638,7 @@ class DriveStatsOwner:
         model['drives'] += 1
     models = [{'name': name, **amounts} for name, amounts in model_totals.items()]
     models.sort(key=lambda m: (-m['distanceMeters'], m['name']))
-    records = _personal_records(complete, zone)
+    records = _personal_records([r for r in complete if r['complete']], zone)
     running = self._worker is not None and self._worker.is_alive()
     pending = max(self._pending, int(not self._scanned))
     state = ('analyzing' if running else 'waitingParked' if pending and not self._allowed() else
@@ -620,6 +664,7 @@ class DriveStatsOwner:
                          'scanIncomplete': self._scan_incomplete, 'scanned': self._scanned,
                          'cachedRoutes': len(self._records), 'completeRoutes': sum(r['complete'] for r in self._records.values()),
                          'incompleteRoutes': sum(not r['complete'] for r in self._records.values()),
+                         'partialRoutes': sum(r.get('partial') is True and not r['ignored'] for r in self._records.values()),
                          'ignoredRoutes': sum(r['ignored'] for r in self._records.values()),
                          'truncated': self._truncated, 'cacheCorrupt': self._corrupt}}
 

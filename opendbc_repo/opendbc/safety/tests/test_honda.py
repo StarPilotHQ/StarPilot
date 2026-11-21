@@ -256,6 +256,14 @@ class TestHondaNidecSafetyBase(HondaBase):
     values = {"PCM_GAS": pcm_gas, "PCM_SPEED": pcm_speed}
     return self.packer.make_can_msg_safety("ACC_HUD", 0, values)
 
+  def test_alternate_steering_address_requires_lateral_permission(self):
+    for allowed in (False, True):
+      self.safety.set_controls_allowed(allowed)
+      for torque in (0, 1, 256, 32767, 65535):
+        data = torque.to_bytes(2, "big") + bytes(2)
+        msg = libsafety_py.make_CANPacket(0x194, self.STEER_BUS, data)
+        self.assertEqual(allowed or torque == 0, self._tx(msg), (allowed, torque))
+
   def test_acc_hud_safety_check(self):
     for controls_allowed in [True, False]:
       self.safety.set_controls_allowed(controls_allowed)
@@ -365,6 +373,18 @@ class TestHondaBoschSafetyBase(HondaBase):
   TX_MSGS = [[0xE4, 0], [0xE5, 0], [0x296, 1], [0x33D, 0], [0x33DA, 0], [0x33DB, 0]]
   FWD_BLACKLISTED_ADDRS = {2: [0xE4, 0xE5, 0x33D, 0x33DA, 0x33DB]}
   RELAY_MALFUNCTION_ADDRS = {0: (0xE4, 0xE5, 0x33D, 0x33DA, 0x33DB)}  # STEERING_CONTROL, BOSCH_SUPPLEMENTAL_1
+
+  def test_supplemental_control_payload(self):
+    admitted = [0xE5, self.STEER_BUS] in self.TX_MSGS
+    payload = bytes.fromhex("0400801000000000")
+    for allowed in (False, True):
+      self.safety.set_controls_allowed(allowed)
+      for checksum in (0, 1, 127, 255):
+        data = payload[:7] + bytes([checksum])
+        self.assertEqual(admitted, self._tx(libsafety_py.make_CANPacket(0xE5, self.STEER_BUS, data)))
+      for bit in range(56):
+        data = (int.from_bytes(payload, "little") ^ (1 << bit)).to_bytes(8, "little")
+        self.assertFalse(self._tx(libsafety_py.make_CANPacket(0xE5, self.STEER_BUS, data)), (allowed, bit))
 
   def _alt_brake_msg(self, brake):
     values = {"BRAKE_PRESSED": brake}

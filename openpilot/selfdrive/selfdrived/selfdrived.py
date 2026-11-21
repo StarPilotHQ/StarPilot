@@ -41,7 +41,7 @@ from openpilot.starpilot.aol.vehicle import native_bootstrap_supported
 from opendbc.car.gm.steering_authority import monitored_profile
 from openpilot.starpilot.car.gm.steering_companion import SteeringCompanion
 from openpilot.starpilot.car.hyundai.aol import qualified_ioniq6
-from opendbc.car.gm.values import GMFlags, is_volt_ascm_longitudinal
+from opendbc.car.gm.values import GMFlags, is_volt_ascm_longitudinal, malibu_hybrid_profile
 from openpilot.starpilot.aol.intent import read_settings
 from openpilot.starpilot.aol.intent_companion import IntentCompanion
 from openpilot.starpilot.aol.transport_pause import AvailabilityPause, TransportPause, availability_only, cp_identity, healthy_transport
@@ -108,6 +108,8 @@ class SelfdriveD:
     self.ordinary_axis_ack_required = axis_policy_for(self.CP).ordinary_axis_ack_required
     self.aol_cruise_main_required = axis_policy_for(self.CP).cruise_main_required
     self.axis_transport_required = self.aol_replay or self.ordinary_axis_ack_required
+    hybrid = malibu_hybrid_profile(self.CP) if self.CP.brand == 'gm' else None
+    self.hybrid_input_reconcile = bool(hybrid is not None and hybrid.pedal and hybrid.longitudinal)
     self.nostalgia_enabled = nostalgia_saved_enabled(self.params)
     self.nostalgia_paddle_cancel = False
     self.aol_session_id = uuid.uuid4().hex
@@ -564,8 +566,10 @@ class SelfdriveD:
 
     from openpilot.starpilot.car.hyundai.aol import source_deadline_supported
     input_proof = getattr(self, 'aol_step_input_proof', None)
+    from opendbc.car.mazda.stock_aol import qualified as qualified_mazda
     reconcile_input = bool(input_proof is not None and not REPLAY and self.aol_replay and self.axis_transport_required and
-                           (source_deadline_supported(self.CP) or self.ford_source_deadline_supported()) and
+                           (source_deadline_supported(self.CP) or self.ford_source_deadline_supported() or
+                            qualified_mazda(self.CP, marked_only=True) or getattr(self, 'hybrid_input_reconcile', False)) and
                            input_proof[0] == self.aol_session_id and
                            (input_proof[8] or input_proof[9]))
     self.aol_event_input_reconcile = reconcile_input
@@ -1391,12 +1395,19 @@ class SelfdriveD:
       now_ns - source_ns <= SAFETY_MAX_AGE_NS and CS.canValid and not CS.canTimeout and
       (getattr(self, 'conditional_car_state_valid', False) or
        getattr(self, 'aol_publication_retained_intent', None) is intent))
+    from openpilot.starpilot.car.subaru.paused_intent import retain_stopped_source
+    stopped_intent = healthy_expiry and retain_stopped_source(self, CS, intent, source_ns, now_ns)
     self.aol_car_state_log_ns = 0
     self.conditional_car_state_valid = False
     self.aol_expired_healthy_source = healthy_expiry
     previous = self.aol_axis_decision
     was_enabled = self.enabled
     self.aol_axis_decision = AxisDecision()
+    if stopped_intent:
+      self.aol_fault_reason = 'availabilityPause'
+      self.aol_publication_retained_intent = intent
+      self.events.add(EventName.commIssue)
+      return
     if healthy_expiry and not was_enabled and (self.cold_gm_main_readiness(CS, intent, now_ns) or
         self.cold_gm_main_readiness(CS, intent, now_ns, recovering=True)):
       self.aol_fault_reason = 'availabilityPause'
@@ -1540,6 +1551,13 @@ class SelfdriveD:
       native = current_native(self.sm, self.CP, now_ns=now_ns, axis_session_id=self.aol_session_id)
       if physical_cancel_lateral_allowed(self.CP, CS, intent, native, settings=self.aol_settings,
           previous=decision, source_ns=source_ns, now_ns=now_ns, axis_session_id=self.aol_session_id):
+        user_disable = any(event.userDisable and event.name != EventName.buttonCancel for event in self.events.to_msg())
+    if user_disable and fresh_successor and self.CP.brand == 'honda':
+      from openpilot.starpilot.car.honda.aol import physical_cancel_lateral_allowed
+      native = current_native(self.sm, self.CP, now_ns=now_ns, axis_session_id=self.aol_session_id)
+      if physical_cancel_lateral_allowed(self.CP, CS, intent, native, settings=self.aol_settings,
+          previous=decision, source_ns=source_ns, now_ns=now_ns, axis_session_id=self.aol_session_id,
+          cancel_samples=getattr(self, 'car_state_envelopes', ())):
         user_disable = any(event.userDisable and event.name != EventName.buttonCancel for event in self.events.to_msg())
     if user_disable and fresh_successor and self.ford_source_deadline_supported():
       from openpilot.starpilot.car.ford.aol import physical_cancel_lateral_allowed
@@ -1694,6 +1712,11 @@ class SelfdriveD:
       if not axis_deferred:
         self.aol_sequence = next_sequence
         self.pm.send('aolAxisState', axis_msg)
+        if source_clock_scoped and reason == 'none':
+          from openpilot.starpilot.car.subaru.paused_intent import record_stopped_intent
+          record_stopped_intent(self, CS, axis_msg, now_ns)
+        elif reason == 'critical':
+          self.aol_stopped_intent_proof = None
         # Bind critical history to the actual completed axis publication. The
         # working decision can change again during later source-expiry checks.
         self.aol_published_fault_proof = ((str(axis.sessionId), str(axis.faultReason),
@@ -1877,7 +1900,8 @@ class SelfdriveD:
                              honda_cancel_lateral_allowed(self.CP, CS, intent, native,
                                settings=self.aol_settings, previous=getattr(self, 'aol_axis_decision', None),
                                source_ns=getattr(self, 'aol_car_state_log_ns', 0), now_ns=now_ns,
-                               axis_session_id=getattr(self, 'aol_session_id', '')) or
+                               axis_session_id=getattr(self, 'aol_session_id', ''),
+                               cancel_samples=getattr(self, 'car_state_envelopes', ())) or
                              mazda_cancel_lateral_allowed(self.CP, CS, intent, native,
                                settings=self.aol_settings, previous=getattr(self, 'aol_axis_decision', None),
                                source_ns=getattr(self, 'aol_car_state_log_ns', 0), now_ns=now_ns,
@@ -2040,7 +2064,8 @@ class SelfdriveD:
     # Ioniq6 also checks the physical brake before its separately published host sample.
     # Retain only its already granted LAT; all proof, health and LONG withdrawal gates remain.
     # The exact vehicle policies and all proof/health checks above remain required.
-    return bool(ordinary_ford or gm_native_accepts_cp(self.CP, native.safetyModel, native.safetyParam) or
+    return bool(ordinary_ford or honda_aol_qualified(self.CP, marked_only=True) or
+                gm_native_accepts_cp(self.CP, native.safetyModel, native.safetyParam) or
                 early_native_long_withdrawal_supported(self.CP) or
                 toyota_longitudinal or
                 not native.pandaInventory[owners[0]].controlsAllowed and
@@ -2226,6 +2251,10 @@ class SelfdriveD:
         hard_fault=bool(self.aol_selected_pair_future or self.aol_authority_lost or lost_active_aol or
           lost_companion and not publication_expiry or lost_permission or upgraded),
         healthy_native=self.aol_transport_pause.observed_native)
+      from openpilot.starpilot.car.subaru.paused_intent import retain_stopped_source
+      stopped_availability = bool(publication_expiry and retain_stopped_source(
+        self, CS, retained_intent, retained_intent.carStateLogMonoTime, now_ns))
+      availability = availability or stopped_availability
       ordinary_availability = bool(not source_current and not lost_active_aol and not lost_permission and not upgraded and
         self.ordinary_source_availability(CS, now_ns, native))
       if ordinary_availability:
@@ -2325,7 +2354,7 @@ class SelfdriveD:
       if self.aol_ordinary_source_pause:
         self.aol_axis_decision = self.ordinary_source_withdrawal()
       elif availability:
-        self.aol_axis_decision = AxisDecision(desired_lateral=True, native_acknowledged=True)
+        self.aol_axis_decision = AxisDecision() if stopped_availability else AxisDecision(desired_lateral=True, native_acknowledged=True)
       elif getattr(self, 'aol_availability_long_inhibit', False):
         decision = self.aol_axis_decision
         self.aol_axis_decision = AxisDecision(desired_lateral=decision.desired_lateral,

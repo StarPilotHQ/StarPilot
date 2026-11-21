@@ -1,3 +1,4 @@
+import { WikiHelp } from './wiki-help.js'
 import { GxCollapse } from './disclosure.js'
 import { GxState } from "./state.js"
 import { GxDialog } from "./dialog.js"
@@ -397,18 +398,6 @@ export class StarPortFeed {
     return true
   }
 
-  // The guided setup's way back to the classic screens (and back). It never needs the StarPort service, so it is not a control().
-  async setNewSetup(enabled) {
-    if (!this.active || this.busy || typeof enabled !== "boolean") return false
-    const result = await this.request("./api/starport/control", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "new_setup", enabled })
-    })
-    if (result === null) return false
-    await this.refresh()
-    return true
-  }
-
   async setEnabled(enabled, enableBluetooth = false) {
     if (!this.active || this.busy || typeof enabled !== "boolean" ||
       typeof enableBluetooth !== "boolean" || enableBluetooth && !enabled || enabled && !this.setup?.installReady) return false
@@ -571,7 +560,7 @@ export function connectionProgress(runtime, { wired = false, app = "", selected 
 }
 
 export const StarPortPage = {
-  components: { GxCollapse, GxState, GxIconButton, GxNotice, BluetoothNotice, GxDialog, GalaxySettingRow, StarPortGuidedSetup },
+  components: { WikiHelp, GxCollapse, GxState, GxIconButton, GxNotice, BluetoothNotice, GxDialog, GalaxySettingRow, StarPortGuidedSetup },
   props: {
     mode: { type: String, required: true }, localAccess: { type: Boolean, required: true },
     unauthorized: { type: Function, required: true }
@@ -635,7 +624,6 @@ export const StarPortPage = {
       return !!(this.supportReady && (this.selected || this.wired || this.app) && !this.pairing?.active &&
         !(this.adapterSetup && this.runtime?.car_profile_source !== "override"))
     },
-    newSetup() { return this.setup?.newSetup !== false },
     canResetHandshake() { return !this.wired && !this.app && !!this.selected && handshakeResettable(this.runtime?.setup_ladder) },
     guided() {
       return guidedState({ setup: this.setup, runtime: this.runtime, selected: this.selected, receivers: this.receivers, wired: this.wired,
@@ -649,10 +637,6 @@ export const StarPortPage = {
       if (!this.setup?.enabled) return { tone: "expired", label: "Wired StarPort not enabled", detail: "Turn on StarPort in step 1." }
       return { tone: "ready", label: "Wired StarPort enabled", detail: "Connect the car’s Android Auto USB data port to the comma’s USB-C port with a data-capable cable." }
     },
-    appRow() {
-      return { label: "App", value: this.app || "Off", choices: ["Off", ...Object.values(HEAD_UNIT_APPS)], available: true, action: true,
-        reason: "Project to a tablet app on the same Wi-Fi as the comma or the Galaxy Wi-Fi Hotspot instead of the car." }
-    },
     carType() { return this.runtime?.car_type || (this.wired ? "usb" : this.app ? "app" : "builtin") },
     adapterSetup() { return this.carType === "adapter" },
     deviceWord() { return this.adapterSetup ? "adapter" : "car" },
@@ -660,17 +644,6 @@ export const StarPortPage = {
     findLabel() { return this.adapterSetup ? "adapter" : "car" },
     carTypeLabels() { return { ...CAR_TYPES, app: this.app ? `App (${this.app})` : CAR_TYPES.app } },
     wiredUnavailable() { return !this.wired && !!this.runtime?.wired_blocked },
-    carTypeRow() {
-      const labels = this.carTypeLabels
-      return { label: "What’s your device?", value: labels[this.carType], choices: Object.values(labels), available: true, action: true,
-        reason: this.wired ? "Use a data cable from the car to your comma." : this.app ? "Use a tablet on the same Wi-Fi as your comma." : this.adapterSetup ? "Pair the USB adapter, such as AAWireless or Motorola MA1." : "Pair directly with your car’s wireless Android Auto." }
-    },
-    adapterRow() {
-      const chosen = this.runtime?.car_profile_source === "override"
-      return { label: "Adapter", value: !chosen ? "Choose one" : ADAPTER_MODELS[this.runtime.car_profile] || ADAPTER_MODELS.default,
-        choices: [...(!chosen ? ["Choose one"] : []), ...Object.values(ADAPTER_MODELS)], available: true, action: true,
-        reason: "AAWireless gets video and car-data settings tuned for that dongle. Motorola MA1 uses the regular pairing. Pick Unofficial dongle for other wireless dongles that will not connect; it tries alternate handshakes and logs more." }
-    },
     appDisabled() {
       return !this.setup?.enabled || !this.setup.parked || !!this.pairing?.active || this.linked
     },
@@ -789,11 +762,9 @@ export const StarPortPage = {
     chooseType(key) { this.showSteps = true; return this.saveCarType(0, this.carTypeLabels[key]) },
     chooseAdapter(key) { this.showSteps = true; return this.saveAdapter(0, ADAPTER_MODELS[key]) },
     chooseApp(key) { this.showSteps = true; return this.saveApp(0, HEAD_UNIT_APPS[key]) },
-    useClassic() { return this.feed.setNewSetup(false) },
     resetHandshake() { return this.control("reset_handshake") },
     continueLadder() { return this.control("continue_ladder") },
     dismissSuggestion(rule) { return this.control("dismiss_fix_suggestion", { rule }) },
-    useGuided() { return this.feed.setNewSetup(true) },
     saveCarType(index, value) {
       const labels = this.carTypeLabels
       const carType = Object.keys(labels).find(key => labels[key] === value)
@@ -923,10 +894,10 @@ export const StarPortPage = {
   },
   template: `
     <section class="gx-driving" aria-label="StarPort setup" :inert="busy" :aria-busy="busy || undefined">
-      <header class="gx-page-header">
+      <header class="gx-settings__header gx-page-header"><div>
         <h2>StarPort</h2>
         <p>Show the StarPilot driving view on your car’s screen. Choose your device, follow the setup steps, then connect.</p>
-      </header>
+      </div><WikiHelp /></header>
       <GxNotice tone="info" title="Supported setups">StarPort officially supports your car’s built-in Android Auto, the AAWireless and Motorola MA1 wireless adapters, and the Open Headunit and HeadunitPad tablet apps. Other adapters and apps may work, but they aren’t tested and may not connect reliably.</GxNotice>
       <GxNotice tone="warn" v-if="!wired && !app && runtime?.dedicated_wifi_interface === false">StarPort uses the comma’s Wi-Fi to connect to your car and disconnects it from your current Wi-Fi network. Use the Galaxy hotspot for local access during projection. Remote Galaxy access requires Internet on the comma.</GxNotice>
       <GxNotice tone="danger" v-if="error && setup">{{ error }}</GxNotice>
@@ -971,8 +942,8 @@ export const StarPortPage = {
             </details>
           </div></GxCollapse>
         </section>
-      <StarPortGuidedSetup v-if="setup && newSetup && guided.show" id="gx-starport-guided" :state="guided" :busy="busy" :choices-disabled="appDisabled"
-        @choose-type="chooseType" @choose-adapter="chooseAdapter" @choose-app="chooseApp" @use-car="useCar" @classic="useClassic" @reset-handshake="resetHandshake" @continue-ladder="continueLadder" @dismiss-suggestion="dismissSuggestion" @done="showSteps = false">
+      <StarPortGuidedSetup v-if="setup && guided.show" id="gx-starport-guided" :state="guided" :busy="busy" :choices-disabled="appDisabled"
+        @choose-type="chooseType" @choose-adapter="chooseAdapter" @choose-app="chooseApp" @use-car="useCar" @reset-handshake="resetHandshake" @continue-ladder="continueLadder" @dismiss-suggestion="dismissSuggestion" @done="showSteps = false">
         <template #car>
           <GxNotice v-if="wiredUnavailable" tone="warn">Wired AA is unavailable: {{ runtime.wired_blocked }}.</GxNotice>
           <template v-if="carType === 'usb'">
@@ -991,47 +962,7 @@ export const StarPortPage = {
           <p v-if="connectReason" class="gx-guided__hint" role="status">{{ connectReason }}</p>
         </template>
       </StarPortGuidedSetup>
-      <p v-else-if="setup && !newSetup && !setupDone" class="gx-note"><button type="button" class="gx-btn gx-btn--tonal" :disabled="busy" @click="useGuided">Try the guided setup</button></p>
-      <ol v-if="setup && !newSetup" id="gx-steps" class="gx-steps">
-        <li v-show="!setupDone || showSteps" class="gx-card gx-step" :class="{ 'gx-step--done': !!selected && !pairing?.active }">
-          <div class="gx-step__head">
-            <span class="gx-step__num" aria-hidden="true"><i v-if="selected && !pairing?.active" class="bi bi-check-lg"></i><template v-else>2</template></span>
-            <div><h3>{{ carType === 'usb' ? 'Set Up Wired AA' : carType === 'app' ? 'Set Up Your App' : adapterSetup ? 'Pair Your Adapter' : 'Pair Your Car' }}</h3><p>{{ adapterSetup ? 'Put the adapter in pairing mode, then tap Find adapter. Your car doesn’t need to be paired.' : pairsHere ? 'Open your car’s phone pairing screen, then tap Find car. You can do this before step 1 is finished.' : 'No Bluetooth pairing is needed for this setup.' }}</p></div>
-          </div>
-          <div class="gx-step__body">
-            <button v-if="setupDone && showSteps" class="gx-btn gx-btn--tonal" @click="showSteps = false">Hide Setup</button>
-            <GalaxySettingRow :row="carTypeRow" :index="0" :busy="busy" :disabled="appDisabled" :save-value="saveCarType" />
-            <GxNotice v-if="wiredUnavailable" tone="warn">Wired AA is unavailable: {{ runtime.wired_blocked }}.</GxNotice>
-            <GalaxySettingRow v-if="carType === 'app'" :row="appRow" :index="0" :busy="busy" :disabled="appDisabled" :save-value="saveApp" />
-            <GalaxySettingRow v-if="adapterSetup" :row="adapterRow" :index="0" :busy="busy" :disabled="appDisabled" :save-value="saveAdapter" />
-            ${AUTO_CONNECT}
-            <template v-if="carType === 'usb'">
-              ${WIRED_STATUS}
-            </template>
-            <template v-else-if="carType === 'app'">
-              ${APP_SETUP}
-            </template>
-            <template v-if="pairsHere">
-            ${PAIR_UI}
-            </template>
-            ${CONNECTION_PROGRESS}
-            ${CONNECT}
-            <p v-if="connectReason" class="gx-note" role="status">{{ connectReason }}</p>
-            <p v-else-if="!setup.identity.installed" class="gx-note">Finish step 1 first — Connect will walk you through it.</p>
-            <details class="gx-starport-wiki"><summary>Stuck connecting? Wi-Fi and screen troubleshooting</summary>
-              <ul>
-                <li v-if="!wired && !app"><strong>How it connects:</strong> after Bluetooth, the car (or adapter) creates its own hidden 5 GHz Wi-Fi network and tells the comma how to join. The picture streams over that Wi-Fi.</li>
-                <li><strong>First connection:</strong> stay in Park or offroad mode, and keep the car’s screen on.</li>
-                <li><strong>Black or frozen screen:</strong> tap Disconnect, wait a few seconds, then connect again. If it keeps happening, turn the car off and on.</li>
-                <li><strong>Car says the phone isn’t compatible:</strong> make sure wireless Android Auto (sometimes called “smartphone connection”) is turned on in the car’s settings, and that step 1 shows Ready.</li>
-                <li><strong>Wired AA:</strong> turn on Wired AA in step 2, plug the car’s data USB port into the comma’s USB-C port with a data-capable cable, and drive. Bluetooth pairing is not needed.</li>
-              </ul>
-            </details>
-          </div>
-        </li>
-
-      </ol>
-      <section v-if="setup && setupDone && !showSteps && (!newSetup || !guided.show)" class="gx-card gx-step gx-starport-home" aria-labelledby="gx-starport-home-title">
+      <section v-if="setup && setupDone && !showSteps && !guided.show" class="gx-card gx-step gx-starport-home" aria-labelledby="gx-starport-home-title">
         <div class="gx-step__head">
           <span class="gx-step__num" :class="{ 'gx-starport-home__icon--live': projecting }" aria-hidden="true"><i class="bi bi-car-front"></i></span>
           <div><h3 id="gx-starport-home-title">{{ homeTitle }}</h3>
@@ -1039,11 +970,6 @@ export const StarPortPage = {
         </div>
         <div class="gx-step__body">
           <p v-if="expiry.level === 'soon'" class="gx-starport-pill gx-starport-pill--soon" role="status">{{ expiry.label }}</p>
-          <template v-if="!newSetup">
-            <GalaxySettingRow :row="carTypeRow" :index="0" :busy="busy" :disabled="appDisabled" :save-value="saveCarType" />
-            <GalaxySettingRow v-if="adapterSetup" :row="adapterRow" :index="0" :busy="busy" :disabled="appDisabled" :save-value="saveAdapter" />
-            <GalaxySettingRow v-if="app" :row="appRow" :index="0" :busy="busy" :disabled="appDisabled" :save-value="saveApp" />
-          </template>
           ${AUTO_CONNECT}
           <ul v-if="wirelessHome" class="gx-starport-list" aria-label="Setup steps">
             <li class="gx-starport-row"><i class="bi bi-shield-check" aria-hidden="true"></i>
@@ -1062,8 +988,8 @@ export const StarPortPage = {
           ${CONNECT}
           <div class="gx-actions">
             <a class="gx-btn gx-btn--tonal" href="#/theme_maker/starport"><i class="bi bi-layout-text-window" aria-hidden="true"></i> Customize Layout</a>
-            <button type="button" class="gx-btn gx-btn--tonal" :aria-expanded="showSteps" :aria-controls="newSetup ? 'gx-starport-guided' : 'gx-steps'" @click="showSteps = !showSteps">
-              <i :class="showSteps ? 'bi bi-chevron-up' : 'bi bi-gear'" aria-hidden="true"></i> {{ showSteps ? 'Hide Setup' : newSetup ? 'Change how your car connects' : 'Setup and Pairing' }}</button>
+            <button type="button" class="gx-btn gx-btn--tonal" :aria-expanded="showSteps" aria-controls="gx-starport-guided" @click="showSteps = !showSteps">
+              <i :class="showSteps ? 'bi bi-chevron-up' : 'bi bi-gear'" aria-hidden="true"></i> {{ showSteps ? 'Hide Setup' : 'Change how your car connects' }}</button>
             <button v-if="canResetHandshake" type="button" class="gx-btn gx-btn--tonal" :disabled="busy" @click="resetHandshake"
               title="Go back to the standard handshake. Your Bluetooth pairing is kept.">
               <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i> Reset handshake</button>
@@ -1077,7 +1003,7 @@ export const StarPortPage = {
             <div><h3>Customize Your Dashboard</h3><p>Once connected, customize your dashboard setup.</p></div>
           </div>
           <div class="gx-step__body">
-            <a class="gx-btn gx-btn--tonal gx-starport-cta" href="#/starport/audio"><i class="bi bi-spotify" aria-hidden="true"></i> Spotify and Phone Audio</a>
+            <a class="gx-btn gx-btn--tonal gx-starport-cta" href="#/starport/audio"><i class="bi bi-spotify" aria-hidden="true"></i> Spotify & Phone Audio</a>
             <a class="gx-btn gx-btn--tonal gx-starport-cta" href="#/theme_maker/starport">Customize Layout</a>
             <a class="gx-btn gx-btn--tonal gx-starport-cta" href="#/navigation/maps"><i class="bi bi-map" aria-hidden="true"></i> Offline Road Maps</a>
             <p class="gx-note">Save road lines for the map overlay so it keeps drawing roads with no signal.</p>
@@ -1088,11 +1014,10 @@ export const StarPortPage = {
       <section v-if="setup" class="gx-card gx-step" aria-labelledby="gx-starport-help-title">
         <div class="gx-step__head">
           <span class="gx-step__num" aria-hidden="true"><i class="bi bi-question-circle"></i></span>
-          <div><h3 id="gx-starport-help-title">Still having trouble?</h3><p>Our wiki has detailed help for pairing, connection status, other phones, wireless adapters, and screen problems.</p></div>
+          <div><h3 id="gx-starport-help-title">Still having trouble?</h3><p>Our wiki (click book icon at the top right corner) has detailed help for pairing, connection status, other phones, wireless adapters, and screen problems.</p></div>
         </div>
         <div class="gx-step__body">
           <div class="gx-driving__actions gx-actions">
-            <a class="gx-btn" href="https://wiki.firestar.link/exclusive/android-auto/" target="_blank" rel="noopener noreferrer">Read the Android Auto troubleshooting guide</a>
             <a class="gx-btn gx-btn--tonal" href="#/logs/starport"><i class="bi bi-journal-text"></i> Connection Logs</a>
           </div>
         </div>

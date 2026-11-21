@@ -322,7 +322,7 @@ def test_projection_verifies_head_unit_only_when_chosen(identity, tmp_path, monk
     pass
 
   class RecordingSession:
-    def __init__(self, sock, cert, key, log, ca):
+    def __init__(self, sock, cert, key, log, ca, **kwargs):
       seen.append(ca)
 
     def authenticate(self):
@@ -332,6 +332,29 @@ def test_projection_verifies_head_unit_only_when_chosen(identity, tmp_path, monk
   with pytest.raises(Stop):
     sup._project(None, None, ident, connect=lambda: socket.socketpair()[0])
   assert seen == [ident.root if verified else None]
+
+
+@pytest.mark.parametrize("car_type, wait", [("adapter", 90.0), ("built_in", None)])
+def test_only_adapters_wait_long_for_the_version_request(identity, tmp_path, monkeypatch, car_type, wait):
+  from openpilot.starpilot.system.starport import identity as identity_store, supervisor
+  sup, _ = make_supervisor(identity, tmp_path, monkeypatch, lambda *a, **k: socket.socketpair()[0])
+  monkeypatch.setattr(sup, "car_type", lambda: car_type)
+  seen = []
+
+  class Stop(Exception):
+    pass
+
+  class RecordingSession:
+    def __init__(self, sock, cert, key, log, ca, **kwargs):
+      seen.append(kwargs.get("version_wait"))
+
+    def authenticate(self):
+      raise Stop
+
+  monkeypatch.setattr(supervisor, "ProjectionSession", RecordingSession)
+  with pytest.raises(Stop):
+    sup._project(None, None, identity_store.load_identity(), connect=lambda: socket.socketpair()[0])
+  assert seen == [wait]
 
 
 def _wireless_backoff_harness(sup, monkeypatch, failure):

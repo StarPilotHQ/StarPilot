@@ -39,6 +39,33 @@ function control(row = numeric) {
   return { vm, commits, event }
 }
 
+for (const [label, choices, fresh, initial] of [
+  ['Selected Acceleration Profile', ['StarPilot Default', 'Normal', 'Comfort', 'Sport', 'Sport+'], 'StarPilot Default', 'StarPilot Default'],
+  ['Selected Deceleration Profile', ['StarPilot Default', 'Normal', 'Comfort', 'Sport'], 'Comfort', 'Comfort'],
+]) {
+  for (const saved of new Set([fresh, ...choices])) {
+    const row = { label, choices, value: saved, defaultValue: initial, displayScale: 'selected-profile', available: true, action: true }
+    const { vm, commits } = control(row)
+    const expected = saved === 'StarPilot Default' ? 'Normal' : saved
+    assert.equal(vm.control, 'select')
+    assert.equal(vm.currentValue, expected)
+    assert.deepEqual(vm.presentedRow.choices, choices.slice(1))
+    assert.equal(new Set(vm.presentedRow.choices).size, vm.presentedRow.choices.length)
+    assert.equal(vm.showDefault, saved !== initial, 'reset retains the actual saved/default distinction')
+    await vm.commit(expected)
+    assert.deepEqual(commits, [], 'viewing/reselecting a legacy default never writes a profile')
+    assert.equal(row.value, saved)
+    await vm.commit('Sport')
+    assert.deepEqual(commits, expected === 'Sport' ? [] : [[7, 'Sport']])
+    vm.row = { ...row, value: 'Sport' }
+    assert.equal(vm.currentValue, 'Sport', 'saved readback stays selected')
+    assert.equal(control(vm.row).vm.currentValue, 'Sport', 'reopening retains the saved choice')
+  }
+}
+assert.ok(GalaxySettingRow.template.includes('choice in presentedRow.choices'))
+assert.deepEqual(control({ choices: ['StarPilot Default', 'Custom'], value: 'StarPilot Default' }).vm.presentedRow.choices,
+  ['StarPilot Default', 'Custom'], 'personality presets and unrelated selectors are unchanged')
+
 // Drag previews remain local. Fine mode uses the held value and one fifth of normal travel.
 const fine = control()
 fine.vm.onSliderPointerDown(fine.event())
@@ -177,39 +204,39 @@ assert.deepEqual(SettingsPage.computed.visibleRows.call(page).map(({ index }) =>
 const destinations = []
 const navigation = { busy: false, state: { query: "old", section: "lateral", data: { page: "lane" } },
   feed: { active: true, load: (target) => destinations.push(target) } }
-for (const id of ["wheel", "sounds", "device", "visual", "localization"]) {
+for (const id of ["wheel", "sounds", "device", "visual"]) {
   const section = SETTINGS_SECTIONS.find((item) => item.id === id)
   SettingsPage.methods.selectSection.call(navigation, section)
   assert.equal(navigation.state.section, id)
   assert.equal(navigation.state.query, "")
 }
-assert.deepEqual(destinations, ["wheel", "sounds", "hub", "hub", "localization"])
+assert.deepEqual(destinations, ["wheel", "sounds", "hub", "hub"])
 navigation.busy = true
 SettingsPage.methods.selectSection.call(navigation, lateral)
-assert.equal(destinations.length, 5, "a save cannot be retired by section navigation")
-for (const id of ["wheel", "sounds", "localization"]) {
+assert.equal(destinations.length, 4, "a save cannot be retired by section navigation")
+for (const id of ["wheel", "sounds"]) {
   const section = SETTINGS_SECTIONS.find((item) => item.id === id)
   assert.equal(SettingsPage.computed.atSectionRoot.call({ activeSection: section,
     state: { data: { page: section.pages[0] } } }), true)
 }
 
 const deviceData = SETTINGS_SECTIONS.find((item) => item.id === "device")
-assert.deepEqual(deviceData.pages, ["power", "display", "data"])
+assert.deepEqual(deviceData.pages, ["power", "data", "starport_options", "browser_preferences", "localization"])
 assert.equal(SettingsPage.computed.atSectionRoot.call({ activeSection: deviceData,
   state: { data: { page: "hub" } } }), true)
 assert.equal(SettingsPage.computed.atSectionRoot.call({ activeSection: deviceData,
-  state: { data: { page: "display" } } }), false)
+  state: { data: { page: "power" } } }), false)
 
 const dataLinks = SettingsPage.computed.visibleRows.call({ initialPage: "hub", activeSection: deviceData,
   state: { query: "", data: { page: "hub", rows: [] } } })
-assert.deepEqual(dataLinks.map(({ row }) => row.page), ["power", "display", "data"])
-assert.equal(dataLinks[2].row.label, "Data Uploads")
+assert.deepEqual(dataLinks.map(({ row }) => row.page), ["power", "data", "starport_options", "browser_preferences", "localization"])
+assert.equal(dataLinks[1].row.label, "Data & Connections")
 const coolingLinks = SettingsPage.computed.visibleRows.call({ initialPage: "hub", activeSection: deviceData,
   state: { query: "", data: { page: "hub", rows: [], coolingAvailable: true } } })
-assert.deepEqual(coolingLinks.map(({ row }) => row.page), ["power", "display", "data"])
-assert.equal(coolingLinks[2].row.label, "Data Uploads")
-assert.equal(dataLinks[0].row.label, "Power and Cooling")
-assert.equal(coolingLinks[0].row.label, "Power and Cooling")
+assert.deepEqual(coolingLinks.map(({ row }) => row.page), ["power", "data", "starport_options", "browser_preferences", "localization"])
+assert.equal(coolingLinks[1].row.label, "Data & Connections")
+assert.equal(dataLinks[0].row.label, "Power & Cooling")
+assert.equal(coolingLinks[0].row.label, "Power & Cooling")
 
 assert.equal(SettingsPage.computed.atSectionRoot.call({initialPage:'hub',state:{data:null,parents:[]}}),true,
   'section tabs stay mounted while loading a new section')
@@ -269,3 +296,10 @@ previewVolume.vm.disabled = true
 previewVolume.vm.testAlert = () => { throw new Error("disabled preview must not run") }
 await previewVolume.vm.previewSound()
 assert.equal(previewVolume.vm.soundError, "Keep the comma offroad")
+
+const visualSection = SETTINGS_SECTIONS.find(section => section.id === "visual")
+assert(visualSection.pages.includes("display"))
+assert(!deviceData.pages.includes("display"))
+const visualLinks = SettingsPage.computed.visibleRows.call({ initialPage: "hub", activeSection: visualSection,
+  state: { query: "", data: { page: "hub", rows: [] } } })
+assert.equal(visualLinks.find(({row}) => row.page === "display").row.label, "Display")

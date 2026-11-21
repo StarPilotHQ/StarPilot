@@ -21,7 +21,7 @@ from openpilot.selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import T_IDX
 from openpilot.selfdrive.controls.lib.drive_helpers import CONTROL_N, get_accel_from_plan, should_stop
 from openpilot.selfdrive.car.cruise import V_CRUISE_MAX, V_CRUISE_UNSET
 from openpilot.common.swaglog import cloudlog
-from openpilot.starpilot.navigation.intent import cruise_ceiling as navigation_ceiling
+from openpilot.starpilot.navigation.intent import NAVIGATION_BRAKE_MAGNITUDE, cruise_ceiling as navigation_ceiling
 from openpilot.starpilot.car.tesla.preap_adaptive import startup_owner as preap_adaptive_owner
 from openpilot.starpilot.longitudinal.vehicle_policy import forecast_should_stop, planner_cost_owner, far_follow_owner
 from openpilot.starpilot.longitudinal.cruise_ceiling import CruiseCeiling, CurveCeiling, select_cruise_ceiling, select_curve_ceiling
@@ -35,6 +35,7 @@ from openpilot.starpilot.longitudinal.experimental_release import ConditionalHan
 from openpilot.starpilot.longitudinal.force_stop import StopPlan
 from openpilot.starpilot.longitudinal.force_stop_braking import distance_target, eligible as distance_braking_eligible
 from openpilot.starpilot.longitudinal.follow_jerk import FollowJerk
+from openpilot.starpilot.longitudinal.highlander_cruise import owner_for as highlander_cruise_owner
 from openpilot.starpilot.longitudinal.lead_takeoff import LeadTakeoff, project as project_takeoff
 from openpilot.starpilot.longitudinal.lead_behavior import adjust as adjust_lead_behavior
 from openpilot.starpilot.longitudinal.hkg_vision_stop import owner_for as vision_stop_owner
@@ -49,6 +50,8 @@ A_CRUISE_MAX_BP = [0., 10.0, 25., 40.]
 J_CRUISE_VALS = [1.6, 1.2, 0.8, 0.6]
 A_CRUISE_MIN = -0.5
 CRUISE_ACCEL_RESPONSE_TIME = 2.0
+SLC_BRAKE_ONSET_JERK = 0.15  # m/s^3: how fast braking may build after an SLC overshoot
+SLC_BRAKE_ONSET_ACCEL = -0.3  # m/s^2: past this the brakes are engaged and normal jerk resumes
 CONTROL_N_T_IDX = ModelConstants.T_IDXS[:CONTROL_N]
 MIN_ALLOW_THROTTLE_SPEED = 2.5
 NATIVE_ALLOW_THROTTLE_PROBABILITY = 0.4
@@ -71,7 +74,7 @@ def get_coast_accel(pitch):
 def get_cruise_accel(e2e, v_cruise, v_ego, a_cruise_prev, angle_steers, CP, dt, accel_coast, allow_throttle,
                      profile: AppliedProfile | None = None,
                      base_brake_floor: float = A_CRUISE_MIN, selected_acceleration_max: float | None = None, faster_takeoffs: bool = False,
-                     *, a_target_prev: float | None = None):
+                     *, a_target_prev: float | None = None, ease_slc_braking: bool = False):
   ceiling = TAKEOFF_ACCEL_MAX if faster_takeoffs else ACCEL_MAX
   max_accel = ceiling if e2e else get_max_accel(v_ego, faster_takeoffs)
   if selected_acceleration_max is not None and not e2e:
@@ -96,10 +99,16 @@ def get_cruise_accel(e2e, v_cruise, v_ego, a_cruise_prev, angle_steers, CP, dt, 
   speed_error = v_cruise - v_ego
   if not e2e and not faster_takeoffs and v_ego >= MIN_ALLOW_THROTTLE_SPEED and speed_error > 0.:
     speed_error /= CRUISE_ACCEL_RESPONSE_TIME
+  elif ease_slc_braking and speed_error < 0.:
+    speed_error /= CRUISE_ACCEL_RESPONSE_TIME  # correct an SLC overshoot as gradually as an approach
   target_accel = np.clip(speed_error, cruise_min, max_accel)
   j_cruise = np.interp(v_ego, A_CRUISE_MAX_BP, J_CRUISE_VALS)
   decel_start = a_cruise_prev if a_target_prev is None else min(a_cruise_prev, a_target_prev)
-  target_accel = float(np.clip(target_accel, decel_start - j_cruise * dt, a_cruise_prev + j_cruise * dt))
+  lower = decel_start - j_cruise * dt
+  if ease_slc_braking and decel_start > SLC_BRAKE_ONSET_ACCEL:
+    # Ease braking in from zero so friction brakes engage without a jolt; lifting off the throttle keeps normal jerk.
+    lower = max(lower, min(decel_start, 0.) - SLC_BRAKE_ONSET_JERK * dt)
+  target_accel = float(np.clip(target_accel, lower, a_cruise_prev + j_cruise * dt))
 
   return target_accel
 
@@ -142,6 +151,7 @@ class LongitudinalPlanner:
     self.follow_jerk = FollowJerk(CP)
     self.vehicle_cost_owner = planner_cost_owner(CP)
     self.lead_takeoff = LeadTakeoff()
+    self.button_cruise = highlander_cruise_owner(CP, dt)
     self.vehicle_far_follow = far_follow_owner(CP, dt)
     self.vision_stop_buffer = vision_stop_owner(CP)
     self.ford_stop_approach = ford_stop_owner(CP, STOP_DISTANCE - .5) or vw_stop_owner(CP, STOP_DISTANCE - .5)
@@ -392,6 +402,12 @@ class LongitudinalPlanner:
                                                                           abs(A_CRUISE_MIN)))
     if curve.effective_mps is not None:
       global_floor = min(global_floor, A_CRUISE_MIN)
+    if navigation_target is not None and not sm['controlsState'].forceDecel:
+      # A later turn approach must remain reachable with a soft cruise profile.
+      global_floor = min(global_floor, -NAVIGATION_BRAKE_MAGNITUDE)
+      if cruise_profile is not None:
+        cruise_profile = replace(cruise_profile, cruise_brake_magnitude=max(cruise_profile.cruise_brake_magnitude,
+                                                                          NAVIGATION_BRAKE_MAGNITUDE))
     if selected_acceleration is not None and cruise_profile is not None:
       # The selected curve owns acceleration; following/jerks retain their owner.
       cruise_profile = replace(cruise_profile, acceleration_max=selected_acceleration)
@@ -405,7 +421,19 @@ class LongitudinalPlanner:
                                      self.a_cruise, steer_angle_without_offset, self.CP, self.dt,
                                      accel_coast, self.allow_throttle, cruise_profile,
                                      base_brake_floor=global_floor, selected_acceleration_max=selected_acceleration, faster_takeoffs=faster_takeoffs,
-                                     a_target_prev=self.output_a_target)
+                                     a_target_prev=self.output_a_target,
+                                     ease_slc_braking=v_cruise == ceiling.effective_mps and not relevant_lead)
+    if self.button_cruise is not None:
+      button_target = self.button_cruise.sample(
+        sm, now_ns=sample_now_ns, drive_id=drive_id, target_speed=v_cruise,
+        brake_floor=max(ACCEL_MIN, -cruise_profile.cruise_brake_magnitude if cruise_profile is not None else global_floor),
+        speed=self.v_desired_filter.x, previous_accel=self.output_a_target, reference=self.mpc,
+        blocked=bool(reset_state or not profile_eligible or not self.allow_throttle or traffic_mode is not False or self.fcw or
+                     self.force_stop_plan.forcing or self.force_stop_plan.should_stop or output_should_stop_mpc or
+                     sm['modelV2'].action.shouldStop or wheel_coast is not None or
+                     any(lead.present for lead in (sm['radarState'].leadOne, sm['radarState'].leadTwo))))
+      if button_target is not None:
+        self.a_cruise = button_target
     cruise_should_stop = should_stop(v_ego, self.a_cruise)
 
     encouraged_model = self.encouragement.update(

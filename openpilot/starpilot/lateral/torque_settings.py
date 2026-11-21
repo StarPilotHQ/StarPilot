@@ -54,6 +54,10 @@ class PlatformProfile:
   flm: GmFlmBinding | None = None
   manual_coordinates: ManualCoordinates | None = None
 
+  @property
+  def active_legacy_flm(self) -> bool:
+    return self.flm is not None and self.flm.applied
+
 
 class LegacyMode(StrEnum):
   ABSENT = "absent"
@@ -167,7 +171,7 @@ def parse_document(raw: bytes) -> dict[str, PlatformProfile]:
   except (RecursionError, OverflowError) as exc:
     raise ValueError("Malformed torque document") from exc
   if not isinstance(document, dict) or set(document) != {"schemaVersion", "vehicles"} or \
-     type(document["schemaVersion"]) is not int or document["schemaVersion"] not in (1, 2, 3, 4, 5) or \
+     type(document["schemaVersion"]) is not int or document["schemaVersion"] not in (1, 2, 3, 4, 5, 6) or \
      not isinstance(document["vehicles"], dict) or len(document["vehicles"]) > len(PLATFORMS):
     raise ValueError("Malformed torque document")
   profiles: dict[str, PlatformProfile] = {}
@@ -179,7 +183,7 @@ def parse_document(raw: bytes) -> dict[str, PlatformProfile]:
       expected |= {"geometry"}
     if document["schemaVersion"] >= 4 and isinstance(value, dict) and "flm" in value:
       expected |= {"flm"}
-    if document["schemaVersion"] == 5 and isinstance(value, dict) and "manualCoordinates" in value:
+    if document["schemaVersion"] >= 5 and isinstance(value, dict) and "manualCoordinates" in value:
       expected |= {"manualCoordinates"}
     if fingerprint not in PLATFORMS or not isinstance(value, dict) or set(value) != expected:
       raise ValueError("Malformed torque profile")
@@ -192,8 +196,6 @@ def parse_document(raw: bytes) -> dict[str, PlatformProfile]:
     gain = FieldChoice()
     gain_basis = None
     if "proportionalGain" in value:
-      if fingerprint not in GAIN_VEHICLES:
-        raise ValueError("Unsupported gain profile")
       gain = _choice(value["proportionalGain"])
       gain_basis = parse_gain_basis(value["gainBasis"])
       low, high = gain_bounds(fingerprint, gain_basis)
@@ -214,7 +216,9 @@ def parse_document(raw: bytes) -> dict[str, PlatformProfile]:
     if "manualCoordinates" in value:
       from openpilot.starpilot.flm.manual_coordinates import ManualCoordinates
       manual = ManualCoordinates.from_document(value["manualCoordinates"])
-      if flm is not None:
+      if manual.automatic is not None and document['schemaVersion'] < 6:
+        raise ValueError('Accepted findings require their explicit document version')
+      if flm is not None and flm.applied:
         raise ValueError("Only one manual surface may be selected")
     profiles[fingerprint] = PlatformProfile(basis, _choice(value["factor"]), _choice(value["friction"]), gain, gain_basis, geometry, flm, manual)
   return profiles
@@ -222,7 +226,8 @@ def parse_document(raw: bytes) -> dict[str, PlatformProfile]:
 
 def serialize_document(profiles: dict[str, PlatformProfile]) -> bytes:
   vehicles: dict[str, dict] = {}
-  version = (5 if any(p.manual_coordinates is not None for p in profiles.values())
+  version = (6 if any(p.manual_coordinates is not None and p.manual_coordinates.automatic is not None for p in profiles.values())
+             else 5 if any(p.manual_coordinates is not None for p in profiles.values())
     else 4 if any(p.flm is not None for p in profiles.values())
     else 3 if any(p.geometry is not None for p in profiles.values())
     else 2 if any(p.gain_basis is not None for p in profiles.values()) else 1)
@@ -308,7 +313,7 @@ def parse_gain_basis(value: object) -> GainBasis:
   if not isinstance(value, dict) or set(value) != {"controller", "sourceTable", "torqueBasis"}:
     raise ValueError("Malformed gain basis")
   table, basis = value["sourceTable"], value["torqueBasis"]
-  if (value["controller"] not in ("standard", "starpilot") or
+  if (value["controller"] not in ("standard", "starpilot", "pid") or
       not isinstance(table, (list, tuple)) or len(table) != 2 or
       any(not isinstance(row, (list, tuple)) or not row for row in table) or
       len(table[0]) != len(table[1]) or len(table[0]) > 32 or
@@ -324,15 +329,15 @@ def gain_bounds(fingerprint: str, basis: GainBasis) -> tuple[float, float]:
   # Keep the qualified five-Bolt range unchanged, including STANDARD.
   if fingerprint in BOLT_VEHICLES:
     return 0.3, 0.9
-  if fingerprint not in GAIN_VEHICLES:
+  if fingerprint not in PLATFORMS:
     raise ValueError("Unsupported gain profile")
   source = basis.source_table[1][-1]
-  return 0.5 * source, 1.5 * source
+  return (0.5 * source, 1.5 * source) if fingerprint in GAIN_VEHICLES else (round(0.8 * source, 8), round(1.1 * source, 8))
 
 
 def replace_gain(profiles: dict[str, PlatformProfile], fingerprint: str, basis: GainBasis,
                  mode: str, value: float | None, *, review: bool = False) -> dict[str, PlatformProfile]:
-  if fingerprint not in GAIN_VEHICLES or mode not in ("source", "custom"):
+  if fingerprint not in PLATFORMS or mode not in ("source", "custom"):
     raise ValueError("Unsupported gain edit")
   low, high = gain_bounds(fingerprint, basis)
   if value is not None and (not _finite_number(value) or not low <= value <= high):

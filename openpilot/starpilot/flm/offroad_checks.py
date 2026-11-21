@@ -203,7 +203,7 @@ def _original_input_refusal(rows):
     reason = numerical.get('reason')
     if not row['qualified'] and (
       reason == 'original_hint_requires_exact_unclipped_native_pair'
-      or reason == 'same_state_controller_checks_only' and type(numerical.get('scored_frames')) is int and numerical['scored_frames'] < 50
+      or reason == 'same_state_controller_checks_only' and type(numerical.get('scored_frames')) is int and numerical['scored_frames'] <= 0
     ):
       return True
   return False

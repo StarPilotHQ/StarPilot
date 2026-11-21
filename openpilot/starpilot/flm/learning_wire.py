@@ -278,7 +278,7 @@ def _read_fields(row, schema):
 
 
 def read_control(event):
-  from openpilot.starpilot.flm.route_recording import decode_configuration, configuration_values, SCHEMAS, MAX_ROUTE_STAGE_VALUES
+  from openpilot.starpilot.flm.route_recording import decode_configuration, configuration_values, schema_base, MAX_ROUTE_STAGE_VALUES
 
   if not event.valid:
     raise ValueError('invalid envelope')
@@ -287,7 +287,7 @@ def read_control(event):
     row.version != VERSION
     or len(row.features) > MAX_FIELDS
     or len(row.appliedCoordinates) > MAX_FIELDS
-    or len(row.stageValues) > (MAX_ROUTE_STAGE_VALUES if str(row.stageSchemaRevision) in SCHEMAS else 40)
+    or len(row.stageValues) > (MAX_ROUTE_STAGE_VALUES if schema_base(str(row.stageSchemaRevision)) is not None else 40)
     or len(row.baselineValues) > 32
     or len(row.appliedParameterNames) > 8
     or len(row.liveAppliedCoordinates) not in (0, 30)

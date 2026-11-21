@@ -62,7 +62,7 @@ class TestHondaInterceptor(unittest.TestCase):
       data[5] = pedal_crc(data)
     return message[0], bytes(data), message[2]
 
-  def _assert_callbacks_finish(self, words):
+  def _assert_callbacks_finish(self, words, experience=0, scan_unlisted=False, model=structs.CarParams.SafetyModel.hondaNidec):
     try:
       mutant = libsafety_py.libsafety.mutation_get_active_mutant()
     except AttributeError:
@@ -78,22 +78,41 @@ safety = libsafety_py.libsafety
 if sys.argv[2] != 'None':
   safety.mutation_set_active_mutant(int(sys.argv[2]))
 word = int(sys.argv[3])
-if safety.set_safety_hooks(structs.CarParams.SafetyModel.hondaNidec, word) != 0:
+model = int(sys.argv[6])
+if safety.set_safety_hooks(model, word) != 0:
   print('NATIVE_SETUP_ASSERTION', flush=True)
   raise SystemExit(1)
 safety.init_tests()
-packer = CANPacker('acura_ilx_2016_can_generated' if word in (4, 36) else 'honda_civic_touring_2016_can_generated')
-message = packer.make_can_msg('POWERTRAIN_DATA', 0, {'ACC_STATUS': 0}) if word in (0, 4) else create_command(packer, 0.0, 0)
-packet = libsafety_py.make_CANPacket(message[0], message[2], message[1])
+safety.set_alternative_experience(int(sys.argv[4]))
+if safety.set_safety_hooks(model, word) != 0:
+  print('NATIVE_SETUP_ASSERTION', flush=True)
+  raise SystemExit(1)
+packer = CANPacker('honda_common_canfd_generated' if model == structs.CarParams.SafetyModel.hondaBosch else
+                   'acura_ilx_2016_can_generated' if word in (4, 36) else 'honda_civic_touring_2016_can_generated')
+if sys.argv[5] == 'True':
+  packet = libsafety_py.make_CANPacket(0, 0, bytes(8))
+else:
+  message = packer.make_can_msg('POWERTRAIN_DATA', 0, {'ACC_STATUS': 0}) if word in (0, 4) else create_command(packer, 0.0, 0)
+  packet = libsafety_py.make_CANPacket(message[0], message[2], message[1])
 print('NATIVE_CALLBACK_BEGIN', flush=True)
-accepted = safety.safety_rx_hook(packet) if word in (0, 4) else safety.safety_tx_hook(packet)
+if sys.argv[5] == 'True':
+  allowed = (0xE4, 0x296, 0x33D) if model == structs.CarParams.SafetyModel.hondaBosch else (0xE4, 0x194, 0x1FA, 0x30C, 0x33D, 0x200)
+  accepted = True
+  for bus in range(4):
+    for addr in range(0x800):
+      if addr not in allowed:
+        frame = libsafety_py.make_CANPacket(addr, bus, bytes(8))
+        accepted &= not safety.safety_tx_hook(frame)
+else:
+  accepted = safety.safety_rx_hook(packet) if word in (0, 4) else safety.safety_tx_hook(packet)
 print('NATIVE_CALLBACK_RETURN', flush=True)
 raise SystemExit(0 if accepted else 1)
 """
     for word in words:
       with self.subTest(word=word):
         try:
-          result = subprocess.run([sys.executable, '-c', script, libsafety_py.libpath, str(mutant), str(word)],
+          result = subprocess.run([sys.executable, '-c', script, libsafety_py.libpath, str(mutant), str(word),
+                                   str(experience), str(scan_unlisted), str(int(model))],
                                   cwd=Path(__file__).resolve().parents[3], capture_output=True, text=True, timeout=10)
         except subprocess.TimeoutExpired as exc:
           output = exc.stdout or b''
@@ -115,6 +134,13 @@ raise SystemExit(0 if accepted else 1)
 
   def test_all_stock_honda_rx_callbacks_finish_without_native_memory_faults(self):
     self._assert_callbacks_finish((0, 4))
+
+  def test_stock_aol_rx_callbacks_finish_without_native_memory_faults(self):
+    self._assert_callbacks_finish((0, 4), experience=32)
+
+  def test_pedal_profiles_reject_unlisted_tx_messages(self):
+    self._assert_callbacks_finish((32, 36), scan_unlisted=True)
+    self._assert_callbacks_finish((80, 81), experience=32, scan_unlisted=True, model=structs.CarParams.SafetyModel.hondaBosch)
 
   def test_both_tracks_enable_reserved_bits_and_crc_are_required(self):
     for word in (32, 36):

@@ -1,4 +1,5 @@
 import unittest
+from opendbc.safety.tests.native_callback import assert_native_callback_finishes
 import pytest
 from opendbc.can import CANPacker
 from opendbc.car.structs import CarParams
@@ -31,6 +32,10 @@ def reset(param=16):
 
 
 class TestModelSHW1Safety(unittest.TestCase):
+  def test_native_initialization_and_checksum_callback_finish(self):
+    address, data, _ = module.ModelSHW1CAN(packer).create_steering_control(0, 0, False)
+    assert_native_callback_finishes(self, 10, 16, address, 2, data)
+
   def test_all_16bit_profile_words_are_isolated(self):
     debug = lib.set_safety_hooks(CarParams.SafetyModel.allOutput, 0) == 0
     supported = {0, 1, 16, 17, 256, 257, 512, 768, 1536, 1792, 2048, 2304, 3072, 3328} | ({513, 769, 1537, 1793, 2049, 2305, 3073, 3329} if debug else set())

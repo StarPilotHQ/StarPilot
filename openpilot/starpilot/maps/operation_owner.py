@@ -39,7 +39,7 @@ MAX_TRANSFER_BYTES = 8 * 1024**3
 MAX_NEW_DISK_BYTES = 16 * 1024**3
 OPERATION_DEADLINE_S = 30 * 60
 GENERATION = re.compile(r'[0-9a-f]{64}\Z')
-TOKEN = re.compile(r'(?:nation|us_state)\.[A-Za-z0-9_-]{1,64}\Z')
+TOKEN = re.compile(r'(?:nation|us_state|ca_province)\.[A-Za-z0-9_-]{1,64}\Z')
 ACTIVE = frozenset(('transferring', 'validating', 'selecting'))
 STATES = frozenset(('idle', 'transferring', 'validating', 'selecting', 'completed',
                     'canceled', 'failed', 'interrupted', 'unavailable'))
@@ -283,7 +283,7 @@ def _catalog() -> list[dict]:
     if len(completed.stdout) > MAX_CATALOG or len(completed.stderr) > MAX_STATUS:
       raise ValueError('catalog output exceeds bound')
     rows = json.loads(completed.stdout, object_pairs_hook=_unique_object)
-    if type(rows) is not list or len(rows) != 229:
+    if type(rows) is not list or len(rows) not in (229, 242):
       raise ValueError('catalog shape invalid')
     seen = set()
     for row in rows:

@@ -9,7 +9,7 @@ class TestHondaRdxGasCap(unittest.TestCase):
   def test_exact_rdx_words_2200_other_words_2000(self):
     safety = libsafety_py.libsafety
     debug = safety.set_safety_hooks(structs.CarParams.SafetyModel.allOutput, 0) == 0
-    for word in (3, 35, 131, 163):
+    for word in (3, 35, 131, 163, 2082, 2083, 2210, 2211):
       with self.subTest(word=word):
         safety.init_tests()
         safety.set_alternative_experience(0)
@@ -31,7 +31,7 @@ class TestHondaRdxGasCap(unittest.TestCase):
           safety.set_aol_test_heartbeat(True)
           safety.aol_set_host_request(2)
           self.assertEqual(bool(safety.aol_get_permission_mask() & 2), debug)
-        maximum = 2200 if word in (131, 163) else 2000
+        maximum = 2200 if word in (131, 163, 2211) else 2000
         for gas in (2000, 2001, 2200, 2201):
           frame = packer.make_can_msg_safety("ACC_CONTROL", 1,
                     {"GAS_COMMAND": gas, "ACCEL_COMMAND": 0, "BRAKE_REQUEST": 0})

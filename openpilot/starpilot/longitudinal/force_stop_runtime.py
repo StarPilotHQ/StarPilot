@@ -207,6 +207,7 @@ class ForceStopRuntime:
                         dashboard_sign=dashboard_sign, vision_distance_m=vision_distance, always_hold=self.always_hold,
                         acceleration_mps2=float(car.aEgo), actuator_delay_s=float(cp.longitudinalActuatorDelay),
                         vision_source_ns=int(vision_sign) if vision_fresh else 0,
+                        acceleration_ns=int(sm.logMonoTime['carState']), sample_ns=now_ns,
                         moving_preview=bool(perception_available and not model.action.shouldStop and
                                             len(model.velocity.x) == len(model.position.x) and
                                             math.isfinite(model.velocity.x[-1])))

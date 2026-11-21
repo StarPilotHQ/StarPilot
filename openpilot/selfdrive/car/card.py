@@ -33,7 +33,7 @@ from opendbc.car.hyundai.ioniq6_media import Ioniq6MediaButtons
 from opendbc.car.hyundai.values import CAR as HYUNDAI_CAR
 from opendbc.car.interfaces import CarInterfaceBase, RadarInterfaceBase
 from openpilot.selfdrive.pandad import can_capnp_to_list, can_list_to_can_capnp
-from openpilot.selfdrive.car.cruise import SlcWheelContext, VCruiseHelper, slc_target_kph
+from openpilot.selfdrive.car.cruise import LOW_SPEED_CRUISE_ON_SET, SlcWheelContext, VCruiseHelper, slc_target_kph
 from openpilot.starpilot.speed_limits import physical_actions as slc_physical
 from openpilot.starpilot.aol.intent import AolProcessFaultContext, independent_axis_requested, read_settings
 from openpilot.starpilot.aol.transport_pause import TransportPauseFeedback, cp_identity
@@ -139,20 +139,7 @@ def can_comm_callbacks(logcan: messaging.SubSocket, sendcan: messaging.PubSocket
   return can_recv, can_send
 
 
-def curve_press_receipt(CS: car.CarState, helper: VCruiseHelper, sm, *, curve_replay: bool,
-                        slc_replay: bool, host_long_active: bool, observed_ns: int):
-  """A confirmation or native standstill RES must not also override Curve control."""
-  accelerate = frozenset((car.CarState.ButtonEvent.Type.accelCruise,
-                          car.CarState.ButtonEvent.Type.resumeCruise))
-  pressed = {b.type.raw for b in CS.buttonEvents if b.pressed and b.type.raw in accelerate}
-  if (not curve_replay or not host_long_active or not CS.canValid or CS.canTimeout or not CS.cruiseState.available or
-      CS.standstill or CS.cruiseState.standstill or not pressed):
-    return None
-  if (helper.slc_consumed_button is not None or bool(pressed & helper.slc_suppressed_buttons) or
-      slc_replay and bool(sm['slcState'].hasPending)):
-    return None
-  return ('curveAccelPress', None, float(helper.v_cruise_kph_last / 3.6),
-          float(helper.v_cruise_kph / 3.6), observed_ns)
+curve_press_receipt = slc_physical.curve_press_receipt
 
 
 def alpha_long_requested(params, *, is_release: bool) -> bool:
@@ -488,6 +475,7 @@ class Car:
 
     self.experimental_mode = self.params.get_bool("ExperimentalMode")
     self.initial_cruise_speed = self.params.get("InitialCruiseSpeedKph", return_default=True)
+    self.v_cruise_helper.low_speed_on_set = self.params.get_bool(LOW_SPEED_CRUISE_ON_SET)
 
     # card is driven by can recv, expected at 100Hz
     self.rk = Ratekeeper(100, print_delay_threshold=None)
@@ -549,6 +537,7 @@ class Car:
     cancel_boot_ns = (time.clock_gettime_ns(time.CLOCK_BOOTTIME)
                       if (getattr(self.CI.CS, 'ev6_aol_source_healthy', False) or
                           qualified_honda_stock_aol(self.CP, marked_only=True) or
+                          self.CP.brand == 'volkswagen' and self.CP.openpilotLongitudinalControl or
                           qualified_gm(self.CP) and (is_bolt_present_no_acc_pedal_profile(self.CP) or
                                                      f1_conventional_lateral_owner(self.CP)) and
                           int(self.CP.alternativeExperience) in (32, 96)) else 0)
@@ -659,7 +648,8 @@ class Car:
           current_native(self.sm, self.CP, now_ns=now_ns, axis_session_id=self.aol_axis_session()),
           self.aol_transport_feedback, self.aol_card_intent, now_ns=now_ns, producer=self.slc_producer_session))
       from openpilot.starpilot.car.volkswagen.aol import awaiting_initial_request as volkswagen_initial_request
-      volkswagen_initial_wait = volkswagen_initial_request(self.CP, CS, self.sm,
+      volkswagen_initial_wait = self.CP.brand == 'volkswagen' and volkswagen_initial_request(
+        self.CP, CS, self.sm,
         current_native(self.sm, self.CP, now_ns=now_ns, axis_session_id=self.aol_axis_session()),
         self.aol_transport_feedback, self.aol_card_intent, now_ns=now_ns,
         producer=getattr(self, 'slc_producer_session', ''))
@@ -828,9 +818,12 @@ class Car:
           gm_claim.claim(self.traffic_receipt[1], self.traffic_receipt[2], self.traffic_receipt[3])
     self.switchback_receipt = None
     if self.switchback_button_tracker is not None and self.switchback_settings_owner is not None:
+      media_map = getattr(self, 'ioniq_media_map', None)
+      map_current = media_map is not None and media_map.checked_ns == now_ns
       self.switchback_receipt = conditional_traffic_candidate(
         CS, self.switchback_button_tracker, self.params, self.switchback_settings_owner,
-        self.CP, self.sm, now_ns=now_ns, media=media_observation, action=7)
+        self.CP, self.sm, now_ns=now_ns, media=media_observation, action=7,
+        media_buttons=media_map.buttons if map_current else None, media_map_captured=map_current)
     if consumed is not None:
       self.slc_receipts.append(('confirmationAccept' if consumed.button == 'accel' else 'confirmationReject',
                                 consumed, 0.0, 0.0, now_ns))
@@ -901,6 +894,10 @@ class Car:
   def aol_cancel_source(self, CS, now_ns: int) -> int:
     """Bind Cancel to this parsed CAN batch and its local monotonic receipt."""
     observation = getattr(self, '_aol_can_observation', None)
+    if self.CP.brand == 'volkswagen':
+      from opendbc.car import Bus
+      from openpilot.starpilot.car.volkswagen.aol import cancel_source
+      return cancel_source(self.CP, CS, self.CI.can_parsers[Bus.pt], observation, now_ns)
     if getattr(getattr(self, 'CP', None), 'brand', '') == 'honda' and qualified_honda_stock_aol(self.CP, marked_only=True):
       from opendbc.car import Bus
       parser = self.CI.can_parsers[Bus.pt]
@@ -1122,9 +1119,13 @@ class Car:
       if self.aol_card_intent is not None:
         allowed_latch, pause_lateral, pause_longitudinal = self.aol_card_intent.output(CS)
         lateral_armed = self.aol_card_intent.allowed_latch
+      intent_deadline_ns = int(cs_send.logMonoTime) + 200_000_000
+      publication = (getattr(self.aol_card_intent, 'intent_publication', None) if self.CP.brand == 'volkswagen' else None)
+      if publication is not None:
+        allowed_latch, pause_lateral, pause_longitudinal, lateral_armed, intent_deadline_ns = publication(CS, int(cs_send.logMonoTime))
       intent_msg.aolIntentWire = encode_intent(IntentState(
         self.slc_producer_session, self.aol_sequence, int(cs_send.logMonoTime), int(cs_send.logMonoTime),
-        int(cs_send.logMonoTime) + 200_000_000, allowed_latch, pause_lateral, pause_longitudinal, self.aol_qualified, lateral_armed,
+        intent_deadline_ns, allowed_latch, pause_lateral, pause_longitudinal, self.aol_qualified, lateral_armed,
         bool(getattr(self.aol_card_intent, "optional_set_release_policy", lambda: False)())))
       self.pm.send('aolIntentWire', intent_msg)
 
@@ -1996,6 +1997,7 @@ class Car:
         self.aol_card_intent.settings = read_settings(self.params)
       now = time.monotonic()
       if now >= next_cruise_read:
+        self.v_cruise_helper.low_speed_on_set = self.params.get_bool(LOW_SPEED_CRUISE_ON_SET)
         self.slc_requested_configuration = self.read_slc_configuration()
         if getattr(self, 'slc_transport_available', False):
           self.slc_match_on_engage = self.read_slc_match_on_engage()

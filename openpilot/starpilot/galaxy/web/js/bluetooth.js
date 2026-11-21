@@ -1,3 +1,4 @@
+import { WikiHelp } from './wiki-help.js'
 import { GxState } from "./state.js"
 import { GxNotice } from "./notice.js"
 import { reportSave } from "./save-feedback.js"
@@ -166,7 +167,7 @@ export class BluetoothFeed {
 }
 
 export const BluetoothPage = {
-  components: { GxState, GxNotice, ControllersPage, GxDialog },
+  components: { WikiHelp, GxState, GxNotice, ControllersPage, GxDialog },
   props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true } },
   data: () => ({ status: null, busy: false, error: "", pairValue: "", now: Date.now(), claimAt: Date.now(), forgetting: null }),
   mounted() {
@@ -212,7 +213,7 @@ export const BluetoothPage = {
   template: `
     <section class="gx-driving" aria-label="Bluetooth" :inert="busy" :aria-busy="busy || undefined">
       <header class="gx-settings__header gx-page-header"><div><h2>Bluetooth</h2>
-        <p>View, pair and manage nearby and saved devices.</p></div></header>
+        <p>View, pair and manage nearby and saved devices.</p></div><WikiHelp /></header>
       <GxState v-if="mode !== 'local'">Bluetooth requires the device. No radio was checked in preview.</GxState>
       <template v-else>
         <GxNotice tone="danger" v-if="error">{{ error }}</GxNotice>

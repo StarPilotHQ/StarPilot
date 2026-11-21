@@ -1,4 +1,5 @@
 import datetime
+import time
 from pathlib import Path
 
 MIN_DATE = datetime.datetime(year=2025, month=2, day=21)
@@ -14,3 +15,13 @@ def min_date():
 
 def system_time_valid():
   return min_date() < datetime.datetime.now() < MAX_DATE
+
+_next_tzset = 0.
+
+def refresh_local_timezone(interval=300.):
+  # Running processes only see a changed /etc/localtime after tzset().
+  global _next_tzset
+  now = time.monotonic()
+  if now >= _next_tzset:
+    _next_tzset = now + interval
+    time.tzset()

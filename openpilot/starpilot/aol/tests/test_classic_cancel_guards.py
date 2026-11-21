@@ -91,6 +91,7 @@ def test_sonata_cancel_source_requires_current_real_parser_batch(role):
   observed = state.as_reader().as_builder() if role == 'foreign_state' else state
   receipt = now - 30_000_001 if role == 'expired_receipt' else now
   caller = Car.__new__(Car)
+  caller.CP = cp
   caller.CI = ci
   caller._aol_can_observation = (observed, receipt, now, now)
   assert (caller.aol_cancel_source(state, now) == now) == (role == 'marked')

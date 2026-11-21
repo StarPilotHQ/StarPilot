@@ -6,7 +6,8 @@ physical-speed coordinates once. Accepting a limit never rewrites SET. Native PC
 cruise owns its setpoint; non-PCM software cruise and the dedicated Subaru software
 cruise mode retain their existing owners. Automatic SLC requires system longitudinal
 control. Lead, curve, stop and actuator safety constraints retain their existing owners.
-SLC works with either the StarPilot or upstream longitudinal planner.
+SLC works with either the StarPilot or upstream longitudinal planner. The StarPilot planner
+eases braking after an overshoot past the cap; the upstream planner keeps its native response.
 
 ## New limits and adoption
 

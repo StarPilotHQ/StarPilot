@@ -574,7 +574,7 @@ class JoiningLease(FakeLease):
     self.held = True
     return True
 
-  def drive_join(self, allowed, before=lambda: True, after=lambda: None):
+  def drive_join(self, allowed, before=lambda: True, after=lambda: None, cancelled=lambda: False):
     JoiningLease.calls.append((allowed("parked-only"), allowed("anywhere"), before()))
     after()
     return JoiningLease.outcomes.pop(0)
@@ -608,10 +608,11 @@ def test_a_hold_that_runs_out_joins_an_allowed_network_with_the_hotspot_paused(m
   lease, log, hotspot = make_joining(["none", "joined"], {"parkedOnly": ["parked-only"], "pauseHotspot": True})
   lease.hold_home_wifi()
   deadline = time.monotonic() + 2
-  while "wifi_drive_join" not in log.names():
+  while log.names().count("wifi_drive_join") < 2:
     assert time.monotonic() < deadline
     time.sleep(0.01)
   assert JoiningLease.calls == [(False, True, True)] * 2 and hotspot.events == ["pause", "clear"] * 2
+  assert [fields["outcome"] for event, fields in log.events if event == "wifi_drive_join"] == ["none", "joined"]
   assert lease.home is not None and lease._home_retry is None  # still held: wlan0 never hunts by itself during a drive
   assert "wifi_home_released" not in log.names()
   lease.hold_home_wifi()  # the joined network was lost again
@@ -620,7 +621,7 @@ def test_a_hold_that_runs_out_joins_an_allowed_network_with_the_hotspot_paused(m
   assert lease.home is None and "wifi_home_released" in log.names()
 
 
-def test_a_failed_or_stalled_drive_join_backs_off_and_never_pauses_the_hotspot_when_switched_off(monkeypatch):
+def test_a_failed_drive_join_retries_soon_and_never_pauses_the_hotspot_when_switched_off(monkeypatch):
   monkeypatch.setattr(car_interface, "HOME_RETRY_S", 0.02)
   lease, log, hotspot = make_joining(["failed"], {"parkedOnly": [], "pauseHotspot": False})
   lease.hold_home_wifi()
@@ -629,7 +630,18 @@ def test_a_failed_or_stalled_drive_join_backs_off_and_never_pauses_the_hotspot_w
     assert time.monotonic() < deadline
     time.sleep(0.01)
   time.sleep(0.01)
-  assert lease._home_holds == 2 and hotspot.events == [] and JoiningLease.calls == [(True, True, True)]
+  assert lease._home_holds == 1 and hotspot.events == [] and JoiningLease.calls == [(True, True, True)]
+  assert lease._home_retry.interval == car_interface.HOME_CHECK_S
   lease.stop_home_join()  # a stall while already held stops the join instead of taking a second hold
   assert lease._join_stalled and log.names().count("wifi_home_held") == 1
+  lease.release(restore=True)
+
+
+def test_drive_join_logs_only_outcome_changes(monkeypatch):
+  lease, log, _ = make_joining(["failed", "failed", "none", "failed"], {"pauseHotspot": False})
+  lease.home = JoiningLease(log, "wlan0")
+  monkeypatch.setattr(lease, "_arm", lambda seconds: None)
+  for _ in range(4):
+    lease._retry_home()
+  assert [fields["outcome"] for event, fields in log.events if event == "wifi_drive_join"] == ["failed", "none", "failed"]
   lease.release(restore=True)

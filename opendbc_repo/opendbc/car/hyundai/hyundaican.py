@@ -1,9 +1,36 @@
+import math
+
+from opendbc.car import structs
 from opendbc.car.hyundai.hyundaicanfd import CanBus
-from opendbc.car.hyundai.g90_lead import eligible as g90_lead_eligible
+from opendbc.car.hyundai.g90_lead import CanLeadData, eligible as g90_lead_eligible
 from opendbc.car.crc import CRC8J1850, mk_crc8_fun
 from opendbc.car.hyundai.values import is_blended, CAR, HyundaiFlags
 
 hyundai_checksum = mk_crc8_fun(CRC8J1850, init_crc=0xFD, xor_out=0xDF)
+
+_LEGACY_FCA_RADAR_FW = b"\xf1\x00OSev SCC F-CUP      1.00 1.01 99110-K4000         "
+_LEGACY_FCA_REQUIRED = int(HyundaiFlags.EV | HyundaiFlags.USE_FCA)
+_LEGACY_FCA_EXCLUDED = int(HyundaiFlags.CANFD | HyundaiFlags.CAMERA_SCC)
+
+
+def uses_legacy_fca11(CP):
+  if (CP.brand != 'hyundai' or CP.carFingerprint != CAR.HYUNDAI_KONA_EV or
+      not CP.openpilotLongitudinalControl or CP.passive or CP.dashcamOnly or CP.notCar or
+      CP.flags & _LEGACY_FCA_REQUIRED != _LEGACY_FCA_REQUIRED or CP.flags & _LEGACY_FCA_EXCLUDED or is_blended(CP)):
+    return False
+  versions = []
+  for fw in CP.carFw:
+    if fw.ecu == structs.CarParams.Ecu.fwdRadar:
+      if fw.address != 0x7d0 or fw.subAddress != 0:
+        return False
+      version = bytes(fw.fwVersion)
+      if version.startswith(b'\xf1\x00'):
+        versions.append(version)
+  return bool(versions) and all(version == _LEGACY_FCA_RADAR_FW for version in versions)
+
+
+def _legacy_fca11_checksum(data):
+  return -sum(sum(divmod(byte, 16)) for byte in data) & 0xF
 
 
 def create_lkas11(packer, frame, CP, apply_torque, steer_req,
@@ -132,9 +159,12 @@ def create_lfahda_mfc(packer, enabled, *, lfa_icon=None):
   return packer.make_can_msg("LFAHDA_MFC", 0, values)
 
 
-def create_acc_commands(packer, enabled, accel, upper_jerk, idx, hud_control, set_speed, stopping, long_override, use_fca, CP, *, lead_data=None):
+def create_acc_commands(packer, enabled, accel, upper_jerk, idx, hud_control, set_speed, stopping, long_override, use_fca, CP, *,
+                        lead_data=None, legacy_fca11=False, legacy_scc14=False):
   commands = []
-  if lead_data is not None and not g90_lead_eligible(CP):
+  if g90_lead_eligible(CP):
+    lead_data = lead_data or CanLeadData()
+  else:
     lead_data = None
 
   scc11_values = {
@@ -180,6 +210,12 @@ def create_acc_commands(packer, enabled, accel, upper_jerk, idx, hud_control, se
     "ACCMode": 2 if enabled and long_override else 1 if enabled else 4, # stock will always be 4 instead of 0 after first disengage
     "ObjGap": 2 if hud_control.leadVisible else 0, # 5: >30, m, 4: 25-30 m, 3: 20-25 m, 2: < 20 m, 0: no lead
   }
+  if legacy_scc14:
+    legacy_request = ((int.from_bytes(scc12_dat, "little") >> 24) & 0x7FF) * 0.01 - 10.23
+    band = (legacy_request + 4.14) / 0.0986
+    scc14_values.update(ComfortBandLower=max(0, min(63, math.floor(band))) * 0.02,
+                        ComfortBandUpper=max(0, min(63, math.ceil(band))) * 0.02,
+                        JerkUpperLimit=upper_jerk * 0.1)
   if lead_data is not None:
     scc14_values.update(ObjGap=lead_data.object_gap, ObjDistStat=lead_data.object_rel_gap)
   commands.append(packer.make_can_msg("SCC14", 0, scc14_values))
@@ -195,8 +231,14 @@ def create_acc_commands(packer, enabled, accel, upper_jerk, idx, hud_control, se
       "FCA_DrvSetStatus": 1,
       "FCA_Status": 1,  # AEB disabled
     }
-    fca11_dat = packer.make_can_msg("FCA11", 0, fca11_values)[1]
-    fca11_values["CR_FCA_ChkSum"] = hyundai_checksum(fca11_dat[:7])
+    if legacy_fca11:
+      fca11_values["CR_FCA_Alive"] = 0
+      fca11_values["CR_FCA_ChkSum"] = idx % 0xF
+      fca11_dat = packer.make_can_msg("FCA11", 0, fca11_values)[1]
+      fca11_values["CR_FCA_ChkSum"] |= _legacy_fca11_checksum(fca11_dat) << 4
+    else:
+      fca11_dat = packer.make_can_msg("FCA11", 0, fca11_values)[1]
+      fca11_values["CR_FCA_ChkSum"] = hyundai_checksum(fca11_dat[:7])
     commands.append(packer.make_can_msg("FCA11", 0, fca11_values))
 
   return commands

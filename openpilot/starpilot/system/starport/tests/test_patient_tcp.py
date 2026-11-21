@@ -17,14 +17,18 @@ def fake_supervisor(clock, patient):
                          _track=lambda sock: sock, log=lambda name, **v: logs.append((name, v))), waits, logs
 
 
-def run(monkeypatch, patient, error, succeed_after=None):
+def run(monkeypatch, patient, error, succeed_after=None, open_port=None):
   clock = Clock()
   monkeypatch.setattr(sup.time, "monotonic", lambda: clock.now)
   calls = []
   class Sock:
     def setsockopt(self, *a):
       pass
-  def connect(*a, **k):
+  def connect(address, *a, **k):
+    if address[1] == open_port:
+      return Sock()
+    if address[1] != 1234:
+      raise REFUSED
     calls.append(clock.now)
     if succeed_after is not None and len(calls) > succeed_after:
       return Sock()
@@ -34,27 +38,39 @@ def run(monkeypatch, patient, error, succeed_after=None):
   result = SimpleNamespace(endpoint=SimpleNamespace(ip="192.168.1.101", port=1234))
   lease = SimpleNamespace(local_ip="")
   try:
-    return sup.Supervisor._connect_tcp(self, result, lease), calls
+    return sup.Supervisor._connect_tcp(self, result, lease), calls, logs
   except RuntimeError:
-    return None, calls
+    return None, calls, logs
 
 
 REFUSED = ConnectionRefusedError(111, "Connection refused")
 
 
 def test_default_gives_up_after_the_usual_attempts(monkeypatch):
-  sock, calls = run(monkeypatch, False, REFUSED)
+  sock, calls, _ = run(monkeypatch, False, REFUSED)
   assert sock is None and len(calls) == sup.TCP_ATTEMPTS
 
 
 def test_patient_keeps_trying_a_refused_connection_for_a_minute(monkeypatch):
-  sock, calls = run(monkeypatch, True, REFUSED)
+  sock, calls, _ = run(monkeypatch, True, REFUSED)
   assert sock is None and len(calls) > sup.TCP_ATTEMPTS
   assert sup.PATIENT_TCP_SECONDS <= calls[-1] - calls[0] + 3.0 <= sup.PATIENT_TCP_SECONDS + 6.0
-  sock, calls = run(monkeypatch, True, REFUSED, succeed_after=15)
+  sock, calls, _ = run(monkeypatch, True, REFUSED, succeed_after=15)
   assert sock is not None and len(calls) == 16
 
 
 def test_patient_does_not_stretch_other_errors(monkeypatch):
-  sock, calls = run(monkeypatch, True, TimeoutError("timed out"))
+  sock, calls, _ = run(monkeypatch, True, TimeoutError("timed out"))
   assert sock is None and len(calls) == sup.TCP_ATTEMPTS
+
+
+def test_refused_advertised_port_falls_back_to_the_standard_port(monkeypatch):
+  sock, calls, logs = run(monkeypatch, False, REFUSED, open_port=sup.STANDARD_AA_PORT)
+  assert sock is not None and len(calls) == 1
+  assert ("tcp_port_fallback", {"advertised": 1234, "port": sup.STANDARD_AA_PORT}) in logs
+
+
+def test_a_timed_out_advertised_port_also_falls_back(monkeypatch):
+  sock, calls, logs = run(monkeypatch, False, TimeoutError("timed out"), open_port=sup.STANDARD_AA_PORT)
+  assert sock is not None and len(calls) == 1
+  assert ("tcp_port_fallback", {"advertised": 1234, "port": sup.STANDARD_AA_PORT}) in logs

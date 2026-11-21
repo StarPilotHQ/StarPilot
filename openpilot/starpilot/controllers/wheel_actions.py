@@ -297,7 +297,7 @@ class WheelConsumer:
     self.sequence = 0
     self.last_heartbeat = 0
 
-  def accept(self, event, params, cp, sm, *, now_ns):
+  def accept(self, event, params, cp, sm, *, now_ns, consume=True):
     try:
       if not event.valid or str(event.slcCruiseEvent.kind) != "wheelAction" or not eligible(cp):
         return None
@@ -336,16 +336,17 @@ class WheelConsumer:
         mapping = capture(params)
         if mapping is None or mapping[key] != action:
           return None
-      if session != self.session:
-        if self.session is not None:
-          if len(self.retired) >= 8:
-            return None
-          self.retired.add(self.session)
-        self.session, self.sequence = session, 0
-      if wire.sequence <= self.sequence:
+      if session != self.session and self.session is not None and len(self.retired) >= 8:
         return None
-      self.sequence = int(wire.sequence)
-      self.last_heartbeat = observed
-      return WheelCommand(session, self.sequence, observed, drive, source, key, action)
+      if wire.sequence <= (self.sequence if session == self.session else 0):
+        return None
+      if consume:
+        if session != self.session:
+          if self.session is not None:
+            self.retired.add(self.session)
+          self.session = session
+        self.sequence = int(wire.sequence)
+        self.last_heartbeat = observed
+      return WheelCommand(session, int(wire.sequence), observed, drive, source, key, action)
     except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
       return None

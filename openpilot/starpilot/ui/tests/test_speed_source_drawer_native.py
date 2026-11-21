@@ -99,7 +99,7 @@ class DrawerNativeTest(unittest.TestCase):
     doc['speedSourcesCard'] = True
     self.assertEqual(widget_size(doc, 'large', 'cruise_limits'), (WIDTH, SOURCE_TOP + GAP + SOURCE_ROW_HEIGHT))
     self.assertEqual(customization_metadata()['profiles']['large']['widgets']['cruise_limits']['sourcesExtent'],
-                     {'inline': SOURCE_TOP - CARD_HEIGHT + SOURCE_ROW_HEIGHT, 'card': SOURCE_TOP - CARD_HEIGHT + GAP + SOURCE_ROW_HEIGHT, 'actionGap': GAP})
+                     {'inline': SOURCE_TOP - CARD_HEIGHT + SOURCE_ROW_HEIGHT, 'card': SOURCE_TOP - CARD_HEIGHT + GAP + SOURCE_ROW_HEIGHT})
 
   def test_expired_producer_and_old_drive_transport_cannot_supply_readings(self):
     sm, cp = replay_inputs()

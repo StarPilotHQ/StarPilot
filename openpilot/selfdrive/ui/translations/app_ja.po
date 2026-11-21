@@ -23486,3 +23486,30 @@ msgstr "信号での停止動作を改善し、検出した一時停止標識で
 msgid "Enhanced Stops"
 msgstr "停止機能の強化"
 
+msgid "Blind Spot Camera & Preview"
+msgstr "死角カメラとプレビュー"
+
+msgid "Blind Spot Camera & Preview saved settings"
+msgstr "死角カメラとプレビューの保存済み設定"
+
+msgid "Setup & Settings"
+msgstr "セットアップと設定"
+
+msgid "Show onroad · Big & Small UI"
+msgstr "走行中に表示 · 大画面・小画面UI"
+
+msgid "Speed & longitudinal"
+msgstr "速度と加減速制御"
+
+msgid "Spotify & Phone Audio"
+msgstr "Spotifyとスマートフォンの音声"
+
+msgid "Steering & Torque"
+msgstr "ステアリングとトルク"
+
+msgid "Steering & buttons"
+msgstr "ステアリングとボタン"
+
+msgid "Storage & Account"
+msgstr "ストレージとアカウント"
+

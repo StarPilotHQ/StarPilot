@@ -328,7 +328,7 @@ def test_supervisor_records_build_at_session_start(monkeypatch):
   sup._count_dedicated = lambda _: None  # ty: ignore[invalid-assignment]  # test double
   sup._release_phone = lambda: None  # ty: ignore[invalid-assignment]  # test double
   sup._run(1)
-  assert records[0]["software"] == {"commit": "session-build", "branch": "session-branch"}
+  assert records[0]["software"] == {"repo": "unknown", "commit": "session-build", "branch": "session-branch"}
 
 
 HANDSHAKE_FAILED = [

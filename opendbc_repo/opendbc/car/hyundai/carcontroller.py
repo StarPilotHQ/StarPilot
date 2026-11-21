@@ -27,6 +27,7 @@ from opendbc.car.hyundai.ray_pedal import create_ray_pedal_command, ray_pedal_ga
 from opendbc.car.hyundai.ioniq6_longitudinal import Ioniq6LongitudinalPolicy
 from opendbc.car.hyundai.ioniq6_bsm import BlindspotStatus
 from opendbc.car.hyundai.canfd_dash_icons import CanFDDashIcons
+from opendbc.car.hyundai.canfd_lfa_status import preserves_stock_lfa
 from opendbc.car.hyundai.classic_scc_aol import qualified as qualified_classic_stock_aol
 from opendbc.car.hyundai.classic_long_aol import AOL_EXPERIENCE, qualified as qualified_classic_long_aol
 from opendbc.car.hyundai.canfd_stock_aol import qualified as qualified_canfd_stock_aol, qualified_long as qualified_canfd_long_aol
@@ -116,6 +117,7 @@ class CarController(CarControllerBase):
     self.CAN = CanBus(CP)
     self.params = CarControllerParams(CP)
     self.packer = CANPacker(dbc_names[Bus.pt])
+    self.legacy_fca11 = hyundaican.uses_legacy_fca11(CP)
     self.angle_limit_counter = 0
     self.angle_vm = VehicleModel(CP) if CP.flags & HyundaiFlags.CANFD_ANGLE_STEERING else None
     self.apply_angle_last = 0.0
@@ -167,6 +169,7 @@ class CarController(CarControllerBase):
                                   not CP.openpilotLongitudinalControl and CP.pcmCruise and
                                   int(CP.safetyConfigs[-1].safetyParam) in (0x0811, 0x0891))
     self.canfd_torque_aol_status = (qualified_canfd_stock_aol(CP) or qualified_canfd_long_aol(CP))
+    self.ccnc_fault_ownership_required = preserves_stock_lfa(CP)
     self.canfd_dash_icons = CanFDDashIcons() if ioniq6_status or self.canfd_torque_aol_status else None
     self.classic_dash_icons = CanFDDashIcons() if classic_aol_dash_enabled(CP) else None
     self.classic_lfa_icon = None
@@ -390,7 +393,8 @@ class CarController(CarControllerBase):
       use_fca = self.CP.flags & HyundaiFlags.USE_FCA.value
       can_sends.extend(hyundaican.create_acc_commands(self.packer, CC.enabled, accel, jerk, int(self.frame / 2),
                                                       hud_control, set_speed_in_units, stopping,
-                                                      CC.cruiseControl.override, use_fca, self.CP, lead_data=lead_data))
+                                                      CC.cruiseControl.override, use_fca, self.CP, lead_data=lead_data, legacy_fca11=self.legacy_fca11,
+                                                      legacy_scc14=self.legacy_fca11))
 
     # 20 Hz LFA MFA message
     if self.frame % 5 == 0 and (self.CP.flags & HyundaiFlags.SEND_LFA.value or
@@ -417,6 +421,7 @@ class CarController(CarControllerBase):
     _projection = self.learning_projection_observer
     can_sends = []
     stock_popup_owned = False
+    stock_ccnc_owned = False
     canfd_lfa_icon = (self.canfd_dash_icons.update(self.frame, CC.enabled, CC.latActive)
                        if self.canfd_dash_icons is not None else None)
 
@@ -546,6 +551,9 @@ class CarController(CarControllerBase):
         stock_owned_status = stock_source.owns_display_status(apply_steer_req, clock_boot_ns(), healthy=display_healthy)
         stock_popup_owned = stock_source.owns_disengage_popup(apply_steer_req, clock_boot_ns(), healthy=display_healthy,
                                                             qualified_warning=stock_owned_status)
+        if ccnc_non_lka:
+          stock_ccnc_owned = stock_source.owns_ccnc_fault_status(clock_boot_ns(), healthy=display_healthy,
+                                                               qualified_warning=stock_owned_status)
       damping_source = getattr(CS, "stock_lkas_damping", None)
       can_sends.extend(hyundaicanfd.create_steering_messages(self.packer, self.CP, self.CAN,
                                                             steering_status_active, apply_steer_req, apply_torque,
@@ -584,7 +592,8 @@ class CarController(CarControllerBase):
           can_sends.extend(hyundaicanfd.create_ccnc(self.packer, self.CAN, self.CP.openpilotLongitudinalControl,
                                                     CC.enabled, hud_control, CC.leftBlinker, CC.rightBlinker,
                                                     CS.ccnc_161.copy(), CS.ccnc_162.copy(), CS.ccnc_1b5 if support_current else None,
-                                                    CS.is_metric, CS.out, CS.out.cruiseState.available, CC.latActive))
+                                                    CS.is_metric, CS.out, CS.out.cruiseState.available, CC.latActive,
+                                                    owned_lfa_status=(stock_ccnc_owned if self.ccnc_fault_ownership_required else None)))
           self.last_ccnc_161_ts_ns = CS.ccnc_161_ts_ns
           self.last_ccnc_162_ts_ns = CS.ccnc_162_ts_ns
       else:

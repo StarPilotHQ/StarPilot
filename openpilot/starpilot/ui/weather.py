@@ -19,6 +19,7 @@ CODES = frozenset((0, 1, 2, 3, 45, 48, 51, 53, 55, 56, 57, 61, 63, 65, 66, 67,
                    71, 73, 75, 77, 80, 81, 82, 85, 86, 95, 96, 99))
 REFRESH_SECONDS = 600
 MAX_AGE_SECONDS = 1800
+RETRY_SECONDS = 60
 
 
 def valid_location(point) -> bool:
@@ -91,7 +92,8 @@ class WeatherClient:
       with self._lock:
         self._reading, self._position, self._received = reading, point, self._clock()
     except (OSError, ValueError, TypeError, KeyError, OverflowError):
-      pass
+      with self._lock:
+        self._next_request = self._clock() + RETRY_SECONDS
     finally:
       with self._lock:
         self._running = False

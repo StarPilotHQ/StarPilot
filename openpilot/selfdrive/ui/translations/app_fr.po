@@ -23490,3 +23490,30 @@ msgstr "Améliore les arrêts aux feux et permet l’arrêt automatique aux pann
 msgid "Enhanced Stops"
 msgstr "Arrêts améliorés"
 
+msgid "Blind Spot Camera & Preview"
+msgstr "Caméra d’angle mort et aperçu"
+
+msgid "Blind Spot Camera & Preview saved settings"
+msgstr "Réglages enregistrés de la caméra d’angle mort et de l’aperçu"
+
+msgid "Setup & Settings"
+msgstr "Configuration et réglages"
+
+msgid "Show onroad · Big & Small UI"
+msgstr "Afficher en conduite · Grande et petite interface"
+
+msgid "Speed & longitudinal"
+msgstr "Vitesse et contrôle longitudinal"
+
+msgid "Spotify & Phone Audio"
+msgstr "Spotify et audio du téléphone"
+
+msgid "Steering & Torque"
+msgstr "Direction et couple"
+
+msgid "Steering & buttons"
+msgstr "Direction et boutons"
+
+msgid "Storage & Account"
+msgstr "Stockage et compte"
+

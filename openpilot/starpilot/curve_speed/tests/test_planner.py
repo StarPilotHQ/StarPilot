@@ -35,7 +35,13 @@ class TestCurvePlanner(unittest.TestCase):
           before = message_bytes(envelopes)
           slc = CruiseCeiling(slc_speed, ACTIVE) if slc_speed is not None else None
           current.update(sm, cruise_ceiling=slc, curve_ceiling=CurveCeiling(curve_speed, stamp))
-          expected.update(sm, cruise_ceiling=CruiseCeiling(min(curve_speed, slc_speed or 100), ACTIVE))
+          if selected:
+            reference, _ = messages()
+            reference['carControl'].longActive = True
+            reference['carState'].vCruise = curve_speed * 3.6
+            expected.update(Inputs(reference, stamp))
+          else:
+            expected.update(sm, cruise_ceiling=slc)
           self.assertEqual(message_bytes(envelopes), before)
           self.assertEqual(snapshot(current), snapshot(expected))
           self.assertEqual(current.last_curve_ceiling_status, 'selected' if selected else 'not_binding')

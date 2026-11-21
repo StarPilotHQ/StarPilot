@@ -18,9 +18,9 @@ from openpilot.starpilot.flm.offroad_cache import AssessmentCache, MAX_CHECKPOIN
 from openpilot.starpilot.flm.offroad_checks import qualify
 from openpilot.starpilot.flm.offroad_processor import analyze_latest, CompletedAssessment
 from openpilot.starpilot.flm.offroad_route import latest_route, logger_marker, route_inventory, source_revisions, RouteInputError, LOCAL_ID
-from openpilot.starpilot.flm.offroad_runtime import current_configuration as _current_configuration
+from openpilot.starpilot.flm.offroad_runtime import current_configuration as _current_configuration, VehicleIdentityUnavailable
 from openpilot.starpilot.flm.offroad_store import RouteScope, RouteStorage, KEY, MAX_BYTES, MAX_ROUTE_STEP, NAMESPACE
-from openpilot.starpilot.flm.offroad_surface import REVISION
+from openpilot.starpilot.flm.offroad_surface import REVISION, current_revision, revision_for_manual
 from openpilot.starpilot.flm.offroad_tracking import TrackingEstimate, compare_observed
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.flm.log_decode import LogDecodeCancelled
@@ -43,6 +43,7 @@ SETTINGS = tuple(
       'OpenpilotEnabledToggle',
       'SafeMode',
       'TurnAssist',
+      'SteeringDelayPreferences',
       *LEGACY_KEYS,
       KEY,
     )
@@ -85,6 +86,11 @@ def _current_scope(cp, params):
 
 
 def recorded_source_contract(cp, metadata, scope, params):
+  from openpilot.starpilot.flm.manual_coordinates import selected_manual
+  expected_revision = revision_for_manual(selected_manual(cp, params))
+  recorded_revision = metadata.get('route_revision', '')
+  if (recorded_revision and recorded_revision != expected_revision) or (not recorded_revision and expected_revision != REVISION):
+    return None
   if metadata['route_scope'] == scope.key():
     return {'kind': 'same_recorded_scope', 'current_scope': scope.key()}
   if not metadata['route_scope']:
@@ -122,7 +128,7 @@ def _recorded_values(metadata):
   pairs = metadata['route_values']
   if not pairs:
     return dict(ZERO) if not metadata['route_revision'] else None
-  if metadata['route_revision'] != REVISION or tuple(n for n, _ in pairs) != tuple(NAMES):
+  if not current_revision(metadata['route_revision']) or tuple(n for n, _ in pairs) != tuple(NAMES):
     return None
   return dict(pairs)
 
@@ -518,6 +524,7 @@ def newer_original_refusal(cache, receipt, scope, values):
 def recent_findings(cache, results, display):
   """Keep compatible provisional findings; never merge save decisions or evidence counts."""
   from openpilot.starpilot.flm.offroad_surface import route_bounds, route_values
+  from openpilot.starpilot.flm.review_settings import same_review_controller
 
   latest = results[0]
   if latest.get('status') not in ('collecting', 'ready_for_next_drive', 'accepted_after_drive', 'retained_after_drive', 'rolled_back'):
@@ -538,27 +545,40 @@ def recent_findings(cache, results, display):
     stamp = receipt.get('last_intact_wall_ns') if partial else receipt.get('completed_wall_ns')
     if type(stamp) is not int or stamp <= 0:
       raise ValueError('Original recent-drive chronology required')
-    return scope, partial, stamp
+    vehicle = assessment.get('vehicle', value.get('vehicle'))
+    if vehicle is not None and value.get('vehicle') != vehicle:
+      raise ValueError('Recent finding vehicle fingerprint changed')
+    return scope, partial, stamp, assessment.get('review_settings_sha256'), vehicle
 
   try:
-    current_scope, _, _ = source(latest)
-    current = route_values(latest['configured_values']) if 'configured_values' in latest else (
-      ZERO if latest.get('saved_adjustments') == 0 else None
-    )
+    current_scope, _, _, current_settings, current_vehicle = source(latest)
+    if 'configured_values' in latest:
+      current = route_values(latest['configured_values'])
+    elif 'review_values' in latest:
+      current = route_values(latest['review_values'])
+    else:
+      current = ZERO if latest.get('saved_adjustments') == 0 else None
   except (KeyError, OSError, TypeError, ValueError):
     return display
   if current is None:
     return display
+
+  def is_compatible(scope, settings, vehicle):
+    if current_vehicle is not None and vehicle is not None and vehicle != current_vehicle:
+      return False
+    return scope == current_scope or (type(settings) is str and len(settings) == 64 and not settings.strip('0123456789abcdef')
+      and settings == current_settings and same_review_controller(scope, current_scope, same_fingerprint=bool(vehicle and vehicle == current_vehicle)))
+
   compatible = []
   for index, value in enumerate(results[:MAX_CHECKPOINTS + 1]):
     try:
-      scope, partial, stamp = source(value)
+      scope, partial, stamp, settings, vehicle = source(value)
     except (KeyError, OSError, TypeError, ValueError):
       continue
-    if scope == current_scope:
+    if is_compatible(scope, settings, vehicle):
       compatible.append((stamp, index, partial, value))
-  found, origins, blocked, seen = {}, {}, set(), set()
-  for _, _, partial, value in sorted(compatible, key=lambda row: (-row[0], row[1])):
+  found, origins, assessments, blocked, seen = {}, {}, {}, set(), set()
+  for _, _, _partial, value in sorted(compatible, key=lambda row: (-row[0], row[1])):
     if value['source_sha256'] in seen:
       continue
     if len(seen) >= MAX_CHECKPOINTS:
@@ -571,8 +591,23 @@ def recent_findings(cache, results, display):
       if type(row) is not dict:
         continue
       name = row.get('parameter')
-      if (name not in NAMES or type(row.get('baseline')) not in (int, float) or row['baseline'] != current[name]
+      if (name not in NAMES or name in latest.get('manual_locked_parameters', ())
+          or type(row.get('baseline')) not in (int, float) or row['baseline'] != current[name]
           or type(row.get('reason')) is not str or len(row['reason']) > 240):
+        continue
+      try:
+        provenance = value.get('recommendation_assessments', ())
+        links = [link for link in provenance if type(link) in (list, tuple) and len(link) == 3 and link[0] == name]
+        if len(links) > 1:
+          continue
+        routes = dict(value.get('recommendation_sources', ()))
+        origin = dict(value, assessment_sha256=links[0][1], source_sha256=links[0][2], completed_route=routes[name]) if links else value
+        if links:
+          origin['partial_drive'] = cache.get(links[0][1])['kind'] == 'partial_assessment'
+        origin_scope, origin_partial, _, origin_settings, origin_vehicle = source(origin)
+        if not is_compatible(origin_scope, origin_settings, origin_vehicle):
+          continue
+      except (KeyError, OSError, TypeError, ValueError):
         continue
       target = row.get('target')
       if target is None or row.get('reason') in (
@@ -588,13 +623,13 @@ def recent_findings(cache, results, display):
       if name in found and (found[name]['target'] - current[name]) * (target - current[name]) < 0:
         blocked.add(name)
       elif name not in found:
-        found[name] = dict(row, reason='partial_drive_provisional_only') if partial else dict(row)
-        origins[name] = value['completed_route']
+        found[name] = dict(row, reason='partial_drive_provisional_only') if origin_partial else dict(row)
+        origins[name] = origin['completed_route']
+        assessments[name] = [name, origin['assessment_sha256'], origin['source_sha256']]
   rows = [found[name] for name in NAMES if name in found and name not in blocked]
-  if rows == display.get('recommendations', []) and all(origins[row['parameter']] == display.get('completed_route') for row in rows):
-    return display
   return dict(display, recommendations=rows, recommendation_count=len(rows),
-              recommendation_sources=[[row['parameter'], origins[row['parameter']]] for row in rows])
+              recommendation_sources=[[row['parameter'], origins[row['parameter']]] for row in rows],
+              recommendation_assessments=[assessments[row['parameter']] for row in rows])
 
 
 def reported_checkpoint(cache, results):
@@ -675,6 +710,7 @@ class OffroadWorker:
     on_analysis=None,
     on_assessment=None,
     on_recommendations=None,
+    on_progress=None,
     prior_provider=None,
     stable_prior_provider=None,
   ):
@@ -690,6 +726,7 @@ class OffroadWorker:
     self.on_analysis = on_analysis
     self.on_assessment = on_assessment
     self.on_recommendations = on_recommendations
+    self.on_progress = on_progress
     self.prior_provider = prior_provider
     self.stable_prior_provider = stable_prior_provider
     self.evidence_bank = None
@@ -699,6 +736,10 @@ class OffroadWorker:
       self.evidence_bank = EvidenceBank(self.cache.directory)
 
   def _history_identity(self, cp):
+    try:
+      scope = self.scope_for(cp, self.params)
+    except VehicleIdentityUnavailable:
+      return None
     settings = []
     for key in SETTINGS:
       if key == KEY:
@@ -707,7 +748,11 @@ class OffroadWorker:
       if not okay:
         raise ValueError('Unreadable evidence history setting')
       settings.append((key, None if raw is None else hashlib.sha256(raw).hexdigest()))
-    return _digest((self.scope_for(cp, self.params).document(), settings))
+    return _digest((scope.document(), settings))
+
+  def _review_settings(self, cp):
+    from openpilot.starpilot.flm.review_settings import review_settings
+    return review_settings(cp, self.params)
 
   def _snapshot(self, route):
     values = []
@@ -716,6 +761,10 @@ class OffroadWorker:
       if not okay:
         raise ValueError('Unreadable automatic tuning setting')
       values.append((key, None if raw is None else hashlib.sha256(raw).hexdigest()))
+    # Registration recovery/change must invalidate an old review checkpoint,
+    # without turning an unreadable optional identity into a corrupt recording.
+    device, readable = read_saved(self.params, 'DongleId', 128)
+    values.append(('device_registration', (readable, None if device is None else hashlib.sha256(device).hexdigest())))
     return _digest((POLICY, self.source_revision, route, source_revisions(self.root, route), values))
 
   def _skip_route(self, route_id, reason):
@@ -763,6 +812,14 @@ class OffroadWorker:
       result.update(recorded)
     if self.evidence_bank is not None:
       result['evidence_revision'] = self.evidence_bank.revision()
+    if 'assessment_sha256' not in result:
+      from openpilot.starpilot.flm.offroad_daemon import REVIEW_FIELDS
+      for checkpoint in reversed(self.cache.checkpoints()):
+        previous = checkpoint['result']
+        review = previous.get('pending_review', previous)
+        if type(review) is dict and 'assessment_sha256' in review and review.get('recommendations'):
+          result['pending_review'] = {key: review[key] for key in (*REVIEW_FIELDS, 'status', 'reason') if key in review}
+          break
     self.cache.checkpoint({'input_fingerprint': fingerprint, 'result': result})
     return result
 
@@ -800,17 +857,31 @@ class OffroadWorker:
     state = {}
 
     def prior(cp):
-      scope = self.scope_for(cp, self.params)
+      try:
+        scope = self.scope_for(cp, self.params)
+      except VehicleIdentityUnavailable as error:
+        scope = None
+        state['review_identity'] = error.review_key
       raw, okay = read_saved(self.params, KEY, MAX_BYTES)
       if not okay:
         raise ValueError('Unreadable automatic tuning history')
-      row = decode(raw).get(NAMESPACE, {}).get(scope.key())
+      row = None if scope is None else decode(raw).get(NAMESPACE, {}).get(scope.key())
       state.update(scope=scope, raw=raw, row=row)
-      return dict(ZERO) if row is None else dict(row['values'])
+      from openpilot.starpilot.flm.manual_coordinates import selected_manual
+      manual = selected_manual(cp, self.params)
+      locked = {} if manual is None else {name: value for name, value in manual.values if name in manual.locked}
+      state['locked'] = locked
+      state['starting'] = {} if manual is None else manual.starting_values
+      current = dict(ZERO) | state['starting'] if row is None else dict(row['values'])
+      if any(current[name] != value for name, value in locked.items()):
+        raise ValueError('Saved automatic map conflicts with manually locked coordinates')
+      return current
 
     if self.on_analysis is not None:
       self.on_analysis()
     options: dict[str, Any] = {} if self.evidence_bank is None else {'evidence_bank': self.evidence_bank, 'history_identity': self._history_identity}
+    if self.on_progress is not None and self.assessor is RECORDED_ASSESSOR:
+      options['on_progress'] = self.on_progress
     if route != latest:
       options['selected_route'] = route
     try:
@@ -835,9 +906,16 @@ class OffroadWorker:
       prior(assessment.cp)
     scope, row, expected = state['scope'], state['row'], state['raw']
 
+    def settings_current():
+      try:
+        current_scope = self.scope_for(assessment.cp, self.params)
+        return scope is not None and current_scope == scope
+      except VehicleIdentityUnavailable as error:
+        return scope is None and error.review_key == state.get('review_identity')
+
     def authorized():
       if not (
-        self.permitted() and self.scope_for(assessment.cp, self.params) == scope
+        self.permitted() and settings_current()
         and logger_marker(self.params) == self.pending_logger and source_revisions(self.root, route) == revisions
         and latest_route(self.params, self.root, permitted=self.permitted, inventory_only=True) == latest
       ):
@@ -871,9 +949,30 @@ class OffroadWorker:
                       partial_segments=[len(assessment.receipt.decoded_segments), len(assessment.receipt.segments)],
                       omitted_segments=[list(row) for row in assessment.receipt.omitted_segments])
     report = assessment.report()
-    report.update(policy=POLICY, current_scope=scope.document(), road_improvement_confirmed=False)
-    current = dict(ZERO) if row is None else dict(row['values'])
+    report.update(policy=POLICY, road_improvement_confirmed=False, vehicle=recorded['vehicle'])
+    if scope is not None:
+      report['current_scope'] = scope.document()
+    locked = state.get('locked', {})
+    current = dict(ZERO) | state.get('starting', {}) if row is None else dict(row['values'])
+    recorded['review_values'] = current
+    review_settings = self._review_settings(assessment.cp)
+    if review_settings is not None:
+      report['review_settings_sha256'] = review_settings
     recorded['recommendations'] = recorded_recommendations(assessment, current, report)
+
+    if scope is None:
+      recommendations = [r for r in recorded['recommendations'] if r['parameter'] not in locked]
+      report['vehicle_identity'] = 'unavailable'
+      result = {**recorded, 'status': 'collecting', 'reason': 'vehicle_identity_unavailable', 'vehicle_identity': 'unavailable',
+                'configuration_changed': False, 'actual_application_proven': False, 'road_improvement_confirmed': False,
+                'saved_adjustments': 0, 'manual_locked_parameters': list(locked), 'recommendations': recommendations,
+                'recommendation_count': len(recommendations),
+                'assessment_sha256': self.cache.put({'kind': 'identity_review', 'assessment': report})}
+      if not authorized() or read_saved(self.params, KEY, MAX_BYTES) != (expected, True):
+        raise RouteInputCancelled('Recording or settings changed before identity-limited review')
+      self.cache.checkpoint({'input_fingerprint': self._snapshot(route), 'result': result})
+      self.pending_failure_data = None
+      return result  # No fit, persistent evidence, trial resolution, profile load or Params write.
 
     choices = []
     for group in assessment.groups:
@@ -1006,7 +1105,8 @@ class OffroadWorker:
 
 
     def recommendations_ready():
-      recorded['recommendations'] = recorded_recommendations(assessment, current, report)
+      recorded['recommendations'] = [r for r in recorded_recommendations(assessment, current, report) if r['parameter'] not in locked]
+      recorded['manual_locked_parameters'] = list(locked)
       if partial:
         for recommendation in recorded['recommendations']:
           if recommendation['target'] is not None:
@@ -1015,6 +1115,8 @@ class OffroadWorker:
         self.on_recommendations(dict(recorded))
 
     recommendations_ready()
+    choices = [(group, cohort, proposal) for group, cohort, proposal in choices
+               if all(proposal['values'][name] == value for name, value in locked.items())]
     if partial:
       recommendations = recorded['recommendations']
       result = {**recorded, 'status': 'collecting', 'reason': 'partial_drive_provisional_only',
@@ -1030,6 +1132,7 @@ class OffroadWorker:
         result['saved_adjustments'] = 0
       if not authorized() or read_saved(self.params, KEY, MAX_BYTES) != (expected, True):
         raise RouteInputCancelled('Partial source or settings changed before checkpoint')
+      result = recent_findings(self.cache, [result, *[r['result'].get('pending_review', r['result']) for r in self.cache.checkpoints()]], result)
       self.cache.checkpoint({'input_fingerprint': self._snapshot(route), 'result': result})
       self.pending_failure_data = None
       return result  # No native fit, trial resolution, evidence-bank insertion or Params write.
@@ -1348,7 +1451,8 @@ class OffroadWorker:
       'recorded_tracking': report.get('recorded_tracking'),
       'skipped_routes': [*self.skipped_routes, *getattr(assessment, 'route_skips', ())][:16],
       'suggestion_count': len(diagnostics) + len(profile_suggestions),
-      'recommendations': recorded_recommendations(assessment, current, report),
+      'recommendations': [r for r in recorded_recommendations(assessment, current, report) if r['parameter'] not in locked],
+      'manual_locked_parameters': list(locked),
       'suggestions': profile_suggestions
       + [
         {'parameter': v['parameter'], 'delta': v['delta'], 'whole_windows': c['whole_windows'], 'qualification': 'controller_native_checks_not_passed'}
@@ -1375,7 +1479,8 @@ class OffroadWorker:
       raise ValueError('Offroad source changed before checkpoint')
     if self.evidence_bank is not None:
       result['evidence_revision'] = self.evidence_bank.revision()
+    result = recent_findings(self.cache, [result, *[r['result'].get('pending_review', r['result']) for r in self.cache.checkpoints()]], result)
     self.cache.checkpoint({'input_fingerprint': self._snapshot(route), 'result': result})
     self.pending_failure_data = None
-    return recent_findings(self.cache, [result, *[row['result'] for row in self.cache.checkpoints()]], result)
+    return result
 

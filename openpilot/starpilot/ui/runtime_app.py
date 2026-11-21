@@ -21,6 +21,8 @@ from openpilot.starpilot.ui.raylib import rl
 import openpilot.cereal.messaging as messaging
 from opendbc.car.structs import car as car_schema
 
+from openpilot.selfdrive.ui.layouts.home import HomeLayoutState
+from openpilot.selfdrive.ui.mici.layouts.home import HOME_PADDING
 from openpilot.selfdrive.ui.layouts.main import MainLayout, MainState
 from openpilot.selfdrive.ui.mici.layouts.main import MiciMainLayout as MiciMainLayout
 from openpilot.starpilot.ui.runtime_compact import StarMiciMainLayout as StarMiciMainLayout
@@ -267,6 +269,7 @@ class StarShellSession:
     self._on_settings: Any = None
     self._on_home: Any = None
     self._on_pairing: Any = None
+    self._on_alerts: Any = None
     self._on_compact_destination: Any = None
     self._on_destination_change: Any = None
     self._request_owner: Any = None
@@ -567,32 +570,45 @@ class StarShellSession:
       wire = event.slcCruiseEvent.wheelAction
       if (int(wire.sourceCarStateMonoTime) > int(ui_state.sm.logMonoTime["carState"]) or
           int(wire.sourceCarControlMonoTime) > int(ui_state.sm.logMonoTime["carControl"])) and now_ns <= int(wire.validUntilMonoTime):
+        if int(wire.actionCode) == 10:
+          self._wheel_pending.appendleft(event)
+          break
         self._wheel_pending.append(event)
         continue
-      command = self._wheel_consumer.accept(event, ui_state.params, ui_state.CP, ui_state.sm, now_ns=now_ns)
+      if int(wire.actionCode) == 10 and any(
+          str(p.slcCruiseEvent.wheelAction.sessionId) != str(wire.sessionId) for p in self._wheel_pending):
+        continue
+      command = self._wheel_consumer.accept(event, ui_state.params, ui_state.CP, ui_state.sm, now_ns=now_ns,
+                                            consume=int(wire.actionCode) != 10)
       if command is None or command.action == 0:
         continue
       authorized = (self._bookmark_authority() if command.action == 8 else
                     self._favorite_authority(allow_personality_notice=command.action == 1))
       if not authorized:
         continue
-      actions = self._native_favorite_actions()
       try:
         if command.action == 1:
+          self._native_favorite_actions()
           if self._wheel_personality is not None:
             self._wheel_personality()
         elif command.action in (5, 7, 8):
           key = {5: EXPERIMENTAL, 6: TRAFFIC, 7: SWITCHBACK, 8: BOOKMARK}[command.action]
-          action = actions.get(key)
+          action = self._native_favorite_actions().get(key)
           if action is not None and action.available and action.invoke is not None:
             action.invoke()
         elif command.action == 10 and self.slc_actions is not None:
           from openpilot.starpilot.ui.onroad_state import SlcActionKind
           state = self._live_slc_message(now_ns)
-          if state is not None and not state.hasPending:
-            self.slc_actions.dispatch(SlcUiRequest(SlcActionKind.ADOPT, str(state.sessionId), int(state.decisionId),
-                                                  int(state.presentationId), float(state.speedLimit)),
-                                      wheel_observed_ns=command.observed_ns)
+          if state is not None and state.hasPending:
+            continue
+          applied = state is not None and self.slc_actions.dispatch(
+            SlcUiRequest(SlcActionKind.ADOPT, str(state.sessionId), int(state.decisionId),
+                         int(state.presentationId), float(state.speedLimit)), wheel_observed_ns=command.observed_ns)
+          if applied:
+            self._wheel_consumer.accept(event, ui_state.params, ui_state.CP, ui_state.sm, now_ns=now_ns)
+          elif now_ns < int(wire.validUntilMonoTime):
+            self._wheel_pending.appendleft(event)
+            break
         elif command.action in (11, 12, 13):
           slot = self.favorites_owner.snapshot().slots[command.action - 11]
           if slot.available and slot.request is not None:
@@ -653,10 +669,11 @@ class StarShellSession:
 
 
   def set_navigation(self, *, on_settings: Any, on_home: Any, on_pairing: Any = None, on_compact_destination: Any = None,
-                     on_destination_change: Any = None) -> None:
+                     on_destination_change: Any = None, on_alerts: Any = None) -> None:
     self._on_settings = on_settings
     self._on_home = on_home
     self._on_pairing = on_pairing
+    self._on_alerts = on_alerts
     self._on_compact_destination = on_compact_destination
     self._on_destination_change = on_destination_change
 
@@ -863,7 +880,8 @@ class StarShellSession:
       position = placement(state.customization, self.profile, key)
       if position["enabled"]:
         width, height = widget_size(state.customization, self.profile, key)
-        camera_positions[side] = Rect(position["x"], position["y"], width, height)
+        shift = (state.viewport_width - 1860) if self.profile == Profile.LARGE and key == "pip_right" else 0
+        camera_positions[side] = Rect(position["x"] + shift, position["y"], width, height)
     status = self.pip_renderer.render(rect, saved.mask, signals, enabled=True,
                                       on_blinker=saved.on_blinker, on_bsm=saved.on_bsm, invert=saved.invert,
                                       placements=camera_positions, **({"submit": submit} if submit is not None else {}))
@@ -1457,12 +1475,6 @@ class StarShellSession:
     self._mode = mode
     if mode == ShellMode.ONROAD:
       snapshot = replace(snapshot, onroad=self.input.onroad.present(snapshot.onroad))
-    if mode == ShellMode.ONROAD and self.slc_actions is not None:
-      observation = snapshot.onroad.speed_limit
-      snapshot = replace(snapshot, onroad=replace(snapshot.onroad, speed_limit=replace(
-        observation, action_feedback=self.slc_actions.feedback(observation))))
-    elif mode != ShellMode.ONROAD and self.slc_actions is not None:
-      self.slc_actions.clear_feedback()
     rendered = getattr(self, "_rendered_settings", None)
     if mode == ShellMode.SETTINGS and self.profile == Profile.LARGE and (rendered is None or rendered[1].selected != snapshot.selected):
       if pane := _FEATURE_SETTINGS_PANES.get(snapshot.selected):
@@ -1547,7 +1559,9 @@ class StarShellSession:
         self._unavailable("experimental shortcut in this context")
       return
     if request.source == "home":
-      if action.kind == HomeActionKind.OPEN_SETTINGS and self._on_settings is not None:
+      if action.kind == HomeActionKind.OPEN_ALERTS and self._on_alerts is not None and self._on_alerts():
+        pass  # on_alerts returns False when no alert is active, so the tap falls through to settings
+      elif action.kind in (HomeActionKind.OPEN_SETTINGS, HomeActionKind.OPEN_ALERTS) and self._on_settings is not None:
         self.selected = Destination.STAR
         self._on_settings()
       elif action.kind == HomeActionKind.OPEN_TOGGLES and self.profile == Profile.LARGE:
@@ -1829,16 +1843,22 @@ class StarShellSession:
 
 
 class StarShellPage(Widget):
-  def __init__(self, session: StarShellSession, mode: ShellMode, *, on_background_tap: Any = None):
+  def __init__(self, session: StarShellSession, mode: ShellMode, *, on_background_tap: Any = None,
+               alerts_pill: Widget | None = None):
     super().__init__()
     self.session, self.mode = session, mode
     self.on_background_tap = on_background_tap
+    self.alerts_pill = alerts_pill
     self._press_pos: tuple[float, float] | None = None
     self._dragged = False
     self._touch_time: float | None = None
 
   def _render(self, rect: rl.Rectangle) -> None:
     self.session.render(self.mode, rect, self._parent_rect)
+    if self.alerts_pill is not None:  # bottom right, where upstream's compact home draws it
+      self.alerts_pill.set_position(rect.x + rect.width - self.alerts_pill.rect.width - HOME_PADDING,
+                                    rect.y + rect.height - self.alerts_pill.rect.height)
+      self.alerts_pill.render()
     if self.mode == ShellMode.ONROAD and self.session.profile == Profile.COMPACT:
       bookmark = self.session.camera_owner._bookmark_icon
       bookmark.set_touch_valid_callback(lambda: self._touch_valid() and abs(self.rect.x) < 1)
@@ -2081,8 +2101,11 @@ class StarMainLayout(MainLayout):
                             software_request=SoftwareRequest, download_label=DownloadLabel)
 
   def _render_main_content(self) -> None:
-    if self._current_mode == MainState.ARABESQUE or self._current_mode == MainState.HOME and ui_state.is_body:
-      super()._render_main_content()
+    on_home = self._current_mode == MainState.HOME
+    if self._current_mode == MainState.ARABESQUE or on_home and (
+        ui_state.is_body or self._home_layout.current_state != HomeLayoutState.HOME):
+      self._update_layout_rects()  # onroad may have left a sidebar-less content rect
+      super()._render_main_content()  # body home, or upstream's offroad alerts / update screen
       return
     rect = self._rect
     if self._current_mode == MainState.ONROAD:
@@ -2096,6 +2119,13 @@ class StarMainLayout(MainLayout):
             MainState.ONROAD: ShellMode.ONROAD}[self._current_mode]
     self.page.mode = mode
     self.page.render(rect)
+    if on_home:
+      # StarPilot draws its own home: keep upstream's alert refresh, header pills and pill taps
+      home = self._home_layout
+      home.set_rect(rl.Rectangle(rect.x + SIDEBAR_WIDTH, rect.y, rect.width - SIDEBAR_WIDTH, rect.height))
+      home._update_state()
+      home._render_notifs()
+      home._process_mouse_events()
 
   def _on_background_tap(self) -> None:
     if self._current_mode == MainState.ONROAD:

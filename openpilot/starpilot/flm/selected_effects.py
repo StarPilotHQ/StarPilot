@@ -345,7 +345,10 @@ def _selected_source(parent):
     policy = getattr(getattr(parent, 'starpilot_extension', None), 'policy', None)
     if getattr(parent, 'flm_surface', None) is not None or getattr(policy, 'surface', None) is not None:
       return None
-    return source if type(source) is ManualEffects else None
+    if type(source) is not ManualEffects:
+      return None
+    from openpilot.starpilot.flm.offroad_runtime import selected_route
+    return selected_route(parent) or source
   if getattr(parent, 'route_flm_effects', None) is not None:
     from openpilot.starpilot.flm.offroad_runtime import selected_route
 
@@ -354,9 +357,11 @@ def _selected_source(parent):
 
 
 def manual(parent):
+  from openpilot.starpilot.flm.manual_coordinates import ManualEffects
   policy = getattr(getattr(parent, 'starpilot_extension', None), 'policy', None)
   return (
-    getattr(parent, 'manual_flm_effects', None) is not None or getattr(parent, 'flm_surface', None) is not None or getattr(policy, 'surface', None) is not None
+    (getattr(parent, 'manual_flm_effects', None) is not None and type(parent.manual_flm_effects) is not ManualEffects)
+    or getattr(parent, 'flm_surface', None) is not None or getattr(policy, 'surface', None) is not None
   )
 
 

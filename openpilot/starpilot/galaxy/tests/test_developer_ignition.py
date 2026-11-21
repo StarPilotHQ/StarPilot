@@ -3,7 +3,7 @@
 from dataclasses import replace
 import json
 import pytest
-from openpilot.starpilot.galaxy.developer_settings import DeveloperSettingsOwner
+from openpilot.starpilot.galaxy.device_settings import DeviceSettingsOwner
 from openpilot.starpilot.galaxy.settings import AuthorityContext, SettingsGateway, SettingsChanged
 from openpilot.starpilot.galaxy.tests.test_panda_wake_settings import setup as setup, vehicle
 from openpilot.starpilot.panda_wake import FirmwareChoice, snapshot, resolve, startup_choice
@@ -12,8 +12,8 @@ from openpilot.starpilot.ui.feature_settings_state import row_request
 from openpilot.starpilot.vehicle_selection import encode
 
 
-def developer(params, state, owner):
-  return DeveloperSettingsOwner(params, lambda: state.parked)
+def device_options(params, state, owner):
+  return DeviceSettingsOwner(params, lambda: state.parked)
 
 
 def ignition_row(params, state, owner):
@@ -95,7 +95,7 @@ def test_actual_gateway_vehicle_confirm_and_no_developer_duplicate(setup, monkey
   intent = gateway.preview(page['view'], index, 0, 'session', b'generation', value='On')
   assert gateway.confirm(intent['intent'], 'session', b'generation')
   assert params.get_bool('IgnoreIgnitionLine')
-  assert all(row['label'] != 'Use CAN Ignition Only' for row in gateway.page('developer', 'session', b'generation')['rows'])
+  assert all(row['label'] != 'Use CAN Ignition Only' for row in gateway.page('starport_options', 'session', b'generation')['rows'])
 
 
 def test_startup_uses_exact_registered_cache_for_manual_and_auto(setup):
@@ -132,7 +132,7 @@ def test_2018_bolt_vehicle_ignition_auto_and_device_support(setup, monkeypatch, 
   index = next(i for i, row in enumerate(page['rows']) if row['label'] == 'Use CAN Ignition Only')
   assert index == next(i for i, row in enumerate(page['rows']) if row['label'] == 'Remote Start Boots Comma') + 1
   assert page['rows'][index]['available']
-  assert all(row['label'] != 'Use CAN Ignition Only' for row in gateway.page('developer', 'session', b'generation')['rows'])
+  assert all(row['label'] != 'Use CAN Ignition Only' for row in gateway.page('starport_options', 'session', b'generation')['rows'])
   intent = gateway.preview(page['view'], index, 0, 'session', b'generation', value='On')
   assert 'restart' in intent['question'] and 'Panda firmware' in intent['question']
   assert gateway.confirm(intent['intent'], 'session', b'generation')
@@ -143,5 +143,5 @@ def test_developer_no_longer_accepts_ignition_requests(setup):
   params, state, owner, _ = setup
   request = replace(row_request(ignition_row(params, state, owner), 'On'), confirmation=True,
                     vehicle_fingerprint=state.cp.carFingerprint)
-  assert not developer(params, state, owner).apply(request)
+  assert not device_options(params, state, owner).apply(request)
   assert not params.get_bool('IgnoreIgnitionLine')

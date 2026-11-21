@@ -331,7 +331,8 @@ def test_cancel_retains_existing_native_lateral_only_receipt():
 
 @pytest.mark.parametrize('mutation', ['none', 'no_latch', 'no_previous', 'lat_denied', 'expired_native',
   'stale_source', 'session', 'wrong_cp', 'configured_cancel', 'main_off', 'pause', 'eps', 'invalid_can',
-  'no_button', 'protocol', 'inventory'])
+  'no_button', 'protocol', 'inventory', 'buffered', 'buffer_stale', 'buffer_invalid',
+  'buffer_future', 'buffer_no_cancel', 'buffer_can_fault'])
 def test_honda_cancel_no_entry_exception_requires_existing_current_lateral(mutation):
   from openpilot.starpilot.car.honda.aol import physical_cancel_lateral_allowed
   from openpilot.starpilot.aol.runtime import AxisDecision
@@ -343,6 +344,20 @@ def test_honda_cancel_no_entry_exception_requires_existing_current_lateral(mutat
     validUntilMonoTime=NOW + 199_999_500)
   settings = SimpleNamespace(enabled=True, cancel_actions=(0, 0, 0))
   previous = AxisDecision(lateral_active=True, native_acknowledged=True)
+  cancel_samples = ()
+  if mutation.startswith('buffer'):
+    sample = messaging.new_message('carState', valid=mutation != 'buffer_invalid', logMonoTime=NOW - 2_000_000)
+    sample.carState = cs.to_dict()
+    cs.buttonEvents = []
+    if mutation == 'buffer_stale':
+      sample.logMonoTime = NOW - 30_000_001
+    if mutation == 'buffer_future':
+      sample.logMonoTime = NOW
+    if mutation == 'buffer_no_cancel':
+      sample.carState.buttonEvents = []
+    if mutation == 'buffer_can_fault':
+      sample.carState.canValid = False
+    cancel_samples = (sample.as_reader(),)
   if mutation == 'no_latch':
     intent.allowedLatch = False
   if mutation == 'no_previous':
@@ -374,4 +389,57 @@ def test_honda_cancel_no_entry_exception_requires_existing_current_lateral(mutat
   if mutation == 'inventory':
     native = replace(native, pandaInventory=())
   assert physical_cancel_lateral_allowed(cp, cs, intent, native, settings=settings, previous=previous,
-    source_ns=source, now_ns=NOW, axis_session_id='unit-session') == (mutation == 'none')
+    source_ns=source, now_ns=NOW, axis_session_id='unit-session', cancel_samples=cancel_samples) == (mutation in ('none', 'buffered'))
+
+
+
+def test_recognized_cancel_retains_intent_across_expired_output_only():
+  cp, cs, sm, native, feedback = fixture(coherent=True, long_allowed=False, brake=False)
+  cs.cruiseState.available = True
+  cs.buttonEvents = [structs.CarState.ButtonEvent(type='cancel', pressed=True)]
+  assert not feedback.observe(sm, cp, cs, NOW, latched=True, cancel_source_ns=NOW)
+  assert feedback.honda_cancel_ns == NOW
+  original = sm['aolAxisState'].validUntilMonoTime
+  cs.buttonEvents = []
+  assert not feedback.observe(sm, cp, cs, NOW + 35_000_000, latched=True)
+  assert feedback.honda_cancel_ns == NOW and sm['aolAxisState'].validUntilMonoTime == original
+  assert original < NOW + 35_000_000
+  assert not native.longitudinalAllowed
+
+
+@pytest.mark.parametrize('fault', ['no_episode', 'axis_invalid', 'producer_changed', 'explicit_off', 'hard_event',
+                                  'lat_denied', 'rx_fault', 'expired_original'])
+def test_cancel_pending_intent_keeps_all_independent_vetoes(fault):
+  cp, cs, sm, native, feedback = fixture(coherent=True, long_allowed=False, brake=False)
+  cs.cruiseState.available = True
+  cs.buttonEvents = [structs.CarState.ButtonEvent(type='cancel', pressed=True)]
+  assert not feedback.observe(sm, cp, cs, NOW, latched=True, cancel_source_ns=NOW)
+  cs.buttonEvents = []
+  now = NOW + 35_000_000
+  if fault == 'no_episode':
+    feedback.honda_cancel_ns = 0
+  elif fault == 'axis_invalid':
+    sm.valid['aolAxisState'] = False
+  elif fault == 'producer_changed':
+    event = sm.messages['aolAxisState'].as_builder()
+    event.aolAxisState.intentProducerSessionId = 'different'
+    sm.messages['aolAxisState'] = event.as_reader()
+  elif fault == 'explicit_off':
+    cs.buttonEvents = [structs.CarState.ButtonEvent(type='lkas', pressed=True)]
+  elif fault == 'hard_event':
+    event = messaging.new_message('onroadEvents', 1, valid=True, logMonoTime=NOW)
+    event.onroadEvents[0].name = 'controlsMismatch'
+    event.onroadEvents[0].immediateDisable = True
+    sm.messages['onroadEvents'] = event.as_reader()
+  elif fault == 'lat_denied':
+    native = replace(native, lateralAllowed=False)
+  elif fault == 'rx_fault':
+    event = sm.messages['pandaStates'].as_builder()
+    event.pandaStates[0].safetyRxChecksInvalid = True
+    sm.messages['pandaStates'] = event.as_reader()
+  else:
+    feedback.honda_cancel_ns = NOW - 201_000_000
+  event = messaging.new_message('aolSafetyWire', 0, valid=True, logMonoTime=native.observedMonoTime)
+  event.aolSafetyWire = encode_safety(native)
+  sm.messages['aolSafetyWire'] = event.as_reader()
+  assert feedback.observe(sm, cp, cs, now, latched=True)

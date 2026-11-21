@@ -23,11 +23,8 @@ assert.deepEqual(await widgetArtMetadata(stripped,header),meta,'Sprite sheet sur
 await assert.rejects(widgetArtMetadata(stripped,null),/metadata/)
 assert.deepEqual(await widgetArtMetadata(image(),'image/png'),meta,'A malformed header falls back to the PNG chunk')
 await assert.rejects(widgetArtMetadata(stripped,Buffer.from(JSON.stringify({...meta,width:3})).toString('base64')))
-const withHeader={...meta,sprites:{speed_limit_actions:{x:0,y:0,width:2,height:1,offsetY:-32.5}}}
-assert.deepEqual(await widgetArtMetadata(image(withHeader)),withHeader,'Native action sprites include the heading above the buttons')
 for(const bad of [{...meta,width:3},{...meta,sprites:{conditional_mode:{x:1,y:0,width:2,height:1}}},
  {...meta,sprites:{conditional_mode:{x:0,y:0,width:NaN,height:1}}},
- {...meta,sprites:{speed_limit_actions:{x:0,y:0,width:2,height:1,offsetY:-34}}},
  {...meta,sprites:{conditional_mode:{x:0,y:0,width:2,height:1,offsetY:-32}}},
  {...meta,sprites:{conditional_mode:{x:0,y:0,width:2,height:1,offsetX:1}}}])await assert.rejects(widgetArtMetadata(image(bad)))
 await assert.rejects(widgetArtMetadata(new Blob(['not PNG'])))
@@ -46,11 +43,11 @@ for (const rect of [{offsetY:-20.01}, {offsetX:-2.01}, {x:1}, {width:3}]) {
   await assert.rejects(widgetArtMetadata(image({...meta,sprites:{cruise_limits:{x:0,y:0,width:2,height:1,...rect}}})))
 }
 const compactIds=['weather','max_speed','speed_limit','steering_wheel','conditional_mode','following_distance','model_confidence',
-  'driver_monitor','speed_limit_actions','rear_fog','driving_mode_descriptions','clock']
+  'driver_monitor','rear_fog','driving_mode_descriptions','clock']
 const complete={...meta,sprites:Object.fromEntries(compactIds.map(id=>[id,{x:0,y:0,width:2,height:1,visible:true}]))}
 assert.deepEqual(await widgetArtMetadata(image(complete)),complete)
 const atCapacity={...complete,sprites:{...complete.sprites,...Object.fromEntries(
-  Array.from({length:12},(_,i)=>[`extra_${String.fromCharCode(97+i)}`,{x:0,y:0,width:2,height:1,visible:true}]))}}
+  Array.from({length:13},(_,i)=>[`extra_${String.fromCharCode(97+i)}`,{x:0,y:0,width:2,height:1,visible:true}]))}}
 assert.deepEqual(await widgetArtMetadata(image(atCapacity)),atCapacity)
 await assert.rejects(widgetArtMetadata(image({...atCapacity,sprites:{...atCapacity.sprites,extra:{x:0,y:0,width:2,height:1}}})))
 const flush=async()=>{for(let i=0;i<20;i++)await Promise.resolve()}
@@ -179,10 +176,44 @@ assert(artUrl)
 page.state.data.editable=false
 assert.equal(page.artFeed.active,false);assert.equal(page.state.art.url,null,'Parked authority changes clear artwork')
 page.artFeed.stop()
-assert.equal(OnroadLayoutPage.methods.runtimeWidget.call({profile:{runtimePreviewWidgets:['conditional_mode']}},'conditional_mode'),true)
-assert.equal(OnroadLayoutPage.methods.runtimeWidget.call({profile:{}},'conditional_mode'),false)
 assert.match(LayoutWidgetPreview.template,/data-preview-source="runtime"/)
-assert.match(LayoutWidgetPreview.template,/data-preview-source="placeholder"/)
+assert.match(LayoutWidgetPreview.template,/data-preview-source="sketch"/)
 assert.doesNotMatch(LayoutWidgetPreview.template,/scene === 'experimental' \? 'E' : 'C'/)
 assert.doesNotMatch(LayoutWidgetPreview.template,/M38 78 Q96 107 154 78/)
 console.log('Canonical widget art: metadata, races, retained refreshes, profile/mode switches, retries, auth and cleanup passed')
+
+{
+  const entries = new Map()
+  const store = {load: async key => entries.get(key), save: async (key, value) => { entries.set(key, value) }, remove: async key => { entries.delete(key) }}
+  for (const revisit of [false, true]) {
+    const page = fixture()
+    const feed = new LayoutPreviewFeed({...page.options, store})
+    feed.start()
+    feed.update(document, 'compact', 'general')
+    page.tick()
+    for (let i=0; i<20 && !page.requests.length; i++) await new Promise(resolve=>setTimeout(resolve, 5))
+    const request = page.requests[0]
+    assert.equal(request.options.headers['X-Widget-Digest'], revisit ? 'same-sheet' : undefined)
+    if (revisit) assert.deepEqual(page.updates.at(-1).sprites, meta, 'Saved sheet shows before the device answers')
+    else assert.equal(page.updates.some(update => update.sprites), false)
+    request.resolve(revisit ? new Response(null, {status:204}) :
+      new Response(image(), {headers:{'Content-Type':'image/png','X-Widget-Digest':'same-sheet'}}))
+    for (let i=0; i<20 && page.updates.at(-1).status !== 'ready'; i++) await new Promise(resolve=>setTimeout(resolve, 5))
+    assert.equal(page.updates.at(-1).status, 'ready')
+    assert.deepEqual(page.updates.at(-1).sprites, meta)
+    for (let i=0; i<20 && !entries.size; i++) await new Promise(resolve=>setTimeout(resolve, 5))
+    assert.equal([...entries.values()][0].digest, 'same-sheet')
+    feed.stop()
+  }
+}
+{
+  const page = fixture()
+  const feed = new LayoutPreviewFeed({...page.options, store: {load: async () => ({digest: 'bad', art: null, png: new ArrayBuffer(4)}),
+    save: async () => {}, remove: async () => { page.removed = true }}})
+  feed.start(); feed.update(document, 'compact', 'general'); page.tick()
+  for (let i=0; i<20 && !page.requests.length; i++) await new Promise(resolve=>setTimeout(resolve, 5))
+  assert.equal(page.requests[0].options.headers['X-Widget-Digest'], undefined, 'A corrupt saved sheet is dropped, not revalidated')
+  assert.equal(page.removed, true)
+  feed.stop()
+}
+console.log('Saved widget sheets: instant revisit, digest revalidation and corrupt-entry cleanup passed')

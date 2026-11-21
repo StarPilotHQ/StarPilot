@@ -54,24 +54,43 @@ def test_v12_portrait_upgrade_preserves_preferences_and_is_idempotent():
   before = copy.deepcopy(old)
   updated = validate_document(old)
   expected = copy.deepcopy(old)
-  expected['version'] = 15
+  expected['version'] = 16
   expected['layouts']['compact']['speed_limit'].update(x=320, y=16)
   assert old == before and updated == expected
   assert validate_document(updated) == updated
 
 
-def test_v12_edge_placements_remain_bounded_even_with_confirmation_disabled():
+def test_v12_layout_that_hid_speed_limit_actions_makes_room_for_the_sign_chooser():
   old = default_document()
   old['version'] = 12
   for layout in old['layouts'].values():
-    layout['speed_limit_actions']['enabled'] = False
+    layout['speed_limit_actions'] = {'x': 0, 'y': 0, 'enabled': False}
   old['layouts']['large']['cruise_limits']['y'] = 882
   old['layouts']['compact']['speed_limit'].update(x=358, y=108)
   updated = validate_document(old)
-  assert updated['layouts']['large']['cruise_limits']['y'] == 798
-  assert updated['layouts']['compact']['speed_limit'] == {'x': 348, 'y': 96, 'enabled': True}
+  assert updated['layouts']['large']['cruise_limits'] == default_document()['layouts']['large']['cruise_limits']
+  assert updated['layouts']['compact']['speed_limit'] == {'x': 320, 'y': 16, 'enabled': True}
   assert validate_document(updated) == updated
-  assert all(not layout['speed_limit_actions']['enabled'] for layout in updated['layouts'].values())
+  assert all('speed_limit_actions' not in layout for layout in updated['layouts'].values())
+
+
+def test_v15_drops_speed_limit_actions_and_keeps_everything_else():
+  import copy
+  current = default_document()
+  current['layouts']['large']['current_speed'].update(x=700, enabled=False)
+  current['widgetOrder'] = {profile: list(order) for profile, order in DEFAULT_WIDGET_ORDER.items()}
+  old = copy.deepcopy(current)
+  old['version'] = 15
+  for profile, layout in old['layouts'].items():
+    layout['speed_limit_actions'] = {'x': 146, 'y': 44, 'enabled': False}
+    old['widgetColors'][profile]['speed_limit_actions'] = {'text': '#12345678'}
+    old['widgetOrder'][profile].insert(1, 'speed_limit_actions')
+  before = copy.deepcopy(old)
+  assert validate_document(old) == current
+  assert old == before
+  current['layouts']['large']['speed_limit_actions'] = {'x': 146, 'y': 44, 'enabled': True}
+  with pytest.raises(ValueError, match='widget IDs'):
+    validate_document(current)
 
 
 @pytest.mark.parametrize('sign_y', [12, 16, 20])
@@ -86,7 +105,7 @@ def test_v13_notice_upgrade_preserves_preferences_and_only_moves_a_conflicting_s
   before = copy.deepcopy(old)
   updated = validate_document(old)
   expected = copy.deepcopy(old)
-  expected['version'] = 15
+  expected['version'] = 16
   expected['layouts']['compact']['speed_limit']['y'] = min(sign_y, 16)
   assert old == before and updated == expected
   assert validate_document(updated) == updated
@@ -97,21 +116,6 @@ def test_compact_notice_is_reserved_even_when_the_shorter_buttons_would_fit():
   document['layouts']['compact']['speed_limit']['y'] = 20
   with pytest.raises(ValueError, match='confirmation'):
     validate_document(document)
-  document['layouts']['compact']['speed_limit_actions']['enabled'] = False
-  assert validate_document(document) == document
-
-
-@pytest.mark.parametrize('separate', [False, True])
-def test_v12_source_attachment_follows_the_new_row_without_moving_custom_actions(separate):
-  old = default_document()
-  old.update(version=12, speedSources=True, speedSourcesCard=separate)
-  actions = old['layouts']['large']['speed_limit_actions']
-  actions['y'] = 367 if separate else 359
-  updated = validate_document(old)
-  assert updated['layouts']['large']['speed_limit_actions']['y'] == (457 if separate else 449)
-  assert validate_document(updated) == updated
-  actions.update(x=600, y=400)
-  assert validate_document(old)['layouts']['large']['speed_limit_actions'] == actions
 
 
 def test_current_portrait_layout_rejects_a_chooser_outside_the_compact_screen():
@@ -155,22 +159,18 @@ def test_personality_upgrade_adds_large_widget_without_losing_saved_layout(custo
 @pytest.mark.parametrize('version', (10, 11))
 @pytest.mark.parametrize('separate', (False, True))
 @pytest.mark.parametrize('lower', (False, True))
-def test_source_attachment_saves_real_bounded_positions_without_changing_input(version, separate, lower):
+def test_sources_keep_the_card_on_screen_without_changing_input(version, separate, lower):
   import copy
-  from openpilot.starpilot.ui.onroad_customization import placement
   document = default_document()
   document.update(version=version, speedSources=True, speedSourcesCard=separate)
   if lower:
     document['layouts']['large']['cruise_limits']['y'] = 690
-    document['layouts']['large']['speed_limit_actions']['y'] = 882
   before = copy.deepcopy(document)
   saved = validate_document(document)
-  card, actions = (saved['layouts']['large'][key] for key in ('cruise_limits', 'speed_limit_actions'))
+  card = saved['layouts']['large']['cruise_limits']
   assert document == before and validate_document(saved) == saved
-  assert placement(saved, 'large', 'speed_limit_actions') == actions
-  assert actions['y'] == card['y'] + widget_size(saved, 'large', 'cruise_limits')[1] + 8
-  assert actions['y'] + widget_size(saved, 'large', 'speed_limit_actions')[1] <= 1050
-  assert actions['y'] == (457 if separate else 449)
+  # A low card's chooser would cover the torque bar, so it returns to its default.
+  assert card == default_document()['layouts']['large']['cruise_limits']
 
 
 def test_v7_speed_layout_migration_is_bounded_non_mutating_and_idempotent():
@@ -183,7 +183,6 @@ def test_v7_speed_layout_migration_is_bounded_non_mutating_and_idempotent():
       document['layouts'][profile][key].update(x=x, y=y)
   document['layouts']['large']['cem_gauge'].update(x=480, y=99)
   document['layouts']['large']['cruise_limits']['x'] = 1510
-  document['layouts']['large']['speed_limit_actions'].update(x=1510, y=900)
   document['layouts']['compact']['max_speed']['y'] = 60
   document['layouts']['compact']['speed_limit'].update(x=330, y=20)
   document['layouts']['large']['current_speed'].update(x=700, y=100, enabled=False)
@@ -192,9 +191,8 @@ def test_v7_speed_layout_migration_is_bounded_non_mutating_and_idempotent():
   original = copy.deepcopy(document)
   migrated = validate_document(document)
   assert document == original
-  assert migrated['version'] == 15 and validate_document(migrated) == migrated
+  assert migrated['version'] == 16 and validate_document(migrated) == migrated
   assert migrated['layouts']['large']['cruise_limits']['x'] == 1391
-  assert migrated['layouts']['large']['speed_limit_actions'] == {'x': 1510, 'y': 882, 'enabled': True}
   assert migrated['layouts']['large']['current_speed'] == original['layouts']['large']['current_speed']
   assert migrated['layouts']['large']['cem_gauge'] == {'x': 56, 'y': 536, 'enabled': True}
   assert migrated['layouts']['compact']['speed_limit']['x'] == 320
@@ -222,14 +220,13 @@ def test_v8_restores_only_compact_speed_defaults_and_preserves_customizations(cu
   original = copy.deepcopy(document)
   migrated = validate_document(document)
   assert document == original
-  assert migrated['version'] == 15 and validate_document(migrated) == migrated
+  assert migrated['version'] == 16 and validate_document(migrated) == migrated
   assert migrated['layouts']['large'] == document['layouts']['large']
   assert migrated['widgetColors'] == document['widgetColors']
   assert migrated['widgetOrder'] == document['widgetOrder']
   expected = document['layouts']['compact']['speed_limit'] if custom else {'x': 320, 'y': 16, 'enabled': True}
   assert migrated['layouts']['compact']['speed_limit'] == expected
-  assert migrated['layouts']['compact']['max_speed']['x'] == 0
-  assert migrated['layouts']['compact']['speed_limit_actions'] == {'x': 146, 'y': 44, 'enabled': True}
+  assert migrated['layouts']['compact']['max_speed']['x'] == (50 if custom else 0)
 
 
 def test_v8_compact_speed_widgets_at_old_edges_stay_in_bounds_after_upgrade():
@@ -246,15 +243,14 @@ def test_v8_compact_speed_widgets_at_old_edges_stay_in_bounds_after_upgrade():
   assert validate_document(migrated) == migrated
 
 
-def test_v8_actionless_layout_preserves_customizations_when_adding_compact_actions():
+def test_v8_layout_without_rails_preserves_customizations():
   import copy
   from openpilot.starpilot.ui.onroad_customization import COMPACT_SPEED_LAYOUT_V8, RAIL_WIDGETS
   document = default_document()
   document['version'] = 8
   for key, (_, _, x, y) in COMPACT_SPEED_LAYOUT_V8.items():
     document['layouts']['compact'][key].update(x=x, y=y)
-  large_actions = document['layouts']['large'].pop('speed_limit_actions')
-  for key in ('speed_limit_actions', *RAIL_WIDGETS):
+  for key in RAIL_WIDGETS:
     del document['layouts']['compact'][key]
   document['layouts']['large']['current_speed']['x'] = 700
   document['layouts']['compact']['speed_limit'].update(x=100, y=40)
@@ -263,10 +259,9 @@ def test_v8_actionless_layout_preserves_customizations_when_adding_compact_actio
   original = copy.deepcopy(document)
   migrated = validate_document(document)
   assert document == original
-  assert migrated['version'] == 15 and validate_document(migrated) == migrated
-  assert migrated['layouts']['large'] == {**original['layouts']['large'], 'speed_limit_actions': large_actions}
+  assert migrated['version'] == 16 and validate_document(migrated) == migrated
+  assert migrated['layouts']['large'] == original['layouts']['large']
   assert migrated['layouts']['compact']['speed_limit'] == default_document()['layouts']['compact']['speed_limit']
-  assert migrated['layouts']['compact']['speed_limit_actions'] == {'x': 146, 'y': 44, 'enabled': True}
   assert migrated['palette'] == original['palette']
   assert migrated['widgetColors'] == original['widgetColors']
 
@@ -300,22 +295,22 @@ def test_clock_format_preference_defaults_migrates_and_validates():
     validate_document(document)
 
 
-@pytest.mark.parametrize("widget,x,y", [("max_speed", 174, 25), ("steering_wheel", 174, 137)])
-def test_protected_compact_actions_reject_actual_overlap(widget, x, y):
+def test_old_compact_action_area_is_free_but_set_speed_stays_clear_of_the_chooser():
   document = default_document()
-  document["layouts"]["compact"][widget].update(x=x, y=y)
-  with pytest.raises(ValueError, match="protected"):
+  document["layouts"]["compact"]["steering_wheel"].update(x=174, y=137)
+  assert validate_document(document) == document
+  document["layouts"]["compact"]["max_speed"].update(x=174, y=25)
+  with pytest.raises(ValueError, match="confirmation"):
     validate_document(document)
 
 
 @pytest.mark.parametrize("widget,x,y", [("speed_limit", 320, 16), ("max_speed", 0, 0), ("steering_wheel", 78, 174)])
-def test_protected_zone_edge_touch_is_valid(widget, x, y):
+def test_compact_edge_placements_are_valid(widget, x, y):
   document = default_document()
   document["layouts"]["compact"][widget].update(x=x, y=y)
   assert validate_document(document) == document
   zones = customization_metadata()["profiles"]["compact"]["reservedZones"]
   assert zones == []
-  assert customization_metadata()["profiles"]["compact"]["protectedWidget"] == "speed_limit_actions"
 
 
 @pytest.mark.parametrize("change", [
@@ -348,7 +343,6 @@ def test_mode_widget_defaults_off_without_resetting_saved_layouts():
   key = 'driving_mode_descriptions'
   document = default_document()
   document['layouts']['large']['current_speed'].update(x=700, y=100, enabled=False)
-  document['layouts']['compact']['speed_limit_actions']['y'] = 44
   for layout in document['layouts'].values():
     assert layout.pop(key)['enabled'] is False
   migrated = validate_document(document)
@@ -358,10 +352,6 @@ def test_mode_widget_defaults_off_without_resetting_saved_layouts():
     assert migrated['layouts'][profile][key]['enabled'] is False
   migrated['layouts']['large'][key].update(enabled=True, x=300, y=600)
   assert validate_document(migrated) == migrated
-  migrated['layouts']['compact'][key]['enabled'] = True
-  migrated['layouts']['compact'][key]['y'] = 130
-  with pytest.raises(ValueError, match='protected speed limit actions'):
-    validate_document(migrated)
 
 
 def test_saved_valid_layouts_survive_independently():
@@ -382,7 +372,7 @@ def test_v3_layout_migrates_wheel_size_without_changing_saved_placement_or_color
   for profile in ("large", "compact"):
     del document["layouts"][profile]["steering_wheel"]["size"]
   migrated = validate_document(document)
-  assert migrated["version"] == 15
+  assert migrated["version"] == 16
   assert migrated["palette"] == document["palette"]
   assert migrated["layouts"]["large"]["steering_wheel"] == {"x": 1300, "y": 100, "enabled": False, "size": 192}
   assert migrated["layouts"]["compact"]["steering_wheel"] == {"x": 90, "y": 130, "enabled": True, "size": 50}
@@ -402,7 +392,6 @@ def test_pre_action_saved_layout_migrates_without_losing_positions_or_palette(re
   for key in ("model_confidence", "conditional_mode", "following_distance"):
     del document["layouts"]["compact"][key]
   for layout in document["layouts"].values():
-    del layout["speed_limit_actions"]
     del layout["steering_wheel"]["size"]
     for key in removed:
       del layout[key]
@@ -416,25 +405,12 @@ def test_pre_action_saved_layout_migrates_without_losing_positions_or_palette(re
       assert migrated["layouts"][profile][key] == {
         **position, **({"size": customization_metadata()["profiles"][profile]["widgets"][key]["width"]}
                      if key == "steering_wheel" else {})}
-  assert migrated["layouts"]["large"]["speed_limit_actions"] == {"x": 312, "y": 425, "enabled": False}
-  assert migrated["layouts"]["compact"]["speed_limit_actions"] == default_document()["layouts"]["compact"]["speed_limit_actions"]
-
-
-def test_malformed_pre_action_cruise_placement_is_rejected():
-  document = default_document()
-  for key in ("model_confidence", "conditional_mode", "following_distance"):
-    del document["layouts"]["compact"][key]
-  for layout in document["layouts"].values():
-    del layout["speed_limit_actions"]
-  document["layouts"]["large"]["cruise_limits"]["x"] = "moved"
-  with pytest.raises(ValueError, match="Invalid widget placement"):
-    validate_document(document)
 
 
 def test_duplicate_key_cannot_apply_otherwise_valid_placement():
   document = default_document()
   document["layouts"]["large"]["current_speed"]["x"] = 100
-  raw = json.dumps(document).replace('"version": 15', '"version": 11, "version": 11').encode()
+  raw = json.dumps(document).replace('"version": 16', '"version": 11, "version": 11').encode()
   with patch("openpilot.starpilot.ui.onroad_customization.read_saved", return_value=(raw, True)):
     assert read_customization(Mock()) == default_document()
 
@@ -446,24 +422,12 @@ def test_v9_large_sign_migration_preserves_customizations_and_clamps_bottom_edge
   old['version'] = 9
   old['speedSources'] = sources
   old['layouts']['large']['cruise_limits'].update(y=918)
-  old['layouts']['large']['speed_limit_actions'].update(x=250, y=400)
   before = deepcopy(old)
   updated = validate_document(old)
   assert old == before
-  assert updated['version'] == 15
+  assert updated['version'] == 16
   assert updated['layouts']['large']['cruise_limits']['y'] == default_document()['layouts']['large']['cruise_limits']['y']
-  assert updated['layouts']['large']['speed_limit_actions'] == before['layouts']['large']['speed_limit_actions']
   assert updated['layouts']['compact'] == before['layouts']['compact']
-  assert validate_document(updated) == updated
-
-
-def test_v9_moves_only_actions_paired_with_the_old_large_speed_group():
-  old = default_document()
-  old['version'] = 9
-  old['layouts']['large']['cruise_limits'].update(x=188, y=95)
-  old['layouts']['large']['speed_limit_actions'].update(x=200, y=268)
-  updated = validate_document(old)
-  assert updated['layouts']['large']['speed_limit_actions'] == {'x': 212, 'y': 345, 'enabled': True}
   assert validate_document(updated) == updated
 
 
@@ -505,16 +469,15 @@ def test_resized_wheel_draw_and_touch_share_large_bounds():
   assert emit.call_count == 2
 
 
-def test_compact_resize_rejects_protected_overlap_and_other_widget_sizes():
+def test_compact_resize_and_other_widget_sizes():
   document = default_document()
   document["layouts"]["compact"]["steering_wheel"].update(size=70, y=52)
   assert validate_document(document) == document
   assert widget_size(document, "compact", "steering_wheel") == (70, 70)
   document["layouts"]["compact"]["steering_wheel"].update(x=150, y=150)
-  with pytest.raises(ValueError, match="protected"):
-    validate_document(document)
+  assert validate_document(document) == document
   document = default_document()
-  document["layouts"]["compact"]["speed_limit_actions"]["size"] = 70
+  document["layouts"]["compact"]["max_speed"]["size"] = 70
   with pytest.raises(ValueError, match="placement"):
     validate_document(document)
 
@@ -655,7 +618,6 @@ def test_saved_six_widget_layout_adds_only_default_rail_positions():
   document = default_document()
   for key in ("model_confidence", "conditional_mode", "following_distance"):
     del document["layouts"]["compact"][key]
-  document["layouts"]["compact"]["speed_limit_actions"].update(x=162, enabled=False)
   document["palette"]["text"] = "#ABCD1234"
   migrated = validate_document(document)
   assert migrated["palette"] == document["palette"]
@@ -682,9 +644,6 @@ def test_movable_rail_keeps_limits_and_does_not_cover_active_alerts():
     widget._conditional.reset_mock()
     widget.render(rl.Rectangle(0, 0, 536, 240), road(document, alert=OnroadAlert(size=AlertSize.FULL)))
     widget._conditional.assert_not_called()
-  document["layouts"]["compact"]["conditional_mode"].update(x=200, y=107)
-  with pytest.raises(ValueError, match="protected"):
-    validate_document(document)
   document["layouts"]["compact"]["conditional_mode"].update(x=477, y=0)
   with pytest.raises(ValueError, match="bounds"):
     validate_document(document)
@@ -706,7 +665,7 @@ def test_v1_palette_positions_and_visibility_migrate_without_mutating_source():
   original = copy.deepcopy(old)
   result = decode_document(json.dumps(old).encode())
   assert old == original
-  assert result['version'] == 15
+  assert result['version'] == 16
   assert result['palette'] == old['palette']
   for profile, layout in old['layouts'].items():
     for key, position in layout.items():
@@ -822,11 +781,10 @@ def test_driver_frame_matches_native_preview_and_keeps_face_renderer_separate(mo
 
 
 @pytest.mark.parametrize("enabled", [True, False])
-def test_small_sign_action_overlap_roundtrips_without_hiding_sign(enabled):
+def test_small_sign_roundtrips_without_hiding_sign(enabled):
   document = default_document()
   large = json.loads(json.dumps(document["layouts"]["large"]))
   document["layouts"]["compact"]["speed_limit"].update(x=320, y=16, enabled=enabled)
-  document["layouts"]["compact"]["speed_limit_actions"].update(x=150, y=44)
   assert decode_document(json.dumps(validate_document(document))) == document
   assert document["layouts"]["large"] == large
   observation = SpeedLimitObservation(kind=ObservationKind.VALID, speed_limit_mps=20,
@@ -840,7 +798,6 @@ def test_overlapping_sign_stays_visible_and_chooser_keeps_exact_input():
   from openpilot.starpilot.ui.onroad_state import SlcActionKind
   from openpilot.starpilot.ui.tests.test_slc_ui_actions import tap_sign, tap_control
   document = default_document()
-  document['layouts']['compact']['speed_limit_actions'].update(x=150, y=44)
   observation = SpeedLimitObservation(kind=ObservationKind.VALID, speed_limit_mps=20,
                                      pending_speed_limit_mps=15, session_id='drive', decision_id=1,
                                      presentation_id=2, action_enabled=True)
@@ -1009,7 +966,7 @@ def test_big_widgets_can_use_the_space_a_hidden_sidebar_adds():
   # Every widget reaches the right edge of the full screen, and not past it.
   for key in widgets:
     document = default_document()
-    document["layouts"]["large"]["speed_limit_actions"]["enabled"] = False
+    document["layouts"]["large"]["cruise_limits"]["enabled"] = False
     placed, width = document["layouts"]["large"][key], widget_size(document, "large", key)[0]
     placed["x"] = 2130 - width - ANCHOR_SHIFT.get(key, 0) * 300
     validate_document(document)
@@ -1023,7 +980,7 @@ def test_every_large_widget_reaches_each_corner_and_fits_when_sidebar_returns(ri
   from openpilot.starpilot.ui.onroad_customization import ANCHOR_SHIFT, PROFILES, fit_to_road
   for key in PROFILES["large"]["widgets"]:
     document = default_document()
-    document["layouts"]["large"]["speed_limit_actions"]["enabled"] = False
+    document["layouts"]["large"]["cruise_limits"]["enabled"] = False
     width, height = widget_size(document, "large", key)
     shift = ANCHOR_SHIFT.get(key, 0) * 300
     x, y = (2130 - width if right else 30) - shift, 1050 - height if bottom else 30

@@ -12,11 +12,12 @@ from openpilot.starpilot.lateral.auto_lane_change import steering_capable
 from openpilot.starpilot.lateral.lane_change_preferences import (
   KEY, MAX_BYTES, MAX_SPEED_MPS, MINIMUM_SPEED_MPS, effective, LaneChangePolicy, SavedLaneChange, read_saved, to_value,
 )
+from openpilot.starpilot.lateral.turn_initiation_preferences import KEY as TURN_INITIATION_KEY, saved as turn_initiation_saved
 from openpilot.starpilot.saved_document import commit_exact
 from openpilot.starpilot.ui.feature_settings_state import FeatureRow, FeatureSettingsRequest
 
 
-GUIDANCE = "lane_change:turn_signal_guidance"
+GUIDANCE = "lane_change:automatic_turn_initiation"
 ENABLED = "lane_change:enabled"
 SPEED = "lane_change:speed"
 ONE = "lane_change:one"
@@ -37,7 +38,7 @@ def confirm_question(request: FeatureSettingsRequest) -> str:
     return "Turn off lane-change assistance? The current assistance cancels after the preference refresh."
   if request.key == AUTO and request.value == "Off":
     return "Turn off automatic lane changes? New automatic triggers stop after the preference refresh."
-  label = {GUIDANCE: "turn signal guidance", ENABLED: "lane-change assistance", AUTO: "automatic lane changes",
+  label = {GUIDANCE: "automatic turn initiation", ENABLED: "lane-change assistance", AUTO: "automatic lane changes",
            REQUIRE_CRUISE: "cruise requirement for automatic lane changes", SPEED: "minimum lane-change speed",
            ONE: "one lane change per signal", PACE: "steering pace", DELAY: "signal delay",
            WIDTH: "minimum adjacent lane width", CLOSE: "Close lane-change gap", GAP: "lane-change following time"}[request.key]
@@ -157,12 +158,12 @@ class LaneChangeFeature:
     return [replace(row, default_value=targets.get(row.key)) for row in rows]
 
   def guidance_row(self, parked):
-    saved = read_saved(self.params)
-    return FeatureRow(GUIDANCE, "Turn Signal Guidance", "On" if saved.policy.turn_signal_guidance else "Off",
-                      source=saved.raw, choices=("Off", "On"),
-                      available=saved.valid and saved.readable and self.capability() is not None and self.authority("lane_change"),
-                      reason="Use your turn signal to help the model choose a turning path at intersections.",
-                      vehicle_fingerprint=self.fingerprint(), capability=self.capability(), default_value="On")
+    raw, valid = turn_initiation_saved(self.params)
+    return FeatureRow(GUIDANCE, "Automatic Turn Initiation", ("On" if raw == b"1" else "Off") if valid else "Invalid saved value",
+                      source=raw, choices=("Off", "On") if valid else (),
+                      available=valid and self.capability() is not None and self.authority("lane_change"),
+                      reason="Allows the model to anticipate a signaled intersection turn. Off waits for driver initiation for Turn Assist.",
+                      vehicle_fingerprint=self.fingerprint(), capability=self.capability(), default_value="Off")
 
   def _fresh(self, request: FeatureSettingsRequest) -> SavedLaneChange | None:
     if (not request.vehicle_fingerprint or self.fingerprint() != request.vehicle_fingerprint or
@@ -185,8 +186,8 @@ class LaneChangeFeature:
       return LaneChangePolicy() if not saved.valid and request.value == "confirm" else None
     if not saved.valid:
       return None
-    if request.key in (GUIDANCE, ENABLED, ONE, AUTO, REQUIRE_CRUISE, CLOSE) and request.value in ("On", "Off"):
-      field = {GUIDANCE: "turn_signal_guidance", ENABLED: "enabled", ONE: "one_per_signal", AUTO: "auto_lane_change",
+    if request.key in (ENABLED, ONE, AUTO, REQUIRE_CRUISE, CLOSE) and request.value in ("On", "Off"):
+      field = {ENABLED: "enabled", ONE: "one_per_signal", AUTO: "auto_lane_change",
                REQUIRE_CRUISE: "auto_requires_cruise", CLOSE: "close_gap"}[request.key]
       return replace(saved.policy, **{field: request.value == "On"})
     if request.key == PACE:
@@ -222,6 +223,18 @@ class LaneChangeFeature:
   def apply(self, request: FeatureSettingsRequest) -> bool:
     if request.key not in KEYS or not request.confirmation:
       return False
+    if request.key == GUIDANCE:
+      def turn_authorized():
+        row = self.guidance_row(False)
+        return (row.available and row.source == request.expected and
+                row.vehicle_fingerprint == request.vehicle_fingerprint and row.capability == request.capability)
+
+      if (request.value not in ("Off", "On") or request.dependencies or request.related_source is not None or
+          request.display_unit or request.direction or not turn_authorized()):
+        return False
+      return commit_exact(self.params, key=TURN_INITIATION_KEY, max_bytes=8,
+                          raw=b"1" if request.value == "On" else b"0", expected=request.expected,
+                          authorized=turn_authorized, temp_prefix=".turn-initiation-").verified
     if request.key == RESET and not self.authority("parked_preferences"):
       return False
     def authorized() -> bool:

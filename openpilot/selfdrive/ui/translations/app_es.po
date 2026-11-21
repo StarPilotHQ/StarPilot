@@ -23490,3 +23490,30 @@ msgstr "Mejora la detención en los semáforos y permite detenerse automáticame
 msgid "Enhanced Stops"
 msgstr "Paradas mejoradas"
 
+msgid "Blind Spot Camera & Preview"
+msgstr "Cámara de punto ciego y vista previa"
+
+msgid "Blind Spot Camera & Preview saved settings"
+msgstr "Ajustes guardados de la cámara de punto ciego y la vista previa"
+
+msgid "Setup & Settings"
+msgstr "Configuración y ajustes"
+
+msgid "Show onroad · Big & Small UI"
+msgstr "Mostrar durante la conducción · Interfaz grande y pequeña"
+
+msgid "Speed & longitudinal"
+msgstr "Velocidad y control longitudinal"
+
+msgid "Spotify & Phone Audio"
+msgstr "Spotify y audio del teléfono"
+
+msgid "Steering & Torque"
+msgstr "Dirección y par"
+
+msgid "Steering & buttons"
+msgstr "Dirección y botones"
+
+msgid "Storage & Account"
+msgstr "Almacenamiento y cuenta"
+

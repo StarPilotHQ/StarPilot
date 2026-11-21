@@ -210,5 +210,5 @@ def test_cancel_source_is_bound_to_real_mixed_parser_receipt(identity, fault):
   if fault == 'wrong_bus':
     cs.buttonEvents = [structs.CarState.ButtonEvent(type='cancel', pressed=True)]
   received = now - 30_000_001 if fault == 'stale' else now
-  caller = SimpleNamespace(CI=ci, _aol_can_observation=(cs, received, now, now))
+  caller = SimpleNamespace(CP=cp, CI=ci, _aol_can_observation=(cs, received, now, now))
   assert Car.aol_cancel_source(cast(Car, caller), cs, now) == (now if fault == 'none' else 0)

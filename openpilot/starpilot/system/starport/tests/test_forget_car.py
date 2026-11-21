@@ -102,3 +102,51 @@ def test_offline_forget_clears_reply_strategy_and_fingerprint(sup):
   assert ADAPTER not in ladder.cars and OTHER in ladder.cars
   assert protocol.forget_car(OTHER, client) is False
   assert saved()["modern_reply_cache"] == {} and not SetupLadder(sup._ladder.path).cars
+
+
+def test_learned_touch_units_are_saved_and_survive_a_reload(sup):
+  sup._remember_touch_units("1200x1244@1280x720-585x0", "touchscreen")
+  sup._remember_touch_units("1920x720@1280x720-0x240", "pixels")
+  assert saved()["touch_units_cache"] == {"1200x1244@1280x720-585x0": "touchscreen", "1920x720@1280x720-0x240": "pixels"}
+  assert identity_store.load_config()["touch_units_cache"] == saved()["touch_units_cache"]
+
+
+def test_setup_tap_is_asked_once_then_remembered_across_reconnects(sup):
+  from openpilot.starpilot.system.starport.tests.test_media_controls import session_with_input
+  from openpilot.starpilot.system.starport.tests.test_touch import FORD, ford_session, tap
+
+  def connect():
+    session = session_with_input(True)
+    ford_session(session, dict(identity_store.load_config()["touch_units_cache"]))
+    session.on_touch_units = sup._remember_touch_units
+    return session
+
+  first = connect()
+  assert first.touch.calibrating
+  tap(first, 646, 648)
+  assert not first.touch.calibrating and saved()["touch_units_cache"] == {FORD: "pixels"}
+  for _ in range(3):
+    again = connect()
+    assert not again.touch.calibrating and again.touch.content_pixels
+    tap(again, 646, 648)
+    assert [event.kind for event in again.touch_events] == ["down", "up"]
+
+
+def test_forgetting_the_chosen_car_or_resetting_its_handshake_asks_for_the_touch_tap_again(sup):
+  sup._remember_touch_units("1200x1244@1280x720-585x0", "pixels")
+  assert sup.reset_handshake() is True
+  assert sup.config["touch_units_cache"] == saved()["touch_units_cache"] == {}
+  sup._remember_touch_units("1200x1244@1280x720-585x0", "pixels")
+  assert daemon.handle(sup, {"command": "forget_receiver", "address": CAR}) == {"cleared": False}
+  assert saved()["touch_units_cache"] != {}  # a companion is not the car whose screen was set up
+  daemon.handle(sup, {"command": "forget_receiver", "address": ADAPTER})
+  assert sup.config["touch_units_cache"] == saved()["touch_units_cache"] == {}
+
+
+def test_offline_forget_of_the_chosen_car_clears_touch_setup(tmp_path, monkeypatch):
+  monkeypatch.setattr(identity_store, "CONFIG_PATH", tmp_path / "config.json")
+  identity_store.save_config({**identity_store.DEFAULT_CONFIG, "receiver_address": ADAPTER,
+                              "touch_units_cache": {"1920x720@1280x720-0x240": "touchscreen"}})
+  client = protocol.StarPortClient(socket_path=str(tmp_path / "missing.sock"))
+  assert protocol.forget_car(ADAPTER, client) is True
+  assert saved()["touch_units_cache"] == {}

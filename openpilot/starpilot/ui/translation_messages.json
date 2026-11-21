@@ -235,12 +235,6 @@
       ]
     },
     {
-      "source": "Accept / Reject appear inside a pending limit after tapping it. This placement controls Toyota guidance.",
-      "refs": [
-        "openpilot/starpilot/ui/onroad_customization.py"
-      ]
-    },
-    {
       "source": "Accepted automatically. Tap Pair on your phone if it shows this code:",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/bluetooth.js"
@@ -1456,7 +1450,7 @@
       ]
     },
     {
-      "source": "Blind Spot Camera and Preview",
+      "source": "Blind Spot Camera & Preview",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/pip.js",
         "openpilot/starpilot/galaxy/web/js/settings.js",
@@ -1464,7 +1458,7 @@
       ]
     },
     {
-      "source": "Blind Spot Camera and Preview saved settings",
+      "source": "Blind Spot Camera & Preview saved settings",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/pip.js"
       ]
@@ -2015,7 +2009,7 @@
       ]
     },
     {
-      "source": "Cameras and Monitoring",
+      "source": "Cameras & Monitoring",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/cameras.js"
       ]
@@ -7333,6 +7327,7 @@
     {
       "source": "Invalid widget size",
       "refs": [
+        "openpilot/starpilot/galaxy/web/js/onroad-layout.js",
         "openpilot/starpilot/ui/onroad_customization.py"
       ]
     },
@@ -7509,12 +7504,6 @@
       "source": "Keep this page open while pairing",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/starport.js"
-      ]
-    },
-    {
-      "source": "Keep widgets within the screen and clear of Speed limit actions. The last valid position is kept.",
-      "refs": [
-        "openpilot/starpilot/galaxy/web/js/onroad-layout.js"
       ]
     },
     {
@@ -8137,18 +8126,6 @@
       "source": "Lets the Ioniq 5 or Ioniq 6 left paddle pause acceleration and braking while Always On Lateral keeps steering.",
       "refs": [
         "openpilot/starpilot/galaxy/setting_descriptions.py"
-      ]
-    },
-    {
-      "source": "Limit accepted",
-      "refs": [
-        "openpilot/starpilot/ui/slc_action_dispatch.py"
-      ]
-    },
-    {
-      "source": "Limit adopted",
-      "refs": [
-        "openpilot/starpilot/ui/slc_action_dispatch.py"
       ]
     },
     {
@@ -9864,12 +9841,6 @@
       ]
     },
     {
-      "source": "Not applied",
-      "refs": [
-        "openpilot/starpilot/ui/slc_action_dispatch.py"
-      ]
-    },
-    {
       "source": "Not armed",
       "refs": [
         "openpilot/starpilot/ui/sentry_owner.py"
@@ -9918,12 +9889,6 @@
         "openpilot/starpilot/galaxy/web/js/sentry-notifications.js",
         "openpilot/starpilot/ui/pip_owner.py",
         "openpilot/starpilot/ui/vasm_owner.py"
-      ]
-    },
-    {
-      "source": "Not confirmed",
-      "refs": [
-        "openpilot/starpilot/ui/slc_action_dispatch.py"
       ]
     },
     {
@@ -15168,12 +15133,6 @@
       ]
     },
     {
-      "source": "Set speed kept",
-      "refs": [
-        "openpilot/starpilot/ui/slc_action_dispatch.py"
-      ]
-    },
-    {
       "source": "Set speed margin",
       "refs": [
         "openpilot/starpilot/ui/conditional_feature.py"
@@ -15544,7 +15503,7 @@
       ]
     },
     {
-      "source": "Setup and Settings",
+      "source": "Setup & Settings",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/spotify.js"
       ]
@@ -15663,7 +15622,7 @@
       ]
     },
     {
-      "source": "Show onroad · Big and Small UI",
+      "source": "Show onroad · Big & Small UI",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/favorites.js"
       ]
@@ -15927,12 +15886,6 @@
       ]
     },
     {
-      "source": "Small speed-limit signs can overlap confirmation actions. Live confirmations hide an overlapping sign until the decision ends. Select either widget in the list to edit it.",
-      "refs": [
-        "openpilot/starpilot/galaxy/web/js/onroad-layout-template.js"
-      ]
-    },
-    {
       "source": "Small · On-device",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/models.js"
@@ -16158,7 +16111,7 @@
       ]
     },
     {
-      "source": "Speed and longitudinal",
+      "source": "Speed & longitudinal",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/driving.js"
       ]
@@ -16187,12 +16140,6 @@
       "source": "Speed limit",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/onroad-layout.js",
-        "openpilot/starpilot/ui/onroad_customization.py"
-      ]
-    },
-    {
-      "source": "Speed limit actions",
-      "refs": [
         "openpilot/starpilot/ui/onroad_customization.py"
       ]
     },
@@ -16235,6 +16182,7 @@
     {
       "source": "Speed-limit confirmation overlaps set speed, torque, or screen bounds",
       "refs": [
+        "openpilot/starpilot/galaxy/web/js/onroad-layout.js",
         "openpilot/starpilot/ui/onroad_customization.py"
       ]
     },
@@ -16269,7 +16217,7 @@
       ]
     },
     {
-      "source": "Spotify and Phone Audio",
+      "source": "Spotify & Phone Audio",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/spotify.js",
         "openpilot/starpilot/galaxy/web/js/starport.js"
@@ -16737,13 +16685,13 @@
       ]
     },
     {
-      "source": "Steering and Torque",
+      "source": "Steering & Torque",
       "refs": [
         "openpilot/starpilot/ui/feature_settings_owner.py"
       ]
     },
     {
-      "source": "Steering and buttons",
+      "source": "Steering & buttons",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/driving.js"
       ]
@@ -16972,7 +16920,7 @@
       ]
     },
     {
-      "source": "Storage and Account",
+      "source": "Storage & Account",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/spotify.js"
       ]
@@ -17292,12 +17240,6 @@
       "source": "That crop size would cross the image edge or leave no configured side.",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/pip.js"
-      ]
-    },
-    {
-      "source": "That size would cover Speed limit actions. The last valid size is kept.",
-      "refs": [
-        "openpilot/starpilot/galaxy/web/js/onroad-layout.js"
       ]
     },
     {
@@ -18183,12 +18125,6 @@
       "source": "Toyota features",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/toyota-tools.js"
-      ]
-    },
-    {
-      "source": "Toyota guidance",
-      "refs": [
-        "openpilot/starpilot/galaxy/web/js/onroad-layout.js"
       ]
     },
     {
@@ -20151,12 +20087,6 @@
       ]
     },
     {
-      "source": "Waiting…",
-      "refs": [
-        "openpilot/starpilot/ui/slc_action_dispatch.py"
-      ]
-    },
-    {
       "source": "Waits before resuming steering after signaling ends, if speed fell below half the steering-pause threshold.",
       "refs": [
         "openpilot/starpilot/galaxy/setting_descriptions.py"
@@ -20297,12 +20227,6 @@
     },
     {
       "source": "Widget outside profile bounds",
-      "refs": [
-        "openpilot/starpilot/ui/onroad_customization.py"
-      ]
-    },
-    {
-      "source": "Widget overlaps protected speed limit actions",
       "refs": [
         "openpilot/starpilot/ui/onroad_customization.py"
       ]

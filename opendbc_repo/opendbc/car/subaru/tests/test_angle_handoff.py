@@ -2,6 +2,7 @@ import unittest
 
 from opendbc.car.subaru.tests.test_ascent_angle import setup_controller, step
 from opendbc.car.subaru.values import CAR
+from opendbc.car import structs
 
 
 class TestAngleHandoff(unittest.TestCase):
@@ -98,3 +99,64 @@ class TestIndependentAngleEnvelope(unittest.TestCase):
             # Follow the small target without jumping to the measured angle.
             expected = -1.45 * (1. - (30. / 31.) ** 5)
             self.assertAlmostEqual(decoded['LKAS_Output'], round(expected, 2), places=2)
+
+
+class TestJacobwAngleContinuation(unittest.TestCase):
+  def test_active_aol_crosses_admission_angle_without_losing_request(self):
+    for car in (CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025):
+      for sign in (-1, 1):
+        with self.subTest(car=car, sign=sign):
+          cp, controller, command, state = setup_controller(car)
+          cp.alternativeExperience = 32
+          command.enabled = state.out.cruiseState.enabled = False
+          command.actuators.steeringAngleDeg = 170 * sign
+          state.out.vEgoRaw = state.out.vEgo = 4.8
+          state.out.standstill = False
+          state.out.steeringTorque = state.out.steeringRateDeg = 0
+          for angle in (115, 119, 120, 121, 140, 170, 189):
+            state.out.steeringAngleDeg = angle * sign
+            _, decoded = step(controller, command, state)
+            self.assertTrue(decoded['LKAS_Request'])
+            self.assertLessEqual(abs(decoded['LKAS_Output']), 190)
+          state.out.steeringAngleDeg = 190 * sign
+          _, decoded = step(controller, command, state)
+          self.assertFalse(decoded['LKAS_Request'])
+          state.out.steeringAngleDeg = 140 * sign
+          for _ in range(3):
+            _, decoded = step(controller, command, state)
+            self.assertFalse(decoded['LKAS_Request'])
+
+  def test_continuation_preserves_driver_override_and_all_independent_vetoes(self):
+    for car in (CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025):
+      for veto in ('driver', 'temporary', 'permanent', 'main', 'reverse', 'standstill', 'slow', 'lateral'):
+        with self.subTest(car=car, veto=veto):
+          cp, controller, command, state = setup_controller(car)
+          cp.alternativeExperience = 32
+          command.enabled = state.out.cruiseState.enabled = False
+          command.actuators.steeringAngleDeg = 160
+          state.out.vEgoRaw = state.out.vEgo = 4.8
+          state.out.standstill = False
+          state.out.steeringAngleDeg = 110
+          state.out.steeringTorque = state.out.steeringRateDeg = 0
+          _, decoded = step(controller, command, state)
+          self.assertTrue(decoded['LKAS_Request'])
+          state.out.steeringAngleDeg = 140
+          if veto == 'driver':
+            state.out.steeringTorque = 151
+          elif veto == 'temporary':
+            state.out.steerFaultTemporary = True
+          elif veto == 'permanent':
+            state.out.steerFaultPermanent = True
+          elif veto == 'main':
+            state.out.cruiseState.available = False
+          elif veto == 'reverse':
+            state.out.gearShifter = structs.CarState.GearShifter.reverse
+          elif veto == 'standstill':
+            state.out.standstill = True
+          elif veto == 'slow':
+            state.out.vEgoRaw = .4
+          else:
+            command.latActive = False
+          for _ in range(2):
+            _, decoded = step(controller, command, state)
+          self.assertFalse(decoded['LKAS_Request'])

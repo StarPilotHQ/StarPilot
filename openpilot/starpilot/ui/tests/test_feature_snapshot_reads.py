@@ -37,7 +37,7 @@ class FeatureSnapshotReadTests(unittest.TestCase):
     return self.owner.snapshot(page, parked=False, system_long=False, lateral_context=False, metric=False)
 
   def test_normal_and_developer_pages_read_only_their_sources_once_per_assembly(self):
-    for page, expected in (('torque', {'LaneChangePreferences'}), ('torque/developer', {'TorqueOverrideDocument'})):
+    for page, expected in (('torque', {'AutomaticTurnInitiation'}), ('torque/developer', {'TorqueOverrideDocument'})):
       with self.subTest(page=page):
         self.params.reads.clear()
         first = self.snapshot(page)

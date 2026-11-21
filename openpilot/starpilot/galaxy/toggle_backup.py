@@ -6,6 +6,7 @@ from openpilot.starpilot.analytics.settings import _eligible, _value
 from openpilot.starpilot.galaxy.settings import PAGES, SettingsChanged
 from openpilot.starpilot.galaxy.onroad_layout import LayoutChanged
 from openpilot.starpilot.ui.onroad_customization import validate_document
+from openpilot.starpilot.ui.wheel_rotation import take_rotation
 
 FORMAT = 'galaxy-toggles'
 MAX_BYTES = 256 * 1024
@@ -33,6 +34,8 @@ class ToggleBackup:
     values = [{'page': page, 'key': row.key, 'value': row.value}
               for page, row in self._rows(ctx) if _value(row, row.value) is not None]
     layout = self.layout.snapshot()
+    if layout['valid']:
+      take_rotation(layout['document'])
     result = {'format': FORMAT, 'version': 1, 'createdAt': datetime.now(UTC).isoformat(),
               'metric': ctx.metric, 'vehicle': getattr(ctx.cp, 'carFingerprint', None),
               'settings': values, 'layout': layout['document'] if layout['valid'] else None}
@@ -60,6 +63,8 @@ class ToggleBackup:
         len(json.dumps(payload, allow_nan=False).encode()) > MAX_BYTES):
       raise ValueError('Invalid toggle backup')
     document = validate_document(payload['layout']) if payload['layout'] is not None else None
+    if document is not None:
+      take_rotation(document)  # Portable backups never apply device-local rotation.
     ctx = self.settings.context.sample()
     if not authorized() or not ctx.parked:
       raise SettingsChanged('Park the vehicle before restoring toggles')
@@ -115,7 +120,9 @@ class ToggleBackup:
     if document is not None:
       try:
         revision = self.layout.snapshot()['revision']
-        self.layout.save({'revision': revision, 'document': document}, session_valid=authorized)
+        result = self.layout.save({'revision': revision, 'document': document}, session_valid=authorized)
+        if result['failed']:
+          raise LayoutChanged('Could not apply: ' + ', '.join(result['failed']))
       except (LayoutChanged, OSError, RuntimeError) as error:
         return {'complete': False, 'restored': restored, 'unchanged': unchanged, 'skipped': skipped,
                 'error': f'Toggles restored, but the layout could not be restored: {error}'}

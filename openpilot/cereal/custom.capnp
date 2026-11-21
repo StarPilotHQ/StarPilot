@@ -443,6 +443,8 @@ struct SlcState @0xa1680744031fdb2d {
     status @13 :Text;
     reason @14 :Text;
     statusCode @15 :UInt16;
+    # Informational CEM stop scene, not a mode request or braking authority.
+    perceivedStop @16 :Bool;
 
     enum Choice {
       stock @0;

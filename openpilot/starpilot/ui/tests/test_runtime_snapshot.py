@@ -154,6 +154,20 @@ def test_slc_offset_schedule_uses_cached_validated_settings(tmp_path):
 
 class TestRuntimeSnapshot(unittest.TestCase):
 
+  def test_weather_gps_does_not_replace_speed_limit_observation(self):
+    ui = ui_fake()
+    baseline = RuntimeSnapshotAdapter(ui).build(ShellMode.ONROAD, now_ns=NOW).onroad.speed_limit
+    document = default_document()
+    document['layouts']['compact']['weather']['enabled'] = True
+    ui.sm.recv_frame['gpsLocationExternal'] = 3
+    with patch('openpilot.starpilot.ui.runtime_snapshot.read_customization', return_value=document):
+      for fix, location in ((None, None), ((NOW, NS(latitude=41.0, longitude=-87.0)), (41.0, -87.0))):
+        with self.subTest(location=location), patch('openpilot.starpilot.gps.source.observation', return_value=fix) as gps:
+          onroad = RuntimeSnapshotAdapter(ui).build(ShellMode.ONROAD, now_ns=NOW).onroad
+          gps.assert_called()
+          self.assertEqual(onroad.speed_limit, baseline)
+          self.assertEqual(onroad.weather_location, location)
+
   def vehicle_ui(self, **car_params):
     return vehicle_ui(self.enterContext(TemporaryDirectory()), **car_params)
 
@@ -567,6 +581,25 @@ class TestRuntimeSnapshot(unittest.TestCase):
         state = adapter.build(ShellMode.ONROAD, now_ns=NOW + 30_000_000).onroad
         self.assertEqual(state.personality, 2)
         self.assertEqual(reads.count('LongitudinalPersonality'), 1)
+
+  def test_updater_failure_is_visible_bounded_and_clears_after_success(self):
+    ui = ui_fake()
+    ui.params.values.update(UpdaterState="idle", UpdateFailedCount=1,
+                            LastUpdateException="AGNOS hash mismatch\n" + "x" * 5000)
+    adapter = RuntimeSnapshotAdapter(ui)
+    failed = adapter.build(ShellMode.SETTINGS, now_ns=NOW).software
+    self.assertTrue(failed.download_status.startswith("Update failed: AGNOS hash mismatch "))
+    self.assertLessEqual(len(failed.download_status), 4111)
+    ui.params.values["UpdaterState"] = "downloading..."
+    self.assertEqual(adapter.build(ShellMode.SETTINGS, now_ns=NOW+1).software.download_status, "downloading...")
+    ui.params.values.update(UpdaterState="idle", UpdateFailedCount=0)
+    self.assertNotIn("hash mismatch", adapter.build(ShellMode.SETTINGS, now_ns=NOW+2).software.download_status)
+
+  def test_updater_missing_exception_retains_failure(self):
+    ui = ui_fake()
+    ui.params.values.update(UpdaterState="idle", UpdateFailedCount="2")
+    snapshot = RuntimeSnapshotAdapter(ui).build(ShellMode.SETTINGS, now_ns=NOW).software
+    self.assertEqual(snapshot.download_status, "Update failed: Updater reported a failure")
 
   def test_onroad_ancillary_reads_are_bounded_and_settings_refreshes_immediately(self):
     ui = ui_fake()
@@ -1063,13 +1096,14 @@ class TestRuntimeSnapshot(unittest.TestCase):
 
 @pytest.mark.parametrize('brand,standstill,cruise_standstill,cruise_enabled,expected', [
   ('honda', False, False, True, True),
+  ('ford', False, False, True, True),
   ('toyota', False, False, True, True),
   ('toyota', True, False, True, False),
   ('toyota', False, True, True, False),
   ('toyota', False, False, False, False),
 ])
 def test_wheel_confirmation_hint_preserves_toyota_resume(brand, standstill, cruise_standstill, cruise_enabled, expected, tmp_path):
-  ui = vehicle_ui(tmp_path, carFingerprint='', brand=brand, openpilotLongitudinalControl=True, pcmCruise=brand == 'toyota')
+  ui = vehicle_ui(tmp_path, carFingerprint='', brand=brand, openpilotLongitudinalControl=True, pcmCruise=brand in ('toyota', 'ford'))
   car = ui.sm['carState']
   car.canTimeout, car.canValid, car.standstill = False, True, standstill
   car.cruiseState = NS(available=True, enabled=cruise_enabled, standstill=cruise_standstill)
@@ -1078,7 +1112,9 @@ def test_wheel_confirmation_hint_preserves_toyota_resume(brand, standstill, crui
   ui.sm.put('controlsState', NS(longControlState='pid'))
   adapter = RuntimeSnapshotAdapter(ui)
   assert adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad.slc_wheel_confirmation_available == expected
-  ui.sm.logMonoTime['carControl'] = NOW - 200_000_000
+  ui.sm.logMonoTime['carControl'] = NOW - 50_000_000
+  assert adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad.slc_wheel_confirmation_available == expected
+  ui.sm.logMonoTime['carControl'] = NOW - 201_000_000
   assert not adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad.slc_wheel_confirmation_available
 
 
@@ -1108,6 +1144,14 @@ class TestParkedClockDomains(unittest.TestCase):
     current = self.adapter.confirmed_offroad()
     self.assertEqual(current, self.adapter.build(ShellMode.SETTINGS, now_ns=self.mono).device.offroad)
     return current
+
+  def test_updater_error_log_requires_fresh_offroad_state(self):
+    from openpilot.starpilot.ui.software_state import SoftwareRequest
+    self.assertIn(SoftwareRequest.OPEN_ERROR_LOG,
+                  self.adapter.build(ShellMode.SETTINGS, now_ns=self.mono).software.available_actions)
+    self.ui.sm.valid["deviceState"] = False
+    self.assertNotIn(SoftwareRequest.OPEN_ERROR_LOG,
+                     self.adapter.build(ShellMode.SETTINGS, now_ns=self.mono).software.available_actions)
 
   def test_authority_check_does_not_read_preferences_or_change_display_mode(self):
     self.adapter._last_mode = ShellMode.ONROAD

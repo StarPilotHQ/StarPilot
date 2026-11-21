@@ -126,17 +126,17 @@ openpilot/selfdrive/modeld/models/*.unchunked
 !openpilot/selfdrive/modeld/models/dmonitoring_model_tinygrad.pkl.chunk[0-9][0-9][0-9][0-9]of[0-9][0-9][0-9][0-9]
 !openpilot/selfdrive/modeld/models/dmonitoring_model_tinygrad.pkl.chunkmanifest
 !openpilot/selfdrive/modeld/models/dmonitoring_model_tinygrad.pkl.chunksha256
-!openpilot/selfdrive/modeld/models/rdf43_driving_tinygrad.pkl.chunk[0-9][0-9]of[0-9][0-9]
-!openpilot/selfdrive/modeld/models/rdf43_driving_tinygrad.pkl.chunk[0-9][0-9]of[0-9][0-9][0-9]
-!openpilot/selfdrive/modeld/models/rdf43_driving_tinygrad.pkl.chunk[0-9][0-9]of[0-9][0-9][0-9][0-9]
-!openpilot/selfdrive/modeld/models/rdf43_driving_tinygrad.pkl.chunk[0-9][0-9][0-9]of[0-9][0-9]
-!openpilot/selfdrive/modeld/models/rdf43_driving_tinygrad.pkl.chunk[0-9][0-9][0-9]of[0-9][0-9][0-9]
-!openpilot/selfdrive/modeld/models/rdf43_driving_tinygrad.pkl.chunk[0-9][0-9][0-9]of[0-9][0-9][0-9][0-9]
-!openpilot/selfdrive/modeld/models/rdf43_driving_tinygrad.pkl.chunk[0-9][0-9][0-9][0-9]of[0-9][0-9]
-!openpilot/selfdrive/modeld/models/rdf43_driving_tinygrad.pkl.chunk[0-9][0-9][0-9][0-9]of[0-9][0-9][0-9]
-!openpilot/selfdrive/modeld/models/rdf43_driving_tinygrad.pkl.chunk[0-9][0-9][0-9][0-9]of[0-9][0-9][0-9][0-9]
-!openpilot/selfdrive/modeld/models/rdf43_driving_tinygrad.pkl.chunkmanifest
-!openpilot/selfdrive/modeld/models/rdf43_driving_tinygrad.pkl.chunksha256
+!openpilot/selfdrive/modeld/models/cheddar_driving_tinygrad.pkl.chunk[0-9][0-9]of[0-9][0-9]
+!openpilot/selfdrive/modeld/models/cheddar_driving_tinygrad.pkl.chunk[0-9][0-9]of[0-9][0-9][0-9]
+!openpilot/selfdrive/modeld/models/cheddar_driving_tinygrad.pkl.chunk[0-9][0-9]of[0-9][0-9][0-9][0-9]
+!openpilot/selfdrive/modeld/models/cheddar_driving_tinygrad.pkl.chunk[0-9][0-9][0-9]of[0-9][0-9]
+!openpilot/selfdrive/modeld/models/cheddar_driving_tinygrad.pkl.chunk[0-9][0-9][0-9]of[0-9][0-9][0-9]
+!openpilot/selfdrive/modeld/models/cheddar_driving_tinygrad.pkl.chunk[0-9][0-9][0-9]of[0-9][0-9][0-9][0-9]
+!openpilot/selfdrive/modeld/models/cheddar_driving_tinygrad.pkl.chunk[0-9][0-9][0-9][0-9]of[0-9][0-9]
+!openpilot/selfdrive/modeld/models/cheddar_driving_tinygrad.pkl.chunk[0-9][0-9][0-9][0-9]of[0-9][0-9][0-9]
+!openpilot/selfdrive/modeld/models/cheddar_driving_tinygrad.pkl.chunk[0-9][0-9][0-9][0-9]of[0-9][0-9][0-9][0-9]
+!openpilot/selfdrive/modeld/models/cheddar_driving_tinygrad.pkl.chunkmanifest
+!openpilot/selfdrive/modeld/models/cheddar_driving_tinygrad.pkl.chunksha256
 
 # Jetlink editable-install metadata.
 /jetlink_repo/jetlink.egg-info/

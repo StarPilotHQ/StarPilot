@@ -174,7 +174,7 @@ class TestVendoredUpdate(unittest.TestCase):
          patch.object(self.updater, "normal_update") as normal:
       with self.assertRaises(self.updated.FastUpdateIncompatible):
         self.updater.fast_update(BRANCH, self.initial_commit)
-      normal.assert_not_called()  # Explicit fast/rollback/version operations keep their contract.
+      normal.assert_not_called()  # Explicit fast operations keep their contract.
 
   @patch('openpilot.starpilot.drive_state.evidence.PhysicalSource', return_value=Mock(update_ready=Mock(return_value=True)))
   def test_download_selected_version_stages_exact_commit_without_installing(self, _physical):
@@ -302,8 +302,8 @@ class TestVendoredUpdate(unittest.TestCase):
       self.updated.validate_update_revision(str(self.source), target, 'StarPilot')
     audited = load_updater().TRUSTED_LEGACY_RELEASES
     self.assertEqual(audited, {
-      'StarPilot': frozenset({'c2e5e469ee8fefc3cffb514dc2e1a1fb82a421d6', '7ab42497b4590153c88560c7e2c2f3ff8317c6d4'}),
-      'stable': frozenset({'7ab42497b4590153c88560c7e2c2f3ff8317c6d4'}),
+      'StarPilot': frozenset({'c2e5e469ee8fefc3cffb514dc2e1a1fb82a421d6', '0b2061df8d2a931feaf34943e3460510d160f99e'}),
+      'stable': frozenset({'0b2061df8d2a931feaf34943e3460510d160f99e'}),
     })
 
   def test_reserved_readiness_marker_rejected_in_modern_and_legacy_trees(self):
@@ -405,6 +405,28 @@ class TestVendoredUpdate(unittest.TestCase):
     self.assertTrue(self.updater.params.values["DoReboot"])
     self.assertTrue(self.updater.params.values["UpdateAvailable"])
     progress.assert_called_with("rebooting", "Update installed. Restarting device.")
+
+  @patch('openpilot.starpilot.drive_state.evidence.PhysicalSource', return_value=Mock(update_ready=Mock(return_value=True)))
+  def test_selected_version_falls_back_to_full_update_without_installing_branch_head(self, _physical):
+    installed = self.root / "installed"
+    self.git(self.root, "clone", "--no-local", str(self.merged), str(installed))
+    self.updated.BASEDIR = str(installed)
+    self.git(installed, 'remote', 'set-url', 'origin', str(self.source))
+    (self.source / "panda/README.md").write_text("Selected OS update")
+    selected = self.commit_source("Selected version")
+    (self.source / "panda/README.md").write_text("Newer branch head")
+    self.commit_source("Newer version")
+    self.updated.AGNOS = True
+    from openpilot.starpilot.software.fast_update import FastUpdateIncompatible
+    with patch('openpilot.starpilot.software.fast_update.fast_update', side_effect=FastUpdateIncompatible('OS update required')):
+      self.assertEqual(self.updater.fast_update(BRANCH, self.initial_commit, selected), 'reboot-requested')
+    self.assertEqual(self.git(self.finalized, 'rev-parse', 'HEAD'), selected)
+    self.assertEqual(self.git(installed, 'rev-parse', 'HEAD'), self.initial_commit)
+    self.assertTrue(self.updater.params.values['DoReboot'])
+    callback = self.updated.handle_agnos_update.call_args.kwargs['progress']
+    callback('Downloading and writing AGNOS system', 37)
+    self.assertEqual(self.updater.params.values['UpdaterFastState']['stage'], 'agnos')
+    self.assertEqual(self.updater.params.values['UpdaterFastState']['percent'], 37)
 
   def test_normal_fallback_never_reboots_after_parked_authority_is_lost(self):
     installed = self.root / "installed"

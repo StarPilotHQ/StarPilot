@@ -3,7 +3,7 @@ from bisect import bisect_left, bisect_right
 import hashlib
 from statistics import median
 
-from openpilot.starpilot.flm.offroad_surface import REVISION, ROUTE_NAMES
+from openpilot.starpilot.flm.offroad_surface import current_revision, ROUTE_NAMES
 
 
 def observed_sources(windows, timeline, metadata_for):
@@ -26,7 +26,7 @@ def observed_sources(windows, timeline, metadata_for):
       metadata = metadata_for(control, window.domain)
       values = metadata.pop('route_values')
       revision = metadata.pop('route_revision')
-      if revision != REVISION or tuple(name for name, _ in values) != ROUTE_NAMES or context is not None and context != metadata:
+      if not current_revision(revision) or tuple(name for name, _ in values) != ROUTE_NAMES or context is not None and context != metadata:
         break
       context = metadata
       for name, value in values:

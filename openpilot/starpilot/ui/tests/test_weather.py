@@ -89,7 +89,7 @@ def test_failed_request_backs_off_and_keeps_a_still_current_reading():
       client.observe((0, 0))
     assert fetch.call_count == 1
     assert not client._running
-    now[0] += 600
+    now[0] += 60
     client.observe((0, 0))
     assert fetch.call_count == 2
 
@@ -152,7 +152,7 @@ def test_disabled_and_alerted_widget_never_constructs_a_client():
     client.assert_not_called()
 
 
-@pytest.mark.parametrize('case', ('off', 'valid', 'invalid', 'no_fix', 'stale', 'future', 'bad_latitude', 'replay', 'fallback'))
+@pytest.mark.parametrize('case', ('off', 'valid', 'invalid', 'no_fix', 'stale', 'future', 'bad_latitude', 'replay', 'fallback', 'car', 'phone'))
 def test_runtime_uses_only_current_fixed_gps_and_never_fetches(case, tmp_path):
   from types import SimpleNamespace as NS
   from openpilot.starpilot.ui.tests.test_runtime_snapshot import ui_fake, RuntimeSnapshotAdapter, NOW
@@ -163,17 +163,22 @@ def test_runtime_uses_only_current_fixed_gps_and_never_fetches(case, tmp_path):
   ui.params.values['OnroadCustomizations'] = json.dumps(document).encode()
   ui.params.get_param_path = lambda key: str(tmp_path / key)
   (tmp_path / 'OnroadCustomizations').write_bytes(ui.params.values['OnroadCustomizations'])
-  gps = NS(hasFix=case != 'no_fix', latitude=91. if case == 'bad_latitude' else 41., longitude=-87.)
+  gps = NS(hasFix=case != 'no_fix', latitude=91. if case == 'bad_latitude' else 41., longitude=-87., horizontalAccuracy=5., source='ublox')
   ui.sm.put('gpsLocationExternal', gps, age_ns=3_000_000_000 if case in ('stale', 'fallback') else -1_000_000_000 if case == 'future' else 0)
+  if case in ('car', 'phone'):
+    ui.sm.valid['gpsLocationExternal'] = False
+    fix = NS(hasFix=True, latitude=42., longitude=-86., horizontalAccuracy=5., sourceMonoTime=NOW)
+    ui.sm.put('starpilotCarState' if case == 'car' else 'starpilotNavigation',
+              NS(**{'gps' if case == 'car' else 'phoneGps': fix}))
   if case == 'invalid':
     ui.sm.valid['gpsLocationExternal'] = False
   if case == 'fallback':
-    ui.sm.put('gpsLocation', NS(hasFix=True, latitude=40., longitude=-88.))
+    ui.sm.put('gpsLocation', NS(hasFix=True, latitude=40., longitude=-88., horizontalAccuracy=5., source='qcomdiag'))
   if case == 'replay':
     ui.replay_clock = object()
   with patch('openpilot.starpilot.ui.weather.WeatherClient') as client:
     state = RuntimeSnapshotAdapter(ui).build(ShellMode.ONROAD, now_ns=NOW).onroad
-    expected = (41., -87.) if case == 'valid' else (40., -88.) if case == 'fallback' else None
+    expected = (41., -87.) if case == 'valid' else (40., -88.) if case == 'fallback' else (42., -86.) if case in ('car', 'phone') else None
     assert state.customization['layouts']['compact']['weather']['enabled'] == (case != 'off')
     assert state.weather_location == expected
     client.assert_not_called()

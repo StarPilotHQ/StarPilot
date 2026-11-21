@@ -30,7 +30,8 @@ class CarController(CarControllerBase):
       return
     self.apply_angle_last = 0
     self.coop_steer = CooperativeSteeringController()
-    self.coop_enabled = CP.carFingerprint == CAR.TESLA_MODEL_3 and bool(CP.safetyConfigs[0].safetyParam & TeslaSafetyFlags.COOP_STEERING)
+    self.coop_enabled = (CP.carFingerprint in (CAR.TESLA_MODEL_3, CAR.TESLA_MODEL_Y) and
+                                bool(CP.safetyConfigs[0].safetyParam & TeslaSafetyFlags.COOP_STEERING))
     self.steering_limit_info = {}
     self.packer = CANPacker(dbc_names[Bus.party])
     self.tesla_can = TeslaCAN(CP, self.packer)

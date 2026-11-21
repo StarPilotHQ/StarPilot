@@ -74,7 +74,7 @@ class FlmBackup:
     except (OSError, ValueError, TypeError, AttributeError):
       scope_key = None
     selected = scope_key if scope_key in learned else None
-    return {'compatibility': compatibility, 'setup': selected, 'manualProfile': None if manual is None or not manual.compatibility else
+    return {'compatibility': compatibility, 'setup': selected, 'manualProfile': None if manual is None or not manual.route_format else
             json.dumps(manual.document(), sort_keys=True, separators=(',', ':'), allow_nan=False),
             'trials': {key: os.path.lexists(directory_for_params(self.settings.params) / ('trial-' + row['analysis_sha256'] + '.json'))
                        for key, row in learned.items()}}
@@ -194,6 +194,11 @@ class FlmBackup:
     if mode == 'recovery':
       return self._manual_recovery(backup, learned, ctx, raw, doc, authorized)
     if mode == 'manual':
+      retained = backup.get('recovery', {}).get('manualProfile')
+      if retained is not None:
+        from openpilot.starpilot.flm.manual_coordinates import ManualCoordinates
+        if ManualCoordinates.from_document(json.loads(retained)).automatic is not None:
+          return self._manual_recovery(backup, learned, ctx, raw, doc, authorized)
       available = {row.key: row for row in self.settings._state('tuning', ctx).rows if row.available}
       helper = ToggleBackup(self.settings, None)
       for row in backup['manual']:
@@ -280,7 +285,8 @@ class FlmBackup:
             raise BackupRefused('A newer local outcome supersedes this backup. Existing rollback history was preserved.')
       manual = ManualCoordinates(context(ctx.cp, self._mode(ctx.cp), recovered=True),
                                  tuple((name, selected['values'][name]) for name in ROUTE_NAMES), token).validate()
-    if manual.compatibility != token or manual.context != context(ctx.cp, self._mode(ctx.cp), recovered=True):
+    if (manual.compatibility != token and not (manual.automatic is not None and manual.compatibility == '')
+        or manual.context != context(ctx.cp, self._mode(ctx.cp), recovered=True)):
       raise BackupRefused('The recovered manual tune needs a different controller or vehicle. Nothing was changed.')
     expected, readable = read_saved(self.settings.params, DOCUMENT_KEY, MAX_DOCUMENT_BYTES)
     if not readable:
@@ -289,7 +295,7 @@ class FlmBackup:
     tune = ctx.cp.lateralTuning.torque
     basis = (float(tune.latAccelFactor), float(tune.latAccelOffset), float(tune.friction))
     previous = profiles.get(str(ctx.cp.carFingerprint), PlatformProfile(basis, FieldChoice(), FieldChoice()))
-    if previous.basis != basis or previous.flm is not None:
+    if previous.basis != basis or previous.active_legacy_flm:
       raise BackupRefused('The existing manual baseline differs. Review it before recovering a tune.')
     prior = {} if previous.manual_coordinates is None else dict(previous.manual_coordinates.values)
     changes = [[name, prior.get(name, 0), value] for name, value in manual.values if value != prior.get(name, 0)]
@@ -311,7 +317,7 @@ class FlmBackup:
       self.pending[intent] = {'backup': backup, 'mode': mode, 'identity': identity, 'expires': self.clock() + 90, 'plan': plan}
     return {'intent': intent, 'mode': mode, 'changes': plan['changes'], 'count': len(plan['changes']),
             'question': 'Recover these values as your manual tune? Auto Learn pauses until you reset the manual tune.' if mode == 'recovery' else
-                        'Restore these manual slider values? Manual overrides pause Auto Learn.' if mode == 'manual' else
+                        'Restore these manual slider values? Changed values stay locked; other settings can learn.' if mode == 'manual' else
                         'Restore this locally verified Auto Learn setup? Current use is still confirmed by the controller while driving.'}
 
   def confirm(self, intent, identity, *, authorized):

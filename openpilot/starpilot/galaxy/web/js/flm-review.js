@@ -27,6 +27,15 @@ export function ideaExplanation(row) {
   return source + 'Your drive suggests this change, but Auto Learn needs more evidence before saving it automatically.' + next
 }
 
+export function coordinateStatus(row) {
+  if (![...SURFACE_NAMES, ...FRICTION_NAMES].includes(row?.coordinate)) return null
+  if (row.coordinateLocked === true) return { label: 'Manual override', tone: 'manual', learning: 'Auto Learn locked for this setting' }
+  if (typeof row.acceptedFindingValue !== 'number' || !Number.isFinite(row.acceptedFindingValue)) return null
+  if (row.coordinateLocked === false && row.learningEligible === true)
+    return { label: 'Change confirmed', tone: 'saved', learning: 'Eligible for Auto Learn' }
+  return { label: 'Saved change', tone: 'neutral', learning: row.learningEligible === false ? 'Review needed before learning' : 'Learning eligibility unavailable' }
+}
+
 export function reviewModel(route, historical = false, updating = false) {
   if (!route) return { title: 'Your next drive starts here', description: 'After a completed drive, Auto Learn will show what it found and whether it saved a change.',
     next: 'Wait for a completed-drive report.', tone: 'neutral', manual: [], manualGroups: [], curve: [], other: [], findings: [], saved: [], areas: [], count: 0 }

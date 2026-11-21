@@ -19,7 +19,7 @@ from typing import cast
 from openpilot.starpilot.galaxy import hotspot
 from openpilot.starpilot.galaxy.hotspot import atomic_json, bounded_json
 
-DEFAULT = {'prefer': 'wifi', 'pauseHotspot': True, 'parkedOnly': []}
+DEFAULT = {'prefer': 'wifi', 'pauseHotspot': False, 'parkedOnly': []}
 CELLULAR_FIRST_METRIC = 2000   # above the modem's own default route (1000), so cellular wins while it is up
 OWN_PROFILES = ('starpilot-starport',)
 UUID = re.compile(r'[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}')
@@ -303,7 +303,7 @@ class NetworkSettings:
     return True
 
   def _with_hotspot_paused(self, effect) -> None:
-    paused = self._pause_hotspot()
+    paused = read_prefs(self.root)['pauseHotspot'] and self._pause_hotspot()
     try:
       effect()
     finally:

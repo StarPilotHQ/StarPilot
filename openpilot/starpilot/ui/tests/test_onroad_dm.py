@@ -54,7 +54,7 @@ class TestDriverMonitor(unittest.TestCase):
   def test_known_old_layout_migrates_without_losing_palette_positions_or_visibility(self):
     old = default_document()
     for layout in old['layouts'].values():
-      for key in ('driver_monitor', 'torque_bar', 'speed_limit_actions', 'model_confidence', 'conditional_mode', 'following_distance'):
+      for key in ('driver_monitor', 'torque_bar', 'model_confidence', 'conditional_mode', 'following_distance'):
         layout.pop(key, None)
     old['palette']['text'] = '#12345678'
     old['layouts']['large']['steering_wheel'].update(x=500.5, y=600.25, enabled=False)
@@ -285,7 +285,7 @@ class TestDriverMonitor(unittest.TestCase):
 
     old = default_document()
     for layout in old['layouts'].values():
-      for key in ('driver_monitor', 'torque_bar', 'speed_limit_actions', 'model_confidence', 'conditional_mode', 'following_distance'):
+      for key in ('driver_monitor', 'torque_bar', 'model_confidence', 'conditional_mode', 'following_distance'):
         layout.pop(key, None)
     old['palette']['text'] = '#12345678'
     old['layouts']['large']['current_speed'].update(x=700.5, y=200.25)

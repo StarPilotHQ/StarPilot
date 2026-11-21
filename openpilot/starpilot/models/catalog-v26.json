@@ -1231,6 +1231,23 @@
       "artifact_sha256": "397e0a555c66143b2507b45a55e24a8d638634ad2f40abaa857a857226b20b0c",
       "artifact_size": 804589195,
       "artifact_chunk_count": 18
+    },
+    {
+      "artifact_chunk_count": 0,
+      "artifact_format": "tinygrad_single_v1_arena",
+      "artifact_sha256": "e72274cbb666f1e81c4750de8593c7d9409e13751339f9fd3e74febd36bc96bd",
+      "artifact_size": 86376298,
+      "community_favorite": false,
+      "id": "cheddar",
+      "model_size": "small",
+      "name": "Cheddar",
+      "released": "2026-11-17",
+      "series": "OP Series",
+      "source_sha256": {
+        "cheddar_driving_supercombo.onnx": "350a47ea36e554fb71634c7361b2c2a2a3da07ecb211a4c6cff3d2c3013d1d82"
+      },
+      "source_url": "https://github.com/commaai/openpilot/commit/b3ab22efe1be5d6c0ad46503f0985b26f8b7a36f",
+      "version": "v16"
     }
   ]
 }

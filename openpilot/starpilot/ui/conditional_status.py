@@ -16,6 +16,7 @@ class ConditionalDisplay:
   status_code: int
   planner_session: str
   planner_sequence: int
+  perceived_stop: bool = False
 
 
 def configured_choice(params) -> ModeChoice | None:
@@ -136,4 +137,5 @@ class ConditionalPerceptionProjector:
         value.sequence > self.sequence and self.last is not None and value.observed_ns <= self.last.observed_ns):
       return None
     self.session, self.sequence, self.last = value.session, value.sequence, value
-    return ConditionalDisplay(value.choice, False, value.reason, value.status_code, value.session, value.sequence)
+    return ConditionalDisplay(value.choice, False, value.reason, value.status_code, value.session, value.sequence,
+                              getattr(state.conditionalMode, 'perceivedStop', False) is True)

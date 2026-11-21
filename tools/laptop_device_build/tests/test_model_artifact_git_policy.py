@@ -14,9 +14,9 @@ class TestModelArtifactGitPolicy(unittest.TestCase):
       for name in ('.gitignore', '.gitattributes'):
         (root / name).write_bytes((ROOT / name).read_bytes())
       base = 'openpilot/selfdrive/modeld/models/'
-      publishable = [name + suffix for name in ('dmonitoring_model_tinygrad.pkl', 'rdf43_driving_tinygrad.pkl')
+      publishable = [name + suffix for name in ('dmonitoring_model_tinygrad.pkl', 'cheddar_driving_tinygrad.pkl')
                      for suffix in ('.chunk01of02', '.chunk01of100', '.chunk100of100', '.chunk1024of1024', '.chunkmanifest', '.chunksha256')]
-      ignored = ['rdf43_driving_tinygrad.pkl', 'rdf43_driving_tinygrad.pkl.unchunked', 'driving_tinygrad.pkl', 'dmonitoring_model_tinygrad.pkl', 'driving_tinygrad.pkl.unchunked',
+      ignored = ['cheddar_driving_tinygrad.pkl', 'cheddar_driving_tinygrad.pkl.unchunked', 'driving_tinygrad.pkl', 'dmonitoring_model_tinygrad.pkl', 'driving_tinygrad.pkl.unchunked',
                  'driving_tinygrad.pkl.chunk01of02', 'big_driving_tinygrad.pkl', 'big_driving_tinygrad.pkl.chunk01of02',
                  'driving_tinygrad.pkl.chunkNOTESof02', 'other_driving_tinygrad.pkl.chunk01of02']
       for name, expected in [(n, False) for n in publishable] + [(n, True) for n in ignored]:

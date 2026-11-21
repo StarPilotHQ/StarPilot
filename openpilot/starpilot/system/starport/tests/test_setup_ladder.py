@@ -203,9 +203,9 @@ def test_a_session_that_never_got_video_learns_nothing(sup):
   assert not sup._video_seen and not sup._ladder.snapshot(RECEIVER)["learned"]
 
 
-def test_status_shows_the_ladder_the_switch_and_the_cars_to_choose_between(sup):
+def test_status_shows_the_ladder_and_the_cars_to_choose_between(sup):
   status = sup.status()
-  assert status["new_setup"] in (True, False) and status["car_candidates"] == []
+  assert "new_setup" not in status and status["car_candidates"] == []
   assert [step["id"] for step in status["setup_ladder"]["steps"]][:2] == ["standard", "other_reply"]
   assert status["setup_ladder"]["max_passes"] == sl.MAX_PASSES and not status["setup_ladder"]["learned"]
 
@@ -512,3 +512,28 @@ def test_a_reset_during_a_session_is_written_at_once(sup, monkeypatch):
 def test_only_galaxy_can_reset_the_handshake():
   from openpilot.starpilot.system.starport import daemon
   assert "reset_handshake" in daemon.AUTHENTICATED_COMMANDS
+
+
+def test_unofficial_dongle_starts_at_the_other_reply(ladder):
+  assert ladder.strategy(CAR, False, unofficial=True).rung == "other_reply"
+  assert ladder.strategy(CAR, False, unofficial=True).modern_reply is True
+
+
+def test_unofficial_dongle_still_reaches_standard_after_a_full_pass(ladder):
+  seen = []
+  for _ in range(len(sl.RUNGS)):
+    strategy = ladder.strategy(CAR, False, unofficial=True)
+    seen.append(strategy.rung)
+    if refuse(ladder, strategy, adapter=True, unofficial=True) in ("wrapped", "exhausted"):
+      break
+  assert seen[0] == "other_reply" and "standard" not in seen
+  assert ladder.strategy(CAR, False, unofficial=True).rung == "standard"
+
+
+def test_unofficial_dongle_keeps_what_worked(ladder):
+  ladder.worked(CAR, sl.resolve("standard", False))
+  assert ladder.strategy(CAR, False, unofficial=True).rung == "standard"
+
+
+def test_other_receivers_still_start_at_standard(ladder):
+  assert ladder.strategy(CAR, False).rung == "standard"

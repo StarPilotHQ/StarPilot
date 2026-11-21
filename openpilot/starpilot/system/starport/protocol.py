@@ -96,7 +96,8 @@ def forget_car(address: str, client: StarPortClient | None = None) -> bool:
     return False
   config.update(rfcomm_cache=cache, modern_reply_cache=replies)
   if chosen:
-    config.update(receiver_address="", receiver_name="", companion_address="", companion_name="", car_fingerprint={})
+    config.update(receiver_address="", receiver_name="", companion_address="", companion_name="", car_fingerprint={},
+                  touch_units_cache={})
   elif companion:
     config.update(companion_address="", companion_name="")
   identity.save_config(config)

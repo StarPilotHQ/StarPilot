@@ -103,6 +103,6 @@ def create_turn_assist(cp, enabled):
 
 
 def apply_turn_assist(parent, cs, vm, params, curvature, output):
-  if parent.turn_assist is None:
+  if parent.turn_assist is None or not getattr(parent, "turn_assist_maneuver", False):
     return output
   return parent.turn_assist.apply(cs, vm, params, curvature, output, parent.steer_max)

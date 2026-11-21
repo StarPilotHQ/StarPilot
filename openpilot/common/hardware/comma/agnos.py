@@ -211,7 +211,7 @@ def clear_partition_hash(target_slot_number: int, partition: dict) -> None:
     os.sync()
 
 
-def extract_compressed_image(target_slot_number: int, partition: dict, cloudlog):
+def extract_compressed_image(target_slot_number: int, partition: dict, cloudlog, progress=None):
   path = get_partition_path(target_slot_number, partition)
   downloader = StreamingDecompressor(partition['url'])
 
@@ -227,6 +227,8 @@ def extract_compressed_image(target_slot_number: int, partition: dict, cloudlog)
       if p != last_p:
         last_p = p
         print(f"Installing {partition['name']}: {p}", flush=True)
+        if progress is not None:
+          progress(f"Downloading and writing AGNOS {partition['name']}", p)
 
     if raw_hash.hexdigest().lower() != partition['hash_raw'].lower():
       raise Exception(f"Raw hash mismatch '{raw_hash.hexdigest().lower()}'")
@@ -240,7 +242,7 @@ def extract_compressed_image(target_slot_number: int, partition: dict, cloudlog)
     os.sync()
 
 
-def flash_partition(target_slot_number: int, partition: dict, cloudlog, standalone=False):
+def flash_partition(target_slot_number: int, partition: dict, cloudlog, standalone=False, progress=None):
   cloudlog.info(f"Downloading and writing {partition['name']}")
 
   if verify_partition(target_slot_number, partition):
@@ -254,7 +256,7 @@ def flash_partition(target_slot_number: int, partition: dict, cloudlog, standalo
 
   path = get_partition_path(target_slot_number, partition)
 
-  extract_compressed_image(target_slot_number, partition, cloudlog)
+  extract_compressed_image(target_slot_number, partition, cloudlog, progress=progress)
 
   # Write hash after successful flash
   if not full_check:
@@ -278,7 +280,7 @@ def swap(manifest_path: str, target_slot_number: int, cloudlog) -> None:
       cloudlog.error(f"Swap failed {out}")
 
 
-def flash_agnos_update(manifest_path: str, target_slot_number: int, cloudlog, standalone=False) -> None:
+def flash_agnos_update(manifest_path: str, target_slot_number: int, cloudlog, standalone=False, progress=None) -> None:
   update = load_manifest(manifest_path)
 
   cloudlog.info(f"Target slot {target_slot_number}")
@@ -291,7 +293,9 @@ def flash_agnos_update(manifest_path: str, target_slot_number: int, cloudlog, st
 
     for retries in range(10):
       try:
-        flash_partition(target_slot_number, partition, cloudlog, standalone)
+        if progress is not None:
+          progress(f"Downloading and verifying AGNOS {partition['name']}", None)
+        flash_partition(target_slot_number, partition, cloudlog, standalone, progress=progress)
         success = True
         break
 

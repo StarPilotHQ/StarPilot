@@ -106,7 +106,7 @@ def aol_safety_config(CP):
 
 
 def physical_cancel_lateral_allowed(cp, cs, intent, native, *, settings, previous,
-                                    source_ns, now_ns, axis_session_id) -> bool:
+                                    source_ns, now_ns, axis_session_id, cancel_samples=()) -> bool:
   """Let the mapped intent owner apply Cancel while retaining a granted LAT axis."""
   from openpilot.starpilot.aol.intent import ButtonType
   from openpilot.starpilot.aol.runtime import (AXIS_MAX_AGE_NS, INTENT_MAX_AGE_NS, SAFETY_MAX_AGE_NS,
@@ -121,7 +121,10 @@ def physical_cancel_lateral_allowed(cp, cs, intent, native, *, settings, previou
       intent.validUntilMonoTime - intent.observedMonoTime <= SAFETY_MAX_AGE_NS and
       cs.canValid and not cs.canTimeout and cs.cruiseState.available and not cs.steerFaultTemporary and
       not cs.steerFaultPermanent and not cs.accFaulted and not cs.doorOpen and
-      any(event.type == ButtonType.cancel for event in cs.buttonEvents) and
+      (any(event.type == ButtonType.cancel for event in cs.buttonEvents) or
+       any(sample.valid and 0 < sample.logMonoTime <= source_ns and now_ns - sample.logMonoTime <= AXIS_MAX_AGE_NS and
+           sample.carState.canValid and not sample.carState.canTimeout and
+           any(event.type == ButtonType.cancel for event in sample.carState.buttonEvents) for sample in cancel_samples)) and
       native is not None and native.compatible and int(native.protocolVersion) == 1 and
       axis_session_id and native.axisSessionId == axis_session_id and native.requestedLateral and native.lateralAllowed and
       native_accepts_cp(cp, native.safetyModel, native.safetyParam) and native.pandaInventory and
@@ -131,4 +134,3 @@ def physical_cancel_lateral_allowed(cp, cs, intent, native, *, settings, previou
       native.validUntilMonoTime - native.observedMonoTime <= SAFETY_MAX_AGE_NS)
   except (AttributeError, KeyError, IndexError, TypeError, ValueError, OverflowError):
     return False
-
