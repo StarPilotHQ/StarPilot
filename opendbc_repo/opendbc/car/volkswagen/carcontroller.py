@@ -6,6 +6,8 @@ from opendbc.car.lateral import apply_driver_steer_torque_limits
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.volkswagen import mebcan, mlbcan, mqbcan, pqcan
+from opendbc.car.volkswagen.stock_aol import qualified as stock_aol_qualified
+from opendbc.car.volkswagen.long_aol import qualified as long_aol_qualified
 from opendbc.car.volkswagen.values import CanBus, CarControllerParams, VolkswagenFlags
 
 VisualAlert = structs.CarControl.HUDControl.VisualAlert
@@ -171,11 +173,14 @@ class CarController(CarControllerBase):
     # **** HUD Controls ***************************************************** #
 
     if self.frame % self.CCP.LDW_STEP == 0:
-      hud_alert = 0
-      if hud_control.visualAlert in (VisualAlert.steerRequired, VisualAlert.ldw):
-        hud_alert = self.CCP.LDW_MESSAGES["laneAssistTakeOver"]
-      can_sends.append(self.CCS.create_lka_hud_control(self.packer_pt, self.CAN.pt, CS.ldw_stock_values, CC.latActive,
-                                                       CS.out.steeringPressed, hud_alert, hud_control))
+      # Card finalizes the AOL safety configuration after constructing the controller.
+      mqb_aol_hud = stock_aol_qualified(self.CP, marked_only=True) or long_aol_qualified(self.CP, marked_only=True)
+      if not mqb_aol_hud or (CC.latActive and self.apply_torque_last != 0):
+        hud_alert = 0
+        if hud_control.visualAlert in (VisualAlert.steerRequired, VisualAlert.ldw):
+          hud_alert = self.CCP.LDW_MESSAGES["laneAssistTakeOver"]
+        can_sends.append(self.CCS.create_lka_hud_control(self.packer_pt, self.CAN.pt, CS.ldw_stock_values, CC.latActive,
+                                                         CS.out.steeringPressed, hud_alert, hud_control))
 
     if hud_control.leadDistanceBars != self.lead_distance_bars_last:
       self.distance_bar_frame = self.frame
