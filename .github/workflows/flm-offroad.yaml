@@ -24,6 +24,9 @@ on:
       - '.github/workflows/flm-offroad.yaml'
       - 'pyproject.toml'
       - 'uv.lock'
+  pull_request:
+    branches: [stable]
+    types: [opened, synchronize, reopened, edited]
   workflow_dispatch:
     inputs:
       source_sha:
