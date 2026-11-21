@@ -56,8 +56,23 @@ def flash_panda(panda_serial: str, choice: FirmwareChoice = DEFAULT_FIRMWARE_CHO
     bootstub_version = panda.get_version()
     cloudlog.info(f"Flashed firmware not booting, flashing development bootloader. {bootstub_version=}, {internal_panda=}")
     if internal_panda:
+      dfu_serial = panda.get_dfu_serial()
+      if dfu_serial is None:
+        raise PandaProtocolMismatch("Internal Panda recovery identity unavailable")
+      panda.close()
       HARDWARE.recover_internal_panda()
-    panda.recover(reset=(not internal_panda))
+      if not Panda.wait_for_dfu(dfu_serial, timeout=5):
+        raise PandaProtocolMismatch("Internal Panda did not enter recovery mode")
+      with PandaDFU(dfu_serial) as dfu:
+        dfu.recover()
+      if not Panda.wait_for_panda(panda_serial, timeout=5):
+        raise PandaProtocolMismatch("Internal Panda did not return after bootstub recovery")
+      panda.reconnect()
+      if not panda.bootstub:
+        raise PandaProtocolMismatch("Recovered internal Panda did not enter bootstub")
+      panda.flash(fn=fw_path)
+    elif not panda.recover():
+      raise PandaProtocolMismatch("External Panda recovery did not complete")
     cloudlog.info("Done flashing bootstub")
 
   if panda.bootstub:
