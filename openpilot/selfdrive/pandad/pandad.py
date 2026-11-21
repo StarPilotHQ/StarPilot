@@ -160,7 +160,7 @@ def main() -> None:
       if not panda_serials and not legacy_migration_attempted and HARDWARE.get_device_type() == "tizi":
         legacy_migration_attempted = True
         HARDWARE.reset_internal_panda()
-        time.sleep(0.2)
+        time.sleep(0.5)
         choice = startup_choice(Params())
         filename = firmware_path(FW_PATH, McuType.H7.config.app_fn, choice)
         if (serial := migrate_legacy_tres_firmware(filename)) is not None:

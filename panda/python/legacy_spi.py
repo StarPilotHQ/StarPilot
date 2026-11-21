@@ -5,6 +5,7 @@ from operator import xor
 from pathlib import Path
 
 from panda import McuType, Panda
+from panda.python.base import TIMEOUT
 from panda.python.spi import PandaSpiException, SpiDevice
 
 
@@ -22,8 +23,8 @@ class LegacySpiFlasher:
   def _frame(data):
     return data + bytes([reduce(xor, data, 0xab)])
 
-  def _wait_ack(self, expected, fill, length):
-    deadline = time.monotonic() + 0.25
+  def _wait_ack(self, expected, fill, length, timeout=0.25):
+    deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
       reply = self.spi.xfer(bytes([fill]) * length)
       if reply[0] == expected:
@@ -32,14 +33,14 @@ class LegacySpiFlasher:
         raise PandaSpiException("Legacy SPI request was rejected")
     raise PandaSpiException(f"Legacy SPI acknowledgment {expected:#x} timed out")
 
-  def _exchange(self, endpoint, payload, expect_disconnect=False):
+  def _exchange(self, endpoint, payload, expect_disconnect=False, reply_timeout=0.25):
     header = struct.pack("<BBHH", 0x5a, endpoint, len(payload), MAX_RESPONSE)
     self.spi.xfer(self._frame(header))
     self._wait_ack(0x79, 0x11, 1)
     self.spi.xfer(self._frame(payload))
     if expect_disconnect:
       return b""
-    reply = self._wait_ack(0x85, 0x13, MAX_RESPONSE + 4)
+    reply = self._wait_ack(0x85, 0x13, MAX_RESPONSE + 4, reply_timeout)
     size = int.from_bytes(reply[1:3], "little")
     if size > MAX_RESPONSE or reduce(xor, reply[:size + 4], 0xab):
       raise PandaSpiException("Legacy SPI response length or checksum invalid")
@@ -51,7 +52,9 @@ class LegacySpiFlasher:
   def controlWrite(self, request_type, request, value, index, data, expect_disconnect=False):
     if data:
       raise ValueError("Unexpected legacy SPI control payload")
-    reply = self._exchange(0, struct.pack("<BHHH", request, value, index, 0), expect_disconnect)
+    # A legacy bootstub waits for flash erase to finish before acknowledging it.
+    reply_timeout = TIMEOUT / 1000 if request == 0xb2 else 0.25
+    reply = self._exchange(0, struct.pack("<BHHH", request, value, index, 0), expect_disconnect, reply_timeout)
     if request in (0xb1, 0xb2):
       if len(reply) != 12 or reply[4:8] != FLASHER_MAGIC or reply[2] != request or (request == 0xb2 and reply[1] != 0xff):
         raise PandaSpiException(f"Legacy bootstub failed flash operation {request:#x}")
