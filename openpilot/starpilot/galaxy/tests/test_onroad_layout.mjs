@@ -267,9 +267,9 @@ for (const pointerType of ["mouse", "touch"]) {
   assert.equal(soft.state.drag, null, "a cancelled press never grabs later")
   soft.state.touchArmed = "current_speed"
   soft.state.selected = "current_speed"
-  soft.previewClick({ target: { closest: () => ({}) } })
+  soft.previewPointerDown({ button: 0, target: { closest: () => ({}) } })
   assert.equal(soft.state.selected, "current_speed", "tapping a widget keeps it selected")
-  soft.previewClick({ target: { closest: () => null } })
+  soft.previewPointerDown({ button: 0, target: { closest: () => null } })
   assert.equal(soft.state.selected, null, "tapping empty preview space lets go of the widget")
   assert.equal(soft.state.touchArmed, null)
 }
@@ -937,7 +937,29 @@ assert.equal(OnroadLayoutPage.template, ONROAD_LAYOUT_TEMPLATE, "the page uses t
 assert.equal(OnroadLayoutPage.components.LayoutWidgetPreview, LayoutWidgetPreview, "the template preview uses the actual component")
 assert.match(OnroadLayoutPage.template, /<LayoutWidgetPreview :widget="widget"/)
 assert.doesNotMatch(OnroadLayoutPage.template, /<LayoutWidgetPreview v-if="!state\.preview\.url"/)
-assert.match(OnroadLayoutPage.template, /<image v-if="nativeBackdropReady" :href="state\.backdrop\.url"/)
+assert.match(OnroadLayoutPage.template, /<image v-if="nativeBackdropReady" :href="layers\.backdrop\.url"/)
+assert.match(OnroadLayoutPage.template, /:art="layers\.art"/)
+{
+  const layers = (art, backdrop, artCache = new Map(), screens = new Map(), profile = "large") =>
+    OnroadLayoutPage.computed.layers.call({ projection: false, state: { profile, art, backdrop },
+      artFeed: { artCache }, backdropFeed: { artCache: screens } })
+  const art = { url: "blob:art-engaged", sprites: { sprites: { a: 1 } }, scene: "engaged", profile: "large", status: "ready" }
+  const backdrop = { url: "blob:screen-pending", scene: "slc_pending", profile: "large", status: "ready" }
+  const matched = { ...backdrop, scene: "engaged" }
+  assert.deepEqual(layers(art, matched), { art, backdrop: matched }, "a matched pair is shown as is")
+  const sheets = new Map([["large\nslc_pending", { url: "blob:art-pending", sprites: { sprites: { b: 2 } }, scene: "slc_pending" }]])
+  const fromSheet = layers(art, backdrop, sheets)
+  assert.deepEqual([fromSheet.art.url, fromSheet.art.scene, fromSheet.backdrop.url], ["blob:art-pending", "slc_pending", "blob:screen-pending"])
+  const screens = new Map([["large\nengaged", { url: "blob:screen-engaged", scene: "engaged" }]])
+  const fromScreen = layers(art, backdrop, new Map(), screens)
+  assert.deepEqual([fromScreen.art.url, fromScreen.backdrop.url, fromScreen.backdrop.scene], ["blob:art-engaged", "blob:screen-engaged", "engaged"])
+  const neither = layers(art, backdrop)
+  assert.equal(neither.art.url, null, "never draw one scene's widgets over another scene's screen")
+  assert.equal(neither.art.sprites, null)
+  const otherProfile = { ...backdrop, profile: "compact" }
+  assert.deepEqual(layers(art, otherProfile), { art, backdrop: otherProfile }, "a screen from another layout is not paired")
+  assert.deepEqual(layers({ ...art, url: null }, backdrop).backdrop, backdrop)
+}
 assert.doesNotMatch(editorSource, /devicePreviewOpen|gx-layout__device|selectPreview/)
 assert.doesNotMatch(OnroadLayoutPage.template, /devicePreviewOpen|gx-layout__device|selectPreview/)
 const loadedCatalog = await loadCatalog({ fetcher: async (url) => ({ ok: true,

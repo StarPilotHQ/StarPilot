@@ -190,7 +190,7 @@ function previewText(node) {
 for (const size of ["ring", "horizontal", "vertical"]) {
   for (const bluetooth of [true, false]) {
     const tree = renderSignal({ widget: { kind: "network_signal", size, width: 268, height: 196, bluetooth },
-      palette: {}, profile: "large", scene: "engaged", native: false, art: null }, [])
+      palette: {}, profile: "large", scene: "engaged", sprite: null, native: false }, [])
     const text = previewText(tree)
     assert.equal(text.includes("iPhone 15"), bluetooth, `${size} Bluetooth preview follows the toggle`)
     if (!bluetooth) assert(!text.includes("Connected") && !text.includes("AirPods"))

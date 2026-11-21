@@ -151,6 +151,7 @@ def layout_metadata_for_viewport(viewport):
   cameras = ('pip_left', 'pip_right')
   profile["widgetOrder"] = [NAV_MAP, *[key for key in profile["widgetOrder"] if key not in (NAV_MAP, NAV_CARD, STOPPED_TIMER_WIDGET, *cameras)],
                             STOPPED_TIMER_WIDGET, NAV_CARD, *DISPLAY_WIDGETS, NOW_PLAYING_WIDGET, JETLINK_WIDGET, *cameras, CAR_EXIT]
+  profile["runtimePreviewWidgets"].extend(key for key in SPRITE_WIDGETS if key in widgets and key not in profile["runtimePreviewWidgets"])
   return profile
 
 

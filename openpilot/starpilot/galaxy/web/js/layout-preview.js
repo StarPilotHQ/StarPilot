@@ -84,18 +84,43 @@ export class PreviewQueue {
   release() { this.running = false; this.next() }
 }
 
+// Saved widget sheets per device path, profile and scene.
+export function widgetArtStore(indexedDB = globalThis.indexedDB) {
+  if (!indexedDB) return null
+  let opened = null
+  const database = () => opened ||= new Promise((resolve, reject) => {
+    const request = indexedDB.open("galaxy-widget-art", 1)
+    request.onupgradeneeded = () => request.result.createObjectStore("sheets")
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error)
+    request.onblocked = () => reject(new Error("Widget art storage is blocked"))
+  })
+  const run = (mode, action) => database().then(db => new Promise((resolve, reject) => {
+    const transaction = db.transaction("sheets", mode)
+    const request = action(transaction.objectStore("sheets"))
+    transaction.oncomplete = () => resolve(request.result)
+    transaction.onerror = transaction.onabort = () => reject(transaction.error)
+  }))
+  return {
+    load: key => run("readonly", store => store.get(key)),
+    save: (key, value) => run("readwrite", store => store.put(value, key)),
+    remove: key => run("readwrite", store => store.delete(key)),
+  }
+}
+
 export class LayoutPreviewFeed {
   constructor({ publish, unauthorized = () => {}, fetcher = (...args) => fetch(...args),
                 later = (fn, ms) => setTimeout(fn, ms), cancelTimer = (id) => clearTimeout(id),
-                urls = URL, art = false, backdrop = false, queue = null }) {
-    Object.assign(this, { publish, unauthorized, fetcher, later, cancelTimer, urls, art, backdrop, queue })
+                urls = URL, art = false, backdrop = false, queue = null,
+                store = art && typeof window !== "undefined" ? widgetArtStore(window.indexedDB) : null }) {
+    Object.assign(this, { publish, unauthorized, fetcher, later, cancelTimer, urls, art, backdrop, queue, store })
     this.active = false
     this.version = 0
     this.timer = null
     this.request = null
     this.currentUrl = null
     this.pending = null
-    // Keep one native sheet per profile and scene, so returning to either is instant.
+    // Keep one image per profile and scene, so returning to either is instant.
     this.artCache = new Map()
     // The sheet last shown for a profile stands in for a scene that has not rendered yet.
     this.latestArt = new Map()
@@ -132,7 +157,7 @@ export class LayoutPreviewFeed {
     this.publish({ url: null, ...(this.art ? {sprites: null} : {}) })
   }
 
-  start() { if (this.art) this.pause(); else this.stop(); this.active = true }
+  start() { if (this.art || this.backdrop) this.pause(); else this.stop(); this.active = true }
 
   // `key` stands in for the document when only part of it changes the image (the backdrop ignores positions).
   update(document, profile, scene, dragging = false, key = document) {
@@ -142,7 +167,7 @@ export class LayoutPreviewFeed {
     if (inputKey === this.inputKey) return
     this.inputKey = inputKey
     // Picking a scene or screen is one discrete change, so only document edits are debounced.
-    const debounce = documentKey === this.documentKey ? 0 : 200
+    const debounce = this.documentKey && documentKey !== this.documentKey ? 200 : 0
     this.documentKey = documentKey
     this.version++
     if (this.timer !== null) this.cancelTimer(this.timer)
@@ -152,12 +177,12 @@ export class LayoutPreviewFeed {
     if (dragging) { this.publish({ status: "editing", error: "" }); return }
     const renderKey = JSON.stringify([documentKey, profile, scene])
     if (renderKey !== this.failureKey) { this.failureKey = renderKey; this.failures = 0 }
-    if (this.art) {
+    if (this.art || this.backdrop) {
       const cacheKey = profile + "\n" + scene, cached = this.artCache.get(cacheKey)
       if (cached) this.latestArt.set(profile, cacheKey)
       const shown = cached || this.artCache.get(this.latestArt.get(profile))
       this.currentUrl = shown?.url || null
-      this.publish({ url: this.currentUrl, sprites: shown?.sprites || null, scene: shown?.scene || null, profile })
+      this.publish({ url: this.currentUrl, ...(this.art ? {sprites: shown?.sprites || null} : {}), scene: shown?.scene || null, profile })
       if (cached?.key === renderKey) {
         this.publish({ status: "ready", error: "" })
         return
@@ -189,28 +214,61 @@ export class LayoutPreviewFeed {
     request.signal.addEventListener("abort", rejectAborted, { once: true })
     let failure = "Preview is unavailable. Reconnecting automatically…"
     let denied = false, busy = false
+    const stale = () => !this.active || item.version !== this.version || request.signal.aborted
     const work = (async () => {
+      const cacheKey = item.profile + "\n" + item.scene
+      const slot = this.store && (typeof location !== "undefined" ? location.pathname : "") + "\n" + cacheKey
+      let saved = null
+      if (slot) {
+        try {
+          const record = await Promise.race([this.store.load(slot), new Promise(resolve => setTimeout(resolve, 500))])
+          if (record?.digest && record.png instanceof ArrayBuffer) saved = { ...record, blob: new Blob([record.png], { type: "image/png" }) }
+        } catch { /* Browser storage is optional in private sessions. */ }
+        if (stale()) return
+        // Show the last saved sheet at once; the device confirms or replaces it below.
+        if (saved && !this.artCache.has(cacheKey)) {
+          const sprites = await widgetArtMetadata(saved.blob, saved.art).catch(() => null)
+          if (stale()) return
+          if (sprites) {
+            const url = this.urls.createObjectURL(saved.blob)
+            this.artCache.set(cacheKey, { key: null, url, sprites, scene: item.scene })
+            this.latestArt.set(item.profile, cacheKey)
+            this.currentUrl = url
+            this.publish({ url, sprites, scene: item.scene, profile: item.profile })
+          } else {
+            saved = null
+            this.store.remove(slot).catch(() => {})
+          }
+        }
+      }
       const held = !!this.queue && await this.queue.acquire(this.art ? 0 : 1, request.signal).then(() => true)
       try {
         timeout = this.later(() => request.abort(), PREVIEW_TIMEOUT_MS)
+        const digest = saved?.digest
         const response = await this.fetcher("./api/ui/layout/preview", { method: "POST", credentials: "same-origin",
-          cache: "no-store", headers: { "Content-Type": "application/json" },
+          cache: "no-store", headers: { "Content-Type": "application/json", ...(digest ? {"X-Widget-Digest": digest} : {}) },
           body: JSON.stringify({ document: item.document, profile: item.profile, scene: item.scene, ...(this.art ? {art: true} : this.backdrop ? {art: "backdrop"} : {}) }), signal: request.signal })
-        if (!this.active || item.version !== this.version || request.signal.aborted) return
+        if (stale()) return
         if (response.status === 401) { this.stop(); this.unauthorized(); return }
         if (response.status === 403) { denied = true; failure = "Turn off the vehicle to preview this layout."; throw new Error() }
         if (response.status === 429) { busy = true; failure = "Preview is busy. Retrying automatically…"; throw new Error() }
-        if (!response.ok) { const detail = await response.json().catch(() => null); failure = detail?.error || failure; throw new Error() }
-        if (!response.headers.get("Content-Type")?.toLowerCase().startsWith("image/png")) throw new Error("Preview is unavailable. Reconnecting automatically…")
-        const blob = await response.blob()
-        if (!this.active || item.version !== this.version || request.signal.aborted) return
+        const reuse = response.status === 204 && !!saved
+        if (!reuse && !response.ok) { const detail = await response.json().catch(() => null); failure = detail?.error || failure; throw new Error() }
+        if (!reuse && !response.headers.get("Content-Type")?.toLowerCase().startsWith("image/png")) throw new Error("Preview is unavailable. Reconnecting automatically…")
+        const blob = reuse ? saved.blob : await response.blob()
+        if (stale()) return
         if (!blob.size || blob.size > 4 * 1024 * 1024) throw new Error("Preview is unavailable. Reconnecting automatically…")
-        const sprites = this.art ? await widgetArtMetadata(blob, response.headers.get("X-Widget-Art")) : null
-        if (!this.active || item.version !== this.version || request.signal.aborted) return
-        const cacheKey = item.profile + "\n" + item.scene
-        const previousUrl = this.art ? this.artCache.get(cacheKey)?.url : this.currentUrl
+        const art = reuse ? saved.art : response.headers.get("X-Widget-Art")
+        const sprites = this.art ? await widgetArtMetadata(blob, art) : null
+        if (stale()) return
+        const newDigest = !reuse && slot && response.headers.get("X-Widget-Digest")
+        if (newDigest) {
+          blob.arrayBuffer().then(png => this.store.save(slot, { digest: newDigest, art, png })).catch(() => {})
+        }
+        const cached = this.art || this.backdrop
+        const previousUrl = cached ? this.artCache.get(cacheKey)?.url : this.currentUrl
         this.currentUrl = this.urls.createObjectURL(blob)
-        if (this.art) {
+        if (cached) {
           this.artCache.set(cacheKey, { key: item.renderKey, url: this.currentUrl, sprites, scene: item.scene })
           this.latestArt.set(item.profile, cacheKey)
         }

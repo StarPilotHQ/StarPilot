@@ -1,5 +1,6 @@
 """Parked onroad layout preview using the same native view as the driving UI."""
 
+from collections import OrderedDict
 from typing import cast
 
 from pathlib import Path
@@ -139,10 +140,14 @@ def _chunk(kind: bytes, data: bytes) -> bytes:
 
 def _straight_rgba(pixels: bytes) -> bytes:
   """PNG uses straight alpha; the transparent GL scratch target stores premultiplied RGB."""
-  values = np.frombuffer(pixels, dtype=np.uint8).reshape(-1, 4).astype(np.uint16)
-  alpha = values[:, 3:4]
-  values[:, :3] = np.where(alpha > 0, np.minimum(255, (values[:, :3] * 255 + alpha // 2) // np.maximum(alpha, 1)), 0)
-  return values.astype(np.uint8).tobytes()
+  values = np.frombuffer(pixels, dtype=np.uint8).reshape(-1, 4).copy()
+  alpha = values[:, 3]
+  values[alpha == 0, :3] = 0
+  translucent = (alpha > 0) & (alpha < 255)
+  colors = values[translucent, :3].astype(np.uint16)
+  coverage = alpha[translucent, None].astype(np.uint16)
+  values[translucent, :3] = np.minimum(255, (colors * 255 + coverage // 2) // coverage)
+  return values.tobytes()
 
 
 def _png_rgba(width: int, height: int, pixels: bytes, *, widget_art: dict | None = None) -> bytes:
@@ -402,9 +407,10 @@ class _Canvas:
         rl.end_texture_mode()
       image = rl.load_image_from_texture(self.target.texture)
       try:
+        # The render texture is bottom-up. Crop first so only the sprite is flipped.
+        rl.image_crop(image, rl.Rectangle(crop_x, canvas_height - crop_y - height, width, height))
         rl.image_format(image, rl.PixelFormat.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8)
         rl.image_flip_vertical(image)
-        rl.image_crop(image, rl.Rectangle(crop_x, crop_y, width, height))
         data = _straight_rgba(bytes(image.data[:width * height * 4]))
       finally:
         rl.unload_image(image)
@@ -415,6 +421,18 @@ class _Canvas:
         x, y, row_height = 0, y + row_height, 0
       sprites[key] = {'x': x, 'y': y, 'width': width, 'height': height, 'offsetX': offset_x, 'offsetY': offset_y,
                       'visible': any(data[3::4])}
+      if key in ('cruise_limits', 'speed_limit', 'current_speed') and sprites[key]['visible']:
+        alpha = np.frombuffer(data, dtype=np.uint8).reshape(height, width, 4)[:, :, 3]
+        cols = np.flatnonzero(alpha.any(axis=0))
+        rows = np.flatnonzero(alpha.any(axis=1))
+        left, right = int(cols[0]), int(cols[-1] + 1)
+        if key == 'current_speed' and self.fonts is not None:
+          # Room for a three-digit km/h speed, centered like the HUD draws it
+          for text, role, size in (('888', FontRole.SPEED, 176), ('000', FontRole.SPEED, 176), ('km/h', FontRole.NORMAL, 28)):
+            start = (width - self.fonts.measure(text, role, size).width) / 2
+            ink_left, ink_right = self.fonts.horizontal_ink(text, role, size)
+            left, right = min(left, max(0, math.floor(start + ink_left))), max(right, min(width, math.ceil(start + ink_right)))
+        sprites[key]['ink'] = [left, int(rows[0]), right - left, int(rows[-1] - rows[0] + 1)]
       x += width
       row_height = max(row_height, height)
       captures.append((key, data))
@@ -484,10 +502,14 @@ class _Canvas:
     self.fonts = None
 
 
+SHEET_CACHE_SIZE = 8  # widget sheets and backdrops for the last few scenes
+
+
 class LayoutPreviewRenderer:
   def __init__(self):
     self._canvas: _Canvas | None = None
     self._last_use = 0.0
+    self._sheets: OrderedDict[str, bytes] = OrderedDict()
 
   @property
   def has_resources(self) -> bool:
@@ -498,6 +520,12 @@ class LayoutPreviewRenderer:
       raise ValueError("Invalid layout preview request")
     if "art" in payload and not (payload["art"] is True or payload["art"] == "backdrop"):
       raise ValueError("Invalid widget art request")
+    sheet_key = None
+    if 'art' in payload:
+      sheet_key = json.dumps(payload, sort_keys=True, separators=(',', ':'), allow_nan=False)
+      if sheet_key in self._sheets:
+        self._sheets.move_to_end(sheet_key)
+        return self._sheets[sheet_key]
     viewport = None
     if payload['profile'] == 'projection':
       from openpilot.starpilot.system.starport.projection_layout import projection_customization
@@ -533,15 +561,20 @@ class LayoutPreviewRenderer:
       self.close()
       self._canvas = _Canvas(profile, viewport)
     self._last_use = time.monotonic()
-    if payload.get('art') is True:
+    if sheet_key is None:
+      return self._canvas.render(state, scene)
+    if payload['art'] is True:
       positions = payload['document']['layout']['widgets'] if viewport else document['layouts'][str(profile)]
-      return self._canvas.render_widget_art(state, positions, general=scene == 'general')
-    if payload.get('art') == 'backdrop':
+      image = self._canvas.render_widget_art(state, positions, general=scene == 'general')
+    else:
       # Everything the car draws except the movable widgets, which the editor places over it.
       # A non-empty order that names no widget keeps the ordered path and draws none of them.
       order = {**state.customization.get('widgetOrder', {}), str(profile): ['backdrop']}
-      return self._canvas.render(replace(state, customization={**state.customization, 'widgetOrder': order}), scene)
-    return self._canvas.render(state, scene)
+      image = self._canvas.render(replace(state, customization={**state.customization, 'widgetOrder': order}), scene)
+    self._sheets[sheet_key] = image
+    if len(self._sheets) > SHEET_CACHE_SIZE:
+      self._sheets.popitem(last=False)
+    return image
 
   def expire(self) -> None:
     if self._canvas is not None and time.monotonic() - self._last_use >= IDLE_SECONDS:
@@ -551,3 +584,4 @@ class LayoutPreviewRenderer:
     if self._canvas is not None:
       self._canvas.close()
     self._canvas = None
+    self._sheets.clear()

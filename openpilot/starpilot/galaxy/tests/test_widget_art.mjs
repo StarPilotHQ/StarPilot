@@ -176,10 +176,44 @@ assert(artUrl)
 page.state.data.editable=false
 assert.equal(page.artFeed.active,false);assert.equal(page.state.art.url,null,'Parked authority changes clear artwork')
 page.artFeed.stop()
-assert.equal(OnroadLayoutPage.methods.runtimeWidget.call({profile:{runtimePreviewWidgets:['conditional_mode']}},'conditional_mode'),true)
-assert.equal(OnroadLayoutPage.methods.runtimeWidget.call({profile:{}},'conditional_mode'),false)
 assert.match(LayoutWidgetPreview.template,/data-preview-source="runtime"/)
-assert.match(LayoutWidgetPreview.template,/data-preview-source="placeholder"/)
+assert.match(LayoutWidgetPreview.template,/data-preview-source="sketch"/)
 assert.doesNotMatch(LayoutWidgetPreview.template,/scene === 'experimental' \? 'E' : 'C'/)
 assert.doesNotMatch(LayoutWidgetPreview.template,/M38 78 Q96 107 154 78/)
 console.log('Canonical widget art: metadata, races, retained refreshes, profile/mode switches, retries, auth and cleanup passed')
+
+{
+  const entries = new Map()
+  const store = {load: async key => entries.get(key), save: async (key, value) => { entries.set(key, value) }, remove: async key => { entries.delete(key) }}
+  for (const revisit of [false, true]) {
+    const page = fixture()
+    const feed = new LayoutPreviewFeed({...page.options, store})
+    feed.start()
+    feed.update(document, 'compact', 'general')
+    page.tick()
+    for (let i=0; i<20 && !page.requests.length; i++) await new Promise(resolve=>setTimeout(resolve, 5))
+    const request = page.requests[0]
+    assert.equal(request.options.headers['X-Widget-Digest'], revisit ? 'same-sheet' : undefined)
+    if (revisit) assert.deepEqual(page.updates.at(-1).sprites, meta, 'Saved sheet shows before the device answers')
+    else assert.equal(page.updates.some(update => update.sprites), false)
+    request.resolve(revisit ? new Response(null, {status:204}) :
+      new Response(image(), {headers:{'Content-Type':'image/png','X-Widget-Digest':'same-sheet'}}))
+    for (let i=0; i<20 && page.updates.at(-1).status !== 'ready'; i++) await new Promise(resolve=>setTimeout(resolve, 5))
+    assert.equal(page.updates.at(-1).status, 'ready')
+    assert.deepEqual(page.updates.at(-1).sprites, meta)
+    for (let i=0; i<20 && !entries.size; i++) await new Promise(resolve=>setTimeout(resolve, 5))
+    assert.equal([...entries.values()][0].digest, 'same-sheet')
+    feed.stop()
+  }
+}
+{
+  const page = fixture()
+  const feed = new LayoutPreviewFeed({...page.options, store: {load: async () => ({digest: 'bad', art: null, png: new ArrayBuffer(4)}),
+    save: async () => {}, remove: async () => { page.removed = true }}})
+  feed.start(); feed.update(document, 'compact', 'general'); page.tick()
+  for (let i=0; i<20 && !page.requests.length; i++) await new Promise(resolve=>setTimeout(resolve, 5))
+  assert.equal(page.requests[0].options.headers['X-Widget-Digest'], undefined, 'A corrupt saved sheet is dropped, not revalidated')
+  assert.equal(page.removed, true)
+  feed.stop()
+}
+console.log('Saved widget sheets: instant revisit, digest revalidation and corrupt-entry cleanup passed')

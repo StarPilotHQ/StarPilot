@@ -1,3 +1,5 @@
+import base64
+import hashlib
 import http.client
 import json
 from pathlib import Path
@@ -5,12 +7,13 @@ import tempfile
 import threading
 import time
 import unittest
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 from openpilot.common.params import Params
 from openpilot.starpilot.galaxy.access import GalaxyAccessOwner
 from openpilot.starpilot.galaxy.onroad_layout import OnroadLayoutOwner
-from openpilot.starpilot.galaxy.server import make_server
+from openpilot.starpilot.galaxy.remote import RemotePairing
+from openpilot.starpilot.galaxy.server import make_remote_server, make_server
 from openpilot.starpilot.ui.layout_preview_transport import PreviewService
 from openpilot.starpilot.ui.onroad_customization import PARAM_KEY, default_document
 from openpilot.starpilot.ui.tests.test_layout_preview_transport import png
@@ -20,6 +23,7 @@ class PreviewPayload(TypedDict):
   document: dict
   profile: str
   scene: str
+  art: NotRequired[bool]
 
 
 class TestLayoutPreviewHttp(unittest.TestCase):
@@ -31,12 +35,13 @@ class TestLayoutPreviewHttp(unittest.TestCase):
     self.params = Params(str(root / 'params'))
     self.parked = True
     self.owner = OnroadLayoutOwner(self.params, lambda: self.parked)
+    self.pairing = RemotePairing(root / 'pairing')
     self.rendered = []
     self.preview = PreviewService(lambda payload: self.rendered.append(payload) or png(),
                                   lambda: self.parked, self.socket_path, active_profile='large')
     self.preview.start()
     self.addCleanup(self.preview.close)
-    self.server = make_server(port=0, owner=GalaxyAccessOwner(root / 'access'), layouts=self.owner,
+    self.server = make_server(port=0, owner=GalaxyAccessOwner(root / 'access'), layouts=self.owner, remote_pairing=self.pairing,
                               layout_preview_socket=self.socket_path)
     self.worker = threading.Thread(target=self.server.serve_forever, kwargs={'poll_interval': .01}, daemon=True)
     self.worker.start()
@@ -48,12 +53,17 @@ class TestLayoutPreviewHttp(unittest.TestCase):
     self.worker.join(timeout=2)
     self.server.server_close()
 
-  def request(self, path, payload=None, cookie='', *, origin=None, raw=None):
-    connection = http.client.HTTPConnection('127.0.0.1', self.server.server_port, timeout=4)
+  def request(self, path, payload=None, cookie='', *, origin=None, raw=None, server=None, host=None, digest=None):
+    port = (server or self.server).server_port
+    connection = http.client.HTTPConnection('127.0.0.1', port, timeout=4)
     headers = {'Cookie': cookie}
+    if digest:
+      headers['X-Widget-Digest'] = digest
+    if host:
+      headers['Host'] = host
     body = raw if raw is not None else json.dumps(payload) if payload is not None else None
     if body is not None:
-      headers.update({'Content-Type': 'application/json', 'Origin': origin or f'http://127.0.0.1:{self.server.server_port}'})
+      headers.update({'Content-Type': 'application/json', 'Origin': origin or f'http://127.0.0.1:{port}'})
     try:
       connection.request('POST' if body is not None else 'GET', path, body=body, headers=headers)
       response = connection.getresponse()
@@ -66,9 +76,9 @@ class TestLayoutPreviewHttp(unittest.TestCase):
     self.assertEqual(status, 200)
     return headers['Set-Cookie'].split(';', 1)[0]
 
-  def preview_with_pump(self, cookie):
+  def preview_with_pump(self, cookie, path='/api/ui/layout/preview', **kwargs):
     outcome = {}
-    client = threading.Thread(target=lambda: outcome.setdefault('response', self.request('/api/ui/layout/preview', self.payload, cookie)))
+    client = threading.Thread(target=lambda: outcome.setdefault('response', self.request(path, self.payload, cookie, **kwargs)))
     client.start()
     deadline = time.monotonic() + 4
     while client.is_alive() and time.monotonic() < deadline:
@@ -76,6 +86,31 @@ class TestLayoutPreviewHttp(unittest.TestCase):
       client.join(0.01)
     self.assertFalse(client.is_alive())
     return outcome['response']
+
+  def test_firestar_widget_sheet_preserves_pixels_and_metadata(self):
+    slug = self.pairing.pair(hashlib.sha256(b'preview-password').hexdigest())
+    record = self.pairing.read()
+    assert record is not None
+    cookie = f"galaxy_session={slug}%3A{record['session']}"
+    metadata = {'version': 1, 'width': 1, 'height': 1, 'sprites': {'current_speed': {'x': 0, 'y': 0, 'width': 1, 'height': 1}}}
+    image = png(1, 1, widget_art=metadata)
+    self.preview.renderer = lambda _: image
+    self.payload['art'] = True
+    with make_remote_server(self.server, port=0) as remote:
+      worker = threading.Thread(target=remote.serve_forever, kwargs={'poll_interval': .01}, daemon=True)
+      worker.start()
+      try:
+        status, body, headers = self.preview_with_pump(cookie, f'/{slug}/api/ui/layout/preview', server=remote,
+                                                      host='galaxy.firestar.link', origin='https://galaxy.firestar.link')
+        repeat = self.preview_with_pump(cookie, f'/{slug}/api/ui/layout/preview', server=remote,
+                                        host='galaxy.firestar.link', origin='https://galaxy.firestar.link', digest=headers['X-Widget-Digest'])
+        self.assertEqual(repeat[:2], (204, b''))
+      finally:
+        remote.shutdown()
+        worker.join(timeout=2)
+    self.assertEqual((status, body), (200, image))
+    self.assertEqual(headers['Cache-Control'], 'no-store, no-transform')
+    self.assertEqual(json.loads(base64.b64decode(headers['X-Widget-Art'])), metadata)
 
   def test_live_profile_png_and_no_saved_write(self):
     cookie = self.login()

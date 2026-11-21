@@ -166,12 +166,13 @@ export async function loadNavLook(fetcher = (...args) => fetch(...args)) {
 }
 
 export const LayoutWidgetPreview = {
-  props: ["widget", "palette", "profile", "scene", "clock24Hour", "native", "art"],
+  props: ["widget", "palette", "profile", "scene", "clock24Hour", "art", "native"],
   computed: {
     nav() { return navLook },
     googleMap() { return navLook.map === "google" },
     googleRoutes() { return navLook.routes === "google" },
     roadNameSize() { return Math.max(18, Math.min(this.widget.width, this.widget.height) * .075) },
+    sprite() { return this.art?.url && this.art.sprites?.sprites?.[this.widget.id] },
   },
   methods: {
     withAlpha,
@@ -184,20 +185,14 @@ export const LayoutWidgetPreview = {
   },
   template: `
     <g aria-hidden="true" class="gx-layout-widget-art" :fill="palette.text || '#ffffff'">
-      <template v-if="native || art?.url && art.sprites?.sprites?.[widget.id]">
-        <svg v-if="art?.url && art.sprites?.sprites?.[widget.id]"
-          :x="art.sprites.sprites[widget.id].offsetX || 0" :y="art.sprites.sprites[widget.id].offsetY || 0"
-          :width="widget.aspectRatio ? widget.width : art.sprites.sprites[widget.id].width" :height="widget.aspectRatio ? widget.height : art.sprites.sprites[widget.id].height"
-          :viewBox="[art.sprites.sprites[widget.id].x, art.sprites.sprites[widget.id].y, art.sprites.sprites[widget.id].width, art.sprites.sprites[widget.id].height].join(' ')"
-          preserveAspectRatio="xMinYMin meet" data-preview-source="runtime">
-          <image :href="art.url" :width="art.sprites.width" :height="art.sprites.height" />
-        </svg>
-        <g v-else data-preview-source="placeholder">
-          <rect x="1" y="1" :width="widget.width - 2" :height="widget.height - 2" fill="#0c182044" stroke="#a6dfbe66" stroke-dasharray="5 5" />
-          <text :x="widget.width / 2" :y="widget.height / 2" text-anchor="middle" :font-size="Math.min(24, widget.width / 10)">{{ widget.label }}</text>
-        </g>
-      </template>
-      <template v-else>
+      <svg v-if="sprite"
+        :x="sprite.offsetX || 0" :y="sprite.offsetY || 0"
+        :width="widget.aspectRatio ? widget.width : sprite.width" :height="widget.aspectRatio ? widget.height : sprite.height"
+        :viewBox="[sprite.x, sprite.y, sprite.width, sprite.height].join(' ')"
+        preserveAspectRatio="xMinYMin meet" data-preview-source="runtime">
+        <image :href="art.url" :width="art.sprites.width" :height="art.sprites.height" />
+      </svg>
+      <g v-else-if="!native" data-preview-source="sketch">
       <template v-if="widget.kind === 'driving_mode_descriptions'">
         <text :x="widget.width / 2" :y="widget.height / 2" text-anchor="middle" dominant-baseline="middle"
           :font-size="profile === 'large' ? 48 : 21" font-weight="600" style="filter: drop-shadow(2px 2px 1px #000000aa)">
@@ -464,7 +459,7 @@ export const LayoutWidgetPreview = {
         <rect :width="widget.width" :height="widget.height" :fill="palette.cardFill" :stroke="palette.cardBorder" />
         <text :x="widget.width / 2" :y="widget.height / 2" text-anchor="middle" :font-size="Math.min(32, widget.width / 10)">{{ widget.label }}</text>
       </template>
-      </template>
+      </g>
     </g>`,
 }
 
@@ -626,8 +621,21 @@ export const OnroadLayoutPage = {
         return [id, narrow]
       })) }
     },
+    artLoading() { return this.mode === 'local' && !!this.state.data?.editable && !this.layers.art.url && this.state.art.status !== 'unavailable' },
+    // Widget art and the backdrop always come from the same scene, so a half-switched pair never overlaps.
+    layers() {
+      const { art, backdrop } = this.state, profile = this.projection ? "projection" : this.state.profile
+      if (!art.url || !backdrop.url || art.profile !== profile || backdrop.profile !== profile || art.scene === backdrop.scene) return { art, backdrop }
+      const cached = (feed, scene) => feed.artCache.get(profile + "\n" + scene)
+      const sheet = cached(this.artFeed, backdrop.scene)
+      if (sheet) return { art: { ...art, url: sheet.url, sprites: sheet.sprites, scene: sheet.scene }, backdrop }
+      const screen = cached(this.backdropFeed, art.scene)
+      if (screen) return { art, backdrop: { ...backdrop, url: screen.url, scene: screen.scene } }
+      return { art: { ...art, url: null, sprites: null }, backdrop }
+    },
+    previewDenied() { return [this.state.art, this.state.backdrop].some(feed => feed.status === 'unavailable' && feed.denied) },
     // The last screen for this profile stays up while the next scene renders, instead of flashing the sketch.
-    nativeBackdropReady() { return !!this.state.backdrop.url && this.state.backdrop.profile === (this.projection ? "projection" : this.state.profile) },
+    nativeBackdropReady() { return !!this.layers.backdrop.url && this.layers.backdrop.profile === (this.projection ? "projection" : this.state.profile) },
     layout() { return this.state.draft?.layouts[this.state.profile] },
     projectionHasPipWidget() {
       return ["pip_left", "pip_right"].some(id => this.state.draft?.layouts?.large?.[id]?.enabled === true)
@@ -655,8 +663,7 @@ export const OnroadLayoutPage = {
       const widget = this.renderWidgets.find(widget => widget.id === this.state.selected)
       if (!widget) return null
       return {
-        x: this.previewX(this.state.selected), y: this.selectedPosition.y - widget.visualInsetTop,
-        width: widget.width, height: widget.height + widget.visualInsetTop + widget.visualInsetBottom
+        ...widget.outline, x: this.previewX(this.state.selected) + widget.outline.x, y: this.selectedPosition.y + widget.outline.y
       }
     },
     // On touch, a magnified copy of the area around the dragged widget sits clear of the finger.
@@ -696,8 +703,14 @@ export const OnroadLayoutPage = {
           visualInsetBottom: below ? item.visualInsetTop : 0, visualHeaderY: below ? item.height + 8 : -(item.visualInsetTop || 0)
         }
         const [width, height] = widgetSize(widget, this.layout[widget.id])
+        const sprite = this.layers?.art?.sprites?.sprites?.[item.id]
+        const ink = sprite?.ink
+        const outline = Array.isArray(ink) && ink.length === 4 && ink.every(Number.isInteger) &&
+          ink[0] >= 0 && ink[1] >= 0 && ink[2] > 0 && ink[3] > 0 && ink[0] + ink[2] <= sprite.width && ink[1] + ink[3] <= sprite.height
+          ? { x: (sprite.offsetX || 0) + ink[0] - 2, y: (sprite.offsetY || 0) + ink[1] - 2, width: ink[2] + 4, height: ink[3] + 4 }
+          : { x: 0, y: -widget.visualInsetTop, width, height: height + widget.visualInsetTop + widget.visualInsetBottom }
         return {
-          ...widget, width, height, ...(widget.iconSize ? { display: this.layout[widget.id].display } : {}),
+          ...widget, width, height, outline, ...(widget.iconSize ? { display: this.layout[widget.id].display } : {}),
           ...(widget.opacity ? { opacity: this.layout[widget.id].opacity } : {}),
           ...(widget.backgroundToggle ? { background: this.layout[widget.id].background } : {}),
           ...(widget.collapseToggle ? { collapse: this.layout[widget.id].collapse } : {}),
@@ -807,7 +820,6 @@ export const OnroadLayoutPage = {
         .map(target => ({ ...target, value: target.value - (target.axis === "x" ? shift : 0) }))
     },
     switchRow,
-    runtimeWidget(id) { return this.profile?.runtimePreviewWidgets?.includes(id) === true },
     toggleSnap() {
       if (this.state.drag || this.state.layerDrag) return
       this.state.snapEnabled = !this.state.snapEnabled
@@ -855,8 +867,9 @@ export const OnroadLayoutPage = {
       this.state.selected = null
       this.state.touchArmed = null
     },
-    previewClick(event) {
-      if (!event.target?.closest?.(".gx-layout__widget")) this.deselectWidget()
+    previewPointerDown(event) {
+      // Pointer capture retargets the subsequent click to the canvas.
+      if (event.button === 0 && !event.target?.closest?.(".gx-layout__widget")) this.deselectWidget()
     },
     openEditPanel() {
       if (this.state.selected == null) this.state.selected = this.activeWidgets?.[0]?.id || this.widgets?.[0]?.id || null
