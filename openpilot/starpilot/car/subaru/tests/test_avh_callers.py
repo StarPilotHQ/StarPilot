@@ -190,8 +190,12 @@ def test_actual_startup_factory_card_controls_native(enabled, combined, aol, sub
         if any(address == 0x322 for address, _, _ in outgoing):
           dash = dash_decoder.vl['ES_LKAS_State']
           expected = ci.CC.angle_was_active if steering_name == 'ES_LKAS_ANGLE' else card.sm['carControl'].latActive
-          assert bool(dash['LKAS_ACTIVE']) == expected, (candidate, tick, expected, dash)
-          assert dash['LKAS_Dash_State'] == (2 if expected else 0), (candidate, tick, expected, dash)
+          if candidate == 'SUBARU_LEGACY_2025':
+            assert bool(dash['LKAS_ACTIVE']), (candidate, tick, expected, dash)
+            assert dash['LKAS_Dash_State'] == (2 if expected else (1 if cs.cruiseState.available else 0)), (candidate, tick, expected, dash)
+          else:
+            assert bool(dash['LKAS_ACTIVE']) == expected, (candidate, tick, expected, dash)
+            assert dash['LKAS_Dash_State'] == (2 if expected else 0), (candidate, tick, expected, dash)
           assert all(accepted == (tick >= configure_delay) for address, _, _, accepted in tx if address == 0x322)
           dash_emissions += 1
         for address, data_hex, bus, accepted in tx:
@@ -236,9 +240,9 @@ def test_actual_startup_factory_card_controls_native(enabled, combined, aol, sub
         assert bool(stop_start_emissions) == combined
       assert dash_emissions >= 20
       assert bool(startup_emissions) == enabled
-      assert len(startup_emissions) == (2 if enabled else 0)
+      assert len(startup_emissions) == (4 if enabled else 0)
       if startup_emissions:
-        assert 45_000_000 <= startup_emissions[-1][0] - startup_emissions[0][0] <= 80_000_000
+        assert all(45_000_000 <= b[0] - a[0] <= 80_000_000 for a, b in zip(startup_emissions, startup_emissions[1:], strict=False))
         earliest = 10_000_000_000 + configure_delay * 10_000_000
         assert all(earliest <= stamp - base < earliest + 1_500_000_000 for stamp, _ in startup_emissions)
     finally:

@@ -70,6 +70,10 @@ def test_release_saved_choice_retained_without_avh_marker(tmp_path):
 def test_original_source_clock_and_conflicting_duplicate():
   from opendbc.car.subaru.avh import AvhSources, INPUTS, checksum
   from opendbc.car.subaru.tests.test_avh import sample
+  batch_source = AvhSources()
+  batch_frames = [(a, sample(a, counter), 1) for counter in (1, 2) for a in INPUTS]
+  batch_source.observe([(10_020_000_000, batch_frames)], boot_ns=10_020_000_000, mono_ns=1_020_000_000)
+  assert not batch_source.blocked and batch_source.fresh(1.02)
   for target in INPUTS:
     source = AvhSources()
     for counter in (1, 2):

@@ -51,3 +51,17 @@ def stock_lateral_off(cp, cs, native, *, allow_independent_cancel=False, allow_i
         cp.brand == 'hyundai' and (stock_canfd_qualified(cp, marked_only=True) or classic_stock))) and
     (not physical_cancel(cs, cp) or independent_angle and allow_independent_cancel) and
     native is not None and native.requestedLateral and native.lateralAllowed and not native.requestedLongitudinal)
+
+
+def forward_gear_allowed(cp, gear) -> bool:
+  from opendbc.car import structs
+  gears = structs.CarState.GearShifter
+  return gear in (gears.drive, gears.sport, gears.low, gears.brake) or (
+    cp.carFingerprint == 'SUBARU_LEGACY_2025' and gear == gears.manumatic)
+
+
+def subaru_stop_drive_gear(cp, gear, subaru_stop: bool) -> bool:
+  from opendbc.car import structs
+  gears = structs.CarState.GearShifter
+  return gear == gears.drive or (
+    subaru_stop and cp.carFingerprint == 'SUBARU_LEGACY_2025' and gear == gears.manumatic)

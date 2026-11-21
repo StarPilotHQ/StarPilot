@@ -10,7 +10,7 @@ def checksum(address, data):
 
 
 def avh_request(template, step):
-  if len(template) != 8 or checksum(AVH_REQUEST, template) != template[0] or template[2] & 3 or step not in (1, 2):
+  if len(template) != 8 or checksum(AVH_REQUEST, template) != template[0] or template[2] & 3 or step not in (1, 2, 3, 4):
     raise ValueError("Invalid AVH template or counter step")
   data = bytearray(template)
   data[1] = (data[1] & 0xF0) | ((data[1] + step) & 0xF)
@@ -27,6 +27,8 @@ class AvhStartup:
     self.last_time = None
     self.stable_since = None
     self.frames = {}
+    self.avh_req_gap = None
+    self.avh_req_same_payload = False
     self.done = False
     self.followup = None
 
@@ -85,6 +87,9 @@ class AvhStartup:
       # checks their full counter stream; require consecutive head-unit frames here.
       sequential = bool(previous and (address not in (AVH_REQUEST, AVH_STATUS) or
                                      (data[1] & 15) == ((previous[1][1] + 1) & 15)))
+      if address == AVH_REQUEST and previous is not None and timestamp > previous[0]:
+        self.avh_req_gap = timestamp - previous[0]
+        self.avh_req_same_payload = data[2:] == previous[1][2:]
       self.frames[address] = (timestamp, data, sequential)
 
     fresh = all(a in self.frames and self.frames[a][2] and
@@ -104,20 +109,25 @@ class AvhStartup:
     if self.stable_since is None:
       self.stable_since = now
     if self.followup is not None:
-      sent, timestamp, template = self.followup
+      sent, timestamp, template, step = self.followup
       if now - sent > 0.075 or self.frames[AVH_REQUEST][0] != timestamp:
         self.done = True
       elif now - sent >= 0.05:
-        self.done = True
-        return [avh_request(template, 2)]
+        next_step = step + 1
+        if next_step == 4:
+          self.done = True
+          self.followup = None
+        else:
+          self.followup = (now, timestamp, template, next_step)
+        return [avh_request(template, next_step)]
       return []
     if (now - self.started < 10 or now - self.stable_since < 3 or
         (self.configured_since is not None and now - self.configured_since < 10)):
       return []
     timestamp, template, _ = self.frames[AVH_REQUEST]
-    if now - timestamp > 0.010:
+    if now - timestamp > 0.010 or self.avh_req_gap is None or self.avh_req_gap < 0.80 or not self.avh_req_same_payload:
       return []
-    self.followup = (now, timestamp, template)
+    self.followup = (now, timestamp, template, 1)
     return [avh_request(template, 1)]
 
 
@@ -143,6 +153,7 @@ class AvhSources:
   def __init__(self):
     self.frames = {}
     self.sequential = {}
+    self.source_ns = {}
     self.blocked = False
 
   def observe(self, packets, *, boot_ns, mono_ns):
@@ -163,10 +174,12 @@ class AvhSources:
             if data != previous[1]:
               self.blocked = True
             continue
-          if source <= previous[0] * 1e9:
+          prev_ns = self.source_ns[address]
+          if source < prev_ns or (source == prev_ns and counter != ((previous[1][1] + 1) & 15)):
             self.blocked = True
             continue
         self.sequential[address] = previous is not None and counter == ((previous[1][1] + 1) & 15)
+        self.source_ns[address] = source
         self.frames[address] = source / 1e9, data
 
   def fresh(self, now):

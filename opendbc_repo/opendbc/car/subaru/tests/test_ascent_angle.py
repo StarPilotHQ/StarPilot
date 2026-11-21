@@ -196,7 +196,7 @@ class TestSubaruAscentController(unittest.TestCase):
         self.assertEqual(values['Close_Distance'], state.es_distance_msg['Close_Distance'])
     self.assertEqual(observed, [0, 1, 3])
 
-  def test_repeated_stock_cancel_gate_is_ascent_2023_only(self):
+  def test_repeated_stock_cancel_gate_cars(self):
     for car in (CAR.SUBARU_ASCENT_2023, CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025,
                 CAR.SUBARU_LEGACY_2025, CAR.SUBARU_OUTBACK_2023, CAR.SUBARU_ASCENT):
       with self.subTest(car=car):
@@ -211,7 +211,7 @@ class TestSubaruAscentController(unittest.TestCase):
         for tick in range(5):
           _, sends = controller.update(command.as_reader(), state, 1_000_000_000 + tick * 10_000_000)
           distance.extend(frame for frame in sends if frame[0] == 0x221)
-        self.assertEqual(len(distance), 1 if car == CAR.SUBARU_ASCENT_2023 else 5)
+        self.assertEqual(len(distance), 1 if car in (CAR.SUBARU_ASCENT_2023, CAR.SUBARU_LEGACY_2025) else 5)
         self.assertEqual(len(set(distance)), 1)
         self.assertEqual(distance[0][2], 1 if cp.flags & SubaruFlags.GLOBAL_GEN2 else 0)
 

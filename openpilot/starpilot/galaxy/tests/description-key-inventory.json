@@ -65,6 +65,7 @@
   "LongPitch",
   "LowSpeedCruiseOnSet",
   "LoudBlindspotAlert",
+  "LoudBlindspotAlertMuteAtStandstill",
   "LoudBlindspotAlertWhenDisengaged",
   "NostalgiaMode",
   "PIPPreviewEnabled",

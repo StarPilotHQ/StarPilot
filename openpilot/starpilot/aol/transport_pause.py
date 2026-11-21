@@ -2,7 +2,8 @@
 from openpilot.cereal import log
 from openpilot.starpilot.aol.transport_pause_conditions import (
   AVAILABILITY_EVENTS as AVAILABILITY_EVENTS, HOST_SOURCE_AVAILABILITY_EVENTS as HOST_SOURCE_AVAILABILITY_EVENTS,
-  availability_only as availability_only, host_source_availability_only, stock_lateral_off,
+  availability_only as availability_only, forward_gear_allowed, host_source_availability_only, stock_lateral_off,
+  subaru_stop_drive_gear,
 )
 from openpilot.starpilot.aol.transport_pause_session import (
   AvailabilityPause as AvailabilityPause, TransportPause as TransportPause, cp_identity as cp_identity,
@@ -303,7 +304,6 @@ class TransportPauseFeedback:
   def _ordinary_warning_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, latched, producer):
     from openpilot.starpilot.aol.vehicle import policy_for
     from openpilot.starpilot.nostalgia import physical_cancel
-    from opendbc.car import structs
 
     pending_baseline = self.ordinary_warning_pending_baseline
     pending = bool(pending_baseline is not None and self.pending_event)
@@ -316,8 +316,7 @@ class TransportPauseFeedback:
       axis.intentIntegrityEpoch != self.availability_epoch or
       not cs.canValid or cs.canTimeout or cs.steerFaultPermanent or cs.accFaulted or cs.doorOpen or
       cs.steeringDisengage or
-      cs.gearShifter not in (structs.CarState.GearShifter.drive, structs.CarState.GearShifter.sport,
-                            structs.CarState.GearShifter.low, structs.CarState.GearShifter.brake) or
+      not forward_gear_allowed(cp, cs.gearShifter) or
       not 0 < self.lateral_source_ns <= axis.sourceCarStateMonoTime <= stamp <= now_ns or
       now_ns - axis.sourceCarStateMonoTime > AXIS_MAX_AGE_NS or
       str(axis.faultReason) not in ('none', 'availabilityPause') or
@@ -450,8 +449,6 @@ class TransportPauseFeedback:
     from opendbc.car.hyundai.canfd_angle_aol import qualified as angle_qualified
     from opendbc.car.hyundai.canfd_stock_aol import qualified as stock_canfd_qualified
     from opendbc.car.hyundai.classic_scc_aol import qualified as stock_classic_qualified
-    from opendbc.car import structs
-    gears = structs.CarState.GearShifter
 
     # PCM-off is not AOL-off: retain intent for location/EPS recovery;
     recovering_user = bool((location_fault or eps_recovery) and users)
@@ -468,7 +465,7 @@ class TransportPauseFeedback:
       or cp.brand == 'volkswagen' and volkswagen_qualified(cp, marked_only=True)) and users and
       not axis.desiredLongitudinal and not axis.longitudinalActive and
       (cs.cruiseState.available or classic_eps_recovery) and not cs.cruiseState.enabled and
-      cs.gearShifter in (gears.drive, gears.low, gears.sport, gears.brake) and
+      forward_gear_allowed(cp, cs.gearShifter) and
       not cs.doorOpen and (not cs.seatbeltUnlatched or belt_eps_recovery) and not cs.brakePressed and not cs.regenBraking and
       (not cs.gasPressed or stock_angle or classic_eps_recovery or eps_recovery and stock_canfd_qualified(cp, marked_only=True)) and
       all((event.name == stock_user or classic_eps_recovery and not cs.cruiseState.available and
@@ -1078,7 +1075,6 @@ class TransportPauseFeedback:
     return True
 
   def _angle_stop_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, latched, producer):
-    from opendbc.car.structs import car
     from opendbc.car.hyundai.canfd_angle_aol import qualified, temporary_restriction
     from opendbc.car.mazda.stock_aol import qualified as mazda_qualified, temporary_restriction as mazda_restriction
     from opendbc.car.subaru.stock_aol import temporary_restriction as subaru_restriction
@@ -1091,7 +1087,7 @@ class TransportPauseFeedback:
     pending_stop = bool(ccnc_stop and axis.desiredLongitudinal and not axis.longitudinalActive and not axis.lateralActive)
     subaru_stop = cs.standstill and subaru_restriction(cp, cs)
     if (not (qualified(cp, marked_only=True) or mazda_qualified(cp, marked_only=True) or subaru_stop or ccnc_stop) or
-      cs.gearShifter != car.CarState.GearShifter.drive or
+      not subaru_stop_drive_gear(cp, cs.gearShifter, subaru_stop) or
       not (temporary_restriction(cp, cs) or mazda_restriction(cp, cs) or subaru_stop) or cs.steerFaultTemporary or cs.steerFaultPermanent or
       not latched or self.failed or self.paused or self.pending_event or self.retention_started_ns or
       not (self.lateral_only_baseline or ccnc_stop) or not self.lateral_inventory or not self.lateral_baseline_ns or
@@ -1174,7 +1170,6 @@ class TransportPauseFeedback:
     from openpilot.starpilot.car.subaru.paused_intent import retain_stopped_source_feedback
     if retain_stopped_source_feedback(self, sm, cp, cs, axis, stamp, now_ns, latched=latched, producer=producer):
       return True
-    from opendbc.car import structs
     previous = self.signature
     if (not latched or self.failed or self.paused or self.pending_event or self.retention_started_ns or
       self.source_retention_started_ns or not self.ever_lateral_active or previous is None or
@@ -1183,8 +1178,7 @@ class TransportPauseFeedback:
       not producer or previous[14] != producer or
       not 0 < previous[8] <= previous[2] <= self.healthy_feedback_ns <= now_ns or
       now_ns - previous[8] > SAFETY_MAX_AGE_NS or
-      cs.gearShifter not in (structs.CarState.GearShifter.drive, structs.CarState.GearShifter.low,
-                            structs.CarState.GearShifter.sport, structs.CarState.GearShifter.brake) or
+      not forward_gear_allowed(cp, cs.gearShifter) or
       not cs.canValid or cs.canTimeout or cs.steerFaultTemporary or cs.steerFaultPermanent or
       cs.accFaulted or cs.vehicleSensorsInvalid or cs.doorOpen or cs.seatbeltUnlatched or
       cs.steeringDisengage or not cs.cruiseState.available or cs.buttonEvents or
@@ -1557,8 +1551,7 @@ class TransportPauseFeedback:
         str(axis.mode) == 'off' and not any(signature[9:13]) and
         cs.cruiseState.available and not cs.accFaulted and not cs.vehicleSensorsInvalid and
         not cs.doorOpen and not cs.steeringDisengage and
-        (cs.gearShifter in (structs.CarState.GearShifter.drive, structs.CarState.GearShifter.sport,
-                           structs.CarState.GearShifter.low, structs.CarState.GearShifter.brake) or
+        (forward_gear_allowed(cp, cs.gearShifter) or
          intent_paused and cs.gearShifter in (structs.CarState.GearShifter.reverse, structs.CarState.GearShifter.neutral)) and
         sm.seen['onroadEvents'] and sm.valid['onroadEvents'] and sm.alive['onroadEvents'] and
         0 < int(sm.logMonoTime['onroadEvents']) <= now_ns and
