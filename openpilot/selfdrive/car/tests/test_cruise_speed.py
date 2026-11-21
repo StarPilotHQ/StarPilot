@@ -204,6 +204,34 @@ class TestResumeInitialization(OpenpilotTestCase):
 
 
 class TestConfiguredInitialCruiseSpeed(OpenpilotTestCase):
+  def test_optional_low_speed_start_is_set_only(self):
+    software = VCruiseHelper(car.CarParams(pcmCruise=False, openpilotLongitudinalControl=True))
+    stopped = car.CarState(vEgo=0)
+    assert not software.low_speed_on_set
+    software.initialize_v_cruise(stopped, False, resume=False)
+    assert software.v_cruise_kph == V_CRUISE_INITIAL
+    software.low_speed_on_set = True
+    software.initialize_v_cruise(stopped, False, resume=False, initial_speed=65)
+    assert software.v_cruise_kph == software.v_cruise_cluster_kph == V_CRUISE_MIN
+    software.CP.minEnableSpeed = 6.5
+    software.initialize_v_cruise(stopped, False, resume=False)
+    assert software.v_cruise_kph == 24
+    software.initialize_v_cruise(car.CarState(vEgo=25 * CV.KPH_TO_MS), False, resume=False)
+    assert software.v_cruise_kph == 25
+    software.v_cruise_kph_last = 65
+    software.initialize_v_cruise(stopped, False, resume=True)
+    assert software.v_cruise_kph == 65
+    assert software.initialize_v_cruise(stopped, False, resume=False, slc_target_mps=50 * CV.KPH_TO_MS, is_metric=True)
+    assert software.v_cruise_kph == 50
+    software.low_speed_on_set = False
+    software.initialize_v_cruise(stopped, False, resume=False, initial_speed=65)
+    assert software.v_cruise_kph == 65
+    factory = VCruiseHelper(car.CarParams(pcmCruise=True))
+    factory.low_speed_on_set = True
+    factory.v_cruise_kph = 48
+    factory.initialize_v_cruise(stopped, False, resume=False)
+    assert factory.v_cruise_kph == 48
+
   def test_initial_speed_floor(self):
     for experimental_mode in (True, False):
       for initial_speed in (40, 65, 100, 145):

@@ -33,7 +33,7 @@ from opendbc.car.hyundai.ioniq6_media import Ioniq6MediaButtons
 from opendbc.car.hyundai.values import CAR as HYUNDAI_CAR
 from opendbc.car.interfaces import CarInterfaceBase, RadarInterfaceBase
 from openpilot.selfdrive.pandad import can_capnp_to_list, can_list_to_can_capnp
-from openpilot.selfdrive.car.cruise import SlcWheelContext, VCruiseHelper, slc_target_kph
+from openpilot.selfdrive.car.cruise import LOW_SPEED_CRUISE_ON_SET, SlcWheelContext, VCruiseHelper, slc_target_kph
 from openpilot.starpilot.speed_limits import physical_actions as slc_physical
 from openpilot.starpilot.aol.intent import AolProcessFaultContext, independent_axis_requested, read_settings
 from openpilot.starpilot.aol.transport_pause import TransportPauseFeedback, cp_identity
@@ -475,6 +475,7 @@ class Car:
 
     self.experimental_mode = self.params.get_bool("ExperimentalMode")
     self.initial_cruise_speed = self.params.get("InitialCruiseSpeedKph", return_default=True)
+    self.v_cruise_helper.low_speed_on_set = self.params.get_bool(LOW_SPEED_CRUISE_ON_SET)
 
     # card is driven by can recv, expected at 100Hz
     self.rk = Ratekeeper(100, print_delay_threshold=None)
@@ -1996,6 +1997,7 @@ class Car:
         self.aol_card_intent.settings = read_settings(self.params)
       now = time.monotonic()
       if now >= next_cruise_read:
+        self.v_cruise_helper.low_speed_on_set = self.params.get_bool(LOW_SPEED_CRUISE_ON_SET)
         self.slc_requested_configuration = self.read_slc_configuration()
         if getattr(self, 'slc_transport_available', False):
           self.slc_match_on_engage = self.read_slc_match_on_engage()

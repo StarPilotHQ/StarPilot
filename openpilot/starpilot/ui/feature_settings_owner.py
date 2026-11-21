@@ -27,6 +27,7 @@ from openpilot.starpilot.longitudinal.profile_runtime import TRAFFIC_CRUISE_BRAK
 from openpilot.starpilot.longitudinal.lead_approach_runtime import KEY as LEAD_APPROACH_KEY
 from openpilot.starpilot.longitudinal.lead_takeoff_preferences import KEY as LEAD_TAKEOFF_KEY
 from openpilot.starpilot.longitudinal.encouragement import KEY as NUDGE_KEY
+from openpilot.selfdrive.car.cruise import LOW_SPEED_CRUISE_ON_SET
 from openpilot.starpilot.longitudinal.planner_selection import KEY as PLANNER_SELECTION_KEY, save_selection
 
 from openpilot.starpilot.longitudinal.profile_document import (
@@ -86,7 +87,8 @@ from openpilot.starpilot.controllers.toyota_cruise import capability as toyota_c
 AGGRESSIVE_COOLING_KEY = "AggressiveCoolingEnabled"
 AGGRESSIVE_COOLING_DESCRIPTION = ("Runs the fan sooner and harder to keep the comma 10-16 °C (18-29 °F) cooler on hot days, " +
                                   "at the cost of more fan noise. Applies next drive.")
-GLOBAL_BOOL_PREFERENCES = frozenset((LEAD_APPROACH_KEY, LEAD_TAKEOFF_KEY, NUDGE_KEY, "DisengageOnAccelerator", AGGRESSIVE_COOLING_KEY))
+GLOBAL_BOOL_PREFERENCES = frozenset((LEAD_APPROACH_KEY, LEAD_TAKEOFF_KEY, NUDGE_KEY, LOW_SPEED_CRUISE_ON_SET,
+                                     "DisengageOnAccelerator", AGGRESSIVE_COOLING_KEY))
 
 
 def cooling_available() -> bool:
@@ -112,6 +114,7 @@ BOOL_DEFAULTS = {
   LEAD_APPROACH_KEY: False,
   LEAD_TAKEOFF_KEY: False,
   NUDGE_KEY: True,
+  LOW_SPEED_CRUISE_ON_SET: False,
   "DisengageOnAccelerator": False,
   AGGRESSIVE_COOLING_KEY: False,
   CURVE_MASTER_KEY: False, CURVE_NO_LEAD_KEY: False,
@@ -1274,6 +1277,9 @@ class FeatureSettingsOwner:
       rows.append(self._bool_row(NUDGE_KEY, "Experimental Speed Nudge", self.authority("preferences"),
                                 reason="Gently recovers toward set speed when Experimental mode hesitates on a clear road. " +
                                        "Leads, stops, curve limits and driver overrides retain priority."))
+      rows.append(self._bool_row(LOW_SPEED_CRUISE_ON_SET, "Low-Speed Cruise Start", self.authority("preferences"),
+                                reason="Lets StarPilot SET at your current speed down to the vehicle’s minimum engagement speed. " +
+                                       "Factory cruise still uses the car’s minimum speed."))
       if self._galaxy():
         rows.append(self._bool_row("DisengageOnAccelerator", "Disengage on Accelerator Pedal", self.authority("preferences")))
       document, raw, valid = self._document()
