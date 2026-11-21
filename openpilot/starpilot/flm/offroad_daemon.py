@@ -277,7 +277,7 @@ class StatusReport:
         Path(temporary).unlink(missing_ok=True)
 
 
-def parked_blocker(sm, params, *, stopped=False, now=None):
+def parked_blocker(sm, params, *, stopped=False, now=None, powered_offroad=None):
   """Same fresh parked physical-state checks as the existing bench supervisor.
 
   Offroad analysis needs current status, not the nominal publication cadence.
@@ -303,7 +303,9 @@ def parked_blocker(sm, params, *, stopped=False, now=None):
     return 'waiting_for_vehicle_to_switch_off'
   if not pandas:
     return 'waiting_for_connected_panda_status'
-  if any(p.ignitionLine or p.ignitionCan for p in pandas):
+  if any(p.ignitionLine or p.ignitionCan for p in pandas) and not (
+    powered_offroad is not None and all(str(getattr(p, 'safetyModel', '')) == 'noOutput' for p in pandas) and powered_offroad()
+  ):
     return 'waiting_for_ignition_off'
   if any(p.controlsAllowed for p in pandas):
     return 'waiting_for_panda_controls_to_disarm'
@@ -316,20 +318,22 @@ def parked_status(sm, params, *, stopped=False, now=None):
   return parked_blocker(sm, params, stopped=stopped, now=now) is None
 
 
-def wait_for_parked(sm, params, *, stopped=lambda: False, clock=time.monotonic):
+def wait_for_parked(sm, params, *, stopped=lambda: False, clock=time.monotonic, powered_offroad=None):
   """Refresh a lapped subscriber before resuming analysis; never use stale permission."""
   deadline = clock() + 0.75
   timeout = 0
   while True:
     sm.update(timeout)
-    if parked_status(sm, params, stopped=stopped(), now=clock()):
+    reason = parked_blocker(sm, params, stopped=stopped(), now=clock(), powered_offroad=powered_offroad)
+    if reason is None:
       return True
     if (
       stopped()
       or not params.get_bool('IsOffroad')
       or params.get_bool('IsEngaged')
       or sm['deviceState'].started
-      or any(p.ignitionLine or p.ignitionCan or p.controlsAllowed or p.faults for p in sm['pandaStates'])
+      or reason == 'waiting_for_ignition_off'
+      or any(p.controlsAllowed or p.faults or (powered_offroad is None and (p.ignitionLine or p.ignitionCan)) for p in sm['pandaStates'])
       or clock() >= deadline
     ):
       return False
@@ -364,8 +368,11 @@ def run_parked_analysis(worker, report):
 
 def _run():
   from openpilot.common.hardware.hw import Paths
+  from openpilot.starpilot.drive_state.evidence import PhysicalSource
+  from openpilot.starpilot.drive_state.owner import DriveStateOwner, Mode
   from openpilot.starpilot.flm.offroad_cache import directory_for_params
   from openpilot.starpilot.flm.diagnostic_state import DiagnosticState
+  from openpilot.starpilot.storage import starpilot_storage_root
 
   params = Params()
   stopped = False
@@ -383,11 +390,17 @@ def _run():
     from openpilot.starpilot.flm.offroad_source import record_drive
 
     sm = messaging.SubMaster(['deviceState', 'pandaStates', 'peripheralState'])
+    drive_state = DriveStateOwner(params, starpilot_storage_root() / 'drive-state')
+    physical = PhysicalSource(sm)
+
+    def powered_offroad():
+      return drive_state.snapshot().mode is Mode.OFFROAD and physical.update_ready(params.get_bool('IsOffroad'))
 
     def parked():
-      allowed = wait_for_parked(sm, params, stopped=lambda: stopped)
+      allowed = wait_for_parked(sm, params, stopped=lambda: stopped, powered_offroad=powered_offroad)
       if not allowed and not stopped and params.get_bool('IsOffroad'):
-        report.set({'status': 'collecting', 'reason': parked_blocker(sm, params) or 'waiting_for_parked_permission'})
+        reason = parked_blocker(sm, params, powered_offroad=powered_offroad)
+        report.set({'status': 'collecting', 'reason': reason or 'waiting_for_parked_permission'})
       return allowed
 
     def permitted():
