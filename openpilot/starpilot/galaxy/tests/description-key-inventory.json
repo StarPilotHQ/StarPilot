@@ -63,6 +63,7 @@
   "LeadDepartingAlert",
   "LeadInfo",
   "LongPitch",
+  "LowSpeedCruiseOnSet",
   "LoudBlindspotAlert",
   "LoudBlindspotAlertWhenDisengaged",
   "NostalgiaMode",
