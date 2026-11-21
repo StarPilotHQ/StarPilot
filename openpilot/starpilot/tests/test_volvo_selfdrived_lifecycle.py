@@ -217,4 +217,4 @@ def test_actual_selfdrived_fault_clear_does_not_reengage_without_pcm_edge(identi
       cycle()
       assert not sd.enabled
       reengage()
-    assert card.params.get_bool('ControlsReady')
+    case.assert_ready(card)
