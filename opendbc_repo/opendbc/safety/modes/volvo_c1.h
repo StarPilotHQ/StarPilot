@@ -1,58 +1,53 @@
 #pragma once
+
 #include "opendbc/safety/declarations.h"
-#define VOLVO_C1_BUTTONS 0x10U
-#define VOLVO_C1_FSM_0 0x30U
-#define VOLVO_C1_FSM_1 0xD0U
-#define VOLVO_C1_PSCM_1 0x125U
-#define VOLVO_C1_PEDAL_AND_BRAKE 0x55U
-#define VOLVO_C1_SPEED 0x150U
-#define VOLVO_MAIN_BUS 0U
-#define VOLVO_PARTY_BUS 2U
-#define VOLVO_C1_ANGLE_DEG_TO_CAN 22.753128F
+
+// Volvo C1 (V40), safetyParam 2. Selected by volvo_dispatch.h.
+// C1-specific addresses (V40). The V40 powertrain bus is bus 0 and its
+// forward-camera bus is bus 2; bus 1 is unused by this port.
+#define VOLVO_C1_BUTTONS           0x10U
+#define VOLVO_C1_FSM_0             0x30U
+#define VOLVO_C1_FSM_1             0xD0U
+#define VOLVO_C1_PSCM_1            0x125U
+#define VOLVO_C1_PEDAL_AND_BRAKE   0x55U
+#define VOLVO_C1_SPEED             0x150U
+
+#define VOLVO_C1_PT_BUS   0U  // powertrain bus
+#define VOLVO_C1_CAM_BUS  2U  // forward-camera bus
+
+#define VOLVO_C1_ANGLE_DEG_TO_CAN 22.753128f
 #define VOLVO_C1_MAX_ANGLE_CAN 8189
 #define VOLVO_C1_RELAY_ANGLE_TOLERANCE 2
+
 static int volvo_c1_pscm_angle(const CANPacket_t *msg) {
-  const uint32_t raw_angle = ((uint32_t)msg->data[5] << 8U) | (uint32_t)msg->data[6];
-  return (int)raw_angle - 32768;
+  return (int)(((uint16_t)msg->data[5] << 8U) | msg->data[6]) - 32768;
 }
 
 static int volvo_c1_fsm_angle(const CANPacket_t *msg) {
-  const uint32_t raw_angle = (((uint32_t)msg->data[4] & 0x3FU) << 8U) | (uint32_t)msg->data[5];
-  return (int)raw_angle - 8192;
+  return (int)(((uint16_t)(msg->data[4] & 0x3FU) << 8U) | msg->data[5]) - 8192;
 }
 
 static uint8_t volvo_c1_fsm_checksum(const CANPacket_t *msg) {
-  const unsigned int angle_raw = (((unsigned int)msg->data[4] & 0x3FU) << 8U) | (unsigned int)msg->data[5];
-  const unsigned int direction = (unsigned int)msg->data[7] & 0x3U;
-  const unsigned int checksum_sum = ((unsigned int)msg->data[3] + direction + angle_raw + (angle_raw >> 8U)) & 0xFFU;
-  const unsigned int inverted_checksum = checksum_sum ^ 0xFFU;
-  return (uint8_t)inverted_checksum;
+  const uint16_t angle_raw = ((uint16_t)(msg->data[4] & 0x3FU) << 8U) | msg->data[5];
+  const uint8_t direction = msg->data[7] & 0x3U;
+  const uint8_t checksum_sum = (msg->data[3] + direction + angle_raw + (angle_raw >> 8U)) & 0xFFU;
+  return checksum_sum ^ 0xFFU;
 }
 
-static void volvo_c1_rx_hook(const CANPacket_t *msg) {
-  if (msg->bus == VOLVO_MAIN_BUS) {
-    if (msg->addr == VOLVO_C1_PSCM_1) {
-      update_sample(&angle_meas, volvo_c1_pscm_angle(msg));
-    }
+static const AngleSteeringLimits VOLVO_C1_ANGLE_STEERING_LIMITS = {
+  .max_angle = VOLVO_C1_MAX_ANGLE_CAN,
+  .angle_deg_to_can = VOLVO_C1_ANGLE_DEG_TO_CAN,
+  .angle_rate_up_lookup = {
+    {7.0f, 17.0f, 36.0f},
+    {2.0f, 0.25f, 0.1f},
+  },
+  .angle_rate_down_lookup = {
+    {7.0f, 17.0f, 36.0f},
+    {2.0f, 0.25f, 0.1f},
+  },
+  .frequency = 50U,
+};
 
-    if (msg->addr == VOLVO_C1_SPEED) {
-      const uint16_t speed_raw = ((uint16_t)msg->data[6] << 8U) | msg->data[7];
-      const float speed = ((float)speed_raw * 0.01f) / 3.6f;
-      vehicle_moving = speed > 0.1f;
-      UPDATE_VEHICLE_SPEED(speed);
-    }
-
-    if (msg->addr == VOLVO_C1_PEDAL_AND_BRAKE) {
-      const unsigned int gas_raw = (((unsigned int)msg->data[1] & 0x3U) << 8U) | (unsigned int)msg->data[2];
-      gas_pressed = gas_raw > 50U;  // DBC factor 0.1: greater than 5 percent
-      brake_pressed = GET_BIT(msg, 24U) || GET_BIT(msg, 38U);
-    }
-  }
-
-  if ((msg->bus == VOLVO_PARTY_BUS) && (msg->addr == VOLVO_C1_FSM_0)) {
-    pcm_cruise_check(GET_BIT(msg, 58U));
-  }
-}
 // C1 retains its measured-angle EPS envelope; the shared angle API no longer supplies it.
 static bool volvo_c1_angle_cmd_checks(int desired_angle, bool steer_control_enabled, const AngleSteeringLimits limits) {
   bool violation = false;
@@ -127,20 +122,33 @@ static bool volvo_c1_angle_cmd_checks(int desired_angle, bool steer_control_enab
   return violation;
 }
 
+
+static void volvo_c1_rx_hook(const CANPacket_t *msg) {
+  if (msg->bus == VOLVO_C1_PT_BUS) {
+    if (msg->addr == VOLVO_C1_PSCM_1) {
+      update_sample(&angle_meas, volvo_c1_pscm_angle(msg));
+    }
+
+    if (msg->addr == VOLVO_C1_SPEED) {
+      const uint16_t speed_raw = ((uint16_t)msg->data[6] << 8U) | msg->data[7];
+      const float speed = ((float)speed_raw * 0.01f) / 3.6f;
+      vehicle_moving = speed > 0.1f;
+      UPDATE_VEHICLE_SPEED(speed);
+    }
+
+    if (msg->addr == VOLVO_C1_PEDAL_AND_BRAKE) {
+      const uint16_t gas_raw = ((uint16_t)(msg->data[1] & 0x3U) << 8U) | msg->data[2];
+      gas_pressed = gas_raw > 50U;  // DBC factor 0.1: greater than 5 percent
+      brake_pressed = GET_BIT(msg, 24U) || GET_BIT(msg, 38U);
+    }
+  }
+
+  if ((msg->bus == VOLVO_C1_CAM_BUS) && (msg->addr == VOLVO_C1_FSM_0)) {
+    pcm_cruise_check(GET_BIT(msg, 58U));
+  }
+}
+
 static bool volvo_c1_tx_hook(const CANPacket_t *msg) {
-  static const AngleSteeringLimits VOLVO_C1_ANGLE_STEERING_LIMITS = {
-    .max_angle = VOLVO_C1_MAX_ANGLE_CAN,
-    .angle_deg_to_can = VOLVO_C1_ANGLE_DEG_TO_CAN,
-    .angle_rate_up_lookup = {
-      {7.0f, 17.0f, 36.0f},
-      {2.0f, 0.25f, 0.1f},
-    },
-    .angle_rate_down_lookup = {
-      {7.0f, 17.0f, 36.0f},
-      {2.0f, 0.25f, 0.1f},
-    },
-    .frequency = 50U,
-  };
   bool tx = true;
   if (msg->addr == VOLVO_C1_FSM_1) {
     const int desired_angle = volvo_c1_fsm_angle(msg);
@@ -173,19 +181,25 @@ static bool volvo_c1_tx_hook(const CANPacket_t *msg) {
   }
   return tx;
 }
+
 static safety_config volvo_c1_init(uint16_t param) {
   (void)param;
   static const CanMsg VOLVO_C1_TX_MSGS[] = {
-    {VOLVO_C1_FSM_1, VOLVO_MAIN_BUS, 8, .check_relay = true},
-    {VOLVO_C1_PSCM_1, VOLVO_PARTY_BUS, 8, .check_relay = true},
-    {VOLVO_C1_BUTTONS, VOLVO_MAIN_BUS, 8, .check_relay = false},
+    {VOLVO_C1_FSM_1, VOLVO_C1_PT_BUS, 8, .check_relay = true},
+    {VOLVO_C1_PSCM_1, VOLVO_C1_CAM_BUS, 8, .check_relay = true},
+    {VOLVO_C1_BUTTONS, VOLVO_C1_PT_BUS, 8, .check_relay = false},
   };
   static RxCheck volvo_c1_rx_checks[] = {
-    {.msg = {{VOLVO_C1_PSCM_1, VOLVO_MAIN_BUS, 8, 50U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
-    {.msg = {{VOLVO_C1_FSM_0, VOLVO_PARTY_BUS, 8, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
-    {.msg = {{VOLVO_C1_PEDAL_AND_BRAKE, VOLVO_MAIN_BUS, 8, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
-    {.msg = {{VOLVO_C1_SPEED, VOLVO_MAIN_BUS, 8, 50U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
+    {.msg = {{VOLVO_C1_PSCM_1, VOLVO_C1_PT_BUS, 8, 50U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
+    {.msg = {{VOLVO_C1_FSM_0, VOLVO_C1_CAM_BUS, 8, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
+    {.msg = {{VOLVO_C1_PEDAL_AND_BRAKE, VOLVO_C1_PT_BUS, 8, 100U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
+    {.msg = {{VOLVO_C1_SPEED, VOLVO_C1_PT_BUS, 8, 50U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
   };
   return BUILD_SAFETY_CFG(volvo_c1_rx_checks, VOLVO_C1_TX_MSGS);
 }
-const safety_hooks volvo_c1_hooks = {.init = volvo_c1_init, .rx = volvo_c1_rx_hook, .tx = volvo_c1_tx_hook};
+
+const safety_hooks volvo_c1_hooks = {
+  .init = volvo_c1_init,
+  .rx = volvo_c1_rx_hook,
+  .tx = volvo_c1_tx_hook,
+};

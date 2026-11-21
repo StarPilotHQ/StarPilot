@@ -195,7 +195,6 @@ def test_native_variant(native_variant):
                   "test_nexo_stock_aol.py", "test_palisade_camera_echo.py", "test_classic_scc_main_ingress.py",
                   "test_canfd_damping_contract.py", "test_prepared_torque_ev_native.py"),
       "volkswagen": ("test_volkswagen.py", "test_meb_aol.py"),
-      "volvo": ("test_volvo.py", "test_polestar_counters.py"),
       "ford": ("test_ford.py", "test_angle_native.py"),
     }
     catalog = {name: [f"pytest:/tests/{name}::test_guard[DEBUG]", f"pytest:/tests/{name}::test_guard[RELEASE]"]

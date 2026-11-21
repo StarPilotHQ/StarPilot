@@ -452,7 +452,6 @@ def build_priority_tests(site, catalog, core_tests):
       "hyundai": ("hyundai", "hkg", "ev9", "pe", "ioniq5pe", "ioniq6", "kia", "nexo", "palisade",
                   "classic_scc", "canfd_damping", "prepared_torque_ev"),
       "volkswagen": ("volkswagen", "meb"),
-      "volvo": ("volvo", "polestar"),
       "ford": ("ford", "angle_native"),
     }.get(family, (family,))
     family_modules = [name for name in sorted(catalog) if any(name == f"test_{alias}.py" or name.startswith(f"test_{alias}_")

@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from opendbc.can import CANPacker
 from opendbc.car import gen_empty_fingerprint, structs
-from opendbc.car.volvo.tests.test_cma import EXPECTED, sources, packet
+from opendbc.car.volvo.tests.test_cma import CMA, EXPECTED, sources, packet
 from opendbc.safety.tests.libsafety import libsafety_py
 from openpilot.cereal import messaging
 from openpilot.common.params import Params
@@ -122,7 +122,11 @@ class TestVolvoActualStartup(unittest.TestCase):
           self.assert_ready(card)
           self.assertTrue(published.called)
           frames = published.call_args.args[0]
-          self.assertTrue(frames)
+          if identity in CMA:
+            # Disengaged CMA sends nothing; panda forwards the stock frames instead.
+            self.assertEqual(frames, [])
+          else:
+            self.assertTrue(frames)
           for msg in frames:
             self.assertTrue(lib.safety_tx_hook(packet(msg)), msg)
 

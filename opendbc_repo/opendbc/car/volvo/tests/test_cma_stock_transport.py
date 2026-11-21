@@ -1,101 +1,77 @@
-"""Inactive Polestar transport preserves received stock packets exactly once."""
+"""Inactive or stalled openpilot hands every replaced address back to the stock frames.
+
+openpilot sends nothing while lateral is inactive, and panda only blocks a stock frame
+while openpilot's replacement for that address is recent (volvo_cma.h VOLVO_REPLACED_MSGS).
+"""
+from types import SimpleNamespace
 import pytest
-from opendbc.can import CANPacker
-from opendbc.car import Bus, gen_empty_fingerprint, structs
-from opendbc.car.volvo.interface import CarInterface
+from opendbc.car import structs
 from opendbc.car.volvo.values import CAR, DBC
+from opendbc.safety.tests.libsafety import libsafety_py
+from opendbc.car.volvo.carcontroller import CarController
+from opendbc.car.volvo.helpers import checksum_lca_5_message
+from opendbc.car.volvo.interface import CarInterface
+from opendbc.car.volvo.tests.test_cma import CMA, REPLACED, STOCK_BUS, _Actuators, _state, interface, packet, sources
 
 
-def interface():
-  cp = CarInterface.get_params(CAR.POLESTAR_2, gen_empty_fingerprint(), [], False, False, False)
-  return CarInterface(cp)
+@pytest.mark.parametrize('identity', CMA)
+def test_stock_frames_resume_when_openpilot_stops_sending(identity):
+  """The panda timing fallback: a replaced address is only blocked while openpilot's
+  replacement is recent, so stock frames flow again if openpilot disengages or stalls."""
+  cp, ci = interface(identity)
+  lib = libsafety_py.libsafety
+  assert lib.set_safety_hooks(cp.safetyConfigs[0].safetyModel.raw, cp.safetyConfigs[0].safetyParam) == 0
+  lib.init_tests()
+  for address, bus in STOCK_BUS.items():
+    assert lib.safety_fwd_hook(bus, address) != -1, hex(address)
+
+  cc = structs.CarControl.new_message()
+  cc.latActive = True
+  sent = set()
+  for frame in range(4):
+    now = 1_000_000_000 + frame * 10_000_000
+    lib.set_timer(frame * 10000)
+    incoming = sources(identity, frame=frame)
+    for msg in incoming:
+      lib.safety_rx_hook(packet(msg))
+    ci.update([(now, incoming)])
+    _, output = ci.apply(cc.as_reader(), now)
+    for msg in output:
+      assert lib.safety_tx_hook(packet(msg))
+      sent.add(msg[0])
+  assert sent == {address for address, _ in REPLACED}
+  for address in sent:
+    assert lib.safety_fwd_hook(STOCK_BUS[address], address) == -1, hex(address)
+
+  # openpilot goes quiet; after the longest replacement timeout every stock frame forwards again.
+  lib.set_timer(30000 + 100001)
+  for address in sent:
+    assert lib.safety_fwd_hook(STOCK_BUS[address], address) != -1, hex(address)
 
 
-def packets():
-  packer = CANPacker(DBC[CAR.POLESTAR_2][Bus.main])
-  return [packer.make_can_msg('LCA_5', 0, {'COUNTER': counter, 'WHEEL_SPEED_1': 200 + counter}) for counter in (1, 5, 9)]
+@pytest.mark.parametrize("fingerprint", [CAR.POLESTAR_2, CAR.VOLVO_XC40_RECHARGE])
+def test_controller_leaves_lca5_to_panda_forwarding_when_inactive(fingerprint):
+  # While inactive, the controller must not TX an LCA_5 substitute at all: panda only
+  # blocks the stock frame while openpilot is recently sending one (see
+  # volvo_fwd_hook), so the real stock frame flows through untouched.
+  cp = CarInterface.get_non_essential_params(fingerprint)
+  controller = CarController(DBC[cp.carFingerprint], cp)
+  cs = _state()
+  cc = SimpleNamespace(latActive=False, actuators=_Actuators())
 
+  for _ in range(4):
+    _, can_sends = controller.update(cc, cs, 0)
+    assert not any(msg[0] == 0x67 for msg in can_sends)
 
-def forwarded(messages):
-  return [(address, data, 2 if bus == 0 else 0) for address, data, bus in messages]
-
-
-def test_batch_and_multiple_updates_preserve_every_payload_once_in_order():
-  for separate in (False, True):
-    ci = interface()
-    received = packets()
-    if separate:
-      for index, message in enumerate(received):
-        ci.update([(1_000_000_000 + index * 1_000_000, [message])])
-    else:
-      ci.update([(1_000_000_000, received)])
-    cc = structs.CarControl.new_message()
-    _, output = ci.apply(cc.as_reader(), 1_010_000_000)
-    assert output == forwarded(received)
-    _, output = ci.apply(cc.as_reader(), 1_020_000_000)
-    assert output == []
-
-
-def test_unprotected_wrong_bus_and_wrong_length_are_not_relayed():
-  ci = interface()
-  data = packets()[0][1]
-  ci.update([(1_000_000_000, [(0x67, data, 1), (0x17, data, 0), (0x123, data, 0), (0x67, data[:7], 0)])])
-  _, output = ci.apply(structs.CarControl.new_message().as_reader(), 1_010_000_000)
-  assert output == []
-
-
-def test_pending_queue_is_bounded():
-  ci = interface()
-  received = packets() * 70
-  ci.update([(1_000_000_000, received)])
-  assert len(ci.stock_relay) == 128
-  _, output = ci.apply(structs.CarControl.new_message().as_reader(), 1_010_000_000)
-  assert output == forwarded(received[-1:])
-
-
-@pytest.mark.parametrize('changes', [
-  {'gearShifter': structs.CarState.GearShifter.park}, {'canValid': False}, {'canTimeout': True},
-  {'steerFaultTemporary': True}, {'steerFaultPermanent': True},
-])
-def test_effective_withdrawal_preserves_only_received_stock(changes):
-  ci = interface()
-  received = packets()[:1]
-  ci.update([(1_000_000_000, received)])
-  state = structs.CarState.new_message(canValid=True, gearShifter=structs.CarState.GearShifter.drive)
-  for key, value in changes.items():
-    setattr(state, key, value)
-  ci.CS.out = state.as_reader()
-  _, output = ci.apply(structs.CarControl.new_message(latActive=True).as_reader(), 1_010_000_000)
-  assert not ci.CC.lat_active
-  assert output == forwarded(received)
-
-
-def test_stock_received_while_active_cannot_leak_into_later_withdrawal():
-  from opendbc.car.volvo.helpers import checksum_1_pscm_related_message, checksum_2_pscm_related_message
-  ci = interface()
-  status = CANPacker('volvo_mid_1').make_can_msg('PSCM_RELATED', 2, {
-    'NEW_SIGNAL_2': 8, 'CHECKSUM_1': checksum_1_pscm_related_message(0, 0x80),
-    'CHECKSUM_2': checksum_2_pscm_related_message(0x80),
-  })
-  ci.update([(1_000_000_000, packets() + [status])])
-  assert ci.CS.pscm_status_supported
-  ci.CS.out = structs.CarState.new_message(canValid=True, gearShifter=structs.CarState.GearShifter.drive).as_reader()
-  ci.apply(structs.CarControl.new_message(latActive=True).as_reader(), 1_010_000_000)
-  assert ci.CC.lat_active
-  assert not ci.stock_relay
-  _, output = ci.apply(structs.CarControl.new_message().as_reader(), 1_020_000_000)
-  assert output == []
-
-
-def test_recovery_sends_latest_frames_in_source_order():
-  ci = interface()
-  angle = packets()
-  status = (0x16, bytes(8), 2)
-  other = (0x58, bytes(8), 0)
-  received = [status, angle[0], other, angle[1], status, angle[2], other, angle[0], angle[1], status, other, other]
-  for i, frame in enumerate(received):
-    ci.update([(1_000_000_000 + i * 10_000_000, [frame])])
-  _, output = ci.apply(structs.CarControl.new_message().as_reader(), 1_120_000_000)
-  assert output == forwarded([angle[1], status, other])
-  _, output = ci.apply(structs.CarControl.new_message().as_reader(), 1_130_000_000)
-  assert output == []
+  # Once active, the stock counter is passed straight through (LCA_5 is 50 Hz, so
+  # step until it's sent)
+  cs.msg_lca_5["COUNTER"] = 7
+  cc.latActive = True
+  sent = []
+  for _ in range(2):
+    _, can_sends = controller.update(cc, cs, 0)
+    sent += [msg for msg in can_sends if msg[0] == 0x67]
+  assert len(sent) == 1
+  data = sent[0][1]
+  assert data[3] >> 4 == 7
+  assert data[2] == checksum_lca_5_message(data[0], data[1], data[3], data[4], data[5])

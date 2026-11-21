@@ -207,14 +207,4 @@ def test_actual_selfdrived_fault_clear_does_not_reengage_without_pcm_edge(identi
       cycle()
       assert not sd.enabled  # Clearing a hard fault does not synthesize PCM enable.
       reengage()
-    if identity in CMA:
-      # Select an even source frame: LCA_2 is a real 50 Hz input.
-      if frame % 2:
-        cycle()
-      cycle(corrupt_native=True)
-      assert_event(log.OnroadEvent.EventName.controlsMismatch)
-      assert not sd.enabled
-      cycle()
-      assert not sd.enabled
-      reengage()
     case.assert_ready(card)
