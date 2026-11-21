@@ -157,3 +157,25 @@ def test_repeated_pings_do_not_reset_version_deadline(identity):
     worker.join(1)
     session.peer.close()
     hu.close()
+
+
+def test_relaying_adapter_may_ping_past_the_handshake_timeout(identity):
+  events = []
+  session, hu = raw_session(identity, handshake_timeout=.5, version_wait=5.0, log=lambda name, **v: events.append(name))
+  def relay():
+    for i in range(12):
+      hu.sendall(frame(0, 0x0b, field(1, i)))
+      time.sleep(.2)
+    time.sleep(.2)
+    hu.sendall(frame(0, 0x01, b'\x00\x01\x00\x07'))
+  worker = threading.Thread(target=relay, daemon=True)
+  worker.start()
+  try:
+    with pytest.raises((TimeoutError, OSError)):
+      session.authenticate()
+    assert events.count('pre_version_ping') == 12 and 'version' in events
+    assert not session.authenticated
+  finally:
+    worker.join(2)
+    session.peer.close()
+    hu.close()

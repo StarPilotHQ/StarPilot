@@ -259,10 +259,7 @@ class StarPortLogSender:
   def status(self) -> dict:
     with self._lock:
       if self._fork is None:
-        try:
-          self._fork = not self._official()
-        except Exception:
-          self._fork = False
+        self._fork = not self._official()
       return {**self._state, "available": bool(self._url()), "fork": self._fork, "messageLimit": MESSAGE_LIMIT}
 
   def start(self, message, discord="") -> dict:

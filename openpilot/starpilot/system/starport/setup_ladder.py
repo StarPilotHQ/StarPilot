@@ -41,6 +41,7 @@ DESCRIPTIONS = {
   "patient": "Waits up to twice as long for the receiver to send its Wi-Fi details.",
   "experiments": "Tries the extra message variations some adapters need.",
 }
+UNOFFICIAL_FIRST = "other_reply"  # the reply known unofficial dongles answer
 MODERN_RUNGS = ("other_reply", "modern_dual", "modern_24ghz", "phone_identity")  # only mean something to a car that speaks protocol 4 or newer
 
 
@@ -219,7 +220,7 @@ class SetupLadder:
     entry = self.cars.get(address.upper())
     return bool(entry) and entry["boot"] == self.boot_id() and entry["passes"] >= MAX_PASSES and not entry["working"]
 
-  def strategy(self, address: str, base_modern: bool) -> Strategy:
+  def strategy(self, address: str, base_modern: bool, unofficial: bool = False) -> Strategy:
     """What to try now: the strategy that worked, else the current rung (standard once the passes are used up)."""
     entry = self._entry(address)
     working = _valid_strategy(entry["working"])
@@ -227,6 +228,8 @@ class SetupLadder:
       return working
     if entry["passes"] >= MAX_PASSES:
       return resolve("standard", base_modern)
+    if unofficial and entry["rung"] == "standard" and not entry["results"] and not entry["passes"]:
+      entry["rung"] = UNOFFICIAL_FIRST
     return resolve(entry["rung"], base_modern)
 
   def failed(self, address: str, strategy: Strategy, *, ladder_failure: bool, video_seen: bool, version_major: int,
