@@ -97,7 +97,7 @@ class SendTest(unittest.TestCase):
     self.assertEqual(MESSAGE_LIMIT, 60)
     self.assertEqual(clean_message("  car\nwent black  "), "car went black")
     self.assertEqual(clean_message("x" * 60), "x" * 60)
-    for bad in ("x" * 61, None, 5):
+    for bad in ("x" * 61, "", "  \n ", None, 5):
       with self.assertRaises(SendRejected):
         clean_message(bad)
 
@@ -131,7 +131,7 @@ class SenderJobTest(unittest.TestCase):
         raise TimeoutError("The test did not release the send")
       sent.append((args, kwargs))
 
-    job = StarPortLogSender(bundle, sender=sender, summary=lambda: SUMMARY, url=lambda: URL)
+    job = StarPortLogSender(bundle, sender=sender, summary=lambda: SUMMARY, url=lambda: URL, official=lambda: True)
     try:
       self.assertEqual(job.start("hello")["state"], "sending")
       self.assertTrue(sending.wait(2))
@@ -155,13 +155,13 @@ class SenderJobTest(unittest.TestCase):
       release.wait(2)
       raise SendRejected("Discord refused the logs (HTTP 500).")
 
-    job = StarPortLogSender(lambda **_: ("logs.zip", b"zip"), sender=sender, summary=lambda: SUMMARY, url=lambda: URL)
-    job.start("")
+    job = StarPortLogSender(lambda **_: ("logs.zip", b"zip"), sender=sender, summary=lambda: SUMMARY, url=lambda: URL, official=lambda: True)
+    job.start("first")
     with self.assertRaises(SendBusy):
       job.start("again")
     release.set()
     self.assertEqual(self.wait(job), {"state": "failed", "message": "Discord refused the logs (HTTP 500).", "available": True,
-                                      "messageLimit": 60})
+                                      "fork": False, "messageLimit": 60})
 
 
 class SendHTTPTest(unittest.TestCase):
@@ -251,10 +251,30 @@ class DiscordFollowUpTest(unittest.TestCase):
       self.assertIn("Follow-up: not requested", post.calls[0]["payload"]["content"])
 
   def test_a_bad_handle_is_refused_before_anything_is_sent(self):
-    job = StarPortLogSender(lambda **_: ("logs.zip", b"zip"), sender=mock.Mock(), summary=lambda: SUMMARY, url=lambda: URL)
+    job = StarPortLogSender(lambda **_: ("logs.zip", b"zip"), sender=mock.Mock(), summary=lambda: SUMMARY, url=lambda: URL, official=lambda: True)
     with self.assertRaises(SendRejected):
       job.start("hi", "not a handle")
     self.assertIsNone(job._thread)
+
+  def test_custom_forks_are_flagged_but_can_still_send(self):
+    from openpilot.starpilot.system.starport.bugsink_transport import is_official_repo, repo_name
+    for origin, repo in (("https://github.com/StarPilotHQ/StarPilot.git", "StarPilotHQ/StarPilot"),
+                         ("git@github.com:starpilothq/starpilot", "starpilothq/starpilot"),
+                         ("https://user:token@github.com/dirwin31/openpilot.git", "dirwin31/openpilot"),
+                         ("https://evil.com/github.com/StarPilotHQ/StarPilot", "other"), ("", "unknown"), (None, "unknown")):
+      self.assertEqual(repo_name(origin), repo, origin)
+    self.assertTrue(is_official_repo("StarPilotHQ/StarPilot"))
+    self.assertFalse(is_official_repo("dirwin31/openpilot"))
+
+    sender = mock.Mock(return_value=None)
+    job = StarPortLogSender(lambda **_: ("logs.zip", b"zip"), sender=sender, summary=lambda: SUMMARY, url=lambda: URL,
+                            official=lambda: False)
+    self.assertEqual(job.status()["fork"], True)
+    self.assertEqual(job.status()["available"], True)
+    job.start("hi")
+    job._thread.join(2)
+    self.assertEqual(job.status()["state"], "sent")
+    sender.assert_called_once()
 
 
 if __name__ == "__main__":
