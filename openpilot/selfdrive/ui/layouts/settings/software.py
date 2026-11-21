@@ -6,6 +6,7 @@ from collections.abc import Callable
 from openpilot.common.time_helpers import system_time_valid
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.starpilot.software.preferences import AUTOMATIC_DOWNLOADS, automatic_downloads
+from openpilot.starpilot.ui.brand import home_description
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.multilang import tr, trn
 from openpilot.system.ui.widgets import Widget, DialogResult
@@ -56,7 +57,7 @@ class SoftwareLayout(Widget):
     super().__init__()
 
     self._onroad_label = ListItem(lambda: tr("Updates are only downloaded while the car is off."))
-    self._version_item = text_item(lambda: tr("Current Version"), ui_state.params.get("UpdaterCurrentDescription") or "")
+    self._version_item = text_item(lambda: tr("Current Version"), home_description(ui_state.params.get("UpdaterCurrentDescription") or ""))
     self._auto_updates_toggle = toggle_item(
       lambda: tr("Automatically Download Updates"),
       lambda: tr("Automatically download updates while offroad. Manual checks and downloads remain available."),
@@ -121,7 +122,7 @@ class SoftwareLayout(Widget):
     self._onroad_label.set_visible(ui_state.is_onroad())
 
     # Update current version and release notes
-    current_desc = ui_state.params.get("UpdaterCurrentDescription") or ""
+    current_desc = home_description(ui_state.params.get("UpdaterCurrentDescription") or "")
     current_release_notes = (ui_state.params.get("UpdaterCurrentReleaseNotes") or b"").decode("utf-8", "replace")
     self._version_item.action_item.set_text(current_desc)
     self._version_item.set_description(current_release_notes)

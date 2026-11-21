@@ -16,6 +16,7 @@ from openpilot.starpilot.ui.raylib import rl
 import pytest
 
 from openpilot.cereal import log, messaging
+from openpilot.starpilot.ui.brand import DISPLAY_VERSION
 from openpilot.starpilot.ui.onroad_state import AlertSize, ObservationKind
 from openpilot.starpilot.ui.runtime_snapshot import RuntimeSnapshotAdapter as NativeRuntimeSnapshotAdapter, current_alert, current_message, display_message
 from openpilot.starpilot.ui.settings_state import Destination
@@ -862,12 +863,12 @@ class TestRuntimeSnapshot(unittest.TestCase):
     ui.params.values["Version"] = "0.11.2"
     ui.params.values["UpdaterCurrentDescription"] = "0.11.2 / Domathon"
     snapshot = RuntimeSnapshotAdapter(ui).build(ShellMode.HOME, now_ns=NOW)
-    self.assertEqual(snapshot.home.version, "7.0")
-    self.assertEqual(snapshot.home.description, "7.0 / Domathon")
+    self.assertEqual(snapshot.home.version, DISPLAY_VERSION)
+    self.assertEqual(snapshot.home.description, f"{DISPLAY_VERSION} / Domathon")
     self.assertEqual(ui.params.values["Version"], "0.11.2")
     self.assertEqual(ui.params.values["UpdaterCurrentDescription"], "0.11.2 / Domathon")
     ui.params.values.pop("UpdaterCurrentDescription")
-    self.assertEqual(RuntimeSnapshotAdapter(ui).build(ShellMode.HOME, now_ns=NOW).home.description, "7.0")
+    self.assertEqual(RuntimeSnapshotAdapter(ui).build(ShellMode.HOME, now_ns=NOW).home.description, DISPLAY_VERSION)
 
   def test_nested_curve_independent_of_outer_slc_validity(self):
     ui = self.vehicle_ui(carFingerprint="", openpilotLongitudinalControl=True, pcmCruise=False)
