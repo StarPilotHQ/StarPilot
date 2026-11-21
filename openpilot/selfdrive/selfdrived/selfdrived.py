@@ -879,7 +879,7 @@ class SelfdriveD:
     from opendbc.car.ford.values import CAR
     return (qualified(self.CP, marked_only=True) and
             self.CP.carFingerprint == CAR.FORD_MUSTANG_MACH_E_MK1 and
-            len(self.CP.safetyConfigs) == 1 and profile_word(self.CP.safetyConfigs[0].safetyParam) == 3)
+            len(self.CP.safetyConfigs) == 1 and profile_word(self.CP.safetyConfigs[0].safetyParam) in (2, 3))
 
   def source_deadline_deferral_supported(self):
     from openpilot.starpilot.car.hyundai.aol import source_deadline_supported
