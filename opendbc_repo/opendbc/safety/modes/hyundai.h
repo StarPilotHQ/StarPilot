@@ -83,15 +83,18 @@ static const CanMsg HYUNDAI_TX_MSGS[] = {
 static bool hyundai_non_scc_software_cruise = false;
 
 static bool hyundai_non_scc_software_cruise_param(uint16_t param) {
+  bool selected = false;
   switch (param) {
     case 0x1020U: case 0x1820U: case 0x1420U: case 0x1C20U:
     case 0x1060U: case 0x1860U: case 0x1460U: case 0x1C60U:
     case 0x1061U: case 0x1861U: case 0x1461U: case 0x1C61U:
     case 0x1022U: case 0x1822U: case 0x1422U: case 0x1C22U:
-      return true;
+      selected = true;
+      break;
     default:
-      return false;
+      break;
   }
+  return selected;
 }
 
 static bool hyundai_non_scc_software_button_allowed(bool main_button) {
@@ -625,12 +628,10 @@ static const CanMsg HYUNDAI_LONG_TX_MSGS[] = {
   };
 #endif
 
-static safety_config hyundai_init(uint16_t param) {
-  hyundai_non_scc_software_cruise = hyundai_non_scc_software_cruise_param(param) &&
-                                   (alternative_experience == 0 || alternative_experience == 32);
-  if (hyundai_non_scc_software_cruise) {
-    param &= ~0x0020U;
-  }
+static safety_config hyundai_init(uint16_t safety_param) {
+  hyundai_non_scc_software_cruise = hyundai_non_scc_software_cruise_param(safety_param) &&
+                                   ((alternative_experience == 0) || (alternative_experience == 32));
+  const uint16_t param = hyundai_non_scc_software_cruise ? (safety_param & ~0x0020U) : safety_param;
 
 #ifndef ALLOW_DEBUG
   static const CanMsg HYUNDAI_LONG_TX_MSGS[] = {

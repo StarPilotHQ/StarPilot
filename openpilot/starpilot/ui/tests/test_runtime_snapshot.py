@@ -493,7 +493,7 @@ class TestRuntimeSnapshot(unittest.TestCase):
       snapshot = adapter.build(ShellMode.HOME, now_ns=NOW + frame * 500_000_000)
       self.assertEqual(snapshot.home.commit, f'commit{frame}')
       self.assertEqual(snapshot.home.branch, f'branch{frame}')
-      self.assertEqual(snapshot.home.description, f'7.0 / detail{frame}')
+      self.assertEqual(snapshot.home.description, f'{DISPLAY_VERSION} / detail{frame}')
       self.assertEqual(snapshot.home.paired, frame % 2 == 0)
       self.assertTrue(snapshot.home.bluetooth)
       self.assertFalse(snapshot.onroad.camera_available)
