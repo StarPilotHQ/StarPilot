@@ -22,7 +22,8 @@ from openpilot.starpilot.car.nissan import aol as nissan
 from openpilot.starpilot.car.volvo import aol as volvo
 
 _PORTS = {'honda': honda, 'hyundai': hyundai, 'gm': gm, 'ford': ford, 'mazda': mazda,
-          'tesla': tesla, 'toyota': toyota, 'chrysler': chrysler, 'nissan': nissan, 'volkswagen': volkswagen, 'subaru': subaru, 'rivian': rivian, 'volvo': volvo}
+          'tesla': tesla, 'toyota': toyota, 'chrysler': chrysler, 'nissan': nissan, 'volkswagen': volkswagen, 'subaru': subaru, 'rivian': rivian,
+          'volvo': volvo}
 _POLICY_CACHE_SIZE = 8
 _POLICY_CACHE_MAX_BYTES = 64 * 1024
 
