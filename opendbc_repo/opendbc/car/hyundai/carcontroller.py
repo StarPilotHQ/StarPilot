@@ -552,8 +552,8 @@ class CarController(CarControllerBase):
         stock_popup_owned = stock_source.owns_disengage_popup(apply_steer_req, clock_boot_ns(), healthy=display_healthy,
                                                             qualified_warning=stock_owned_status)
         if ccnc_non_lka:
-          stock_ccnc_owned = stock_source.owns_ccnc_fault_status(clock_boot_ns(), healthy=display_healthy,
-                                                               qualified_warning=stock_owned_status)
+          stock_ccnc_owned = stock_source.owns_ccnc_fault_status(clock_boot_ns(), display_sample_ns=CS.ccnc_162_ts_ns,
+                                                               healthy=display_healthy, qualified_warning=stock_owned_status)
       damping_source = getattr(CS, "stock_lkas_damping", None)
       can_sends.extend(hyundaicanfd.create_steering_messages(self.packer, self.CP, self.CAN,
                                                             steering_status_active, apply_steer_req, apply_torque,

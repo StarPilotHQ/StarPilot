@@ -931,7 +931,7 @@ def test_ccnc_normal_camera_handover_requires_current_health_and_expires(failure
     eps = packer.make_can_msg('MDPS', 0, {'COUNTER': tick, 'MDPS_LkaToiActvSta': int(tick >= 4)})
     source.update([(clock[0], [eps, camera])])
     owned = source.owns_display_status(tick >= 2, clock[0], healthy=True)
-    assert source.owns_ccnc_fault_status(clock[0], healthy=True, qualified_warning=owned) == owned
+    assert source.owns_ccnc_fault_status(clock[0], display_sample_ns=clock[0], healthy=True, qualified_warning=owned) == owned
   assert owned
   final_owned_ns = clock[0]
   for tick in range(16, 23):
@@ -952,7 +952,7 @@ def test_ccnc_normal_camera_handover_requires_current_health_and_expires(failure
       frames.append(camera)
     source.update([(clock[0], frames)])
     now = final_owned_ns - 1 if failure == 'backward' else -1 if failure == 'negative' else clock[0]
-    held = source.owns_ccnc_fault_status(now, healthy=failure != 'host_fault',
+    held = source.owns_ccnc_fault_status(now, display_sample_ns=clock[0], healthy=failure != 'host_fault',
                                          qualified_warning=failure == 'stale_camera_qualified')
     if failure == 'expired':
       assert held == (clock[0] - final_owned_ns <= 50_000_000)
@@ -965,7 +965,29 @@ def test_ccnc_normal_camera_handover_requires_current_health_and_expires(failure
     camera = template(packer, 2, tick)
     eps = packer.make_can_msg('MDPS', 0, {'COUNTER': tick})
     source.update([(clock[0], [eps, camera])])
-    assert not source.owns_ccnc_fault_status(clock[0], healthy=True, qualified_warning=False)
+    assert not source.owns_ccnc_fault_status(clock[0], display_sample_ns=clock[0], healthy=True, qualified_warning=False)
+
+
+def test_ccnc_handover_uses_fresh_display_sample_time(clock):
+  packer = CANPacker(DBC[CAR.HYUNDAI_KONA_2ND_GEN][Bus.pt])
+  source = CANFDLfaStatus(2)
+  for tick in range(21):
+    clock[0] = 51_000_000_000 + tick * 10_000_000
+    camera = template(packer, 2, tick, warning=15 if 14 <= tick < 16 else 0)
+    eps = packer.make_can_msg('MDPS', 0, {'COUNTER': tick, 'MDPS_LkaToiActvSta': int(tick >= 4)})
+    source.update([(clock[0], [eps, camera])])
+    owned = source.owns_display_status(tick >= 2, clock[0], healthy=True)
+    if owned:
+      assert source.owns_ccnc_fault_status(clock[0], display_sample_ns=clock[0], healthy=True, qualified_warning=True)
+
+  assert not owned
+  now = clock[0] + 1_000_000
+  assert source.owns_ccnc_fault_status(now, display_sample_ns=clock[0] - 40_000_000, healthy=True)
+  assert not source.owns_ccnc_fault_status(now, display_sample_ns=clock[0] - 50_000_000, healthy=True)
+  assert not source.owns_ccnc_fault_status(now, display_sample_ns=source.ccnc_last_owned_ns - 1, healthy=True)
+  assert not source.owns_ccnc_fault_status(now, display_sample_ns=now, healthy=True)
+  assert not source.owns_ccnc_fault_status(now, display_sample_ns=now + 1, healthy=True)
+  assert not source.owns_ccnc_fault_status(now, display_sample_ns=clock[0] - 40_000_000, healthy=False)
 
 
 @pytest.mark.parametrize('fault', range(1, 8))

@@ -43,6 +43,32 @@ class SettingsGatewayTest(unittest.TestCase):
   def page(self, name):
     return self.gateway.page(name, self.session, self.generation)
 
+  def test_kona_main_cruise_assignment_stays_selected_after_save(self):
+    from opendbc.car.hyundai.tests.test_kona_ccnc_long_aol import kona_params
+    from opendbc.car.hyundai.values import CAR as HYUNDAI
+
+    cp = kona_params(HYUNDAI.HYUNDAI_KONA_2ND_GEN)
+    cp.safetyConfigs[-1].safetyParam |= 0x800
+    cp.alternativeExperience = 32
+    self.context.value = AuthorityContext(True, cp, cp.to_bytes())
+    self.params.put_bool('AlwaysOnLateral', True, block=True)
+    self.params.put('LKASButtonControl', 0, block=True)
+    key = 'MainCruiseButtonControl'
+    self.params.put(key, 10, block=True)
+    for value, saved in (('Toggle AOL', b'9'), ('Off', b'0'), ('Toggle AOL', b'9'),
+                         ('Adopt speed limit', b'10'), ('Off', b'0')):
+      with self.subTest(value=value):
+        page = self.page('wheel')
+        index = next(i for i, row in enumerate(page['rows']) if row['label'] == 'Main cruise press')
+        intent = self.gateway.preview(page['view'], index, 0, self.session, self.generation, value=value)
+        self.assertTrue(self.gateway.confirm(intent['intent'], self.session, self.generation))
+        self.assertEqual(read_saved(self.params, key, 8), (saved, True))
+        rows = {row['label']: row for row in self.page('wheel')['rows']}
+        self.assertEqual(rows['Main cruise press']['value'], value)
+        self.assertEqual(rows['LKAS press']['value'], 'Off')
+        self.assertEqual(read_saved(self.params, 'LKASButtonControl', 8), (b'0', True))
+        self.assertEqual('can still toggle' in rows['Main cruise press']['reason'], value == 'Off')
+
   def test_aol_steering_pause_actual_angle_gateway_save_and_default(self):
     from opendbc.car.car_helpers import interfaces
     from opendbc.car.ford.values import CAR as FORD
