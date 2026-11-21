@@ -66,6 +66,10 @@ def phone_uplink_active() -> bool:
   return active()
 
 
+class AgnosImageError(Exception):
+  pass
+
+
 class StreamingDecompressor:
   def __init__(self, url: str) -> None:
     if phone_uplink_active():
@@ -110,12 +114,14 @@ class StreamingDecompressor:
 def unsparsify(f: StreamingDecompressor) -> Generator[bytes, None, None]:
   # https://source.android.com/devices/bootloader/images#sparse-format
   magic = struct.unpack("I", f.read(4))[0]
-  assert(magic == 0xed26ff3a)
+  if magic != 0xed26ff3a:
+    raise AgnosImageError("Invalid sparse image magic")
 
   # Version
   major = struct.unpack("H", f.read(2))[0]
   minor = struct.unpack("H", f.read(2))[0]
-  assert(major == 1 and minor == 0)
+  if (major, minor) != (1, 0):
+    raise AgnosImageError("Unsupported sparse image version")
 
   f.read(2)  # file header size
   f.read(2)  # chunk header size
@@ -138,7 +144,7 @@ def unsparsify(f: StreamingDecompressor) -> Generator[bytes, None, None]:
     elif chunk_type == 0xcac3:  # Don't care
       yield b""
     else:
-      raise Exception("Unhandled sparse chunk type")
+      raise AgnosImageError("Unhandled sparse chunk type")
 
 
 # noop wrapper with same API as unsparsify() for non sparse images
@@ -215,7 +221,7 @@ def extract_compressed_image(target_slot_number: int, partition: dict, cloudlog,
   path = get_partition_path(target_slot_number, partition)
   downloader = StreamingDecompressor(partition['url'])
 
-  with open(path, 'wb+') as out:
+  with downloader.req, open(path, 'wb+') as out:
     # Flash partition
     last_p = 0
     raw_hash = hashlib.sha256()
@@ -231,13 +237,13 @@ def extract_compressed_image(target_slot_number: int, partition: dict, cloudlog,
           progress(f"Downloading and writing AGNOS {partition['name']}", p)
 
     if raw_hash.hexdigest().lower() != partition['hash_raw'].lower():
-      raise Exception(f"Raw hash mismatch '{raw_hash.hexdigest().lower()}'")
+      raise AgnosImageError(f"Raw hash mismatch '{raw_hash.hexdigest().lower()}'")
 
     if downloader.sha256.hexdigest().lower() != partition['hash'].lower():
-      raise Exception("Uncompressed hash mismatch")
+      raise AgnosImageError("Uncompressed hash mismatch")
 
     if out.tell() != partition['size']:
-      raise Exception("Uncompressed size mismatch")
+      raise AgnosImageError("Uncompressed size mismatch")
 
     os.sync()
 
@@ -289,22 +295,20 @@ def flash_agnos_update(manifest_path: str, target_slot_number: int, cloudlog, st
   subprocess.run(f"abctl --set_unbootable {target_slot_number}", shell=True)
 
   for partition in update:
-    success = False
-
-    for retries in range(10):
+    urls = [partition['url'], *partition.get('fallback_urls', [])]
+    for attempt in range(10):
+      url = urls[attempt % len(urls)]
       try:
         if progress is not None:
           progress(f"Downloading and verifying AGNOS {partition['name']}", None)
-        flash_partition(target_slot_number, partition, cloudlog, standalone, progress=progress)
-        success = True
+        flash_partition(target_slot_number, {**partition, "url": url}, cloudlog, standalone, progress=progress)
         break
 
-      except requests.exceptions.RequestException:
-        cloudlog.exception("Failed")
-        cloudlog.info(f"Failed to download {partition['name']}, retrying ({retries})")
-        time.sleep(10)
-
-    if not success:
+      except (requests.exceptions.RequestException, AgnosImageError, lzma.LZMAError, struct.error):
+        cloudlog.exception("Failed to download or verify %s", partition["name"])
+        if (attempt + 1) % len(urls) == 0 and attempt < 9:
+          time.sleep(10)
+    else:
       cloudlog.info(f"Failed to flash {partition['name']}, aborting")
       raise Exception("Maximum retries exceeded")
 
