@@ -550,6 +550,10 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
       return
     if rushed_start:
       assert any(lat_commands[43:75])
+    elif reverse_boot and not startup_floor_dip and card.aol_card_intent.startup_drive_identity is not None:
+      arm_tick = (card.aol_card_intent.startup_arm_ns - 10_000_000_000) // 10_000_000
+      first_active = next((tick for tick, active in enumerate(lat_commands) if active), None)
+      assert first_active is not None and max(45, arm_tick) <= first_active <= arm_tick + 20
     else:
       assert any(lat_commands[60:74] if startup_floor_dip else lat_commands[45:60] if reverse_boot else lat_commands[35:60])
     assert any(lat_commands[76:84])  # braking released long, not qualified lateral intent
@@ -749,8 +753,13 @@ def test_mqb_cancel_with_accelerator_and_driver_steering(gearbox, alpha, phase):
 @pytest.mark.parametrize('gearbox', ('automatic', 'manual', 'direct'))
 @pytest.mark.parametrize('alpha', (False, True))
 def test_mqb_reverse_braked_start_waits_before_consuming_default_main(gearbox, alpha):
+  receipt = []
   test_mqb_full_engagement_brake_reverse_drive_actual_callers(
-    gearbox, alpha, 0, False, False, parked_boot=True, reverse_boot=True, delayed_heartbeat=True)
+    gearbox, alpha, 0, False, False, parked_boot=True, reverse_boot=True, delayed_heartbeat=True, receipt_sink=receipt)
+  first_active = next(row for row in receipt if row['control'].get('latActive'))
+  assert first_active['tick'] < 65
+  for row in receipt[first_active['tick']:85]:
+    assert row['card_intent']['allowed'] and row['control'].get('latActive') and row['permission_mask'] & 1
 
 
 @pytest.mark.parametrize('gearbox', ('automatic', 'manual', 'direct'))
