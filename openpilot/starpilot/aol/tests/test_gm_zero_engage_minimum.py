@@ -79,3 +79,29 @@ def test_combined_authority_survives_repeated_standstill_undershoot():
     cs.brakePressed = True
     _, _, control = step(25, observed_state=cs)
     assert not control.longActive
+
+
+@pytest.mark.parametrize('engaged', [False, True])
+def test_trax_keeps_braking_below_entry_speed_only_when_engaged(engaged):
+  with OpenpilotPrefix(), ExitStack() as cleanup:
+    case = fixture.IoniqAvailabilityTests(methodName='runTest')
+    cleanup.callback(case.doCleanups)
+    cp = params(CAR.CHEVROLET_TRAX, alpha=True)
+    assert cp.safetyConfigs[0].safetyParam == 0xC170
+    sd, _, step = case._authority_callers(engaged, cp=cp, genuine_events=True)
+    sd.aol_settings = read_settings(sd.params)
+    speeds = (1.44, 1.39, 1.36, 1.43, 1.34, .7, .2, 0.) if engaged else (1.34, .7)
+    for tick, speed in enumerate(speeds):
+      cs = stopped(speed)
+      cs.vEgoRaw, cs.standstill, cs.cruiseState.standstill = speed, speed == 0., speed == 0.
+      cs.buttonEnable = not engaged
+      axis, host, control = step(tick, observed_state=cs)
+      assert (EventName.belowEngageSpeed in sd.events.names) == (speed < cp.minEnableSpeed)
+      assert host.enabled == axis.longitudinalActive == control.longActive == engaged
+    if engaged:
+      _, _, control = step(len(speeds), observed_state=stopped(0.), long_allowed=False)
+      assert not control.longActive
+      cs = stopped(0.)
+      cs.brakePressed = True
+      _, _, control = step(len(speeds) + 1, observed_state=cs)
+      assert not control.longActive
