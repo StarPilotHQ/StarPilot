@@ -1208,10 +1208,10 @@ export const ModelsPage = {
 
       <GxDialog v-if="polarisAbout" labelledby="gx-polaris-about-title" @close="polarisAbout = false">
         <h3 id="gx-polaris-about-title">About Polaris models</h3>
-        <p>Polaris models aren't made or endorsed by comma. They're community fine-tunes of comma's RDFv4.</p>
+        <p>Polaris models aren't made or endorsed by comma. They're community fine-tunes of comma's driving models.</p>
         <p>Turns, everyday steering, gas and brake are each taught by whichever comma model handles them best, with real human drives where none do.</p>
         <p>They're experimental. Stay alert and ready to take over.</p>
-        <p>Tell us how they drive at <a href="https://submit.firestar.link" target="_blank" rel="noopener noreferrer">submit.firestar.link</a>.</p>
+        <p>Tell us how they drive at <a href="https://polaris.firestar.link" target="_blank" rel="noopener noreferrer">polaris.firestar.link</a>.</p>
         <div class="gx-settings__controls gx-actions"><button type="button" class="gx-btn" @click="polarisAbout = false">Got it</button></div>
       </GxDialog>
       <GxDialog v-if="dialog" labelledby="gx-model-dialog-title" @close="finishDialog(false)">

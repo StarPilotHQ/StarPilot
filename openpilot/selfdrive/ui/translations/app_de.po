@@ -9178,8 +9178,8 @@ msgid "Plots & Analysis"
 msgstr "Diagramme und Analyse"
 
 #: openpilot/starpilot/galaxy/web/js/models.js
-msgid "Polaris models aren't made or endorsed by comma. They're community fine-tunes of comma's RDFv4."
-msgstr "Polaris-Modelle werden nicht von comma erstellt oder unterstützt. Sie sind von der Community feinabgestimmte Varianten von commas RDFv4."
+msgid "Polaris models aren't made or endorsed by comma. They're community fine-tunes of comma's driving models."
+msgstr "Polaris-Modelle werden nicht von comma erstellt oder unterstützt. Sie sind von der Community feinabgestimmte Varianten von commas Fahrmodellen."
 
 #: openpilot/starpilot/galaxy/web/js/plots.js
 msgid "Poor"
