@@ -719,6 +719,10 @@ class StarShellSession:
       if group == "switchback_wheel":
         from openpilot.starpilot.feature_capabilities import lateral_supported
         return lateral_supported(cp)
+      if group == "slc":
+        from opendbc.car.hyundai.software_cruise import selected as button_cruise_selected
+        if button_cruise_selected(cp):
+          return True
       if group in ("conditional", "conditional_wheel", "long_output", "slc"):
         return bool(cp.openpilotLongitudinalControl and not cp.notCar and not cp.passive and not cp.dashcamOnly)
       if group in ("aol_wheel", "lane", "torque", "aol"):

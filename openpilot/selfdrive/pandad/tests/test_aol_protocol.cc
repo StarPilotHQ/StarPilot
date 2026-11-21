@@ -338,7 +338,11 @@ int main() {
         }
       }
     }
-    const bool expected = word == 0x2000U || word == 0x2004U || word == 0x2010U || word == 0x2014U || word == 0x0500U || word == 0x0D00U || long_expected || scc_expected || word == 0x1400U || word == 0x1C00U || word == 0x1440U || word == 0x1C40U ||
+    bool button_expected = false;
+    for (const uint16_t old_word : {0x1400U, 0x1C00U, 0x1440U, 0x1C40U, 0x1402U, 0x1C02U, 0x1441U, 0x1C41U}) {
+      button_expected |= word == (old_word | 0x20U);
+    }
+    const bool expected = button_expected || word == 0x2000U || word == 0x2004U || word == 0x2010U || word == 0x2014U || word == 0x0500U || word == 0x0D00U || long_expected || scc_expected || word == 0x1400U || word == 0x1C00U || word == 0x1440U || word == 0x1C40U ||
                           word == 0x1402U || word == 0x1C02U || word == 0x1441U || word == 0x1C41U;
     assert(aol_capable(forte, HYUNDAI_CLASSIC_AOL_PROFILE.mode, VEHICLE_REGISTRY) == expected);
     assert(aol_runtime_enabled(false, forte, VEHICLE_REGISTRY) == expected);

@@ -448,13 +448,17 @@ class TestAcceptance(unittest.TestCase):
       authority = Authority(mode, owner, lateral, longitudinal, stock, disengaged)
       invalid = ((lateral and mode not in (Mode.LATERAL_ONLY, Mode.COMBINED)) or
                  (longitudinal and (mode not in (Mode.LONGITUDINAL_ONLY, Mode.COMBINED) or owner is not LongitudinalOwner.SYSTEM)) or
-                 (stock and owner is not LongitudinalOwner.STOCK) or (disengaged and (lateral or longitudinal or stock)))
+                 (owner is LongitudinalOwner.CRUISE_BUTTONS and (not stock or disengaged or mode not in (Mode.OFF, Mode.LATERAL_ONLY))) or
+                 (stock and owner not in (LongitudinalOwner.STOCK, LongitudinalOwner.CRUISE_BUTTONS)) or
+                 (disengaged and (lateral or longitudinal or stock)))
       with self.subTest(authority=authority):
         result = step(saved(), valid(LOW), authority, Policy(False, False), now_ns=0)
         self.assertEqual(bool(result.errors), bool(invalid))
         if invalid:
           self.assertIsNone(result.control_target_mps)
           self.assertIsNone(result.history_write)
+        elif owner is LongitudinalOwner.CRUISE_BUTTONS:
+          self.assertEqual(result.control_target_mps, LOW.speed_mps)
         elif not longitudinal:
           self.assertIsNone(result.control_target_mps)
 

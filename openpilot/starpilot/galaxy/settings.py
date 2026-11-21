@@ -126,7 +126,8 @@ def _qualified(ctx: AuthorityContext, group: str) -> bool:
     if group in ("conditional", "conditional_wheel", "long_output"):
       return bool((cp.openpilotLongitudinalControl or ctx.configuration_longitudinal) and not cp.notCar and not cp.dashcamOnly and not cp.passive)
     if group == "slc":
-      return bool((cp.openpilotLongitudinalControl or ctx.configuration_longitudinal) and
+      from opendbc.car.hyundai.software_cruise import selected as button_cruise_selected
+      return bool((cp.openpilotLongitudinalControl or ctx.configuration_longitudinal or button_cruise_selected(cp)) and
                   not cp.notCar and not cp.dashcamOnly and not cp.passive)
     if group == "long":
       return bool((cp.openpilotLongitudinalControl or ctx.configuration_longitudinal) and

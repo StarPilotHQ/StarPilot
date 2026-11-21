@@ -12,6 +12,7 @@ NON_SCC_IDS = frozenset((CAR.HYUNDAI_BAYON_1ST_GEN_NON_SCC, CAR.HYUNDAI_ELANTRA_
   CAR.HYUNDAI_ELANTRA_HEV_2022_NON_SCC, CAR.HYUNDAI_KONA_NON_SCC, CAR.HYUNDAI_KONA_EV_NON_SCC,
   CAR.KIA_CEED_PHEV_2022_NON_SCC, CAR.KIA_FORTE_2019_NON_SCC, CAR.KIA_FORTE_2021_NON_SCC,
   CAR.KIA_SELTOS_2023_NON_SCC, CAR.GENESIS_G70_2021_NON_SCC))
+SOFTWARE_CRUISE = 0x0020
 AOL_MARKER = 0x0400
 AOL_EXPERIENCE = 32
 AOL_WORDS = frozenset((0x1400, 0x1c00, 0x1440, 0x1c40, 0x1441, 0x1c41, 0x1402, 0x1c02))
@@ -47,11 +48,11 @@ def qualified(cp):
   # ordinary safety may still use its original MAIN-only profile.
   ordinary = word & ~int(HyundaiSafetyFlags.HAS_LDA_BUTTON)
   return (safety.safetyModel == structs.CarParams.SafetyModel.hyundai and
-          safety.safetyParam in (word, ordinary, word | AOL_MARKER))
+          (safety.safetyParam & ~SOFTWARE_CRUISE) in (word, ordinary, word | AOL_MARKER))
 
 
 def aol_word(cp):
-  return stock_word(cp) | AOL_MARKER
+  return stock_word(cp) | AOL_MARKER | (cp.safetyConfigs[0].safetyParam & SOFTWARE_CRUISE)
 
 
 SOURCE_MAX_AGE_NS = 300_000_000

@@ -96,6 +96,8 @@ class Controls:
     self.aol_transition_diagnostic = TransitionDiagnostic() if self.aol_replay and self.CP.brand == 'gm' else None
     self.ordinary_axis_ack_required = axis_policy_for(self.CP).ordinary_axis_ack_required
     self.longitudinal_inputs = LongitudinalInputs(self.CP, self.params, lambda: self.sm)
+    from opendbc.car.hyundai.software_cruise import selected as software_cruise_selected
+    self.hyundai_software_cruise = software_cruise_selected(self.CP)
 
     services = [
       'lateralDelay',
@@ -476,7 +478,15 @@ class Controls:
 
     if not CC.latActive:
       self.LaC.reset()
-    if not CC.longActive:
+    software_cruise_active = False
+    if getattr(self, "hyundai_software_cruise", False):
+      from openpilot.starpilot.car.hyundai.redneck_cruise import current, ready
+      now_ns = int(self.sm.logMonoTime["carState"]) if os.getenv("REPLAY") == "1" else time.monotonic_ns()
+      software_cruise_active = (ready(CS, CC) and self.sm["selfdriveState"].active and
+                                current(self.sm, "longitudinalPlan", now_ns) and
+                                math.isfinite(long_plan.aTarget) and
+                                not any(e.overrideLongitudinal for e in self.sm["onroadEvents"]))
+    if not (CC.longActive or software_cruise_active):
       self.LoC.reset()
 
     # accel PID loop
@@ -488,7 +498,7 @@ class Controls:
 
     pid_accel_limits = preap_pedal_limits(self.CP, CS.vEgo, getattr(self.sm['selfdriveState'].personality, 'raw', 1), pid_accel_limits)
     longitudinal_output = self.LoC.update(
-      CC.longActive, CS, long_plan.aTarget, long_plan.shouldStop, pid_accel_limits, context=longitudinal_context
+      CC.longActive or software_cruise_active, CS, long_plan.aTarget, long_plan.shouldStop, pid_accel_limits, context=longitudinal_context
     )
     actuators.accel = final_output(longitudinal_output)
     if self.longitudinal_inputs.publish_state or publish_takeoff_state:

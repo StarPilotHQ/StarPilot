@@ -67,6 +67,7 @@ DESCRIPTIONS = {
   'ForceStops': 'Improves stopping behavior at traffic lights and enables automatic stopping at detected stop signs. Press the accelerator to continue.',
   'ForceStopDistanceOffset': 'Moves the planned stopping point. Positive values stop farther forward; negative values stop earlier.',
   'LeadApproachBuffer': 'Gradually adds following distance when approaching a slower or braking lead vehicle.',
+  'RedneckCruise': 'Adjusts conventional factory cruise with Resume and Set after the next startup.',
   'LowSpeedCruiseOnSet': ('Uses the vehicle’s minimum engagement speed as the floor when pressing SET with StarPilot cruise. ' +
                          'SET uses your current speed when you are above that floor.'),
   'ExperimentalSpeedNudge': ('Gently recovers toward set speed when Experimental mode hesitates on a clear road. ' +

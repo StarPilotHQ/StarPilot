@@ -417,6 +417,8 @@ class Car:
       config.safetyParam |= aol_policy.safety_param_addition
       self.CP.alternativeExperience |= aol_policy.alternative_experience_addition
     self.vehicle_startup.finalize_aol_configuration(self.CI)
+    from openpilot.starpilot.car.hyundai.redneck_cruise import configure
+    self.redneck_cruise = configure(self, subscribed_services)
     self.learning_stamp_observer = None
     self.learning_send_mono_ns = self.learning_send_committed_mono_ns = 0
     self.learning_car_state_source_ns = 0
@@ -1923,6 +1925,8 @@ class Car:
         update_subaru_sng(self, CS, CC, now_nanos)
         from openpilot.starpilot.car.subaru.stop_start_caller import update as update_subaru_startup
         update_subaru_startup(self, now_nanos)
+      if getattr(self, "redneck_cruise", None):
+        self.redneck_cruise.update(self, CS, CC, now_nanos)
       self.last_actuators_output, can_sends = self.CI.apply(CC, now_nanos)
       self.publish_sendcan(can_sends, valid=CS.canValid)
       if learning_snapshot is not None and self.learning_send_committed_mono_ns:

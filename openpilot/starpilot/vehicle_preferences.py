@@ -33,6 +33,7 @@ class VehicleStartupPreferences:
   subaru_avh_startup: bool = field(default=False, kw_only=True)
   subaru_stop_start_off: bool = field(default=False, kw_only=True)
   subaru_sng: bool = field(default=False, kw_only=True)
+  hyundai_software_cruise: bool = field(default=False, kw_only=True)
   subaru_software_cruise: bool = field(default=False, kw_only=True)
   volt_sng: bool = False
   gm_auto_hold: bool = False
@@ -113,6 +114,8 @@ class VehicleStartupPreferences:
                subaru_stop_start_off=bool(enabled and readable and safe in (None, b"0") and
                                          read_saved(params, "SubaruStopStartOff", 8) == (b"1", True)),
                subaru_sng=bool(enabled and readable and safe in (None, b"0") and read_saved(params, "SubaruSNG", 8) == (b"1", True)),
+               hyundai_software_cruise=bool(enabled and readable and safe in (None, b"0") and
+                   read_saved(params, "RedneckCruise", 8) == (b"1", True)),
                subaru_software_cruise=bool(enabled and readable and safe in (None, b"0") and
                    read_saved(params, "SubaruRedneckCruise", 8) == (b"1", True)),
                ford_bluepilot=tuple(ford_bluepilot(params, enabled=enabled).items()), tesla_aol=tesla_aol, tesla_screen=screen,
@@ -182,6 +185,8 @@ class VehicleStartupPreferences:
   def prepare(self, cp, *, fingerprints=None):
     from opendbc.car.volkswagen.meb_modes import prepare_stock as prepare_meb_stock
     prepare_meb_stock(cp, self.disable_bolt_long or self.vw_stock_long)
+    from opendbc.car.hyundai.software_cruise import prepare as prepare_hyundai_software_cruise
+    prepare_hyundai_software_cruise(cp, self.hyundai_software_cruise)
     from opendbc.car.subaru.software_cruise import prepare
     cp = prepare(cp, self.subaru_software_cruise)
     from opendbc.car.subaru.sng import prepare as prepare_sng

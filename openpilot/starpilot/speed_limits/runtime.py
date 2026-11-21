@@ -350,6 +350,13 @@ class Runtime:
       long_enabled = long_enabled and bool(axis is not None and axis.nativeAcknowledged and axis.desiredLongitudinal)
     lateral = bool(car_control_fresh and sm['carControl'].latActive and selfdrive_fresh)
     authority = _authority(CP, sm, host_long, lateral, long_enabled=long_enabled)
+    if authority.owner is acc.LongitudinalOwner.STOCK and CP.brand == 'hyundai':
+      from opendbc.car.hyundai.software_cruise import selected as button_cruise_selected
+      if (button_cruise_selected(CP) and car_fresh and controls_fresh and selfdrive_fresh and
+          car_control_fresh and selfdrive.active and sm['carControl'].enabled and car_state.canValid and
+          car_state.cruiseState.available and str(car_state.gearShifter) == 'drive' and
+          not (car_state.standstill or car_state.brakePressed or car_state.gasPressed or car_state.accFaulted)):
+        authority = replace(authority, owner=acc.LongitudinalOwner.CRUISE_BUTTONS)
     # Native pedal handoff keeps the engagement while the driver controls acceleration.
     authority = replace(authority, accelerator_override=bool(CP.openpilotLongitudinalControl and long_enabled and car_state.gasPressed))
     selected = float(car_state.vCruise) if car_fresh and acc.number(car_state.vCruise) else 0.0

@@ -64,6 +64,7 @@
   "LeadInfo",
   "LongPitch",
   "LowSpeedCruiseOnSet",
+  "RedneckCruise",
   "LoudBlindspotAlert",
   "LoudBlindspotAlertWhenDisengaged",
   "NostalgiaMode",
