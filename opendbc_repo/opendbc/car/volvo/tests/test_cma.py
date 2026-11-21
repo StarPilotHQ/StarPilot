@@ -16,7 +16,8 @@ CMA = ['VOLVO_XC40_RECHARGE', 'VOLVO_S60_RECHARGE', 'POLESTAR_2']
 EXPECTED = {'VOLVO_V40': (2, 1610, 2.647, 14.7, .2),
             'VOLVO_XC40_RECHARGE': (0, 2170, 2.702, 15.8, .3),
             'VOLVO_S60_RECHARGE': (1, 2020, 2.872, 16.2, .3),
-            'POLESTAR_2': (5, 2123, 2.735, 15.8, .3)}
+            'POLESTAR_2': (5, 2123, 2.735, 15.8, .3),
+            'VOLVO_V60': (8, 1750, 2.776, 15.0, .2)}
 
 
 def interface(identity, alpha=False, release=False):
@@ -77,8 +78,10 @@ def test_all_final_params_and_angle_factory(identity, alpha, release):
   assert (cp.wheelbase, cp.steerRatio, cp.steerActuatorDelay) == expected_geometry
   assert cp.safetyConfigs[0].safetyParam == param
   assert cp.steerControlType == structs.CarParams.SteerControlType.angle
-  assert cp.pcmCruise and cp.radarUnavailable and not cp.dashcamOnly
-  assert not cp.alphaLongitudinalAvailable and not cp.openpilotLongitudinalControl
+  assert cp.pcmCruise and not cp.dashcamOnly
+  assert cp.radarUnavailable == (identity != 'VOLVO_V60')  # the V60's Delphi ESR
+  assert cp.alphaLongitudinalAvailable == (identity == 'VOLVO_V60')
+  assert cp.openpilotLongitudinalControl == (alpha and identity == 'VOLVO_V60')
   assert isinstance(create_lateral_controller(cp, ci, .01, mode='stock'), LatControlAngle)
 
 

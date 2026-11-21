@@ -13,7 +13,7 @@ from opendbc.car.gm.pedal_capability import automatic_bolt_candidate
 from opendbc.car.gm.discovery import automatic_trax_candidate, automatic_volt_candidate, normal_bus0_topology as gm_normal_bus0_topology
 from opendbc.car.ford.discovery import (normal_bus0_selection as ford_normal_bus0_selection,
                                        normal_bus0_queries as ford_normal_bus0_queries, normal_bus_query_brand)
-from opendbc.car.volvo.discovery import normal_bus_topology as volvo_normal_bus_topology
+from opendbc.car.volvo.discovery import normal_bus_topology as volvo_normal_bus_topology, v60_bus_topology as volvo_v60_bus_topology
 from opendbc.car.hyundai.discovery import normal_bus_topology
 from opendbc.car.honda.discovery import normal_bus_topology as honda_normal_bus_topology
 from opendbc.car.chrysler.discovery import normal_bus_topology as chrysler_normal_bus_topology
@@ -143,6 +143,13 @@ def fingerprint(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_mu
       cached = True
     else:
       carlog.warning("Getting VIN & FW versions")
+      volvo_v60 = False
+
+      def volvo_probe(fp):
+        nonlocal volvo_v60
+        volvo_v60 = volvo_v60_bus_topology(fp)
+        return volvo_normal_bus_topology(fp) or volvo_v60
+
       if known_gm_bus0:
         # An explicit registered GM selection already identifies the query family.
         # Current GM requests use normal bus 0. Keep live VIN/FW collection and
@@ -179,7 +186,7 @@ def fingerprint(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_mu
       elif (normal_brand := normal_bus_query_brand(
           observe_normal_bus, normal_bus_topology,
           gm_probe=gm_normal_bus0_topology if _gm_fw_uses_normal_bus0() else None,
-          volvo_probe=volvo_normal_bus_topology if not fw_versions.FW_QUERY_CONFIGS['volvo'].requests else None,
+          volvo_probe=volvo_probe,
           tesla_probe=tesla_normal_bus0_topology if _tesla_fw_uses_normal_bus0() else None) or
           ('honda' if honda_normal_bus_topology(normal_bus_packets) else None) or
           ('chrysler' if chrysler_normal_bus_topology(normal_bus_packets) else None)) is not None:
@@ -190,8 +197,9 @@ def fingerprint(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_mu
           time.sleep(warmup_remaining)
         vin_buses = (0,) if normal_brand in ('ford', 'gm', 'volvo', 'tesla', 'chrysler') else (0, 1)
         vin_rx_addr, vin_rx_bus, vin = get_vin(can_recv, can_send, vin_buses)
-        car_fw = get_fw_versions(can_recv, can_send, set_obd_multiplexing,
-                                 query_brand=normal_brand, normal_bus_only=True)
+        # Polestar is identified by live CAN alone; the V60 by its engine FW, which answers on bus 0
+        car_fw = [] if normal_brand == 'volvo' and not volvo_v60 else get_fw_versions(can_recv, can_send, set_obd_multiplexing,
+                                                                                      query_brand=normal_brand, normal_bus_only=True)
         ecu_rx_addrs = {(fw.responseAddress, fw.subAddress or None, fw.bus) for fw in car_fw if fw.responseAddress > 0}
       else:
         # enable OBD multiplexing for VIN query

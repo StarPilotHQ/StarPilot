@@ -12,7 +12,7 @@ from openpilot.starpilot.aol.tests.test_native_observation_admission import rece
 from openpilot.starpilot.aol.tests.test_panda_inventory import NOW, bound_state, sm_for
 from openpilot.starpilot.aol.tests.test_runtime import car_state
 
-BRANDS = ('honda', 'hyundai', 'gm', 'ford', 'mazda', 'tesla', 'toyota', 'subaru', 'nissan', 'chrysler', 'rivian', 'volkswagen')
+BRANDS = ('honda', 'hyundai', 'gm', 'ford', 'mazda', 'tesla', 'toyota', 'subaru', 'nissan', 'chrysler', 'rivian', 'volkswagen', 'volvo')
 
 
 def profile(brand):
@@ -35,6 +35,9 @@ def profile(brand):
     elif brand == 'nissan':
       from opendbc.car.nissan.values import CAR
       identity = CAR.NISSAN_LEAF
+    elif brand == 'volvo':
+      from opendbc.car.volvo.values import CAR
+      identity = CAR.VOLVO_V60
     else:
       from opendbc.car.rivian.values import CAR
       identity = CAR.RIVIAN_R1

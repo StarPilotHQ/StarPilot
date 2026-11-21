@@ -103,3 +103,48 @@ def test_discovery_fix_keeps_reported_irq_fault_blocking():
   ci, _, _, _ = discover()
   assert blocking_fault_mask(8, ci.CP)
   assert blocking_fault_list([log.PandaState.FaultType.interruptRateCan2], ci.CP)
+
+
+def v60_rows():
+  # Live V60 CAN as in route 00000004: its fingerprint and EngineData mirrored on buses 0 and 2, the ESR on bus 1
+  from opendbc.car.volvo.fingerprints import FINGERPRINTS
+  addrs = set(FINGERPRINTS[CAR.VOLVO_V60][0]) | {0x12A}
+  rows = [CanData(a, bytes(8), bus) for bus in (0, 2) for a in sorted(addrs)]
+  return rows + [CanData(a, bytes(8), 1) for a in range(0x500, 0x540)]
+
+
+def test_v60_layout_is_its_own():
+  from opendbc.car.volvo.discovery import V60_BUS_LAYOUT, v60_bus_topology
+  assert v60_bus_topology(fingerprint(v60_rows()))
+  assert not normal_bus_topology(fingerprint(v60_rows()))
+  assert not v60_bus_topology(fingerprint(frames()))  # Polestar
+  for key in V60_BUS_LAYOUT:
+    assert not v60_bus_topology(fingerprint([f for f in v60_rows() if (f.src, f.address) != key]))
+  # GM shares FSM1/EngineData addresses, not FSM0/FSM3
+  gm = [CanData(a, bytes(8), bus) for bus in (0, 2) for a in (0x12A, 0x260, 0x262)]
+  assert not v60_bus_topology(fingerprint(gm))
+
+
+def test_v60_queries_only_its_engine_on_bus0_without_the_obd_scan():
+  from opendbc.car import structs
+  rows = v60_rows()
+  peer = CapturedCan()
+  peer.recv = lambda wait_for_one=False: (setattr(peer, 'clock', peer.clock + .01), [rows])[1]
+  engine = structs.CarParams.CarFw(ecu=structs.CarParams.Ecu.engine, address=0x7e0, bus=0, brand='volvo',
+                                   fwVersion=b'31361041 AJ\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00',
+                                   request=[bytes.fromhex('22f1a2')], responseAddress=0x7e8)
+  with patch.dict(car_helpers.os.environ, {'FINGERPRINT': '', 'SKIP_FW_QUERY': '', 'DISABLE_FW_CACHE': ''}), \
+       patch.object(car_helpers.time, 'monotonic', side_effect=lambda: peer.clock), \
+       patch.object(car_helpers.time, 'sleep', side_effect=lambda seconds: setattr(peer, 'clock', peer.clock + seconds)), \
+       patch.object(car_helpers, 'get_present_ecus', return_value=set()) as present, \
+       patch.object(car_helpers, 'get_fw_versions_ordered', return_value=[]) as generic, \
+       patch.object(car_helpers, 'get_fw_versions', return_value=[engine]) as normal:
+    ci = car_helpers.get_car(peer.recv, peer.send, peer.switches.append, False, False)
+  assert peer.switches and set(peer.switches) == {False}
+  assert all(f.src == 0 for f in peer.sent)
+  normal.assert_called_once()
+  assert normal.call_args.kwargs == {'query_brand': 'volvo', 'normal_bus_only': True}
+  present.assert_not_called()
+  generic.assert_not_called()
+  assert ci.CP.carFingerprint == CAR.VOLVO_V60
+  assert str(ci.CP.fingerprintSource) == 'fw'

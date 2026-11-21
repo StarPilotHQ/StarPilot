@@ -9,15 +9,18 @@ REQUIRED_REPLAY_LABELS = frozenset({
   "SUBARU", "GM", "NISSAN", "VOLKSWAGEN", "MAZDA", "FORD", "RIVIAN", "TESLA",
 })
 VOLVO_UNRECORDED_PLATFORMS = frozenset({
-  "VOLVO_V40", "VOLVO_XC40_RECHARGE", "VOLVO_S60_RECHARGE", "POLESTAR_2",
+  "VOLVO_V40", "VOLVO_XC40_RECHARGE", "VOLVO_S60_RECHARGE", "POLESTAR_2", "VOLVO_V60",
 })
 VOLVO_REQUIRED_TESTS = {
   "interfaces": ("opendbc_repo/opendbc/car/volvo/tests/test_c1.py",
-                 "opendbc_repo/opendbc/car/volvo/tests/test_cma.py"),
+                 "opendbc_repo/opendbc/car/volvo/tests/test_cma.py",
+                 "opendbc_repo/opendbc/car/volvo/tests/test_eucd.py"),
   "safety-debug": ("opendbc_repo/opendbc/safety/tests/test_volvo_c1.py",
-                   "opendbc_repo/opendbc/safety/tests/test_volvo_cma.py"),
+                   "opendbc_repo/opendbc/safety/tests/test_volvo_cma.py",
+                   "opendbc_repo/opendbc/safety/tests/test_volvo_eucd.py"),
   "safety-release": ("opendbc_repo/opendbc/safety/tests/test_volvo_c1.py",
-                     "opendbc_repo/opendbc/safety/tests/test_volvo_cma.py"),
+                     "opendbc_repo/opendbc/safety/tests/test_volvo_cma.py",
+                     "opendbc_repo/opendbc/safety/tests/test_volvo_eucd.py"),
 }
 
 
@@ -32,7 +35,7 @@ def replay_coverage(active_platforms, labels, suite_targets, *, full_test):
     if absent_labels:
       errors.append(f"Required replay inputs missing: {sorted(absent_labels)}")
     if set(active_platforms.get("volvo", ())) != VOLVO_UNRECORDED_PLATFORMS:
-      errors.append("Volvo recording classification requires exactly the four known active platforms; review changed scope")
+      errors.append("Volvo recording classification requires exactly the five known active platforms; review changed scope")
     if "volvo" not in missing:
       errors.append("Volvo recording classification is stale: Volvo now has a recording or is no longer active")
     for suite, paths in VOLVO_REQUIRED_TESTS.items():
@@ -44,7 +47,7 @@ def replay_coverage(active_platforms, labels, suite_targets, *, full_test):
       errors.append(f"Active brands missing unaccounted replay inputs: {sorted(unaccounted)}")
   if "volvo" in missing:
     for platform in sorted(set(active_platforms.get("volvo", ())) & VOLVO_UNRECORDED_PLATFORMS):
-      path_index = 0 if platform == "VOLVO_V40" else 1
+      path_index = {"VOLVO_V40": 0, "VOLVO_V60": 2}.get(platform, 1)
       gaps.append({"brand": "volvo", "platforms": [platform], "status": "unrecorded",
                    "reason": f"No {platform} recording is available in the fixture catalog.",
                    "required_source_native_suites": {suite: paths[path_index] for suite, paths in VOLVO_REQUIRED_TESTS.items()}})

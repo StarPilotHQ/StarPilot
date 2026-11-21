@@ -1,14 +1,15 @@
 from dataclasses import dataclass, field
 from enum import IntFlag
-from opendbc.car import Bus, CarSpecs, DbcDict, PlatformConfig, Platforms
+from opendbc.car import Bus, CarSpecs, DbcDict, PlatformConfig, Platforms, uds
 from opendbc.car.structs import CarParams
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.docs_definitions import CarDocs, CarHarness, CarParts
-from opendbc.car.fw_query_definitions import FwQueryConfig
+from opendbc.car.fw_query_definitions import FwQueryConfig, Request, p16
 from opendbc.car.lateral import AngleSteeringLimits
 
 # C1 support is adapted from the original dragonpilot V40 port:
 # https://github.com/dragonpilot/dragonpilot/commit/773dce507082d931236b64dca8024dce9625446f
+# V60 (EUCD) support is adapted from sunnypilot's volvo_oplong port.
 Ecu = CarParams.Ecu
 
 
@@ -16,6 +17,7 @@ class VolvoSafetyFlags(IntFlag):
   SPA = 1
   C1 = 2
   LCA2_MOD15 = 4
+  EUCD = 8
 
 
 class CarControllerParams:
@@ -54,6 +56,11 @@ class VolvoSPAPlatformConfig(PlatformConfig):
     Bus.pt: 'volvo_front_1_spa',
   })
 
+@dataclass
+class VolvoEUCDPlatformConfig(PlatformConfig):
+  dbc_dict: DbcDict = field(default_factory=lambda: {Bus.pt: 'volvo_v60_2015_pt', Bus.radar: 'ESR'})
+
+
 class CAR(Platforms):
   VOLVO_V40 = VolvoC1PlatformConfig(
     [VolvoCarDocs("Volvo V40 2013-19")], CarSpecs(mass=1610, wheelbase=2.647, steerRatio=14.7, centerToFrontRatio=0.44, minSteerSpeed=1.0 * CV.KPH_TO_MS)
@@ -86,6 +93,17 @@ class CAR(Platforms):
         centerToFrontRatio=0.52,
       ),
     )
+  VOLVO_V60 = VolvoEUCDPlatformConfig(
+    [VolvoCarDocs("Volvo V60 2010-18")],
+    # minSteerSpeed stays 0: EUCD_MIN_STEER_SPEED is the port's limit, above 0 an alert fires at every first stop
+    CarSpecs(mass=1750, wheelbase=2.776, steerRatio=15.0, centerToFrontRatio=0.44, minSteerSpeed=0.),
+  )
 
-FW_QUERY_CONFIG = FwQueryConfig(requests=[], fw_version_regex=br"(?!)")
+# The V60's CAN fingerprint is not exhaustive: it is identified by its engine FW. The others by CAN only.
+VOLVO_VERSION_REQUEST = bytes([uds.SERVICE_TYPE.READ_DATA_BY_IDENTIFIER]) + p16(0xf1a2)
+VOLVO_VERSION_RESPONSE = bytes([uds.SERVICE_TYPE.READ_DATA_BY_IDENTIFIER + 0x40]) + p16(0xf1a2)
+FW_QUERY_CONFIG = FwQueryConfig(
+  requests=[Request([VOLVO_VERSION_REQUEST], [VOLVO_VERSION_RESPONSE], bus=0)],
+  fw_version_regex=br"[0-9]{8} [A-Z]{2}\x00{13}",
+)
 DBC = CAR.create_dbc_map()

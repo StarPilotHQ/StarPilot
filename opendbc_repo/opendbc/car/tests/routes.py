@@ -29,6 +29,7 @@ unrecorded_route_gaps = {
   VOLVO.VOLVO_XC40_RECHARGE: "volvo/tests/test_cma.py",
   VOLVO.VOLVO_S60_RECHARGE: "volvo/tests/test_cma.py",
   VOLVO.POLESTAR_2: "volvo/tests/test_cma.py",
+  VOLVO.VOLVO_V60: "volvo/tests/test_eucd.py",
 }
 
 # FIXME: add routes for these cars

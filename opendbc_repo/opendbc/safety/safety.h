@@ -526,7 +526,7 @@ int set_safety_hooks(uint16_t mode, uint16_t param) {
   int hook_config_count = sizeof(safety_hook_registry) / sizeof(safety_hook_config);
   for (int i = 0; i < hook_config_count; i++) {
     if (safety_hook_registry[i].id == mode) {
-      if ((mode == SAFETY_VOLVO) && ((param > 2U) && (param != 5U))) {
+      if ((mode == SAFETY_VOLVO) && ((param > 2U) && (param != 5U) && (param != 8U))) {
         current_hooks = &nooutput_hooks;
         current_safety_mode = SAFETY_NOOUTPUT;
         current_safety_param = 0;
