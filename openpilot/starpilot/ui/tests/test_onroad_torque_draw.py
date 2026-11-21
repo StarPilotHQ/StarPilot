@@ -72,6 +72,19 @@ def test_native_arc_dimensions_and_opacities_match_the_original_renderer(rect, w
   assert tuple(round(value * 255) for value in frame.uniforms['style'][1:]) == ((63, 229, 229) if torque == .3 else (127, 229, 0))
 
 
+@pytest.mark.parametrize('rect,width,cap', [((0, 0, 476, 240), 536, 7), ((30, 30, 2100, 1020), 2160, 21), ((30, 30, 1800, 1020), 1860, 7)])
+@pytest.mark.parametrize('torque', [-.6, -.2, .2, .6])
+def test_fill_rounded_root_ends_at_the_center_line(rect, width, cap, torque):
+  with record_gpu() as gpu:
+    TorqueBarPainter().render(rl.Rectangle(*rect), torque, 1, width, cap)
+  frame, = gpu.frames
+  _, _, middle_radius, half_thickness = frame.uniforms['geometry']
+  normals = frame.uniforms['indicatorNormals']
+  root_sine = normals[2] if torque < 0 else normals[0]
+  assert root_sine * torque > 0
+  assert abs(root_sine) * middle_radius == pytest.approx(min(cap, half_thickness), abs=.01)
+
+
 @pytest.mark.parametrize('rect,width,cap', [((0, 0, 476, 240), 536, 7), ((30, 30, 2100, 1020), 2160, 21)])
 @pytest.mark.parametrize('torque,warmth', [(.5, 0), (.75, 0), (.875, .5), (1, 1)])
 def test_gradient_colors_and_direction_for_both_ui_sizes(rect, width, cap, torque, warmth):
