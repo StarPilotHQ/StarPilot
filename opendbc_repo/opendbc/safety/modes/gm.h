@@ -511,7 +511,8 @@ static void gm_rx_hook(const CANPacket_t *msg) {
       const int track2 = (msg->data[2] << 8) | msg->data[3];
       const uint8_t state = msg->data[4] >> 4;
       const uint8_t counter = msg->data[4] & 0xFU;
-      gm_pedal_sensor_good = (state == 0U) && (gm_pedal_crc(msg) == msg->data[5]) &&
+      const bool state_ok = (state == 0U) || ((state == 8U) && gm_bolt_pedal_drive_supported);
+      gm_pedal_sensor_good = state_ok && (gm_pedal_crc(msg) == msg->data[5]) &&
                              (!gm_pedal_counter_seen || (counter != gm_pedal_counter_last)) &&
                              (track1 <= 4095) && (track2 <= 4095);
       gm_pedal_counter_seen = true;

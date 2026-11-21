@@ -493,7 +493,10 @@ class CarState(CarStateBase):
       if new_sample:
         self.pedal_sensor_ts_nanos = sensor_ts
         self.pedal_sensor_counter = counter
-        self.pedal_sensor_healthy = bool(counter_changed and sensor["STATE"] == 0 and tracks_valid and checksum_valid)
+        state = sensor["STATE"]
+        state_ok = state == 0 or (state == 8 and bolt_pedal_profile and not removed_pedal and
+                                  self.CP.carFingerprint == CAR.CHEVROLET_BOLT_CC_2022_2023)
+        self.pedal_sensor_healthy = bool(counter_changed and state_ok and tracks_valid and checksum_valid)
       elif sensor_ts < self.pedal_sensor_ts_nanos:
         self.pedal_sensor_healthy = False
         self.pedal_sensor_ts_nanos = 0
