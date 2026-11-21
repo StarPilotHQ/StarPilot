@@ -54,6 +54,7 @@ print(json.dumps(dict(native=native,projection=projection)))
         await page.getByRole('combobox', { name: 'Preview scene', exact: true }).click()
         await page.getByRole('option', { name: scene.label, exact: true }).click()
         if (!nativeArt) {
+          await page.waitForFunction(() => window.editor.state.art.status === 'unavailable')
           assert.equal(await page.locator('.gx-layout__widget [data-preview-source="sketch"]').count(),
             await page.evaluate(() => window.editor.renderWidgets.filter(w => !window.editor.profile.runtimePreviewWidgets.includes(w.id)).length), `${target}/${scene.id}: each widget has artwork without a device render`)
         }

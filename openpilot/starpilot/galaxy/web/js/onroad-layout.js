@@ -621,7 +621,10 @@ export const OnroadLayoutPage = {
         return [id, narrow]
       })) }
     },
-    artLoading() { return this.mode === 'local' && !!this.state.data?.editable && !this.layers.art.url && this.state.art.status !== 'unavailable' },
+    artLoading() {
+      return this.mode === 'local' && !!this.state.data?.editable && !this.layers.art.url &&
+        ['idle', 'updating'].includes(this.state.art.status)
+    },
     // Widget art and the backdrop always come from the same scene, so a half-switched pair never overlaps.
     layers() {
       const { art, backdrop } = this.state, profile = this.projection ? "projection" : this.state.profile
