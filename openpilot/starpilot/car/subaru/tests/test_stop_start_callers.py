@@ -177,7 +177,13 @@ def test_actual_startup_factory_card_controls_native(enabled, manual, aol, subar
           expected = ci.CC.angle_was_active if steering_name == 'ES_LKAS_ANGLE' else card.sm['carControl'].latActive
           if candidate == 'SUBARU_LEGACY_2025':
             assert bool(dash['LKAS_ACTIVE']), (candidate, tick, expected, dash)
-            assert dash['LKAS_Dash_State'] == (2 if expected else (1 if cs.cruiseState.available else 0)), (candidate, tick, expected, dash)
+            if not cs.cruiseState.available or cs.steerFaultTemporary or cs.steerFaultPermanent:
+              assert not ci.CC.aol_dash_green_last, (candidate, tick, dash)
+            if expected:
+              assert ci.CC.aol_dash_green_last, (candidate, tick, dash)
+            ready_wheel = cs.cruiseState.available and bool(getattr(ci.CS, 'aol_enabled', True))
+            expected_dash = 2 if ci.CC.aol_dash_green_last else (1 if ready_wheel else 0)
+            assert dash['LKAS_Dash_State'] == expected_dash, (candidate, tick, expected, expected_dash, dash)
           else:
             assert bool(dash['LKAS_ACTIVE']) == expected, (candidate, tick, expected, dash)
             assert dash['LKAS_Dash_State'] == (2 if expected else 0), (candidate, tick, expected, dash)

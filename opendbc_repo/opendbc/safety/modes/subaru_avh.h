@@ -7,7 +7,7 @@ static bool subaru_avh_seen[7];
 static bool subaru_avh_seq[7];
 static bool subaru_avh_enabled;
 static bool subaru_avh_done;
-static unsigned int subaru_avh_count;
+static uint8_t subaru_avh_count;
 static uint32_t subaru_avh_start;
 static uint32_t subaru_avh_sent;
 static uint32_t subaru_avh_template_ts;
