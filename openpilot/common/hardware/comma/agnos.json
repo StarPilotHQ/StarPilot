@@ -56,7 +56,7 @@
   },
   {
     "name": "boot",
-    "url": "https://files.firestar.link/x/qpboin0zv4z6/boot-60397e34da19778d4520fba43e4202b4a9a714657dcf72a61f081b61c371b692.img.xz",
+    "url": "https://www.dropbox.com/scl/fi/feeftdi3nkveg8zk4h2k0/boot-60397e34da19778d4520fba43e4202b4a9a714657dcf72a61f081b61c371b692.img.xz?rlkey=svw0pe4hiqgkhjvr49xmv8umn&st=gqnpx22v&dl=1",
     "hash": "60397e34da19778d4520fba43e4202b4a9a714657dcf72a61f081b61c371b692",
     "hash_raw": "60397e34da19778d4520fba43e4202b4a9a714657dcf72a61f081b61c371b692",
     "size": 49043456,
@@ -65,13 +65,13 @@
     "has_ab": true,
     "ondevice_hash": "dc8798b668e90698bd6f9a0873e9d633f2654504193caed618663e722d42c983",
     "fallback_urls": [
-      "https://files-east.firestar.link/x/reby1gotp8k4/boot-60397e34da19778d4520fba43e4202b4a9a714657dcf72a61f081b61c371b692.img.xz",
-      "https://www.dropbox.com/scl/fi/feeftdi3nkveg8zk4h2k0/boot-60397e34da19778d4520fba43e4202b4a9a714657dcf72a61f081b61c371b692.img.xz?rlkey=svw0pe4hiqgkhjvr49xmv8umn&st=gqnpx22v&dl=1"
+      "https://files.firestar.link/x/qpboin0zv4z6/boot-60397e34da19778d4520fba43e4202b4a9a714657dcf72a61f081b61c371b692.img.xz",
+      "https://files-east.firestar.link/x/reby1gotp8k4/boot-60397e34da19778d4520fba43e4202b4a9a714657dcf72a61f081b61c371b692.img.xz"
     ]
   },
   {
     "name": "system",
-    "url": "https://files.firestar.link/x/qpboin0zv4z6/system-00eea7b6d5c91d25571e76619d1c4a4ca7e732b701ec35cea6b8d767e3cf85c8.img.xz",
+    "url": "https://www.dropbox.com/scl/fi/cyinsmkks2v57rhwdv4m7/system-00eea7b6d5c91d25571e76619d1c4a4ca7e732b701ec35cea6b8d767e3cf85c8.img.xz?rlkey=gvf0jie13n714jm38fuilq68l&st=l6nhj66r&dl=1",
     "hash": "f426085b78b068ce752dc14779560fd212647452d701c6ba4a0122d4d70f62ce",
     "hash_raw": "00eea7b6d5c91d25571e76619d1c4a4ca7e732b701ec35cea6b8d767e3cf85c8",
     "size": 4718592000,
@@ -80,8 +80,8 @@
     "has_ab": true,
     "ondevice_hash": "d6d9a2ab6d74a0d04fa9758f047e52b80f2a3db0570ce0a4fe40320183342680",
     "fallback_urls": [
-      "https://files-east.firestar.link/x/reby1gotp8k4/system-00eea7b6d5c91d25571e76619d1c4a4ca7e732b701ec35cea6b8d767e3cf85c8.img.xz",
-      "https://www.dropbox.com/scl/fi/cyinsmkks2v57rhwdv4m7/system-00eea7b6d5c91d25571e76619d1c4a4ca7e732b701ec35cea6b8d767e3cf85c8.img.xz?rlkey=gvf0jie13n714jm38fuilq68l&st=l6nhj66r&dl=1"
+      "https://files.firestar.link/x/qpboin0zv4z6/system-00eea7b6d5c91d25571e76619d1c4a4ca7e732b701ec35cea6b8d767e3cf85c8.img.xz",
+      "https://files-east.firestar.link/x/reby1gotp8k4/system-00eea7b6d5c91d25571e76619d1c4a4ca7e732b701ec35cea6b8d767e3cf85c8.img.xz"
     ]
   }
 ]
