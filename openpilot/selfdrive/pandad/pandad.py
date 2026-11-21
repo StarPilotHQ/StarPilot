@@ -17,19 +17,52 @@ from openpilot.starpilot.panda_wake import FirmwareChoice, firmware_path, startu
 
 
 DEFAULT_FIRMWARE_CHOICE = FirmwareChoice()
+PACKET_VERSIONS = (Panda.HEALTH_PACKET_VERSION, Panda.CAN_PACKET_VERSION)
+REGISTER_DIVERGENT = 1 << 18
 
 
 def get_expected_signature(mcu_type: McuType, choice: FirmwareChoice = DEFAULT_FIRMWARE_CHOICE) -> bytes:
   fn = firmware_path(FW_PATH, mcu_type.config.app_fn, choice)
   return Panda.get_signature_from_firmware(fn)
 
-def flash_panda(panda_serial: str, choice: FirmwareChoice = DEFAULT_FIRMWARE_CHOICE):
+def recover_internal_bootstub(panda: Panda, panda_serial: str, fw_path: str) -> None:
+  dfu_serial = panda.get_dfu_serial()
+  if dfu_serial is None:
+    raise PandaProtocolMismatch("Internal Panda recovery identity unavailable")
+  panda.close()
+  HARDWARE.recover_internal_panda()
+  if not Panda.wait_for_dfu(dfu_serial, timeout=5):
+    raise PandaProtocolMismatch("Internal Panda did not enter recovery mode")
+  with PandaDFU(dfu_serial) as dfu:
+    dfu.recover()
+  if not Panda.wait_for_panda(panda_serial, timeout=5):
+    raise PandaProtocolMismatch("Internal Panda did not return after bootstub recovery")
+  panda.reconnect()
+  if not panda.bootstub:
+    raise PandaProtocolMismatch("Recovered internal Panda did not enter bootstub")
+  panda.flash(fn=fw_path)
+
+
+def needs_cuatro_bootstub_repair(health, incompatible_app: bool) -> bool:
+  # An older bootstub can start the signed app with incompatible register state.
+  if health["ignition_line"] or health["ignition_can"] or health["controls_allowed"]:
+    return False
+  faults = health["faults"]
+  return faults == REGISTER_DIVERGENT or (incompatible_app and faults == 0)
+
+
+def flash_panda(panda_serial: str, choice: FirmwareChoice = DEFAULT_FIRMWARE_CHOICE, *,
+                bootstub_repairs: set[str] | None = None):
   panda = Panda(panda_serial)
   if choice.alternate and panda.get_type() not in (Panda.HW_TYPE_DOS, Panda.HW_TYPE_TRES, Panda.HW_TYPE_RED_PANDA, Panda.HW_TYPE_CUATRO):
     choice = FirmwareChoice()
   fw_path = firmware_path(FW_PATH, panda.get_mcu_type().config.app_fn, choice)
   fw_signature = get_expected_signature(panda.get_mcu_type(), choice)
   internal_panda = panda.is_internal()
+  internal_cuatro = HARDWARE.get_device_type() == "mici" and panda.is_connected_spi() and panda.get_type() == Panda.HW_TYPE_CUATRO
+  if bootstub_repairs is None:
+    bootstub_repairs = set()
+  incompatible_app = False
 
   panda_version = "bootstub" if panda.bootstub else panda.get_version()
   panda_signature = b"" if panda.bootstub else panda.get_signature()
@@ -37,6 +70,8 @@ def flash_panda(panda_serial: str, choice: FirmwareChoice = DEFAULT_FIRMWARE_CHO
 
   if panda.bootstub or panda_signature != fw_signature:
     cloudlog.info("Panda firmware out of date, update required")
+    if internal_cuatro and not panda.bootstub:
+      incompatible_app = panda.get_packets_versions() != PACKET_VERSIONS
     if not panda.bootstub and panda.get_type() == Panda.HW_TYPE_TRES and panda.is_connected_spi() and HARDWARE.get_device_type() == "tizi":
       panda.reset(enter_bootstub=True, reconnect=False)
       if Panda.wait_for_panda(panda_serial, timeout=1):
@@ -56,24 +91,19 @@ def flash_panda(panda_serial: str, choice: FirmwareChoice = DEFAULT_FIRMWARE_CHO
     bootstub_version = panda.get_version()
     cloudlog.info(f"Flashed firmware not booting, flashing development bootloader. {bootstub_version=}, {internal_panda=}")
     if internal_panda:
-      dfu_serial = panda.get_dfu_serial()
-      if dfu_serial is None:
-        raise PandaProtocolMismatch("Internal Panda recovery identity unavailable")
-      panda.close()
-      HARDWARE.recover_internal_panda()
-      if not Panda.wait_for_dfu(dfu_serial, timeout=5):
-        raise PandaProtocolMismatch("Internal Panda did not enter recovery mode")
-      with PandaDFU(dfu_serial) as dfu:
-        dfu.recover()
-      if not Panda.wait_for_panda(panda_serial, timeout=5):
-        raise PandaProtocolMismatch("Internal Panda did not return after bootstub recovery")
-      panda.reconnect()
-      if not panda.bootstub:
-        raise PandaProtocolMismatch("Recovered internal Panda did not enter bootstub")
-      panda.flash(fn=fw_path)
+      recover_internal_bootstub(panda, panda_serial, fw_path)
+      incompatible_app = False
+      bootstub_repairs.add(panda_serial)
     elif not panda.recover():
       raise PandaProtocolMismatch("External Panda recovery did not complete")
     cloudlog.info("Done flashing bootstub")
+
+  if (internal_cuatro and panda_serial not in bootstub_repairs and not panda.bootstub
+      and panda.get_signature() == fw_signature and panda.get_packets_versions() == PACKET_VERSIONS
+      and needs_cuatro_bootstub_repair(panda.health(), incompatible_app)):
+    bootstub_repairs.add(panda_serial)
+    cloudlog.warning("Recovering internal CUATRO bootstub after incompatible firmware")
+    recover_internal_bootstub(panda, panda_serial, fw_path)
 
   if panda.bootstub:
     cloudlog.info("Panda still not booting, exiting")
@@ -84,7 +114,7 @@ def flash_panda(panda_serial: str, choice: FirmwareChoice = DEFAULT_FIRMWARE_CHO
     cloudlog.info("Version mismatch after flashing, exiting")
     raise AssertionError
 
-  if panda.get_packets_versions() != (Panda.HEALTH_PACKET_VERSION, Panda.CAN_PACKET_VERSION):
+  if panda.get_packets_versions() != PACKET_VERSIONS:
     panda.close()
     raise PandaProtocolMismatch("Panda CAN or health protocol hash mismatch after firmware validation")
 
@@ -153,6 +183,7 @@ def main() -> None:
 
   count = 0
   legacy_migration_attempted = False
+  bootstub_repairs: set[str] = set()
   while not do_exit:
     try:
       cloudlog.event("pandad.flash_and_connect", count=count)
@@ -188,7 +219,7 @@ def main() -> None:
           choice = startup_choice(Params())
         if len(set(panda_serials)) != len(panda_serials):
           raise ValueError('Duplicate Panda hardware serial')
-        selected_firmware = {serial: flash_panda(serial, choice) for serial in panda_serials}
+        selected_firmware = {serial: flash_panda(serial, choice, bootstub_repairs=bootstub_repairs) for serial in panda_serials}
         ordering = []
         for serial in panda_serials:
           with Panda(serial) as panda:
