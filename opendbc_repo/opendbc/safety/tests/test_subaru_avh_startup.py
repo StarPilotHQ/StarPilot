@@ -7,7 +7,22 @@ from opendbc.safety.tests.common import CANPackerSafety
 from opendbc.safety.tests.libsafety import libsafety_py
 
 
-def ready(param, ae):
+def feed_step(safety, packer, last, tick):
+  safety.set_timer(1_000_000 + tick * 10_000)
+  for name, values, bus in [('Transmission', {'Gear': 4}, 0), ('Throttle', {'Engine_RPM': 800}, 0), ('Steering_Torque', {}, 0), ('Steering_2', {}, 0),
+                            ('Wheel_Speeds', dict.fromkeys(('FL', 'FR', 'RL', 'RR'), 0), 1), ('Brake_Status', {}, 1),
+                            ('ES_Status', {}, 1), ('ES_Distance', {}, 1), ('ES_DashStatus', {'Cruise_On': 1}, 2)]:
+    safety.safety_rx_hook(packer.make_can_msg_safety(name, bus, values))
+  for address in (0x6BB, 0x32B, 0x40, 0x48, 0x174):
+    if address == 0x6BB and tick % 100:
+      continue
+    data = sample(address, tick // 100 if address == 0x6BB else tick)
+    safety.safety_rx_hook(libsafety_py.make_CANPacket(address, 1, data))
+    last[address] = data
+  safety.safety_tick()
+
+
+def _ready_with_packer(param, ae):
   safety = libsafety_py.libsafety
   safety.init_tests()
   safety.set_timer(1_000_000)
@@ -16,19 +31,12 @@ def ready(param, ae):
   packer = CANPackerSafety('subaru_global_2017_generated')
   last = {}
   for tick in range(1001):
-    safety.set_timer(1_000_000 + tick * 10_000)
-    for name, values, bus in [('Transmission', {'Gear': 4}, 0), ('Throttle', {'Engine_RPM': 800}, 0), ('Steering_Torque', {}, 0), ('Steering_2', {}, 0),
-                              ('Wheel_Speeds', dict.fromkeys(('FL', 'FR', 'RL', 'RR'), 0), 1), ('Brake_Status', {}, 1),
-                              ('ES_Status', {}, 1), ('ES_DashStatus', {'Cruise_On': 1}, 2)]:
-      raw = packer.make_can_msg_safety(name, bus, values)
-      safety.safety_rx_hook(raw)
-    for address in (0x6BB, 0x32B, 0x40, 0x48, 0x174):
-      if address == 0x6BB and tick % 100:
-        continue
-      data = sample(address, tick // 100 if address == 0x6BB else tick)
-      safety.safety_rx_hook(libsafety_py.make_CANPacket(address, 1, data))
-      last[address] = data
-    safety.safety_tick()
+    feed_step(safety, packer, last, tick)
+  return safety, last, packer
+
+
+def ready(param, ae):
+  safety, last, _ = _ready_with_packer(param, ae)
   return safety, last
 
 
@@ -38,13 +46,15 @@ def test_exact_pair_debug_only_and_status_never_tx(param, ae):
   # Probe the loaded build, not the Subaru authority under test. ready() resets
   # native state and selects Subaru before any RX or TX checks.
   debug = libsafety_py.libsafety.set_safety_hooks(structs.CarParams.SafetyModel.allOutput, 0) == 0
-  safety, last = ready(param, ae)
-  for step in (1, 2):
-    if step == 2:
-      safety.set_timer(11_060_000)
-    addr, data, bus = avh_request(last[0x6BB], step)
+  safety, last, packer = _ready_with_packer(param, ae)
+  template = last[0x6BB]
+  for step in (1, 2, 3, 4):
+    if step > 1:
+      for offset in range(1, 7):
+        feed_step(safety, packer, last, 1000 + (step - 2) * 6 + offset)
+    addr, data, bus = avh_request(template, step)
     assert bool(safety.safety_tx_hook(libsafety_py.make_CANPacket(addr, bus, data))) == debug
-  assert not safety.safety_tx_hook(libsafety_py.make_CANPacket(0x6BB, 1, avh_request(last[0x6BB], 2)[1]))
+  assert not safety.safety_tx_hook(libsafety_py.make_CANPacket(0x6BB, 1, avh_request(template, 4)[1]))
   assert not safety.safety_tx_hook(libsafety_py.make_CANPacket(0x32B, 1, sample(0x32B, 1)))
 
 

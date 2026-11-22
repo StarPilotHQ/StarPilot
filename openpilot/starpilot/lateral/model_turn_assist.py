@@ -101,7 +101,7 @@ def _plan_positions_are_finite(model_v2) -> bool:
     return False
 
 
-def limit_curvature_to_plan(model_v2, curvature: float, v_ego: float) -> float:
+def limit_curvature_to_plan(model_v2, curvature: float, v_ego: float, min_reach: float = TWITCH_GUARD_MIN_REACH) -> float:
   if not (math.isfinite(curvature) and math.isfinite(v_ego)):
     return curvature
   if v_ego >= TWITCH_GUARD_MAX_SPEED or curvature == 0.0:
@@ -109,9 +109,9 @@ def limit_curvature_to_plan(model_v2, curvature: float, v_ego: float) -> float:
   if not _plan_positions_are_finite(model_v2):
     return curvature
   reach = get_plan_reach(model_v2)
-  if not math.isfinite(reach) or reach < TWITCH_GUARD_MIN_REACH:
+  if not math.isfinite(reach) or reach < min_reach:
     return curvature
-  plan = abs(_plan_circle_curvature(model_v2.position.x, model_v2.position.y, CURVATURE_HOLD_PLAN_LOOKAHEAD_FAR))
+  plan = abs(_plan_circle_curvature(model_v2.position.x, model_v2.position.y, min(CURVATURE_HOLD_PLAN_LOOKAHEAD_FAR, reach)))
   if not math.isfinite(plan):
     return curvature
   straightness = (plan - TWITCH_GUARD_STRAIGHT_LO) / (TWITCH_GUARD_STRAIGHT_HI - TWITCH_GUARD_STRAIGHT_LO)

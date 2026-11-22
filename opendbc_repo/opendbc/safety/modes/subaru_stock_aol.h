@@ -25,9 +25,18 @@ static bool subaru_aol_main_arm = false;
 static bool subaru_aol_main_epoch = false;
 static bool subaru_aol_main_low_seen = false;
 static bool subaru_aol_acc_fault = false;
+static bool subaru_aol_legacy_2025 = false;
+static bool subaru_aol_park_seen = false;
+
+static bool subaru_aol_drive_gear(uint8_t gear) {
+  // Drive (121 = 0x79) or CVT manual mode / paddle gears (129..193 step 8) on Legacy 2025.
+  return (gear == 121U) ||
+         (subaru_aol_legacy_2025 && (gear >= 129U) && (gear <= 193U) && (((gear - 129U) & 7U) == 0U));
+}
 
 static void subaru_aol_clear(void) {
   subaru_aol_main_epoch = false;
+  subaru_aol_park_seen = false;
   subaru_aol_armed = false;
   subaru_aol_token = false;
   subaru_aol_pending = false;
@@ -80,12 +89,14 @@ static void subaru_aol_observe_main(bool main_on) {
   if (!main_on) {
     subaru_aol_clear();
     subaru_aol_main_low_seen = true;
-  } else if (subaru_aol_main_arm && subaru_aol_main_low_seen && !subaru_aol_main &&
-             subaru_aol_gear_qualified && subaru_aol_drive &&
+  } else if (subaru_aol_main_arm &&
+             ((subaru_aol_main_low_seen && !subaru_aol_main) || (subaru_aol_legacy_2025 && subaru_aol_park_seen)) &&
+             subaru_aol_gear_qualified && (subaru_aol_drive || subaru_aol_legacy_2025) &&
              (safety_get_ts_elapsed(microsecond_timer_get(), subaru_aol_gear_ts) <= 100000U) &&
              !subaru_aol_permanent && !subaru_aol_temporary && !subaru_aol_acc_fault &&
              !relay_malfunction && !safety_rx_checks_invalid && aol_rx_healthy()) {
     subaru_aol_main_epoch = true;
+    subaru_aol_park_seen = false;
   } else {
     // No qualified MAIN edge; retain epoch.
   }
@@ -181,11 +192,15 @@ static void subaru_aol_optional_rx(const CANPacket_t *msg) {
         subaru_aol_gear_seen = true;
         subaru_aol_gear_counter = counter;
         subaru_aol_gear_ts = microsecond_timer_get();
-        subaru_aol_drive = msg->data[3] == 121U;
+        subaru_aol_drive = subaru_aol_drive_gear(msg->data[3]);
+        if (subaru_aol_legacy_2025 && (msg->data[3] == 4U) && !subaru_aol_armed &&
+            !subaru_aol_permanent && !subaru_aol_acc_fault) {
+          subaru_aol_park_seen = true;
+        }
       } else {
         // A contradictory duplicate must withdraw Drive immediately; it may
         // neither renew the source receipt nor retain an old Drive permission.
-        if (((msg->data[3] == 121U) && !subaru_aol_drive) || ((msg->data[3] != 121U) && subaru_aol_drive)) {
+        if (subaru_aol_drive_gear(msg->data[3]) != subaru_aol_drive) {
           subaru_aol_gear_qualified = false;
           subaru_aol_gear_seen = false;
         }

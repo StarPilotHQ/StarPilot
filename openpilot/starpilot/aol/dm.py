@@ -7,8 +7,9 @@ def armed_lateral_current(cp, cs, intent, native, *, source_ns, now_ns, axis_ses
     return bool(policy_for(cp).intent_supported and
       cs.canValid and not cs.canTimeout and not cs.accFaulted and not cs.doorOpen and
       not cs.steerFaultTemporary and not cs.steerFaultPermanent and cs.cruiseState.available and
-      cs.gearShifter in (car.CarState.GearShifter.drive, car.CarState.GearShifter.low,
-                        car.CarState.GearShifter.sport, car.CarState.GearShifter.brake) and
+      (cs.gearShifter in (car.CarState.GearShifter.drive, car.CarState.GearShifter.low,
+                         car.CarState.GearShifter.sport, car.CarState.GearShifter.brake) or
+       cp.carFingerprint == 'SUBARU_LEGACY_2025' and cs.gearShifter == car.CarState.GearShifter.manumatic) and
       intent is not None and intent.settingsQualified and intent.allowedLatch and intent.lateralArmed and
       intent.producerSessionId and intent.carStateLogMonoTime == source_ns and
       0 < source_ns <= intent.observedMonoTime <= now_ns <= intent.validUntilMonoTime and

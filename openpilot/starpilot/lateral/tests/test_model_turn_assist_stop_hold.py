@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 
 from openpilot.starpilot.lateral.model_turn_assist import (
-  STOP_HOLD_MAX_SPEED, TWITCH_GUARD_FLOOR, TWITCH_GUARD_MAX_SPEED, ModelTurnAssist, update_twitch_guard,
+  STOP_HOLD_MAX_SPEED, TWITCH_GUARD_FLOOR, TWITCH_GUARD_MAX_SPEED, ModelTurnAssist, limit_curvature_to_plan, update_twitch_guard,
 )
 
 STRAIGHT = SimpleNamespace(position=SimpleNamespace(x=[0., 1., 2., 3.], y=[0., 0., 0., 0.]),
@@ -123,6 +123,12 @@ class TestTwitchGuardArming(unittest.TestCase):
     step(assist, 2.0, 0., .012, model=LONG_STRAIGHT, blinker=1)
     self.assertFalse(assist.twitch_guard_armed)
     self.assertEqual(step(assist, 2.0, 0., .012, model=LONG_STRAIGHT), .012)
+
+  def test_short_straight_plan_down_to_4m_is_guarded(self):
+    short_straight = SimpleNamespace(position=SimpleNamespace(x=[0., 1., 2., 3., 4., 5.], y=[0.] * 6),
+                                     meta=SimpleNamespace(laneChangeState=0))
+    self.assertEqual(limit_curvature_to_plan(short_straight, .012, 1.0), .012)
+    self.assertEqual(limit_curvature_to_plan(short_straight, .012, 1.0, min_reach=4.0), TWITCH_GUARD_FLOOR)
 
 
 if __name__ == '__main__':

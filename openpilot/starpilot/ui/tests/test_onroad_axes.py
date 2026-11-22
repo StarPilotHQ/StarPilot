@@ -99,6 +99,37 @@ class TestOnroadAxes(unittest.TestCase):
     self.publish_latch(False)
     self.assertFalse(self.state(False, False).aol_armed_at_stop)
 
+  def test_legacy_2025_armed_stop_covers_creep_threshold_and_manumatic(self):
+    self.ui.aol_runtime = True
+    self.ui.CP.brand = 'subaru'
+    self.ui.CP.carFingerprint = 'SUBARU_LEGACY_2025'
+    self.ui.CP.minSteerSpeed = 0.0
+    car = self.ui.sm['carState']
+    car.steerFaultTemporary = car.steerFaultPermanent = car.accFaulted = False
+    self.publish_latch()
+    for gear in ('drive', 'manumatic'):
+      car.gearShifter = gear
+      car.standstill = False
+      for speed, expected_stop in ((0.0, True), (0.2, True), (0.3, True), (0.35, False)):
+        car.vEgo = speed
+        with self.subTest(gear=gear, speed=speed):
+          st = self.state(False, False)
+          self.assertEqual(st.aol_armed_at_stop, expected_stop)
+          expected_color = (10, 100, 98, 255) if expected_stop else (18, 40, 57, 255)
+          self.assertEqual(rgba(axis_status_color(st)), expected_color)
+
+    self.ui.CP.carFingerprint = 'SUBARU_OUTBACK_2023'
+    for gear, standstill, speed, expected_stop in (
+      ('drive', False, 0.2, False),
+      ('manumatic', True, 0.0, False),
+      ('drive', True, 0.0, True),
+    ):
+      car.gearShifter = gear
+      car.standstill = standstill
+      car.vEgo = speed
+      with self.subTest(car='SUBARU_OUTBACK_2023', gear=gear, standstill=standstill, speed=speed):
+        self.assertEqual(self.state(False, False).aol_armed_at_stop, expected_stop)
+
   def test_missing_model_cannot_show_armed_aol_as_active_steering(self):
     self.ui.aol_runtime = True
     self.publish_latch()

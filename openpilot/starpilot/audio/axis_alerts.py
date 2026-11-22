@@ -96,6 +96,7 @@ class AxisAlerts:
     self.steering_session = None
     self.steering_warned = False
     self.steering_recovered_since = 0
+    self.suppress_lateral = False
 
   def temporary_steering_sound(self, sm, intent, native_sound, now_ns, state_fresh):
     if intent is None or not state_fresh:
@@ -132,9 +133,10 @@ class AxisAlerts:
                    sm.valid['selfdriveState'] and sm.alive['selfdriveState'])
     lateral_known = intent is not None and (intent.pauseLateral or intent.lateralArmed or state_fresh)
     axis = current_axis(sm, now_ns=now_ns) if 'aolAxisState' in sm.logMonoTime else None
-    lateral = self.lateral.update(intent if lateral_known else None,
-                                  bool(intent and not intent.pauseLateral and
-                                       (intent.lateralArmed or (state_fresh and sm['selfdriveState'].active))), axis, now_ns)
+    lateral = 0 if self.suppress_lateral else self.lateral.update(
+      intent if lateral_known else None,
+      bool(intent and not intent.pauseLateral and
+           (intent.lateralArmed or (state_fresh and sm['selfdriveState'].active))), axis, now_ns)
     longitudinal = self.longitudinal.update(
       intent.producerSessionId if intent is not None and state_fresh else None,
       intent.sequence if intent is not None else 0,

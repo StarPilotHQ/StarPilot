@@ -71,6 +71,7 @@ from openpilot.starpilot.car.hyundai.aol import aol_safety_config as hyundai_aol
 from openpilot.starpilot.car.hyundai.aol import retained_shared_long_cancel_intent as hkg_cancel_intent_retained
 from openpilot.starpilot.car.ford.aol import (brake_pause_active as ford_brake_pause_active,
                                                awaiting_initial_request as ford_awaiting_initial_request)
+from openpilot.starpilot.car.subaru import aol as subaru_aol
 from openpilot.starpilot.aol.runtime import AXIS_MAX_AGE_NS, current_axis, current_native
 from openpilot.starpilot.aol.vehicle import create_intent as create_aol_intent, native_latch_rejected, policy_for as aol_policy_for
 from openpilot.starpilot.aol.wire import IntentState, encode_intent
@@ -1925,6 +1926,7 @@ class Car:
         update_subaru_sng(self, CS, CC, now_nanos)
         from openpilot.starpilot.car.subaru.stop_start_caller import update as update_subaru_startup
         update_subaru_startup(self, now_nanos)
+        subaru_aol.sync_legacy_card_lateral(self, CS, CC)
       if getattr(self, "redneck_cruise", None):
         self.redneck_cruise.update(self, CS, CC, now_nanos)
       self.last_actuators_output, can_sends = self.CI.apply(CC, now_nanos)
@@ -1999,6 +2001,7 @@ class Car:
       self.initial_cruise_speed = self.params.get("InitialCruiseSpeedKph", return_default=True)
       if self.aol_card_intent is not None:
         self.aol_card_intent.settings = read_settings(self.params)
+      subaru_aol.sync_legacy_card_aol(self)
       now = time.monotonic()
       if now >= next_cruise_read:
         self.v_cruise_helper.low_speed_on_set = self.params.get_bool(LOW_SPEED_CRUISE_ON_SET)

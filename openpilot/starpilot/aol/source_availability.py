@@ -13,6 +13,12 @@ EventName = log.OnroadEvent.EventName
 AlertLevel = log.DriverMonitoringState.AlertLevel
 
 
+def _forward_gear_allowed(cp, gear) -> bool:
+  gears = car.CarState.GearShifter
+  return gear in (gears.drive, gears.sport, gears.low, gears.brake) or (
+    cp.carFingerprint == 'SUBARU_LEGACY_2025' and gear == gears.manumatic)
+
+
 def stock_lateral_role(self, CS, native, intent=None, *, allow_independent_cancel=False, allow_independent_brake=False,
                        allow_independent_gas=False, allow_expired_source=False, now_ns=0):
   """Current stock USER role while an established independent LAT owner remains."""
@@ -65,7 +71,8 @@ def stock_lateral_role(self, CS, native, intent=None, *, allow_independent_cance
        getattr(self, 'aol_fault_reason', 'none') == 'availabilityPause' and previous.desired_lateral) and
       (previous.native_acknowledged or allow_expired_source) and not previous.longitudinal_active and
       (CS.gearShifter == car.CarState.GearShifter.drive or self.CP.brand == 'gm' and
-       CS.gearShifter == car.CarState.GearShifter.low) and isfinite(CS.vEgoRaw) and isfinite(CS.vEgo))
+       CS.gearShifter == car.CarState.GearShifter.low or
+       self.CP.carFingerprint == 'SUBARU_LEGACY_2025' and CS.gearShifter == car.CarState.GearShifter.manumatic) and isfinite(CS.vEgoRaw) and isfinite(CS.vEgo))
   rules = self.events.event_rules
   stock_user = stock_lateral_user_event(self.CP)
   users = [name for name in self.events.names if ET.USER_DISABLE in rules.get(name, {})]
@@ -128,8 +135,7 @@ def stock_lateral_fault_proof(self, CS, message, now_ns):
   if any(not valid or not sample.canValid or sample.canTimeout or sample.steerFaultPermanent or
       sample.steerFaultTemporary or sample.accFaulted or sample.doorOpen or sample.seatbeltUnlatched or
       sample.brakePressed or sample.regenBraking or sample.gasPressed or physical_cancel(sample, self.CP) or
-      sample.gearShifter not in (car.CarState.GearShifter.drive, car.CarState.GearShifter.sport,
-        car.CarState.GearShifter.low, car.CarState.GearShifter.brake) for sample, valid in samples):
+      not _forward_gear_allowed(self.CP, sample.gearShifter) for sample, valid in samples):
     return None
   return (published, stock_user)
 
@@ -266,8 +272,7 @@ def ordinary_source_availability(self, CS, now_ns, native=None, *, replay: bool,
          (sample.brakePressed or sample.regenBraking) and not held_pedal or
          sample.gasPressed and not (toyota_pedal or stock_gas or ford_gas or toyota_gas) or
          (stock_gas or ford_gas or toyota_gas) and sample.gasPressed != accepted_state.gasPressed or physical_cancel(sample, self.CP) or
-         sample.gearShifter not in (car.CarState.GearShifter.drive, car.CarState.GearShifter.sport,
-                                   car.CarState.GearShifter.low, car.CarState.GearShifter.brake)
+         not _forward_gear_allowed(self.CP, sample.gearShifter)
          for sample, valid in samples):
     return False
   def valid_metadata(stamp, value):
@@ -374,6 +379,5 @@ def fresh_ordinary_lag_continuation(self, CS, intent, native, now_ns):
   return not any(not valid or not sample.canValid or sample.canTimeout or sample.steerFaultPermanent or
     sample.steerFaultTemporary or sample.accFaulted or sample.doorOpen or sample.seatbeltUnlatched or
     sample.brakePressed or sample.regenBraking or sample.gasPressed or physical_cancel(sample, self.CP) or
-    sample.gearShifter not in (car.CarState.GearShifter.drive, car.CarState.GearShifter.sport,
-                             car.CarState.GearShifter.low, car.CarState.GearShifter.brake)
+    not _forward_gear_allowed(self.CP, sample.gearShifter)
     for sample, valid in samples)

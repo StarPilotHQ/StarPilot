@@ -30,7 +30,7 @@ def qualified(cp, *, marked_only=False):
     if cp.flags & SubaruFlags.STOP_START_OFF:
       expected |= int(SubaruSafetyFlags.STOP_START_BUTTON)
   if cp.carFingerprint == CAR.SUBARU_LEGACY_2025:
-    allowed |= int(SubaruFlags.STOP_START_OFF | SubaruFlags.AVH_STARTUP)
+    allowed |= int(SubaruFlags.STOP_START_OFF | SubaruFlags.AVH_STARTUP | SubaruFlags.ASCENT_LKAS_ALERT)
     if cp.flags & SubaruFlags.AVH_STARTUP:
       expected |= int(SubaruSafetyFlags.AVH_STARTUP)
     if cp.flags & SubaruFlags.STOP_START_OFF:
@@ -59,6 +59,11 @@ def qualified(cp, *, marked_only=False):
 
 
 def temporary_restriction(cp, state):
+  allowed_gears = (
+    (structs.CarState.GearShifter.drive, structs.CarState.GearShifter.manumatic)
+    if cp is not None and cp.carFingerprint == CAR.SUBARU_LEGACY_2025 else
+    (structs.CarState.GearShifter.drive,)
+  )
   return bool(state is not None and qualified(cp, marked_only=True) and state.canValid and not state.canTimeout and
               not state.steerFaultPermanent and not state.accFaulted and state.cruiseState.available and
-              (state.gearShifter != structs.CarState.GearShifter.drive or state.steerFaultTemporary or state.standstill))
+              (state.gearShifter not in allowed_gears or state.steerFaultTemporary or state.standstill))

@@ -142,6 +142,16 @@ def test_sng_standstill_request_withdrawal_is_exact_and_does_not_grant_axis():
   assert sng_standstill_lateral_inhibit(cp, stopped)
   stopped.standstill = False
   assert not sng_standstill_lateral_inhibit(cp, stopped)
+  # Non-Legacy Subarus keep upstream standstill-only inhibit even with initial_wait=True.
+  stopped.brakePressed = True
+  assert not sng_standstill_lateral_inhibit(cp, stopped, initial_wait=True)
+  # Legacy 2025 rolling with foot lightly on brake waits before Panda's initial !brake_pressed grant, then releases once brake lifts.
+  legacy_cp = CarInterface.get_params(CAR.SUBARU_LEGACY_2025, gen_empty_fingerprint(), [], False, False, False)
+  legacy_cp.alternativeExperience = 32
+  assert sng_standstill_lateral_inhibit(legacy_cp, stopped, initial_wait=True)
+  assert not sng_standstill_lateral_inhibit(legacy_cp, stopped, initial_wait=False)
+  stopped.brakePressed = False
+  assert not sng_standstill_lateral_inhibit(legacy_cp, stopped, initial_wait=True)
   cp.openpilotLongitudinalControl = True
   stopped.standstill = True
   assert not sng_standstill_lateral_inhibit(cp, stopped)
