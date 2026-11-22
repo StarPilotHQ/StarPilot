@@ -26,7 +26,7 @@ from openpilot.starpilot.gps.source import observation as gps_observation
 
 from openpilot.selfdrive.car.car_events import CarEvents
 from openpilot.selfdrive.locationd.helpers import PoseCalibrator, Pose
-from openpilot.selfdrive.selfdrived.events import Events, ET, Alert, Priority as AlertPriority
+from openpilot.selfdrive.selfdrived.events import Events, ET, Alert, EngagementAlert, Priority as AlertPriority
 from openpilot.selfdrive.selfdrived.bookmarks import BookmarkCounter
 from openpilot.starpilot.bookmark_state import BookmarkCheckpoint
 from openpilot.starpilot.longitudinal.force_stop_alert import HoldAlertState, EVENT_TYPE as FORCE_STOP_HOLD
@@ -41,7 +41,9 @@ from openpilot.starpilot.aol.vehicle import native_bootstrap_supported
 from opendbc.car.gm.steering_authority import monitored_profile
 from openpilot.starpilot.car.gm.steering_companion import SteeringCompanion
 from openpilot.starpilot.car.hyundai.aol import qualified_ioniq6
-from opendbc.car.gm.values import GMFlags, is_volt_ascm_longitudinal, malibu_hybrid_profile
+from opendbc.car.gm.values import CAR as GM_CAR
+from opendbc.car.gm.values import (GMFlags, bolt_pedal_in_drive_requires_low, is_bolt_euv_longitudinal, is_ordinary_ascm_profile,
+                                  is_ordinary_camera_profile, is_ordinary_sdgm_profile, is_volt_ascm_longitudinal, malibu_hybrid_profile)
 from openpilot.starpilot.aol.intent import read_settings
 from openpilot.starpilot.aol.intent_companion import IntentCompanion
 from openpilot.starpilot.aol.transport_pause import AvailabilityPause, TransportPause, availability_only, cp_identity, healthy_transport
@@ -218,7 +220,8 @@ class SelfdriveD:
     self.disengage_on_accelerator = self.params.get_bool("DisengageOnAccelerator")
     self.radar_recovery_enabled = self.params.get_bool("RadarRecoveryAlert")
     self.blindspot_alert_settings = (self.params.get_bool("LoudBlindspotAlert"),
-                                    self.params.get_bool("LoudBlindspotAlertWhenDisengaged"))
+                                    self.params.get_bool("LoudBlindspotAlertWhenDisengaged"),
+                                    self.params.get_bool("LoudBlindspotAlertMuteAtStandstill"))
 
     car_recognized = self.CP.brand != 'mock'
 
@@ -253,11 +256,15 @@ class SelfdriveD:
     self.dm_lockout_set = False
     self.dm_uncertain_alerted = False
     self.state_machine = StateMachine()
+    self.legacy_2025_green_wheel_active = False
     self.rk = Ratekeeper(100, print_delay_threshold=None)
     # Observational only. Do not cache this qualification for authority decisions.
 
     # Determine startup event
-    self.startup_event = EventName.startup if build_metadata.openpilot.comma_remote and build_metadata.tested_channel else EventName.startupMaster
+    official_starpilot = (build_metadata.openpilot.git_normalized_origin.lower() == 'github.com/starpilothq/starpilot' and
+                          build_metadata.channel in ('stable', 'testing'))
+    standard_startup = official_starpilot or (build_metadata.openpilot.comma_remote and build_metadata.tested_channel)
+    self.startup_event = EventName.startup if standard_startup else EventName.startupMaster
     if HARDWARE.get_device_type() == 'mici':
       self.startup_event = None
     if not car_recognized:
@@ -879,7 +886,7 @@ class SelfdriveD:
     from opendbc.car.ford.values import CAR
     return (qualified(self.CP, marked_only=True) and
             self.CP.carFingerprint == CAR.FORD_MUSTANG_MACH_E_MK1 and
-            len(self.CP.safetyConfigs) == 1 and profile_word(self.CP.safetyConfigs[0].safetyParam) == 3)
+            len(self.CP.safetyConfigs) == 1 and profile_word(self.CP.safetyConfigs[0].safetyParam) in (2, 3))
 
   def source_deadline_deferral_supported(self):
     from openpilot.starpilot.car.hyundai.aol import source_deadline_supported
@@ -1002,8 +1009,9 @@ class SelfdriveD:
            active_longitudinal and sample.gasPressed and not held_gas or
            sample.seatbeltUnlatched or sample.accFaulted or sample.doorOpen or physical_cancel(sample, self.CP) or
            qualified_gm(self.CP) and not sample.cruiseState.available or
-           sample.gearShifter not in (car.CarState.GearShifter.drive, car.CarState.GearShifter.sport,
-                                     car.CarState.GearShifter.low, car.CarState.GearShifter.brake)
+           (sample.gearShifter not in (car.CarState.GearShifter.drive, car.CarState.GearShifter.sport,
+                                       car.CarState.GearShifter.low, car.CarState.GearShifter.brake) and
+            not (self.CP.carFingerprint == "SUBARU_LEGACY_2025" and sample.gearShifter == car.CarState.GearShifter.manumatic))
            for sample, valid in samples):
       return 0
     native = current_native(self.sm, self.CP, now_ns=now_ns, axis_session_id=session)
@@ -1184,14 +1192,27 @@ class SelfdriveD:
         [ET.SOFT_DISABLE], [self.CP, CS, self.sm, self.is_metric, 0, pers]) if alert.alert_type != 'doorOpen/softDisable')
     alerts.extend(alert for alert in getattr(self, 'tesla_stock_alerts', [])
                   if alert.event_type in self.state_machine.current_alert_types)
+    shift_alert_type = 'boltPedalShiftToLow/permanent'
+    if bolt_pedal_in_drive_requires_low(self.CP, CS.gearShifter):
+      samples = getattr(self, 'car_state_samples', ()) or ((CS, getattr(self, 'conditional_car_state_valid', False)),)
+      if any(valid and sample.canValid and not sample.canTimeout and sample.gearShifter == 'drive' and sample.buttonEnable
+             for sample, valid in samples):
+        alert = Alert("Shift to L for speed control", "", log.SelfdriveState.AlertStatus.normal,
+                      log.SelfdriveState.AlertSize.small, AlertPriority.LOW, car.CarControl.HUDControl.VisualAlert.none,
+                      log.SelfdriveState.AudibleAlert.none, 3.)
+        alert.alert_type, alert.event_type = shift_alert_type, ET.PERMANENT
+        alerts.append(alert)
+    else:
+      self.AM.alerts.pop(shift_alert_type, None)
     now_ns = time.monotonic_ns()
     drive = int(self.sm['deviceState'].startedMonoTime) if self.sm['deviceState'].started else 0
     from openpilot.starpilot.audio.blindspot_alert import ALERT_TYPE as BSM_ALERT, blindspot_alert
-    loud, without_lateral = getattr(self, 'blindspot_alert_settings', (False, False))
+    loud, without_lateral, mute_at_standstill = getattr(self, 'blindspot_alert_settings', (False, False, False))
     blindspot = blindspot_alert(CS, self.sm, loud=loud, without_lateral=without_lateral,
                                 lane_change_blocked=EventName.laneChangeBlocked in self.events.names, now_ns=now_ns,
                                 car_ns=getattr(self, 'aol_car_state_log_ns', 0),
-                                car_valid=getattr(self, 'conditional_car_state_valid', False))
+                                car_valid=getattr(self, 'conditional_car_state_valid', False),
+                                mute_at_standstill=mute_at_standstill)
     if blindspot is not None:
       alerts = [alert for alert in alerts if alert.alert_type != 'laneChangeBlocked/warning']
       self.AM.alerts.pop('laneChangeBlocked/warning', None)
@@ -1290,6 +1311,27 @@ class SelfdriveD:
       # Saturation is already ignored during override; retire its held presentation too.
       alerts = [alert for alert in alerts if alert.alert_type != 'steerSaturated/warning']
       self.AM.alerts.pop('steerSaturated/warning', None)
+    if self.CP.carFingerprint == "SUBARU_LEGACY_2025":
+      alerts = [alert for alert in alerts if alert.alert_type not in ("pcmEnable/enable", "pcmDisable/userDisable")]
+      self.AM.alerts.pop("pcmEnable/enable", None)
+      self.AM.alerts.pop("pcmDisable/userDisable", None)
+      if self.CP.passive:
+        self.legacy_2025_green_wheel_active = False
+      elif self.sm.seen['carControl'] and self.sm.valid['carControl'] and CS.canValid and not CS.canTimeout:
+        hud = self.sm['carControl'].hudControl
+        green_wheel_active = bool(
+          CS.cruiseState.available and hud.lanesVisible and
+          not CS.steerFaultTemporary and not CS.steerFaultPermanent
+        )
+        if green_wheel_active != self.legacy_2025_green_wheel_active:
+          self.legacy_2025_green_wheel_active = green_wheel_active
+          chime = EngagementAlert(
+            log.SelfdriveState.AudibleAlert.engage if green_wheel_active else log.SelfdriveState.AudibleAlert.disengage
+          )
+          chime.alert_type = "legacy2025AolEngage/enable" if green_wheel_active else "legacy2025AolDisengage/userDisable"
+          chime.event_type = "legacy2025AolChime"
+          self.AM.alerts.pop("legacy2025AolDisengage/userDisable" if green_wheel_active else "legacy2025AolEngage/enable", None)
+          alerts.append(chime)
     from openpilot.starpilot.audio.departure_alert import protect_safety_alerts
     retained = ()
     if departure:
@@ -1876,6 +1918,15 @@ class SelfdriveD:
     pause_brake_mps = self.aol_settings.pause_brake_mps if self.aol_settings is not None else 0.0
     if reverse_pause:
       lateral_events = [event for event in lateral_events if event not in (EventName.wrongGear, EventName.reverseGear)]
+    # Full-range GM ACC keeps braking below the initial engagement speed.
+    gm_below_entry_speed = (
+      EventName.belowEngageSpeed in lateral_events and self.enabled and self.active and CS.cruiseState.enabled and
+      self.CP.openpilotLongitudinalControl and self.CP.brand == 'gm' and
+      (is_bolt_euv_longitudinal(self.CP) or
+       is_ordinary_camera_profile(self.CP, longitudinal=True) or
+       is_ordinary_ascm_profile(self.CP, longitudinal=True) or
+       is_ordinary_sdgm_profile(self.CP, longitudinal=True) or
+       (self.CP.carFingerprint in (GM_CAR.BUICK_LACROSSE, GM_CAR.CHEVROLET_SUBURBAN) and qualified_gm(self.CP))))
     return decide_axes(
       standard_lateral=self.active, standard_longitudinal=bool(self.enabled and self.CP.openpilotLongitudinalControl and
         not raw_longitudinal_withdrawal(self.CP, CS, self.sm, native, session=self.aol_session_id, now_ns=now_ns) and
@@ -1911,7 +1962,7 @@ class SelfdriveD:
                                source_ns=getattr(self, 'aol_car_state_log_ns', 0), now_ns=now_ns,
                                axis_session_id=getattr(self, 'aol_session_id', '')),
                            cruise_main_required=getattr(self, 'aol_cruise_main_required', True),
-                           allow_below_engage_speed=bool((is_volt_ascm_longitudinal(self.CP) or
+                           allow_below_engage_speed=gm_below_entry_speed or bool((is_volt_ascm_longitudinal(self.CP) or
                                                         stock_ascm_independent_lateral(self.CP) or
                                                         independent_lateral_below_engage(self.CP, intent,
                                                           enabled=self.enabled, active=self.active)) and
@@ -1927,7 +1978,8 @@ class SelfdriveD:
                         self.sm['driverMonitoringState'].alertLevel == AlertLevel.three)),
       pause_brake_mps=pause_brake_mps,
       gear_pause=reverse_pause,
-      lateral_inhibit=self.aol_dm_lateral_inhibit or sng_standstill_lateral_inhibit(self.CP, CS) or
+      lateral_inhibit=self.aol_dm_lateral_inhibit or sng_standstill_lateral_inhibit(
+        self.CP, CS, initial_wait=bool(native is None or not native.lateralAllowed)) or
         volkswagen_lateral_output_inhibited(self.CP, CS) or any(
         sample.steerFaultTemporary or pause_brake_mps > 0 and sample.brakePressed and not sample.standstill and
         sample.vEgo < pause_brake_mps
@@ -2437,7 +2489,8 @@ class SelfdriveD:
       self.disengage_on_accelerator = self.params.get_bool("DisengageOnAccelerator")
       self.radar_recovery_enabled = self.params.get_bool("RadarRecoveryAlert")
       self.blindspot_alert_settings = (self.params.get_bool("LoudBlindspotAlert"),
-                                      self.params.get_bool("LoudBlindspotAlertWhenDisengaged"))
+                                      self.params.get_bool("LoudBlindspotAlertWhenDisengaged"),
+                                      self.params.get_bool("LoudBlindspotAlertMuteAtStandstill"))
       self.departure_alert_settings = (self.params.get_bool("GreenLightAlert"), self.params.get_bool("LeadDepartingAlert"))
       self.nostalgia_enabled = nostalgia_saved_enabled(self.params)
       self.refresh_saved_driving_mode(time.monotonic_ns())

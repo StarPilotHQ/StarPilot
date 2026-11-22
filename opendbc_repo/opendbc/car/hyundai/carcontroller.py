@@ -132,6 +132,10 @@ class CarController(CarControllerBase):
     self.apply_torque_last = 0
     self.car_fingerprint = CP.carFingerprint
     self.last_button_frame = 0
+    from opendbc.car.hyundai.software_cruise import selected as software_cruise_selected
+    self.software_cruise_enabled = software_cruise_selected(self.CP)
+    self.software_cruise_command = 0
+    self.software_cruise_command_ns = 0
     self.cancel_counter = 0
     self.blended_longitudinal = None
     self.blended_previous_lateral = False
@@ -293,6 +297,16 @@ class CarController(CarControllerBase):
 
       can_sends.extend(self.create_can_msgs(apply_steer_req, apply_torque, torque_fault, set_speed_in_units, accel,
                                             stopping, hud_control, actuators, CS, CC, lead_data=lead_data))
+
+      if (self.software_cruise_enabled and self.cancel_counter <= CANCEL_BUTTON_DELAY_FRAMES and
+          not CC.cruiseControl.resume and not CC.cruiseControl.cancel and not CC.cruiseControl.override):
+        command = self.software_cruise_command
+        if (command in (1, 2) and self.software_cruise_command_ns == now_nanos and
+            (self.frame - self.last_button_frame) * DT_CTRL > 0.10):
+          button = Buttons.RES_ACCEL if command == 1 else Buttons.SET_DECEL
+          can_sends.append(hyundaican.create_clu11(self.packer, self.frame, CS.clu11, button, self.CP))
+          if (self.frame - self.last_button_frame) * DT_CTRL >= 0.15:
+            self.last_button_frame = self.frame
 
     new_actuators = actuators.as_builder()
     new_actuators.torque = apply_torque / self.params.STEER_MAX
@@ -552,8 +566,8 @@ class CarController(CarControllerBase):
         stock_popup_owned = stock_source.owns_disengage_popup(apply_steer_req, clock_boot_ns(), healthy=display_healthy,
                                                             qualified_warning=stock_owned_status)
         if ccnc_non_lka:
-          stock_ccnc_owned = stock_source.owns_ccnc_fault_status(clock_boot_ns(), healthy=display_healthy,
-                                                               qualified_warning=stock_owned_status)
+          stock_ccnc_owned = stock_source.owns_ccnc_fault_status(clock_boot_ns(), display_sample_ns=CS.ccnc_162_ts_ns,
+                                                               healthy=display_healthy, qualified_warning=stock_owned_status)
       damping_source = getattr(CS, "stock_lkas_damping", None)
       can_sends.extend(hyundaicanfd.create_steering_messages(self.packer, self.CP, self.CAN,
                                                             steering_status_active, apply_steer_req, apply_torque,

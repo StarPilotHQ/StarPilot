@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 import subprocess
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
@@ -13,7 +13,8 @@ ROOT = Path(__file__).resolve().parents[5]
 @pytest.fixture
 def manifest(tmp_path):
   path = tmp_path / 'agnos.json'
-  path.write_text(json.dumps([{'name': 'abl', 'hash_raw': agnos.INCOMPATIBLE_C3_ABL, 'full_check': True}]))
+  path.write_text(json.dumps([{'name': 'abl', 'url': 'https://example.invalid/abl.xz',
+                               'hash_raw': agnos.INCOMPATIBLE_C3_ABL, 'full_check': True}]))
   return path
 
 
@@ -189,7 +190,7 @@ def test_agnos_download_reports_partition_progress(tmp_path):
   data = b'firmware'
   digest = hashlib.sha256(data).hexdigest()
   partition = {'name': 'system', 'url': 'https://example.invalid/system.xz', 'size': len(data), 'sparse': False, 'hash': digest, 'hash_raw': digest}
-  downloader = Mock(sha256=hashlib.sha256(data))
+  downloader = Mock(sha256=hashlib.sha256(data), req=MagicMock())
   downloader.read.side_effect = [data[:4], data[4:], b'']
   progress = Mock()
   with patch.object(agnos, 'get_partition_path', return_value=str(tmp_path / 'partition')), \
@@ -198,3 +199,4 @@ def test_agnos_download_reports_partition_progress(tmp_path):
   assert [call.args for call in progress.call_args_list] == [
     ('Downloading and writing AGNOS system', 50), ('Downloading and writing AGNOS system', 100)]
   assert (tmp_path / 'partition').read_bytes() == data
+  downloader.req.__exit__.assert_called_once_with(None, None, None)

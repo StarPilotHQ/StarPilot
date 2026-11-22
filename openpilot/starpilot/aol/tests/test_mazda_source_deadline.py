@@ -14,7 +14,7 @@ from openpilot.starpilot.aol.tests.test_input_deadline_continuity import BASE, i
 from openpilot.starpilot.aol.wire import decode_intent, encode_intent
 
 
-@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
+@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5, CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
 @pytest.mark.parametrize('condition', ('healthy', 'deadline', 'native_denied', 'cancel', 'brake', 'main_off',
                                       'eps_fault', 'invalid_can', 'producer', 'pause', 'repeated'))
 def test_mazda_source_cutoff_preserves_only_original_command_lease(identity, condition):
@@ -81,7 +81,7 @@ def test_mazda_source_cutoff_preserves_only_original_command_lease(identity, con
       assert log.OnroadEvent.EventName.controlsMismatch not in sd.events.names
 
 
-@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
+@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5, CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
 def test_mazda_actual_step_defers_warning_then_consumes_fresh_successor(identity):
   with OpenpilotPrefix(), ExitStack() as cleanup:
     case = fixture.IoniqAvailabilityTests(methodName='runTest')

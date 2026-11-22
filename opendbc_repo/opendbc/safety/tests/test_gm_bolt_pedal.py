@@ -134,6 +134,21 @@ class TestGmBoltPedalSafety(unittest.TestCase):
           self.assertFalse(self.safety.safety_tx_hook(self.packet(create_pedal_command(self.packer, .2, 2))))
           self.assertTrue(self.safety.safety_tx_hook(self.packet(create_pedal_command(self.packer, 0., 2))))
 
+  def test_state_eight_preserves_only_gen2_no_acc_pedal_permission(self):
+    gen2_cc = GMSafetyFlags.NO_ACC | GMSafetyFlags.BOLT_GEN2
+    for variant in (GMSafetyFlags.NO_ACC | GMSafetyFlags.BOLT_2017, GMSafetyFlags.NO_ACC, gen2_cc,
+                    GMSafetyFlags.BOLT_ACC_PEDAL | GMSafetyFlags.BOLT_GEN2):
+      with self.subTest(variant=variant):
+        self.init_mode(variant)
+        self.safety.set_controls_allowed(True)
+        self.safety.safety_rx_hook(self.sensor(1, state=8))
+        self.assertEqual(self.safety.get_controls_allowed(), variant == gen2_cc)
+        self.safety.safety_rx_hook(self.sensor(2, state=8, bad_crc=True))
+        self.assertFalse(self.safety.get_controls_allowed())
+        self.safety.set_controls_allowed(True)
+        self.safety.safety_rx_hook(self.sensor(3, state=5))
+        self.assertFalse(self.safety.get_controls_allowed())
+
   def test_adc_sensor_fault_checksum_counter_and_timeout(self):
     self.safety.safety_rx_hook(self.low_gear())
     self.safety.set_controls_allowed(True)

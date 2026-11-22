@@ -190,6 +190,14 @@ class TestFindingAcceptance(unittest.TestCase):
         self.assertEqual(self.raw(), before)
         self.assertEqual(self.fixture.stored(), pending)
 
+  def test_pending_review_without_torque_tuning_is_unavailable(self):
+    from openpilot.starpilot.flm.review_settings import review_settings
+    from opendbc.car import structs
+
+    cp = structs.CarParams.new_message(**self.cp.to_dict())
+    cp.lateralTuning.init('pid')
+    self.assertIsNone(review_settings(cp, self.params))
+
   def test_pending_review_identity_ignores_only_coordinate_acceptance(self):
     from openpilot.starpilot.flm.offroad_worker import OffroadWorker
 

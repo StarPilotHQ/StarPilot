@@ -100,7 +100,8 @@ def slc_transport_capable(cp, environment: Mapping[str, str]) -> bool:
 def slc_runtime_settings(params, cp, environment: Mapping[str, str], *, saved_slc: SlcSettings | None = None):
   """Stock display startup cannot inherit a saved speed-control request."""
   settings = read_slc_settings(params) if saved_slc is None else saved_slc
-  if environment.get('SLC_REPLAY_RUNTIME') != '1' and not longitudinal_supported(cp):
+  from opendbc.car.hyundai.software_cruise import selected as button_cruise_selected
+  if environment.get('SLC_REPLAY_RUNTIME') != '1' and not (longitudinal_supported(cp) or button_cruise_selected(cp)):
     return replace(settings, enabled=False, display=settings.display or settings.enabled, acceptance=replace(settings.acceptance, display_only=True))
   return settings
 
@@ -108,5 +109,6 @@ def slc_runtime_settings(params, cp, environment: Mapping[str, str], *, saved_sl
 def vision_control_enabled(params, cp, *, saved_slc: SlcSettings | None = None) -> bool:
   """Source selection never turns stock-cruise or display-only sessions into control."""
   settings = read_slc_settings(params) if saved_slc is None else saved_slc
-  return bool(longitudinal_supported(cp) and
+  from opendbc.car.hyundai.software_cruise import selected as button_cruise_selected
+  return bool((longitudinal_supported(cp) or button_cruise_selected(cp)) and
               settings.enabled and Source.VISION in settings.selection.slots)

@@ -1,6 +1,7 @@
 """Exact Forte non-SCC AOL identity and physical-button observations."""
 from opendbc.car.structs import CarParams
 from opendbc.car.hyundai.values import CAR, HyundaiFlags
+from opendbc.car.hyundai.non_scc_aol import SOFTWARE_CRUISE
 
 FORTE_IDS = (CAR.KIA_FORTE_2019_NON_SCC, CAR.KIA_FORTE_2021_NON_SCC)
 FORTE_AOL_MARKER = 0x0400
@@ -19,8 +20,10 @@ def qualified(cp):
           not cp.notCar and not cp.openpilotLongitudinalControl and cp.pcmCruise and
           bool(cp.flags & HyundaiFlags.NON_SCC) and not int(cp.flags) & ~int(allowed_flags) and
           len(cp.safetyConfigs) == 1 and cp.safetyConfigs[0].safetyModel == CarParams.SafetyModel.hyundai and
-          cp.safetyConfigs[0].safetyParam in words)
+          (cp.safetyConfigs[0].safetyParam & ~SOFTWARE_CRUISE) in words)
 
 
 # Keep the public Forte fixture/provider API while sharing the same state machine.
-from opendbc.car.hyundai.non_scc_aol import NonSccLkasSources as ForteLkasSources
+from opendbc.car.hyundai.non_scc_aol import NonSccLkasSources
+
+ForteLkasSources = NonSccLkasSources

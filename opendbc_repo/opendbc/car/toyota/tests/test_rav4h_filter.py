@@ -10,15 +10,15 @@ from opendbc.car.toyota.values import CAR, DBC, ToyotaFlags
 from openpilot.starpilot.car.toyota.aol import qualified
 
 
-def firmware():
+def firmware(car=CAR.TOYOTA_RAV4H):
   return [structs.CarParams.CarFw(ecu=ecu, address=address, subAddress=subaddress or 0,
                                  fwVersion=versions[0], brand="toyota", bus=0)
-          for (ecu, address, subaddress), versions in FW_VERSIONS[CAR.TOYOTA_RAV4H].items()]
+          for (ecu, address, subaddress), versions in FW_VERSIONS[car].items()]
 
 
 def factory(fp=None, fw=None, alpha=False, car=CAR.TOYOTA_RAV4H):
   return CarInterface.get_params(car, {0: {0x2FF: 8}, 1: {}, 2: {}} if fp is None else fp,
-                                 firmware() if fw is None else fw, alpha, False, False)
+                                 firmware(car) if fw is None else fw, alpha, False, False)
 
 
 class TestRav4hFilter(unittest.TestCase):
@@ -42,6 +42,29 @@ class TestRav4hFilter(unittest.TestCase):
       from openpilot.selfdrive.controls.lib.longcontrol import LongControl
       self.assertAlmostEqual(LongControl(cp).stopping_decel_rate, .3)
       self.assertEqual(DBC[cp.carFingerprint][Bus.pt], "toyota_tnga_k_pt_generated")
+
+  def test_highlander_sdsu_low_speed_engagement_and_stock_fallback(self):
+    from opendbc.car.toyota import legacy_advert_filter
+    from opendbc.car.toyota.values import MIN_ACC_SPEED
+
+    car = CAR.TOYOTA_HIGHLANDER
+    stock = factory(fp={0: {}, 1: {}, 2: {}}, car=car)
+    self.assertFalse(stock.openpilotLongitudinalControl)
+    self.assertAlmostEqual(stock.minEnableSpeed, MIN_ACC_SPEED, places=6)
+    for size, restore_stock in ((4, legacy_advert_filter.prepare_stock), (8, prepare_stock)):
+      fp = {0: {0x2FF: size}, 1: {}, 2: {}}
+      for alpha in (False, True):
+        with self.subTest(size=size, alpha=alpha):
+          cp = factory(fp=fp, car=car, alpha=alpha)
+          self.assertTrue(cp.openpilotLongitudinalControl)
+          self.assertFalse(cp.alphaLongitudinalAvailable)
+          self.assertEqual(cp.minEnableSpeed, -1)
+          self.assertTrue(restore_stock(cp))
+          self.assertFalse(cp.openpilotLongitudinalControl)
+          self.assertEqual(cp.minEnableSpeed, stock.minEnableSpeed)
+      unknown = factory(fp=fp, car=car, fw=[])
+      self.assertFalse(unknown.openpilotLongitudinalControl)
+      self.assertEqual(unknown.minEnableSpeed, stock.minEnableSpeed)
 
   def test_missing_or_mismatched_hardware_never_grants_long_or_aol(self):
     fps = ({0: {}, 1: {}, 2: {}}, {0: {0x2FF: 7}, 1: {}, 2: {}},

@@ -104,7 +104,7 @@ class TestHondaCurrentCaller(unittest.TestCase):
 
   def run_current_caller(self, *, candidate, word, fault=None, alternate_brake=False, alpha=False, speed_mps=12.5,
                          pedal=False, host_scenario=None, serialized=False, eps_pedal=None, hybrid=False, eps_end=95,
-                         eps_repeat=None, eps_brake_end=None, native_brake_first=False):
+                         eps_repeat=None, eps_brake_end=None, native_brake_first=False, diagnostic_from_start=False):
     safety = libsafety_py.libsafety
     with (
       OpenpilotPrefix(),
@@ -179,6 +179,8 @@ class TestHondaCurrentCaller(unittest.TestCase):
       self.assertEqual(safety.set_safety_hooks(cp.safetyConfigs[0].safetyModel.raw, word), 0)
       safety.set_aol_test_heartbeat(False)
       pandad = PandadOrder(safety, Path(os.environ['HONDA_NATIVE_LIBRARY']), Path(os.environ['HONDA_PANDAD_BRIDGE']))
+      if diagnostic_from_start:
+        pandad.reported_diagnostic_mask = 1 << 3
       # Decode the actual controller's on-wire fields; never substitute command flags.
       tx_dbc = ci.CC.packer.dbc
       steer_msg = tx_dbc.name_to_msg['STEERING_CONTROL']
@@ -244,6 +246,8 @@ class TestHondaCurrentCaller(unittest.TestCase):
           panda.pandaStates[0].safetyModel = cp.safetyConfigs[0].safetyModel
           panda.pandaStates[0].safetyParam, panda.pandaStates[0].alternativeExperience = word, 32
           panda.pandaStates[0].ignitionLine = True
+          if diagnostic_from_start:
+            panda.pandaStates[0].faults = ['interruptRateCan2']
           if tick >= 110 and fault in ('relay', 'diagnostic'):
             panda.pandaStates[0].faults = ['relayMalfunction' if fault == 'relay' else 'interruptRateCan2']
           panda.pandaStates[0].controlsAllowed = bool(safety.get_controls_allowed())

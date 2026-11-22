@@ -70,15 +70,24 @@ class SystemMonitor:
       return None
     try:
       internal = self.stat(self.storage).st_dev
-      recording = self.stat(self.recording_storage).st_dev
-      if internal == recording:
-        return None
-      usage = self._storage_usage(self.recording_storage)
-      if self.stat(self.storage).st_dev != internal or self.stat(self.recording_storage).st_dev != recording:
-        return None
-      return usage
     except OSError:
       return None
+    # AGNOS mounts the C3 SSD here even before the recording directory exists.
+    for path in dict.fromkeys((self.recording_storage, self.storage / 'media')):
+      try:
+        recording = self.stat(path).st_dev
+      except OSError:
+        continue
+      if internal == recording:
+        continue
+      usage = self._storage_usage(path)
+      try:
+        if self.stat(self.storage).st_dev == internal and self.stat(path).st_dev == recording:
+          return usage
+      except OSError:
+        pass
+      return None
+    return None
 
   def _sample(self):
     now = self.clock()

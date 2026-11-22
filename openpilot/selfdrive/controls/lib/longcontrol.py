@@ -40,11 +40,16 @@ def long_control_state_trans(active, long_control_state, should_stop, brake_pres
   return long_control_state
 
 class LongControl:
-  def __init__(self, CP, startup_preferences=None):
+  def __init__(self, CP, startup_preferences=None, *, developer_tuning=None):
     self.CP = CP
+    tuning = developer_tuning or {}
+    self.max_accel_override = tuning.get("max_accel")
+    self.start_accel_override = tuning.get("start_accel")
+    self.start_speed = tuning.get("start_speed", .3)
+    self.stop_accel = tuning.get("stop_accel", CP.stopAccel)
     self.long_control_state = LongCtrlState.off
     self.extension = create_extension(CP, startup_preferences)
-    self.stopping_decel_rate = self.extension.stopping_decel_rate if self.extension is not None else 1.0
+    self.stopping_decel_rate = tuning.get("stopping_rate", self.extension.stopping_decel_rate if self.extension is not None else 1.0)
     self.pid = PIDController(self.extension.kp if self.extension is not None else 0.0,
                              (self.extension.ki if self.extension is not None and self.extension.ki is not None
                               else (CP.longitudinalTuning.kiBP, CP.longitudinalTuning.kiV)),
@@ -67,6 +72,11 @@ class LongControl:
       if cap is not None and type(cap) in (int, float) and math.isfinite(cap) and 0 <= cap <= TAKEOFF_ACCEL_MAX:
         upper = min(upper, cap)
       accel_limits = (accel_limits[0], upper)
+    if self.max_accel_override is not None:
+      accel_limits = (accel_limits[0], min(accel_limits[1], self.max_accel_override))
+    if (self.start_accel_override is not None and active and not should_stop and not CS.brakePressed and
+        not CS.gasPressed and 0 <= CS.vEgo < self.start_speed):
+      accel_limits = (accel_limits[0], min(accel_limits[1], self.start_accel_override))
     self.pid.neg_limit = accel_limits[0]
     self.pid.pos_limit = accel_limits[1]
 
@@ -98,7 +108,7 @@ class LongControl:
 
     elif self.long_control_state == LongCtrlState.stopping:
       output_accel = self.last_output_accel
-      if output_accel > self.CP.stopAccel:
+      if output_accel > self.stop_accel:
         output_accel = min(output_accel, 0.0)
         # TODO: can we just go straight to stopAccel?
         output_accel -= self.stopping_decel_rate * DT_CTRL  # m/s^2/s while trying to stop

@@ -49,7 +49,7 @@ class TestProcessReplayCoverage(unittest.TestCase):
           self.assertTrue(self.report(targets=removed)["errors"])
 
   def test_frozen_platform_inventory_matches_current_registry_source(self):
-    expected = {"VOLVO_V40", "VOLVO_XC40_RECHARGE", "VOLVO_S60_RECHARGE", "POLESTAR_2"}
+    expected = {"VOLVO_V40", "VOLVO_XC40_RECHARGE", "VOLVO_S60_RECHARGE", "POLESTAR_2", "VOLVO_V60"}
     self.assertEqual(VOLVO_UNRECORDED_PLATFORMS, expected)
     module = ast.parse((ROOT / "opendbc_repo/opendbc/car/volvo/values.py").read_text())
     car = next(node for node in module.body if isinstance(node, ast.ClassDef) and node.name == "CAR")
@@ -60,13 +60,13 @@ class TestProcessReplayCoverage(unittest.TestCase):
   def test_each_platform_gap_names_its_independent_source_and_native_alternatives(self):
     report = self.report()
     gaps = report["unrecorded_gaps"]
-    self.assertEqual(len(gaps), 4)
+    self.assertEqual(len(gaps), 5)
     self.assertEqual({gap["platforms"][0] for gap in gaps}, VOLVO_UNRECORDED_PLATFORMS)
     for gap in gaps:
       with self.subTest(platform=gap["platforms"]):
         self.assertEqual(len(gap["platforms"]), 1)
         self.assertEqual(gap["status"], "unrecorded")
-        index = 0 if gap["platforms"] == ["VOLVO_V40"] else 1
+        index = {"VOLVO_V40": 0, "VOLVO_V60": 2}.get(gap["platforms"][0], 1)
         self.assertEqual(gap["required_source_native_suites"],
                          {suite: paths[index] for suite, paths in VOLVO_REQUIRED_TESTS.items()})
     self.assertIn("independent execution results", report["evidence_limit"])
@@ -85,7 +85,7 @@ class TestProcessReplayCoverage(unittest.TestCase):
       summary = Path(temporary) / "summary.md"
       write_coverage(self.report(), destination, summary)
       self.assertIn('"scope": "process_replay_input_inventory"', destination.read_text())
-      self.assertEqual(summary.read_text().count("**unrecorded**"), 4)
+      self.assertEqual(summary.read_text().count("**unrecorded**"), 5)
       for platform in VOLVO_UNRECORDED_PLATFORMS:
         self.assertIn(platform, summary.read_text())
       for paths in VOLVO_REQUIRED_TESTS.values():

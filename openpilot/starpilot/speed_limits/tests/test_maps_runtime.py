@@ -303,3 +303,33 @@ def test_actual_runtime_maps_display_only_publishes_sign_without_ceiling_or_comm
   assert not state.hasPending and not state.hasAccepted
   # Keep the real cereal envelopes live for the complete reader lifetime.
   assert len(envelopes) == 7 and dashboard.which() == 'slcDashboardObservation'
+
+
+def test_newest_number_holds_the_offer_through_source_gaps():
+  runtime = Runtime(parse({'SpeedLimitController': True, 'SLCPriority1': 'Vision', 'SLCPriority2': 'Maps',
+                           'SLCPriority3': 'Dashboard'}), session_id='drive')
+
+  def offer(**readings):
+    observations = dict.fromkeys(sel.Source, acc.Observation(acc.ObservationKind.UNKNOWN))
+    for name, reading in readings.items():
+      source = sel.Source(name)
+      observations[source] = (acc.Observation(reading) if isinstance(reading, acc.ObservationKind) else acc.Observation(
+        acc.ObservationKind.VALID, acc.Candidate(name, acc.ObservationIdentity(acc.IdentityKind.PRODUCER_EPISODE, value=name), reading)))
+    return sel.select_limit(observations, runtime._offer_policy(observations)).observation
+
+  assert offer(map=26.8).candidate.source == 'map'
+  assert offer(map=26.8, vision=15.6).candidate.source == 'vision'
+  # Vision going stale or coming back with the same number does not swap the offer to steady Maps.
+  assert offer(map=26.8, vision=acc.ObservationKind.STALE).kind is acc.ObservationKind.STALE
+  assert offer(map=26.8, vision=15.6).candidate.source == 'vision'
+  assert offer(map=29.1, vision=15.6).candidate.speed_mps == 29.1
+  # A map coverage gap does not make the same map number new again.
+  assert offer(map=acc.ObservationKind.UNKNOWN, vision=20.1).candidate.source == 'vision'
+  assert offer(map=29.1, vision=20.1).candidate.source == 'vision'
+  # A dashboard "no sign" does make its next number new, even when it repeats.
+  assert offer(map=29.1, vision=20.1, dashboard=24.6).candidate.source == 'dashboard'
+  assert offer(map=29.1, vision=22.4, dashboard=acc.ObservationKind.ABSENT).candidate.source == 'vision'
+  assert offer(map=29.1, vision=22.4, dashboard=24.6).candidate.source == 'dashboard'
+  # Switching off the offering source returns to the saved order.
+  runtime.settings = parse({'SpeedLimitController': True, 'SLCPriority1': 'Vision', 'SLCPriority2': 'Off'})
+  assert offer(map=29.1, vision=22.4, dashboard=24.6).candidate.source == 'vision'

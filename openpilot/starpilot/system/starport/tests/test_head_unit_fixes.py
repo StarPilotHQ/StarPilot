@@ -97,6 +97,19 @@ def test_gates_block_selection(kwargs):
   assert pick(CFG_ON, **kwargs) is None
 
 
+FIT = {"car_make": "Honda", "car_model": "T5A", "car_year": "2018", "head_unit_make": "HONDA/06",
+       "head_unit_model": "39100-T5A-L313-M1", "head_unit_software_version": "83.01D.00.B.1021"}
+FIT_ON = {"head_unit_experiments": True, "head_unit_experiment_rules": ["honda_fit_t5a_83_01d"]}
+
+
+def test_fit_rule_opens_phone_services_on_wired_only():
+  selection = pick(FIT_ON, FIT, transport="wired", key="usb:fit")
+  assert selection is not None and selection.actions == (hf.OPEN_PHONE_SERVICES,)
+  assert pick(FIT_ON, FIT, transport="wireless") is None
+  assert pick(FIT_ON, {**FIT, "head_unit_software_version": "83.01E.00.B.1021"}, transport="wired", key="usb:fit") is None
+  assert pick({"head_unit_experiments": True}, FIT, transport="wired", key="usb:fit") is None
+
+
 def test_wired_selection_with_key():
   assert pick(CFG_ON, transport="wired", key="usb:x") is not None
 

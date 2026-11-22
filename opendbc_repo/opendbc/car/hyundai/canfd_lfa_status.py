@@ -186,7 +186,7 @@ class CANFDLfaStatus:
       return True
     return 0 < self.popup_last_applied_ns <= now_ns <= self.popup_last_applied_ns + DISPLAY_RELEASE_NS
 
-  def owns_ccnc_fault_status(self, now_ns, *, healthy=False, qualified_warning=False):
+  def owns_ccnc_fault_status(self, now_ns, *, display_sample_ns, healthy=False, qualified_warning=False):
     body = self.current(now_ns)
     eps_fresh = 0 < self.eps_observed_ns <= now_ns and now_ns - self.eps_observed_ns <= MAX_AGE_NS
     indication = ((body[4] >> 6) | ((body[5] & 1) << 2)) if body is not None else 7
@@ -198,7 +198,13 @@ class CANFDLfaStatus:
     if qualified_warning:
       self.ccnc_last_owned_ns = now_ns
       return True
-    return 0 < self.ccnc_last_owned_ns <= now_ns <= self.ccnc_last_owned_ns + MAX_AGE_NS
+    last_owned_ns = self.ccnc_last_owned_ns
+    if not 0 < last_owned_ns <= now_ns:
+      return False
+    if now_ns - last_owned_ns <= MAX_AGE_NS:
+      return True
+    return (last_owned_ns <= display_sample_ns <= last_owned_ns + MAX_AGE_NS and
+            display_sample_ns <= now_ns <= display_sample_ns + MAX_AGE_NS)
 
   def last_fault(self):
     body = self.body

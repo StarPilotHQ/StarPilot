@@ -20,7 +20,7 @@ class TestRoutes(unittest.TestCase):
   def test_explicit_unrecorded_configuration_gaps(self):
     self.assertEqual(set(unrecorded_route_gaps), {
       GM.CHEVROLET_VOLT_CC, GM.CHEVROLET_MALIBU_HYBRID_CC, TOYOTA.TOYOTA_PRIUS_RETROFIT, TESLA.TESLA_MODEL_S_HW1,
-      VOLVO.VOLVO_XC40_RECHARGE, VOLVO.VOLVO_S60_RECHARGE, VOLVO.POLESTAR_2,
+      VOLVO.VOLVO_XC40_RECHARGE, VOLVO.VOLVO_S60_RECHARGE, VOLVO.POLESTAR_2, VOLVO.VOLVO_V60,
     })
     self.assertFalse(set(unrecorded_route_gaps) & {route.car_model for route in routes})
     self.assertTrue(set(unrecorded_route_gaps) <= set(non_tested_cars))

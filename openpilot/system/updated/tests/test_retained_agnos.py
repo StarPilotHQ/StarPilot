@@ -195,7 +195,10 @@ class TestRetainedAgnos(unittest.TestCase):
 
   def test_legacy_staging_defers_to_the_new_hardware_aware_launcher(self):
     source = (ROOT / 'launch_env.sh').read_text()
-    for version in ('19.8.1', '19.8.2', '20.2.1', '20.5.2', '20.5.3'):
+    match = re.search(r'^  export AGNOS_VERSION="([^"]+)"$', source, re.MULTILINE)
+    assert match is not None
+    target = match[1]
+    for version in dict.fromkeys(('19.8.1', '19.8.2', '20.2.1', '20.5.2', '20.5.3', target)):
       with self.subTest(version=version):
         installed = self.root / 'VERSION'
         installed.write_text(version + '\n')
@@ -205,8 +208,8 @@ class TestRetainedAgnos(unittest.TestCase):
           f'source {shlex.quote(str(environment))}\n' + \
           'printf "%s\\n%s\\n%s\\n" "$AGNOS_VERSION" "$AGNOS_ACCEPTED_VERSIONS" "$AGNOS_UPDATE_POLICY"'
         required, accepted, policy = subprocess.check_output(['bash', '-c', script], text=True).splitlines()
-        self.assertIn(version, accepted.split())
-        self.assertEqual(required, '20.5.3')
+        self.assertEqual(accepted.split(), [target, version])
+        self.assertEqual(required, target)
         self.assertEqual(policy, 'auto')
 
   def test_runtime_still_requires_upgrade_when_legacy_staging_accepts_old_os(self):

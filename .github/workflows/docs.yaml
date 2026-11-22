@@ -11,6 +11,7 @@ on:
       - testing
       - dev
   pull_request:
+    types: [opened, synchronize, reopened, edited]
   workflow_dispatch:
   workflow_call:
     inputs:
@@ -25,11 +26,15 @@ concurrency:
 jobs:
   docs:
     name: build docs
+    permissions:
+      contents: read
     runs-on: ${{
-      (github.repository == 'commaai/openpilot') &&
+      (github.repository == 'StarPilotHQ/StarPilot' && github.event_name == 'push' && github.ref == 'refs/heads/testing')
+      && fromJSON('["self-hosted","Linux","X64","truenas","starpilot-build"]')
+      || ((github.repository == 'commaai/openpilot') &&
       ((github.event_name != 'pull_request') ||
       (github.event.pull_request.head.repo.full_name == 'commaai/openpilot'))
-      && fromJSON('["namespace-profile-amd64-8x16"]')
+      && fromJSON('["namespace-profile-amd64-8x16"]'))
       || fromJSON('["ubuntu-24.04"]') }}
     steps:
     - uses: commaai/timeout@v1
@@ -39,6 +44,11 @@ jobs:
           /docs/
           /openpilot/selfdrive/assets/icons_mici/settings/comma_icon.png
         sparse-checkout-cone-mode: false
+
+    - uses: actions/setup-python@v6
+      if: github.repository == 'StarPilotHQ/StarPilot' && github.event_name == 'push' && github.ref == 'refs/heads/testing'
+      with:
+        python-version: '3.12.13'
 
     # Build
     - name: Build docs

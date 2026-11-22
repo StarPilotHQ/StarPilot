@@ -48,7 +48,8 @@ def test_generated_inventory_matches_actual_canonical_field_and_button_sources()
 
 
 def test_actuator_delay_and_reset_have_purposes_without_offset_jargon():
-  assert {'steering_delay', 'steering_delay_reset'} <= inventory()
+  from openpilot.starpilot.longitudinal.developer_tuning import FIELDS, PREFIX
+  assert {'steering_delay', 'steering_delay_reset', *(PREFIX + key for key in FIELDS)} <= inventory()
   for reason in ('Manual actuator delay. Reset restores automatic delay.',
                  'Automatic delay. Shown value is the vehicle default.',
                  'Vehicle/controller changed; saved delay is paused. Reset uses automatic delay.',

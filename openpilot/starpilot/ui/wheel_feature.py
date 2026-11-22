@@ -125,12 +125,13 @@ class WheelFeature:
         implicit_toggle = independent_cruise_buttons_supported(cp) and all(ok and value in ordinary_actions
                                                                           for value, ok in sources)
       ford_role = cp.brand == 'ford' and policy.explicit_latch and policy.runtime_supported and key == KEYS[0]
-      if (implicit_toggle or ford_role) and selected == "Off":
+      if (ford_role or (implicit_toggle and raw is None)) and selected == "Off":
         selected = "Toggle AOL"
       rows.append(FeatureRow(PREFIX + key, label, selected or "Invalid saved action", raw, choices,
                              available=readable and self.owner.authority("preferences"),
                              reason=("LKAS also toggles AOL independently of its saved extra action." if ford_role else
-                                     "With neither button assigned Toggle AOL, LKAS retains its default AOL toggle." if implicit_toggle else
+                                     ("When AOL is enabled, this button can still toggle it by default. Using only the other button " +
+                                      "requires assigning Toggle AOL to it and restarting.") if implicit_toggle and raw == b"0" else
                                      "Bookmark on release. Available while Left Paddle Longitudinal Pause is Off." if key == PADDLE_KEY else
                                      "Off adds no action to the vehicle's existing button behavior. " +
                                      "Axis pause and AOL assignments apply after restarting. Other actions can apply this drive. " +

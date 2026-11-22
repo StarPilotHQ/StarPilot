@@ -3,7 +3,7 @@
 from opendbc.can import CANParser
 from opendbc.car import structs
 from opendbc.car.toyota import legacy_sdsu, rav4h_filter
-from opendbc.car.toyota.values import CAR, ToyotaFlags
+from opendbc.car.toyota.values import CAR, MIN_ACC_SPEED, ToyotaFlags
 from opendbc.car.toyota.toyotacan import toyota_checksum
 
 PROFILES = dict.fromkeys(rav4h_filter.EPS5_SDSU_CARS, (0x9449, 0x9649))
@@ -78,6 +78,8 @@ def prepare_stock(cp):
   if not configured(cp):
     return False
   cp.openpilotLongitudinalControl = False
+  if cp.carFingerprint == CAR.TOYOTA_HIGHLANDER:
+    cp.minEnableSpeed = MIN_ACC_SPEED
   cp.safetyConfigs[0].safetyParam = PROFILES[cp.carFingerprint][1]
   cp.autoResumeSng = False
   return True

@@ -40,6 +40,11 @@ def is_brand(brand: str, filter_brand: str | None) -> bool:
   return filter_brand is None or brand == filter_brand
 
 
+def firmware_requests(query_brand: str | None = None):
+  return [(brand, config, request) for brand, config, request in REQUESTS
+          if is_brand(brand, query_brand) and (query_brand is not None or not request.brand_query_only)]
+
+
 def build_fw_dict(fw_versions: list[CarParams.CarFw], filter_brand: str | None = None) -> dict[AddrType, set[bytes]]:
   fw_versions_dict: defaultdict[AddrType, set[bytes]] = defaultdict(set)
   for fw in fw_versions:
@@ -200,7 +205,7 @@ def get_present_ecus(can_recv: CanRecvCallable, can_send: CanSendCallable, set_o
   parallel_queries: dict[bool, list[EcuAddrBusType]] = {True: [], False: []}
   responses: set[EcuAddrBusType] = set()
 
-  for brand, config, r in REQUESTS:
+  for brand, config, r in firmware_requests():
     for ecu_type, addr, sub_addr in config.get_all_ecus(VERSIONS[brand]):
       # Only query ecus in whitelist if whitelist is not empty
       if len(r.whitelist_ecus) == 0 or ecu_type in r.whitelist_ecus:
@@ -232,10 +237,11 @@ def get_brand_ecu_matches(ecu_rx_addrs: set[EcuAddrBusType]) -> dict[str, list[b
   """Returns dictionary of brands and matches with ECUs in their FW versions"""
 
   brand_rx_addrs = {brand: set() for brand in FW_QUERY_CONFIGS}
-  brand_matches = {brand: [] for brand, _, _ in REQUESTS}
+  requests = firmware_requests()
+  brand_matches = {brand: [] for brand, _, _ in requests}
 
   # Since we can't know what request an ecu responded to, add matches for all possible rx offsets
-  for brand, config, r in REQUESTS:
+  for brand, config, r in requests:
     for ecu in config.get_all_ecus(VERSIONS[brand]):
       if len(r.whitelist_ecus) == 0 or ecu[0] in r.whitelist_ecus:
         brand_rx_addrs[brand].add((uds.get_rx_addr_for_tx_addr(ecu[1], r.rx_offset), ecu[2]))
@@ -275,7 +281,7 @@ def get_fw_versions_ordered(can_recv: CanRecvCallable, can_send: CanSendCallable
 
 def get_fw_versions(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_multiplexing: ObdCallback, query_brand: str | None = None,
                     extra: OfflineFwVersions | None = None, timeout: float = 0.1, progress: bool = False,
-                    *, normal_bus_only: bool = False) -> list[CarParams.CarFw]:
+                    *, normal_bus_only: bool = False, query_bus: int | None = None) -> list[CarParams.CarFw]:
   versions = VERSIONS.copy()
 
   if query_brand is not None:
@@ -308,7 +314,8 @@ def get_fw_versions(can_recv: CanRecvCallable, can_send: CanSendCallable, set_ob
 
   # Get versions and build capnp list to put into CarParams
   car_fw = []
-  requests = [(brand, config, r) for brand, config, r in REQUESTS if is_brand(brand, query_brand) and
+  requests = [(brand, config, r) for brand, config, r in firmware_requests(query_brand) if
+              (query_bus is None or r.bus == query_bus) and
               not (normal_bus_only and r.bus % 4 == 1 and r.obd_multiplexing)]
   for addr_group in tqdm(addrs, disable=not progress):  # split by subaddr, if any
     for addr_chunk in chunks(addr_group):

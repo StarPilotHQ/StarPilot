@@ -337,6 +337,13 @@ class TestBoltPedalMessages(unittest.TestCase):
           self.assertTrue(state.pedal_sensor_healthy, gas)
           self.assertEqual(out.gasPressed, gas > 23., gas)
 
+        parsers[Bus.pt].update([(1_170_000_000, [self.sensor(packer, 30., 0, state=8)])])
+        out = state.update(parsers)
+        expected = candidate == CAR.CHEVROLET_BOLT_CC_2022_2023
+        self.assertEqual(state.pedal_sensor_healthy, expected)
+        if expected:
+          self.assertTrue(out.gasPressed)
+
         for counter, kwargs in ((9, {"state": 1}), (10, {"other_track": 1000.}), (11, {"bad_crc": True})):
           parsers[Bus.pt].update([(1_000_000_000 + counter * 20_000_000,
                                    [self.sensor(packer, 30., counter, **kwargs)])])

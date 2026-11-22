@@ -1,5 +1,6 @@
 #include "openpilot/starpilot/car/ford/aol_policy.h"
 #include "openpilot/starpilot/car/nissan/aol_policy.h"
+#include "openpilot/starpilot/car/volvo/aol_policy.h"
 #include "selfdrive/pandad/aol_protocol.h"
 #include "openpilot/starpilot/car/honda/aol_policy.h"
 #include "openpilot/starpilot/car/mazda/aol_policy.h"
@@ -28,7 +29,7 @@ constexpr AolSafetyProfile TEST_PROFILES[] = {
   {TEST_MODE, test_param, false}, {TEST_ALT_MODE, test_alt_param, false},
 };
 const AolProfileRegistry TEST_REGISTRY{TEST_PROFILES, std::size(TEST_PROFILES)};
-constexpr AolSafetyProfile VEHICLE_PROFILES[] = {HONDA_AOL_PROFILE, HONDA_STOCK_AOL_PROFILE, HONDA_NIDEC_AOL_PROFILE, HYUNDAI_AOL_PROFILE, HYUNDAI_CLASSIC_AOL_PROFILE, HYUNDAI_LEGACY_AOL_PROFILE, GM_AOL_PROFILE, FORD_AOL_PROFILE, MAZDA_AOL_PROFILE, CHRYSLER_AOL_PROFILE, TESLA_PREAP_AOL_PROFILE, TESLA_SCREEN_AOL_PROFILE, TOYOTA_AOL_PROFILE, NISSAN_AOL_PROFILE, VOLKSWAGEN_STOCK_AOL_PROFILE, VOLKSWAGEN_LONG_AOL_PROFILE, VOLKSWAGEN_MEB_AOL_PROFILE, SUBARU_AOL_PROFILE};
+constexpr AolSafetyProfile VEHICLE_PROFILES[] = {HONDA_AOL_PROFILE, HONDA_STOCK_AOL_PROFILE, HONDA_NIDEC_AOL_PROFILE, HYUNDAI_AOL_PROFILE, HYUNDAI_CLASSIC_AOL_PROFILE, HYUNDAI_LEGACY_AOL_PROFILE, GM_AOL_PROFILE, FORD_AOL_PROFILE, MAZDA_AOL_PROFILE, CHRYSLER_AOL_PROFILE, TESLA_PREAP_AOL_PROFILE, TESLA_SCREEN_AOL_PROFILE, TOYOTA_AOL_PROFILE, NISSAN_AOL_PROFILE, VOLKSWAGEN_STOCK_AOL_PROFILE, VOLKSWAGEN_LONG_AOL_PROFILE, VOLKSWAGEN_MEB_AOL_PROFILE, SUBARU_AOL_PROFILE, VOLVO_AOL_PROFILE};
 const AolProfileRegistry VEHICLE_REGISTRY{VEHICLE_PROFILES, std::size(VEHICLE_PROFILES)};
 
 aol_safety_health_t status(uint8_t request = 0U, uint8_t permission = 0U) {
@@ -338,7 +339,11 @@ int main() {
         }
       }
     }
-    const bool expected = word == 0x2000U || word == 0x2004U || word == 0x2010U || word == 0x2014U || word == 0x0500U || word == 0x0D00U || long_expected || scc_expected || word == 0x1400U || word == 0x1C00U || word == 0x1440U || word == 0x1C40U ||
+    bool button_expected = false;
+    for (const uint16_t old_word : {0x1400U, 0x1C00U, 0x1440U, 0x1C40U, 0x1402U, 0x1C02U, 0x1441U, 0x1C41U}) {
+      button_expected |= word == (old_word | 0x20U);
+    }
+    const bool expected = button_expected || word == 0x2000U || word == 0x2004U || word == 0x2010U || word == 0x2014U || word == 0x0500U || word == 0x0D00U || long_expected || scc_expected || word == 0x1400U || word == 0x1C00U || word == 0x1440U || word == 0x1C40U ||
                           word == 0x1402U || word == 0x1C02U || word == 0x1441U || word == 0x1C41U;
     assert(aol_capable(forte, HYUNDAI_CLASSIC_AOL_PROFILE.mode, VEHICLE_REGISTRY) == expected);
     assert(aol_runtime_enabled(false, forte, VEHICLE_REGISTRY) == expected);

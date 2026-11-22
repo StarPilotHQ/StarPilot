@@ -7,14 +7,14 @@
     "plannerd.py": {
       "upstream_path": "openpilot/selfdrive/controls/plannerd.py",
       "upstream_sha256": "9c1591c78522e0f89794eb7301113fc616ec6ac079e576a3c9f9ebec64bcbfde",
-      "adapted_sha256": "c0a305cd934673706aa29166ba3b08ae82894b1d7ee41e5348c4b995ee9a4db2",
-      "adaptation": "Redirected planner imports and connected independent conditional mode and shared SLC through bounded event transport and a shared status publisher"
+      "adapted_sha256": "a27eb1d1682efe0c29250d85e8edabbec646ced1a6186e9b39ecefdc68198d57",
+      "adaptation": "Redirected planner imports and connected independent conditional mode and shared SLC through bounded event transport and a shared status publisher; read vehicle-scoped developer parameters at startup"
     },
     "planner.py": {
       "upstream_path": "openpilot/selfdrive/controls/lib/longitudinal_planner.py",
       "upstream_sha256": "d81425700cf7152ef4f617ec1517fb4137fc5af9188047f48b31aff62dc652f4",
-      "adapted_sha256": "47967154441baa073e777e9664f3383705ddeaa779da8dc31c3b2909b9ad49b0",
-      "adaptation": "Redirected MPC imports and applied the optional, authority-checked SLC cap to the cruise target"
+      "adapted_sha256": "a1189614452b297e6e864a3e529bc888367b73ee7c432ee8af5e6c6331910822",
+      "adaptation": "Redirected MPC imports and applied the optional, authority-checked SLC cap to the cruise target; apply optional developer actuator delay, stop-speed threshold and acceleration ceiling"
     },
     "mpc.py": {
       "upstream_path": "openpilot/selfdrive/controls/lib/longitudinal_mpc_lib/long_mpc.py",

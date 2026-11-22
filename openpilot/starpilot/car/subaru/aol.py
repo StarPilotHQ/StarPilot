@@ -6,18 +6,26 @@ from openpilot.starpilot.aol.intent import AolCardIntent
 from openpilot.starpilot.aol.policy import AolVehiclePolicy
 
 
+def _drive_gear(cp, state):
+  if cp is not None and cp.carFingerprint == CAR.SUBARU_LEGACY_2025:
+    return state.gearShifter in (structs.CarState.GearShifter.drive, structs.CarState.GearShifter.manumatic)
+  return state.gearShifter == structs.CarState.GearShifter.drive
+
+
 class SubaruStockCardIntent(AolCardIntent):
   observe_stock_engagement = True
 
-  def __init__(self, settings, *, main_arm=False):
+  def __init__(self, settings, *, main_arm=False, allow_manumatic=False):
     super().__init__(settings, explicit_latch=True, lkas_button_supported=False)
     self.main_arm = main_arm
+    self.allow_manumatic = allow_manumatic
     self._previous_main = None
     self._main_observed_ns = 0
     self._main_event_ns = 0
     self._pending_main_ns = 0
     self._pending_main_after_ns = 0
     self._pending_main_restriction_ns = 0
+    self._deferred_park_main = False
     self.main_arm_ns = 0
 
   def observe_startup_readiness(self, sm, CS, *, now_ns, **kwargs):
@@ -31,12 +39,23 @@ class SubaruStockCardIntent(AolCardIntent):
     now_ns = kwargs.get('now_ns', 0)
     main = bool(CS.cruiseState.available)
     fresh_main = self._previous_main is False and main
-    physical_safe = (self.settings.enabled and CS.canValid and not CS.canTimeout and
-                     not self._calibration_inhibit and not self._calibration_rearm_required and
-                     not CS.steerFaultPermanent and not CS.accFaulted and
-                     not any(e.type == structs.CarState.ButtonEvent.Type.cancel and e.pressed for e in CS.buttonEvents) and
-                     CS.gearShifter == structs.CarState.GearShifter.drive)
-    if self.main_arm and fresh_main and physical_safe:
+    allowed_gears = (
+      (structs.CarState.GearShifter.drive, structs.CarState.GearShifter.manumatic)
+      if self.allow_manumatic else
+      (structs.CarState.GearShifter.drive,)
+    )
+    base_safe = (self.settings.enabled and CS.canValid and not CS.canTimeout and
+                 not self._calibration_inhibit and not self._calibration_rearm_required and
+                 not CS.steerFaultPermanent and not CS.accFaulted and
+                 not any(e.type == structs.CarState.ButtonEvent.Type.cancel and e.pressed for e in CS.buttonEvents))
+    physical_safe = base_safe and CS.gearShifter in allowed_gears
+    if not main or not base_safe:
+      self._deferred_park_main = False
+    elif self.main_arm and self.allow_manumatic and not physical_safe:
+      if fresh_main or (self._previous_main is None and CS.gearShifter == structs.CarState.GearShifter.park):
+        self._deferred_park_main = True
+    if self.main_arm and (fresh_main or self._deferred_park_main) and physical_safe:
+      self._deferred_park_main = False
       self._pending_main_ns = now_ns
       self._pending_main_after_ns = self._main_observed_ns
       self._pending_main_restriction_ns = 0
@@ -63,6 +82,7 @@ class SubaruStockCardIntent(AolCardIntent):
           self._pending_main_ns = 0
     if not main:
       self.main_arm_ns = 0
+      self._deferred_park_main = False
       self._record_latch_clear('subaru_main_off')
       self.allowed_latch = False
       self._withdraw_full_engagement()
@@ -102,14 +122,16 @@ def ordinary_axis_request_allowed(cp, state):
 
 def create_intent(cp, settings):
   main_arm = (cp.carFingerprint in (CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025) or
-              (cp.carFingerprint in (CAR.SUBARU_IMPREZA_2020, CAR.SUBARU_OUTBACK_2023) and qualified(cp)))
-  return SubaruStockCardIntent(settings, main_arm=main_arm)
+              (cp.carFingerprint in (CAR.SUBARU_IMPREZA_2020, CAR.SUBARU_LEGACY_2025, CAR.SUBARU_OUTBACK_2023) and qualified(cp)))
+  return SubaruStockCardIntent(settings, main_arm=main_arm,
+                               allow_manumatic=(cp.carFingerprint == CAR.SUBARU_LEGACY_2025))
 
 
-def sng_standstill_lateral_inhibit(cp, state):
-  # All stock Subaru native profiles require movement. Withdraw the request before its expected denial,
-  # preserving ordinary stock ACC without granting either active axis.
-  return bool(qualified(cp, marked_only=True) and state.standstill)
+def sng_standstill_lateral_inhibit(cp, state, *, initial_wait: bool = False):
+  # All stock Subaru native profiles require movement (and Legacy 2025 waits for !brake_pressed before initial grant).
+  # Withdraw the request before its expected denial, preserving ordinary stock ACC without granting either axis.
+  legacy_brake_wait = bool(cp.carFingerprint == CAR.SUBARU_LEGACY_2025 and initial_wait and state.brakePressed)
+  return bool(qualified(cp, marked_only=True) and (state.standstill or legacy_brake_wait))
 
 
 def temporary_eps_brake_recovery(cp, state, *, previous_brake=False):
@@ -117,7 +139,7 @@ def temporary_eps_brake_recovery(cp, state, *, previous_brake=False):
               not state.steerFaultPermanent and not state.accFaulted and not state.doorOpen and
               not state.vehicleSensorsInvalid and not state.steeringDisengage and not state.buttonEvents and
               state.cruiseState.available and not state.cruiseState.enabled and
-              state.gearShifter == structs.CarState.GearShifter.drive and
+              _drive_gear(cp, state) and
               (state.brakePressed or previous_brake) and not state.regenBraking and not state.gasPressed)
 
 
@@ -127,7 +149,7 @@ def retain_braked_main_intent(feedback, sm, cp, state, axis, now_ns, *, arm_ns, 
   from openpilot.starpilot.aol.transport_pause import _configured_transport_native
   pending = feedback.subaru_braked_main
   epoch = int(axis.intentIntegrityEpoch)
-  if (cp.carFingerprint not in (CAR.SUBARU_IMPREZA_2020, CAR.SUBARU_IMPREZA_2025) or not qualified(cp, marked_only=True) or
+  if (cp.carFingerprint not in (CAR.SUBARU_IMPREZA_2020, CAR.SUBARU_IMPREZA_2025, CAR.SUBARU_LEGACY_2025) or not qualified(cp, marked_only=True) or
       feedback.failed or feedback.paused or feedback.pending_event or arm_ns <= feedback.subaru_lateral_grant_ns or
       not producer or axis.intentProducerSessionId != producer or
       not 0 < arm_ns <= axis.sourceCarStateMonoTime <= now_ns or
@@ -137,7 +159,7 @@ def retain_braked_main_intent(feedback, sm, cp, state, axis, now_ns, *, arm_ns, 
       state.accFaulted or state.vehicleSensorsInvalid or state.doorOpen or state.seatbeltUnlatched or
       state.steeringDisengage or state.buttonEvents or state.gasPressed or state.regenBraking or
       not state.cruiseState.available or state.cruiseState.enabled or
-      state.gearShifter != structs.CarState.GearShifter.drive):
+      not _drive_gear(cp, state)):
     return False
   if pending is None:
     if (not state.brakePressed or now_ns - arm_ns > SAFETY_MAX_AGE_NS or
@@ -170,7 +192,7 @@ def retain_stopped_intent(feedback, sm, cp, state, axis, now_ns, *, latched, pro
   from openpilot.starpilot.aol.transport_pause import _healthy_transport_native, cp_identity
 
   previous = feedback.signature
-  if (cp.carFingerprint != CAR.SUBARU_IMPREZA_2020 or not qualified(cp, marked_only=True) or
+  if (cp.carFingerprint not in (CAR.SUBARU_IMPREZA_2020, CAR.SUBARU_LEGACY_2025) or not qualified(cp, marked_only=True) or
       not latched or not feedback.ever_lateral_active or feedback.failed or feedback.paused or
       feedback.pending_event or feedback.retention_started_ns or feedback.source_retention_started_ns or
       not feedback.session or cp_identity(cp) != feedback.cp or previous is None or signature != previous or
@@ -182,7 +204,7 @@ def retain_stopped_intent(feedback, sm, cp, state, axis, now_ns, *, latched, pro
       previous[2] - previous[8] > AXIS_MAX_AGE_NS or previous[4] != previous[2] + AXIS_MAX_AGE_NS or
       not previous[4] < now_ns or now_ns - previous[8] > SAFETY_MAX_AGE_NS or
       not state.canValid or state.canTimeout or not state.standstill or not state.brakePressed or
-      state.gearShifter != structs.CarState.GearShifter.drive or not state.cruiseState.available or
+      not _drive_gear(cp, state) or not state.cruiseState.available or
       state.cruiseState.enabled or state.gasPressed or state.regenBraking or state.buttonEvents or
       state.steerFaultTemporary or state.steerFaultPermanent or state.accFaulted or state.doorOpen or
       state.seatbeltUnlatched or state.vehicleSensorsInvalid or state.steeringDisengage):
@@ -201,3 +223,17 @@ def retain_stopped_intent(feedback, sm, cp, state, axis, now_ns, *, latched, pro
     not (native.requestedLateral or native.lateralAllowed or native.requestedLongitudinal or native.longitudinalAllowed) and
     native.observedMonoTime >= feedback.healthy_native_ns and feedback.healthy_inventory ==
       (native.pandaSerial, tuple(slot.hardwareSerial for slot in native.pandaInventory)))
+
+
+def sync_legacy_card_lateral(card, cs, cc) -> None:
+  if (card.CP.carFingerprint == CAR.SUBARU_LEGACY_2025 and cs.cruiseState.available and
+      getattr(card.CI.CS, "_lkas_mode_settle_frames", 0) == 0):
+    card.CI.CS.lateral_off = not bool(cc.hudControl.lanesVisible)
+
+
+def sync_legacy_card_aol(card) -> None:
+  cs = getattr(getattr(card, "CI", None), "CS", None)
+  if cs is not None and getattr(getattr(cs, "CP", None), "carFingerprint", None) == CAR.SUBARU_LEGACY_2025:
+    intent = getattr(card, "aol_card_intent", None)
+    settings = getattr(intent, "settings", None)
+    cs.aol_enabled = bool(settings.enabled) if settings is not None else bool(card.params.get_bool("AlwaysOnLateral"))

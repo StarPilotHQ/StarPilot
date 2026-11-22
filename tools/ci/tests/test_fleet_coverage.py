@@ -50,9 +50,9 @@ class FleetCoverageTest(unittest.TestCase):
 
   def test_checked_in_manifest_keeps_exact_source_and_addition_counts(self):
     manifest = json.loads(DEFAULT_MANIFEST.read_text())
-    self.assertEqual(345, len(manifest["platforms"]))
+    self.assertEqual(346, len(manifest["platforms"]))
     self.assertEqual(7, len(manifest["upstream_additions"]))
-    self.assertEqual(352, len({p["id"] for p in manifest["platforms"]} | set(manifest["upstream_additions"])))
+    self.assertEqual(353, len({p["id"] for p in manifest["platforms"]} | set(manifest["upstream_additions"])))
 
   def test_missing_port_and_missing_modes_remain_uncovered(self):
     report = self.check()

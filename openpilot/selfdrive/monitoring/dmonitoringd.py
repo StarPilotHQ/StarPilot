@@ -9,6 +9,18 @@ from openpilot.starpilot.aol.runtime import monitoring_lateral_engaged
 from openpilot.starpilot.feature_runtime import requested as feature_requested
 
 
+def _read_allow_manumatic(params: Params) -> bool | None:
+  try:
+    cp_bytes = params.get("CarParams")
+  except Exception:
+    return None
+  if not cp_bytes:
+    return None
+  from opendbc.car.structs import car
+  with car.CarParams.from_bytes(cp_bytes) as cp:
+    return cp.carFingerprint == "SUBARU_LEGACY_2025"
+
+
 def dmonitoringd_thread():
   config_realtime_process([0, 1, 2, 3], 5)
 
@@ -18,7 +30,10 @@ def dmonitoringd_thread():
   required = ['driverStateV2', 'extrinsicsCalibration', 'carState', 'selfdriveState', 'modelV2']
   sm = messaging.SubMaster(required + (['aolAxisState', 'aolSafetyWire'] if aol_replay else []), poll='driverStateV2')
 
-  DM = DriverMonitoring(rhd_saved=params.get_bool("IsRhdDetected"), always_on=params.get_bool("AlwaysOnDM"))
+  allow_manumatic = _read_allow_manumatic(params)
+  cp_checked = allow_manumatic is not None
+  DM = DriverMonitoring(rhd_saved=params.get_bool("IsRhdDetected"), always_on=params.get_bool("AlwaysOnDM"),
+                        allow_manumatic=bool(allow_manumatic))
   demo_mode=False
 
   # 20Hz <- dmonitoringmodeld
@@ -43,6 +58,11 @@ def dmonitoringd_thread():
     if sm['driverStateV2'].frameId % 40 == 1:
       DM.always_on = params.get_bool("AlwaysOnDM")
       demo_mode = params.get_bool("IsDriverViewEnabled")
+      if not cp_checked:
+        allow_manumatic = _read_allow_manumatic(params)
+        if allow_manumatic is not None:
+          DM.allow_manumatic = allow_manumatic
+          cp_checked = True
 
     # save rhd virtual toggle every 5 mins
     if (sm['driverStateV2'].frameId % 6000 == 0 and not demo_mode and

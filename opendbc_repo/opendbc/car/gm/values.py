@@ -951,6 +951,11 @@ def is_bolt_pedal_profile(cp, *, stock_only=False):
   return _bolt_pedal_profile(cp, stock_only=stock_only)
 
 
+def bolt_pedal_in_drive_requires_low(cp, gear):
+  return (gear == 'drive' and getattr(cp, 'carFingerprint', None) in (CAR.CHEVROLET_BOLT_CC_2017, CAR.CHEVROLET_BOLT_CC_2018_2021) and
+          is_bolt_pedal_profile(cp))
+
+
 @cached_config
 def _bolt_pedal_profile(cp, *, stock_only=False):
   """Exact selected interceptor profile, including its startup authority reduction."""

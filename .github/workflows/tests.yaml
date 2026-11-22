@@ -11,6 +11,7 @@ on:
       - testing
       - dev
   pull_request:
+    types: [opened, synchronize, reopened, edited]
   workflow_dispatch:
   workflow_call:
     inputs:
@@ -31,6 +32,12 @@ env:
   PYTHONPATH: ${{ github.workspace }}
 
 jobs:
+  stable_pr_phone_bridge:
+    if: github.event_name == 'pull_request' && github.base_ref == 'stable'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/galaxy-phone-bridge.yaml
+
   source_integrity:
     name: source integrity
     runs-on: ubuntu-24.04

@@ -5,6 +5,7 @@ import math
 import time
 
 from openpilot.cereal import log
+from openpilot.starpilot.ui.brand import DISPLAY_VERSION
 from openpilot.starpilot.ui.raylib import rl
 from collections.abc import Callable
 from openpilot.system.ui.widgets import Widget
@@ -199,11 +200,10 @@ class MiciHomeLayout(Widget):
     self._did_long_press = False
 
   def _get_version_text(self) -> tuple[str, str, str, str] | None:
-    version = ui_state.params.get("Version")
     branch = ui_state.params.get("GitBranch")
     commit = ui_state.params.get("GitCommit")
 
-    if not all((version, branch, commit)):
+    if not (branch and commit):
       return None
 
     commit_date_raw = ui_state.params.get("GitCommitDate")
@@ -214,7 +214,7 @@ class MiciHomeLayout(Widget):
     except (ValueError, IndexError, TypeError, AttributeError):
       date_str = ""
 
-    return version, branch, commit[:7], date_str
+    return DISPLAY_VERSION, branch, commit[:7], date_str
 
   def _render(self, _):
     # TODO: why is there extra space here to get it to be flush?

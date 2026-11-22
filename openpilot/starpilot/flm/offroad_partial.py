@@ -9,7 +9,7 @@ import time
 from openpilot.starpilot.flm.log_decode import decode_full_rlog_segment, LogDecodeError, LogDecodeCancelled
 from openpilot.starpilot.flm.offroad_route import (
   LOCAL_ID, MAX_SEGMENTS, MAX_TOTAL_BYTES, MAX_ANALYSIS_SECONDS, RETAIN, PartialRouteReceipt,
-  RouteInputError, RouteInputCancelled, route_reader, source_revisions,
+  RouteInputError, RouteInputCancelled, route_reader, source_revisions, _reading_progress,
 )
 from openpilot.starpilot.galaxy.drive_analysis import _route_names, _closed_source, _Incomplete
 from openpilot.starpilot.galaxy.drive_history import _segment_files, DIR_FLAGS, SEGMENT_NAME, MAX_ROOT_ENTRIES
@@ -49,7 +49,7 @@ def partial_inventory(root, route_id, *, permitted):
 
 
 @route_reader
-def walk_partial_route(root, route, *, permitted, consume):
+def walk_partial_route(root, route, *, permitted, consume, on_progress=None):
   from openpilot.starpilot.flm.runtime_adapter_registry import car_params_digest
   from openpilot.starpilot.flm.offroad_evidence import torque_vehicle
 
@@ -69,6 +69,7 @@ def walk_partial_route(root, route, *, permitted, consume):
   def allowed():
     return permitted() and time.monotonic() - started <= MAX_ANALYSIS_SECONDS
 
+  _reading_progress(on_progress, 'reading', 0, len(route['segments']))
   for segment in route['segments']:
     number, name = segment['number'], segment['segmentName']
     receipts.append((name or '', '', 0))
@@ -122,6 +123,7 @@ def walk_partial_route(root, route, *, permitted, consume):
             evidence = event.starpilotLateralState.learningEvidence
             contexts.add((str(evidence.controllerMode), str(evidence.controllerRevision), str(evidence.baselineRevision)))
         decoded.append(number)
+        _reading_progress(on_progress, 'reading', len(decoded), len(route['segments']))
         seen.add(receipts[-1][1])
         first = start if first is None else min(first, start)
         last, wall = max(last, end), max(wall, clock[1])
@@ -131,16 +133,18 @@ def walk_partial_route(root, route, *, permitted, consume):
       omitted.append((number, str(error)[:160]))
   if not decoded or cp_hash is None or first is None or not omitted:
     raise ValueError('No independently closed partial segments, or complete input must be retried')
+  _reading_progress(on_progress, 'verifying', len(decoded), len(route['segments']))
   if (source_revisions(root, route) != before or partial_inventory(root, route_id, permitted=allowed) != route or not allowed()):
     raise RouteInputCancelled('Partial recording changed before review completed')
   digest = hashlib.sha256(json.dumps((route_id, receipts, omitted), separators=(',', ':')).encode()).hexdigest()
   return PartialRouteReceipt(route_id, digest, tuple(receipts), cp_hash, first, last, 0, tuple(sorted(contexts)), tuple(decoded), tuple(omitted), wall)
 
 
-def analyze_partial(root, route_id, previous, *, permitted):
+def analyze_partial(root, route_id, previous, *, permitted, on_progress=None):
   from openpilot.starpilot.flm.offroad_processor import collect_route_inputs, _assess_inputs
 
   route = partial_inventory(root, route_id, permitted=permitted)
-  inputs = collect_route_inputs(root, route, permitted=permitted, walker=walk_partial_route, isolate_segments=True)
+  inputs = collect_route_inputs(root, route, permitted=permitted, walker=walk_partial_route, isolate_segments=True, on_progress=on_progress)
+  _reading_progress(on_progress, 'checking', inputs.counts['original_segments_reviewed'], len(inputs.receipt.segments))
   inputs.counts.update(evidence_drives=0, evidence_windows=0)
   return _assess_inputs(route, inputs, previous, permitted=permitted)

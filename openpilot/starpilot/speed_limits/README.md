@@ -31,7 +31,14 @@ limit does not start another decision. The most recent decline survives source
 gaps and other readings until a different limit is adopted or another limit is
 declined. The sign continues to show the road reading.
 
-A qualified limit from a different provider enters the same confirmation or automatic
+Every enabled source works the same way: the newest number from any source is
+offered, and it stays offered until a source sends a different number. A source
+going stale or dropping out never hands the offer to another source's unchanged
+reading; the previous accepted limit simply stays. A number is new when it differs
+from the last number that source showed. A Dashboard "no sign" in between counts;
+map coverage, GPS and camera gaps do not. The saved source order, Highest and
+Lowest only break ties between numbers that arrive together.
+A new number from a different provider enters the same confirmation or automatic
 adoption flow immediately, without an extra source-switch delay.
 
 A proposed adjusted limit matching both displayed SET values is recorded without
@@ -110,7 +117,7 @@ Other sources keep their current-limit behavior.
 An ordered source list without Maps ignores map readings and previews. Removing
 Maps retires an in-progress preview and returns to the selected sources' normal
 adoption and previous-limit fallback rules.
-The upcoming Map proposal must win the configured source-selection policy.
+An upcoming Map proposal is offered only while Maps holds the current offer.
 There is no new onroad widget, caption, or countdown. The existing New Limit
 confirmation presents the proposed limit and its own offset; the ordinary sign
 and source readings continue to describe the current road.
@@ -138,8 +145,7 @@ A fresh road match that contradicts the preview retires the encounter, even if
 Maps knows the road but has no posted speed for it.
 A newly selected current Maps limit gets its own decision before the next exit
 can be offered, including the first Maps reading of a drive.
-The same source-selection policy used to offer a preview can retire it when another
-qualified source wins. That approach cannot re-offer the same destination and
+A new number from another source takes the offer and retires the preview. That approach cannot re-offer the same destination and
 limit solely because the winning source disappears or a tile refresh changes the ID.
 If the preferred live source matches the accepted preview speed, the cap continues.
 Otherwise the previous acceptance is restored and the selected source follows normal

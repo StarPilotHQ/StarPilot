@@ -45,6 +45,19 @@ def test_no_wrong_side_hazards_or_invalid_can(fields):
                             lane_change_blocked=False, now_ns=NOW, car_ns=NOW - 10_000_000, car_valid=True)
 
 
+def test_standstill_mute_only_applies_without_lateral_when_enabled():
+  for fields in ({'standstill': True}, {'vEgo': 0.49}):
+    assert blindspot_alert(car(**fields), Messages(), loud=False, without_lateral=True,
+                           lane_change_blocked=False, now_ns=NOW, car_ns=NOW - 10_000_000, car_valid=True)
+    assert not blindspot_alert(car(**fields), Messages(), loud=False, without_lateral=True,
+                               lane_change_blocked=False, now_ns=NOW, car_ns=NOW - 10_000_000, car_valid=True,
+                               mute_at_standstill=True)
+    # LoudBlindspotAlert during an active/blocked lane change is never muted at standstill.
+    assert blindspot_alert(car(**fields), Messages(active=True), loud=True, without_lateral=False,
+                           lane_change_blocked=True, now_ns=NOW, car_ns=NOW - 10_000_000, car_valid=True,
+                           mute_at_standstill=True)
+
+
 def test_right_side_and_stale_or_offroad_inputs():
   cs = car(leftBlinker=False, leftBlindspot=False, rightBlinker=True, rightBlindspot=True)
   sm = Messages()
@@ -84,13 +97,23 @@ def test_switch_defaults_persistence_and_exact_authority(tmp_path):
   params = Params(str(tmp_path))
   allowed = True
   owner = SoundsOwner(params, lambda: allowed)
-  for key in KEYS:
+  mute_row = next(row for row in owner.snapshot().rows if row.key == KEYS[2])
+  assert not mute_row.available
+  assert not owner.apply(FeatureSettingsRequest(KEYS[2], mute_row.source, 'On'))
+  for key in KEYS[:2]:
     row = next(row for row in owner.snapshot().rows if row.key == key)
     assert row.value == 'Off' and row.default_value == 'Off'
     request = FeatureSettingsRequest(key, row.source, 'On')
     assert owner.apply(request)
     assert params.get_bool(key)
     assert not owner.apply(request)
+    if key == KEYS[1]:
+      mute_row = next(row for row in owner.snapshot().rows if row.key == KEYS[2])
+      assert mute_row.available
+      assert owner.apply(FeatureSettingsRequest(KEYS[2], mute_row.source, 'On'))
+      assert params.get_bool(KEYS[2])
+      assert owner.apply(FeatureSettingsRequest(KEYS[2], b'1', 'Off'))
+      assert not params.get_bool(KEYS[2])
     allowed = False
     assert not owner.apply(FeatureSettingsRequest(key, b'1', 'Off'))
     allowed = True
@@ -106,7 +129,10 @@ def test_galaxy_sounds_switches_save_and_reset_with_session_checks(tmp_path):
 
   context = Context()
   gateway = SettingsGateway(params, context)
-  for key, label in zip(KEYS, ('Loud Blindspot Alert', 'Blindspot Alert While Lateral Is Off'), strict=True):
+  for key, label in zip(KEYS, ('Loud Blindspot Alert', 'Blindspot Alert While Lateral Is Off',
+                               'Mute Blindspot Alert at Standstill'), strict=True):
+    if key == KEYS[2]:
+      params.put_bool(KEYS[1], True, block=True)
     page = gateway.page('sounds', 'session', b'generation')
     index, row = next((i, row) for i, row in enumerate(page['rows']) if row['label'] == label)
     assert row['choices'] == ['Off', 'On'] and row['defaultValue'] == 'Off'
@@ -121,6 +147,7 @@ def test_galaxy_sounds_switches_save_and_reset_with_session_checks(tmp_path):
     reset = gateway.preview(page['view'], index, 0, 'session', b'generation', reset_default=True)
     assert gateway.confirm(reset['intent'], 'session', b'generation')
     assert not params.get_bool(key)
+  params.put_bool(KEYS[1], False, block=True)
 
 
 @pytest.mark.parametrize('car_ns,valid', [(0, True), (NOW + 1, True), (NOW - 200_000_001, True), (NOW, False)])
@@ -178,7 +205,7 @@ def test_actual_selfdrived_socket_live_setting_publication_and_sound(tmp_path):
     stop = threading.Event()
     with patch('openpilot.selfdrive.selfdrived.selfdrived.time.sleep', side_effect=lambda _: stop.set()):
       sd.params_thread(stop)
-    assert sd.blindspot_alert_settings == (False, True)
+    assert sd.blindspot_alert_settings == (False, True, False)
     state, stamp = sample(20)
     assert sd.AM.current_alert.alert_type == ALERT_TYPE, 'BLINDSPOT_CALLER_SILENT'
     output = {}
@@ -200,9 +227,17 @@ def test_actual_selfdrived_socket_live_setting_publication_and_sound(tmp_path):
                          (23, {'age': -1}), (24, {'active': True})]:
       sample(tick, **fields)
       assert ALERT_TYPE not in sd.AM.alerts
-    params.put_bool(KEYS[1], False, block=True)
+    params.put_bool(KEYS[2], True, block=True)
     stop.clear()
     with patch('openpilot.selfdrive.selfdrived.selfdrived.time.sleep', side_effect=lambda _: stop.set()):
       sd.params_thread(stop)
+    assert sd.blindspot_alert_settings == (False, True, True)
     sample(25)
+    assert ALERT_TYPE in sd.AM.alerts  # vEgo == 8.0 is above standstill mute threshold
+    params.put_bool(KEYS[1], False, block=True)
+    params.put_bool(KEYS[2], False, block=True)
+    stop.clear()
+    with patch('openpilot.selfdrive.selfdrived.selfdrived.time.sleep', side_effect=lambda _: stop.set()):
+      sd.params_thread(stop)
+    sample(26)
     assert ALERT_TYPE not in sd.AM.alerts

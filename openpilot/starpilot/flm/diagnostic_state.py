@@ -12,7 +12,7 @@ from openpilot.starpilot.saved_source import read_saved
 
 MAX_BYTES = 65_536
 MAX_EVENTS = 12
-ACTIVE = ('starting_analysis', 'reading_recording', 'checking_recommendations')
+ACTIVE = ('starting_analysis', 'reading_recording', 'verifying_recording', 'checking_recommendations')
 FIELDS = {'stage', 'reason', 'build', 'recording_sha256', 'analysis_counts', 'recommendation_count',
           'saved_adjustments', 'configuration_state', 'qualification', 'interrupted_stage', 'enabled', 'skipped_reasons'}
 
@@ -102,8 +102,8 @@ def read_state(params):
 def _stage(value):
   reason = str(value.get('reason', ''))
   if value.get('status') == 'fitting':
-    return ('starting_analysis' if reason == 'loading_parked_analysis' else
-            'reading_recording' if reason == 'analyzing_last_completed_drive' else 'checking_recommendations')
+    return {'loading_parked_analysis': 'starting_analysis', 'analyzing_last_completed_drive': 'reading_recording',
+            'verifying_recorded_drive': 'verifying_recording'}.get(reason, 'checking_recommendations')
   if value.get('status') == 'unavailable':
     return 'analysis_error'
   if reason.startswith('waiting_for_'):

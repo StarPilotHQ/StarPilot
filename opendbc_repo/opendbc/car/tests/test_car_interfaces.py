@@ -9,6 +9,8 @@ from opendbc.car.interfaces import CarInterfaceBase, get_interface_attr
 from opendbc.car.values import PLATFORMS
 from opendbc.car.volvo.cma_carcontroller import CarControllerCMA
 from opendbc.car.volvo.cma_carstate import CarStateCMA
+from opendbc.car.volvo.eucd_carcontroller import CarControllerEUCD
+from opendbc.car.volvo.eucd_carstate import CarStateEUCD
 from opendbc.car.volvo.values import CAR as VOLVO
 from opendbc.testing import Fuzzy, fuzzy_test
 
@@ -118,6 +120,9 @@ def _make_optional_hardware_test(car_name):
           if car_name in (VOLVO.VOLVO_XC40_RECHARGE, VOLVO.VOLVO_S60_RECHARGE, VOLVO.POLESTAR_2):
             self.assertIsInstance(interface.CS, CarStateCMA)
             self.assertIsInstance(interface.CC, CarControllerCMA)
+          elif car_name == VOLVO.VOLVO_V60:
+            self.assertIsInstance(interface.CS, CarStateEUCD)
+            self.assertIsInstance(interface.CC, CarControllerEUCD)
           else:
             self.assertIsInstance(interface.CS, interface_type.CarState)
             self.assertIsInstance(interface.CC, interface_type.CarController)

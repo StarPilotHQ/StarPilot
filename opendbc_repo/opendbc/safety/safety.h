@@ -451,6 +451,7 @@ int set_safety_hooks(uint16_t mode, uint16_t param) {
     {SAFETY_HYUNDAI, &hyundai_hooks},
     {SAFETY_CHRYSLER, &chrysler_hooks},
     {SAFETY_SUBARU, &subaru_hooks},
+    {SAFETY_SUBARU_PREGLOBAL, &subaru_preglobal_hooks},
     {SAFETY_VOLKSWAGEN_MQB, &volkswagen_mqb_hooks},
     {SAFETY_VOLKSWAGEN_MEB, &volkswagen_meb_hooks},
     {SAFETY_NISSAN, &nissan_hooks},
@@ -469,7 +470,6 @@ int set_safety_hooks(uint16_t mode, uint16_t param) {
     {SAFETY_CHRYSLER_CUSW, &chrysler_cusw_hooks},
     {SAFETY_PSA, &psa_hooks},
     {SAFETY_BYD, &byd_hooks},
-    {SAFETY_SUBARU_PREGLOBAL, &subaru_preglobal_hooks},
     {SAFETY_VOLKSWAGEN_MLB, &volkswagen_mlb_hooks},
     {SAFETY_VOLKSWAGEN_PQ, &volkswagen_pq_hooks},
     {SAFETY_ALLOUTPUT, &alloutput_hooks},
@@ -526,7 +526,15 @@ int set_safety_hooks(uint16_t mode, uint16_t param) {
   int hook_config_count = sizeof(safety_hook_registry) / sizeof(safety_hook_config);
   for (int i = 0; i < hook_config_count; i++) {
     if (safety_hook_registry[i].id == mode) {
-      if ((mode == SAFETY_VOLVO) && ((param > 2U) && (param != 5U))) {
+#ifndef ALLOW_DEBUG
+      if ((mode == SAFETY_SUBARU_PREGLOBAL) && (param != SUBARU_PG_OUTBACK_STOCK_ACC)) {
+        current_hooks = &nooutput_hooks;
+        current_safety_mode = SAFETY_NOOUTPUT;
+        current_safety_param = 0;
+        continue;
+      }
+#endif
+      if ((mode == SAFETY_VOLVO) && ((param > 2U) && (param != 5U) && (param != 8U))) {
         current_hooks = &nooutput_hooks;
         current_safety_mode = SAFETY_NOOUTPUT;
         current_safety_param = 0;

@@ -2,36 +2,11 @@ from copy import deepcopy
 from typing import Any
 import time
 
-from opendbc.car.hyundai.canfd_stock_aol import qualified as stock_qualified, qualified_long
+from opendbc.car.hyundai.canfd_stock_aol import GENERIC_HDA2_CARS as CARS, qualified as stock_qualified, qualified_long
 from opendbc.car.hyundai.ecu_continuity import ContinuousECUStartup, StartupKeeper
 from opendbc.car.hyundai.ecu_startup import Outcome, stock_copy
 from opendbc.car.hyundai.radar_hda2_startup import RadarHDA2Startup
 from opendbc.car.hyundai.values import CAR, HyundaiFlags, is_blended
-
-CARS = frozenset((
-  CAR.GENESIS_G80_2ND_GEN_FL,
-  CAR.HYUNDAI_IONIQ_5_N,
-  CAR.HYUNDAI_KONA_2ND_GEN,
-  CAR.HYUNDAI_KONA_HEV_2ND_GEN,
-  CAR.HYUNDAI_SANTA_CRUZ_1ST_GEN,
-  CAR.HYUNDAI_SANTA_CRUZ_2025,
-  CAR.HYUNDAI_SONATA_2024,
-  CAR.HYUNDAI_SONATA_HEV_2024,
-  CAR.HYUNDAI_STARIA_4TH_GEN,
-  CAR.HYUNDAI_TUCSON_2025,
-  CAR.HYUNDAI_TUCSON_4TH_GEN,
-  CAR.HYUNDAI_TUCSON_HEV_2025,
-  CAR.HYUNDAI_TUCSON_PHEV_2025,
-  CAR.KIA_CARNIVAL_2025,
-  CAR.KIA_CARNIVAL_HEV_4TH_GEN,
-  CAR.KIA_K4_2025,
-  CAR.KIA_K5_2025,
-  CAR.KIA_K8_HEV_1ST_GEN,
-  CAR.KIA_NIRO_EV_2ND_GEN,
-  CAR.KIA_NIRO_HEV_2ND_GEN,
-  CAR.KIA_SORENTO_2024,
-  CAR.KIA_SPORTAGE_5TH_GEN,
-))
 
 EXISTING_OWNERS_OR_DISTINCT_RECEIVERS = frozenset((
   CAR.HYUNDAI_KONA_EV_2ND_GEN,

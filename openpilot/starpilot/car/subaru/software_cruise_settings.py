@@ -1,5 +1,7 @@
 """Parked software-cruise preference for Dom's Impreza 2020 port."""
 
+from dataclasses import replace
+
 from opendbc.car.subaru.software_cruise import eligible
 from openpilot.starpilot.saved_document import commit_exact
 from openpilot.starpilot.vehicle_selection import read_selection
@@ -35,3 +37,12 @@ def apply(owner, request):
     authorized=authorized,
     temp_prefix='.subaru-cruise-',
   ).verified
+
+
+def rows(owner, parked):
+  identity = capability(owner)
+  if identity is None:
+    return ()
+  row = owner._bool_row(KEY, "Software Cruise Control", parked and owner.authority("parked_preferences"),
+                        "Adjust stock cruise speed using Resume and Set. Applies after the next startup; factory ACC keeps pedal control.")
+  return (replace(row, available=row.available and owner._readable(KEY), capability=identity),)

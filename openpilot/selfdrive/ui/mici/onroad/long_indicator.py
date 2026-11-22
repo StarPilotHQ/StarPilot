@@ -3,6 +3,7 @@
 from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.cereal import log
+from opendbc.car.gm.values import bolt_pedal_in_drive_requires_low
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.starpilot.ui.onroad_personality import PersonalityWidget
 from openpilot.system.ui.widgets import Widget
@@ -20,7 +21,9 @@ class LongIndicator(Widget):
   def _render(self, rect: rl.Rectangle) -> None:
     sm = ui_state.sm
     if (sm.recv_frame['selfdriveState'] < ui_state.started_frame or
-        not sm['selfdriveState'].enabled or not ui_state.has_longitudinal_control):
+        not sm['selfdriveState'].enabled or not ui_state.has_longitudinal_control or
+        (sm.alive['carState'] and sm.valid['carState'] and sm.recv_frame['carState'] >= ui_state.started_frame and
+         bolt_pedal_in_drive_requires_low(ui_state.CP, sm['carState'].gearShifter))):
       self.indicator.reset()
       return
     self.indicator.draw(

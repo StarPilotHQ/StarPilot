@@ -13,7 +13,7 @@ from openpilot.starpilot.aol.tests.test_carstate_queue import message
 from openpilot.starpilot.aol.tests.test_input_deadline_continuity import BASE, intent
 
 
-@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
+@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5, CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
 @pytest.mark.parametrize('pulse', ('healthy', 'cancel', 'permanent_eps', 'invalid_can'))
 def test_mazda_consumes_input_arriving_during_car_event_work(identity, pulse):
   with OpenpilotPrefix(), ExitStack() as cleanup:

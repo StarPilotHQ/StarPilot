@@ -55,8 +55,12 @@ def get_cruise_accel(e2e, v_cruise, v_ego, a_cruise_prev, angle_steers, CP, dt, 
 
 
 class LongitudinalPlanner:
-  def __init__(self, CP, init_v=0.0, init_a=0.0, dt=DT_MDL):
+  def __init__(self, CP, init_v=0.0, init_a=0.0, dt=DT_MDL, *, developer_tuning=None):
     self.CP = CP
+    tuning = developer_tuning or {}
+    self.action_delay_override = tuning.get("delay")
+    self.stop_speed = tuning.get("stop_speed", .3)
+    self.accel_ceiling = min(ACCEL_MAX, tuning.get("max_accel", ACCEL_MAX))
     self.mpc = LongitudinalMpc(dt=dt)
     self.fcw = False
     self.dt = dt
@@ -130,17 +134,18 @@ class LongitudinalPlanner:
     # Save starting point for next iteration
     a_prev = self.output_a_target
 
-    action_t =  self.CP.longitudinalActuatorDelay + DT_MDL
+    action_delay = self.CP.longitudinalActuatorDelay if self.action_delay_override is None else self.action_delay_override
+    action_t = action_delay + DT_MDL
     output_a_target_mpc = get_accel_from_plan(self.v_desired_trajectory, self.a_desired_trajectory, CONTROL_N_T_IDX,
                                               action_t=action_t)
-    output_should_stop_mpc = should_stop(v_ego, output_a_target_mpc)
+    output_should_stop_mpc = should_stop(v_ego, output_a_target_mpc, self.stop_speed)
     output_a_target_e2e = sm['modelV2'].action.desiredAcceleration
     output_should_stop_e2e = sm['modelV2'].action.shouldStop
 
     self.a_cruise = get_cruise_accel(sm['selfdriveState'].experimentalMode, v_cruise, v_ego,
                                      self.a_cruise, steer_angle_without_offset, self.CP, self.dt,
                                      accel_coast, self.allow_throttle)
-    cruise_should_stop = should_stop(v_ego, self.a_cruise)
+    cruise_should_stop = should_stop(v_ego, self.a_cruise, self.stop_speed)
 
     candidates = [(output_a_target_mpc, self.mpc.source, output_should_stop_mpc),
                   (self.a_cruise, LongitudinalPlanSource.cruise, cruise_should_stop)]
@@ -149,7 +154,7 @@ class LongitudinalPlanner:
 
     output_a_target, self.mpc.source, _ = min(candidates, key=lambda c: c[0])
     self.output_should_stop = any(should_stop for _, _, should_stop in candidates)
-    self.output_a_target = np.clip(output_a_target, ACCEL_MIN, ACCEL_MAX)
+    self.output_a_target = np.clip(output_a_target, ACCEL_MIN, self.accel_ceiling)
 
     self.v_desired_filter.x = self.v_desired_filter.x + self.dt * (self.output_a_target + a_prev) / 2.0
 

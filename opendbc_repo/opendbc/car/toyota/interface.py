@@ -242,7 +242,8 @@ class CarInterface(CarInterfaceBase):
 
     # min speed to enable ACC. if car can do stop and go, then set enabling speed
     # to a negative value, so it won't matter.
-    ret.minEnableSpeed = -1. if stop_and_go else MIN_ACC_SPEED
+    highlander_sdsu = candidate == CAR.TOYOTA_HIGHLANDER and (rav4h_sdsu or legacy_advert)
+    ret.minEnableSpeed = -1. if stop_and_go or highlander_sdsu else MIN_ACC_SPEED
 
     if ret.flags & ToyotaFlags.TSS2 or ret.flags & ToyotaFlags.LONG_FILTER and not (rav4h_sdsu or eps8_filter or legacy_filter):
       ret.flags |= ToyotaFlags.RAISED_ACCEL_LIMIT.value

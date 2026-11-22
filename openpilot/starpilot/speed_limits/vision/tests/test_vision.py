@@ -447,7 +447,7 @@ class TestVision(unittest.TestCase):
     sm.advance(2_300_000_000)
     expired = confirmed.step(sm, cp, now_ns=2_300_000_000, now_boot_ns=6_300_000_000)
     self.assertTrue(expired.message.slcState.hasCeiling)
-    self.assertEqual(expired.result.acceptance.basis, 'unknown')
+    self.assertEqual(expired.result.acceptance.basis, 'stale')
     self.assertAlmostEqual(expired.result.acceptance.control_target_mps, evidence.speedMps)
     self.assertEqual(expired.result.acceptance.state.accepted, accepted.result.acceptance.state.accepted)
     self.assertIs(confirmed.vision_diagnostic.kind, ObservationKind.STALE)

@@ -4,6 +4,7 @@ on:
   push:
     branches: [master, Domathon, Dom, StarPilot, stable, testing, dev]
   pull_request:
+    types: [opened, synchronize, reopened, edited]
   workflow_dispatch:
 
 permissions:

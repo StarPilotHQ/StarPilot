@@ -19,6 +19,7 @@ from ipaddress import IPv4Address, AddressValueError
 from enum import Enum
 
 from openpilot.common.esim.base import WEBBING_ICCID_PREFIX
+from openpilot.common.hardware.comma.hardware import get_device_type
 from openpilot.common.swaglog import cloudlog
 
 logging.basicConfig(
@@ -229,6 +230,7 @@ class Modem:
   def __init__(self):
     self._ppp = PPPSession()
     self._sim_change = False
+    self._modem_restarting = False
     self._apn = ""  # blank = network-provided via PCO
     self._roaming_allowed = True
     self.running = True
@@ -330,8 +332,7 @@ class Modem:
       # clear initial EPS bearer APN (some carriers reject the default)
       'AT+CGDCONT=0,"IP",""',
 
-      # SIM hot swap
-      'AT+QSIMDET=1,0',
+      # SIM hot swap (detection itself is set per device in _do_initializing)
       'AT+QSIMSTAT=1',
 
       # configure modem as data-centric
@@ -377,6 +378,7 @@ class Modem:
 
   def _do_initializing(self):
     if not glob.glob("/dev/ttyUSB*"):
+      self._modem_restarting = False  # off USB, so a requested restart has happened
       return State.INITIALIZING
     logging.info("port found, initializing")
     self._ppp.kill()
@@ -387,6 +389,16 @@ class Modem:
 
     if not self._init_at_channel():
       cloudlog.error("modem: AT channel initialization failed, retrying")
+      return State.INITIALIZING
+
+    # tici's SIM detect pin reads "removed"; the modem stores this setting and applies it only after a restart
+    want = {"tizi": "1,0", "tici": "0,0"}.get(get_device_type())
+    if want and (have := self._atv("AT+QSIMDET?", "+QSIMDET:")) and have != want:
+      cloudlog.warning(f"modem: SIM detection {have} -> {want}, restarting modem")
+      self._at(f"AT+QSIMDET={want}")
+      self._modem_restarting = True
+    if self._modem_restarting:
+      self._at("AT+CFUN=1,1")  # resent each pass until the modem drops off USB: _at skips silently while LPA holds the port
       return State.INITIALIZING
 
     identity = self._read_identity()

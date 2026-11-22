@@ -7,7 +7,7 @@ static bool subaru_avh_seen[7];
 static bool subaru_avh_seq[7];
 static bool subaru_avh_enabled;
 static bool subaru_avh_done;
-static unsigned int subaru_avh_count;
+static uint8_t subaru_avh_count;
 static uint32_t subaru_avh_start;
 static uint32_t subaru_avh_sent;
 static uint32_t subaru_avh_template_ts;
@@ -109,8 +109,8 @@ static void subaru_avh_rx(const CANPacket_t *msg) {
 static bool subaru_avh_tx(const CANPacket_t *msg) {
   const uint32_t now = microsecond_timer_get();
   const uint32_t elapsed = safety_get_ts_elapsed(now, subaru_avh_start);
-  const bool second = subaru_avh_count == 1U;
-  bool allowed = subaru_avh_enabled && !subaru_avh_done && (subaru_avh_count < 2U) &&
+  const bool followup = subaru_avh_count > 0U;
+  bool allowed = subaru_avh_enabled && !subaru_avh_done && (subaru_avh_count < 4U) &&
                  (msg->addr == 0x6BBU) && (msg->bus == 1U) && (GET_LEN(msg) == 8U) && !relay_malfunction && !safety_rx_checks_invalid &&
                  aol_rx_healthy() && !lateral_controls_allowed() && !gas_pressed && !subaru_software_fault &&
                  (elapsed >= 10000000U) && (elapsed <= 30000000U) && subaru_avh_ready(now) &&
@@ -124,10 +124,10 @@ static bool subaru_avh_tx(const CANPacket_t *msg) {
     }
   }
 
-  if (second) {
+  if (followup) {
     const uint32_t spacing = safety_get_ts_elapsed(now, subaru_avh_sent);
     allowed &= (spacing >= 45000U) && (spacing <= 80000U) && (subaru_avh_ts[0] == subaru_avh_template_ts) &&
-               (safety_get_ts_elapsed(now, subaru_avh_ts[0]) <= 110000U);
+               (safety_get_ts_elapsed(now, subaru_avh_ts[0]) <= 250000U);
   } else {
     allowed &= safety_get_ts_elapsed(now, subaru_avh_ts[0]) <= 30000U;
   }
@@ -135,7 +135,7 @@ static bool subaru_avh_tx(const CANPacket_t *msg) {
   for (int i = 1; i < 8; i++) {
     uint8_t expected = subaru_avh_data[0][i];
     if (i == 1) {
-      expected = (expected & 0xF0U) | ((expected + (second ? 2U : 1U)) & 0xFU);
+      expected = (expected & 0xF0U) | ((expected + subaru_avh_count + 1U) & 0xFU);
     } else if (i == 2) {
       expected |= 2U;
     } else {
@@ -149,7 +149,7 @@ static bool subaru_avh_tx(const CANPacket_t *msg) {
     subaru_avh_count++;
     subaru_avh_sent = now;
     subaru_avh_template_ts = subaru_avh_ts[0];
-    subaru_avh_done = second;
+    subaru_avh_done = (subaru_avh_count == 4U);
   }
   return allowed;
 }

@@ -2,7 +2,7 @@
 from opendbc.can import CANParser
 from opendbc.car import structs
 from opendbc.car.config_cache import cached_config
-from opendbc.car.toyota.values import CAR, ToyotaFlags
+from opendbc.car.toyota.values import CAR, MIN_ACC_SPEED, ToyotaFlags
 
 # Bit15 is a distinct exact-profile marker; reserve Dom bit14 for Lexus ALT_CRUISE.
 EPS5_SDSU_CARS = frozenset((
@@ -76,6 +76,8 @@ def prepare_stock(cp):
   cp.flags &= ~int(ToyotaFlags.AUTO_BRAKE_HOLD)
   cp.alternativeExperience &= ~(128 | 256)
   cp.openpilotLongitudinalControl = False
+  if cp.carFingerprint == CAR.TOYOTA_HIGHLANDER:
+    cp.minEnableSpeed = MIN_ACC_SPEED
   cp.safetyConfigs[0].safetyParam = STOCK_WORD
   cp.autoResumeSng = False
   return True

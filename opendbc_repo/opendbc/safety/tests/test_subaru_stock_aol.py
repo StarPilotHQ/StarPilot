@@ -47,8 +47,9 @@ class TestSubaruStockAol(unittest.TestCase):
       ('ES_Status', {'Cruise_Activated': int(cruise)}, 2 if self.param == 16 else 1),
       ('ES_DashStatus', {'Cruise_On': int(main)}, 2),
     ]
-    if not omit_distance and self.param in (17, 209, 465, 4096, 4104, 4608, 4616):
-      frames.append(('ES_Distance', {'Cruise_Fault': int(acc_fault)}, 1 if self.param in (17, 209, 465) else 2))
+    if not omit_distance and self.param in (17, 145, 209, 401, 465, 1169, 1425, 4096, 4104, 4608, 4616):
+      frames.append(('ES_Distance', {'Cruise_Fault': int(acc_fault)},
+                     1 if self.param in (17, 145, 209, 401, 465, 1169, 1425) else 2))
     if not omit_gear:
       frames.append(('Transmission', {'Gear': gear}, gear_bus))
     for name, fields, bus in frames:
@@ -79,7 +80,7 @@ class TestSubaruStockAol(unittest.TestCase):
         self.assertEqual(self.feed(temporary=True), 0)
         self.assertEqual(self.feed(), 1)
         self.assertEqual(self.feed(main=False), 0)
-        self.assertEqual(self.feed(main=True), int(param in (17, 209, 465, 4096, 4104, 4608, 4616)))
+        self.assertEqual(self.feed(main=True), int(param in (17, 145, 209, 465, 4096, 4104, 4608, 4616)))
         self.assertEqual(self.feed(cruise=True), 1)
 
   def test_permanent_fault_and_rx_fault_require_fresh_ordinary_engagement(self):

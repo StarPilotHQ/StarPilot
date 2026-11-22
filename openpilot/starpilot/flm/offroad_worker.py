@@ -892,7 +892,7 @@ class OffroadWorker:
       from openpilot.starpilot.flm.offroad_partial import analyze_partial
 
       try:
-        assessment = analyze_partial(self.root, route['routeId'], prior, permitted=self.permitted)
+        assessment = analyze_partial(self.root, route['routeId'], prior, permitted=self.permitted, on_progress=self.on_progress)
       except RouteInputError:
         raise error from None
       self._skip_route(route['routeId'], error)

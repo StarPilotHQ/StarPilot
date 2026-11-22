@@ -14,17 +14,17 @@ from opendbc.car.mazda.values import CAR, DBC
 from opendbc.car.mazda.tests.test_stock_startup import complete_frames, exercise_startup
 
 
-@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
+@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5, CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
 def test_ordinary_engagement_brake_actual_family_callers(identity, monkeypatch):
   _exercise_actual_family_callers(identity, monkeypatch)
 
 
-@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
+@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5, CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
 def test_unassigned_cancel_retains_lateral_main_off_revokes_actual_callers(identity, monkeypatch):
   _exercise_actual_family_callers(identity, monkeypatch, scenario='cancel', cancel_action=0)
 
 
-@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
+@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5, CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
 def test_longitudinal_cancel_assignment_keeps_lateral_actual_callers(identity, monkeypatch):
   _exercise_actual_family_callers(identity, monkeypatch, scenario='long_cancel', cancel_action=4)
 
@@ -59,29 +59,29 @@ extern "C" bool mazda_test_armed(const unsigned char *data, size_t size, uint64_
   yield armed
 
 
-@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
+@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5, CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
 def test_reverse_return_retains_lateral_actual_callers(identity, monkeypatch, armed_intent_decoder):
   _exercise_actual_family_callers(identity, monkeypatch, scenario='reverse', armed_intent=armed_intent_decoder)
 
 
-@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
+@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5, CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
 def test_standstill_return_retains_lateral_actual_callers(identity, monkeypatch, armed_intent_decoder):
   _exercise_actual_family_callers(identity, monkeypatch, scenario='standstill', armed_intent=armed_intent_decoder)
 
 
-@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
+@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5, CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
 def test_permanent_fault_while_stopped_disarms_actual_callers(identity, monkeypatch, armed_intent_decoder):
   _exercise_actual_family_callers(identity, monkeypatch, scenario='stop_fault', armed_intent=armed_intent_decoder)
 
 
-@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
+@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5, CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
 @pytest.mark.parametrize('cancel_action', (3, 9))
 def test_mapped_cancel_pause_and_toggle_actual_callers(identity, cancel_action, monkeypatch, armed_intent_decoder):
   _exercise_actual_family_callers(identity, monkeypatch, scenario='mapped_cancel', cancel_action=cancel_action,
                                  armed_intent=armed_intent_decoder)
 
 
-@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
+@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5, CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
 @pytest.mark.parametrize('lateral_only', (False, True))
 def test_eps_recovery_actual_callers(identity, lateral_only, monkeypatch, armed_intent_decoder):
   _exercise_actual_family_callers(identity, monkeypatch, scenario='temporary', lateral_only=lateral_only,
@@ -489,23 +489,23 @@ def _exercise_actual_family_callers(identity, monkeypatch, *, scenario='brake', 
                    mapping=(0, 0) if scenario in ('startup', 'startup_stopped') else (9, 9))
 
 
-@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
+@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5, CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
 def test_main_already_on_startup_actual_callers(identity, monkeypatch, armed_intent_decoder):
   _exercise_actual_family_callers(identity, monkeypatch, scenario='startup', cancel_action=9, armed_intent=armed_intent_decoder)
 
 
-@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
+@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5, CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
 def test_main_on_startup_respects_button_managed_aol(identity, monkeypatch, armed_intent_decoder):
   _exercise_actual_family_callers(identity, monkeypatch, scenario='startup_managed', armed_intent=armed_intent_decoder)
 
 
-@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
+@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5, CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
 def test_main_on_startup_stopped_then_drive_actual_callers(identity, monkeypatch, armed_intent_decoder):
   _exercise_actual_family_callers(identity, monkeypatch, scenario='startup_stopped', cancel_action=9,
                                  armed_intent=armed_intent_decoder)
 
 
-@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
+@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5, CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
 def test_main_on_startup_disabled_aol_actual_card_controls_native(identity, monkeypatch):
   from openpilot.cereal import messaging
   from openpilot.selfdrive.car import card as card_module
@@ -566,19 +566,19 @@ def test_main_on_startup_disabled_aol_actual_card_controls_native(identity, monk
   exercise_startup(identity, False, False, False, monkeypatch, probe=probe)
 
 
-@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
+@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5, CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
 @pytest.mark.parametrize('warning', ('calibrationInvalid', 'lowMemory', 'processNotRunning', 'radarTempUnavailable'))
 def test_ordinary_warning_retains_intent_actual_callers(identity, warning, monkeypatch, armed_intent_decoder):
   _exercise_actual_family_callers(identity, monkeypatch, scenario='warning', warning=warning, armed_intent=armed_intent_decoder)
 
 
-@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
+@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5, CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
 @pytest.mark.parametrize('scenario', ('mapped_cancel', 'temporary'))
 def test_unbelted_lateral_pause_recovery_actual_callers(identity, scenario, monkeypatch, armed_intent_decoder):
   _exercise_actual_family_callers(identity, monkeypatch, scenario=scenario, cancel_action=3,
                                  armed_intent=armed_intent_decoder, unbelted=True)
 
-@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
+@pytest.mark.parametrize('identity', (CAR.MAZDA_CX5, CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
 @pytest.mark.parametrize('warning', ('calibrationInvalid', 'lowMemory', 'processNotRunning', 'radarTempUnavailable'))
 def test_active_ordinary_warning_retains_intent_actual_callers(identity, warning, monkeypatch, armed_intent_decoder):
   _exercise_actual_family_callers(identity, monkeypatch, scenario='warning_active', warning=warning, armed_intent=armed_intent_decoder)

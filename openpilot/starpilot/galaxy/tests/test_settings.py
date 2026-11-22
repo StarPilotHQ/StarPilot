@@ -43,6 +43,32 @@ class SettingsGatewayTest(unittest.TestCase):
   def page(self, name):
     return self.gateway.page(name, self.session, self.generation)
 
+  def test_kona_main_cruise_assignment_stays_selected_after_save(self):
+    from opendbc.car.hyundai.tests.test_kona_ccnc_long_aol import kona_params
+    from opendbc.car.hyundai.values import CAR as HYUNDAI
+
+    cp = kona_params(HYUNDAI.HYUNDAI_KONA_2ND_GEN)
+    cp.safetyConfigs[-1].safetyParam |= 0x800
+    cp.alternativeExperience = 32
+    self.context.value = AuthorityContext(True, cp, cp.to_bytes())
+    self.params.put_bool('AlwaysOnLateral', True, block=True)
+    self.params.put('LKASButtonControl', 0, block=True)
+    key = 'MainCruiseButtonControl'
+    self.params.put(key, 10, block=True)
+    for value, saved in (('Toggle AOL', b'9'), ('Off', b'0'), ('Toggle AOL', b'9'),
+                         ('Adopt speed limit', b'10'), ('Off', b'0')):
+      with self.subTest(value=value):
+        page = self.page('wheel')
+        index = next(i for i, row in enumerate(page['rows']) if row['label'] == 'Main cruise press')
+        intent = self.gateway.preview(page['view'], index, 0, self.session, self.generation, value=value)
+        self.assertTrue(self.gateway.confirm(intent['intent'], self.session, self.generation))
+        self.assertEqual(read_saved(self.params, key, 8), (saved, True))
+        rows = {row['label']: row for row in self.page('wheel')['rows']}
+        self.assertEqual(rows['Main cruise press']['value'], value)
+        self.assertEqual(rows['LKAS press']['value'], 'Off')
+        self.assertEqual(read_saved(self.params, 'LKASButtonControl', 8), (b'0', True))
+        self.assertEqual('can still toggle' in rows['Main cruise press']['reason'], value == 'Off')
+
   def test_aol_steering_pause_actual_angle_gateway_save_and_default(self):
     from opendbc.car.car_helpers import interfaces
     from opendbc.car.ford.values import CAR as FORD
@@ -128,6 +154,59 @@ class SettingsGatewayTest(unittest.TestCase):
     with mock.patch('openpilot.starpilot.saved_document.acquire_native_lock', side_effect=revoke):
       self.assertFalse(self.gateway.confirm(intent['intent'], self.session, self.generation))
     self.assertTrue(self.params.get_bool('AlwaysOnLateral'))
+
+  def test_redneck_cruise_allows_slc_setup_before_next_startup(self):
+    from opendbc.car.hyundai.interface import CarInterface
+    from opendbc.car.hyundai.software_cruise import prepare, selected
+    from opendbc.car.hyundai.values import CAR
+
+    cp = CarInterface.get_non_essential_params(CAR.HYUNDAI_KONA_NON_SCC)
+    raw = cp.as_reader().as_builder().to_bytes()
+    self.context.value = AuthorityContext(True, cp, raw)
+    self.params.put_bool('IsMetric', True, block=True)
+
+    def slc_row(page):
+      return next(i for i, row in enumerate(page['rows']) if row['label'] == 'Speed Limit Controller')
+
+    page = self.page('slc')
+    self.assertFalse(page['rows'][slc_row(page)]['available'])
+    self.params.put_bool('RedneckCruise', True, block=True)
+    page = self.page('slc')
+    index = slc_row(page)
+    self.assertTrue(page['rows'][index]['available'])
+    intent = self.gateway.preview(page['view'], index, 0, self.session, self.generation, value='On')
+
+    self.params.put_bool('RedneckCruise', False, block=True)
+    self.assertFalse(self.gateway.confirm(intent['intent'], self.session, self.generation))
+    self.assertFalse(self.params.get_bool('SpeedLimitController'))
+
+    self.params.put_bool('RedneckCruise', True, block=True)
+    page = self.page('slc')
+    intent = self.gateway.preview(page['view'], slc_row(page), 0, self.session, self.generation, value='On')
+    self.assertTrue(self.gateway.confirm(intent['intent'], self.session, self.generation))
+    self.assertTrue(self.params.get_bool('SpeedLimitController'))
+    page = self.page('slc')
+    index = next(i for i, row in enumerate(page['rows']) if row['label'] == 'Match Speed Limit on Engage')
+    self.assertTrue(page['rows'][index]['available'])
+    intent = self.gateway.preview(page['view'], index, 0, self.session, self.generation, value='On')
+    self.assertTrue(self.gateway.confirm(intent['intent'], self.session, self.generation))
+    self.assertTrue(self.params.get_bool('SLCOnEngage'))
+    self.assertFalse(selected(cp))
+    self.assertFalse(cp.openpilotLongitudinalControl)
+    self.assertEqual(cp.as_reader().as_builder().to_bytes(), raw)
+
+    prepare(cp, True)
+    self.context.value = AuthorityContext(True, cp, cp.as_reader().as_builder().to_bytes())
+    page = self.page('slc')
+    index = next(i for i, row in enumerate(page['rows']) if row['label'].endswith('offset'))
+    self.assertTrue(page['rows'][index]['available'])
+    intent = self.gateway.preview(page['view'], index, 0, self.session, self.generation, value=3)
+    self.assertTrue(self.gateway.confirm(intent['intent'], self.session, self.generation))
+
+    scc = CarInterface.get_non_essential_params(CAR.HYUNDAI_KONA)
+    self.context.value = AuthorityContext(True, scc, scc.to_bytes())
+    page = self.page('slc')
+    self.assertFalse(page['rows'][slc_row(page)]['available'])
 
   def test_pcm_cruise_long_owner_can_configure_slc_without_custom_cruise_authority(self):
     cp = self.context.value.cp
@@ -261,7 +340,7 @@ class SettingsGatewayTest(unittest.TestCase):
     lateral = next(section for section in hub["sections"] if section["id"] == "lateral")
     self.assertEqual(next(page for page in lateral["pages"] if page["id"] == "aol")["title"], self.page("aol")["title"])
     self.assertEqual([row["page"] for row in hub["rows"]],
-                     ["aol", "lane_change", "lane", "torque", "torque/developer", "curve", "slc", "profiles", "conditional", "wheel",
+                     ["aol", "lane_change", "lane", "torque", "torque/developer", "curve", "slc", "profiles", "conditional", "profiles/developer", "wheel",
                      "vehicle", "personalities", "developer"])
     self.assertEqual([row["page"] for row in self.page("personalities")["rows"]],
                      ["aggressive", "standard", "relaxed", "traffic"])

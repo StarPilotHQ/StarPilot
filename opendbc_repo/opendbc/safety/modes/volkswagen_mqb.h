@@ -234,6 +234,11 @@ static bool volkswagen_mqb_tx_hook(const CANPacket_t *msg) {
     }
   }
 
+  // The stock camera retains the HUD until an openpilot HCA command owns steering.
+  if ((msg->addr == MSG_LDW_02) && vw_aol_enabled && !vw_aol_steering_owned()) {
+    tx = false;
+  }
+
   vw_aol_tx_commit(msg, tx && !relay_malfunction);
   return tx;
 }

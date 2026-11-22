@@ -80,6 +80,28 @@ static const CanMsg HYUNDAI_TX_MSGS[] = {
 
 // Classic-mode-only meanings. CANFD Carnival/angle bit8192 is untouched.
 // Exact stock words deliberately do not admit blended alpha-long or other flags.
+static bool hyundai_non_scc_software_cruise = false;
+
+static bool hyundai_non_scc_software_cruise_param(uint16_t param) {
+  bool selected = false;
+  switch (param) {
+    case 0x1020U: case 0x1820U: case 0x1420U: case 0x1C20U:
+    case 0x1060U: case 0x1860U: case 0x1460U: case 0x1C60U:
+    case 0x1061U: case 0x1861U: case 0x1461U: case 0x1C61U:
+    case 0x1022U: case 0x1822U: case 0x1422U: case 0x1C22U:
+      selected = true;
+      break;
+    default:
+      break;
+  }
+  return selected;
+}
+
+static bool hyundai_non_scc_software_button_allowed(bool main_button) {
+  return controls_allowed && cruise_engaged_prev && vehicle_moving && !main_button &&
+         !brake_pressed && !gas_pressed && !relay_malfunction && !safety_rx_checks_invalid;
+}
+
 static bool hyundai_blended_stock = false;
 // Exact prepared mixed longitudinal profiles.
 static bool hyundai_blended_alpha = false;
@@ -526,6 +548,11 @@ static bool hyundai_tx_hook(const CANPacket_t *msg) {
 
     bool allowed_resume = (button == 1) && controls_allowed;
     bool allowed_set = hyundai_blended_stock && (button == 2) && controls_allowed;
+    if (hyundai_non_scc_software_cruise) {
+      const bool stock_cruise_ready = hyundai_non_scc_software_button_allowed(GET_BIT(msg, 3U));
+      allowed_resume = (button == HYUNDAI_BTN_RESUME) && stock_cruise_ready;
+      allowed_set = (button == HYUNDAI_BTN_SET) && stock_cruise_ready;
+    }
     bool allowed_cancel = (button == 4) && cruise_engaged_prev;
     if (!(allowed_resume || allowed_set || allowed_cancel)) {
       tx = false;
@@ -601,7 +628,11 @@ static const CanMsg HYUNDAI_LONG_TX_MSGS[] = {
   };
 #endif
 
-static safety_config hyundai_init(uint16_t param) {
+static safety_config hyundai_init(uint16_t safety_param) {
+  hyundai_non_scc_software_cruise = hyundai_non_scc_software_cruise_param(safety_param) &&
+                                   ((alternative_experience == 0) || (alternative_experience == 32));
+  const uint16_t param = hyundai_non_scc_software_cruise ? (safety_param & ~0x0020U) : safety_param;
+
 #ifndef ALLOW_DEBUG
   static const CanMsg HYUNDAI_LONG_TX_MSGS[] = {
       HYUNDAI_LONG_COMMON_TX_MSGS(0, false)
@@ -906,6 +937,7 @@ static safety_config hyundai_init(uint16_t param) {
 }
 
 static safety_config hyundai_legacy_init(uint16_t param) {
+  hyundai_non_scc_software_cruise = false;
   // older hyundai models have less checks due to missing counters and checksums
   static const RxCheck hyundai_legacy_rx_checks[] = {
     HYUNDAI_COMMON_RX_CHECKS(true)

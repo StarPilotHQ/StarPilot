@@ -8,73 +8,33 @@
 [![App Store](https://img.shields.io/badge/App_Store-black?logo=apple&logoColor=white)](https://firestar.link/ios)
 [![Google Play](https://img.shields.io/badge/Google_Play-green?logo=googleplay&logoColor=white)](https://firestar.link/android)
 
-**StarPilot** is a custom fork of [comma.ai's openpilot](https://comma.ai/openpilot),
-an open source driver assistance system.
+StarPilot is an open source driver assistance system for comma 3, 3X, and 4. This branch is where you can try StarPilot 7.0.
 
-Openpilot provides
-* Automated Lane Centering
-* Adaptive Cruise Control
-* Lane Change Assist
-* Driver Monitoring *without wheel nags*
+## What's on testing
 
-Ford-specific lateral-control and vehicle-support work includes substantial adaptations from
-[BluePilot](https://github.com/BluePilotDev/bluepilot/tree/bp-7.0), principally developed by
-[Alan Polk](https://github.com/alan-polk) with additional BluePilot contributors. StarPilot's
-implementation has since diverged, but that does not erase its lineage. See [CREDITS.md](CREDITS.md)
-for the code-level provenance and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for applicable
-upstream notices and terms. BluePilot and its contributors do not maintain or endorse StarPilot;
-please direct support requests for this adaptation to the StarPilot project.
+* **Lane Centering 2.0** can keep the car centered when only one lane line is visible in certain scenarios. When lane markings are unreliable, it falls back to the driving model's path.
+* **Enhanced Stops** improves stops at stop signs and traffic lights. Vision Stop Sign Detection uses the road camera to recognize stop signs.
+* **Custom Controllers** improve turning behavior on supported vehicles. The Firestar Lateral Method adapts steering to your car, and StarPilot's longitudinal planner manages acceleration and braking on supported radar and vision-only configurations.
+* **Custom Models** let you choose from community fine tunes in Galaxy's Model Manager.
+* **On-Device UI Replay** lets you review a recorded drive with the driving interface overlaid on the footage.
 
-Hyundai, Kia, and Genesis angle steering and related vehicle support include substantial adaptations
-from [sunnypilot](https://github.com/sunnypilot/sunnypilot/tree/hkg-angle-steering-2025) and its
-[opendbc angle-steering branch](https://github.com/sunnypilot/opendbc/tree/hkg-angle-steering-2025).
-StarPilot's implementation has diverged significantly; the upstream contributors do not maintain
-this adaptation. Detailed code lineage is recorded in [CREDITS.md](CREDITS.md).
+## StarPort and companion apps
 
-StarPilot has a vibrant, welcoming community [discord](https://firestar.link/discord).
-Stop by to chat or ask questions!
-If your car isn't driving as well as you'd like, [open a ticket so we can help](https://firestar.link/logs)!
+**StarPort** puts the driving display on a compatible Android Auto head unit, with navigation, music controls, and model connection status. Use Mapbox or Google Maps for route guidance, and play audio through compatible car speakers with Spotify Connect or phone audio.
 
-## Documentation
+**Galaxy** lets you change settings, download models, update StarPilot, run diagnostics, and manage dashcam footage from your phone. The native apps connect over Wi-Fi, Firestar Link (HTTPS), or Bluetooth. [Download for iOS](https://firestar.link/ios) · [Download for Android](https://firestar.link/android)
 
-Please see [https://wiki.firestar.link](https://wiki.firestar.link) for hardware lists,
-installation guides, and software configuration.
+## Getting started
 
-## Features
+Find supported hardware, installation steps, and settings in the [StarPilot wiki](https://wiki.firestar.link). Ask questions in the [community Discord](https://firestar.link/discord) or [open a driving support ticket](https://firestar.link/logs).
 
-* **Full support for Comma C3, C3X, and C4**
-* Full support for chestnut/eGPU on C3, C3X, and C4. C3/C3X may require special gps handling.
-* Model switcher with all of comma's tinygrad driving models
-* StarPilot custom torque controller
-* StarPilot custom longitudinal planner for both radar and VoACC (visual only, radar-less) vehicles
-* **Custom tuning for an expanding list of vehicles**
-* Firestar Lateral Method -
-Auto tuning system to adapt openpilot to *your* car's unique lateral characteristics.
-* Galaxy: StarPilot's portal to configure your comma device using your phone from anywhere.
-Download models, change settings, update software, diagnostics, manage dashcam video, and more.
-* Android and iOS companion apps - Access Galaxy over Wi-Fi, Firestar Link (HTTPS), or Bluetooth.
-* StarPort - Project StarPilot onto compatible Android Auto head units for a larger driving display.
-* Customizable driving display - Driving map and navigation widgets, plus music controls and Jetlink status in StarPort.
-* Spotify Connect and phone audio - Play through compatible car speakers over StarPort or Bluetooth.
-* Navigation - Mapbox or Google maps and routing, with route guidance for exits and turns.
-* Always On Lateral (full time steering assist)
-* Lane Centering - Enable to center between detected lane lines,
-with graceful fallback to model E2E lateral outputs and safety breakout
-* Force Stop 2.0 - Better stops at stop signs and traffic lights.
-* Speed Limit Controller - Use dashboard, map data, and/or vision detection for speed limit signs
-* Curve Speed Controller - Learns from how you take curves
-* Conditional Experimental Mode (CEM)
-* Conditional Chill Mode (CCM)
-* Driving Profiles and Traffic Mode
-* Custom themes
-* Alert volume customization
-* Comma Pedal Interceptor support
-* Bluetooth support - Connect keyboards, controllers, steering wheel remotes, and more.
-* Sentry mode - Record when motion is detected while parked.
-* V-ASM - Detect vehicles in the adjacent/blind spots using the driver-facing camera.
-* Additional car support - Toyota SDSU, ZSS, CAN filter; pre-AP tesla; ford; Polestar 2; and more.
-* And more!
+## More driving and device features
 
+* Always On Lateral keeps steering assistance available independently of adaptive cruise on supported vehicles.
+* Speed Limit Controller uses dashboard, map, or vision data. Curve Speed Controller learns from how you take curves.
+* Driving Profiles and Traffic Mode, adjustable alert volume, and vehicle-specific tuning.
+* Bluetooth keyboards, controllers, and steering wheel remotes.
+* Sentry Mode records motion while parked. V-ASM uses the driver-facing camera to detect vehicles alongside the car.
 
 ## GM-only Features
 
@@ -110,6 +70,28 @@ See the [build guide](docs/how-to/laptop-device-build.md) for setup, prerequisit
 StarPilot retains upstream vehicle and Panda safety interfaces and adds regression coverage for its custom behavior. The [safety workflow](.github/workflows/safety.yaml) and feature tests cover distinct parts of the system. A passing interface test, model comparison, or bench run does not establish driving support for every configuration.
 
 Support depends on the vehicle configuration and enabled feature. An existing vehicle identifier or settings page does not by itself establish driving support. Model Laboratory currently exposes management controls, but paired driving inference remains unavailable pending integration and Chestnut validation.
+
+## Integrations and credits
+
+StarPilot builds on [comma.ai's openpilot](https://comma.ai/openpilot), which provides automated lane centering, adaptive cruise control, lane change assist, and driver monitoring.
+
+* **JetLink** is an experimental integration with Zeph Leggett / ZoomPilot's host software. Run a larger driving model on a compatible USB-connected laptop, phone, tablet, or Jetson. See the [JetLink setup and hardware guide](openpilot/starpilot/models/JETLINK.md).
+* **Chestnut eGPU** is supported on comma 3, 3X, and 4. The 3 and 3X may need additional GPS setup. The model switcher also supports comma's tinygrad driving models.
+* Additional vehicle and hardware integrations include the comma pedal interceptor, Toyota SDSU, ZSS and CAN filter configurations, pre-AP Tesla, Ford, and Polestar 2.
+
+Ford-specific lateral-control and vehicle-support work includes substantial adaptations from
+[BluePilot](https://github.com/BluePilotDev/bluepilot/tree/bp-7.0), principally developed by
+[Alan Polk](https://github.com/alan-polk) with additional BluePilot contributors. StarPilot's
+implementation has since diverged, but that does not erase its lineage. See [CREDITS.md](CREDITS.md)
+for the code-level provenance and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for applicable
+upstream notices and terms. BluePilot and its contributors do not maintain or endorse StarPilot;
+please direct support requests for this adaptation to the StarPilot project.
+
+Hyundai, Kia, and Genesis angle steering and related vehicle support include substantial adaptations
+from [sunnypilot](https://github.com/sunnypilot/sunnypilot/tree/hkg-angle-steering-2025) and its
+[opendbc angle-steering branch](https://github.com/sunnypilot/opendbc/tree/hkg-angle-steering-2025).
+StarPilot's implementation has diverged significantly; the upstream contributors do not maintain
+this adaptation. Detailed code lineage is recorded in [CREDITS.md](CREDITS.md).
 
 ## Third-Party Notices
 
