@@ -419,10 +419,12 @@ class CarState(CarStateBase):
     ret.standstill = abs(pt_cp.vl["EBCMWheelSpdRear"]["RLWheelSpd"]) <= STANDSTILL_THRESHOLD and \
                      abs(pt_cp.vl["EBCMWheelSpdRear"]["RRWheelSpd"]) <= STANDSTILL_THRESHOLD
 
-    if pt_cp.vl["ECMPRDNL2"]["ManualMode"] == 1:
+    gear = pt_cp.vl["ECMPRDNL2"]
+    ret.gmRegenGear = self.bolt_cc_profile and self.CP.carFingerprint in NO_ACC_BOLT_CAR and gear["PRNDL2"] in (5, 7)
+    if gear["ManualMode"] == 1:
       ret.gearShifter = self.parse_gear_shifter("T")
     else:
-      ret.gearShifter = self.parse_gear_shifter(self.shifter_values.get(pt_cp.vl["ECMPRDNL2"]["PRNDL2"], None))
+      ret.gearShifter = self.parse_gear_shifter(self.shifter_values.get(gear["PRNDL2"], None))
 
     source_be_brake = (gm_control_word(self.CP) &
                        (GMSafetyFlags.ASCM_INTERCEPT | GMSafetyFlags.SDGM).value and

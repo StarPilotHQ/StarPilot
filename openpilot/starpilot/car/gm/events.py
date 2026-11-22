@@ -1,3 +1,5 @@
+from copy import copy
+
 from opendbc.car.gm.values import is_bolt_cc_profile
 from opendbc.car.structs import car
 from openpilot.cereal import log
@@ -9,6 +11,17 @@ def qualified(cp) -> bool:
     return bool(is_bolt_cc_profile(cp))
   except (AttributeError, IndexError, TypeError, ValueError):
     return False
+
+
+def regen_gear_alert_text(alert):
+  if not alert.alert_type.startswith('wrongGear/'):
+    return alert
+  display = copy(alert)
+  if display.alert_text_1 == "Gear not D":
+    display.alert_text_1 = "Regen Gear Selected"
+  if display.alert_text_2 == "Gear not D":
+    display.alert_text_2 = "Regen Gear Selected"
+  return display
 
 
 def event_rules(cp) -> dict:
