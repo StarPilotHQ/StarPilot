@@ -6,9 +6,10 @@ import heapq
 import signal
 import numpy as np
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from itertools import islice
 from typing import Any
+from unittest.mock import patch
 from collections.abc import Callable, Iterable
 from tqdm import tqdm
 import capnp
@@ -25,6 +26,7 @@ from openpilot.starpilot.schema_cache import CACHE_KEYS, get_cache, inspect_cach
 from openpilot.common.prefix import OpenpilotPrefix
 from openpilot.common.timeout import Timeout
 from openpilot.system.camerad.cameras.nv12_info import get_nv12_info
+from openpilot.system.manager.process import PythonProcess, launcher as launch_python_process
 from openpilot.system.manager.process_config import managed_processes
 from openpilot.selfdrive.test.process_replay.vision_meta import meta_from_camera_state, available_streams
 from openpilot.selfdrive.test.process_replay.capture import ProcessOutputCapture
@@ -45,6 +47,14 @@ class LauncherWithCapture:
   def __call__(self, *args, **kwargs):
     self.capture.link_with_current_proc()
     self.launcher(*args, **kwargs)
+
+
+def _launch_selfdrived_replay(proc: str, name: str) -> None:
+  from openpilot.selfdrive.selfdrived import selfdrived
+
+  metadata = replace(selfdrived.get_build_metadata(), channel="replay")
+  with patch.object(selfdrived, "get_build_metadata", return_value=metadata):
+    launch_python_process(proc, name)
 
 
 class ReplayContext:
@@ -215,6 +225,9 @@ class ProcessContainer:
     self.cfg.vision_pubs = [meta.camera_state for meta in streams_metas if meta.camera_state in self.cfg.vision_pubs]
 
   def _start_process(self):
+    if self.cfg.proc_name == "selfdrived":
+      assert isinstance(self.process, PythonProcess)
+      self.process.launcher = _launch_selfdrived_replay
     if self.capture is not None:
       self.process.launcher = LauncherWithCapture(self.capture, self.process.launcher)  # ty: ignore[invalid-assignment]  # intentional wrapper
     self.process.start()
