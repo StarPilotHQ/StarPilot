@@ -14,8 +14,9 @@ class TestAgnosUpdater(OpenpilotTestCase):
       m = json.load(f)
 
     for img in m:
-      r = requests.head(img['url'], timeout=10)
-      r.raise_for_status()
-      assert r.headers['Content-Type'] == "application/x-xz"
+      headers = {'Range': 'bytes=0-5', 'Accept-Encoding': 'identity'}
+      with requests.get(img['url'], headers=headers, stream=True, timeout=10) as response:
+        response.raise_for_status()
+        self.assertEqual(response.raw.read(6), b'\xfd7zXZ\x00', img['name'])
       if not img['sparse']:
         assert img['hash'] == img['hash_raw']
