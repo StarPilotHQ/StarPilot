@@ -1132,6 +1132,11 @@ class Car:
       companion = messaging.new_message('starpilotCarState', valid=bool(cs_send.valid), logMonoTime=int(cs_send.logMonoTime))
       companion.starpilotCarState.lateralAuthorityUnavailable = bool(steering_authority.latched)
       companion.starpilotCarState.sourceCarStateMonoTime = int(cs_send.logMonoTime)
+    if self.CP.brand == 'gm' and getattr(self.CI.CS, 'gm_regen_gear', False) and CS.canValid and not CS.canTimeout:
+      if companion is None:
+        companion = messaging.new_message('starpilotCarState', valid=bool(cs_send.valid), logMonoTime=int(cs_send.logMonoTime))
+      companion.starpilotCarState.sourceCarStateMonoTime = int(cs_send.logMonoTime)
+      companion.starpilotCarState.gmRegenGear = True
     if self.CP.brand == 'tesla':
       info = getattr(self.CI.CC, 'steering_limit_info', None)
       if info:

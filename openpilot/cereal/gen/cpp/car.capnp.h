@@ -1184,8 +1184,6 @@ public:
 
   inline bool getCarNotReady() const;
 
-  inline bool getGmRegenGear() const;
-
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -1384,9 +1382,6 @@ public:
 
   inline bool getCarNotReady();
   inline void setCarNotReady(bool value);
-
-  inline bool getGmRegenGear();
-  inline void setGmRegenGear(bool value);
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -6172,20 +6167,6 @@ inline bool CarState::Builder::getCarNotReady() {
 inline void CarState::Builder::setCarNotReady(bool value) {
   _builder.setDataField<bool>(
       ::capnp::bounded<372>() * ::capnp::ELEMENTS, value);
-}
-
-inline bool CarState::Reader::getGmRegenGear() const {
-  return _reader.getDataField<bool>(
-      ::capnp::bounded<373>() * ::capnp::ELEMENTS);
-}
-
-inline bool CarState::Builder::getGmRegenGear() {
-  return _builder.getDataField<bool>(
-      ::capnp::bounded<373>() * ::capnp::ELEMENTS);
-}
-inline void CarState::Builder::setGmRegenGear(bool value) {
-  _builder.setDataField<bool>(
-      ::capnp::bounded<373>() * ::capnp::ELEMENTS, value);
 }
 
 inline float CarState::WheelSpeeds::Reader::getFl() const {

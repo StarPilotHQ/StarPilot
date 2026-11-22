@@ -1344,9 +1344,10 @@ class SelfdriveD:
         self.AM.alerts.pop(alert_type, None)
     self.AM.add_many(self.sm.frame, alerts)
     self.AM.process_alerts(self.sm.frame, clear_event_types)
-    if getattr(CS, 'gmRegenGear', False) and CS.canValid and not CS.canTimeout:
-      from openpilot.starpilot.car.gm.events import regen_gear_alert_text
-      self.AM.current_alert = regen_gear_alert_text(self.AM.current_alert)
+    if self.CP.brand == 'gm' and self.AM.current_alert.alert_type.startswith('wrongGear/') and CS.canValid and not CS.canTimeout:
+      from openpilot.starpilot.car.gm.events import current_regen_gear, regen_gear_alert_text
+      if current_regen_gear(self.sm, self.aol_car_state_log_ns):
+        self.AM.current_alert = regen_gear_alert_text(self.AM.current_alert)
     from openpilot.starpilot.audio.availability_warning import AvailabilityWarningDelivery
     if not hasattr(self, 'availability_warning_delivery'):
       self.availability_warning_delivery = AvailabilityWarningDelivery()

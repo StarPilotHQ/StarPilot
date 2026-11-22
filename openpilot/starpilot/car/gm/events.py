@@ -13,6 +13,14 @@ def qualified(cp) -> bool:
     return False
 
 
+def current_regen_gear(sm, source_ns: int) -> bool:
+  service = 'starpilotCarState'
+  if not (source_ns > 0 and sm.valid.get(service, False) and sm.logMonoTime.get(service, 0) == source_ns):
+    return False
+  companion = sm[service]
+  return companion.sourceCarStateMonoTime == source_ns and companion.gmRegenGear
+
+
 def regen_gear_alert_text(alert):
   if not alert.alert_type.startswith('wrongGear/'):
     return alert

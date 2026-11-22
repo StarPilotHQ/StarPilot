@@ -210,7 +210,6 @@ struct CarState {
 
   # gear
   gearShifter @14 :GearShifter;
-  gmRegenGear @62 :Bool;  # GM Bolt L2/L3 observation for alert wording only.
 
   # button presses
   buttonEvents @11 :List(ButtonEvent);

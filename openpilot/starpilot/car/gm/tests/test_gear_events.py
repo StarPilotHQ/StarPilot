@@ -1,3 +1,5 @@
+import unittest
+
 import pytest
 
 from opendbc.can import CANPacker
@@ -5,7 +7,7 @@ from opendbc.car import Bus, gen_empty_fingerprint, structs
 from opendbc.car.gm.interface import CarInterface
 from opendbc.car.gm.tests.test_bolt_cc import feed
 from opendbc.car.gm.values import BOLT_CC_WORDS, CAR, DBC, NO_ACC_BOLT_CAR, is_bolt_cc_profile
-from openpilot.cereal import log
+from openpilot.cereal import log, messaging
 from openpilot.selfdrive.car.car_events import CarEvents
 from openpilot.selfdrive.selfdrived.events import EVENTS, ET, Events
 from openpilot.selfdrive.selfdrived.state import StateMachine
@@ -91,12 +93,12 @@ def test_conventional_bolt_raw_regen_gear_changes_alert_text_only(identity, remo
       assert current.canValid and current.regenBraking == paddle
       _, events = events_for(cp, current, previous)
       recognized_regen = prndl2 in (5, 7)
-      assert current.gmRegenGear == recognized_regen
+      assert ci.CS.gm_regen_gear == recognized_regen
       alerts = [alert for alert in events.create_alerts([ET.NO_ENTRY, ET.USER_DISABLE])
                 if alert.alert_type.startswith('wrongGear/')]
       assert len(alerts) == 2
       for alert in alerts:
-        display = regen_gear_alert_text(alert) if current.gmRegenGear else alert
+        display = regen_gear_alert_text(alert) if ci.CS.gm_regen_gear else alert
         expected = 'Regen Gear Selected' if recognized_regen else 'Gear not D'
         assert expected in (display.alert_text_1, display.alert_text_2)
         assert display.alert_status == alert.alert_status and display.audible_alert == alert.audible_alert
@@ -105,6 +107,39 @@ def test_conventional_bolt_raw_regen_gear_changes_alert_text_only(identity, remo
       _, allowed = events_for(cp, state(Gear.drive, enable=True), previous)
       assert machine.update(allowed)[0]
       assert not machine.update(events)[0]
+
+
+def test_card_publishes_regen_gear_on_the_exact_fork_car_state_sample():
+  from openpilot.selfdrive.car.tests.test_carparams_first_publish import Publisher, card_for
+
+  identity = CAR.CHEVROLET_BOLT_CC_2022_2023
+  cp = params(identity)
+  ci = CarInterface(cp)
+  packer = CANPacker(DBC[identity][Bus.pt])
+  now = 1_000_000_000
+  _, frames = feed(ci, packer, now, camera=True)
+  frames = [frame for frame in frames if frame[0] != 0x1F5]
+  publisher = Publisher()
+  case = unittest.TestCase()
+  try:
+    card = card_for(case, cp, publisher, 1)
+    card.CI = ci
+    for prndl2 in (5, 7, 3):
+      now += 25_000_000
+      gear = packer.make_can_msg('ECMPRDNL2', 0, {'PRNDL2': prndl2})
+      observed = ci.update([(now, frames + [gear])])
+      assert observed.canValid
+      publisher.messages.clear()
+      card.state_publish(observed, None)
+      messages = {service: messaging.log_from_bytes(raw) for service, raw in publisher.messages}
+      if prndl2 == 3:
+        assert 'starpilotCarState' not in messages or not messages['starpilotCarState'].starpilotCarState.gmRegenGear
+      else:
+        companion = messages['starpilotCarState']
+        assert companion.valid and companion.starpilotCarState.gmRegenGear
+        assert companion.logMonoTime == companion.starpilotCarState.sourceCarStateMonoTime == messages['carState'].logMonoTime
+  finally:
+    case.doCleanups()
 
 
 def test_regen_gear_rewords_existing_alert_when_published():
@@ -125,9 +160,17 @@ def test_regen_gear_rewords_existing_alert_when_published():
     assert host.alertSound == log.SelfdriveState.AudibleAlert.warningImmediate
 
     regen = state(Gear.manumatic)
-    regen.gmRegenGear = True
-    _, host, control = step(1, observed_state=regen)
+    source_ns = sd.aol_car_state_log_ns + 10_000_000
+    companion = messaging.new_message('starpilotCarState', valid=True, logMonoTime=source_ns)
+    companion.starpilotCarState.sourceCarStateMonoTime = source_ns
+    companion.starpilotCarState.gmRegenGear = True
+    _, host, control = step(1, observed_state=regen, authority_message=companion)
     assert 'Regen Gear Selected' in (host.alertText1, host.alertText2)
+    assert not host.enabled and not control.longActive
+    assert host.alertSound == log.SelfdriveState.AudibleAlert.warningImmediate
+
+    _, host, control = step(2, observed_state=regen, authority_message=companion)
+    assert 'Gear not D' in (host.alertText1, host.alertText2)
     assert not host.enabled and not control.longActive
     assert host.alertSound == log.SelfdriveState.AudibleAlert.warningImmediate
 

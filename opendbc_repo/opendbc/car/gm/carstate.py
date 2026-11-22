@@ -420,7 +420,7 @@ class CarState(CarStateBase):
                      abs(pt_cp.vl["EBCMWheelSpdRear"]["RRWheelSpd"]) <= STANDSTILL_THRESHOLD
 
     gear = pt_cp.vl["ECMPRDNL2"]
-    ret.gmRegenGear = self.bolt_cc_profile and self.CP.carFingerprint in NO_ACC_BOLT_CAR and gear["PRNDL2"] in (5, 7)
+    self.gm_regen_gear = self.bolt_cc_profile and self.CP.carFingerprint in NO_ACC_BOLT_CAR and gear["PRNDL2"] in (5, 7)
     if gear["ManualMode"] == 1:
       ret.gearShifter = self.parse_gear_shifter("T")
     else:
