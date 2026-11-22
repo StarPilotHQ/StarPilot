@@ -42,8 +42,8 @@ from opendbc.car.gm.steering_authority import monitored_profile
 from openpilot.starpilot.car.gm.steering_companion import SteeringCompanion
 from openpilot.starpilot.car.hyundai.aol import qualified_ioniq6
 from opendbc.car.gm.values import CAR as GM_CAR
-from opendbc.car.gm.values import (GMFlags, bolt_pedal_in_drive_requires_low, is_bolt_euv_longitudinal, is_ordinary_camera_profile,
-                                  is_volt_ascm_longitudinal, malibu_hybrid_profile)
+from opendbc.car.gm.values import (GMFlags, bolt_pedal_in_drive_requires_low, is_bolt_euv_longitudinal, is_ordinary_ascm_profile,
+                                  is_ordinary_camera_profile, is_ordinary_sdgm_profile, is_volt_ascm_longitudinal, malibu_hybrid_profile)
 from openpilot.starpilot.aol.intent import read_settings
 from openpilot.starpilot.aol.intent_companion import IntentCompanion
 from openpilot.starpilot.aol.transport_pause import AvailabilityPause, TransportPause, availability_only, cp_identity, healthy_transport
@@ -1915,12 +1915,15 @@ class SelfdriveD:
     pause_brake_mps = self.aol_settings.pause_brake_mps if self.aol_settings is not None else 0.0
     if reverse_pause:
       lateral_events = [event for event in lateral_events if event not in (EventName.wrongGear, EventName.reverseGear)]
-    # These camera-long profiles use the entry speed only to start cruise.
+    # Full-range GM ACC keeps braking below the initial engagement speed.
     gm_below_entry_speed = (
       EventName.belowEngageSpeed in lateral_events and self.enabled and self.active and CS.cruiseState.enabled and
+      self.CP.openpilotLongitudinalControl and self.CP.brand == 'gm' and
       (is_bolt_euv_longitudinal(self.CP) or
-       (self.CP.carFingerprint == GM_CAR.CHEVROLET_TRAX and not self.CP.flags & GMFlags.NO_CAMERA and
-        is_ordinary_camera_profile(self.CP, longitudinal=True))))
+       is_ordinary_camera_profile(self.CP, longitudinal=True) or
+       is_ordinary_ascm_profile(self.CP, longitudinal=True) or
+       is_ordinary_sdgm_profile(self.CP, longitudinal=True) or
+       (self.CP.carFingerprint in (GM_CAR.BUICK_LACROSSE, GM_CAR.CHEVROLET_SUBURBAN) and qualified_gm(self.CP))))
     return decide_axes(
       standard_lateral=self.active, standard_longitudinal=bool(self.enabled and self.CP.openpilotLongitudinalControl and
         not raw_longitudinal_withdrawal(self.CP, CS, self.sm, native, session=self.aol_session_id, now_ns=now_ns) and
