@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import math
 import pytest
 from opendbc.car.car_helpers import interfaces
-from opendbc.car.hyundai.values import CAR
+from opendbc.car.hyundai.values import CAR, HyundaiFlags
 from opendbc.car.vehicle_model import VehicleModel
 from openpilot.cereal import log
 from openpilot.selfdrive.controls.lib.latcontrol_torque import LatControlTorque
@@ -117,3 +117,34 @@ def test_actual_first_driver_release_tick_preserves_dom_override_bypass(monkeypa
     assert args[4] is False
   else:
     assert args[3] == pytest.approx(0.00005)
+
+
+@pytest.mark.parametrize('direction', [-1.0, 1.0])
+@pytest.mark.parametrize('op_long', [False, True])
+@pytest.mark.parametrize('hda2,speed,lateral_accel,pressed,prior_pressed,expected', [
+  (True, 30.0, 0.9, False, False, 0.18),
+  (True, 28.0, 0.9, False, False, 0.09),
+  (True, 26.0, 0.9, False, False, 0.0),
+  (True, 30.0, 0.3, False, False, 0.0),
+  (True, 30.0, 1.8, False, False, 0.0),
+  (True, 30.0, 0.9, True, False, 0.0),
+  (True, 30.0, 0.9, False, True, 0.0),
+  (False, 30.0, 0.9, False, False, 0.0),
+])
+def test_ioniq5_hda2_highway_arc_friction(direction, op_long, hda2, speed, lateral_accel, pressed, prior_pressed, expected):
+  vehicle = CAR.HYUNDAI_IONIQ_5
+  cp = interfaces[vehicle].get_non_essential_params(vehicle)
+  cp.openpilotLongitudinalControl = op_long
+  cp.pcmCruise = not op_long
+  if hda2:
+    cp.flags |= int(HyundaiFlags.CANFD_LKA_STEER_MSG)
+  else:
+    cp.flags &= ~int(HyundaiFlags.CANFD_LKA_STEER_MSG)
+  controller = LatControlTorque(cp.as_reader(), interfaces[vehicle](cp), 0.01, controller_mode=ControllerMode.STARPILOT)
+  policy = controller.starpilot_extension.policy
+  policy.steering_pressed, policy.previous_pressed = pressed, prior_pressed
+  setpoint, jerk = direction * lateral_accel, direction * 0.15
+  threshold, scale = policy.friction_context(setpoint, jerk, 0.0, speed)
+  assert threshold == pytest.approx(shaping.get_ioniq_5_friction_threshold(speed, setpoint, jerk) + expected)
+  assert scale == pytest.approx(1 + (shaping.get_ioniq_5_friction_scale(speed, setpoint, jerk) - 1) *
+                               shaping.get_ioniq_5_center_taper_scale(setpoint, speed))
