@@ -56,30 +56,30 @@
   },
   {
     "name": "boot",
-    "url": "https://files.firestar.link/x/n3gcvfa4nuzw/boot-8b7859e452ee2e8c1f0ea4bb2b2512200bfbdef0177414580d7cb75aac976200.img.xz",
-    "hash": "8b7859e452ee2e8c1f0ea4bb2b2512200bfbdef0177414580d7cb75aac976200",
-    "hash_raw": "8b7859e452ee2e8c1f0ea4bb2b2512200bfbdef0177414580d7cb75aac976200",
+    "url": "https://files.firestar.link/x/qpboin0zv4z6/boot-60397e34da19778d4520fba43e4202b4a9a714657dcf72a61f081b61c371b692.img.xz",
+    "hash": "60397e34da19778d4520fba43e4202b4a9a714657dcf72a61f081b61c371b692",
+    "hash_raw": "60397e34da19778d4520fba43e4202b4a9a714657dcf72a61f081b61c371b692",
     "size": 49043456,
     "sparse": false,
     "full_check": true,
     "has_ab": true,
-    "ondevice_hash": "34ecc151021d8cb9e15e92ff902547d9216cb366bfff5eaa3a3139348200ab7d",
+    "ondevice_hash": "dc8798b668e90698bd6f9a0873e9d633f2654504193caed618663e722d42c983",
     "fallback_urls": [
-      "https://files-east.firestar.link/x/av9zrb13ihb4/boot-8b7859e452ee2e8c1f0ea4bb2b2512200bfbdef0177414580d7cb75aac976200.img.xz"
+      "https://files-east.firestar.link/x/reby1gotp8k4/boot-60397e34da19778d4520fba43e4202b4a9a714657dcf72a61f081b61c371b692.img.xz"
     ]
   },
   {
     "name": "system",
-    "url": "https://files.firestar.link/x/n3gcvfa4nuzw/system-a92ee01f653a56bc3cf034ec9f6609894004ee4aa75b12a427b1d4c530011dbf.img.xz",
-    "hash": "6b407bcb1b7dfb20b59f50c2f7b19a5e2aa4a9a5dcb0b1e183bf68302df03ba4",
-    "hash_raw": "a92ee01f653a56bc3cf034ec9f6609894004ee4aa75b12a427b1d4c530011dbf",
+    "url": "https://files.firestar.link/x/qpboin0zv4z6/system-00eea7b6d5c91d25571e76619d1c4a4ca7e732b701ec35cea6b8d767e3cf85c8.img.xz",
+    "hash": "f426085b78b068ce752dc14779560fd212647452d701c6ba4a0122d4d70f62ce",
+    "hash_raw": "00eea7b6d5c91d25571e76619d1c4a4ca7e732b701ec35cea6b8d767e3cf85c8",
     "size": 4718592000,
     "sparse": true,
     "full_check": false,
     "has_ab": true,
-    "ondevice_hash": "b1356c5b871874982830dbf8f21052fe76a802c07650627ae804c98cf1892aa8",
+    "ondevice_hash": "d6d9a2ab6d74a0d04fa9758f047e52b80f2a3db0570ce0a4fe40320183342680",
     "fallback_urls": [
-      "https://files-east.firestar.link/x/av9zrb13ihb4/system-a92ee01f653a56bc3cf034ec9f6609894004ee4aa75b12a427b1d4c530011dbf.img.xz"
+      "https://files-east.firestar.link/x/reby1gotp8k4/system-00eea7b6d5c91d25571e76619d1c4a4ca7e732b701ec35cea6b8d767e3cf85c8.img.xz"
     ]
   }
 ]
