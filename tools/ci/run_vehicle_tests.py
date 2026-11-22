@@ -579,6 +579,7 @@ RELEASE_TARGETS = (
   "opendbc_repo/opendbc/safety/tests/test_subaru_avh_startup.py",
   "opendbc_repo/opendbc/safety/tests/test_subaru_forester_angle.py",
   "opendbc_repo/opendbc/safety/tests/test_subaru_receive_guards.py",
+  "opendbc_repo/opendbc/safety/tests/test_subaru_preglobal_stock_acc.py",
   "opendbc_repo/opendbc/safety/tests/test_subaru_outback_angle.py",
   'openpilot/starpilot/car/toyota/tests/test_matrix_stock_caller_native.py',
   'opendbc_repo/opendbc/safety/tests/test_toyota_matrix_stock_aol.py',

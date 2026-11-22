@@ -218,7 +218,7 @@ class CarController(CarControllerBase):
     if lkas_alert_msg is not None:
       can_sends.append(lkas_alert_msg)
     if self.CP.flags & SubaruFlags.PREGLOBAL:
-      if self.frame % 5 == 0:
+      if self.CP.carFingerprint != CAR.SUBARU_OUTBACK_PREGLOBAL and self.frame % 5 == 0:
         # 1 = main, 2 = set shallow, 3 = set deep, 4 = resume shallow, 5 = resume deep
         # disengage ACC when OP is disengaged
         if pcm_cancel_cmd:
