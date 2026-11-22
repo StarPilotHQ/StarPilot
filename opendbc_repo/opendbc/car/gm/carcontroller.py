@@ -1008,7 +1008,8 @@ class CarController(CarControllerBase):
         else:
           stop_brake = fixed_stopping_brake(CC.longActive, near_stop, stopping, CC.cruiseControl.resume,
                                            self.CP.stopAccel, self.params.MAX_BRAKE)
-          if stop_brake is not None:
+          bolt_rolling_stop = self.bolt_euv_long and stop_brake is not None and not CS.out.standstill
+          if stop_brake is not None and not bolt_rolling_stop:
             self.apply_gas = self.params.INACTIVE_REGEN
             self.apply_brake = stop_brake
             if self.truck_tuning is not None:
@@ -1035,6 +1036,9 @@ class CarController(CarControllerBase):
               self.apply_gas, self.apply_brake = bolt_euv_demands(
                 actuators.accel, CS.out.vEgo, CC.orientationNED if long_pitch else None,
                 self.CP.mass, self.CP.wheelbase, self.params.MAX_BRAKE, acc_tune=self.gm_acc_tune)
+              if bolt_rolling_stop:
+                # Keep the requested braking until the wheels stop rolling.
+                self.apply_brake = max(self.apply_brake, stop_brake)
             elif self.volt_gateway_long or self.volt_ascm_long or self.volt_camera_long or self.volt_sdgm_long:
               self.apply_gas, self.apply_brake = volt_demands(
                 actuators.accel, CS.out.vEgo, CC.orientationNED if long_pitch else None,
