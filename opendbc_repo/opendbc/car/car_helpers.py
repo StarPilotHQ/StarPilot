@@ -15,7 +15,8 @@ from opendbc.car.ford.discovery import (normal_bus0_selection as ford_normal_bus
                                        normal_bus0_queries as ford_normal_bus0_queries, normal_bus_query_brand)
 from opendbc.car.volvo.discovery import normal_bus_topology as volvo_normal_bus_topology
 from opendbc.car.hyundai.discovery import normal_bus_topology
-from opendbc.car.honda.discovery import NIDEC_BUS0_LAYOUT, normal_bus_topology as honda_normal_bus_topology
+from opendbc.car.honda.discovery import nidec_bus0_topology, normal_bus_topology as honda_normal_bus_topology
+from opendbc.car.honda.values import CAR as HONDA, HondaFlags
 from opendbc.car.chrysler.discovery import normal_bus_topology as chrysler_normal_bus_topology
 from opendbc.car.tesla.discovery import normal_bus0_topology as tesla_normal_bus0_topology
 from opendbc.car.values import BRANDS
@@ -183,7 +184,7 @@ def fingerprint(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_mu
           volvo_probe=volvo_normal_bus_topology if not fw_versions.FW_QUERY_CONFIGS['volvo'].requests else None,
           tesla_probe=tesla_normal_bus0_topology if _tesla_fw_uses_normal_bus0() else None) or
           ('honda' if honda_normal_bus_topology(normal_bus_packets) else None) or
-          ('honda_nidec' if honda_normal_bus_topology(normal_bus_packets, layout=NIDEC_BUS0_LAYOUT) else None) or
+          ('honda_nidec' if nidec_bus0_topology(normal_bus_packets) else None) or
           ('chrysler' if chrysler_normal_bus_topology(normal_bus_packets) else None)) is not None:
 
         set_obd_multiplexing(False)
@@ -195,7 +196,8 @@ def fingerprint(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_mu
         if normal_brand == 'honda_nidec':
           car_fw = get_fw_versions(can_recv, can_send, set_obd_multiplexing, query_brand='honda', query_bus=0)
           exact, matches = match_fw_to_car(car_fw, vin)
-          full_scan = not (exact and matches == {'HONDA_FIT'})
+          full_scan = not (exact and len(matches) == 1 and any(
+            candidate in HONDA and HONDA(candidate).config.flags & HondaFlags.NIDEC for candidate in matches))
         else:
           car_fw = get_fw_versions(can_recv, can_send, set_obd_multiplexing,
                                    query_brand=normal_brand, normal_bus_only=True)
