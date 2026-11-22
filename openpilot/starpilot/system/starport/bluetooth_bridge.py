@@ -27,6 +27,10 @@ from openpilot.starpilot.system.starport.incoming_pairing import IncomingPairing
 AA_AGENT_PATH = '/org/starpilot/starport/pairing'
 
 
+class BluetoothAdapterBusy(BluetoothRejected):
+  pass
+
+
 class BluetoothAdmissionError(RuntimeError):
   pass
 
@@ -187,9 +191,12 @@ class SharedBluetoothOwner(BluetoothOwner):
     stream = os.fdopen(fd, 'r+')
     try:
       fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+      stream.close()
+      raise BluetoothAdapterBusy('Bluetooth adapter is busy in another process') from None
     except BaseException:
       stream.close()
-      raise BluetoothRejected('Bluetooth adapter is busy in another process') from None
+      raise
     return stream
 
   def _journal(self, path: str, sender: str, pairable: bool, discoverable: bool) -> None:
@@ -216,7 +223,13 @@ class SharedBluetoothOwner(BluetoothOwner):
   def recover_phone_role(self) -> bool:
     """Restore a crashed holder's visibility only on the same BlueZ instance."""
     with self.lock:
-      with self._process_lock():
+      if not self.journal_path.exists():
+        return False
+      try:
+        process_lock = self._process_lock()
+      except BluetoothAdapterBusy:
+        return False
+      with process_lock:
         if not self.journal_path.exists():
           return False
         data = self._read_journal()
@@ -370,6 +383,7 @@ class SharedBluetoothOwner(BluetoothOwner):
   def maintain_phone_role(self) -> None:
     lease = self.phone_lease
     if lease is None:
+      self.recover_phone_role()
       return
     if lease.session is not None:
       try:

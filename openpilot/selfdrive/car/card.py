@@ -126,9 +126,9 @@ def can_comm_callbacks(logcan: messaging.SubSocket, sendcan: messaging.PubSocket
 curve_press_receipt = slc_physical.curve_press_receipt
 
 
-def alpha_long_requested(params, *, is_release: bool) -> bool:
+def alpha_long_requested(params, *, is_release: bool, openpilot_enabled: bool = True) -> bool:
   """Retain saved intent on release branches without granting Alpha authority."""
-  return not is_release and params.get_bool("AlphaLongitudinalEnabled")
+  return openpilot_enabled and not is_release and params.get_bool("AlphaLongitudinalEnabled")
 
 
 class Car:
@@ -230,7 +230,7 @@ class Car:
         if len(can.can) > 0:
           break
 
-      alpha_long_allowed = alpha_long_requested(self.params, is_release=is_release)
+      alpha_long_allowed = alpha_long_requested(self.params, is_release=is_release, openpilot_enabled=openpilot_enabled_toggle)
 
       cached_params = None
       cached_params_raw = get_cache(self.params, "CarParamsCache")
@@ -297,7 +297,7 @@ class Car:
         from openpilot.starpilot.car.ford.longitudinal_preferences import prepare_release_long as prepare_ford_release_long
         cp = prepare_ford_release_long(cp, self.params, is_release=is_release, enabled=openpilot_enabled_toggle)
         return self.vehicle_startup.prepare(cp, interfaces[candidate], self.can_callbacks,
-                                            requested=alpha_long_allowed and not is_release and openpilot_enabled_toggle,
+                                            requested=alpha_long_allowed,
                                             admission=self.startup_diagnostic_admission, defer_until_controls=True)
 
       self.CI = get_car(*self.can_callbacks, obd_callback(self.params), alpha_long_allowed, is_release, cached_params,
