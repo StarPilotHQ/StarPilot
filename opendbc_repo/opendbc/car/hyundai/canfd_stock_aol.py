@@ -115,11 +115,35 @@ def qualified(cp, *, marked_only=False):
 SPORTAGE_LONG_AOL_WORDS = frozenset(0x0804 | fuel | topology for fuel in (0, 2) for topology in (0, 8, 16, 144, 32, 40))
 CARNIVAL_LONG_AOL_WORD = 0x28B4
 LONG_AOL_WORDS = frozenset((CARNIVAL_LONG_AOL_WORD, 0x080D, 0x0815, 0x0895, 0x2815, 0x2895)) | SPORTAGE_LONG_AOL_WORDS
-CCNC_LONG_CARS = frozenset((CAR.HYUNDAI_KONA_2ND_GEN, CAR.HYUNDAI_KONA_HEV_2ND_GEN))
 CCNC_LONG_AOL_WORDS = frozenset((0x0C0C, 0x0C0E, 0x0C2C, 0x0C2E))
 LONG_EV_CARS = frozenset((CAR.HYUNDAI_IONIQ_5, CAR.HYUNDAI_KONA_EV_2ND_GEN))
 LONG_AOL_WORDS |= CCNC_LONG_AOL_WORDS
-INDEPENDENT_LONG_BUTTON_CARS = LONG_EV_CARS | CCNC_LONG_CARS | {
+GENERIC_HDA2_CARS = frozenset((
+  CAR.GENESIS_G80_2ND_GEN_FL,
+  CAR.HYUNDAI_IONIQ_5_N,
+  CAR.HYUNDAI_KONA_2ND_GEN,
+  CAR.HYUNDAI_KONA_HEV_2ND_GEN,
+  CAR.HYUNDAI_SANTA_CRUZ_1ST_GEN,
+  CAR.HYUNDAI_SANTA_CRUZ_2025,
+  CAR.HYUNDAI_SONATA_2024,
+  CAR.HYUNDAI_SONATA_HEV_2024,
+  CAR.HYUNDAI_STARIA_4TH_GEN,
+  CAR.HYUNDAI_TUCSON_2025,
+  CAR.HYUNDAI_TUCSON_4TH_GEN,
+  CAR.HYUNDAI_TUCSON_HEV_2025,
+  CAR.HYUNDAI_TUCSON_PHEV_2025,
+  CAR.KIA_CARNIVAL_2025,
+  CAR.KIA_CARNIVAL_HEV_4TH_GEN,
+  CAR.KIA_K4_2025,
+  CAR.KIA_K5_2025,
+  CAR.KIA_K8_HEV_1ST_GEN,
+  CAR.KIA_NIRO_EV_2ND_GEN,
+  CAR.KIA_NIRO_HEV_2ND_GEN,
+  CAR.KIA_SORENTO_2024,
+  CAR.KIA_SPORTAGE_5TH_GEN,
+))
+
+INDEPENDENT_LONG_BUTTON_CARS = LONG_EV_CARS | GENERIC_HDA2_CARS | {
   CAR.KIA_EV6, CAR.KIA_NIRO_EV_2ND_GEN, CAR.HYUNDAI_IONIQ_6, CAR.GENESIS_GV70_ELECTRIFIED_1ST_GEN,
   CAR.GENESIS_GV60_EV_1ST_GEN, CAR.KIA_SPORTAGE_5TH_GEN, CAR.KIA_CARNIVAL_2025,
 }
@@ -136,17 +160,27 @@ def qualified_long(cp, *, marked_only=False):
     if not eligible(cp):
       return False
   word = _base_word(cp, experiences=(0, 32))
-  if cp.carFingerprint in (CAR.KIA_EV6, CAR.KIA_NIRO_EV_2ND_GEN, CAR.GENESIS_GV60_EV_1ST_GEN, CAR.HYUNDAI_IONIQ_6):
+  if cp.carFingerprint in (CAR.KIA_EV6, CAR.GENESIS_GV60_EV_1ST_GEN, CAR.HYUNDAI_IONIQ_6):
     if word != 0x09:
-      return False
-  elif cp.carFingerprint in CCNC_LONG_CARS:
-    if word is None or word | 0x804 not in CCNC_LONG_AOL_WORDS:
       return False
   elif cp.carFingerprint == CAR.KIA_SPORTAGE_5TH_GEN:
     if word is None or word | 0x804 not in SPORTAGE_LONG_AOL_WORDS:
       return False
   elif cp.carFingerprint == CAR.KIA_CARNIVAL_2025:
     if word != 0x20B0:
+      return False
+  elif cp.carFingerprint == CAR.KIA_CARNIVAL_HEV_4TH_GEN:
+    return False
+  elif cp.carFingerprint in GENERIC_HDA2_CARS:
+    if word is None or not cp.alphaLongitudinalAvailable:
+      return False
+    if word & 0x10:
+      if len(cp.safetyConfigs) != 1 or word not in (0x10, 0x11, 0x12, 0x90, 0x91, 0x92):
+        return False
+    elif cp.carFingerprint == CAR.KIA_NIRO_EV_2ND_GEN:
+      if word != 0x09:
+        return False
+    elif word not in (0x08, 0x0A, 0x28, 0x2A, 0x408, 0x40A, 0x428, 0x42A):
       return False
   elif word not in (0x11, 0x91) and not (cp.carFingerprint == CAR.HYUNDAI_IONIQ_5 and word == 0x09):
     return False

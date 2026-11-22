@@ -69,6 +69,7 @@ def test_camera_long_extension_keeps_unrecognized_contracts_closed(identity, off
   elif mutation == 'hda2':
     cp.flags = (cp.flags & ~int(HyundaiFlags.CANFD_CAMERA_SCC)) | int(HyundaiFlags.CANFD_LKA_STEER_MSG)
     cp.safetyConfigs[owner].safetyParam = 0x815
+    cp.alphaLongitudinalAvailable = False
   assert qualified_long(cp, marked_only=True) == (mutation == 'hda2' and identity == CAR.HYUNDAI_IONIQ_5)
 
 
