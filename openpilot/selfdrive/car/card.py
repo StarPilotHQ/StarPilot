@@ -186,7 +186,6 @@ class Car:
     self.switchback_event_sequence = 0
     publish_services = ['sendcan', 'carState', 'carParams', 'carOutput', 'radarTracks', 'starpilotCarState']
     self.car_gps_publisher = CarGpsPublisher()
-    # One existing event channel also carries source-qualified Switchback gestures.
     publish_services.append('slcCruiseEvent')
     self.wheel_publisher = WheelPublisher(self.params)
     self.wheel_commands = ()
@@ -242,7 +241,6 @@ class Car:
         self.pm.sock['aolIntentWire'] = messaging.pub_sock('aolIntentWire')
 
     if CI is None:
-      # wait for one pandaState and one CAN packet
       print("Waiting for CAN messages...")
       while True:
         can = messaging.recv_one_retry(self.can_sock)
@@ -325,7 +323,6 @@ class Car:
       self.RI = interfaces[self.CI.CP.carFingerprint].RadarInterface(self.CI.CP)
       self.CP = self.CI.CP
 
-      # continue onto next fingerprinting step in pandad
       self.params.put_bool("FirmwareQueryDone", True, block=True)
     else:
       self.CI, self.CP = CI, CI.CP
@@ -364,7 +361,6 @@ class Car:
     self.vehicle_startup.configure(self.CI)
 
     if self.CP.secOcRequired:
-      # Copy user key if available
       try:
         with open("/cache/params/SecOCKey") as f:
           user_key = f.readline().strip()
@@ -457,7 +453,6 @@ class Car:
     if not self.ioniq6_previous_cp_saved:
       self.save_previous_car_params()
 
-    # Write CarParams for controls and radard
     self.vehicle_startup.seal_publication()
     cp_bytes = self.CP.to_bytes()
     from openpilot.starpilot.car.tesla.pedal_startup import install as install_preap_pedal
@@ -532,7 +527,6 @@ class Car:
     can_received_ns = time.monotonic_ns()
     can_list = can_capnp_to_list(can_strs)
 
-    # Update carState from CAN
     observe_controller_can(self.CI, can_list)
     CS = self.CI.update(can_list)
     self.RI.v_ego = CS.vEgo   # the Honda Bosch-A decoder bounds a reversing coast with it
@@ -550,8 +544,7 @@ class Car:
     distance_owner = getattr(self, 'gm_distance', None)
     distance_observation = distance_owner.update(can_list) if distance_owner is not None else None
 
-    # Direct state_update callers retain eager radar behavior. The production
-    # loop consumes this exact CAN batch after carState and control publication.
+    # Direct callers run radar eagerly. The loop runs it after control publication.
     self._deferred_radar_can = can_list if defer_radar else None
     RD = None if defer_radar else self.radar_update(can_list)
 
@@ -561,7 +554,6 @@ class Car:
 
     can_rcv_valid = len(can_strs) > 0
 
-    # Check for CAN timeout
     if not can_rcv_valid:
       self.can_rcv_cum_timeout_counter += 1
 
@@ -1084,7 +1076,6 @@ class Car:
       self.pm.send('carParams', cp_send)
       self.car_params_published = True
 
-    # publish new carOutput
     co_send = messaging.new_message('carOutput')
     co_send.valid = self.sm.all_checks(['carControl'])
     co_send.carOutput.actuatorsOutput = self.last_actuators_output
@@ -1415,8 +1406,7 @@ class Car:
     holder = getattr(self, 'vehicle_startup', None)
     if holder is None or holder.owner is None:
       return
-    # Python controls and receive times use MONOTONIC. Panda/CAN producers
-    # use BOOTTIME, which can diverge after suspend.
+    # MONOTONIC controls time can diverge from Panda BOOTTIME after suspend.
     clocks = clock_pair_ns()
     mono_ns, boot_ns = clocks if clocks is not None else (0, 0)
     sm = self.sm
@@ -1819,7 +1809,6 @@ class Car:
         self.ioniq6_restore_callbacks = self.can_callbacks
       elif self.vehicle_startup.owner is None:
         self.CI.init(self.CP, *self.can_callbacks)
-      # signal pandad to switch to car safety mode
       self.params.put_bool("ControlsReady", True)
       self.ci_initialized = True
 
@@ -1910,7 +1899,6 @@ class Car:
           return
       steering_authority = getattr(self.CI.CS, 'steering_authority', None)
       monitored_steering = self.CP.brand == 'gm' and steering_authority is not None and steering_authority.enabled
-      # send car controls over can
       now_nanos = (self.volt_cc_now_boot_ns if getattr(self, 'volt_cc_selected', False) else
                    self.can_log_mono_time if REPLAY else
                    time.clock_gettime_ns(time.CLOCK_BOOTTIME) if self.volt_startup_keepalive() or monitored_steering else

@@ -620,8 +620,7 @@ class FeatureSettingsOwner:
     return value, value is not None and 0.0 <= value <= 100.0, canonical, legacy
 
   def _read_saved(self, key: str, limit: int) -> tuple[bytes | None, bool]:
-    # One assembly observes one complete source per key. Actions and the next
-    # assembly always read the filesystem again, including unreadable sources.
+    # Cache source reads only within each snapshot.
     reads = self._snapshot_reads.get()
     def read():
       try:
@@ -1436,8 +1435,7 @@ class FeatureSettingsOwner:
   def apply(self, request: FeatureSettingsRequest, *, reset_default: bool = False) -> bool:
     if reset_default and not self.authority("parked_preferences"):
       return False
-    # A request may arrive through a callback during assembly. Its compare and
-    # authorization checks must still observe current sources independently.
+    # Recheck live sources even from snapshot callbacks.
     token = self._snapshot_reads.set(None)
     vehicle_token = self._snapshot_vehicle.set(None)
     try:
