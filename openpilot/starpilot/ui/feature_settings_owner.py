@@ -1186,9 +1186,8 @@ class FeatureSettingsOwner:
         rows.extend(self._cruise_rows(configurable))
       rows.extend(self.wheel.rows())
     elif page == FeaturePage.SLC:
-      from opendbc.car.hyundai.software_cruise import selected as button_cruise_selected
       cp = self.vehicle_params()
-      slc_available = system_long if cp is None else self.longitudinal_available() or button_cruise_selected(cp)
+      slc_available = system_long if cp is None else self.longitudinal_available() or hyundai_software_cruise.slc_configurable(cp, self.params)
       system_long = slc_available and self.authority("slc")
       allowed = configurable and system_long
       offsets_ready, offset_rows = self.slc_offsets.rows(allowed, repair_allowed=parked and allowed)

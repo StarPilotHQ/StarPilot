@@ -720,8 +720,8 @@ class StarShellSession:
         from openpilot.starpilot.feature_capabilities import lateral_supported
         return lateral_supported(cp)
       if group == "slc":
-        from opendbc.car.hyundai.software_cruise import selected as button_cruise_selected
-        if button_cruise_selected(cp):
+        from openpilot.starpilot.car.hyundai.software_cruise_settings import slc_configurable
+        if slc_configurable(cp, ui_state.params):
           return True
       if group in ("conditional", "conditional_wheel", "long_output", "slc"):
         return bool(cp.openpilotLongitudinalControl and not cp.notCar and not cp.passive and not cp.dashcamOnly)
