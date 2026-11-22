@@ -116,6 +116,19 @@ def test_standalone_startup_does_not_modify_parent_and_old_relay_preserves_navig
     assert_occupied_equal(parent, recovered)
 
 
+def test_regen_gear_default_and_old_reader_relay(historical):
+  old = historical.StarPilotCarState.new_message(sourceCarStateMonoTime=123456, lateralAuthorityUnavailable=True)
+  with custom.StarPilotCarState.from_bytes(old.to_bytes()) as decoded:
+    assert not decoded.gmRegenGear
+    new = decoded.as_builder()
+  new.gmRegenGear = True
+  with historical.StarPilotCarState.from_bytes(new.to_bytes()) as old_reader:
+    assert old_reader.to_dict() == old.to_dict()
+    relayed = old_reader.as_builder().to_bytes()
+  with custom.StarPilotCarState.from_bytes(relayed) as recovered:
+    assert recovered.to_dict() == new.to_dict()
+
+
 def test_old_gps_and_pedal_status_survive_current_reader_and_old_relay(historical):
   old = historical.StarPilotCarState.new_message(pedalMaxRegen=True, pedalLongActive=True,
     sourceCarStateMonoTime=123456, gps={'sourceMonoTime': 123456, 'latitude': 41.25,
@@ -325,8 +338,8 @@ def test_reviewed_vision_addition_does_not_allow_other_schema_changes(historical
   ('dashboardSpeedLimit @3 :Float32;', 'dashboardSpeedLimit @3 :Float64;'),
   ('toyotaCruise @38 :ToyotaCruise;', 'toyotaCruise @38 :StarPilotCarControl.SteeringLimitInfo;'),
   ('steeringLimitInfo @39 :StarPilotCarControl.SteeringLimitInfo;', 'steeringLimitInfo @39 :StarPilotCarState.Gps;'),
-  ('steeringLimitInfo @39 :StarPilotCarControl.SteeringLimitInfo;',
-   'steeringLimitInfo @39 :StarPilotCarControl.SteeringLimitInfo; unreviewed @40 :Bool;'),
+  ('gmRegenGear @40 :Bool;', 'gmRegenGear @40 :Bool = true;'),
+  ('gmRegenGear @40 :Bool;', 'gmRegenGear @40 :Bool; unreviewed @41 :Bool;'),
 ])
 def test_reviewed_steering_addition_does_not_allow_other_schema_changes(historical, tmp_path, before, after):
   source = Path(CEREAL_PATH, 'custom.capnp').read_text()

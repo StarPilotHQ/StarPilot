@@ -84,6 +84,24 @@
           "ordinal": {
             "explicit": 39
           }
+        },
+        {
+          "slot": {
+            "offset": 70,
+            "type": {
+              "bool": null
+            },
+            "defaultValue": {
+              "bool": false
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "gmRegenGear",
+          "codeOrder": 40,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 40
+          }
         }
       ]
     },
@@ -1086,7 +1104,8 @@
     "tesla_cooperative_steering": "63beafc6af294d0759b47dc3bc546f24082a2a5d",
     "vision_stop_signs": "0571890b8e6d023050ae0ec1e0c5fa9163422568",
     "navigation_lanes": "0cc9ddddfe89ba679a96e6947e2cc3f9aaf58130",
-    "applied_torque_tuning": "22dc5f1681129b81802361635a145d66ae9d2ee0"
+    "applied_torque_tuning": "22dc5f1681129b81802361635a145d66ae9d2ee0",
+    "bolt_regen_gear": "791e9ee4adbe99e74b14e6e0187f7fe61b470310"
   },
-  "review_basis": "Published SLC, FLM, and Tesla cooperative-steering additions. Every incumbent wire field descriptor and enum prefix was independently checked unchanged; only the exact typed deltas listed here are permitted. Tesla adds steeringLimitInfo @39 at pointer slot 6 using the existing SteeringLimitInfo type. ToyotaCruise @38 retains pointer slot 5, type, and default; only its declaration codeOrder changes from 38 to 39. Published vision stop-sign addition appends VisionObservation.stopSigns @12 at pointer slot 2 with StopObservation type 0xb41e843c9023fcf8 and a null struct default. All 12 incumbent descriptors and nested Status/Stream types remain unchanged; data words stay 6 and pointers grow from 2 to 3. Old-reader relay preserves the populated stop observation and incumbent fields. Published navigation lane guidance appends Instruction.lanes @6 at pointer slot 3 as List(Navigation.Lane), type 0xee74a80b1d309a72, with a null list default. All six incumbent descriptors remain unchanged; data words stay 2 and pointers grow from 3 to 4. The new Lane type has one data word and two pointers, with active @0 :Bool, directions @1 :List(Text), and activeDirection @2 :Text; its compiled ID and layout are pinned separately. Old-reader relay preserves empty and populated lane lists on both instruction and nextManeuver, along with all incumbent parent fields. Published applied-torque telemetry appends StarPilotLateralState.torqueTuning @13 at pointer slot 5 as TorqueTuning type 0xa92d1325b855c382 with a null struct default. All thirteen incumbent field descriptors remain unchanged; data words stay 4 and pointers grow from 5 to 6. The new type has three data words and no pointers, with version @0 :UInt16, factor @1 :Float64, friction @2 :Float64, manualFactor @3 :Bool, manualFriction @4 :Bool, and learned @5 :Bool. Its compiled ID and exact layout are pinned separately. Historical messages retain absent/version-zero telemetry; incumbent-reader relay preserves both populated telemetry and incumbent fields. This addition reports applied controller values and grants no tuning or actuation authority."
+  "review_basis": "Published SLC, FLM, and Tesla cooperative-steering additions. Every incumbent wire field descriptor and enum prefix was independently checked unchanged; only the exact typed deltas listed here are permitted. Tesla adds steeringLimitInfo @39 at pointer slot 6 using the existing SteeringLimitInfo type. ToyotaCruise @38 retains pointer slot 5, type, and default; only its declaration codeOrder changes from 38 to 39. Published vision stop-sign addition appends VisionObservation.stopSigns @12 at pointer slot 2 with StopObservation type 0xb41e843c9023fcf8 and a null struct default. All 12 incumbent descriptors and nested Status/Stream types remain unchanged; data words stay 6 and pointers grow from 2 to 3. Old-reader relay preserves the populated stop observation and incumbent fields. Published navigation lane guidance appends Instruction.lanes @6 at pointer slot 3 as List(Navigation.Lane), type 0xee74a80b1d309a72, with a null list default. All six incumbent descriptors remain unchanged; data words stay 2 and pointers grow from 3 to 4. The new Lane type has one data word and two pointers, with active @0 :Bool, directions @1 :List(Text), and activeDirection @2 :Text; its compiled ID and layout are pinned separately. Old-reader relay preserves empty and populated lane lists on both instruction and nextManeuver, along with all incumbent parent fields. Published applied-torque telemetry appends StarPilotLateralState.torqueTuning @13 at pointer slot 5 as TorqueTuning type 0xa92d1325b855c382 with a null struct default. All thirteen incumbent field descriptors remain unchanged; data words stay 4 and pointers grow from 5 to 6. The new type has three data words and no pointers, with version @0 :UInt16, factor @1 :Float64, friction @2 :Float64, manualFactor @3 :Bool, manualFriction @4 :Bool, and learned @5 :Bool. Its compiled ID and exact layout are pinned separately. Historical messages retain absent/version-zero telemetry; incumbent-reader relay preserves both populated telemetry and incumbent fields. This addition reports applied controller values and grants no tuning or actuation authority. Bolt regen-gear display adds gmRegenGear @40 as a Bool at bit offset 70 with false default. Incumbent fields and storage remain unchanged."
 }
