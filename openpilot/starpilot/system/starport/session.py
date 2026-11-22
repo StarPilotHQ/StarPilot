@@ -894,6 +894,10 @@ class ProjectionSession(Session):
       done = False
       if action == "open_bluetooth":
         done = self.bluetooth_channel is not None or self._open_bluetooth(pair=False)
+      elif action == "open_phone_services":
+        sensors = self.sensor_channel is not None or self._open_sensors()
+        bluetooth = self.bluetooth_channel is not None or self._open_bluetooth(pair=False)
+        done = sensors and bluetooth
       elif action == "open_phone_status":
         if self.phone_status_channel is None:
           self.phone_status_channel = self._open_service(PHONE_STATUS_SERVICE, "phone_status")

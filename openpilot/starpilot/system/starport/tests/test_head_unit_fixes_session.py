@@ -74,6 +74,21 @@ def test_ladder_adds_one_channel_per_level(identity, tmp_path):
   assert VENDOR_CHANNEL in hu.opened and hu.pairing_requests == []
 
 
+def test_phone_services_action_opens_sensors_and_bluetooth_without_pairing(identity, tmp_path):
+  hu = FakeHeadUnit(identity, bolt=True)
+  session = connect(hu, identity)
+  session.on_discovered = lambda info: (hf.OPEN_PHONE_SERVICES,)
+  session.authenticate()
+  session.start("StarPilot", "comma.ai")
+  pump_until(session, lambda: session.focused, timeout=8.0)
+  session.shutdown()
+  session.peer.close()
+  hu.thread.join(5)
+  assert hu.error is None, hu.error
+  assert sorted(hu.opened) == [1, 3, SENSOR_CHANNEL, BLUETOOTH_CHANNEL]
+  assert hu.sensor_requests and hu.pairing_requests == []
+
+
 def test_pairing_request_only_at_the_last_level(identity, tmp_path):
   hu, _ = run(identity, tmp_path, ON, level=5)
   assert hu.pairing_requests == [("39:90:21:64:07:00", 2)]
