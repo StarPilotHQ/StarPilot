@@ -27,6 +27,8 @@ def baseline_settings(cp, params):
   raw, readable = read_saved(params, DOCUMENT_KEY, MAX_DOCUMENT_BYTES)
   if not readable:
     raise ValueError('Readable selected baseline settings required')
+  if cp.lateralTuning.which() != 'torque':
+    raise ValueError('Selected steering tune does not contain torque settings')
   tune = cp.lateralTuning.torque
   basis = (float(tune.latAccelFactor), float(tune.latAccelOffset), float(tune.friction))
   fingerprint = str(cp.carFingerprint)
