@@ -49,6 +49,7 @@ from opendbc.car.hyundai.canfd_angle_aol import qualified as qualified_angle_aol
 from opendbc.car.hyundai.canfd_owner import config_index as hyundai_canfd_config_index
 from opendbc.car.hyundai.captured_adrv_startup import CapturedADRVStartup
 from openpilot.starpilot.car.nissan.aol import qualified as qualified_nissan_aol
+from openpilot.starpilot.car.volvo.aol import qualified as qualified_volvo_aol
 from openpilot.starpilot.car.hyundai.aol import aol_safety_config as hyundai_aol_safety_config, pending_stock_angle_arm
 from openpilot.starpilot.car.hyundai.aol import retained_shared_long_cancel_intent as hkg_cancel_intent_retained
 from openpilot.starpilot.car.ford.aol import (brake_pause_active as ford_brake_pause_active,
@@ -667,7 +668,8 @@ class Car:
       angle_aol, ford_aol, honda_aol, mazda_aol, preap_aol, volkswagen_aol = self.aol_permission_owners()
       nissan_aol = qualified_nissan_aol(self.CP, marked_only=True)
       rivian_aol = qualified_rivian_aol(self.CP, marked_only=True)
-      permission_owner = angle_aol or ford_aol or honda_aol or mazda_aol or preap_aol or nissan_aol or volkswagen_aol or rivian_aol
+      volvo_aol = qualified_volvo_aol(self.CP, marked_only=True)
+      permission_owner = angle_aol or ford_aol or honda_aol or mazda_aol or preap_aol or nissan_aol or volkswagen_aol or rivian_aol or volvo_aol
       angle_panda_ready = not permission_owner or self.startup_panda_configured()
       native = (
         current_native(self.sm, self.CP, now_ns=now_ns, axis_session_id=self.aol_axis_session() if permission_owner else None)
@@ -677,8 +679,8 @@ class Car:
       native_reset = False
       if permission_owner:
         observe, restrict = native_handlers(
-          self, rivian_aol=rivian_aol, volkswagen_aol=volkswagen_aol, nissan_aol=nissan_aol, preap_aol=preap_aol,
-          mazda_aol=mazda_aol, honda_aol=honda_aol, ford_aol=ford_aol,
+          self, volvo_aol=volvo_aol, rivian_aol=rivian_aol, volkswagen_aol=volkswagen_aol, nissan_aol=nissan_aol,
+          preap_aol=preap_aol, mazda_aol=mazda_aol, honda_aol=honda_aol, ford_aol=ford_aol,
         )
         preap_observation = {}
         if preap_aol:
@@ -727,6 +729,8 @@ class Car:
       if startup_readiness is not None:
         startup_readiness(self.sm, CS, native=native, panda_ready=angle_panda_ready,
                           now_ns=now_ns, producer=self.slc_producer_session)
+      if hasattr(self.aol_card_intent, 'observe_vehicle_state'):
+        self.aol_card_intent.observe_vehicle_state(self.CI.CS)
       self.aol_card_intent.update(CS, fault_active=fault_active, now_ns=now_ns, native_rejection_ns=rejection_ns,
                                   standard_enabled=(host_enabled if getattr(self.aol_card_intent, 'observe_stock_engagement', False)
                                                     else host_control_enabled))

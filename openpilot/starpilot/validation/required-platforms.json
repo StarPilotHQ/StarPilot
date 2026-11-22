@@ -1723,6 +1723,11 @@
     },
     {
       "family": "volvo",
+      "id": "VOLVO_V60",
+      "source_declaration": "source_only"
+    },
+    {
+      "family": "volvo",
       "id": "VOLVO_XC40_RECHARGE",
       "source_declaration": "source_only"
     }

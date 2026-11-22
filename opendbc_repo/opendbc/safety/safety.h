@@ -534,7 +534,7 @@ int set_safety_hooks(uint16_t mode, uint16_t param) {
         continue;
       }
 #endif
-      if ((mode == SAFETY_VOLVO) && ((param > 2U) && (param != 5U))) {
+      if ((mode == SAFETY_VOLVO) && ((param > 2U) && (param != 5U) && (param != 8U))) {
         current_hooks = &nooutput_hooks;
         current_safety_mode = SAFETY_NOOUTPUT;
         current_safety_param = 0;

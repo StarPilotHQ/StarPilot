@@ -13,7 +13,7 @@ from opendbc.car.gm.pedal_capability import automatic_bolt_candidate
 from opendbc.car.gm.discovery import automatic_trax_candidate, automatic_volt_candidate, normal_bus0_topology as gm_normal_bus0_topology
 from opendbc.car.ford.discovery import (normal_bus0_selection as ford_normal_bus0_selection,
                                        normal_bus0_queries as ford_normal_bus0_queries, normal_bus_query_brand)
-from opendbc.car.volvo.discovery import normal_bus_topology as volvo_normal_bus_topology
+from opendbc.car.volvo.discovery import normal_bus_topology as volvo_normal_bus_topology, v60_bus_topology as volvo_v60_bus_topology
 from opendbc.car.hyundai.discovery import normal_bus_topology
 from opendbc.car.honda.discovery import nidec_bus0_topology, normal_bus_topology as honda_normal_bus_topology
 from opendbc.car.honda.values import CAR as HONDA, HondaFlags
@@ -145,6 +145,13 @@ def fingerprint(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_mu
       cached = True
     else:
       carlog.warning("Getting VIN & FW versions")
+      volvo_v60 = False
+
+      def volvo_probe(fp):
+        nonlocal volvo_v60
+        volvo_v60 = volvo_v60_bus_topology(fp)
+        return volvo_normal_bus_topology(fp) or volvo_v60
+
       full_scan = False
       if known_gm_bus0:
         # An explicit registered GM selection already identifies the query family.
@@ -182,7 +189,7 @@ def fingerprint(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_mu
       elif (normal_brand := normal_bus_query_brand(
           observe_normal_bus, normal_bus_topology,
           gm_probe=gm_normal_bus0_topology if _gm_fw_uses_normal_bus0() else None,
-          volvo_probe=volvo_normal_bus_topology if not fw_versions.FW_QUERY_CONFIGS['volvo'].requests else None,
+          volvo_probe=volvo_probe,
           tesla_probe=tesla_normal_bus0_topology if _tesla_fw_uses_normal_bus0() else None) or
           ('honda' if honda_normal_bus_topology(normal_bus_packets) else None) or
           ('honda_nidec' if nidec_bus0_topology(normal_bus_packets) else None) or
@@ -200,6 +207,9 @@ def fingerprint(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_mu
           exact, matches = match_fw_to_car(car_fw, vin)
           full_scan = not (exact and len(matches) == 1 and any(
             candidate in HONDA and HONDA(candidate).config.flags & HondaFlags.NIDEC for candidate in matches))
+        elif normal_brand == 'volvo' and not volvo_v60:
+          # Polestar is identified by live CAN alone; the V60 by its engine FW, which answers on bus 0
+          car_fw = []
         else:
           car_fw = get_fw_versions(can_recv, can_send, set_obd_multiplexing,
                                    query_brand=normal_brand, normal_bus_only=True)
