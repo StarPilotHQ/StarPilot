@@ -1,12 +1,12 @@
 """Optional blind-spot presentation; never changes lane-change or control authority."""
 
-KEYS = ("LoudBlindspotAlert", "LoudBlindspotAlertWhenDisengaged")
+KEYS = ("LoudBlindspotAlert", "LoudBlindspotAlertWhenDisengaged", "LoudBlindspotAlertMuteAtStandstill")
 ALERT_TYPE = "blindSpotAdvisory/warning"
 EVENT_TYPE = "blindSpotAdvisory"
 
 
 def blindspot_alert(cs, sm, *, loud: bool, without_lateral: bool, lane_change_blocked: bool, now_ns: int,
-                    car_ns: int, car_valid: bool):
+                    car_ns: int, car_valid: bool, mute_at_standstill: bool = False):
   if not loud and not without_lateral:
     return None
   try:
@@ -21,8 +21,10 @@ def blindspot_alert(cs, sm, *, loud: bool, without_lateral: bool, lane_change_bl
       return None
     matching_signal = (bool(cs.leftBlinker) != bool(cs.rightBlinker) and
                        (cs.leftBlinker and cs.leftBlindspot or cs.rightBlinker and cs.rightBlindspot))
+    standstill = bool(getattr(cs, 'standstill', False) or float(getattr(cs, 'vEgo', 1.0)) < 0.5)
     if not (loud and lane_change_blocked or
-            without_lateral and not sm['carControl'].latActive and matching_signal):
+            without_lateral and not sm['carControl'].latActive and matching_signal and
+            not (mute_at_standstill and standstill)):
       return None
   except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
     return None

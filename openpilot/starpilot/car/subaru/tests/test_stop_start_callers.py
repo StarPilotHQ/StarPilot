@@ -175,8 +175,18 @@ def test_actual_startup_factory_card_controls_native(enabled, manual, aol, subar
         if any(address == 0x322 for address, _, _ in outgoing):
           dash = dash_decoder.vl['ES_LKAS_State']
           expected = ci.CC.angle_was_active if steering_name == 'ES_LKAS_ANGLE' else card.sm['carControl'].latActive
-          assert bool(dash['LKAS_ACTIVE']) == expected, (candidate, tick, expected, dash)
-          assert dash['LKAS_Dash_State'] == (2 if expected else 0), (candidate, tick, expected, dash)
+          if candidate == 'SUBARU_LEGACY_2025':
+            assert bool(dash['LKAS_ACTIVE']), (candidate, tick, expected, dash)
+            if not cs.cruiseState.available or cs.steerFaultTemporary or cs.steerFaultPermanent:
+              assert not ci.CC.aol_dash_green_last, (candidate, tick, dash)
+            if expected:
+              assert ci.CC.aol_dash_green_last, (candidate, tick, dash)
+            ready_wheel = cs.cruiseState.available and bool(getattr(ci.CS, 'aol_enabled', True))
+            expected_dash = 2 if ci.CC.aol_dash_green_last else (1 if ready_wheel else 0)
+            assert dash['LKAS_Dash_State'] == expected_dash, (candidate, tick, expected, expected_dash, dash)
+          else:
+            assert bool(dash['LKAS_ACTIVE']) == expected, (candidate, tick, expected, dash)
+            assert dash['LKAS_Dash_State'] == (2 if expected else 0), (candidate, tick, expected, dash)
           assert all(accepted == (tick >= configure_delay) for address, _, _, accepted in tx if address == 0x322)
           dash_emissions += 1
         for address, data_hex, bus, accepted in tx:

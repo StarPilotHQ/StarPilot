@@ -52,7 +52,9 @@ def test_hkg_default_toggle_and_explicit_mapping_are_displayed_truthfully(tmp_pa
   params.put('LKASButtonControl', 8, block=True)
   rows = {row.key: row for row in wheel.rows()}
   assert rows['wheel:LKASButtonControl'].value == 'Bookmark'
-  assert rows['wheel:MainCruiseButtonControl'].value == 'Toggle AOL'
+  assert rows['wheel:MainCruiseButtonControl'].value == 'Off'
+  assert 'can still toggle' in rows['wheel:MainCruiseButtonControl'].reason
+  assert params.get('MainCruiseButtonControl') == 0
   assert params.get('LKASButtonControl') == 8
 
 

@@ -27,6 +27,7 @@ from openpilot.starpilot.longitudinal.profile_runtime import TRAFFIC_CRUISE_BRAK
 from openpilot.starpilot.longitudinal.lead_approach_runtime import KEY as LEAD_APPROACH_KEY
 from openpilot.starpilot.longitudinal.lead_takeoff_preferences import KEY as LEAD_TAKEOFF_KEY
 from openpilot.starpilot.longitudinal.encouragement import KEY as NUDGE_KEY
+from openpilot.selfdrive.car.cruise import LOW_SPEED_CRUISE_ON_SET
 from openpilot.starpilot.longitudinal.planner_selection import KEY as PLANNER_SELECTION_KEY, save_selection
 
 from openpilot.starpilot.longitudinal.profile_document import (
@@ -44,6 +45,8 @@ from openpilot.starpilot.speed_limits.runtime_settings import (
   PEDAL_OVERRIDE_BYTES, PEDAL_OVERRIDE_CHOICES, PEDAL_OVERRIDE_KEY, SOURCE_PRIORITY_KEYS, WHEEL_OVERRIDE_KEY, PedalOverride,
 )
 from openpilot.starpilot.aol.vehicle import policy_for as aol_policy_for
+from openpilot.starpilot.car.hyundai import software_cruise_settings as hyundai_software_cruise
+from openpilot.starpilot.car.subaru import software_cruise_settings as subaru_software_cruise
 from openpilot.starpilot.feature_capabilities import longitudinal_supported as feature_longitudinal_supported
 from openpilot.starpilot.lateral.torque_settings import DOCUMENT_KEY, LEGACY_KEYS
 from openpilot.starpilot.ui.torque_feature import TorqueFeature
@@ -86,7 +89,8 @@ from openpilot.starpilot.controllers.toyota_cruise import capability as toyota_c
 AGGRESSIVE_COOLING_KEY = "AggressiveCoolingEnabled"
 AGGRESSIVE_COOLING_DESCRIPTION = ("Runs the fan sooner and harder to keep the comma 10-16 °C (18-29 °F) cooler on hot days, " +
                                   "at the cost of more fan noise. Applies next drive.")
-GLOBAL_BOOL_PREFERENCES = frozenset((LEAD_APPROACH_KEY, LEAD_TAKEOFF_KEY, NUDGE_KEY, "DisengageOnAccelerator", AGGRESSIVE_COOLING_KEY))
+GLOBAL_BOOL_PREFERENCES = frozenset((LEAD_APPROACH_KEY, LEAD_TAKEOFF_KEY, NUDGE_KEY, LOW_SPEED_CRUISE_ON_SET,
+                                     "DisengageOnAccelerator", AGGRESSIVE_COOLING_KEY))
 
 
 def cooling_available() -> bool:
@@ -101,6 +105,7 @@ BOOL_DEFAULTS = {
   "SubaruStopStartOff": False,
   "SubaruSNG": False,
   "SubaruRedneckCruise": False,
+  "RedneckCruise": False,
   "ReverseCruise": False, "ToyotaAutoHold": False, "SNGHack": False, "JeepBrakeHold": False, "VoltSNG": False, "GMAutoHold": False, "VoltOnePedalMode": False,
   "RemapCancelToDistance": False, "LongPitch": True, "DisableOpenpilotLongitudinal": False,
   "SpeedLimitController": False, "ShowSpeedLimits": True,
@@ -112,6 +117,7 @@ BOOL_DEFAULTS = {
   LEAD_APPROACH_KEY: False,
   LEAD_TAKEOFF_KEY: False,
   NUDGE_KEY: True,
+  LOW_SPEED_CRUISE_ON_SET: False,
   "DisengageOnAccelerator": False,
   AGGRESSIVE_COOLING_KEY: False,
   CURVE_MASTER_KEY: False, CURVE_NO_LEAD_KEY: False,
@@ -275,6 +281,12 @@ class FeatureSettingsOwner:
       return None
     try:
       from openpilot.starpilot.lateral.torque_runtime import production_supported_cp
+      if group == "gain" and cp.lateralTuning.which() == "pid":
+        from openpilot.starpilot.lateral.gain_runtime import gain_supported, pid_gain_basis
+        if gain_supported(cp):
+          basis = pid_gain_basis(cp)
+          return (str(cp.carFingerprint), str(cp.brand), str(cp.steerControlType), "pid", bool(cp.dashcamOnly),
+                  *basis.torque_basis, str(cp.carVin) if getattr(cp, "carVin", None) else None, basis.source_table)
       if group == "torque" and production_supported_cp(cp):
         tune = cp.lateralTuning.torque
         return (str(cp.carFingerprint), str(cp.brand), str(cp.steerControlType), str(cp.lateralTuning.which()),
@@ -392,10 +404,6 @@ class FeatureSettingsOwner:
 
   def _subaru_sng_capability(self):
     from openpilot.starpilot.car.subaru.sng_settings import capability
-    return capability(self)
-
-  def _subaru_software_capability(self):
-    from openpilot.starpilot.car.subaru.software_cruise_settings import capability
     return capability(self)
 
   def _gm_stop_capability(self, key: str) -> tuple | None:
@@ -612,8 +620,7 @@ class FeatureSettingsOwner:
     return value, value is not None and 0.0 <= value <= 100.0, canonical, legacy
 
   def _read_saved(self, key: str, limit: int) -> tuple[bytes | None, bool]:
-    # One assembly observes one complete source per key. Actions and the next
-    # assembly always read the filesystem again, including unreadable sources.
+    # Cache source reads only within each snapshot.
     reads = self._snapshot_reads.get()
     def read():
       try:
@@ -793,7 +800,7 @@ class FeatureSettingsOwner:
     row = self._bool_row("TurnAssist", "Turn Assist", configurable and self.authority("torque") and supported and capability is not None)
     return replace(row, capability=capability, dependencies=(),
                    reason=row.reason if row.value not in ("On", "Off") else
-                          ("Uses steering-angle feedback during rolling low-speed turns, above about 0.1 mph or the vehicle minimum. " +
+                          ("Unlocks assistance for a signaled turn once speed reaches 2 mph or less. Existing steering limits still apply. " +
                            "Never at standstill. Applies next drive.") if row.available else
                           "Turn Assist is available on supported vehicles when settings can be changed")
 
@@ -882,7 +889,7 @@ class FeatureSettingsOwner:
       rows = [self._bool_row("AlwaysAllowUploads", "Always Allow Uploads", self.authority("preferences"),
                              "Allow queued full logs and videos on metered networks. Uses mobile data.")]
     elif page == "power":
-      title = "Power and Cooling"
+      title = "Power & Cooling"
       if cooling_available():
         rows.append(self._bool_row(AGGRESSIVE_COOLING_KEY, "Aggressive Cooling", self.authority("preferences"),
                                    AGGRESSIVE_COOLING_DESCRIPTION))
@@ -890,20 +897,23 @@ class FeatureSettingsOwner:
       rows = [FeatureRow("", "Always On Lateral", "Keep steering assistance active independently of cruise control", page=FeaturePage.AOL, available=True),
               FeatureRow("", "Lane Changes", "Configure lane-change speed, automatic timing, and driver nudges", page=FeaturePage.LANE_CHANGE, available=True),
               FeatureRow("", "Lane Centering", "Adjust lane positioning, lane detection, and steering alerts", page=FeaturePage.LANE, available=True),
-              FeatureRow("", "Steering and Torque", "Select the steering controller and tune its response", page=FeaturePage.TORQUE, available=True),
+              FeatureRow("", "Steering & Torque", "Select the steering controller and tune its response", page=FeaturePage.TORQUE, available=True),
               FeatureRow('', 'Developer Parameters', 'Advanced steering parameters and total actuator delay',
                          page=FeaturePage.DEVELOPER_LATERAL, available=True),
               FeatureRow("", "Curve Speed Controller", "Adjust how speed is reduced for curves ahead", page=FeaturePage.CURVE, available=True),
               FeatureRow("", "Speed Limit Controller", "Choose speed-limit sources, offsets, and confirmation behavior", page=FeaturePage.SLC, available=True),
               FeatureRow("", "Long Planner", "Tune acceleration, braking, and following distances", page=FeaturePage.PROFILES, available=True),
               FeatureRow("", "Driving Modes", "Choose Automatic, Chill or Experimental", page=FeaturePage.CONDITIONAL, available=True),
+              FeatureRow("", "Developer Parameters", "Advanced acceleration and braking parameters",
+                         page=FeaturePage.DEVELOPER_LONGITUDINAL, available=True),
               FeatureRow("", "Wheel Controls", "Assign steering-wheel buttons and cruise behavior", page=FeaturePage.WHEEL, available=True)]
       if (self._long_pitch_capability() is not None or self._bolt_disable_capability() is not None or
           self._auto_hold_capability() is not None or self._toyota_sng_capability() is not None or self._jeep_hold_capability() is not None or
           self._pedal_setup_capability() is not None or
           self.subaru_smoothing.capability() is not None or
           self._subaru_avh_capability() is not None or self._subaru_startup_capability() is not None or self._subaru_sng_capability() is not None or
-          self._subaru_software_capability() is not None or self._gm_stop_capability("VoltSNG") is not None or
+          hyundai_software_cruise.capability(self) is not None or subaru_software_cruise.capability(self) is not None or
+          self._gm_stop_capability("VoltSNG") is not None or
           self._gm_stop_capability("GMAutoHold") is not None or self.tesla_screen.capability() is not None or self.tesla_coop.capability() is not None or
           self.gm_tune.capability() is not None or self.gm_truck.capability() is not None or
           self.gm_ev_preset.capability() is not None or self.volt_radar.capability() is not None or
@@ -998,11 +1008,8 @@ class FeatureSettingsOwner:
         row = self._bool_row("SubaruSNG", "Stop-and-Go Assistance", parked and self.authority("parked_preferences"),
                              "Assists lead departure and standstill hold with factory ACC. Applies after the next startup.")
         rows.append(replace(row, available=row.available and self._readable("SubaruSNG"), capability=subaru_sng_capability))
-      software_capability = self._subaru_software_capability()
-      if software_capability is not None:
-        row = self._bool_row("SubaruRedneckCruise", "Software Cruise Control", parked and self.authority("parked_preferences"),
-                             "Adjust stock cruise speed using Resume and Set. Applies after the next startup; factory ACC keeps pedal control.")
-        rows.append(replace(row, available=row.available and self._readable("SubaruRedneckCruise"), capability=software_capability))
+      rows.extend(hyundai_software_cruise.rows(self, parked))
+      rows.extend(subaru_software_cruise.rows(self, parked))
       sng_capability = self._gm_stop_capability("VoltSNG")
       if sng_capability is not None:
         row = self._bool_row("VoltSNG", "Volt Stop-and-Go Assistance", parked and self.authority("parked_preferences"),
@@ -1096,7 +1103,7 @@ class FeatureSettingsOwner:
       rows.extend(self.torque.manual_rows(capability, parked and self.authority("torque") and
                                          self.authority("parked_preferences") and capability is not None))
     elif page == FeaturePage.TORQUE:
-      title = "Steering and Torque"
+      title = "Steering & Torque"
       rows.extend(FordBluePilotFeature(self).rows(parked))
       controller_row = self.controller.row()
       if controller_row is not None:
@@ -1114,9 +1121,16 @@ class FeatureSettingsOwner:
       learning_row = self.controller.learning_row()
       if learning_row is not None:
         rows.append(learning_row)
+    elif page == FeaturePage.DEVELOPER_LONGITUDINAL:
+      from openpilot.starpilot.ui.longitudinal_developer import rows as longitudinal_developer_rows
+      title = "Developer Parameters"
+      rows.extend(longitudinal_developer_rows(self))
     elif page == FeaturePage.DEVELOPER_LATERAL:
       title = 'Developer Parameters'
-      capability = self._capability("torque")
+      controller_row = self.controller.row()
+      if controller_row is not None:
+        rows.append(controller_row)
+      capability = self._capability("torque") or self._capability("gain")
       allowed = configurable and self.authority("torque") and capability is not None
       _, numeric_rows = self.torque.rows(capability, allowed, repair_allowed=parked and allowed)
       from openpilot.starpilot.ui.delay_feature import DelayFeature
@@ -1171,13 +1185,16 @@ class FeatureSettingsOwner:
         rows.extend(self._cruise_rows(configurable))
       rows.extend(self.wheel.rows())
     elif page == FeaturePage.SLC:
-      system_long = (system_long if self.vehicle_params() is None else self.longitudinal_available()) and self.authority("slc")
+      cp = self.vehicle_params()
+      button_cruise = hyundai_software_cruise.slc_configurable(cp, self.params)
+      slc_available = system_long if cp is None else self.longitudinal_available() or button_cruise
+      system_long = slc_available and self.authority("slc")
       allowed = configurable and system_long
       offsets_ready, offset_rows = self.slc_offsets.rows(allowed, repair_allowed=parked and allowed)
       control, _, _ = self._value("SpeedLimitController")
       if self.vehicle_params() is None:
         control_reason = "Select or connect a vehicle to configure speed control"
-      elif not self.longitudinal_available():
+      elif not slc_available:
         control_reason = "StarPilot speed control is unavailable; check the vehicle and longitudinal settings"
       elif not self.authority("slc"):
         control_reason = "Vehicle settings context is unavailable; refresh this page"
@@ -1190,10 +1207,10 @@ class FeatureSettingsOwner:
       control_row = self._bool_row("SpeedLimitController", "Speed Limit Controller",
                                    allowed and (offsets_ready or control == "1"), reason=control_reason)
       rows.append(replace(control_row, reason=control_reason) if control_row.choices else control_row)
-      cp = self.vehicle_params()
-      if cp is not None and not cp.pcmCruise:
+      if cp is not None and (not cp.pcmCruise or button_cruise):
         rows.append(self._bool_row("SLCOnEngage", "Match Speed Limit on Engage", allowed and control == "1",
-                                   reason="Start SET at the SLC limit plus offset. RES restores your previous SET"))
+                                   reason="Lower your new SET to the speed limit plus offset when using Redneck Cruise"
+                                   if button_cruise else "Start SET at the SLC limit plus offset. RES restores your previous SET"))
       rows.append(self._bool_row("ShowSpeedLimits", "Show speed limit signs", self.authority("preferences"),
                                  reason="Display signs independently of Speed Limit Controller; does not change cruise speed"))
       rows.extend(policy_rows(self._value, self._readable, allowed=allowed))
@@ -1204,9 +1221,9 @@ class FeatureSettingsOwner:
       vision_dev, maps_available = source_capability
       source_allowed = configurable and self.authority("preferences")
       for key, label, help_text in (
-          (SLC_PRIORITY, "Primary source", "Use this source first; try the secondary source when it is unavailable"),
-          (SLC_SECONDARY, "Secondary source", "Use this source when the primary source is unavailable"),
-          (SLC_TERTIARY, "Third source", "Use this source when neither earlier source has a usable reading")):
+          (SLC_PRIORITY, "Primary source", "SLC uses the newest limit. This source wins ties."),
+          (SLC_SECONDARY, "Secondary source", "Optional source. Select Off to disable."),
+          (SLC_TERTIARY, "Third source", "Optional source. Select Off to disable.")):
         choices = self._source_choices(source_capability, key=key)
         source, raw, valid = self._value(key)
         source = "Maps" if source == "Map Data" else source
@@ -1268,6 +1285,9 @@ class FeatureSettingsOwner:
       rows.append(self._bool_row(NUDGE_KEY, "Experimental Speed Nudge", self.authority("preferences"),
                                 reason="Gently recovers toward set speed when Experimental mode hesitates on a clear road. " +
                                        "Leads, stops, curve limits and driver overrides retain priority."))
+      rows.append(self._bool_row(LOW_SPEED_CRUISE_ON_SET, "Low-Speed Cruise Start", self.authority("preferences"),
+                                reason="Lets StarPilot SET at your current speed down to the vehicle’s minimum engagement speed. " +
+                                       "Factory cruise still uses the car’s minimum speed."))
       if self._galaxy():
         rows.append(self._bool_row("DisengageOnAccelerator", "Disengage on Accelerator Pedal", self.authority("preferences")))
       document, raw, valid = self._document()
@@ -1283,7 +1303,7 @@ class FeatureSettingsOwner:
                                tuple(preset_label(choice) for choice in choices) if valid else (),
                                available=allowed and valid,
                                reason=(CATEGORY_HELP[category] if category == 'braking' else
-                                       'Personalities set to Selected Profile follow this choice; explicit overrides stay unchanged.'),
+                                       'Personalities set to Use global preset follow this choice; explicit overrides stay unchanged.'),
                                default_value=preset_label('dom_default' if category == 'acceleration' else DEFAULT_DECELERATION_PROFILE)))
       unit_value, unit_raw, unit_valid = self._value("IsMetric")
       unit_valid = unit_valid and unit_value in ("0", "1") and self._readable("IsMetric")
@@ -1415,8 +1435,7 @@ class FeatureSettingsOwner:
   def apply(self, request: FeatureSettingsRequest, *, reset_default: bool = False) -> bool:
     if reset_default and not self.authority("parked_preferences"):
       return False
-    # A request may arrive through a callback during assembly. Its compare and
-    # authorization checks must still observe current sources independently.
+    # Recheck live sources even from snapshot callbacks.
     token = self._snapshot_reads.set(None)
     vehicle_token = self._snapshot_vehicle.set(None)
     try:
@@ -1503,9 +1522,10 @@ class FeatureSettingsOwner:
     if key == "SubaruSNG":
       from openpilot.starpilot.car.subaru.sng_settings import apply
       return apply(self, request)
+    if key == "RedneckCruise":
+      return hyundai_software_cruise.apply(self, request)
     if key == "SubaruRedneckCruise":
-      from openpilot.starpilot.car.subaru.software_cruise_settings import apply
-      return apply(self, request)
+      return subaru_software_cruise.apply(self, request)
     if key in ("VoltSNG", "GMAutoHold", "VoltOnePedalMode"):
       return self._apply_gm_stop(request)
     if key == "LongPitch":
@@ -1550,6 +1570,9 @@ class FeatureSettingsOwner:
       return self.traffic_profiles.apply(request)
     if key in TORQUE_CONFIRM_ACTIONS or key.startswith("torque:"):
       return self.torque.apply(request)
+    if key.startswith('longdev:'):
+      from openpilot.starpilot.ui.longitudinal_developer import apply as apply_longitudinal_developer
+      return apply_longitudinal_developer(self, request)
     if key in ('steering_delay', 'steering_delay_reset'):
       from openpilot.starpilot.ui.delay_feature import DelayFeature
       return DelayFeature(self).apply(request)
@@ -1731,7 +1754,8 @@ class FeatureSettingsOwner:
           return False
         if key in ("SLCOnEngage", WHEEL_OVERRIDE_KEY):
           cp = self.vehicle_params()
-          if cp is None or cp.pcmCruise or not self.longitudinal_available() or (
+          button_match = key == "SLCOnEngage" and hyundai_software_cruise.slc_configurable(cp, self.params)
+          if (not (button_match or cp is not None and not cp.pcmCruise and self.longitudinal_available()) or
               request.value == "On" and self._raw("SpeedLimitController") != b"1"):
             return False
         encoded = "1" if request.value == "On" else "0"

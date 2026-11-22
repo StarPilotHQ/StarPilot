@@ -221,7 +221,7 @@ class TestEuvLongitudinal(unittest.TestCase):
                 if alpha and not frame % 4:
                   wire_accel = struct.unpack('f', struct.pack('f', expected))[0]
                   raw, friction = original_demand(controls.CP, bool(cc.longActive), float(car.vEgo), wire_accel,
-                                                 published_old_state, False, 0.)
+                                                 published_old_state, False, 0., standstill=car.standstill)
                   wanted = original_frames(raw, friction, (frame // 4) % 4, enabled,
                                            bool(cc.longActive) and speed == 0. and published_old_state == 'stopping')
                 self.assertEqual(actual, wanted, (alpha, alignment, scenario, phase, tick))

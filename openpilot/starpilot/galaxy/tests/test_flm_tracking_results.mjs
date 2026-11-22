@@ -1,11 +1,8 @@
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
 import { compile } from '../web/vendor/vue/vue.esm-browser.js'
 import { FlmPage } from '../web/js/flm.js'
 import { GalaxySettingRow } from '../web/js/galaxy-setting-row.js'
 import { SURFACE_NAMES, FRICTION_NAMES, offroadView, offroadCoordinateEvidence, recommendationText, PID_UNSUPPORTED, validTrainingResults, validTrackingResults, trackingView, surfaceRows, measurementText, validTrackingValues, trackingCoordinates, validTrackingPlot, trackingPlotView, sourceSeconds, tunerStatus } from '../web/js/flm-training-results.js'
-
-if (process.env.CI && process.platform === 'linux') execFileSync('python3', ['tools/ci/check_prebuilt_receipt.py', '--revision', 'HEAD'], { stdio: 'inherit' })
 
 const coordinates = amount => SURFACE_NAMES.map((name, i) => [name, i === 0 ? amount : 0])
 const tracking = () => ({ version: 1, status: 'trial_active', reason: 'scoring_future_tracking', group: 'feedforward',

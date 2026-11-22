@@ -197,7 +197,7 @@ class PreviewRouter:
     self.toggle_requests: list[ToggleRequest] = []
 
   def home_action(self, action: HomeAction) -> None:
-    if action.kind == HomeActionKind.OPEN_SETTINGS:
+    if action.kind in (HomeActionKind.OPEN_SETTINGS, HomeActionKind.OPEN_ALERTS):  # the preview has no offroad alerts
       self.in_settings = True
       self.selected = Destination.STAR
     else:

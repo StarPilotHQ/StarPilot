@@ -1,19 +1,27 @@
-from collections import deque
+from collections import Counter, deque
 
-from opendbc.car import structs, get_safety_config
+from opendbc.car import Bus, structs, get_safety_config
 from opendbc.car.interfaces import CarInterfaceBase
 from opendbc.car.volvo.carstate import CarState
 from opendbc.car.volvo.carcontroller import CarController
 from opendbc.car.volvo.helpers import pscm_status_validation_class
-from opendbc.car.volvo.values import CAR, VolvoC1PlatformConfig, VolvoSPAPlatformConfig, VolvoSafetyFlags
+from opendbc.car.volvo.radar_interface import RadarInterface
+from opendbc.car.volvo.values import CAR, DBC, VolvoC1PlatformConfig, VolvoEUCDPlatformConfig, VolvoSPAPlatformConfig, VolvoSafetyFlags
 
 
 class CarInterface(CarInterfaceBase):
   CarState = CarState
   CarController = CarController
+  RadarInterface = RadarInterface  # Delphi ESR 2.5 on the V60; the others have no radar DBC
 
   def __init__(self, CP):
-    if not isinstance(CAR(CP.carFingerprint).config, VolvoC1PlatformConfig):
+    config = CAR(CP.carFingerprint).config
+    if isinstance(config, VolvoEUCDPlatformConfig):
+      from opendbc.car.volvo.eucd_carstate import CarStateEUCD
+      from opendbc.car.volvo.eucd_carcontroller import CarControllerEUCD
+      self.CarState = CarStateEUCD
+      self.CarController = CarControllerEUCD
+    elif not isinstance(config, VolvoC1PlatformConfig):
       from opendbc.car.volvo.cma_carstate import CarStateCMA
       from opendbc.car.volvo.cma_carcontroller import CarControllerCMA
       self.CarState = CarStateCMA
@@ -44,8 +52,14 @@ class CarInterface(CarInterfaceBase):
     actuators, messages = super().apply(c, now_nanos)
     if self.CP.carFingerprint == CAR.POLESTAR_2:
       if not self.CC.lat_active:
-        # Preserve source counters and cadence instead of resampling the latest frame.
-        messages = list(self.stock_relay)
+        # Panda only retains four source packets per address. After a backlog,
+        # resume each stream with its newest packet instead of bursting stale copies.
+        counts = Counter(address for address, _, _ in self.stock_relay)
+        if max(counts.values(), default=0) > 4:
+          latest = {frame[0]: index for index, frame in enumerate(self.stock_relay)}
+          messages = [frame for index, frame in enumerate(self.stock_relay) if index == latest[frame[0]]]
+        else:
+          messages = list(self.stock_relay)
       self.stock_relay.clear()
     return actuators, messages
 
@@ -54,16 +68,27 @@ class CarInterface(CarInterfaceBase):
     ret.brand = 'volvo'
     platform = CAR(candidate).config
     c1 = isinstance(platform, VolvoC1PlatformConfig)
+    eucd = isinstance(platform, VolvoEUCDPlatformConfig)
     safety_param = VolvoSafetyFlags.C1.value if c1 else VolvoSafetyFlags.SPA.value if isinstance(platform, VolvoSPAPlatformConfig) else 0
+    if eucd:
+      safety_param = VolvoSafetyFlags.EUCD.value
     if candidate == CAR.POLESTAR_2:
       safety_param |= VolvoSafetyFlags.LCA2_MOD15.value
     ret.safetyConfigs = [get_safety_config(structs.CarParams.SafetyModel.volvo, safety_param)]
-    ret.steerActuatorDelay = 0.2 if c1 else 0.3
-    ret.steerLimitTimer = 0.1
+    ret.steerActuatorDelay = 0.2 if (c1 or eucd) else 0.3
+    ret.steerLimitTimer = 0.8 if eucd else 0.1
     ret.steerAtStandstill = not c1
     ret.steerControlType = structs.CarParams.SteerControlType.angle
-    ret.radarUnavailable = True
-    ret.alphaLongitudinalAvailable = False
+    ret.radarUnavailable = Bus.radar not in DBC[candidate]
+    ret.alphaLongitudinalAvailable = eucd
+    if eucd:
+      # OP long: stock ACC engages and owns the set speed; OP replaces FSM3
+      ret.openpilotLongitudinalControl = alpha_long
+      if ret.openpilotLongitudinalControl:
+        ret.longitudinalActuatorDelay = 0.5  # FSM3 accel to aEgo delay
+        # Integral-only accel loop, the car brakes short of OP's request (route 89d)
+        ret.longitudinalTuning.kiBP = [0.]
+        ret.longitudinalTuning.kiV = [0.2]
     ret.pcmCruise = True
     if c1:
       ret.transmissionType = structs.CarParams.TransmissionType.automatic

@@ -69,12 +69,13 @@ class TestUpstreamPlanner(unittest.TestCase):
     with patch.dict('os.environ', {}, clear=True), patch.object(plannerd, 'config_realtime_process'), \
          patch.object(plannerd, 'Params', return_value=fake_params), \
          patch.object(plannerd.messaging, 'log_from_bytes', return_value=cp), \
-         patch.object(plannerd, 'LongitudinalPlanner', side_effect=lambda cp: calls.append(('planner', cp))), \
+         patch.object(plannerd, 'LongitudinalPlanner', side_effect=lambda cp, *, developer_tuning: calls.append(('planner', cp, developer_tuning))), \
          patch.object(plannerd, 'LaneDepartureWarning', return_value=object()), \
          patch.object(plannerd.messaging, 'PubMaster', side_effect=lambda services: calls.append(('publish', services))), \
          patch.object(plannerd.messaging, 'SubMaster', side_effect=submaster):
       with self.assertRaises(InterruptedError):
         plannerd.main()
+    self.assertIn(('planner', cp, {}), calls)
     self.assertEqual([item for item in calls if item[0] == 'publish'], [('publish', ['longitudinalPlan', 'driverAssistance'])])
     subscribed = next(item[1] for item in calls if item[0] == 'subscribe')
     self.assertEqual(subscribed, ['carControl', 'carState', 'controlsState', 'vehicleParameters', 'radarState', 'modelV2', 'selfdriveState'])

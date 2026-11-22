@@ -19,6 +19,8 @@ from ipaddress import IPv4Address, AddressValueError
 from enum import Enum
 
 from openpilot.common.esim.base import WEBBING_ICCID_PREFIX
+from openpilot.common.hardware.comma.hardware import get_device_type
+from openpilot.common.swaglog import cloudlog
 
 logging.basicConfig(
   level=logging.INFO,
@@ -228,6 +230,7 @@ class Modem:
   def __init__(self):
     self._ppp = PPPSession()
     self._sim_change = False
+    self._modem_restarting = False
     self._apn = ""  # blank = network-provided via PCO
     self._roaming_allowed = True
     self.running = True
@@ -302,6 +305,8 @@ class Modem:
         return lines
     except (RuntimeError, TimeoutError, OSError) as e:
       logging.info(f"AT {cmd} failed: {e}")
+      if cmd in (*AT_INIT, "AT+CGMI", "AT+CGSN", "AT+QCCID", "AT+CIMI", "AT+GMR"):
+        cloudlog.error(f"modem: {cmd} failed: {e}")
       return []
     finally:
       fcntl.flock(fd, fcntl.LOCK_UN)
@@ -327,8 +332,7 @@ class Modem:
       # clear initial EPS bearer APN (some carriers reject the default)
       'AT+CGDCONT=0,"IP",""',
 
-      # SIM hot swap
-      'AT+QSIMDET=1,0',
+      # SIM hot swap (detection itself is set per device in _do_initializing)
       'AT+QSIMSTAT=1',
 
       # configure modem as data-centric
@@ -364,7 +368,7 @@ class Modem:
       fcntl.flock(fd, fcntl.LOCK_UN)
       os.close(fd)
     if len(ports) != 2:
-      logging.warning(f"found AT ports {ports} in {ttys}, retrying")
+      cloudlog.warning(f"modem: found AT ports {ports} in {ttys}, retrying")
       return False
 
     for link, tty in zip((AT_PORT, PPP_PORT), reversed(ports), strict=True):
@@ -374,6 +378,7 @@ class Modem:
 
   def _do_initializing(self):
     if not glob.glob("/dev/ttyUSB*"):
+      self._modem_restarting = False  # off USB, so a requested restart has happened
       return State.INITIALIZING
     logging.info("port found, initializing")
     self._ppp.kill()
@@ -383,12 +388,23 @@ class Modem:
       return State.INITIALIZING
 
     if not self._init_at_channel():
-      logging.warning("AT echo still on, retrying")
+      cloudlog.error("modem: AT channel initialization failed, retrying")
+      return State.INITIALIZING
+
+    # tici's SIM detect pin reads "removed"; the modem stores this setting and applies it only after a restart
+    want = {"tizi": "1,0", "tici": "0,0"}.get(get_device_type())
+    if want and (have := self._atv("AT+QSIMDET?", "+QSIMDET:")) and have != want:
+      cloudlog.warning(f"modem: SIM detection {have} -> {want}, restarting modem")
+      self._at(f"AT+QSIMDET={want}")
+      self._modem_restarting = True
+    if self._modem_restarting:
+      self._at("AT+CFUN=1,1")  # resent each pass until the modem drops off USB: _at skips silently while LPA holds the port
       return State.INITIALIZING
 
     identity = self._read_identity()
     if not identity["iccid"] or not identity["imei"]:
-      logging.warning(f"identity read incomplete: {identity}, retrying")
+      cloudlog.error("modem: identity read incomplete: imei_present=%s iccid_present=%s, retrying",
+                     bool(identity["imei"]), bool(identity["iccid"]))
       return State.INITIALIZING
 
     self._configure_modem(identity["modem_version"])
@@ -659,7 +675,7 @@ class Modem:
           self._publish_state(state=state.value)
           logging.info(f"{prev.value} -> {state.value}")
       except Exception:
-        logging.exception(f"error in {state.value}")
+        cloudlog.exception(f"modem: error in {state.value}")
         state = State.DISCONNECTING
       time.sleep(STATE_WAIT)
 

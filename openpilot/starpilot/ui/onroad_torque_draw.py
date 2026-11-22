@@ -98,7 +98,9 @@ class TorqueBarPainter:
     half_span = math.radians(alpha * TORQUE_ANGLE_SPAN / 2)
     sine, cosine = math.sin(half_span), math.cos(half_span)
     end_sine, end_cosine = math.sin(half_span * torque), math.cos(half_span * torque)
-    start, end = ((end_sine, -end_cosine), (0, -1)) if torque < 0 else ((0, -1), (end_sine, -end_cosine))
+    root_sine = math.copysign(min(cap / middle_radius, abs(end_sine)), torque)
+    root = (root_sine, -math.sqrt(1 - root_sine * root_sine))
+    start, end = ((end_sine, -end_cosine), root) if torque < 0 else (root, (end_sine, -end_cosine))
     dot_y = rect.y + rect.height - torque_offset - thickness / 2 + offset[1]
     indicator_alpha = int(255 * 0.9 * alpha) / 255
     warmth = max(0.0, min(1.0, (abs(torque) - 0.75) * 4))

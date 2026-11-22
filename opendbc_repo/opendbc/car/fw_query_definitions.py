@@ -93,6 +93,7 @@ class Request:
   logging: bool = False
   # pandad toggles OBD multiplexing on/off as needed
   obd_multiplexing: bool = True
+  brand_query_only: bool = False
 
 
 @dataclass

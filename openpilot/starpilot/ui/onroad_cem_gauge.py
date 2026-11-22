@@ -11,7 +11,7 @@ from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.starpilot.ui.appearance_preferences import CameraViewChoice
-from openpilot.starpilot.ui.onroad_conditional import curve_slowing, reason, status
+from openpilot.starpilot.ui.onroad_conditional import curve_slowing, reason, status, stop_active, stop_observed
 from openpilot.starpilot.ui.onroad_curve import controlling, glow_color, glowing, intensity
 from openpilot.starpilot.ui.onroad_customization import CEM_GAUGE_FRAME, CEM_GAUGE_INSET, placement
 from openpilot.starpilot.ui.onroad_state import AlertSize, OnroadState
@@ -136,10 +136,10 @@ def gauge_data(state: OnroadState, *, lead_stopped: bool = False) -> AetherGauge
       state.appearance.camera_view in (CameraViewChoice.DRIVER, CameraViewChoice.NONE) or state.reverse_driver_camera):
     return None
   current = reason(state) if status(state) is not None else None
-  if current == 'cem_stop':
+  if current == 'cem_stop' or stop_observed(state):
     # The current receipt has no committed distance. Preserve the light/road
     # graphic without claiming a numeric distance from an unrelated model path.
-    return AetherGaugeData('STOP', color=COLOR_FORCE_STOP, indicator_type=IndicatorType.STOP_LIGHT,
+    return AetherGaugeData('STOP' if stop_active(state) else 'DETECTED', color=COLOR_FORCE_STOP, indicator_type=IndicatorType.STOP_LIGHT,
                            indicator_extra='red')
   curve = state.curve
   curve_glow = glowing(state)

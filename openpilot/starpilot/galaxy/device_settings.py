@@ -1,0 +1,216 @@
+"""Parked device maintenance, connection preferences and next-drive driving options."""
+
+from openpilot.starpilot.longitudinal.voacc import KEY, DESCRIPTION
+from openpilot.starpilot.longitudinal.enhanced_stop_hold import KEY as HOLD_KEY, LABEL as HOLD_LABEL, DESCRIPTION as HOLD_DESCRIPTION
+from openpilot.starpilot.ui.calibration_reset import calibration_reset
+from openpilot.starpilot.saved_document import commit_exact
+from openpilot.starpilot.saved_source import read_saved
+from openpilot.starpilot.system.starport import head_unit_fixes
+from openpilot.starpilot.ui.feature_settings_state import FeatureRow, FeatureSettingsState
+
+
+STARPORT_WIFI_KEY = "StarPortDedicatedWifi"
+STARPORT_WIFI_DESCRIPTION = ("Experimental. Join the car's Wi-Fi on a second interface so the comma stays on home Wi-Fi or your " +
+                       "phone hotspot during wireless StarPort. Applies from the next StarPort connection.")
+CALIBRATION_RESET = "reset_calibration"
+CALIBRATION_RESET_DESCRIPTION = "Clear camera and steering calibration. The device recalibrates on the next drive."
+STARPORT_HEVC_KEY = "StarPortAllowHevc"
+STARPORT_HEVC_DESCRIPTION = ("Experimental. Only for a car that offers H.265 and no H.264 video. Cars that offer H.264 are not " +
+                             "affected. Applies from the next StarPort connection.")
+STARPORT_KEYFRAME_TEST_KEY = "StarPortKeyframeTest"
+STARPORT_KEYFRAME_TEST_DESCRIPTION = ("Experimental test for a car that only takes H.265. Sends every frame as a keyframe and logs the car's " +
+                                      "acknowledgments. H.264 cars are not affected. Applies from the next StarPort connection.")
+STARPORT_TALL_HEVC_KEY = "StarPortTallHevc"
+STARPORT_TALL_HEVC_DESCRIPTION = ("Experimental test for a car that only takes H.265. Uses the car's 1080x1920 screen mode instead of " +
+                                  "720x1280 when it offers one. Needs Allow H.265 video on. H.264 cars are not affected. " +
+                                  "Applies from the next StarPort connection.")
+STARPORT_UNACKED_VIDEO_KEY = "StarPortUnackedVideo"
+STARPORT_UNACKED_VIDEO_DESCRIPTION = ("Experimental. For a car that shows video but never acknowledges it, so the picture freezes " +
+                                      "and reconnects every few seconds. Sends video without waiting for acknowledgments, on " +
+                                      "H.264 or H.265. Applies from the next StarPort connection.")
+STARPORT_PATIENT_TCP_KEY = "StarPortPatientConnect"
+STARPORT_PATIENT_TCP_DESCRIPTION = ("Experimental. For a wireless adapter that hands over its Wi-Fi but then refuses the connection, " +
+                                    "as if it is still starting up. Keeps trying for up to a minute instead of about 15 seconds. " +
+                                    "Applies from the next StarPort connection.")
+STARPORT_EXPERIMENTS_KEY = "StarPortHeadUnitExperiments"
+STARPORT_EXPERIMENTS_DESCRIPTION = ("Shows experimental fixes for specific cars and dongles, each with its own switch. Turn off to use the " +
+                                    "standard connection for every car. Applies from the next StarPort connection.")
+STARPORT_EXPERIMENT_PREFIX = "StarPortExperiment:"
+DRIVER_MONITORING_RESET = "reset_driver_monitoring"
+DRIVER_MONITORING_RESET_DESCRIPTION = "Clear saved wheel-side detection. Automatic detection restarts on the next drive."
+
+
+class DeviceSettingsOwner:
+  def __init__(self, params, authorized, *, starport=None):
+    self.params = params
+    self.authorized = authorized
+    self.starport = starport  # returns the StarPort daemon client
+
+  def _starport_status(self):
+    if self.starport is None:
+      return None
+    try:
+      status = self.starport().call("status")["status"]
+      return status if isinstance(status, dict) else None
+    except (OSError, RuntimeError, ValueError, KeyError, TypeError):
+      return None  # the service is off; there is nothing to configure
+
+  def _starport_rows(self, parked):
+    """StarPort connection options, available while the daemon runs."""
+    held = "Park the vehicle to change this setting."
+    rows = []
+    status = self._starport_status()
+    if status is not None:
+      enabled, hevc = bool(status.get("dedicated_wifi_interface")), bool(status.get("allow_hevc"))
+      rows.append(FeatureRow(STARPORT_WIFI_KEY, "Stay on Wi-Fi", "On" if enabled else "Off", b"1" if enabled else b"0",
+                             ("Off", "On"), available=parked, reason=STARPORT_WIFI_DESCRIPTION if parked else held, default_value="On"))
+      rows.append(FeatureRow(STARPORT_HEVC_KEY, "Allow H.265 video", "On" if hevc else "Off", b"1" if hevc else b"0",
+                             ("Off", "On"), available=parked, reason=STARPORT_HEVC_DESCRIPTION if parked else held, default_value="Off"))
+      keyframe_test = bool(status.get("keyframe_test"))
+      rows.append(FeatureRow(STARPORT_KEYFRAME_TEST_KEY, "Keyframe-only video test", "On" if keyframe_test else "Off",
+                             b"1" if keyframe_test else b"0",
+                             ("Off", "On"), available=parked, reason=STARPORT_KEYFRAME_TEST_DESCRIPTION if parked else held,
+                             default_value="Off"))
+      tall_hevc = bool(status.get("tall_hevc"))
+      rows.append(FeatureRow(STARPORT_TALL_HEVC_KEY, "H.265 at 1080x1920", "On" if tall_hevc else "Off", b"1" if tall_hevc else b"0",
+                             ("Off", "On"), available=parked, reason=STARPORT_TALL_HEVC_DESCRIPTION if parked else held,
+                             default_value="Off"))
+      unacked_video = bool(status.get("unacked_video"))
+      rows.append(FeatureRow(STARPORT_UNACKED_VIDEO_KEY, "Unacknowledged video", "On" if unacked_video else "Off",
+                             b"1" if unacked_video else b"0",
+                             ("Off", "On"), available=parked, reason=STARPORT_UNACKED_VIDEO_DESCRIPTION if parked else held,
+                             default_value="Off"))
+      patient_tcp = bool(status.get("patient_tcp"))
+      rows.append(FeatureRow(STARPORT_PATIENT_TCP_KEY, "Wait longer for the adapter", "On" if patient_tcp else "Off",
+                             b"1" if patient_tcp else b"0",
+                             ("Off", "On"), available=parked, reason=STARPORT_PATIENT_TCP_DESCRIPTION if parked else held,
+                             default_value="Off"))
+      experiments = bool(status.get("head_unit_experiments"))
+      chosen = set(status.get("head_unit_experiment_rules") or ())
+      rows.append(FeatureRow(STARPORT_EXPERIMENTS_KEY, "Try experimental fixes", "On" if experiments else "Off",
+                             b"1" if experiments else b"0", ("Off", "On"), available=parked,
+                             reason=STARPORT_EXPERIMENTS_DESCRIPTION if parked else held, default_value="Off"))
+      for entry in head_unit_fixes.experimental_entries() if experiments else ():
+        on = entry["id"] in chosen
+        rows.append(FeatureRow(STARPORT_EXPERIMENT_PREFIX + entry["id"], entry["label"], "On" if on else "Off", b"1" if on else b"0",
+                               ("Off", "On"), available=parked, default_value="Off",
+                               reason=f"Experimental. {entry['evidence']} Applies from the next StarPort connection." if parked else held))
+    return tuple(rows) if status is not None else ()
+
+  def _driver_monitoring_reset_allowed(self):
+    return self.authorized() and not self.params.get_bool("IsDriverViewEnabled")
+
+  def _calibration_reset_allowed(self):
+    return self.authorized() and not calibration_reset.pending and not self.params.get_bool("OnroadCycleRequested")
+
+  def _driving_rows(self, parked):
+    raw, readable = read_saved(self.params, KEY, 8)
+    valid = readable and raw in (None, b"0", b"1")
+    row = FeatureRow(KEY, "Use VOACC", ("On" if raw == b"1" else "Off") if valid else "Invalid saved value",
+                     raw, ("Off", "On") if valid else (), available=parked and valid,
+                     reason=(DESCRIPTION if parked else "Park the vehicle to change this setting.") if valid else
+                            "Invalid saved value", default_value="Off")
+    hold_raw, hold_readable = read_saved(self.params, HOLD_KEY, 8)
+    hold_valid = hold_readable and hold_raw in (None, b"0", b"1")
+    hold_row = FeatureRow(HOLD_KEY, HOLD_LABEL, ("On" if hold_raw == b"1" else "Off") if hold_valid else "Invalid saved value",
+                          hold_raw, ("Off", "On") if hold_valid else (), available=parked and hold_valid,
+                          reason=(HOLD_DESCRIPTION if parked else "Park the vehicle to change this setting.") if hold_valid else
+                                 "Invalid saved value", default_value="Off")
+    return row, hold_row
+
+  def _reset_rows(self):
+    rhd_raw, rhd_readable = read_saved(self.params, "IsRhdDetected", 8)
+    reset_available = self._driver_monitoring_reset_allowed() and rhd_readable
+    reset_reason = (DRIVER_MONITORING_RESET_DESCRIPTION if reset_available else
+                    "Park the vehicle and close driver camera preview before resetting driver monitoring.")
+    reset_row = FeatureRow(DRIVER_MONITORING_RESET, "Reset Driver Monitoring", "Ready" if reset_available else "Unavailable",
+                           rhd_raw if rhd_readable else None, available=reset_available, reason=reset_reason)
+    calibration_raw, calibration_readable = read_saved(self.params, "CalibrationParams", 1024 * 1024)
+    calibration_available = self._calibration_reset_allowed() and calibration_readable
+    calibration_row = FeatureRow(CALIBRATION_RESET, "Reset Calibration", "Ready" if calibration_available else "Unavailable",
+                                 calibration_raw if calibration_readable else None, available=calibration_available,
+                                 reason=CALIBRATION_RESET_DESCRIPTION if calibration_available else
+                                        "Park the vehicle and wait for any pending reset to finish.")
+    return reset_row, calibration_row
+
+  def snapshot(self, page="starport_options"):
+    parked = self.authorized()
+    if page == "developer":
+      title, rows = "Developer driving options", self._driving_rows(parked) + self._reset_rows()
+    elif page == "starport_options":
+      title, rows = "StarPort", self._starport_rows(parked)
+    else:
+      raise ValueError("Unknown device settings page")
+    return FeatureSettingsState(page, title, "Changes apply from the next StarPort connection." if page == "starport_options" else
+                                "Changes apply next drive.", rows, parked)
+
+  def apply(self, request):
+    if request.key == CALIBRATION_RESET:
+      if request.value != "confirm" or not self._calibration_reset_allowed():
+        return False
+      current, readable = read_saved(self.params, "CalibrationParams", 1024 * 1024)
+      if not readable or current != request.expected:
+        return False
+      return calibration_reset.request(self.params)
+
+    if request.key == DRIVER_MONITORING_RESET:
+      if request.value != "confirm" or not self._driver_monitoring_reset_allowed():
+        return False
+      current, readable = read_saved(self.params, "IsRhdDetected", 8)
+      if not readable or current != request.expected:
+        return False
+      try:
+        self.params.remove("IsRhdDetected")
+        self.params.put_bool("OnroadCycleRequested", True, block=True)
+      except (OSError, RuntimeError, TypeError, ValueError):
+        return False
+      return True
+    if request.key == STARPORT_WIFI_KEY:
+      return self._apply_starport(request, "dedicated_wifi_interface", "set_dedicated_wifi")
+    if request.key == STARPORT_HEVC_KEY:
+      return self._apply_starport(request, "allow_hevc", "set_allow_hevc")
+    if request.key == STARPORT_KEYFRAME_TEST_KEY:
+      return self._apply_starport(request, "keyframe_test", "set_keyframe_test")
+    if request.key == STARPORT_TALL_HEVC_KEY:
+      return self._apply_starport(request, "tall_hevc", "set_tall_hevc")
+    if request.key == STARPORT_UNACKED_VIDEO_KEY:
+      return self._apply_starport(request, "unacked_video", "set_unacked_video")
+    if request.key == STARPORT_PATIENT_TCP_KEY:
+      return self._apply_starport(request, "patient_tcp", "set_patient_tcp")
+    if request.key == STARPORT_EXPERIMENTS_KEY:
+      return self._apply_starport(request, "head_unit_experiments", "set_head_unit_experiments")
+    if request.key.startswith(STARPORT_EXPERIMENT_PREFIX):
+      return self._apply_experiment_rule(request)
+    if request.key not in (KEY, HOLD_KEY) or request.value not in ("Off", "On") or request.expected not in (None, b"0", b"1"):
+      return False
+    result = commit_exact(self.params, key=request.key, max_bytes=8, raw=b"1" if request.value == "On" else b"0",
+                          expected=request.expected, authorized=self.authorized, temp_prefix=".device-settings-")
+    return result.committed and result.verified
+
+  def _apply_starport(self, request, field, command):
+    status, client = self._starport_status(), self.starport
+    enabled = None if status is None else bool(status.get(field))
+    if (enabled is None or client is None or request.value not in ("Off", "On") or request.expected != (b"1" if enabled else b"0") or
+        not self.authorized()):
+      return False
+    try:
+      client().call(command, enabled=request.value == "On")
+    except (OSError, RuntimeError, ValueError):
+      return False
+    status = self._starport_status()
+    return status is not None and bool(status.get(field)) == (request.value == "On")
+
+  def _apply_experiment_rule(self, request):
+    rule_id = request.key.removeprefix(STARPORT_EXPERIMENT_PREFIX)
+    status, client = self._starport_status(), self.starport
+    if status is None or client is None or rule_id not in head_unit_fixes.experiment_ids() or not self.authorized():
+      return False
+    on = rule_id in (status.get("head_unit_experiment_rules") or ())
+    if request.value not in ("Off", "On") or request.expected != (b"1" if on else b"0"):
+      return False
+    try:
+      client().call("set_head_unit_experiment_rule", rule=rule_id, enabled=request.value == "On")
+    except (OSError, RuntimeError, ValueError):
+      return False
+    status = self._starport_status()
+    return status is not None and (rule_id in (status.get("head_unit_experiment_rules") or ())) == (request.value == "On")

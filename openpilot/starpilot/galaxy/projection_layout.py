@@ -11,7 +11,7 @@ from openpilot.starpilot.system.starport.display_profile import (
   SCREEN_PATH, MAX_BYTES as SCREEN_MAX_BYTES, record_screen, validate_screen,
 )
 from openpilot.starpilot.system.starport.projection_layout import (
-  DOCUMENT_KEY, JETLINK_WIDGET, MAX_BYTES, ProjectionLayoutSource, comma_display, decode_layout, default_layout, layout_metadata, validate_layout,
+  DOCUMENT_KEY, MAX_BYTES, ProjectionLayoutSource, comma_display, decode_layout, default_layout, layout_metadata, validate_layout,
 )
 from openpilot.starpilot.ui.appearance_preferences import onroad_appearance
 from openpilot.starpilot.ui.onroad_customization import read_customization
@@ -83,9 +83,6 @@ class ProjectionLayoutOwner:
               'Saved projection layout is unavailable' if not readable else None)
     base = read_customization(self.params)
     metadata = layout_metadata(screen) if screen is not None else None
-    if metadata is not None:
-      mode = self.params.get('JetlinkMode')
-      metadata['widgets'][JETLINK_WIDGET]['available'] = type(mode) is int and mode in (1, 2)
     return {'version': 1, 'document': document, 'defaults': defaults,
             'metadata': metadata,
             'screen': screen, 'revision': _revision(screen_raw, raw),

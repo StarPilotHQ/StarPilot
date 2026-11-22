@@ -177,3 +177,130 @@ def test_many_events_in_one_window_and_conflicting_curve_steps_do_not_inflate_su
   reduction = {'values': dict(previous, friction_threshold_highway=-.005)}
   negative = [(str(i + 3), dict(observation, bucket='low_speed_unwillingness')) for i in range(3)]
   assert not curve_candidates([(proposed, positive), (reduction, negative)], previous)
+
+
+def recorded_highway_samples():
+  import gzip
+  import json
+  from pathlib import Path
+
+  fixture = json.loads(gzip.decompress((Path(__file__).parent / 'fixtures/recorded_highway_oscillation.json.gz').read_bytes()))
+  assert fixture['original_rlog_sha256'] == '5178ca6d6f2ae882853651165cbc74e72ae22dfaaff773b90fcca08e6e1a0038'
+  return [FLMSample(route='recorded-highway', **dict(zip(fixture['columns'], row, strict=True))) for row in fixture['rows']]
+
+
+def oscillation_events(samples):
+  from openpilot.starpilot.flm.offroad_stable_policy import cadenced_runs, classify_current_stable
+
+  return [event for run in cadenced_runs(samples) for summary in classify_current_stable(list(run))[0]
+          if summary['bucket'] == 'center_chatter' for event in summary['events']
+          if event.get('metrics', {}).get('detector') == 'sustained_tracking_oscillation']
+
+
+def test_recorded_highway_wobble_is_found_at_the_bookmark_without_new_application_authority():
+  samples = recorded_highway_samples()
+  events = oscillation_events(samples)
+  assert events
+  # Event indices belong to each cadenced run; the plot keeps its original timestamps.
+  from openpilot.starpilot.flm.offroad_stable_policy import cadenced_runs, classify_current_stable
+  hits = [run[event['startIdx']].t <= 66.935690417 <= run[event['endIdx']].t
+          for run in cadenced_runs(samples) for summary in classify_current_stable(list(run))[0]
+          if summary['bucket'] == 'center_chatter' for event in summary['events']
+          if event.get('metrics', {}).get('detector') == 'sustained_tracking_oscillation']
+  assert any(hits), 'The marked episode itself must be detected, not only another section'
+  assert all(min(e['metrics'][key] for key in ('trackingErrorExcursions', 'steeringExcursions', 'outputExcursions')) >= 6 for e in events)
+  # Detection alone still cannot create the three independent source-window votes.
+  from openpilot.starpilot.flm.offroad_coordinate_policy import coordinate_candidates, recorded_observation
+  observation = recorded_observation('center_chatter', 'center', events[0]['peakScore'], 35.)
+  assert not coordinate_candidates([('same-source-window', observation)] * 20, values())
+  assert coordinate_candidates([(str(i), observation) for i in range(3)], values())
+  assert not oscillation_events([replace(s, actual_la=s.desired_la, error=0.) for s in samples])
+
+
+def test_recorded_turn_forecasts_use_the_existing_turn_repair_with_fresh_sources():
+  import json
+  from pathlib import Path
+  from openpilot.cereal import log
+  from openpilot.starpilot.lateral.lane_change_smoothing import LaneChangeSmoother
+  from openpilot.starpilot.lateral.signal_turn import SignalTurnEvidence
+  from openpilot.starpilot.lateral.tests.test_signal_turn import BASE, OFFSET, frame
+
+  fixture = json.loads((Path(__file__).parent / 'fixtures/recorded_turn_forecasts.json').read_text())
+  assert fixture['source_sha256'] == '8a6d6067a6e0d4596fa8fcbbf4cf564d811d04b3844f6b5500f1ee0cacae2d1e'
+  owner, smoother = SignalTurnEvidence(), LaneChangeSmoother()
+  confirmed_before_lane_change = False
+  for row in fixture['rows']:
+    # Original numerical inputs; explicitly declared fresh receiver clocks, not a historical authority reconstruction.
+    sm, _, model = frame(0, 1)
+    now = BASE + row['dt_ns']
+    sm.logMonoTime, sm.recv_time = dict.fromkeys(sm, now), dict.fromkeys(sm, now / 1e9)
+    for name, value in row['car'].items():
+      setattr(sm['carState'], name, value)
+    sm['carControl'].latActive, sm['deviceState'].started = row['lat_active'], row['started']
+    sm['longitudinalPlan'].modelMonoTime, sm['longitudinalPlan'].shouldStop = now, row['plan_stop']
+    model.timestampEof, model.action.shouldStop = now + OFFSET, row['model_stop']
+    model.meta.desirePrediction, model.meta.laneChangeState = row['prediction'], row['lane_change_state']
+    ready = owner.observe(sm, model, model_ns=now, now_ns=now, now_boot_ns=now + OFFSET, valid=row['model_valid'], enabled=True)
+    state = model.meta.laneChangeState
+    if ready and state in (log.LaneChangeState.off, log.LaneChangeState.preLaneChange):
+      confirmed_before_lane_change = True
+    if state == log.LaneChangeState.laneChangeStarting:
+      assert confirmed_before_lane_change and ready
+      factor = smoother.factor(active=True, lane_change_state=state, speed=row['car']['vEgo'], minimum_speed=0., duration=5.777777777777778,
+                               previous=.0015, desired=.015, turn_assist=True, intersection_turn=ready)
+      assert factor == 1., 'A confirmed intersection must not receive the extra lane-change slowing'
+  assert confirmed_before_lane_change
+
+
+@pytest.mark.parametrize('kind', ['follows_request', 'small_error', 'one_lane_change', 'steady_curve', 'wheel_only',
+                                 'output_only', 'driver', 'inactive', 'saturated', 'slow', 'gap', 'segment_boundary'])
+def test_commanded_maneuvers_and_unusable_sources_are_not_sustained_tracking_wobble(kind):
+  import math
+
+  template = recorded_highway_samples()[0]
+  samples = []
+  for i in range(80):
+    t = i / 10
+    wave = math.sin(2 * math.pi * t)
+    desired = .3 * wave
+    actual = desired + .2 * math.sin(2 * math.pi * t + .8)
+    angle, output = 1.5 * wave, .15 * wave
+    if kind == 'follows_request':
+      actual = desired
+    if kind == 'small_error':
+      actual = desired + .02 * wave
+    if kind == 'one_lane_change':
+      desired = .3 * math.sin(math.pi * t / 4)
+      actual = desired + .15 * math.cos(math.pi * t / 4)
+      angle, output = 1.5 * math.sin(math.pi * t / 4), .15 * math.sin(math.pi * t / 4)
+    if kind == 'steady_curve':
+      desired, actual, angle, output = .25, .27, 2., .1
+    if kind == 'wheel_only':
+      output = 0.
+    if kind == 'output_only':
+      angle = 0.
+    samples.append(replace(template, t=t, desired_la=desired, actual_la=actual, error=actual-desired, desired_jerk=0.,
+                           steering_angle_deg=angle, output=output, v_ego=20. if kind == 'slow' else 35.,
+                           steering_pressed=kind == 'driver' and i == 35, lat_active=not (kind == 'inactive' and i == 35),
+                           saturated=kind == 'saturated' and i == 35,
+                           segment=74 if kind == 'segment_boundary' and i >= 40 else 73))
+  if kind == 'gap':
+    samples = [s for i, s in enumerate(samples) if i < 35 or i > 40]
+  assert not oscillation_events(samples)
+
+
+@pytest.mark.parametrize('phase', [0., 1.5707963267948966])
+def test_sustained_wobble_does_not_depend_on_window_phase_or_steering_offset(phase):
+  import math
+
+  template = recorded_highway_samples()[0]
+  samples = []
+  for i in range(60):
+    t = i / 10
+    wave = math.sin(2 * math.pi * t + phase)
+    desired = .3 * wave
+    error = .2 * math.sin(2 * math.pi * t + phase + .8)
+    samples.append(replace(template, t=t, desired_la=desired, actual_la=desired + error, error=error, desired_jerk=0.,
+                           steering_angle_deg=3. + 1.5 * wave, output=.2 + .15 * wave, v_ego=35.,
+                           steering_pressed=False, lat_active=True, saturated=False))
+  assert oscillation_events(samples)

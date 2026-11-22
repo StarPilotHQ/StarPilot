@@ -134,9 +134,7 @@ def test_slc_decision_keeps_its_touch_priority_only_where_it_overlaps():
   pending = SpeedLimitObservation(kind=ObservationKind.VALID, source='map', speed_limit_mps=22., pending_speed_limit_mps=22.,
                                   session_id='s', decision_id=1, presentation_id=1, action_enabled=True)
   observed = replace(state(), slc_prompt_open=True, longitudinal_active=True, speed_limit=pending)
-  observed.customization['layouts']['compact']['speed_limit_actions']['y'] = 180
-  assert card.bounds(observed) is None  # The chooser now follows the sign, not this old action placement.
-  observed.customization['layouts']['compact']['speed_limit_actions']['y'] = 4
+  assert card.bounds(observed) is None
   observed.customization['layouts']['compact']['max_speed']['y'] = 58
   assert card.bounds(observed) is None
   assert card.bounds(replace(observed, longitudinal_active=False)) is not None  # No confirmation chooser while LONG is disengaged.

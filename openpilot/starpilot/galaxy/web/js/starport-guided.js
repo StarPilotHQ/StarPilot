@@ -159,7 +159,7 @@ export function guidedState({ setup = null, runtime = null, selected = null, rec
 export const StarPortGuidedSetup = {
   props: { state: { type: Object, required: true }, busy: { type: Boolean, default: false },
     choicesDisabled: { type: Boolean, default: false } },
-  emits: ["choose-type", "choose-adapter", "choose-app", "use-car", "classic", "reset-handshake", "continue-ladder", "dismiss-suggestion", "done"],
+  emits: ["choose-type", "choose-adapter", "choose-app", "use-car", "reset-handshake", "continue-ladder", "dismiss-suggestion", "done"],
   template: `
     <section class="gx-card gx-guided" :data-phase="state.phase" aria-label="Guided StarPort setup">
       <ol class="gx-guided__steps" aria-label="Setup progress">
@@ -275,7 +275,6 @@ export const StarPortGuidedSetup = {
       <div class="gx-guided__footer">
         <slot name="connect" />
         <button v-if="state.editing" type="button" class="gx-guided__link" :disabled="busy" @click="$emit('done')">Done</button>
-        <button type="button" class="gx-guided__link" :disabled="busy" @click="$emit('classic')">Use classic setup</button>
       </div>
     </section>`,
 }

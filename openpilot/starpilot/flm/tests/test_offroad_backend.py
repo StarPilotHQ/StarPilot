@@ -343,7 +343,7 @@ class TestOffroadSurface(unittest.TestCase):
     from opendbc.car.hyundai.values import CAR
     from openpilot.starpilot.flm import controller_replay
     from openpilot.starpilot.flm.controller_replay import SelectedControllerFactory, capture_snapshot, frame_input, final_command
-    from openpilot.starpilot.flm.offroad_controller_checks import check_candidate
+    from openpilot.starpilot.flm.offroad_controller_checks import check_candidate, check_original_native
     from openpilot.starpilot.flm.torque_adapter import Objective
     from openpilot.starpilot.flm.torque_observation import TorqueObservation
 
@@ -413,6 +413,25 @@ class TestOffroadSurface(unittest.TestCase):
     self.assertEqual(len(result['commands']), len(original))
     self.assertTrue(all(before == after for _, before, after in result['commands']))
     self.assertFalse(check_candidate(cp, original, values(), require_change=True)['qualified'])
+    # A few usable commands may be numerically checked, but cannot replace native history or an actual change.
+    for end_tick, expected_scored in ((4, 1), (24, 17), (59, 48)):
+      with self.subTest(end_tick=end_tick):
+        sparse = check_candidate(cp, original, values(), score_end_ns=original[end_tick].control_ns, require_change=False)
+        self.assertTrue(sparse['qualified'], sparse)
+        self.assertEqual(sparse['scored_frames'], expected_scored)
+        self.assertEqual(sparse['changed_frames'], 0)
+        self.assertEqual(sparse['verified_frames'], len(original))
+        self.assertFalse(check_candidate(cp, original, values(), score_end_ns=original[end_tick].control_ns)['qualified'])
+        commands = sparse['commands']
+        stamps = {stamp for stamp, _, _ in commands}
+        native_controls = tuple(control for control in original if control.control_ns in stamps)
+        if len(native_controls) < 50:
+          with self.assertRaisesRegex(ValueError, 'Complete bounded source controller/native history required'):
+            check_original_native(cp, native_controls, (), commands, require_change=False)
+        else:
+          native = check_original_native(cp, native_controls, (), commands, require_change=False)
+          self.assertFalse(native['qualified'])
+          self.assertEqual(native['reason'], 'insufficient_original_native_delivery')
     hinted = tuple(replace(row, limited=True) for row in original)
     no_delivery = check_candidate(cp, hinted, values(), require_change=False)
     self.assertFalse(no_delivery['qualified'])

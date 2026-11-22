@@ -7,7 +7,7 @@ import math
 import json
 
 from openpilot.starpilot.lateral.controller_selection import (
-  DOCUMENT_KEY, LEARNING_OFF_KEY, MAX_DOCUMENT_BYTES, ControllerMode, policy_for, replace_mode, selection_from_bytes,
+  DOCUMENT_KEY, LEARNING_OFF_KEY, MAX_DOCUMENT_BYTES, ControllerMode, policy_for, replace_mode, selection_from_bytes, torque_choice_cp,
 )
 from openpilot.starpilot.lateral.learning_preferences import (
   KEY as LEARNING_PREFERENCES_KEY, MAX_BYTES as LEARNING_PREFERENCES_LIMIT, read_preference, replace_preference,
@@ -21,7 +21,9 @@ from openpilot.starpilot.ui.feature_settings_state import FeatureRow, FeatureSet
 
 
 CHOICES = ('Stock Controller', 'StarPilot Controller')
+TORQUE_CHOICE = 'Torque Controller'
 MODES = dict(zip(CHOICES, (ControllerMode.STANDARD, ControllerMode.STARPILOT), strict=True))
+MODES[TORQUE_CHOICE] = ControllerMode.STANDARD
 TUNING_GUIDANCE = ("StarPilot's torque controller can provide higher low-speed steering accuracy, but may require additional tuning. " +
                    "Join the StarPilot Discord and open a tuning request: https://firestar.link/discord")
 SETUP_ACTION = 'torque_prepare_firestar'
@@ -61,16 +63,18 @@ class ControllerFeature:
     if CP is None or CP.notCar:
       return None
     try:
-      policy = policy_for(CP)
+      prepared = torque_choice_cp(CP)
+      policy = policy_for(prepared) if prepared is not None else None
       if policy is None:
         return None
-      tune = CP.lateralTuning.torque
+      tune = prepared.lateralTuning.torque
       firmware = tuple((str(fw.ecu), bytes(fw.fwVersion)) for fw in CP.carFw)
       return (str(CP.brand), str(CP.carFingerprint), policy, str(CP.steerControlType),
               str(CP.lateralTuning.which()), bool(CP.passive), bool(CP.dashcamOnly), bool(CP.notCar),
               int(CP.flags), int(CP.alternativeExperience), float(tune.latAccelFactor),
               float(tune.latAccelOffset), float(tune.friction), float(tune.steeringAngleDeadzoneDeg),
-              float(CP.steerActuatorDelay), float(CP.steerLimitTimer), str(CP.carVin), firmware)
+              float(CP.steerActuatorDelay), float(CP.steerLimitTimer), str(CP.carVin), firmware,
+              json.dumps(CP.lateralTuning.to_dict(), sort_keys=True, separators=(',', ':')))
     except (AttributeError, TypeError, ValueError, OverflowError):
       return None
 
@@ -117,7 +121,9 @@ class ControllerFeature:
     learning = ({LEARNING_PREFERENCES_KEY: replace_preference(sources[LEARNING_PREFERENCES_KEY], CP, False)}
                 if LEARNING_PREFERENCES_KEY in sources else {})
     return {**SETUP_DEFAULTS, **learning, LANE_CHANGE_KEY: json.dumps(to_value(lane), sort_keys=True, separators=(',', ':')).encode(),
-            DOCUMENT_KEY: replace_mode(sources[DOCUMENT_KEY], CP, ControllerMode.STARPILOT)}
+            DOCUMENT_KEY: replace_mode(sources[DOCUMENT_KEY], CP, ControllerMode.STARPILOT,
+                                       force_torque=steering_controller(CP) == 'pid' or
+                                         selection_from_bytes(CP, sources[DOCUMENT_KEY]).force_torque)}
 
   def setup_row(self) -> FeatureRow | None:
     CP = self.vehicle_params()
@@ -176,15 +182,16 @@ class ControllerFeature:
     raw, readable = read_saved(self.params, DOCUMENT_KEY, MAX_DOCUMENT_BYTES)
     selected = selection_from_bytes(CP, raw) if readable else None
     valid = readable and selected is not None and selected.source != 'invalid'
-    value = CHOICES[0] if valid and selected.mode == ControllerMode.STANDARD else \
-      CHOICES[1] if valid else 'Invalid saved controller choice'
+    value = (TORQUE_CHOICE if selected.force_torque and selected.mode == ControllerMode.STANDARD else
+             CHOICES[0] if selected.mode == ControllerMode.STANDARD else CHOICES[1]) if valid else 'Invalid saved controller choice'
+    choices = (CHOICES[0], TORQUE_CHOICE, CHOICES[1]) if steering_controller(CP) == 'pid' or valid and selected.force_torque else CHOICES
     learning, learning_readable = read_saved(self.params, LEARNING_OFF_KEY, 1)
     preference = read_preference(self.params, CP, legacy_snapshot=(learning, learning_readable))
     learning_valid = learning_readable and preference.valid
     allowed = valid and learning_valid and self.authority('preferences')
     reason = ('Choose the steering controller for your next drive. ' + TUNING_GUIDANCE if valid and learning_valid else
               'Saved steering preferences are unreadable or invalid; no change was made.')
-    return FeatureRow(DOCUMENT_KEY, 'Steering Controller', value, raw, CHOICES if valid else (),
+    return FeatureRow(DOCUMENT_KEY, 'Steering Controller', value, raw, choices if valid else (),
                       available=allowed, reason=reason, capability=capability,
                       dependencies=((LEARNING_OFF_KEY, learning), (LEARNING_PREFERENCES_KEY, preference.raw)),
                       default_value=CHOICES[0] if selection_from_bytes(CP, None).mode == ControllerMode.STANDARD else CHOICES[1])
@@ -238,7 +245,8 @@ class ControllerFeature:
         not request.vehicle_fingerprint or request.vehicle_fingerprint != self.vehicle_fingerprint()):
       return False
     CP = self.vehicle_params()
-    if CP is None or request.capability != self.capability(CP):
+    row = self.row()
+    if CP is None or row is None or request.value not in row.choices or request.capability != self.capability(CP):
       return False
     raw, readable = read_saved(self.params, DOCUMENT_KEY, MAX_DOCUMENT_BYTES)
     learning, learning_readable = read_saved(self.params, LEARNING_OFF_KEY, 1)
@@ -251,7 +259,9 @@ class ControllerFeature:
       selected = selection_from_bytes(CP, raw)
       if selected.source == 'invalid':
         return False
-      encoded = replace_mode(raw, CP, MODES[request.value])
+      force_torque = request.value == TORQUE_CHOICE or request.value == CHOICES[1] and (
+        steering_controller(CP) == 'pid' or selected.force_torque)
+      encoded = replace_mode(raw, CP, MODES[request.value], force_torque=force_torque)
     except (UnicodeError, ValueError, TypeError, OverflowError):
       return False
 

@@ -14,6 +14,7 @@ GEN2_ANGLE_PORTS = frozenset((CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025
 class CarInterface(CarInterfaceBase):
   CarState = CarState
   CarController = CarController
+  DRIVABLE_GEARS = (structs.CarState.GearShifter.manumatic,)
 
   def update(self, can_packets):
     source = self.CS.startup_sources
@@ -58,7 +59,7 @@ class CarInterface(CarInterfaceBase):
     if not (ret.flags & SubaruFlags.PREGLOBAL) and 0x323 in fingerprint[2]:
       ret.flags |= SubaruFlags.SEND_INFOTAINMENT.value
 
-    if candidate == CAR.SUBARU_ASCENT_2023 and fingerprint[CanBus.camera].get(0x3C4) == 8:
+    if candidate in (CAR.SUBARU_ASCENT_2023, CAR.SUBARU_LEGACY_2025) and fingerprint[CanBus.camera].get(0x3C4) == 8:
       ret.flags |= SubaruFlags.ASCENT_LKAS_ALERT.value
 
     if ret.flags & SubaruFlags.PREGLOBAL:
@@ -131,7 +132,8 @@ class CarInterface(CarInterfaceBase):
       ret.steerActuatorDelay = 0.15
 
     elif candidate == CAR.SUBARU_OUTBACK_PREGLOBAL:
-      pass
+      ret.dashcamOnly = False
+      ret.safetyConfigs[0].safetyParam = SubaruSafetyFlags.PREGLOBAL_OUTBACK_STOCK_ACC.value
     else:
       raise ValueError(f"unknown car: {candidate}")
 

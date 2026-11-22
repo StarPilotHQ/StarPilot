@@ -50,9 +50,10 @@ class TestBoltFactoryAcc(unittest.TestCase):
       ci = CarInterface(cp)
       packer = CANPacker(DBC[cp.carFingerprint][Bus.pt])
       setup(cp)
-      cases = [(speed, accel, pitch) for speed in (5., 20., 35.)
+      cases = [(speed, accel, pitch, 'pid') for speed in (5., 20., 35.)
                for accel in (-4., -2., -.5, 0., 1., 2.) for pitch in (-.04, 0., .04)]
-      for tick, (speed, accel, pitch) in enumerate(cases):
+      cases += [(.213, -.665, 0., 'stopping'), (0., -.665, 0., 'stopping')]
+      for tick, (speed, accel, pitch, state) in enumerate(cases):
         now = 1_000_000_000 + tick * 40_000_000
         out, sources = feed(ci, packer, now, counter=tick % 4, speed=speed)
         sources.append(packer.make_can_msg('ASCMActiveCruiseControlStatus', 2, {'ACCCruiseState': 3}))
@@ -68,14 +69,15 @@ class TestBoltFactoryAcc(unittest.TestCase):
         control = structs.CarControl(enabled=True, longActive=cp.openpilotLongitudinalControl,
                                      orientationNED=[0., pitch, 0.])
         control.actuators.accel = accel
-        control.actuators.longControlState = structs.CarControl.Actuators.LongControlState.pid
+        control.actuators.longControlState = state
         ci.CC.frame = tick * 4
         _, messages = ci.apply(control.as_reader(), now)
         long_messages = [m for m in messages if m[0] in (0x2CB, 0x315, 0x2CD)]
         self.assertFalse(any(m[0] in (0x200, 0x1F5, 0xBD) for m in messages))
         if cp.openpilotLongitudinalControl:
-          raw, brake = original_demand(cp, True, out.vEgo, accel, 'pid', False, pitch)
-          self.assertEqual(long_messages, original_frames(raw, brake, tick % 4, True, False))
+          raw, brake = original_demand(cp, True, out.vEgo, accel, state, False, pitch, standstill=out.standstill)
+          full_stop = out.standstill and state == 'stopping'
+          self.assertEqual(long_messages, original_frames(raw, brake, tick % 4, True, full_stop))
           for message in long_messages:
             self.assertTrue(native('tx', message, now // 1000), hex(message[0]))
         else:

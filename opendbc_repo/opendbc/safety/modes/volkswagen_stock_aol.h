@@ -255,10 +255,14 @@ static void vw_aol_tx_commit(const CANPacket_t *msg, bool accepted) {
   }
 }
 
+static bool vw_aol_steering_owned(void) {
+  return vw_aol_enabled && vw_aol_owned && ((vw_aol_permission() & 1U) != 0U) &&
+    (safety_get_ts_elapsed(microsecond_timer_get(), vw_aol_accepted_ts[0]) <= AOL_HOST_REQUEST_TIMEOUT_US);
+}
+
 static bool vw_aol_fwd(int bus, int addr) {
   bool blocked = false;
-  if (vw_aol_enabled && vw_aol_owned && ((vw_aol_permission() & 1U) != 0U) &&
-      (safety_get_ts_elapsed(microsecond_timer_get(), vw_aol_accepted_ts[0]) <= AOL_HOST_REQUEST_TIMEOUT_US)) {
+  if (vw_aol_steering_owned()) {
     unsigned int index = 3U;
     if ((bus == 2) && (addr == (int)MSG_HCA_01)) {
       index = 0U;

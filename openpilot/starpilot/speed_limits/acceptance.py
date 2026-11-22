@@ -54,6 +54,7 @@ class LongitudinalOwner(Enum):
   NONE = "none"
   SYSTEM = "system"
   STOCK = "stock"
+  CRUISE_BUTTONS = "cruise_buttons"
 
 
 @dataclass(frozen=True)
@@ -69,6 +70,8 @@ class Authority:
   @property
   def can_control(self) -> bool:
     """Permission to adopt an SLC limit during a system-longitudinal engagement."""
+    if self.owner is LongitudinalOwner.CRUISE_BUTTONS:
+      return self.stock_acc_active
     return (self.mode in (Mode.LONGITUDINAL_ONLY, Mode.COMBINED) and
             self.owner is LongitudinalOwner.SYSTEM and (self.longitudinal_active or self.accelerator_override))
 
@@ -238,7 +241,10 @@ def _authority_errors(authority: object) -> list[str]:
   if authority.longitudinal_active and (authority.mode not in (Mode.LONGITUDINAL_ONLY, Mode.COMBINED) or
                                         authority.owner is not LongitudinalOwner.SYSTEM):
     errors.append("active longitudinal axis contradicts mode or owner")
-  if authority.stock_acc_active and authority.owner is not LongitudinalOwner.STOCK:
+  if authority.owner is LongitudinalOwner.CRUISE_BUTTONS and (not authority.stock_acc_active or authority.fully_disengaged or
+      authority.mode not in (Mode.OFF, Mode.LATERAL_ONLY)):
+    errors.append("cruise button authority requires active stock cruise")
+  if authority.stock_acc_active and authority.owner not in (LongitudinalOwner.STOCK, LongitudinalOwner.CRUISE_BUTTONS):
     errors.append("active stock ACC contradicts owner")
   if authority.accelerator_override and (authority.mode not in (Mode.LONGITUDINAL_ONLY, Mode.COMBINED) or
                                         authority.owner is not LongitudinalOwner.SYSTEM):

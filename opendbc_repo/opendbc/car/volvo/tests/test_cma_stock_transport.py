@@ -50,7 +50,7 @@ def test_pending_queue_is_bounded():
   ci.update([(1_000_000_000, received)])
   assert len(ci.stock_relay) == 128
   _, output = ci.apply(structs.CarControl.new_message().as_reader(), 1_010_000_000)
-  assert output == forwarded(received[-128:])
+  assert output == forwarded(received[-1:])
 
 
 @pytest.mark.parametrize('changes', [
@@ -84,4 +84,18 @@ def test_stock_received_while_active_cannot_leak_into_later_withdrawal():
   assert ci.CC.lat_active
   assert not ci.stock_relay
   _, output = ci.apply(structs.CarControl.new_message().as_reader(), 1_020_000_000)
+  assert output == []
+
+
+def test_recovery_sends_latest_frames_in_source_order():
+  ci = interface()
+  angle = packets()
+  status = (0x16, bytes(8), 2)
+  other = (0x58, bytes(8), 0)
+  received = [status, angle[0], other, angle[1], status, angle[2], other, angle[0], angle[1], status, other, other]
+  for i, frame in enumerate(received):
+    ci.update([(1_000_000_000 + i * 10_000_000, [frame])])
+  _, output = ci.apply(structs.CarControl.new_message().as_reader(), 1_120_000_000)
+  assert output == forwarded([angle[1], status, other])
+  _, output = ci.apply(structs.CarControl.new_message().as_reader(), 1_130_000_000)
   assert output == []

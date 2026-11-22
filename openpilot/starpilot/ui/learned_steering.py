@@ -47,6 +47,21 @@ def _values(message, service, cp):
   return {}
 
 
+def _progress(message, service, cp):
+  if message is None or service not in ('lateralDelay', 'lateralTorqueParameters') or message.version != 1:
+    return {}
+  percent = message.calPerc
+  if type(percent) is not int or not 0 <= percent < 100:
+    return {}
+  if service == 'lateralTorqueParameters':
+    if cp.lateralTuning.which() != 'torque' or not message.useParams:
+      return {}
+    return dict.fromkeys(('torque:factor:value', 'torque:friction:value'), percent)
+  if str(message.status) not in ('unestimated', 'estimated'):
+    return {}
+  return {'steering_delay': percent}
+
+
 def _cached(owner, key):
   raw, readable = owner._read_saved(key, 2_097_152)
   return inspect_cache(key, raw).payload if readable else None
@@ -93,6 +108,8 @@ def learned_references(owner, *, now_ns=None):
             if event.valid:
               values = _values(getattr(event, service), service, cp)
               result.update({field: 'Last learned · ' + value for field, value in values.items()})
+      for field, percent in _progress(message, service, cp).items():
+        result[field] = result[field] + f' · {percent}%' if field in result else f'Learning · {percent}%'
     except ERRORS:
       continue
   return result

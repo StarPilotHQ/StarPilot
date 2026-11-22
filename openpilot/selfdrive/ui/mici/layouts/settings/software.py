@@ -11,6 +11,7 @@ from openpilot.selfdrive.ui.mici.widgets.info import InfoLayoutMici
 from openpilot.selfdrive.ui.mici.widgets.button import BigButton
 from openpilot.selfdrive.ui.mici.widgets.dialog import BigDialog
 from openpilot.selfdrive.ui.ui_state import ui_state
+from openpilot.starpilot.ui.brand import DISPLAY_VERSION
 from openpilot.system.ui.lib.application import gui_app, MousePos
 from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.widgets.scroller import NavScroller
@@ -42,11 +43,11 @@ class SoftwareInfoLayoutMici(InfoLayoutMici):
 
     desc = _split_description(ui_state.params.get("UpdaterCurrentDescription") or "")
     if desc is not None:
-      version, branch, commit, date = desc
-      self.subtext1.set_text(f"{version} ({date})")
+      _, branch, commit, date = desc
+      self.subtext1.set_text(f"{DISPLAY_VERSION} ({date})")
       self.subtext2.set_text(f"{branch} ({commit})")
     else:
-      self.subtext1.set_text(ui_state.params.get("Version") or "N/A")
+      self.subtext1.set_text(DISPLAY_VERSION)
       self.subtext2.set_text(ui_state.params.get("GitBranch") or "N/A")
 
 

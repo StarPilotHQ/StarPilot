@@ -16,19 +16,19 @@ SOURCE=10_020_000_000
 PUBLISHED_OFFSET=5_920_000
 SOURCE_AGE=33_452_000
 
-def profile(bluepilot=False):
+def profile(bluepilot=False, stock=False):
   fingerprint = gen_empty_fingerprint()
   fingerprint[0].update({0x5A: 8, 0x3A6: 8, 0x3A7: 8})
   fingerprint[2].update({0x3D6: 8, 0x186: 8})
-  cp = CarInterface.get_params(CAR.FORD_MUSTANG_MACH_E_MK1, fingerprint, [], True, False, False)
+  cp = CarInterface.get_params(CAR.FORD_MUSTANG_MACH_E_MK1, fingerprint, [], not stock, False, False)
   cp.alternativeExperience = 32
-  assert cp.flags == 3 and cp.safetyConfigs[0].safetyParam == 3
+  assert cp.flags == 3 and cp.safetyConfigs[0].safetyParam == (2 if stock else 3)
   if bluepilot:
     cp.safetyConfigs[0].safetyParam |= BP_LATERAL
   return cp
 
-def callers(case):
-  sd, controls, drive = case._authority_callers(False, cp=profile(), genuine_events=True)
+def callers(case, stock=False):
+  sd, controls, drive = case._authority_callers(False, cp=profile(stock=stock), genuine_events=True)
   def stationary(tick, **kwargs):
     state = kwargs.get('observed_state')
     if state is None:
@@ -39,15 +39,16 @@ def callers(case):
     return drive(tick, **kwargs)
   return sd, controls, stationary
 
+@pytest.mark.parametrize('stock', [False, True])
 @pytest.mark.parametrize('pedal', ['brake', 'gas'])
 @pytest.mark.parametrize('socket_timeout', [False, True])
 @pytest.mark.parametrize('published_offset,source_age', [(PUBLISHED_OFFSET, SOURCE_AGE)])
-def test_ford_held_brake_keeps_only_the_recorded_unexpired_proof(socket_timeout, published_offset, source_age, pedal):
+def test_ford_held_brake_keeps_only_the_recorded_unexpired_proof(socket_timeout, published_offset, source_age, pedal, stock):
   case = fixture.IoniqAvailabilityTests(methodName='runTest')
   with ExitStack() as cleanup:
     cleanup.callback(case.doCleanups)
     cleanup.enter_context(OpenpilotPrefix())
-    sd, controls, drive = callers(case)
+    sd, controls, drive = callers(case, stock)
     for tick in (0, 1):
       stamp = 10_000_000_000 + tick * 10_000_000
       drive(tick, brake=pedal == 'brake', gas=pedal == 'gas', long_allowed=False, **settings('lateral_only', stamp, tick + 1))
@@ -250,24 +251,28 @@ def test_fresh_successor_cannot_reuse_a_held_brake_proof_across_new_edges(edge, 
   for fault in ('none', 'lat_denied', 'rx', 'relay', 'brake', 'gas_release', 'button', 'expired')
   for timeout in ((False,) if fault in ('brake', 'gas_release', 'button') else (False, True))])
 @pytest.mark.parametrize('bluepilot', [False, True])
-def test_combined_gas_override_keeps_only_its_original_lateral_proof(bluepilot, socket_timeout, fault):
+@pytest.mark.parametrize('stock', [False, True])
+@pytest.mark.parametrize('published_offset,source_age', [(PUBLISHED_OFFSET, SOURCE_AGE), (5_153_288, 31_191_076)])
+def test_combined_gas_override_keeps_only_its_original_lateral_proof(bluepilot, socket_timeout, fault, stock, published_offset, source_age):
   case = fixture.IoniqAvailabilityTests(methodName='runTest')
   with ExitStack() as cleanup:
     cleanup.callback(case.doCleanups)
     cleanup.enter_context(OpenpilotPrefix())
-    sd, controls, drive = case._authority_callers(True, cp=profile(bluepilot), genuine_events=True)
+    sd, controls, drive = case._authority_callers(True, cp=profile(bluepilot, stock), genuine_events=True)
+    mode = 'lateral_only' if stock else 'combined'
+    native = {'panda_controls_allowed': True} if stock else {}
     cs = fixture.car_state()
     cs.cruiseState.enabled = True
     for tick in range(3):
       stamp = 10_000_000_000 + tick * 10_000_000
       old, state, command = drive(tick, observed_state=cs, gas=True, state_stamp=stamp,
-        offset_ns=PUBLISHED_OFFSET if tick == 2 else 0, long_allowed=False, **settings('combined', stamp, tick+1))
-    assert state.enabled and old.lateralActive and old.desiredLongitudinal and not old.longitudinalActive
+        offset_ns=published_offset if tick == 2 else 0, long_allowed=False, **native, **settings(mode, stamp, tick+1))
+    assert state.enabled and old.lateralActive and old.desiredLongitudinal == (not stock) and not old.longitudinalActive
     assert command.latActive and not command.longActive
     previous = old.to_dict()
     sd.car_state_poller = mock.Mock()
     sd.car_state_poller.poll.return_value = []
-    changes = settings('combined', SOURCE, 3)
+    changes = settings(mode, SOURCE, 3)
     if fault == 'lat_denied':
       changes['allowed'] = False
     elif fault == 'rx':
@@ -279,8 +284,8 @@ def test_combined_gas_override_keeps_only_its_original_lateral_proof(bluepilot, 
     elif fault == 'button':
       cs.buttonEvents = [{'type': 'cancel', 'pressed': True}]
     held, state, command = drive(6 if fault == 'expired' else 5, timeout=socket_timeout, observed_state=cs,
-      gas=fault != 'gas_release', state_stamp=SOURCE, offset_ns=SOURCE_AGE-30_000_000,
-      long_allowed=False, **changes)
+      gas=fault != 'gas_release', state_stamp=SOURCE, offset_ns=source_age-30_000_000,
+      long_allowed=False, **native, **changes)
     if fault != 'none':
       assert not sd.aol_axis_publication_deferred
       assert not command.latActive and not command.longActive
@@ -293,7 +298,7 @@ def test_combined_gas_override_keeps_only_its_original_lateral_proof(bluepilot, 
     assert not expired.latActive and not expired.longActive
     fresh = SOURCE+40_000_000
     axis, state, command = drive(6, observed_state=cs, gas=True, state_stamp=fresh,
-      long_allowed=False, **settings('combined', fresh, 4))
+      long_allowed=False, **native, **settings(mode, fresh, 4))
     assert state.enabled and axis.lateralActive and command.latActive and not command.longActive
 
 

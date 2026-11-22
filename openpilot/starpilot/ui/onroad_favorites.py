@@ -119,7 +119,7 @@ class OnroadFavorites:
     bounds = {}
     for key, spec in PROFILES['large']['widgets'].items():
       saved = document['layouts']['large'].get(key)
-      if saved is None or not saved['enabled'] or key in ('pip_left', 'pip_right', 'nav_map', 'torque_bar', 'speed_limit_actions'):
+      if saved is None or not saved['enabled'] or key in ('pip_left', 'pip_right', 'nav_map', 'torque_bar'):
         continue
       x = saved['x'] + spec.get('anchorShift', 0) * (state.viewport_width - 1860)
       y = saved['y']

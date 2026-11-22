@@ -168,7 +168,7 @@ def test_actual_params_thread_continues_after_new_reader_exception(worker):
        patch.object(module.time, 'monotonic_ns', return_value=1_000_000_000), \
        patch.object(worker.reader, 'refresh', side_effect=RuntimeError('reader failed')):
     card.params_thread(event)
-  assert calls == ['IsMetric', 'ExperimentalMode']
+  assert calls == ['IsMetric', 'ExperimentalMode', 'LowSpeedCruiseOnSet']
   assert worker.published.status == 'error' and worker.published.read_started_ns == 1_000_000_000
 
 

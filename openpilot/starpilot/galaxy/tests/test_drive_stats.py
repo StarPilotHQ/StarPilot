@@ -1,4 +1,3 @@
-from unittest.mock import Mock
 """Durable local-drive statistics and background analysis contract."""
 
 from datetime import UTC, datetime
@@ -42,6 +41,49 @@ def analyzed(root, selected, permitted):
 
 
 class DriveStatsTest(unittest.TestCase):
+  def test_unreadable_source_inventory_does_not_block_other_routes(self):
+    self.history.routes.append(route('other'))
+    owner = self.owner(analyzer=mock.Mock(wraps=analyzed))
+    signature = drive_stats._route_signature
+
+    def inspect(root, selected, allowed=lambda: True):
+      if selected['routeId'] == 'abc':
+        raise OSError('unreadable recording directory')
+      return signature(root, selected, allowed)
+
+    with mock.patch.object(drive_stats, '_route_signature', side_effect=inspect):
+      owner._run()
+    self.assertEqual(owner.snapshot()['totals']['drives'], 1)
+    self.assertEqual(owner.snapshot()['lastDrive']['routeId'], 'other')
+    self.assertTrue(owner._scan_incomplete)
+    owner.analyzer.assert_called_once()
+
+  def test_partial_stats_survive_restart_and_refresh_without_double_counting(self):
+    partial = dict(analyzed(self.root, route('abc'), lambda: True), complete=False, partial=True,
+                   reason='Recorded portion only; final segment unreadable')
+    calls = mock.Mock(return_value=partial)
+    owner = self.owner(analyzer=calls)
+    owner._run()
+    self.assertEqual(owner.snapshot()['totals']['distanceMeters'], 1000)
+    self.assertEqual(owner.snapshot()['coverage']['partialRoutes'], 1)
+    self.assertEqual(owner.snapshot()['records'], [])
+    self.assertEqual(owner.snapshot()['analysis']['failed'], 0)
+    owner._run()
+    calls.assert_called_once()
+    restarted = self.owner(analyzer=calls)
+    self.assertFalse(restarted.snapshot()['coverage']['cacheCorrupt'])
+    self.assertEqual(restarted.snapshot()['totals']['distanceMeters'], 1000)
+    # A repaired recording replaces this route's coverage, never adds a drive.
+    folder = self.root / 'abc--0'
+    folder.mkdir()
+    (folder / 'rlog.zst').write_bytes(b'changed source, analyzer is an explicit fixture')
+    calls.return_value = dict(partial, complete=True, partial=False, reason=None, distanceMeters=1200)
+    restarted._run()
+    self.assertEqual(restarted.snapshot()['totals']['distanceMeters'], 1200)
+    self.assertEqual(restarted.snapshot()['totals']['drives'], 1)
+    self.assertEqual(restarted.snapshot()['coverage']['partialRoutes'], 0)
+    restarted.ignore('abc', True, lambda: True)
+    self.assertEqual(restarted.snapshot()['totals']['drives'], 0)
   def legacy_history(self, count=2):
     self.store.parent.mkdir(parents=True, exist_ok=True)
     routes = {f'old-{n}': {'date': '2026-10-01T12:00:00+00:00', 'duration': 60,
@@ -75,7 +117,7 @@ class DriveStatsTest(unittest.TestCase):
   def test_legacy_summary_does_not_trigger_old_cereal_analysis(self):
     self.legacy_history()
     self.history.routes = [route('old-0')]
-    analyzer = Mock(side_effect=AssertionError('Old recording must not be decoded'))
+    analyzer = mock.Mock(side_effect=AssertionError('Old recording must not be decoded'))
     owner = self.owner(analyzer=analyzer)
     owner._run()
     analyzer.assert_not_called()
@@ -127,7 +169,7 @@ class DriveStatsTest(unittest.TestCase):
     self.owners = []
 
   def owner(self, analyzer=analyzed, permitted=lambda: True, monotonic=None, metric=None):
-    owner = DriveStatsOwner(root=self.root, store=self.store, history=Mock(wraps=self.history),
+    owner = DriveStatsOwner(root=self.root, store=self.store, history=mock.Mock(wraps=self.history),
                             analyzer=analyzer, permitted=permitted, clock=lambda: self.now[0],
                             monotonic=monotonic if monotonic is not None else lambda: self.now[0], metric=metric)
     self.owners.append(owner)

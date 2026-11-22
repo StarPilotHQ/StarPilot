@@ -93,6 +93,7 @@ def native_dependencies():
   from openpilot.starpilot.system.starport.projection_now_playing import ProjectionNowPlayingFeed
   from openpilot.starpilot.system.starport.media_audio import music_control
   from openpilot.starpilot.models.jetlink_status import JetlinkStatusFeed
+  from openpilot.starpilot.ui.onroad_jetlink import gpu_inputs
 
   class ProjectionRoadCamera(AugmentedRoadView):
     """Current native calibrated camera/model without stock action widgets."""
@@ -151,7 +152,7 @@ def native_dependencies():
                          pip_rect=Rect, pip_widgets=CAMERA_WIDGETS, placement=placement, widget_size=widget_size,
                          alert=OnroadAlert, alert_size=AlertSize, map_overlay=live_overlay, map_feed=MapFeed,
                          favorites=ProjectionFavorites, standby_logo=standby_logo, now_playing_feed=ProjectionNowPlayingFeed,
-                         now_playing_control=music_control, jetlink_feed=JetlinkStatusFeed)
+                         now_playing_control=music_control, jetlink_feed=JetlinkStatusFeed, gpu_inputs=gpu_inputs)
 
 
 class ProjectionOnroad:
@@ -366,6 +367,8 @@ class ProjectionOnroad:
       placed = (self.customization or {}).get('widgets', {}).get('jetlink_status', {})
       self.jetlink_feed.set_enabled(bool(placed.get('enabled') and self.native.ui_state.started))
       self.onroad.jetlink_status.status = self.jetlink_feed.snapshot()
+      if (gpu_inputs := getattr(self.native, 'gpu_inputs', None)) is not None:
+        self.onroad.jetlink_status.gpu, self.onroad.jetlink_status.chestnut = gpu_inputs(self.native.ui_state)
     if self.favorites is not None:
       self.favorites.refresh()
       self.onroad.navigation_favorites.document = self.favorites.document
@@ -638,6 +641,25 @@ class ProjectionOnroad:
       gesture.release(x, y, state)
       return claimed
     return gesture.claimed
+
+  def draw_touch_setup(self, x, y, done=False):
+    """One tap on this dot tells StarPort how the car reports touches."""
+    rl, role = self.native.rl, self.native.font_role.BOLD
+    if done:
+      text, size = "Touch is set up", 64
+      width = self.fonts.measure(text, role, size).width
+      text_x = max(30, x - 90 - width)
+      rl.draw_rectangle_rounded(rl.Rectangle(text_x - 24, y - size / 2 - 16, width + 48, size + 32), .4, 8, rl.Color(15, 13, 23, 200))
+      self.fonts.draw(text, role, size, text_x, y - size / 2)
+      return
+    rl.draw_circle(int(x), int(y), 56, rl.Color(15, 13, 23, 200))
+    rl.draw_circle_lines(int(x), int(y), 56, rl.Color(199, 174, 247, 255))
+    rl.draw_circle(int(x), int(y), 22, rl.Color(199, 174, 247, 255))
+    text, size = "Tap the dot to set up touch", 64
+    width = self.fonts.measure(text, role, size).width
+    text_x = max(30, x - 90 - width)
+    rl.draw_rectangle_rounded(rl.Rectangle(text_x - 24, y - size / 2 - 16, width + 48, size + 32), .4, 8, rl.Color(15, 13, 23, 200))
+    self.fonts.draw(text, role, size, text_x, y - size / 2)
 
   def cancel_touch(self):
     self.exit.cancel()

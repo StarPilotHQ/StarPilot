@@ -525,5 +525,48 @@ class TestHyundaiLongitudinalSafetyCameraSCCRefreshHybrid(HyundaiRefreshHybridGa
     self.assertFalse(self._tx(common.make_msg(2, 0x420, 8)))
 
 
+class TestHyundaiSoftwareCruiseSafety(unittest.TestCase):
+  def test_stock_cruise_buttons_require_moving_cruise_authority(self):
+    safety = libsafety_py.libsafety
+    packer = CANPackerSafety("hyundai_can_generated")
+    self.addCleanup(safety.set_alternative_experience, 0)
+
+    def feed(*, cruise, speed, gas=0, brake=False, count=0):
+      messages = (
+        ("CLU11", {"CF_Clu_AliveCnt1": count, "CF_Clu_CruiseSwState": 2 if count == 0 else 0}, None),
+        ("EMS16", {"CRUISE_LAMP_S": cruise, "CF_Ems_AclAct": gas, "AliveCounter": count}, checksum),
+        ("WHL_SPD11", {"WHL_SPD_FL": speed, "WHL_SPD_AliveCounter_LSB": count}, checksum),
+        ("TCS13", {"DriverOverride": 2 if brake else 0, "AliveCounterTCS": count}, checksum),
+        ("MDPS12", {}, None),
+      )
+      for name, values, fix_checksum in messages:
+        self.assertTrue(safety.safety_rx_hook(packer.make_can_msg_safety(name, 0, values, fix_checksum=fix_checksum)))
+
+    def button(value, main=0):
+      return packer.make_can_msg_safety("CLU11", 0, {"CF_Clu_CruiseSwState": value, "CF_Clu_CruiseSwMain": main})
+
+    for word, experience, allowed in ((0x1000, 0, False), (0x1020, 0, True),
+                                       (0x1020, 32, True), (0x1020, 33, False)):
+      with self.subTest(word=word, experience=experience):
+        safety.init_tests()
+        safety.set_alternative_experience(experience)
+        self.assertEqual(safety.set_safety_hooks(CarParams.SafetyModel.hyundai, word), 0)
+        feed(cruise=True, speed=15)
+        self.assertTrue(safety.safety_config_valid())
+        self.assertTrue(safety.get_controls_allowed())
+        self.assertEqual(safety.safety_tx_hook(button(2)), allowed)
+        self.assertTrue(safety.safety_tx_hook(button(4)))
+        if allowed:
+          self.assertTrue(safety.safety_tx_hook(button(1)))
+          self.assertFalse(safety.safety_tx_hook(button(2, main=1)))
+          feed(cruise=True, speed=0, count=1)
+          self.assertFalse(safety.safety_tx_hook(button(1)))
+          self.assertFalse(safety.safety_tx_hook(button(2)))
+          feed(cruise=True, speed=15, gas=1, count=2)
+          self.assertFalse(safety.safety_tx_hook(button(2)))
+          feed(cruise=True, speed=15, brake=True, count=3)
+          self.assertFalse(safety.safety_tx_hook(button(2)))
+
+
 if __name__ == "__main__":
   unittest.main()

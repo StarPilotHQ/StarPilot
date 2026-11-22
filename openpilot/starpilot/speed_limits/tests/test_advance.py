@@ -137,19 +137,13 @@ def test_off_preserves_current_limit_behavior():
   assert output.result.ceiling is not None
 
 
-@pytest.mark.parametrize('primary,dashboard,target,early', [
-  ('Dashboard', 25., 15., False), ('Highest', 25., 15., False), ('Lowest', 10., 15., False),
-  ('Highest', 25., 25., False), ('Highest', 22., 25., True), ('Lowest', 22., 15., True),
-])
-def test_preview_respects_existing_source_selection(primary, dashboard, target, early):
+@pytest.mark.parametrize('primary,dashboard,target', [('Dashboard', 25., 15.), ('Highest', 22., 25.), ('Lowest', 22., 15.)])
+def test_a_new_rival_number_holds_the_offer_over_a_maps_preview(primary, dashboard, target):
   drive = Drive()
   drive.runtime.settings = replace(drive.runtime.settings,
     selection=parse({'SLCPriority1': primary, 'SLCPriority2': 'Maps'}).selection)
-  output = drive.tick(dashboard=dashboard, target=target)
-  assert bool(output.message.slcState.upcomingBoundaryId) == early
-  if early:
-    assert output.message.slcState.acceptedSource == 'map'
-    assert output.result.ceiling.speed_mps == target + 2.
+  state = drive.tick(dashboard=dashboard, target=target).message.slcState
+  assert not state.upcomingBoundaryId and state.acceptedSource == 'dashboard'
 
 
 def vision_only_settings():
@@ -775,19 +769,10 @@ def test_source_recovery_does_not_reopen_the_same_early_offer(mode, preview, con
   assert arrived.acceptedSpeedLimit == (20. if confirm else preview)
 
 
-@pytest.mark.parametrize('mode,preview,rival', [('Lowest', 25., 26.), ('Highest', 15., 14.)])
-def test_extrema_keep_preview_when_maps_still_wins(mode, preview, rival):
-  drive = Drive()
-  drive.sm['carState'].vCruise = drive.sm['carState'].vCruiseCluster = 126.
-  drive.runtime.settings = replace(drive.runtime.settings, selection=parse({'SLCPriority1': mode}).selection)
-  assert drive.tick(target=preview).message.slcState.acceptedSpeedLimit == preview
-  assert drive.tick(target=preview, dashboard=rival).message.slcState.acceptedSpeedLimit == preview
-
-
-def test_map_gap_allows_a_qualified_different_fallback_limit():
+def test_map_gap_keeps_the_cap_until_a_new_number_arrives():
   drive = Drive()
   assert drive.tick(target=25.).message.slcState.acceptedSpeedLimit == 25.
-  assert drive.tick(alive=False, dashboard=20.).message.slcState.acceptedSpeedLimit == 25.
+  assert drive.tick(alive=False).message.slcState.acceptedSpeedLimit == 25.
   fallback = drive.tick(alive=False, dashboard=16.).message.slcState
   assert fallback.acceptedSpeedLimit == 16. and fallback.source == 'dashboard'
 
@@ -811,37 +796,6 @@ def test_dashboard_only_ignores_maps_and_vision_during_a_source_gap():
     state = drive.tick(dashboard=dashboard, vision_speed=22., target=25., distance=10.).message.slcState
     assert state.effectiveCap == expected and state.acceptedSource == 'dashboard'
     assert not state.upcomingBoundaryId and drive.runtime.advance.encounter is None
-
-
-@pytest.mark.parametrize('mode,preview,rival', [('Lowest', 25., 26.), ('Highest', 15., 14.)])
-def test_losing_rival_cannot_replace_a_held_cap_while_maps_is_current(mode, preview, rival):
-  drive = Drive()
-  drive.sm['carState'].vCruise = drive.sm['carState'].vCruiseCluster = 126.
-  drive.runtime.settings = replace(drive.runtime.settings, selection=parse({'SLCPriority1': mode}).selection)
-  assert drive.tick(target=preview).message.slcState.acceptedSpeedLimit == preview
-  state = drive.tick(target=0., dashboard=rival).message.slcState
-  assert state.source == 'map' and state.acceptedSpeedLimit == preview
-
-
-@pytest.mark.parametrize('mode', ['Highest', 'Lowest'])
-def test_applied_cap_and_pending_replacement_compete_independently(mode):
-  drive = Drive(confirm=True)
-  drive.sm['carState'].vCruise = drive.sm['carState'].vCruiseCluster = 126.
-  drive.runtime.settings = replace(drive.runtime.settings, selection=parse({'SLCPriority1': mode}).selection)
-  first = drive.tick(target=25.).message.slcState
-  drive.tick(target=25., action=drive.action(first, 'accept'))
-  revised = {'target': 15., 'target_way': 3, 'boundary': 'b'*64}
-  pending = drive.tick(**revised).message.slcState
-  assert pending.pendingSpeedLimit == 15.
-  if mode == 'Highest':
-    state = drive.tick(**revised, dashboard=20., action=drive.action(pending, 'accept')).message.slcState
-    assert state.acceptedSpeedLimit == 25. and not state.hasPending
-    assert not drive.tick(**revised).message.slcState.hasPending
-  else:
-    state = drive.tick(**revised, dashboard=20.).message.slcState
-    assert state.acceptedSpeedLimit == 20. and state.pendingSpeedLimit == 15.
-    assert (state.decisionId, state.pendingSinceMonoTime) == (pending.decisionId, pending.pendingSinceMonoTime)
-    assert drive.tick(**revised, dashboard=20., action=drive.action(state, 'accept')).message.slcState.acceptedSpeedLimit == 15.
 
 
 def test_corrected_current_limit_prompt_precedes_the_exit_preview():
@@ -946,21 +900,6 @@ def test_adopt_current_releases_preview_priority(mode, preview, dashboard):
   early = drive.tick(target=preview).message.slcState
   assert drive.tick(target=preview, action=drive.action(early, 'adopt')).message.slcState.acceptedSpeedLimit == 20.
   assert drive.tick(target=preview, dashboard=dashboard).message.slcState.acceptedSpeedLimit == dashboard
-
-
-def test_losing_replacement_does_not_reopen_approach_during_map_gap():
-  drive = Drive(confirm=True)
-  drive.sm['carState'].vCruise = drive.sm['carState'].vCruiseCluster = 126.
-  drive.runtime.settings = replace(drive.runtime.settings, selection=parse({'SLCPriority1': 'Highest'}).selection)
-  early = drive.tick(target=25.).message.slcState
-  drive.tick(target=25., action=drive.action(early, 'accept'))
-  replacement = {'target': 15., 'target_way': 3, 'boundary': 'b'*64}
-  assert drive.tick(**replacement).message.slcState.pendingSpeedLimit == 15.
-  assert not drive.tick(**replacement, dashboard=20.).message.slcState.hasPending
-  gap = drive.tick(alive=False, dashboard=20.).message.slcState
-  assert gap.acceptedSpeedLimit == 25. and not gap.hasPending
-  fallback = drive.tick(alive=False, dashboard=18.).message.slcState
-  assert fallback.acceptedSpeedLimit == 20. and fallback.pendingSpeedLimit == 18.
 
 
 def test_same_speed_replacement_gets_a_fresh_decision_and_deadline():

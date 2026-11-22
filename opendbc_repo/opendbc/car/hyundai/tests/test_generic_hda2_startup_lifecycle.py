@@ -12,6 +12,7 @@ from opendbc.car.hyundai.ecu_startup import Outcome, stock_copy
 from opendbc.car.hyundai.interface import CarInterface
 from opendbc.car.hyundai.ioniq6_handoff import TimestampedCanPacket
 from opendbc.car.hyundai.generic_hda2_startup import GenericHDA2Startup, qualified
+from openpilot.starpilot.ui.feature_settings_owner import FeatureSettingsOwner
 from opendbc.car.hyundai.tests.test_generic_hda2_startup import FUEL_CASES
 from opendbc.car.hyundai.values import CAR
 from opendbc.safety.tests.libsafety import libsafety_py
@@ -183,7 +184,7 @@ def actual_card_lifecycle(identity, hybrid, alternate, gear, mode, aol):
       assert {key: saved.get(key) for key in keys} == settings and not saved.get_bool("ControlsReady")
       if mode == "rejected" and aol:
         expected.safetyConfigs[0].safetyParam |= 0x800
-      elif mode == "sent" and aol and identity == CAR.KIA_SPORTAGE_5TH_GEN:
+      elif mode == "sent" and aol and identity not in (CAR.KIA_CARNIVAL_2025, CAR.KIA_CARNIVAL_HEV_4TH_GEN):
         expected.safetyConfigs[0].safetyParam |= 0x800
         expected.alternativeExperience = 32
       assert card.CP.to_dict() == expected.to_dict()
@@ -195,6 +196,11 @@ def actual_card_lifecycle(identity, hybrid, alternate, gear, mode, aol):
         assert commands == [b"\x10\x03", b"\x28\x83\x01"] and owner.keeper.running
         assert owner.outcome is Outcome.SENT_UNCONFIRMED and not owner.restored
       cp = card.CP
+      if aol and (mode == "rejected" or cp.alternativeExperience == 32):
+        features = FeatureSettingsOwner(saved, lambda _: True, vehicle_fingerprint=lambda: str(cp.carFingerprint), vehicle_params=lambda: cp)
+        page = features.snapshot('wheel', parked=True, system_long=True, lateral_context=True, metric=False)
+        row = next(row for row in page.rows if row.key == 'wheel:LKASButtonControl')
+        assert 'Toggle AOL' in row.choices
       config = cp.safetyConfigs[0]
       native.set_alternative_experience(cp.alternativeExperience)
       assert native.set_safety_hooks(int(config.safetyModel.raw), int(config.safetyParam)) == 0

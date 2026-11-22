@@ -4,7 +4,7 @@ import { FlmPage } from '../web/js/flm.js'
 import { FlmBackup, parseTune } from '../web/js/flm-backup.js'
 import { GalaxySettingRow } from '../web/js/galaxy-setting-row.js'
 import { PlotGraph } from '../web/js/plots.js'
-import { reviewModel, dialPercent, ideaValue, ideaStatus, ideaExplanation, ideaDetails } from '../web/js/flm-review.js'
+import { reviewModel, dialPercent, ideaValue, ideaStatus, ideaExplanation, ideaDetails, coordinateStatus } from '../web/js/flm-review.js'
 import { SURFACE_NAMES, FRICTION_NAMES, offroadView, validTrainingResults, validSavedHistory } from '../web/js/flm-training-results.js'
 
 const idea = (parameter, target = .005) => ({ parameter, baseline: 0, target, delta: target, windows: 14,
@@ -197,6 +197,41 @@ const tree = walk(rendered.call(context, context, []))
 assert.equal(tree.filter(node => node.props?.['data-coordinate'] && SURFACE_NAMES.includes(node.props['data-coordinate'])).length, 30)
 assert.deepEqual(data, original, 'Rendering never changes the report or saved state')
 console.log('Drive review keeps all 35 findings reachable, seven destinations, readable values, historical truth and unapproved status')
+
+const confirmedRow = { coordinate: 'unwind_taper_left', value: '0.5000', acceptedFindingValue: .005,
+  coordinateLocked: false, learningEligible: true, available: true, unit: '%', minimum: 0, maximum: 25, step: .25 }
+assert.deepEqual(coordinateStatus(confirmedRow), { label: 'Change confirmed', tone: 'saved', learning: 'Eligible for Auto Learn' })
+assert.equal(coordinateStatus({ ...confirmedRow, value: '0', acceptedFindingValue: 0 }).label, 'Change confirmed',
+  'An accepted reset is not a manual override or an unknown value')
+assert.equal(coordinateStatus({ ...confirmedRow, available: false }).label, 'Change confirmed',
+  'Driving-time editing lockout does not establish a learning lock')
+assert.equal(coordinateStatus({ ...confirmedRow, coordinate: 'friction_threshold_mid' }).label, 'Change confirmed')
+assert.equal(coordinateStatus({ ...confirmedRow, coordinateLocked: true }).label, 'Manual override', 'An actual lock takes priority')
+assert.equal(coordinateStatus({ ...confirmedRow, learningEligible: false }).label, 'Saved change')
+assert.doesNotMatch(coordinateStatus({ ...confirmedRow, learningEligible: false }).learning, /Eligible for/)
+for (const row of [{ coordinate: 'unwind_taper_left', value: '0.5000' },
+  { ...confirmedRow, acceptedFindingValue: undefined }, { ...confirmedRow, acceptedFindingValue: Infinity }])
+  assert.equal(coordinateStatus(row), null, 'A number or display state cannot invent acceptance or a lock')
+const beforeOwnership = { view: context.view, group: context.group, report: context.report,
+  manualWrite: context.manualWrite, manualState: context.manualState }
+context.view = 'tune';context.group = 'balance';context.report = null;context.manualWrite = null
+for (const [row, expected, forbidden] of [[confirmedRow, 'Change confirmed', 'Manual override'],
+  [{ ...confirmedRow, available: false }, 'Change confirmed', 'Manual override'],
+  [{ ...confirmedRow, value: '0', acceptedFindingValue: 0 }, 'Change confirmed', 'Manual override'],
+  [{ ...confirmedRow, acceptedFindingValue: undefined, coordinateLocked: true, learningEligible: false }, 'Manual override', 'Change confirmed'],
+  [{ ...confirmedRow, acceptedFindingValue: undefined, coordinateLocked: false }, 'Manual setting', 'Manual override'],
+  [{ ...confirmedRow, learningEligible: false }, 'Saved change', 'Change confirmed']]) {
+  context.manualState = { status: 'ready', data: { rows: [row] }, error: '' }
+  const before = JSON.stringify(context.manualState)
+  const dial = walk(rendered.call(context, context, [])).find(node => node.props?.id === 'tuner-dial-unwind_taper_left')
+  assert(dial, 'The actual tuning template must render the setting')
+  assert(textOf(dial).includes(expected), expected)
+  assert(!textOf(dial).includes(forbidden), forbidden)
+  assert.equal(JSON.stringify(context.manualState), before, 'Rendering labels never changes the saved value, lock or reset state')
+}
+Object.assign(context, beforeOwnership)
+assert.doesNotMatch(FlmPage.template, /Manual override saved|Number\(row.value\) !== 0/)
+console.log('Actual tune cards distinguish confirmed eligible changes from manual locks, defaults, context mismatch and read-only editing')
 
 
 const contradictory = { ...route, suggestions: [route.suggestions[0],

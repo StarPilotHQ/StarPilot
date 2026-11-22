@@ -27,7 +27,7 @@ from opendbc.car.hyundai.canfd_stock_aol import (
   qualified as qualified_canfd_stock, qualified_long as qualified_canfd_long,
   LONG_AOL_WORDS as CANFD_LONG_AOL_WORDS, STOCK_AOL_MARKER, STOCK_AOL_WORDS,
 )
-from opendbc.car.hyundai.non_scc_aol import qualified as qualified_non_scc, aol_word, AOL_MARKER, AOL_EXPERIENCE, AOL_WORDS
+from opendbc.car.hyundai.non_scc_aol import qualified as qualified_non_scc, aol_word, AOL_MARKER, AOL_EXPERIENCE, AOL_WORDS, SOFTWARE_CRUISE
 from opendbc.car.hyundai.kona_aol import allow_lateral_onset as kona_lateral_onset
 from opendbc.car.hyundai.left_paddle import IONIQ_5_CARS, has_left_paddle
 from opendbc.car.structs import car
@@ -233,7 +233,7 @@ def native_profile_supported(model: int, param: int) -> bool:
       and param in (IONIQ6_AOL_SAFETY_PARAMS | CANFD_LONG_AOL_WORDS | ANGLE_AOL_WORDS | EV9_LONG_AOL_WORDS |
                     PE_LONG_AOL_WORDS | STOCK_AOL_WORDS | set(STOCK_SAFETY_PARAMS.values()))
     )
-    or (model == int(car.CarParams.SafetyModel.hyundai) and param in AOL_WORDS)
+    or (model == int(car.CarParams.SafetyModel.hyundai) and (param & ~SOFTWARE_CRUISE) in AOL_WORDS)
   )
 
 

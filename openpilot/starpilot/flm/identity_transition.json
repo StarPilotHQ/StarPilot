@@ -1,0 +1,17 @@
+{
+  "old_sources": {
+    "openpilot/starpilot/flm/offroad_runtime.py": "9c5d27edea4a0031faf628a13e6eabfd91a63649ef459d26caa0dfdc6f9d7ecd",
+    "openpilot/starpilot/flm/runtime_adapter_registry.py": "cfd0e1ac74693cf4c13c7ba2b1f86dd2e1b0dc4b87a29be4ca33ad60412805ba",
+    "openpilot/starpilot/flm/steering_compatibility.py": "53f9b0a706cbd84f10f414ab4f90138a2789e6975fb78a06d8b08dd8a2bcfed1"
+  },
+  "purpose": "known-vin-registered-device-fallback-only",
+  "reviewed_sources": {
+    "openpilot/starpilot/flm/identity_transition.py": "e221c502135f10ab715dece09437563dff81be3029fe2271dfc5f3ce6420c6f8",
+    "openpilot/starpilot/flm/offroad_runtime.py": "bd63e11ef055b246c17144893bc3d731ca32f55c1414020aacd6a70556da20ca",
+    "openpilot/starpilot/flm/runtime_adapter_registry.py": "fd532fddc1798c2b82c2b13975b926ddc109d8bf3fb54c2f37b82f2f28be3344",
+    "openpilot/starpilot/flm/steering_compatibility.py": "1312c2d93bc9d407268b596f428cfa0c8ff449f22d4e4da9b3b2e21a969bf594",
+    "openpilot/starpilot/flm/vehicle_identity.py": "71fa38fd023b1e60b101afb2b3bc7195b497cdd90e233a7ec6b5e34466f1caed"
+  },
+  "source_parent": "1469d5ba8fec3fab559e3e1eea3a5e69835f049a",
+  "version": 1
+}

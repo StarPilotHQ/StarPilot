@@ -6,6 +6,7 @@ import fcntl
 import json
 import os
 import re
+import socket
 import subprocess
 import tempfile
 import threading
@@ -257,9 +258,17 @@ class BlueZ:
                       'audioSink': '0000110b-0000-1000-8000-00805f9b34fb' in profiles})
     return devices
 
+  def ensure_name(self, path: str, adapter: dict) -> dict:
+    # Without hostnamed, BlueZ names the adapter "BlueZ x.y"
+    name = socket.gethostname()
+    if not path or not name or not str(adapter.get('Alias') or 'BlueZ').startswith('BlueZ'):
+      return adapter
+    self._call(path, 'org.freedesktop.DBus.Properties', 'Set', 'ssv', (ADAPTER, 'Alias', ('s', name)))
+    return dict(adapter, Alias=name)
+
   def snapshot(self) -> dict:
     objects = self._objects()
-    _, adapter = self._adapter(objects)
+    adapter = self.ensure_name(*self._adapter(objects))
     devices = sorted(self._devices(objects), key=lambda item: (not item['connected'], not item['paired'], item['name']))
     return {'adapter': bool(adapter), 'powered': adapter.get('Powered') is True,
             'discovering': adapter.get('Discovering') is True,
@@ -323,6 +332,8 @@ class BlueZ:
   set_class = staticmethod(set_device_class)
 
   def set_pairing_visibility(self, path: str, *, pairable: bool, discoverable: bool) -> None:
+    if discoverable:
+      self.ensure_name(path, self._adapter(self._objects())[1])
     address = DBusAddress(path, bus_name=BLUEZ, interface=ADAPTER)
     for key, value in (('Pairable', pairable), ('Discoverable', discoverable)):
       reply = self.router.send_and_get_reply(Properties(address).set(key, 'b', value), timeout=10.0)

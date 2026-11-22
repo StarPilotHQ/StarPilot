@@ -15,80 +15,79 @@ from openpilot.starpilot.ui.camera_color import ROAD_COLOR_SHADER, road_color_st
 
 
 
-# Choose fragment shader based on platform capabilities
-if COMMA_HARDWARE:
-  FRAME_FRAGMENT_SHADER = """
-    #version 300 es
-    #extension GL_OES_EGL_image_external_essl3 : enable
-    precision mediump float;
-    in vec2 fragTexCoord;
-    uniform samplerExternalOES texture0;
-    out vec4 fragColor;
-    uniform int engaged;
-    uniform int enhance_driver;
-    uniform float color_strength;
-    """ + ROAD_COLOR_SHADER + """
+FRAME_FRAGMENT_SHADER = """
+  #version 300 es
+  #extension GL_OES_EGL_image_external_essl3 : enable
+  precision mediump float;
+  in vec2 fragTexCoord;
+  uniform samplerExternalOES texture0;
+  out vec4 fragColor;
+  uniform int engaged;
+  uniform int enhance_driver;
+  uniform float color_strength;
+  """ + ROAD_COLOR_SHADER + """
 
-    void main() {
-      vec4 color = texture(texture0, fragTexCoord);
-      if (enhance_driver == 1) {
-        if (engaged == 1) {
-          float gray = dot(color.rgb, vec3(0.299, 0.587, 0.114));
-          color.rgb = mix(vec3(gray), color.rgb, 0.2);
-          color.rgb = clamp((color.rgb - 0.5) * 1.2 + 0.5, 0.0, 1.0);
-          color.rgb = pow(color.rgb, vec3(1.0/1.28));
-        } else {
-          color.rgb *= 0.85;
-        }
-        float brightness = 1.1;
-        color.rgb = color.rgb + 0.15;
-        color.rgb = clamp((color.rgb - 0.5) * (brightness * 0.8) + 0.5, 0.0, 1.0);
-        color.rgb = color.rgb * color.rgb * (3.0 - 2.0 * color.rgb);
-        color.rgb = pow(color.rgb, vec3(0.8));
+  void main() {
+    vec4 color = texture(texture0, fragTexCoord);
+    if (enhance_driver == 1) {
+      if (engaged == 1) {
+        float gray = dot(color.rgb, vec3(0.299, 0.587, 0.114));
+        color.rgb = mix(vec3(gray), color.rgb, 0.2);
+        color.rgb = clamp((color.rgb - 0.5) * 1.2 + 0.5, 0.0, 1.0);
+        color.rgb = pow(color.rgb, vec3(1.0/1.28));
       } else {
-        color.rgb = road_color(color.rgb, color_strength);
+        color.rgb *= 0.85;
       }
-      fragColor = vec4(color.rgb, color.a);
+      float brightness = 1.1;
+      color.rgb = color.rgb + 0.15;
+      color.rgb = clamp((color.rgb - 0.5) * (brightness * 0.8) + 0.5, 0.0, 1.0);
+      color.rgb = color.rgb * color.rgb * (3.0 - 2.0 * color.rgb);
+      color.rgb = pow(color.rgb, vec3(0.8));
+    } else {
+      color.rgb = road_color(color.rgb, color_strength);
     }
-    """
-else:
-  FRAME_FRAGMENT_SHADER = VERSION + """
-    in vec2 fragTexCoord;
-    uniform sampler2D texture0;
-    uniform sampler2D texture1;
-    out vec4 fragColor;
-    uniform int engaged;
-    uniform int enhance_driver;
-    uniform float color_strength;
-    """ + ROAD_COLOR_SHADER + """
+    fragColor = vec4(color.rgb, color.a);
+  }
+  """
 
-    void main() {
-      float y = texture(texture0, fragTexCoord).r;
-      vec2 uv = texture(texture1, fragTexCoord).ra - 0.5;
-      vec3 rgb = vec3(y + 1.402*uv.y, y - 0.344*uv.x - 0.714*uv.y, y + 1.772*uv.x);
-      if (enhance_driver == 1) {
-        if (engaged == 1) {
-          float gray = dot(rgb, vec3(0.299, 0.587, 0.114));
-          rgb = mix(vec3(gray), rgb, 0.2);
-          rgb = clamp((rgb - 0.5) * 1.2 + 0.5, 0.0, 1.0);
-        } else {
-          rgb *= 0.85;
-        }
-        float brightness = 1.1;
-        rgb = rgb + 0.15;
-        rgb = clamp((rgb - 0.5) * (brightness * 0.8) + 0.5, 0.0, 1.0);
-        rgb = rgb * rgb * (3.0 - 2.0 * rgb);
-        rgb = pow(rgb, vec3(0.8));
+TEXTURE_FRAGMENT_SHADER = VERSION + """
+  in vec2 fragTexCoord;
+  uniform sampler2D texture0;
+  uniform sampler2D texture1;
+  out vec4 fragColor;
+  uniform int engaged;
+  uniform int enhance_driver;
+  uniform float color_strength;
+  """ + ROAD_COLOR_SHADER + """
+
+  void main() {
+    float y = texture(texture0, fragTexCoord).r;
+    vec2 uv = texture(texture1, fragTexCoord).ra - 0.5;
+    vec3 rgb = vec3(y + 1.402*uv.y, y - 0.344*uv.x - 0.714*uv.y, y + 1.772*uv.x);
+    if (enhance_driver == 1) {
+      if (engaged == 1) {
+        float gray = dot(rgb, vec3(0.299, 0.587, 0.114));
+        rgb = mix(vec3(gray), rgb, 0.2);
+        rgb = clamp((rgb - 0.5) * 1.2 + 0.5, 0.0, 1.0);
       } else {
-        rgb = road_color(rgb, color_strength);
+        rgb *= 0.85;
       }
-      fragColor = vec4(rgb, 1.0);
+      float brightness = 1.1;
+      rgb = rgb + 0.15;
+      rgb = clamp((rgb - 0.5) * (brightness * 0.8) + 0.5, 0.0, 1.0);
+      rgb = rgb * rgb * (3.0 - 2.0 * rgb);
+      rgb = pow(rgb, vec3(0.8));
+    } else {
+      rgb = road_color(rgb, color_strength);
     }
-    """
+    fragColor = vec4(rgb, 1.0);
+  }
+  """
 
 
 class CameraView(BaseCameraView):
   FRAGMENT_SHADER = FRAME_FRAGMENT_SHADER
+  TEXTURE_FRAGMENT_SHADER = TEXTURE_FRAGMENT_SHADER
 
   def __init__(self, name: str, stream_type: VisionStreamType):
     super().__init__(name, stream_type)
@@ -244,14 +243,6 @@ class CameraView(BaseCameraView):
 
     # Initialize textures for new stream
     self._initialize_textures()
-
-  def _initialize_textures(self):
-    self._clear_textures()
-    if not COMMA_HARDWARE:
-      self.texture_y = rl.load_texture_from_image(rl.Image(None, int(self.client.stride),
-        int(self.client.height), 1, rl.PixelFormat.PIXELFORMAT_UNCOMPRESSED_GRAYSCALE))
-      self.texture_uv = rl.load_texture_from_image(rl.Image(None, int(self.client.stride // 2),
-        int(self.client.height // 2), 1, rl.PixelFormat.PIXELFORMAT_UNCOMPRESSED_GRAY_ALPHA))
 
 
 

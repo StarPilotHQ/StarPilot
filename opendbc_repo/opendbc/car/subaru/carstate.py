@@ -6,6 +6,10 @@ from opendbc.car.interfaces import CarStateBase
 from opendbc.car.subaru.values import CAR, DBC, CanBus, SubaruFlags
 from opendbc.car import CanSignalRateCalculator
 
+# 8-speed Lineartronic CVT simulated paddle-shift ratios 1..8 on 0x48 Transmission.Gear
+# (bits 0..2 = 0b001 Drive range, bits 3..6 = simulated gear 1..8 or 0 in shift transition, bit 7 = manual mode)
+SUBARU_CVT_MANUAL_GEARS = frozenset({129, 137, 145, 153, 161, 169, 177, 185, 193})
+
 
 class CarState(CarStateBase):
   def __init__(self, CP):
@@ -33,6 +37,32 @@ class CarState(CarStateBase):
     from opendbc.car.subaru.high_angle_guard import HighAngleGuard, selected
     self.high_angle_guard = HighAngleGuard() if selected(CP) else None
     self.high_angle_cut = False
+    self.prev_cam_lkas_toggle: bool | None = None
+    self.prev_cruise_available: bool | None = None
+    self.aol_enabled = True
+    self.lateral_off = False
+    self._prev_aol_enabled: bool | None = None
+    self._lkas_event_hold_frames = 0
+    self._lkas_mode_settle_frames = 0
+
+  def _sync_legacy_2025_lateral_mode(self, cruise_available: bool, lkas_pressed: bool) -> None:
+    aol = bool(getattr(self, "aol_enabled", True))
+    if not cruise_available:
+      self.lateral_off = not aol
+      self._lkas_mode_settle_frames = 0
+      self._prev_aol_enabled = aol
+      return
+
+    entered_mode = (not bool(self.prev_cruise_available)) or (aol != self._prev_aol_enabled)
+    if entered_mode:
+      self._lkas_mode_settle_frames = 15
+      self.lateral_off = not aol
+    elif lkas_pressed:
+      self._lkas_mode_settle_frames = 15
+      self.lateral_off = (not self.lateral_off) if aol else True
+    else:
+      self._lkas_mode_settle_frames = max(0, self._lkas_mode_settle_frames - 1)
+    self._prev_aol_enabled = aol
 
   def update(self, can_parsers) -> structs.CarState:
     cp = can_parsers[Bus.pt]
@@ -78,7 +108,12 @@ class CarState(CarStateBase):
 
     cp_transmission = cp_alt if self.CP.flags & SubaruFlags.HYBRID else cp
     can_gear = int(cp_transmission.vl["Transmission"]["Gear"])
-    ret.gearShifter = self.parse_gear_shifter(self.shifter_values.get(can_gear, None))
+    if self.CP.carFingerprint == CAR.SUBARU_LEGACY_2025 and can_gear in SUBARU_CVT_MANUAL_GEARS:
+      ret.gearShifter = structs.CarState.GearShifter.manumatic
+    elif self.CP.carFingerprint == CAR.SUBARU_LEGACY_2025 and can_gear == 0:
+      ret.gearShifter = structs.CarState.GearShifter.neutral
+    else:
+      ret.gearShifter = self.parse_gear_shifter(self.shifter_values.get(can_gear, None))
 
     if not (self.CP.flags & SubaruFlags.LKAS_ANGLE):
       ret.steeringAngleDeg = cp_angle.vl["Steering_Torque"]["Steering_Angle"]
@@ -102,11 +137,14 @@ class CarState(CarStateBase):
 
     cp_cruise = cp_alt if self.CP.flags & SubaruFlags.GLOBAL_GEN2 else cp
     cp_es_brake = cp_alt if self.CP.flags & SubaruFlags.GLOBAL_GEN2 else cp_cam
+    soft_disable = False
+    if self.CP.carFingerprint == CAR.SUBARU_LEGACY_2025:
+      soft_disable = cp_cam.vl["ES_DashStatus"].get("Cruise_Soft_Disable", 0) != 0
 
     if self.CP.carFingerprint in (CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025, CAR.SUBARU_LEGACY_2025,
                                   CAR.SUBARU_ASCENT_2023, CAR.SUBARU_FORESTER_2022, CAR.SUBARU_OUTBACK_2023):
       ret.cruiseState.enabled = cp_es_brake.vl["ES_Status"]["Cruise_Activated"] != 0
-      ret.cruiseState.available = cp_cam.vl["ES_DashStatus"]["Cruise_On"] != 0
+      ret.cruiseState.available = (cp_cam.vl["ES_DashStatus"]["Cruise_On"] != 0) and not soft_disable
     elif self.CP.flags & (SubaruFlags.HYBRID | SubaruFlags.LKAS_ANGLE):
       # ES_DashStatus->Cruise_Activated_Dash is likely intended for the dash display only, as it falls
       # during user gas override and at standstill. ES_Status is missing on hybrid, so we use ES_Brake instead
@@ -115,10 +153,10 @@ class CarState(CarStateBase):
       #  brake while engaged at a stop. ES_Status and ES_DashStatus->Signal7 correctly fell, but is either missing or
       #  always zero on hybrids. Probably need to split angle & hybrid. 0x27 and 0x225 on hybrids may work for them.
       ret.cruiseState.enabled = cp_es_brake.vl["ES_Brake"]['Cruise_Activated'] != 0
-      ret.cruiseState.available = cp_cam.vl["ES_DashStatus"]['Cruise_On'] != 0
+      ret.cruiseState.available = (cp_cam.vl["ES_DashStatus"]['Cruise_On'] != 0) and not soft_disable
     else:
       ret.cruiseState.enabled = cp_cruise.vl["CruiseControl"]["Cruise_Activated"] != 0
-      ret.cruiseState.available = cp_cruise.vl["CruiseControl"]["Cruise_On"] != 0
+      ret.cruiseState.available = (cp_cruise.vl["CruiseControl"]["Cruise_On"] != 0) and not soft_disable
     ret.cruiseState.speed = cp_cam.vl["ES_DashStatus"]["Cruise_Set_Speed"] * CV.KPH_TO_MS
 
     if (self.CP.flags & SubaruFlags.PREGLOBAL and cp.vl["Dash_State2"]["UNITS"] == 1) or \
@@ -147,6 +185,34 @@ class CarState(CarStateBase):
 
       self.es_lkas_state_msg = copy.copy(cp_cam.vl["ES_LKAS_State"])
       self.es_brake_msg = copy.copy(cp_es_brake.vl["ES_Brake"])
+
+      if self.CP.carFingerprint == CAR.SUBARU_LEGACY_2025:
+        cam_lkas_toggle = int(self.es_lkas_state_msg.get("LKAS_Dash_State", 0)) > 0
+        steer_fault = bool(ret.steerFaultTemporary or ret.steerFaultPermanent)
+        lkas_pressed = False
+        if steer_fault or not ret.cruiseState.available:
+          self.prev_cam_lkas_toggle = None
+          self._lkas_event_hold_frames = 0
+        else:
+          if (
+            self.prev_cam_lkas_toggle is not None
+            and self.prev_cruise_available
+            and cam_lkas_toggle != self.prev_cam_lkas_toggle
+          ):
+            lkas_pressed = True
+            self._lkas_event_hold_frames = 5
+          self.prev_cam_lkas_toggle = cam_lkas_toggle
+          if self._lkas_event_hold_frames > 0:
+            button_events = list(ret.buttonEvents) if ret.buttonEvents else []
+            ButtonType = structs.CarState.ButtonEvent.Type
+            button_events.extend([
+              structs.CarState.ButtonEvent(pressed=True, type=ButtonType.lkas),
+              structs.CarState.ButtonEvent(pressed=False, type=ButtonType.lkas),
+            ])
+            ret.buttonEvents = button_events
+            self._lkas_event_hold_frames -= 1
+        self._sync_legacy_2025_lateral_mode(bool(ret.cruiseState.available), lkas_pressed)
+        self.prev_cruise_available = bool(ret.cruiseState.available)
 
       # TODO: Hybrid cars don't have ES_Distance, need a replacement
       if not (self.CP.flags & SubaruFlags.HYBRID):
@@ -190,8 +256,17 @@ class CarState(CarStateBase):
     self.es_dashstatus_msg = copy.copy(cp_cam.vl["ES_DashStatus"])
     if self.CP.flags & SubaruFlags.ASCENT_LKAS_ALERT:
       alert = cp_cam.vl["ES_LKAS_Alert"]
-      self.es_lkas_alert_dat = (bytes((int(alert["CHECKSUM"]), int(alert["COUNTER"]) | (int(alert["Signal1"]) << 4))) +
-                                int(alert["Payload"]).to_bytes(6, "little"))
+      self.es_lkas_alert_dat = (
+        bytes((
+          int(alert["CHECKSUM"]),
+          int(alert["COUNTER"]) | (int(alert["Signal1"]) << 4),
+          int(alert["LKAS_Alert"]),
+          int(alert["LKAS_Alert_Msg"]),
+          int(alert["LKAS_HUD_Lights"]),
+          int(alert["ACC_Lead_LED"]),
+        )) +
+        int(alert["Signal2"]).to_bytes(2, "little")
+      )
     if self.CP.flags & SubaruFlags.SEND_INFOTAINMENT:
       self.es_infotainment_msg = copy.copy(cp_cam.vl["ES_Infotainment"])
 

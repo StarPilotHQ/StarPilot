@@ -66,16 +66,19 @@ def restore_pid_snapshot(controller, vm, snapshot):
 
 
 class PidControllerFactory:
-  def __init__(self, cp, mode, *, turn_assist=False, manual_baseline=(), manual_source_epoch=''):
+  def __init__(self, cp, mode, *, turn_assist=False, manual_baseline=(), manual_source_epoch='', manual_kp=None):
     from opendbc.car import structs
     from opendbc.car.car_helpers import interfaces
     if (cp.notCar or cp.passive or cp.dashcamOnly or str(cp.carFingerprint) not in interfaces or cp.lateralTuning.which() != 'pid' or
-        str(cp.steerControlType) != 'torque' or mode != 'native' or turn_assist or manual_baseline or manual_source_epoch):
+        str(cp.steerControlType) != 'torque' or mode != 'native' or turn_assist or manual_baseline):
       raise ValueError('registered stock torque PID configuration')
     self.cp = structs.CarParams.new_message(**cp.to_dict()).as_reader()
     self.mode, self.turn_assist = 'native', False
     self.interface_class = interfaces[str(cp.carFingerprint)]
-    self.manual_baseline, self.manual_source_epoch = (), ''
+    if bool(manual_source_epoch) != (manual_kp is not None) or manual_source_epoch and (
+        type(manual_source_epoch) is not str or len(manual_source_epoch) != 64 or any(c not in '0123456789abcdef' for c in manual_source_epoch)):
+      raise ValueError('fixed PID gain source requires its settings epoch')
+    self.manual_baseline, self.manual_source_epoch, self.manual_kp = (), manual_source_epoch, manual_kp
 
   def create(self):
     from opendbc.car.vehicle_model import VehicleModel
@@ -85,6 +88,9 @@ class PidControllerFactory:
     controller = create_lateral_controller(self.cp, ci, .01, mode='native', turn_assist=False)
     if type(controller) is not LatControlPID:
       raise ValueError('actual stock PID constructor mismatch')
+    if self.manual_kp is not None:
+      from openpilot.starpilot.lateral.gain_runtime import install_fixed_kp
+      install_fixed_kp(self.cp, controller, self.manual_kp)
     return controller, VehicleModel(self.cp)
 
 

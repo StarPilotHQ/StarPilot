@@ -10,6 +10,7 @@ from openpilot.common.hardware import HARDWARE
 from openpilot.common.swaglog import cloudlog
 from openpilot.selfdrive.ui.mici.widgets.button import BigButton
 from openpilot.selfdrive.ui.ui_state import device, ui_state
+from openpilot.starpilot.ui.brand import DISPLAY_VERSION
 from openpilot.starpilot.ui.spacepilot.guard import ParkGate, Witness, read_offroad_witness, read_witness, sample_clocks
 from openpilot.starpilot.ui.spacepilot.session import GameSession, Stage
 from openpilot.starpilot.ui.spacepilot.ignition import IgnitionReturn
@@ -202,7 +203,7 @@ class SpacePilotPage(Widget):
 class VersionButton(BigButton):
   """Hidden gesture lives on the version number, using native touch cancellation."""
   def __init__(self, on_unsafe: Callable[[], None]):
-    super().__init__('version', ui_state.params.get('Version') or 'N/A')
+    super().__init__('version', DISPLAY_VERSION)
     self.on_unsafe = on_unsafe
     self.taps = FiveTaps()
     self.gate = ParkGate()

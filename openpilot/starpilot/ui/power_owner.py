@@ -10,6 +10,8 @@ from openpilot.starpilot.ui.feature_settings_state import FeatureRow, FeatureSet
 ENABLED = "power:enabled"
 HOURS = "power:hours"
 VOLTS = "power:volts"
+POWER_DESCRIPTION = ("Stock uses the standard shutdown policy. Custom limits use the maximum parked time and voltage cutoff below; " +
+                     "other protections can shut down earlier.")
 POWER_KEYS = frozenset((ENABLED, HOURS, VOLTS))
 HOUR_CHOICES = tuple(f"{hour} h" for hour in range(1, 31))
 VOLT_CHOICES = tuple(f"{tenths / 10:.1f} V" for tenths in range(118, 126))
@@ -25,7 +27,7 @@ def power_row_change(row: FeatureRow, direction: int = 1) -> FeatureSettingsRequ
 
 def confirm_question(request: FeatureSettingsRequest) -> str:
   if request.key == ENABLED:
-    if request.value == "On":
+    if request.value == "Custom limits":
       policy = decode(request.expected) if request.expected is not None else PowerPolicy()
       if policy is None:
         return "Review saved parked-power limits before enabling."
@@ -50,9 +52,9 @@ class PowerOwner:
               "Invalid saved policy; choose Stock to repair" if not saved.valid else
               "Stock limits apply until a custom policy is saved" if saved.raw is None else "")
     inactive = "Saved; stock power policy applies" if saved.valid and not policy.enabled else ""
-    rows = (FeatureRow(ENABLED, "Parked Power", "Invalid" if not saved.valid else "On" if policy.enabled else "Stock",
-                       source=saved.raw, choices=("Stock", "On"), available=parked and saved.readable,
-                       repair_value="Stock" if not saved.valid else "", reason=reason),
+    rows = (FeatureRow(ENABLED, "Parked Power", "Invalid" if not saved.valid else "Custom limits" if policy.enabled else "Stock",
+                       source=saved.raw, choices=("Stock", "Custom limits"), available=parked and saved.readable,
+                       repair_value="Stock" if not saved.valid else "", reason=f"{POWER_DESCRIPTION} {reason}".strip()),
             FeatureRow(HOURS, "Maximum Parked Time", f"{policy.delay_hours} h" if saved.valid else "Invalid",
                        source=saved.raw, choices=HOUR_CHOICES, available=parked and saved.readable and saved.valid,
                        reason=inactive or "Other protections may act sooner"),
@@ -69,11 +71,11 @@ class PowerOwner:
   def _desired(saved: SavedPower, request: FeatureSettingsRequest) -> PowerPolicy | None:
     policy = saved.policy
     if request.key == ENABLED:
-      if request.value not in ("Stock", "On"):
+      if request.value not in ("Stock", "Custom limits"):
         return None
       if not saved.valid and request.value != "Stock":
         return None
-      return replace(policy, enabled=request.value == "On")
+      return replace(policy, enabled=request.value == "Custom limits")
     if not saved.valid:
       return None
     if request.key == HOURS and request.value in HOUR_CHOICES:

@@ -56,7 +56,8 @@ export function validTrainingResults(value) {
         key === 'GLOBAL source observation refusals' ? validSourceRefusals(item) :
         key === 'Recorded steering response' ? item === null || recordedSteeringView(item) !== null :
         key === 'Recorded coordinate recommendations' ? validCoordinateRecommendations(item) :
-        key === 'Recorded suggestion sources' ? validSuggestionSources(item) : detailValue(item)))
+        key === 'Recorded suggestion sources' ? validSuggestionSources(item) :
+        key === 'Recorded suggestion assessments' ? validSuggestionAssessments(item) : detailValue(item)))
 }
 export function validSavedHistory(value) {
   return keysAre(value, ['status', 'historicalOnly', 'profiles']) && ['readable', 'unavailable'].includes(value.status) &&
@@ -221,7 +222,8 @@ const REASONS = {
   trial_measurement_inconclusive: "Your saved steering adjustments are kept for the next drive.",
   trial_inconclusive_drive_limit: "Three trial drives did not establish an improvement. The prior tune was restored.",
   next_drive_observed_tracking_worse: "Comparable driving showed a steering regression, so the prior tune was restored.",
-  analyzing_last_completed_drive: "Analyzing the last completed drive while parked.",
+  analyzing_last_completed_drive: "Reading the completed drive.",
+  verifying_recorded_drive: "The sections were read. Auto Learn is verifying the recording.",
   checking_recorded_steering_recommendations: "Checking the recorded-drive recommendations against the original controller and steering outputs.",
   recorded_tracking_suggestion_not_yet_qualified_for_automatic_application: "Auto Learn reviewed the drive and left your tune unchanged. Consistent suggestions are listed when available.",
   original_controller_or_registered_encoder_check_refused: "A tune was suggested, but at least one original controller or encoder check refused it. Your saved tune was kept.",
@@ -234,6 +236,8 @@ const REASONS = {
   more_independent_eligible_tracking_required: "The drive was analyzed. More complete independent steering windows are needed before saving a tune.",
   bounded_trial_configured_for_next_drive: "Auto Learn saved your steering adjustments for the next drive.",
   recorded_steering_window_inputs_unavailable: "The recording is missing inputs needed to verify its recommendations. The saved tune was kept.",
+  saved_gm_flm_profile_blocks_learning: "Auto Learn is paused while an older manual FLM tune is active.",
+  saved_gm_force_off_blocks_learning: "A saved GM steering setting turns off Auto Learn for this vehicle.",
   controller_collection_required: "Waiting for active steering before collecting samples.",
   fresh_physical_residual_window_required: "Checking the car's current steering response.",
   qualified_tracking_episodes_required: "Collecting complete, comparable steering windows.",
@@ -257,6 +261,18 @@ const REASONS = {
   accepted_target_currently_acknowledged: "The controller acknowledged the accepted correction.",
 }
 export function learningReason(reason) {
+  if (reason === 'waiting_for_ignition_off' || reason === 'waiting_for_vehicle_to_switch_off')
+    return 'The vehicle interface still reports ignition on. Drive analysis starts after the ignition turns off.'
+  if (/^waiting_for_(valid|fresh)_(deviceState|pandaStates|peripheralState)$/.test(reason))
+    return 'Waiting for current vehicle status before analyzing the recorded drive.'
+  if (reason === 'waiting_for_controls_to_disengage' || reason === 'waiting_for_panda_controls_to_disarm')
+    return 'Drive analysis is waiting for steering controls to disengage.'
+  if (reason === 'waiting_for_panda_fault_to_clear') return 'Drive analysis is paused while the vehicle interface reports a fault.'
+  if (reason === 'waiting_for_connected_panda_status') return 'Waiting for the vehicle interface before analyzing the recorded drive.'
+  if (reason === 'waiting_for_shutdown_to_finish') return 'Drive analysis is waiting for shutdown to finish.'
+  if (reason === 'waiting_for_vehicle_offroad' || reason === 'waiting_for_parked_permission')
+    return 'Drive analysis is waiting for the vehicle to be offroad.'
+  if (reason === 'vehicle_identity_unavailable') return 'This drive was reviewed on its own. Automatic saving is waiting for the car to identify itself.'
   if (reason === "Assessment cache full") return "FLM ran out of space in its review history. The latest analysis could not be saved; this does not mean your saved tune was erased."
   if (Object.hasOwn(REASONS, reason)) return REASONS[reason]
   const pattern = /^observed_(understeer|oversteer|late_turn_in|early_turn_in|unwind_too_slow|unwind_too_fast|low_speed_unwillingness|center_chatter|notchy_mid_curve)_(left|right|center)$/.exec(reason)
@@ -309,6 +325,12 @@ function validSuggestionSources(rows) {
       text(row[1], 180) && row[1].length > 0)
 }
 
+function validSuggestionAssessments(rows) {
+  return Array.isArray(rows) && rows.length <= 35 && new Set(rows.map(row => row?.[0])).size === rows.length &&
+    rows.every(row => Array.isArray(row) && row.length === 3 && [...SURFACE_NAMES, ...FRICTION_NAMES].includes(row[0]) &&
+      row.slice(1).every(value => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value)))
+}
+
 export function offroadView(report) {
   const details = report?.current?.details
   if (!record(details) || !text(details['Completed drive analyzed'], 180) || !details['Completed drive analyzed'] ||
@@ -324,6 +346,9 @@ export function offroadView(report) {
   const sources = details['Recorded suggestion sources'] ?? []
   if (!validSuggestionSources(sources) || sources.some(([name]) => !recommendations?.some(row => row[0] === name))) return null
   const sourceFor = Object.fromEntries(sources)
+  const assessments = details['Recorded suggestion assessments'] ?? []
+  if (!validSuggestionAssessments(assessments) || assessments.some(([name]) => !recommendations?.some(row => row[0] === name))) return null
+  const assessmentFor = Object.fromEntries(assessments.map(([name, hash]) => [name, hash]))
   const savedCount = details['Saved route adjustment count']
   const partial = details['Drive analysis is partial'] === true
   const partialSegments = details['Partial drive segments']
@@ -353,6 +378,7 @@ export function offroadView(report) {
     suggestions: (recommendations === undefined ? rows.map(([parameter, delta, windows, qualification]) => ({ parameter, delta, windows, qualification })) :
       recommendations.map(([parameter, baseline, target, windows, reason]) => ({ parameter, baseline, target,
         delta: target === null ? null : target - baseline, windows, reason, sourceRoute: sourceFor[parameter] ?? details['Completed drive analyzed'],
+        ...(assessmentFor[parameter] ? { assessment: assessmentFor[parameter] } : {}),
         earlierDrive: sourceFor[parameter] !== undefined && sourceFor[parameter] !== details['Completed drive analyzed'],
         qualification: 'controller_native_checks_not_passed' }))
         .filter(row => row.target === null || row.target !== { ...savedSurface, ...savedFriction }[row.parameter])).filter(isConsistentSuggestion),
@@ -376,14 +402,35 @@ export function recordedSteeringView(value) {
     points: value.points.map(([ns, desired, actual]) => ({ at: (ns - value.source_start_ns) / 1e6, desired, actual })) }
 }
 
+export function parkedAnalysisProgress(report) {
+  const current = report?.current
+  if (current?.status !== 'fitting') return null
+  const labels = { preparing: 'Preparing drive analysis', reading: 'Reading a recorded drive',
+    verifying: 'Verifying the recording', checking: 'Checking steering suggestions' }
+  const fallback = { loading_parked_analysis: 'preparing', analyzing_last_completed_drive: 'reading',
+    verifying_recorded_drive: 'verifying', checking_recorded_steering_recommendations: 'checking' }[current.reason]
+  const value = current.details?.['Parked analysis progress']
+  const phase = Array.isArray(value) && value.length === 3 && Object.hasOwn(labels, value[0]) ? value[0] : fallback
+  if (!Object.hasOwn(labels, phase)) return null
+  const [, done, total] = Array.isArray(value) ? value : []
+  const counted = Array.isArray(value) && value.length === 3 && Object.hasOwn(labels, value[0]) && Number.isSafeInteger(done) && Number.isSafeInteger(total) && done >= 0 && total > 0 && done <= total && total <= 180
+  const steps = { preparing: 'Starting the parked analyzer.', reading: 'Reading the recording sections.',
+    verifying: 'Checking that the recording is unchanged.', checking: 'Checking the suggested changes.' }
+  return { phase, label: labels[phase], completed: counted ? done : null, total: counted ? total : null,
+    percent: counted && phase === 'reading' && done < total ? done / total * 100 : null,
+    detail: counted && phase === 'reading' ? `${done} of ${total} sections read in this recording` : steps[phase] }
+}
+
 export function tunerStatus(report, live = false, choiceLive = false, error = "", reportFresh = live) {
   const preference = choiceLive && validLearningPreference(report?.preference) ? report.preference : null
   const current = report?.current
   if (error) return { key: "offline", tone: "muted", title: "Connection interrupted", description: "Earlier results are available below. Current steering activity is unknown." }
   if (preference?.valid && preference.enabled === false || !preference && live && current?.enabled === false)
     return { key: "off", tone: "muted", title: "Auto Learn is off", description: "No driving samples are being collected by the learner. Turn it on in steering settings to begin." }
-  if (reportFresh && current?.status === 'fitting' && ['analyzing_last_completed_drive', 'checking_recorded_steering_recommendations'].includes(current.reason))
+  if (reportFresh && current?.status === 'fitting' && ['analyzing_last_completed_drive', 'verifying_recorded_drive', 'checking_recorded_steering_recommendations'].includes(current.reason))
     return { key: 'fitting', tone: 'active', title: 'Analyzing your drive', description: learningReason(current.reason) + (offroadView(report)?.retained ? ' Earlier drive findings remain below while this analysis runs.' : '') }
+  if (reportFresh && preference?.valid && preference.enabled && preference.parked && current?.reason?.startsWith('waiting_for_'))
+    return { key: 'waiting-parked', tone: 'muted', title: 'Waiting to analyze your drive', description: learningReason(current.reason) }
   const route = reportFresh && (!preference || preference.parked) ? offroadView(report) : null
   if (route) {
     if (route.partial)

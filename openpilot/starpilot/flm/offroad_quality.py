@@ -12,7 +12,7 @@ import os
 
 from openpilot.starpilot.flm.offroad_surface import ROUTE_NAMES as NAMES
 from openpilot.starpilot.flm.offroad_evidence import cohort, read_point, RouteWindow, window_identity, tracking_metrics, window_demand
-from openpilot.starpilot.flm.offroad_surface import REVISION
+from openpilot.starpilot.flm.offroad_surface import current_revision
 
 from openpilot.starpilot.flm.offroad_surface import stop_marker
 
@@ -101,7 +101,7 @@ class TrialGuard:
       or control.limited
       or control.saturated
       or abs(control.control_ns - stamp) > 30_000_000
-      or control.route_effect_revision != REVISION
+      or not current_revision(control.route_effect_revision)
       or control.route_configuration_scope != self.scope_key
       or dict(control.route_applied_coordinates) != self.values
     ):

@@ -28,9 +28,9 @@ LEASE_TIMEOUT_S = 10.0
 READY_TIMEOUT_S = 5.0
 # The car's network never appeared this many times on aa0; finish the session on wlan0 in case aa0 is the reason.
 DEDICATED_TIMEOUTS = 2
-HOME_RETRY_S = 60.0
+HOME_RETRY_S = 15.0
 HOME_RETRY_MAX_S = 300.0
-HOME_CHECK_S = 30.0        # how often a held wlan0 looks for an allowed network to join
+HOME_CHECK_S = 15.0        # how often a held wlan0 looks for an allowed network to join
 HOTSPOT_PAUSE_WAIT_S = 10.0
 
 
@@ -122,6 +122,7 @@ class DedicatedLease:
     self._home_retry: threading.Timer | None = None
     self._home_holds = 0
     self._join_stalled = False
+    self._last_join = ""
     self.join_policy, self.hotspot = join_policy or _join_policy, hotspot if hotspot is not None else _hotspot()
 
   @property
@@ -234,23 +235,26 @@ class DedicatedLease:
       pause = bool(prefs.get("pauseHotspot")) and self.hotspot is not None
       outcome = join(lambda uuid: uuid not in parked_only,
                      before=self._pause_hotspot if pause else lambda: True,
-                     after=self.hotspot.clear_pause if pause else lambda: None)
+                     after=self.hotspot.clear_pause if pause else lambda: None,
+                     cancelled=lambda: self._cancel.is_set() or self._join_stalled or self.home is not home)
     except Exception as error:  # a join is optional; the car link must never depend on it
       self.log("wifi_drive_join_failed", error=str(error) or type(error).__name__)
       outcome = "failed"
-    if outcome in ("joined", "failed") or self._join_stalled:
-      self.log("wifi_drive_join", interface=self.fallback_interface, outcome="stalled" if self._join_stalled else outcome)
+    shown = "stalled" if self._join_stalled else outcome
+    if shown != self._last_join:
+      self.log("wifi_drive_join", interface=self.fallback_interface, outcome=shown)
+    self._last_join = shown
     with self._home_lock:
       if self.home is not home or self._cancel.is_set():
         return
       if outcome == "joined" and not self._join_stalled:
         self._home_holds = 0
         return  # the next loss of this network arms the check again
-      if outcome == "failed" or self._join_stalled:
+      if self._join_stalled:
         after_s = min(HOME_RETRY_S * 2 ** min(self._home_holds, 5), HOME_RETRY_MAX_S)
         self._home_holds += 1
       else:
-        after_s = HOME_CHECK_S
+        after_s = HOME_CHECK_S  # a refused network is skipped for a while, so the next one is tried soon
       self._arm(after_s)
 
   def _pause_hotspot(self) -> bool:

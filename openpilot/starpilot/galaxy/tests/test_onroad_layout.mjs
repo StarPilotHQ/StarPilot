@@ -15,16 +15,14 @@ export function snapshot() {
     large: { label: "Large UI", width: 2160, height: 1080, bounds: { x: 30, y: 30, width: 1800, height: 1020 }, reservedZones: [], widgets: {
       current_speed: widget("Current speed", "current_speed", 580, 300, 640, 30),
       cruise_limits: widget("Cruise and speed limit", "cruise_limits", 480, 522, 88, 75),
-      speed_limit_actions: widget("Speed limit actions", "speed_limit_actions", 480, 108, 88, 567),
       steering_wheel: widget("Steering wheel", "steering_wheel", 192, 192, 1588, 75),
       driver_monitor: widget("Driver monitoring", "driver_monitor", 192, 192, 88, 808),
       torque_bar: { ...widget("Torque bar", "torque_bar", 998, 240, 439, 759), layer: "underlay" },
     } },
     compact: { label: "Small UI", width: 536, height: 240, bounds: { x: 0, y: 0, width: 476, height: 240 },
-      protectedWidget: "speed_limit_actions", reservedZones: [], widgets: {
+      reservedZones: [], widgets: {
       max_speed: widget("Maximum speed", "max_speed", 162, 162, 0, 0),
       speed_limit: widget("Speed limit", "speed_limit", 118, 132, 330, 20),
-      speed_limit_actions: widget("Speed limit actions", "speed_limit_actions", 282, 54, 174, 180),
       steering_wheel: widget("Steering wheel", "steering_wheel", 50, 50, 21, 176),
       driver_monitor: widget("Driver monitoring", "driver_monitor", 60, 60, 16, 10),
       torque_bar: { ...widget("Torque bar", "torque_bar", 260, 61, 116, 167), layer: "underlay" },
@@ -38,11 +36,10 @@ export function snapshot() {
     { id: "text", label: "Text", default: "#FFFFFFFF" },
   ] }
   const frame = { cardFill: "#00000000", cardBorder: "#00000000" }
-  const actions = { cardFill: "#0C1820EB", cardBorder: "#A6DFBEFF", text: "#FFFFFFFF" }
   const colors = {
     large: { current_speed: { text: null }, cruise_limits: { cardFill: null, cardBorder: null, text: null },
-      speed_limit_actions: actions, steering_wheel: { cardFill: null, cardBorder: "#00000000" }, driver_monitor: frame },
-    compact: { max_speed: { text: null }, speed_limit_actions: actions, driver_monitor: frame, model_confidence: frame,
+      steering_wheel: { cardFill: null, cardBorder: "#00000000" }, driver_monitor: frame },
+    compact: { max_speed: { text: null }, driver_monitor: frame, model_confidence: frame,
       conditional_mode: frame, following_distance: { ...frame, text: "#FFFFFFFF" } },
   }
   for (const [profile, data] of Object.entries(metadata.profiles))
@@ -56,8 +53,8 @@ export function snapshot() {
   metadata.profiles.compact.widgets.steering_wheel.resizable = { min: 40, default: 50, max: 70 }
   metadata.roadColorFields = [{ id: 'path', label: 'Path', default: '#30FF9CFF' },
     { id: 'pathEdge', label: 'Path edges', default: '#00FF40FF' }, { id: 'laneLines', label: 'Lane lines', default: '#FFFFFFFF' }]
-  metadata.profiles.compact.widgets.speed_limit_actions.visualInsetTop = 32
-  const document = { version: 11, roadColors: { large: {}, compact: {} }, widgetColors: { large: {}, compact: {} }, palette: Object.fromEntries(metadata.paletteFields.map((field) => [field.id, field.default])),
+  metadata.profiles.compact.widgets.speed_limit.visualInsetTop = 32
+  const document = { version: 16, roadColors: { large: {}, compact: {} }, widgetColors: { large: {}, compact: {} }, palette: Object.fromEntries(metadata.paletteFields.map((field) => [field.id, field.default])),
     layouts: Object.fromEntries(Object.entries(metadata.profiles).map(([id, profile]) => [id,
       Object.fromEntries(Object.entries(profile.widgets).map(([key, definition]) => [key,
         { ...definition.default, ...(definition.resizable ? { size: definition.resizable.default } : {}) }]))])) }
@@ -70,14 +67,13 @@ for (const name of ["layoutDocument", "previewDocument", "withDisplay", "ordered
 
 const data = snapshot()
 const restoredCompact = copy(data)
-for (const [id, width, height, x, y] of [["max_speed", 162, 162, 0, 0], ["speed_limit", 118, 132, 330, 20], ["speed_limit_actions", 348, 54, 128, 186]]) {
+for (const [id, width, height, x, y] of [["max_speed", 162, 162, 0, 0], ["speed_limit", 118, 132, 330, 20]]) {
   Object.assign(restoredCompact.metadata.profiles.compact.widgets[id], { width, height, default: {x, y, enabled:true} })
   restoredCompact.document.layouts.compact[id] = {x, y, enabled:true}
 }
-delete restoredCompact.metadata.profiles.compact.widgets.speed_limit_actions.visualInsetTop
 restoredCompact.defaults = copy(restoredCompact.document)
 assert.equal(validSnapshot(restoredCompact), true, "Restored small-UI defaults are editable")
-assert.equal(clampPlacement(restoredCompact.metadata.profiles.compact, "max_speed", 174, 25, restoredCompact.document.layouts.compact), null)
+assert.deepEqual(clampPlacement(restoredCompact.metadata.profiles.compact, "max_speed", 174, 25, restoredCompact.document.layouts.compact), {x:174, y:25})
 assert.deepEqual(clampPlacement(restoredCompact.metadata.profiles.compact, "speed_limit", 330, 20, restoredCompact.document.layouts.compact), {x:330, y:20})
 assert.deepEqual(restoredCompact.document.layouts.large, data.document.layouts.large)
 const withMode = copy(data)
@@ -86,26 +82,24 @@ withMode.metadata.profiles.compact.widgets[modeId] = {
   ...widget("Driving Mode Descriptions", modeId, 168, 60, 162, 22), colors: { text: "#FFFFFFFF" },
 }
 withMode.document.layouts.compact[modeId] = { x: 162, y: 22, enabled: false }
-withMode.document.layouts.compact.speed_limit_actions.y = 45
 withMode.defaults = copy(withMode.document)
 assert.equal(validSnapshot(withMode), true)
-assert.equal(clampPlacement(withMode.metadata.profiles.compact, modeId, 162, 22, withMode.document.layouts.compact), null)
+assert.deepEqual(clampPlacement(withMode.metadata.profiles.compact, modeId, 162, 22, withMode.document.layouts.compact), { x: 162, y: 22 })
 withMode.document.layouts.compact[modeId].enabled = true
-assert.equal(validDocument(withMode.document, withMode.metadata), false)
-withMode.document.layouts.compact[modeId].y = 110
 assert.equal(validDocument(withMode.document, withMode.metadata), true)
 
 // Hidden widgets free their space, but adding them back still requires a valid placement.
 {
   const sample = copy(data), layout = sample.document.layouts.compact, profile = sample.metadata.profiles.compact
+  profile.widgets.speed_limit.confirmation = { x: -172, y: -8, width: 328, height: 159 }
   layout.max_speed.enabled = false
-  assert.deepEqual(clampPlacement(profile, "speed_limit_actions", 80, 80, layout), { x: 80, y: 80 })
-  Object.assign(layout.speed_limit_actions, { x: 80, y: 80 })
-  assert.equal(validSnapshot(sample), true)
-  assert.equal(clampPlacement(profile, "max_speed", 0, 0, layout), null)
+  assert.deepEqual(clampPlacement(profile, "speed_limit", 200, 16, layout), { x: 200, y: 16 })
+  Object.assign(layout.speed_limit, { x: 200, y: 16 })
+  assert.equal(validDocument(sample.document, sample.metadata), true)
+  assert.deepEqual(clampPlacement(profile, "max_speed", 0, 0, layout), { x: 0, y: 0 })
   layout.max_speed.enabled = true
   assert.equal(validDocument(sample.document, sample.metadata), false)
-  assert.equal(clampPlacement(profile, "speed_limit_actions", 80, 80, layout), null)
+  assert.equal(clampPlacement(profile, "speed_limit", 200, 16, layout), null)
   layout.max_speed.enabled = false
   layout.max_speed.x = -1
   assert.equal(validDocument(sample.document, sample.metadata), false)
@@ -131,7 +125,7 @@ for (const mutate of [
   (value) => { value.document.palette.text = "red" },
   (value) => { value.document.layouts.large.current_speed.x = Infinity },
   (value) => { value.document.layouts.compact.steering_wheel.size = 71 },
-  (value) => { value.document.layouts.compact.speed_limit_actions.size = 70 },
+  (value) => { value.document.layouts.compact.max_speed.size = 70 },
   (value) => { delete value.document.layouts.compact },
   (value) => { value.metadata.profiles.compact.bounds.width = 9999 },
   (value) => { value.metadata.paletteFields[1].id = "text" },
@@ -140,21 +134,12 @@ for (const mutate of [
   const invalid = copy(data); mutate(invalid); assert.equal(validSnapshot(invalid), false)
 }
 assert.equal(validDocument({ ...data.document, arbitrary: 1 }, data.metadata), false)
-assert.equal(clampPlacement(data.metadata.profiles.compact, "max_speed", 999, 999), null)
-assert.deepEqual(clampPlacement(data.metadata.profiles.compact, "max_speed", 999, 18), { x: 314, y: 18 })
-assert.equal(clampPlacement(data.metadata.profiles.compact, "max_speed", 999, 19), null)
-const movedActions = copy(data.document.layouts.compact)
-movedActions.speed_limit_actions.x = 100
-assert.deepEqual(clampPlacement(data.metadata.profiles.compact, "speed_limit_actions", 100, 180, data.document.layouts.compact), { x: 100, y: 180 })
-assert.equal(clampPlacement(data.metadata.profiles.compact, "speed_limit_actions", 10, 180, data.document.layouts.compact), null)
-assert.equal(clampPlacement(data.metadata.profiles.compact, "max_speed", 100, 19, movedActions), null)
-assert.deepEqual(clampPlacement(data.metadata.profiles.compact, "speed_limit", 330, 20, movedActions), { x: 330, y: 20 })
-assert.equal(validDocument({ ...data.document, layouts: { ...data.document.layouts, compact: movedActions } }, data.metadata), true)
+assert.deepEqual(clampPlacement(data.metadata.profiles.compact, "max_speed", 999, 999), { x: 314, y: 78 })
 const resizedWheel = copy(data.document)
 resizedWheel.layouts.compact.steering_wheel.size = 70
 resizedWheel.layouts.compact.steering_wheel.y = 160
 assert.equal(validDocument(resizedWheel, data.metadata), true)
-assert.equal(clampPlacement(data.metadata.profiles.compact, "steering_wheel", 150, 170, resizedWheel.layouts.compact), null)
+assert.deepEqual(clampPlacement(data.metadata.profiles.compact, "steering_wheel", 150, 170, resizedWheel.layouts.compact), { x: 150, y: 170 })
 assert.deepEqual(clampPlacement(data.metadata.profiles.compact, "steering_wheel", 21, 176, resizedWheel.layouts.compact), { x: 21, y: 170 })
 assert.deepEqual(clampPlacement(data.metadata.profiles.large, "current_speed", -999, -99), { x: -120, y: 30 }, "the sidebar-hidden screen is reachable")
 assert.deepEqual(clampPlacement(data.metadata.profiles.large, "cruise_limits", 9999, 30), { x: 2130 - 480, y: 30 })
@@ -201,6 +186,7 @@ snapVm.moveDrag(largePoint(35, 430))
 assert.equal(snapVm.state.drag.targets, cachedTargets)
 assert.equal(snapVm.snapInBar, false, "a mouse drag keeps the alignment chip on the preview")
 snapVm.endDrag(largePoint(34, 430))
+snapVm.state.touchArmed = "current_speed"
 snapVm.startDrag("current_speed", largePoint(34, 430, { pointerType: "touch" }))
 snapVm.moveDrag(largePoint(34, 300, { pointerType: "touch" }))  // past the finger slop
 snapVm.moveDrag(largePoint(35, 430, { pointerType: "touch" }))
@@ -237,9 +223,55 @@ for (const pointerType of ["mouse", "touch"]) {
   phone.$refs.preview.getBoundingClientRect = () => ({ left: 0, top: 0, width: 360, height: 180 })
   for (const id of Object.keys(phone.layout)) if (id !== "current_speed") phone.state.hiddenPreviewWidgets.large[id] = true
   const phonePoint = (x, y) => ({ ...snappedDrag.event(x / 6, y / 6), pointerType })
+  phone.state.touchArmed = "current_speed"
   phone.startDrag("current_speed", phonePoint(640, 30))
   phone.endDrag(phonePoint(75, 430))
   assert.equal(phone.layout.current_speed.x, pointerType === "touch" ? 30 : 75)
+}
+// Soft lock: a finger swiping across an unarmed widget scrolls past it; a tap or a short hold arms it.
+{
+  const soft = editor().vm
+  const finger = (x, y) => largePoint(x, y, { pointerType: "touch" })
+  const start = { ...soft.layout.current_speed }, selected = soft.state.selected
+  soft.startDrag("current_speed", finger(640, 30))
+  assert.equal(soft.state.drag, null, "an unarmed widget waits before it grabs")
+  soft.moveDrag(finger(640, 200))
+  soft.endDrag(finger(640, 200))
+  assert.deepEqual(soft.layout.current_speed, start)
+  assert.equal(soft.state.history.undo.length, 0)
+  assert.equal(soft.state.selected, selected, "a swipe does not select")
+  assert.equal(soft.state.touchArmed, null)
+  soft.startDrag("current_speed", finger(640, 30))
+  soft.endDrag(finger(640, 30))
+  assert.equal(soft.state.touchArmed, "current_speed", "a tap arms the widget")
+  assert.equal(soft.state.selected, "current_speed")
+  assert.equal(soft.state.history.undo.length, 0)
+  soft.startDrag("current_speed", finger(640, 30))
+  assert.equal(soft.state.drag?.id, "current_speed", "an armed widget grabs at once")
+  soft.moveDrag(finger(600, 200))
+  soft.endDrag(finger(600, 200))
+  assert.notDeepEqual(soft.layout.current_speed, start)
+  assert.equal(soft.state.history.undo.length, 1)
+  soft.undo()
+  soft.state.touchArmed = null
+  soft.startDrag("current_speed", finger(640, 30))
+  soft.promotePendingTouch()
+  assert.equal(soft.state.drag?.id, "current_speed", "holding still grabs the widget")
+  assert.equal(soft.state.touchArmed, "current_speed")
+  soft.cancelDrag()
+  assert.deepEqual(soft.layout.current_speed, start)
+  soft.state.touchArmed = null
+  soft.startDrag("current_speed", finger(640, 30))
+  soft.cancelDrag()
+  soft.promotePendingTouch()
+  assert.equal(soft.state.drag, null, "a cancelled press never grabs later")
+  soft.state.touchArmed = "current_speed"
+  soft.state.selected = "current_speed"
+  soft.previewPointerDown({ button: 0, target: { closest: () => ({}) } })
+  assert.equal(soft.state.selected, "current_speed", "tapping a widget keeps it selected")
+  soft.previewPointerDown({ button: 0, target: { closest: () => null } })
+  assert.equal(soft.state.selected, null, "tapping empty preview space lets go of the widget")
+  assert.equal(soft.state.touchArmed, null)
 }
 const targetVisibility = editor().vm
 targetVisibility.profile.widgets.pip = { ...widget("Side camera", "pip_camera", 60, 60, 400, 300), layer: "underlay" }
@@ -262,13 +294,13 @@ targetVisibility.cancelDrag()
 const invalidSnap = editor().vm
 invalidSnap.selectProfile("compact")
 invalidSnap.$refs.preview.getBoundingClientRect = () => ({ left: 0, top: 0, width: 536, height: 240 })
-invalidSnap.state.hiddenPreviewWidgets.compact.speed_limit_actions = true
+invalidSnap.state.data.metadata.profiles.compact.reservedZones = [{ label: "Reserved", x: 174, y: 180, width: 282, height: 54 }]
 const smallPoint = (x, y) => ({ ...snappedDrag.event(x, y), pointerType: "mouse" })
 invalidSnap.startDrag("max_speed", smallPoint(0, 0))
-invalidSnap.moveDrag(smallPoint(100, 18)) // Speed limit's top attracts to y=20, overlapping protected actions.
+invalidSnap.moveDrag(smallPoint(100, 18)) // Speed limit's top attracts to y=20, overlapping the reserved zone.
 assert.equal(clampPlacement(invalidSnap.profile, "max_speed", 100, 20, invalidSnap.layout), null)
 assert.deepEqual(invalidSnap.layout.max_speed, { x: 100, y: 18, enabled: true })
-assert.deepEqual(invalidSnap.state.snapGuides, [])
+assert.deepEqual(invalidSnap.state.snapGuides, [{ axis: 'y', value: 180, kind: 'zone', label: 'a reserved area' }])
 assert.equal(invalidSnap.state.placementError, "")
 invalidSnap.moveDrag(smallPoint(100, 100))
 assert.deepEqual(invalidSnap.layout.max_speed, { x: 100, y: 18, enabled: true })
@@ -307,22 +339,22 @@ resizeSnap.profile.widgets.map = { ...widget("Map", "nav_map", 200, 200, 300, 30
 resizeSnap.layout.map = { x: 300, y: 300, width: 200, height: 200, enabled: true }
 const resizePoint = (x, y, options = {}) => ({ ...largePoint(x, y, options), stopPropagation() {} })
 resizeSnap.startResize("map", resizePoint(500, 500))
-resizeSnap.moveDrag(resizePoint(564, 671))
-assert.deepEqual([resizeSnap.layout.map.width, resizeSnap.layout.map.height], [268, 375])
+resizeSnap.moveDrag(resizePoint(564, 593)) // Right and bottom edges meet the cruise card's (568, 597).
+assert.deepEqual([resizeSnap.layout.map.width, resizeSnap.layout.map.height], [268, 297])
 assert.deepEqual([resizeSnap.layout.map.x, resizeSnap.layout.map.y], [300, 300])
 assert.equal(resizeSnap.state.snapGuides.length, 2)
-resizeSnap.endDrag(resizePoint(564, 671))
+resizeSnap.endDrag(resizePoint(564, 593))
 assert.deepEqual(resizeSnap.state.snapGuides, [])
 assert.equal(resizeSnap.state.history.undo.length, 1)
 resizeSnap.undo()
 resizeSnap.startResize("map", resizePoint(500, 500))
-resizeSnap.moveDrag(resizePoint(564, 671, { altKey: true }))
-assert.deepEqual([resizeSnap.layout.map.width, resizeSnap.layout.map.height], [264, 371])
+resizeSnap.moveDrag(resizePoint(564, 593, { altKey: true }))
+assert.deepEqual([resizeSnap.layout.map.width, resizeSnap.layout.map.height], [264, 293])
 assert.deepEqual(resizeSnap.state.snapGuides, [])
 resizeSnap.cancelDrag()
 resizeSnap.profile.widgets.map.box.maxWidth = 250
 resizeSnap.startResize("map", resizePoint(500, 500))
-resizeSnap.moveDrag(resizePoint(564, 671))
+resizeSnap.moveDrag(resizePoint(564, 593))
 assert.equal(resizeSnap.layout.map.width, 250)
 assert.deepEqual(resizeSnap.state.snapGuides, [])
 resizeSnap.cancelDrag()
@@ -398,8 +430,8 @@ dmEditor.selectProfile("compact")
 dmEditor.changePosition("driver_monitor", 90, 70)
 assert.deepEqual(dmEditor.state.draft.layouts.large.driver_monitor, { x: 700, y: 600, enabled: true })
 assert.deepEqual(dmEditor.layout.driver_monitor, { x: 90, y: 70, enabled: true })
-dmEditor.changePosition("driver_monitor", 200, 190)
-assert.deepEqual(dmEditor.layout.driver_monitor, { x: 90, y: 70, enabled: true })
+dmEditor.changePosition("driver_monitor", 200, 190) // Clamped to the bottom edge; nothing reserves this space now.
+assert.deepEqual(dmEditor.layout.driver_monitor, { x: 200, y: 180, enabled: true })
 dmEditor.remove("driver_monitor")
 assert.equal(dmEditor.layout.driver_monitor.enabled, false)
 dmEditor.add("driver_monitor")
@@ -407,16 +439,6 @@ assert.equal(dmEditor.layout.driver_monitor.enabled, true)
 dmEditor.resetLayout()
 assert.deepEqual(dmEditor.layout.driver_monitor, { x: 16, y: 10, enabled: true })
 assert.equal(dmEditor.state.draft.layouts.large.driver_monitor.x, 700)
-
-const actionEditor = editor().vm
-actionEditor.changePosition("speed_limit_actions", 388, 600)
-assert.deepEqual(actionEditor.layout.speed_limit_actions, { x: 388, y: 600, enabled: true })
-actionEditor.selectProfile("compact")
-actionEditor.changePosition("speed_limit_actions", 100, 180)
-assert.deepEqual(actionEditor.layout.speed_limit_actions, { x: 100, y: 180, enabled: true })
-actionEditor.changePosition("speed_limit_actions", 10, 180)
-assert.equal(actionEditor.layout.speed_limit_actions.x, 100)
-assert.equal(validDocument(actionEditor.state.draft, actionEditor.state.data.metadata), true)
 
 const wheelEditor = editor().vm
 wheelEditor.state.selected = "steering_wheel"
@@ -435,6 +457,75 @@ assert.equal(wheelEditor.state.draft.layouts.large.steering_wheel.size, 240)
 wheelEditor.resetLayout()
 assert.equal(wheelEditor.layout.steering_wheel.size, 50)
 assert.equal(wheelEditor.state.draft.layouts.large.steering_wheel.size, 240)
+function rotationSnapshot() {
+  const sample = snapshot()
+  sample.metadata.profiles.large.widgets.steering_wheel.rotateToggle = true
+  sample.metadata.profiles.large.widgets.steering_wheel.default.rotate = false
+  sample.defaults.layouts.large.steering_wheel.rotate = false
+  return sample
+}
+
+{
+  const sample = rotationSnapshot()
+  assert.equal(validSnapshot(sample), true, "Version 16 documents may omit the new opt-in")
+  const wheel = sample.document.layouts.large.steering_wheel
+  wheel.rotate = true
+  assert.equal(validSnapshot(sample), true)
+  assert.equal(previewDocument(sample.document).layouts.large.steering_wheel.rotate, true)
+  for (const invalid of [null, "true", 1]) {
+    wheel.rotate = invalid
+    assert.equal(validSnapshot(sample), false)
+  }
+  wheel.rotate = false
+  sample.document.layouts.compact.steering_wheel.rotate = false
+  assert.equal(validSnapshot(sample), false)
+  delete sample.document.layouts.compact.steering_wheel.rotate
+  sample.metadata.profiles.compact.widgets.steering_wheel.rotateToggle = true
+  assert.equal(validSnapshot(sample), false)
+  delete sample.metadata.profiles.compact.widgets.steering_wheel.rotateToggle
+  sample.document.layouts.large.driver_monitor.rotate = true
+  assert.equal(validSnapshot(sample), false)
+  delete sample.document.layouts.large.driver_monitor.rotate
+  delete sample.metadata.profiles.large.widgets.steering_wheel.rotateToggle
+  assert.equal(validSnapshot(sample), false, "Capability metadata is required for the new field")
+}
+
+{
+  const { vm, calls } = editor()
+  vm.state.data = rotationSnapshot()
+  vm.state.data.supportedProfiles = ["large", "compact"]
+  vm.state.draft = copy(vm.state.data.document)
+  vm.state.selected = "steering_wheel"
+  assert.equal(vm.canRotateWheel, true)
+  vm.setWheelRotation("On")
+  assert.equal(vm.layout.steering_wheel.rotate, true)
+  vm.undo()
+  assert.equal(vm.layout.steering_wheel.rotate, undefined)
+  vm.redo()
+  vm.save()
+  assert.equal(calls.at(-1).layouts.large.steering_wheel.rotate, true)
+  vm.selectProfile("compact")
+  vm.state.selected = "steering_wheel"
+  assert.equal(vm.canRotateWheel, false)
+  vm.setWheelRotation("On")
+  assert.equal(vm.layout.steering_wheel.rotate, undefined)
+  vm.resetLayout()
+  assert.equal(vm.state.draft.layouts.large.steering_wheel.rotate, true)
+  vm.selectProfile("large")
+  vm.state.selected = "steering_wheel"
+  vm.state.data.metadata.projection = true
+  assert.equal(vm.canRotateWheel, false)
+  vm.setWheelRotation("Off")
+  assert.equal(vm.layout.steering_wheel.rotate, true)
+  delete vm.state.data.metadata.projection
+  vm.setWheelRotation("Off")
+  assert.equal(vm.layout.steering_wheel.rotate, false)
+  vm.setWheelRotation("On")
+  vm.resetLayout()
+  assert.equal(vm.layout.steering_wheel.rotate, false)
+  assert.match(ONROAD_LAYOUT_TEMPLATE, /v-if="canRotateWheel"[^\n]*Rotate with steering/)
+}
+
 const dragWheel = editor()
 dragWheel.vm.state.selected = "steering_wheel"
 dragWheel.vm.resizeSelected({ target: { value: "240" } })
@@ -474,13 +565,14 @@ vm.changePosition("max_speed", 200, 18)
 vm.resetColors()
 assert.equal(vm.selectedColors.cardFill, "#00000000")
 assert.equal(vm.layout.max_speed.x, 200)
+vm.profile.reservedZones = [{ label: "Reserved", x: 174, y: 200, width: 100, height: 40 }]
 vm.changePosition("max_speed", 200, 65)
 assert.equal(vm.layout.max_speed.y, 18)
-assert.match(vm.state.placementError, /last valid position/)
+assert.ok(vm.state.placementError)
 const compactPoint = (x, y) => event(100 + x * 1080 / 536, 100 + y * 540 / 240)
 vm.startDrag("speed_limit", compactPoint(350, 40))
 vm.moveDrag(compactPoint(350, 100))
-assert.equal(vm.layout.speed_limit.y, 80) // Intentional sign/action overlap survives dragging.
+assert.equal(vm.layout.speed_limit.y, 80)
 vm.endDrag(compactPoint(350, 100))
 assert.equal(vm.layout.speed_limit.y, 80)
 assert.equal(vm.state.drag, null)
@@ -543,26 +635,23 @@ assert.equal(vm.sceneGroups.flatMap(group => group.scenes).length, vm.scenes.len
 assert.match(OnroadLayoutPage.template, /<GalaxySelect class="gx-field gx-field--full" aria-label="Preview scene"/)
 // The widget open in Edit glows; the sources panel is a layout setting, not an on-screen toggle.
 assert.match(OnroadLayoutPage.template, /'is-editing': state\.showEditingAids && state\.inspectorPanel === 'edit' && state\.selected === widget\.id/)
-// Sources sit inside the cruise card (or a card right under it), so its box grows and actions right below follow.
+// Sources sit inside the cruise card (or a card right under it), so its box grows and a low card moves up to fit.
 vm.state.data.metadata.profiles.large.widgets.cruise_limits.sourcesExtent = { inline: 76, card: 84 }
 vm.state.selected = "cruise_limits"
-const sourcesCard = vm.layout.cruise_limits, sourcesActions = vm.layout.speed_limit_actions
-const actionsBefore = { ...sourcesActions }
-const sourceDx = vm.profile.widgets.speed_limit_actions.default.x - vm.profile.widgets.cruise_limits.default.x
-const sourceGap = vm.profile.widgets.speed_limit_actions.default.y - vm.profile.widgets.cruise_limits.default.y - 522
-Object.assign(sourcesActions, { x: sourcesCard.x + sourceDx, y: sourcesCard.y + 522 + sourceGap })
+const cardBefore = { ...vm.layout.cruise_limits }
+vm.layout.cruise_limits.y = 1050 - 522
 vm.setSpeedSources("speedSources", true)
 assert.equal(vm.state.draft.speedSources, true)
 assert.equal(vm.profile.widgets.cruise_limits.height, 522 + 76)
-assert.equal(sourcesActions.y, sourcesCard.y + 522 + 76 + sourceGap)
+assert.equal(vm.layout.cruise_limits.y, 1050 - 522 - 76)
 vm.setSpeedSources("speedSourcesCard", true)
 assert.equal(vm.profile.widgets.cruise_limits.height, 522 + 84)
-assert.equal(sourcesActions.y, sourcesCard.y + 522 + 84 + sourceGap)
+assert.equal(vm.layout.cruise_limits.y, 1050 - 522 - 84)
 vm.undo(); vm.undo()
 assert.notEqual(vm.state.draft.speedSources, true)
 assert.equal(vm.profile.widgets.cruise_limits.height, 522)
-assert.equal(vm.layout.speed_limit_actions.y, vm.layout.cruise_limits.y + 522 + sourceGap)
-Object.assign(vm.layout.speed_limit_actions, actionsBefore)
+assert.equal(vm.layout.cruise_limits.y, 1050 - 522)
+Object.assign(vm.layout.cruise_limits, cardBefore)
 vm.state.selected = "current_speed"
 vm.setSpeedSources("speedSources", true)
 assert.notEqual(vm.state.draft.speedSources, true) // Only from the cruise widget's own panel.
@@ -848,7 +937,29 @@ assert.equal(OnroadLayoutPage.template, ONROAD_LAYOUT_TEMPLATE, "the page uses t
 assert.equal(OnroadLayoutPage.components.LayoutWidgetPreview, LayoutWidgetPreview, "the template preview uses the actual component")
 assert.match(OnroadLayoutPage.template, /<LayoutWidgetPreview :widget="widget"/)
 assert.doesNotMatch(OnroadLayoutPage.template, /<LayoutWidgetPreview v-if="!state\.preview\.url"/)
-assert.match(OnroadLayoutPage.template, /<image v-if="nativeBackdropReady" :href="state\.backdrop\.url"/)
+assert.match(OnroadLayoutPage.template, /<image v-if="nativeBackdropReady" :href="layers\.backdrop\.url"/)
+assert.match(OnroadLayoutPage.template, /:art="layers\.art"/)
+{
+  const layers = (art, backdrop, artCache = new Map(), screens = new Map(), profile = "large") =>
+    OnroadLayoutPage.computed.layers.call({ projection: false, state: { profile, art, backdrop },
+      artFeed: { artCache }, backdropFeed: { artCache: screens } })
+  const art = { url: "blob:art-engaged", sprites: { sprites: { a: 1 } }, scene: "engaged", profile: "large", status: "ready" }
+  const backdrop = { url: "blob:screen-pending", scene: "slc_pending", profile: "large", status: "ready" }
+  const matched = { ...backdrop, scene: "engaged" }
+  assert.deepEqual(layers(art, matched), { art, backdrop: matched }, "a matched pair is shown as is")
+  const sheets = new Map([["large\nslc_pending", { url: "blob:art-pending", sprites: { sprites: { b: 2 } }, scene: "slc_pending" }]])
+  const fromSheet = layers(art, backdrop, sheets)
+  assert.deepEqual([fromSheet.art.url, fromSheet.art.scene, fromSheet.backdrop.url], ["blob:art-pending", "slc_pending", "blob:screen-pending"])
+  const screens = new Map([["large\nengaged", { url: "blob:screen-engaged", scene: "engaged" }]])
+  const fromScreen = layers(art, backdrop, new Map(), screens)
+  assert.deepEqual([fromScreen.art.url, fromScreen.backdrop.url, fromScreen.backdrop.scene], ["blob:art-engaged", "blob:screen-engaged", "engaged"])
+  const neither = layers(art, backdrop)
+  assert.equal(neither.art.url, null, "never draw one scene's widgets over another scene's screen")
+  assert.equal(neither.art.sprites, null)
+  const otherProfile = { ...backdrop, profile: "compact" }
+  assert.deepEqual(layers(art, otherProfile), { art, backdrop: otherProfile }, "a screen from another layout is not paired")
+  assert.deepEqual(layers({ ...art, url: null }, backdrop).backdrop, backdrop)
+}
 assert.doesNotMatch(editorSource, /devicePreviewOpen|gx-layout__device|selectPreview/)
 assert.doesNotMatch(OnroadLayoutPage.template, /devicePreviewOpen|gx-layout__device|selectPreview/)
 const loadedCatalog = await loadCatalog({ fetcher: async (url) => ({ ok: true,
@@ -873,7 +984,7 @@ assert.deepEqual(railEditor.layout.conditional_mode, { x: 476, y: 80, enabled: t
 const badRail = snapshot()
 badRail.metadata.profiles.compact.widgets.model_confidence.bounds.width = 900
 assert.equal(validSnapshot(badRail), false)
-assert.equal(clampPlacement(data.metadata.profiles.compact, "conditional_mode", 260, 101), null)
+assert.deepEqual(clampPlacement(data.metadata.profiles.compact, "conditional_mode", 260, 101), { x: 260, y: 101 })
 
 const scoped = editor().vm
 const legacyPalette = copy(scoped.state.draft.palette)
@@ -925,12 +1036,12 @@ assert.equal(widgetPalette(migrated.state.draft, migrated.state.data.metadata, '
 console.log('Widget colors: real fields, visible picks, profile/widget isolation, undo/reset, legacy inheritance and invalid fields passed')
 const savedSelection = editor()
 savedSelection.vm.selectProfile('compact')
-savedSelection.vm.state.selected = 'speed_limit_actions'
+savedSelection.vm.state.selected = 'driver_monitor'
 savedSelection.vm.color('cardFill', '#12345680')
 const savedData = snapshot()
 savedData.document = copy(savedSelection.vm.state.draft)
 savedSelection.publish({ status: 'ready', data: savedData, draft: copy(savedData.document) })
-assert.equal(savedSelection.vm.state.selected, 'speed_limit_actions')
+assert.equal(savedSelection.vm.state.selected, 'driver_monitor')
 assert.equal(savedSelection.vm.selectedColors.cardFill, '#12345680')
 
 const roadEditor = editor().vm
@@ -967,28 +1078,25 @@ roadEditor.resetToStock()
 assert.deepEqual(copy(roadEditor.state.draft.roadColors), { large: {}, compact: {} })
 console.log('Road colors: original defaults, custom/rainbow modes, alpha, profile separation, undo/reset and validation passed')
 
-// Both drag directions permit the sign/action pair and persist the whole draft.
+// Moving the sign keeps the whole draft and the layer order.
 const overlap = editor().vm
 const bigBefore = copy(overlap.state.draft.layouts.large)
 overlap.selectProfile('compact')
 overlap.changePosition('speed_limit', 330, 108)
 assert.equal(overlap.layout.speed_limit.y, 108)
-overlap.changePosition('speed_limit_actions', 174, 100)
-assert.equal(overlap.layout.speed_limit_actions.y, 100)
 assert.equal(validDocument(overlap.state.draft, overlap.state.data.metadata), true)
 assert.deepEqual(copy(overlap.state.draft.layouts.large), bigBefore)
 const originalOrder = overlap.renderWidgets.map(widget => widget.id)
 overlap.state.selected = 'speed_limit'
 assert.deepEqual(overlap.renderWidgets.map(widget => widget.id), originalOrder)
-overlap.state.selected = 'speed_limit_actions'
-assert.deepEqual(overlap.renderWidgets.map(widget => widget.id), originalOrder)
 
-overlap.changePosition('speed_limit_actions', 174, 0)
-assert.equal(overlap.layout.speed_limit_actions.y, 0)
+// A header that would leave the screen moves below the widget.
+overlap.changePosition('speed_limit', 330, 0)
+assert.equal(overlap.layout.speed_limit.y, 0)
 assert.equal(validDocument(overlap.state.draft, overlap.state.data.metadata), true)
-assert.equal(overlap.renderWidgets.find(widget => widget.id === "speed_limit_actions").visualHeaderY, 62)
-assert.equal(overlap.renderWidgets.find(widget => widget.id === "speed_limit_actions").visualInsetTop, 0)
-assert.equal(overlap.renderWidgets.find(widget => widget.id === "speed_limit_actions").visualInsetBottom, 32)
+assert.equal(overlap.renderWidgets.find(widget => widget.id === "speed_limit").visualHeaderY, 140)
+assert.equal(overlap.renderWidgets.find(widget => widget.id === "speed_limit").visualInsetTop, 0)
+assert.equal(overlap.renderWidgets.find(widget => widget.id === "speed_limit").visualInsetBottom, 32)
 
 const synchronizedDrag = editor()
 const syncVm = synchronizedDrag.vm
@@ -1249,7 +1357,6 @@ console.log("Ford rear fog: make visibility, saved placement and strict metadata
   profile.widgets.max_speed.width = 146
   profile.widgets.speed_limit = { ...profile.widgets.speed_limit, width: 128, height: 144,
     confirmation: { x: -172, y: -8, width: 328, height: 159 } }
-  sample.document.version = 14
   sample.document.layouts.compact.speed_limit = { x: 320, y: 16, enabled: true }
   assert.equal(documentHelpers.overlapsReserved(profile, 'speed_limit', 320, 16, sample.document.layouts.compact), false)
   assert.equal(validDocument(sample.document, sample.metadata), true)
@@ -1259,11 +1366,20 @@ console.log("Ford rear fog: make visibility, saved placement and strict metadata
   assert.equal(clampPlacement(profile, 'speed_limit', 330, 16, sample.document.layouts.compact).x, 320)
 }
 
-// The device writes version 15 after the attached-actions gap migration.
+// The device writes version 16 once the speed limit actions widget is folded into the sign.
 {
   const sample = snapshot()
-  sample.document.version = 15
   assert.equal(validDocument(sample.document, sample.metadata), true)
-  sample.document.version = 16
+  sample.document.version = 15
   assert.equal(validDocument(sample.document, sample.metadata), false)
 }
+
+const speedAdjustment = snapshot()
+speedAdjustment.document.speedDisplayOffset = -1.7
+assert.ok(validDocument(speedAdjustment.document, speedAdjustment.metadata))
+assert.equal(layoutDocument({ ...speedAdjustment.document, display: {} }).speedDisplayOffset, -1.7)
+for (const invalidOffset of [true, null, "1", NaN, Infinity, -5.1, 5.1]) {
+  const document = { ...speedAdjustment.document, speedDisplayOffset: invalidOffset }
+  assert.equal(validDocument(document, speedAdjustment.metadata), false)
+}
+assert.ok(SETTINGS_SECTIONS.find(section => section.id === "developer").pages.includes("developer"))

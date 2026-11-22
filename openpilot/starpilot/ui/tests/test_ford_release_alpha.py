@@ -25,7 +25,7 @@ def panel_for(module, cp, params):
   if module is large:
     attributes.extend((('_params', params), ('_is_release', True)))
     attributes.extend((name, Toggle()) for name in
-                      ('_joystick_toggle', '_adb_toggle', '_ssh_toggle', '_ui_debug_toggle', '_cellular_disabled_toggle'))
+                      ('_joystick_toggle', '_adb_toggle', '_ssh_toggle', '_ui_debug_toggle', '_cellular_disabled_toggle', '_always_hold_toggle'))
   else:
     attributes.append(('_refresh_toggles', (('AlphaLongitudinalEnabled', alpha),)))
   for name, value in attributes:

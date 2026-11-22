@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from opendbc.car.structs import CarParams
 from opendbc.car.toyota.interface import CarInterface
 from opendbc.car.toyota.values import CAR
 from openpilot.common.params import Params
@@ -32,8 +33,7 @@ def test_generic_admission_is_brand_independent_and_stock_is_display_only(tmp_pa
   params = Params(str(tmp_path))
   params.put_bool('CurveSpeedController', True, block=True)
   params.put_bool('SpeedLimitController', True, block=True)
-  cp = NS(brand=brand, carFingerprint=brand + '_native', openpilotLongitudinalControl=True,
-          pcmCruise=True, passive=False, dashcamOnly=False, notCar=False)
+  cp = CarParams(brand=brand, carFingerprint=brand + '_native', openpilotLongitudinalControl=True, pcmCruise=True)
   for feature in ('conditional', 'curve', 'profile', 'slc', 'vision'):
     assert enabled(params, cp, feature, {})
   assert diagnostic_choice_enabled({}, cp)

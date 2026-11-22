@@ -23,6 +23,7 @@ const validDrive = (drive) => drive && ROUTE.test(drive.routeId) &&
     drive.distractedMoments, drive.unresponsiveMoments].every(optionalNumber) &&
   optionalText(drive.model) && optionalText(drive.reason, 256) &&
   typeof drive.complete === "boolean" && typeof drive.ignored === "boolean" &&
+  (drive.partial === undefined || (typeof drive.partial === "boolean" && !(drive.partial && drive.complete))) &&
   integer(drive.segmentCount) && drive.segmentCount <= 10000 &&
   (drive.engagedPercent === null || drive.engagedPercent <= 100) && validAol(drive)
 

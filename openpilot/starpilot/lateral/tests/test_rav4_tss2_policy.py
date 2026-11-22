@@ -85,7 +85,7 @@ def test_latest_cleanup_knots_taper_and_left_right_symmetry(speed, increment):
   for accel, jerk in ((.85, 0), (0, .75)):
     env = (1 / (1 + math.exp((speed - 13) / 3))) * (1 / (1 + math.exp((abs(accel) - .30) / .08)))
     assert friction_threshold(speed, accel, jerk) == pytest.approx(.30 * (1 + .14 * env))
-  assert .88 <= center_output_scale(0, speed) <= 1
+  assert .80 <= center_output_scale(0, speed) <= 1
 
 
 def test_exact_scope_excludes_related_racks_and_bad_tunes():
@@ -249,3 +249,27 @@ def test_actual_ui_controller_switch_preserves_learning_and_explicit_toggle(init
     assert learning_allowed(saved, cp)
     unrelated = read_preference(saved, unrelated_cp)
     assert unrelated.valid and not unrelated.enabled and unrelated.source == "scope"
+
+
+@pytest.mark.parametrize("mph", [0., 10., 15., 50., 60., 80.])
+@pytest.mark.parametrize("accel", [0., .15, -.15, .7, -.7])
+def test_low_speed_taper_preserves_other_speed_ranges(mph, accel):
+  from openpilot.common.constants import CV
+  from openpilot.starpilot.lateral.rav4_tss2_policy import center_envelope
+  speed = mph * CV.MPH_TO_MS
+  assert center_output_scale(accel, speed) == 1.0 - .12 * center_envelope(accel, speed)
+
+
+@pytest.mark.parametrize("mph", [20., 27., 35., 40.])
+def test_low_speed_center_taper_is_small_symmetric_and_fades_for_curves(mph):
+  from openpilot.common.constants import CV
+  from openpilot.starpilot.lateral.rav4_tss2_policy import center_envelope
+  speed = mph * CV.MPH_TO_MS
+  for accel in (0., .15, .30):
+    previous = 1.0 - .12 * center_envelope(accel, speed)
+    adjusted = center_output_scale(accel, speed)
+    assert 0 < previous - adjusted <= .08
+    assert .8 <= adjusted <= 1.
+    assert adjusted == center_output_scale(-accel, speed)
+  for accel in (.65, -.65, 1., -1.):
+    assert center_output_scale(accel, speed) == 1.0 - .12 * center_envelope(accel, speed)

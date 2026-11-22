@@ -29,8 +29,9 @@ class TestCloudConsumers(unittest.TestCase):
     provider.mark_recording(self.konik,'konik')
 
   def test_actual_uploader_and_athena_listing_keep_legacy_comma_out(self):
-    with patch.object(uploader, 'Api', return_value=SimpleNamespace()):
+    with patch.object(uploader, 'Api', return_value=SimpleNamespace()), patch.object(uploader.os, 'nice') as nice:
       instance = uploader.Uploader('0'*16, str(self.root))
+    nice.assert_called_once_with(10)
     with patch.object(uploader,'getxattr',return_value=None):
       files = list(instance.list_upload_files(False))
     self.assertTrue(files)

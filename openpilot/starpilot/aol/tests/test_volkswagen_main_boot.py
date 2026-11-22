@@ -143,9 +143,12 @@ def test_mqb_parked_delayed_start_keeps_main_request_unconsumed(alpha):
   assert not sd.aol_authority_lost
   assert log.OnroadEvent.EventName.controlsMismatch not in sd.events.names
   cs.standstill = False
-  cs.vEgo = 1.
+  cs.vEgo = cs.vEgoRaw = 1.
   owner.update(cs, now_ns=1_200_000_000, fault_active=False)
-  assert owner.allowed_latch and not owner.main_startup_pending
+  # A speed crossing alone cannot start a manual Alpha Long request after a source gap.
+  # The actual Card/Panda callers exercise arming after healthy feedback returns.
+  assert owner.allowed_latch is not alpha
+  assert owner.main_startup_pending is alpha
 
 
 @pytest.mark.parametrize('word', (8, 24, 9, 25))

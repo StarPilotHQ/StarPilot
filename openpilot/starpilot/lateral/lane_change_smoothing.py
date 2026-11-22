@@ -4,12 +4,14 @@ import math
 
 from openpilot.cereal import log
 from openpilot.common.realtime import DT_CTRL
+from openpilot.starpilot.lateral.signal_turn import SignalTurnEvidence
 from openpilot.selfdrive.controls.lib.desire_helper import LANE_CHANGE_SPEED_MIN
 from openpilot.selfdrive.controls.lib.drive_helpers import MAX_LATERAL_JERK, MIN_SPEED
 
 
 class LaneChangeSmoother:
   def __init__(self):
+    self.turn_evidence = SignalTurnEvidence()
     self.reset()
 
   def reset(self):
@@ -18,7 +20,7 @@ class LaneChangeSmoother:
     self.previous_factor = 1.0
     self.intersection_maneuver = False
 
-  def factor(self, *, active, lane_change_state, speed, minimum_speed, duration, previous, desired, turn_assist=False):
+  def factor(self, *, active, lane_change_state, speed, minimum_speed, duration, previous, desired, turn_assist=False, intersection_turn=False):
     if (not active or not all(math.isfinite(value) for value in (speed, minimum_speed, duration, previous, desired)) or
         not 3.0 < duration <= 8.0):
       self.reset()
@@ -30,8 +32,8 @@ class LaneChangeSmoother:
     # accelerates across the highway lane-change floor. Finish that exemption
     # before admitting pacing for a new maneuver.
     intersection = bool(turn_assist and maneuver and
-                        (speed < LANE_CHANGE_SPEED_MIN or self.intersection_maneuver))
-    if turn_assist and (speed < LANE_CHANGE_SPEED_MIN or self.intersection_maneuver):
+                        (speed < LANE_CHANGE_SPEED_MIN or intersection_turn or self.intersection_maneuver))
+    if turn_assist and (speed < LANE_CHANGE_SPEED_MIN or intersection_turn or self.intersection_maneuver):
       self.reset()
       self.intersection_maneuver = intersection
       return 1.0

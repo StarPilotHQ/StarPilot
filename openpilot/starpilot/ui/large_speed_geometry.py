@@ -11,22 +11,12 @@ LARGE_SIGN_SCALE = PHYSICAL_SCALE * 1.3
 SIGN_WIDTH, SIGN_HEIGHT = 128, 144
 LIMIT_ROW_HEIGHT = math.ceil(SIGN_HEIGHT * LARGE_SIGN_SCALE)
 CARD_HEIGHT = LIMIT_ROW_HEIGHT
-ACTION_WIDTH = 308
-ACTION_HEIGHT = 168
-ACTION_X = 112
-# Attached just below the card.
-ACTION_Y = 75 + CARD_HEIGHT - 2
 GAP = 8
 SOURCE_ROW_HEIGHT = 76
 PADDING = 24
 
 LIMIT_RECTS = {'large': (318, 75, math.ceil(SIGN_WIDTH * LARGE_SIGN_SCALE), LIMIT_ROW_HEIGHT),
                'compact': (320, 16, SIGN_WIDTH, SIGN_HEIGHT)}
-ACTION_BOUNDS = {
-  'large': ((112, ACTION_Y, 420, ACTION_Y + 80), (112, ACTION_Y + 88, 420, ACTION_Y + ACTION_HEIGHT)),
-  'compact': ((146, 44, 330, 102), (146, 106, 330, 164)),
-}
-ACTION_TEXT_SIZE = {'large': 64, 'compact': 48}
 
 CONFIRMATION_SCALE = {'large': LARGE_SIGN_SCALE, 'compact': 1.0}
 # The open prompt's Accept/Reject buttons are sized for fingers, which do not change with viewing distance.

@@ -70,6 +70,36 @@ class SystemMonitorRuntimeTest(unittest.TestCase):
     self.write_snapshot(300, 200, 50)
     self.assertIsNone(self.monitor.sample()['cpuPercent'])
 
+  def test_tici_recording_storage_falls_back_to_media_mount(self):
+    internal = Path('/data')
+    media = internal / 'media'
+    routes = media / '0' / 'realdata'
+    devices = {internal: 1, media: 2}
+    capacities = {internal: 30, media: 256, routes: 128}
+    reads = []
+
+    def stat(path):
+      if path not in devices:
+        raise FileNotFoundError(path)
+      return SimpleNamespace(st_dev=devices[path])
+
+    def disk_usage(path):
+      reads.append(path)
+      return SimpleNamespace(used=2 ** 30, total=capacities[path] * 2 ** 30, free=(capacities[path] - 1) * 2 ** 30)
+
+    monitor = SystemMonitor(self.root, storage=internal, recording_storage=routes, device_type='tici', stat=stat, disk_usage=disk_usage)
+    sample = monitor.sample()
+    self.assertEqual(sample['storage']['totalGiB'], 30)
+    self.assertEqual(sample['recordingStorage']['totalGiB'], 256)
+    self.assertEqual(reads, [internal, media])
+    devices[routes] = 3
+    self.assertEqual(monitor.sample()['recordingStorage']['totalGiB'], 128)
+    devices[media] = devices[routes] = devices[internal]
+    self.assertIsNone(monitor.sample()['recordingStorage'])
+    devices[media] = 2
+    monitor.device_type = 'mici'
+    self.assertIsNone(monitor.sample()['recordingStorage'])
+
   def test_real_http_source_origin_static_paths_and_read_only_boundary(self):
     owner = GalaxyAccessOwner(self.root / 'access')
     self.assertTrue(owner.configure('test-password', lambda: True))

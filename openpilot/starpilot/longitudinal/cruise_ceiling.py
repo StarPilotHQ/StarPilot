@@ -3,7 +3,7 @@
 import math
 from dataclasses import dataclass
 
-from openpilot.starpilot.speed_limits.acceptance import Authority, authority_is_valid
+from openpilot.starpilot.speed_limits.acceptance import Authority, LongitudinalOwner, authority_is_valid
 
 
 @dataclass(frozen=True)
@@ -45,7 +45,7 @@ def select_cruise_ceiling(ceiling: object, *, driver_v_cruise_kph: float, driver
   if any(type(flag) is not bool for flag in (system_long_available, long_control_active, selfdrive_enabled, force_decel)):
     return CeilingDecision(None, "invalid")
   if (not system_long_available or not long_control_active or not selfdrive_enabled or
-      not ceiling.authority.can_control):
+      not ceiling.authority.can_control or ceiling.authority.owner is LongitudinalOwner.CRUISE_BUTTONS):
     return CeilingDecision(None, "inactive")
   if not _positive_finite(driver_v_cruise_kph) or driver_v_cruise_kph == 255 or not _positive_finite(driver_cruise_mps):
     return CeilingDecision(None, "driver_cruise_unavailable")

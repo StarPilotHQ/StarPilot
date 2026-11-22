@@ -11,6 +11,7 @@ on:
       - testing
       - dev
   pull_request:
+    types: [opened, synchronize, reopened, edited]
   workflow_dispatch:
   workflow_call:
     inputs:
@@ -31,6 +32,12 @@ env:
   PYTHONPATH: ${{ github.workspace }}
 
 jobs:
+  stable_pr_phone_bridge:
+    if: github.event_name == 'pull_request' && github.base_ref == 'stable'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/galaxy-phone-bridge.yaml
+
   source_integrity:
     name: source integrity
     runs-on: ubuntu-24.04
@@ -45,6 +52,7 @@ jobs:
       run: |
         python3 -m unittest tools.laptop_device_build.tests.test_runtime_dependencies -v
         python3 -c 'from pathlib import Path; assert b"starting pandad (comma hardware)" in Path("openpilot/selfdrive/pandad/pandad").read_bytes(), "Shipped pandad must use the comma hardware build profile"'
+        python3 -c 'from pathlib import Path; paths = ("openpilot/system/camerad/camerad", "msgq_repo/msgq/visionipc/_visionipc.so", "openpilot/system/loggerd/encoderd", "openpilot/tools/replay/replay"); assert all(b"/dev/ion\0" in Path(p).read_bytes() for p in paths), "Shipped camera buffers must use ION"'
     - name: Test one-shot branch migration
       run: python3 -m unittest discover -s scripts/tests -v
     - name: Validate tracked dependencies

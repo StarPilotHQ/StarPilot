@@ -10,11 +10,12 @@ from opendbc.car.gm.tests.test_ascm_intercept import params
 from opendbc.car.gm.values import CAR, DBC, is_bolt_euv_longitudinal
 
 
-def original_demand(cp, active, speed, accel, state, resume, pitch):
-  # Original 6cae0ce, ordinary non-Volt camera path; default LongPitch on.
+def original_demand(cp, active, speed, accel, state, resume, pitch, *, standstill=False):
+  # Original 6cae0ce camera path, with the hold demand as a floor while rolling.
   if not active:
     return 5650, 0
-  if speed < 0.25 and state == 'stopping' and not resume:
+  hold = speed < 0.25 and state == 'stopping' and not resume
+  if hold and standstill:
     return 5650, 25
   grade = math.sin(pitch) * 9.81 if speed > 0.25 else 0.0
   if grade > 0 and accel > 0:
@@ -27,6 +28,8 @@ def original_demand(cp, active, speed, accel, state, resume, pitch):
   switch = int(round(np.interp(speed, [0.5, 10.0], [6150, 5610])))
   brake_accel = min((torque - switch) / (radius * cp.mass), 0.0)
   brake = int(round(np.interp(brake_accel, [-4.0, 0.0], [400, 0])))
+  if hold:
+    brake = max(25, brake)
   return (5650 if brake > 0 or state == 'stopping' else raw), brake
 
 
@@ -58,7 +61,8 @@ PHASES = [(False, False, 12., 1., 'off', False, False, 0.),
           (True, True, 12., 1., 'pid', False, False, 0.),
           (True, True, 7., -1.5, 'pid', False, False, -0.04)]
 PHASES += [(True, True, speed, -2., 'stopping', False, False, 0.) for speed in (0.6, 0.49, 0.3, 0.25, 0.24, 0.1)]
-PHASES += [(True, True, 0., -4., 'stopping', False, True, 0.),
+PHASES += [(True, True, .213, -.665, 'stopping', False, False, 0.),
+           (True, True, 0., -.665, 'stopping', False, True, 0.),
            (True, True, 0., 1., 'stopping', True, True, 0.),
            (True, True, 0., 0.5, 'starting', True, True, 0.),
            (True, True, 0.3, 0.5, 'starting', True, False, 0.),
@@ -136,7 +140,7 @@ class TestBoltEuvControl(unittest.TestCase):
             if not alpha or frame % 4:
               self.assertFalse(actual)
               continue
-            raw, brake = original_demand(cp, active, speed, accel, state, resume, pitch)
+            raw, brake = original_demand(cp, active, speed, accel, state, resume, pitch, standstill=still)
             expected = original_frames(raw, brake, (frame // 4) % 4, enabled, active and still and state == 'stopping')
             self.assertEqual(actual, expected, (alpha, alignment, phase, frame))
             self.assertEqual((controller.apply_gas, controller.apply_brake), (raw - 6150, brake))

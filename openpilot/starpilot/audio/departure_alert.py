@@ -135,14 +135,23 @@ class DepartureNotifications:
       lead, tracked = projected.raw_lead, projected.lead_observation.tracked
       light, stopped, action_stop = projected.scene.stop_light_detected, projected.raw_model_stopped, projected.current_model_should_stop
       stationary = bool(car.standstill and not car.gasPressed and str(car.gearShifter) == 'drive')
+      radar_id = int(sm['radarState'].leadOne.radarTrackId)
+      # The control tracker only acquires while moving; a stopped physical lead
+      # can independently arm this advisory's continuous-track departure check.
+      if stationary and lead is not None and lead.present and lead.radar and radar_id >= 0:
+        tracked = True
+      eof = int(sm['modelV2'].timestampEof)
+      # A qualified stop release need not qualify full curve/lead geometry.
+      light_valid = (type(light) is bool and type(action_stop) is bool and
+                     (type(stopped) is bool or action_stop is False))
       valid = (all(k in projected.fresh_services for k in ('carState', 'modelV2', 'radarState')) and
-               type(tracked) is bool and type(light) is bool and type(stopped) is bool and type(action_stop) is bool and
+               type(tracked) is bool and (tracked or light_valid) and
+               0 < eof <= boot and boot - eof <= 150_000_000 and
                car.canValid and not car.canTimeout and drive < model_ns <= now and now - model_ns <= 150_000_000)
       lead_speed = lead.speed_mps if lead is not None else None
       distance = lead.distance_m if lead is not None else None
       valid &= (not tracked or lead is not None and
                 all(isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) for x in (distance, lead_speed)))
-      radar_id = int(sm['radarState'].leadOne.radarTrackId)
       dashboard_sign = dashboard_stop_sign(sm, now_ns=now, drive_id=drive)
       return self.episode.step(drive=drive, model_ns=model_ns, now_ns=now, stationary=stationary, valid=bool(valid),
         light=light, model_stopped=bool(stopped or action_stop), tracked=tracked, distance=distance, lead_speed=lead_speed,

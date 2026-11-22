@@ -7,10 +7,12 @@ on:
       - 'openpilot/starpilot/galaxy_bluetooth/**'
       - '.github/workflows/galaxy-phone-bridge.yaml'
   pull_request:
+    branches-ignore: [stable]
     paths:
       - 'openpilot/starpilot/galaxy_bluetooth/**'
       - '.github/workflows/galaxy-phone-bridge.yaml'
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read

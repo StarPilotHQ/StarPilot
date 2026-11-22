@@ -103,11 +103,15 @@ def test_same_actual_context_loads_once_and_does_not_write_history(tmp_path, cp)
   assert read_saved(params, 'AutomaticSteeringLiveTrials', 65536) == (None, True)
 
 
-def test_changed_vehicle_context_refuses_instead_of_retagging(tmp_path, cp):
+def test_same_fingerprint_preserves_settings_but_changed_basis_or_fingerprint_refuses(tmp_path, cp):
   params = PrivateParams(tmp_path)
   raw = save(params, cp, manual(cp, center_taper_max=.01))
   cp.mass = 1800.
+  assert dict(load(cp, default_selection(cp).mode, params)[0].profile.values)['center_taper_max'] == .01
+  cp.lateralTuning.torque.friction += .01
   assert load(cp, default_selection(cp).mode, params) == (None, 'context_changed')
+  cp.carFingerprint = 'other-platform'
+  assert load(cp, default_selection(cp).mode, params) == (None, 'not_configured')
   assert read_saved(params, DOCUMENT_KEY, 16384) == (raw, True)
 
 
@@ -274,8 +278,8 @@ def test_next_startup_loads_new_saved_values_without_mutating_running_profile(tm
   assert dict(following.profile.values)['center_taper_max'] == .02
 
 
-@pytest.mark.parametrize('saved,expected', [(False, True), (True, False)])
-def test_actual_controls_startup_holds_native_learning_only_for_manual_tune(tmp_path, cp, monkeypatch, saved, expected):
+@pytest.mark.parametrize('saved', [False, True])
+def test_actual_controls_startup_keeps_learning_with_individual_manual_settings(tmp_path, cp, monkeypatch, saved):
   from openpilot.selfdrive.controls import controlsd
   params = PrivateParams(tmp_path)
   if saved:
@@ -287,7 +291,7 @@ def test_actual_controls_startup_holds_native_learning_only_for_manual_tune(tmp_
   monkeypatch.setattr(owner, 'params', params, raising=False)
   owner.lateral_controller_selection = default_selection(cp)
   effects, status = owner._configure_manual_tune()
-  assert owner.torque_learning_allowed is expected
+  assert owner.torque_learning_allowed
   assert (effects is not None) is saved
   assert status == ('configured' if saved else 'not_configured')
   assert (tmp_path / 'd' / 'ForceAutoTuneOff').read_bytes() == b'0'

@@ -118,34 +118,15 @@ assert.equal(guidedState({ setup: null, runtime: running("rfcomm") }).show, fals
 
 // The component emits the page's actions and never invents state.
 {
-  assert.deepEqual(StarPortGuidedSetup.emits, ["choose-type", "choose-adapter", "choose-app", "use-car", "classic", "reset-handshake", "continue-ladder", "dismiss-suggestion", "done"])
+  assert.deepEqual(StarPortGuidedSetup.emits, ["choose-type", "choose-adapter", "choose-app", "use-car", "reset-handshake", "continue-ladder", "dismiss-suggestion", "done"])
   assert.match(StarPortGuidedSetup.template, /v-if="state\.canResetHandshake"[^>]*@click="\$emit\('reset-handshake'\)"/)
   const template = StarPortGuidedSetup.template
   assert.match(template, /\$emit\('choose-type', choice\.key\)/)
   assert.match(template, /\$emit\('use-car', car\.address\)/)
-  assert.match(template, /\$emit\('classic'\)/)
-  assert.match(template, /Use classic setup/)
+  assert.doesNotMatch(template, /\$emit\('classic'\)/)
+  assert.doesNotMatch(template, /Use classic setup/)
   assert.doesNotMatch(template, /v-html/)
 }
-// The way back to the classic screens posts one narrow action, even when the StarPort service is off.
-{
-  const calls = []
-  const reply = (body, code = 200) => ({ status: code, ok: code < 300, json: async () => structuredClone(body) })
-  const feed = new StarPortFeed({ publish: () => {}, fetcher: async (path, options) => {
-    calls.push([path, options])
-    return reply(path.endsWith("/setup") ? { enabled: false, bluetoothEnabled: false, parked: true, installReady: true, serviceReady: false,
-      identity: { installed: true }, import: {}, maxUploadBytes: 1000, newSetup: true } : { newSetup: false })
-  }, later: () => 1, cancelTimer: () => {} })
-  assert.equal(await feed.setNewSetup(false), false)  // not started yet
-  feed.active = true
-  assert.equal(await feed.setNewSetup("no"), false)
-  assert.equal(await feed.setNewSetup(false), true)
-  const [path, options] = calls.find(([target]) => target.endsWith("/control"))
-  assert.equal(path, "./api/starport/control")
-  assert.deepEqual(JSON.parse(options.body), { action: "new_setup", enabled: false })
-  assert.equal(options.method, "POST")
-}
-
 // Resetting the handshake is one narrow control action.
 {
   const calls = []
@@ -163,16 +144,11 @@ assert.equal(guidedState({ setup: null, runtime: running("rfcomm") }).show, fals
   assert.deepEqual(JSON.parse(options.body), { action: "reset_handshake" })
 }
 
-// The page uses the guided card by default and only when the setup response does not say newSetup is off.
+// Guided setup is the only setup path, including servers with a stale legacy flag.
 {
-  const template = StarPortPage.template
-  assert.match(template, /<StarPortGuidedSetup v-if="setup && newSetup && guided\.show"/)
-  assert.match(template, /@choose-type="chooseType" @choose-adapter="chooseAdapter" @choose-app="chooseApp" @use-car="useCar" @classic="useClassic"/)
-  assert.match(template, /Try the guided setup/)
-  const vm = { setup: { newSetup: false } }
-  assert.equal(StarPortPage.computed.newSetup.call(vm), false)
-  assert.equal(StarPortPage.computed.newSetup.call({ setup: {} }), true)        // default on, including an older server
-  assert.equal(StarPortPage.computed.newSetup.call({ setup: null }), true)
+  assert.match(StarPortPage.template, /<StarPortGuidedSetup v-if="setup && guided\.show"/)
+  assert.doesNotMatch(StarPortPage.template, /newSetup|id="gx-steps"|useClassic|useGuided/)
+  assert.equal(StarPortFeed.prototype.setNewSetup, undefined)
 }
 // A car-specific fix is only ever advice on the setup screen: shown when the daemon names one, never otherwise.
 {
@@ -261,7 +237,7 @@ console.log("StarPort guided setup: Bluetooth-first hint passed")
   assert.match(StarPortGuidedSetup.template, /\$emit\('done'\)/)
 }
 
-// Dropdowns belong to the classic screens only; the guided card replaces them and keeps pairing, steps and Connect.
+// Guided setup keeps pairing, progress and Connect without the legacy dropdown screens.
 {
   const template = StarPortPage.template
   const guidedBlock = template.slice(template.indexOf("<StarPortGuidedSetup"), template.indexOf("</StarPortGuidedSetup>"))
@@ -270,9 +246,9 @@ console.log("StarPort guided setup: Bluetooth-first hint passed")
   assert.match(guidedBlock, /beginPairing/)         // Find car / Find adapter
   assert.match(guidedBlock, /@click="connect"/)      // the Connect button
   assert.match(guidedBlock, /Stuck pairing\?/)       // the pairing help stays
-  assert.match(template, /<ol v-if="setup && !newSetup" id="gx-steps"/)   // the classic step 2, with its dropdown
+  assert.doesNotMatch(template, /id="gx-steps"/)
   const home = template.slice(template.indexOf("gx-starport-home\" aria-labelledby"))
-  assert.match(home, /<template v-if="!newSetup">\s*<GalaxySettingRow :row="carTypeRow"/)
+  assert.doesNotMatch(home, /carTypeRow|adapterRow|appRow/)
   assert.match(StarPortGuidedSetup.template, /gx-guided__steps/)
   assert.match(StarPortGuidedSetup.template, /<slot name="car" \/>/)
   assert.match(StarPortGuidedSetup.template, /<slot name="connect" \/>/)
@@ -289,7 +265,7 @@ console.log("StarPort guided setup: Bluetooth-first hint passed")
   StarPortPage.methods.dismissSuggestion.call({ control: (action, extra) => calls.push([action, extra]) }, "gm_mychevrolet_w28e")
   assert.deepEqual(calls, [["dismiss_fix_suggestion", { rule: "gm_mychevrolet_w28e" }]])
 }
-console.log("StarPort guided setup: steps, adapter and app choices, reopening and classic-only dropdowns passed")
+console.log("StarPort guided setup: steps, adapter and app choices, reopening and guided-only controls passed")
 
 // Choosing a cable or an app finishes the setup at once; a choice made in the card must not close the card.
 {

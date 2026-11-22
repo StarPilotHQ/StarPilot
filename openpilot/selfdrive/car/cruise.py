@@ -15,6 +15,7 @@ V_CRUISE_MIN = 8
 V_CRUISE_MAX = 145
 V_CRUISE_UNSET = 255
 V_CRUISE_INITIAL = 40
+LOW_SPEED_CRUISE_ON_SET = "LowSpeedCruiseOnSet"
 IMPERIAL_INCREMENT = round(CV.MPH_TO_KPH, 1)  # round here to avoid rounding errors incrementing set speed
 
 ButtonEvent = car.CarState.ButtonEvent
@@ -60,7 +61,10 @@ def slc_target_kph(target_mps: float, is_metric: bool) -> float:
 class VCruiseHelper:
   def __init__(self, CP):
     self.CP = CP
+    from opendbc.car.hyundai.software_cruise import selected as hyundai_software_selected
+    self.hyundai_software_cruise = hyundai_software_selected(CP)
     self.intervals = CruiseIntervals()
+    self.low_speed_on_set = False
     self.v_cruise_kph = V_CRUISE_UNSET
     self.v_cruise_cluster_kph = V_CRUISE_UNSET
     self.v_cruise_kph_last = 0
@@ -84,8 +88,8 @@ class VCruiseHelper:
   def update_v_cruise(self, CS, enabled, is_metric, slc_pending: SlcPendingConfirmation | None = None, *,
                       slc_enabled: bool = False, wheel_context: SlcWheelContext | None = None):
     from opendbc.car.subaru.software_cruise import selected as subaru_software_selected
-    subaru_software = subaru_software_selected(self.CP)
-    software_cruise = not self.CP.pcmCruise or subaru_software
+    stock_software = subaru_software_selected(self.CP) or self.hyundai_software_cruise
+    software_cruise = not self.CP.pcmCruise or stock_software
     self.slc_cruise_change = None
     self.slc_consumed_button = None
     self.slc_released_suppressed = False
@@ -117,7 +121,7 @@ class VCruiseHelper:
 
     if CS.cruiseState.available:
       if software_cruise:
-        if subaru_software and (not enabled or not self.v_cruise_initialized):
+        if stock_software and (not enabled or not self.v_cruise_initialized):
           stock_kph = CS.cruiseState.speed * CV.MS_TO_KPH
           self.v_cruise_kph = stock_kph if 0 < stock_kph < V_CRUISE_UNSET else V_CRUISE_UNSET
         self._update_v_cruise_non_pcm(CS, enabled, is_metric)
@@ -238,8 +242,8 @@ class VCruiseHelper:
   def adjust_v_cruise(self, button_type, CS, is_metric: bool, *, long_press: bool = False) -> bool:
     """Apply the normal software cruise step without synthesizing button events."""
     from opendbc.car.subaru.software_cruise import selected as subaru_software_selected
-    subaru_software = subaru_software_selected(self.CP)
-    if ((self.CP.pcmCruise and not subaru_software) or button_type not in (ButtonType.accelCruise, ButtonType.decelCruise) or
+    stock_software = subaru_software_selected(self.CP) or self.hyundai_software_cruise
+    if ((self.CP.pcmCruise and not stock_software) or button_type not in (ButtonType.accelCruise, ButtonType.decelCruise) or
         not 0 < self.v_cruise_kph < V_CRUISE_UNSET or
         (button_type == ButtonType.accelCruise and CS.cruiseState.standstill)):
       return False
@@ -311,7 +315,10 @@ class VCruiseHelper:
       self.apply_slc_target(slc_target_mps, is_metric)
       return True
     else:
-      self.v_cruise_kph = int(round(np.clip(max(CS.vEgo * CV.MS_TO_KPH, validated_initial_cruise_speed(initial_speed)), V_CRUISE_INITIAL, V_CRUISE_MAX)))
+      floor = validated_initial_cruise_speed(initial_speed)
+      if self.low_speed_on_set and math.isfinite(self.CP.minEnableSpeed):
+        floor = max(V_CRUISE_MIN, math.ceil(self.CP.minEnableSpeed * CV.MS_TO_KPH))
+      self.v_cruise_kph = int(round(np.clip(CS.vEgo * CV.MS_TO_KPH, floor, V_CRUISE_MAX)))
 
     self.v_cruise_cluster_kph = self.v_cruise_kph
     return False

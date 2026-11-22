@@ -15,7 +15,7 @@
 .gx-navigation__trip {padding:8px 12px;border-radius:20px;background:var(--glass-active-bg);font-size:.85rem;font-weight:650;color:var(--primary)}
 .gx-navigation__preview .gx-navigation-map {margin:0;border-radius:0;background:var(--navigation-land)}
 .gx-navigation__preview .gx-navigation-map canvas {height:clamp(320px,52vh,640px);background:var(--navigation-land)}
-.gx-navigation__preview .gx-navigation-map>.gx-alert {position:absolute;left:8px;right:8px;bottom:36px;margin:0;padding:8px 10px;font-size:.8rem}
+.gx-navigation__preview .gx-navigation-map>.gx-alert {position:absolute;left:8px;right:8px;bottom:36px;width:auto;margin:0;font-size:.8rem}
 .gx-navigation__empty {display:grid;justify-items:center;text-align:center;align-content:center;min-height:340px;padding:32px;background:radial-gradient(ellipse at center,color-mix(in srgb,var(--primary) 12%,transparent),transparent 70%)}
 .gx-navigation__empty>i {font-size:3rem;color:var(--primary);margin-bottom:20px}
 .gx-navigation__empty h3 {margin:0}

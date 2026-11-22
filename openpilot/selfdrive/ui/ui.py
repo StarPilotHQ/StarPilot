@@ -5,6 +5,7 @@ import time
 
 from openpilot.cereal import messaging
 from openpilot.common.hardware import COMMA_HARDWARE, HARDWARE
+from openpilot.common.time_helpers import refresh_local_timezone
 from openpilot.common.realtime import Priority, config_realtime_process, drop_realtime, set_core_affinity
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.selfdrive.ui.layouts.main import MainLayout
@@ -19,6 +20,7 @@ BIG_UI = gui_app.big_ui()
 
 def update_frame(preview=None, controllers=None, star=None, game_mode=None, arabesque=None):
   gui_app.measure_frame_phase("ui_state", ui_state.update)
+  refresh_local_timezone()
   if arabesque is not None:
     arabesque()
   if star is not None:
@@ -38,8 +40,8 @@ def update_frame(preview=None, controllers=None, star=None, game_mode=None, arab
 def main():
   device_type = HARDWARE.get_device_type() if COMMA_HARDWARE else ""
   camera_core_ui = device_type in ("mici", "tici", "tizi")
-  background_ui = device_type == "mici"
-  cores = {0, 1, 2, 7} if background_ui else {6} if camera_core_ui else {5}
+  background_ui = camera_core_ui
+  cores = {0, 1, 2, 7} if background_ui else {5}
   display_nice = 5 if background_ui else 0
   main_thread_configured = False
   if background_ui:

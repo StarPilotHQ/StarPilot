@@ -393,11 +393,11 @@ def main(demo=False):
                                                  selection.small_id, selection.small_sha256, coherent_warp=coherent_warp)
         return selected, prepared, False
       except Exception:
-        cloudlog.exception("selected small model load failed, using shipped RDFv4")
+        cloudlog.exception("selected small model load failed, using shipped Cheddar")
     from openpilot.starpilot.models.manager import shipped_default
     path = shipped_default()
     if path is None:
-      raise RuntimeError("Shipped RDFv4 is missing or corrupt")
+      raise RuntimeError("Shipped Cheddar is missing or corrupt")
     fallback, prepared = load_verified_model(cam_w, cam_h,
                                              path, BY_ID[DEFAULT_SMALL].version, False,
                                              DEFAULT_SMALL, DEFAULT_SMALL_SHA256, coherent_warp=coherent_warp)
@@ -682,11 +682,16 @@ def main(demo=False):
                     auto_evidence(sm, modelv2_send.modelV2, direction, runtime_lane_policy.minimum_lane_width_m,
                                   now_mono_ns=mono_now_ns, now_boot_ns=boot_now_ns,
                                   model_valid=bool(modelv2_send.valid), vehicle_capable=auto_vehicle_capable))
+      signal_turn = navigation_turn.signal_model.observe(
+        sm, modelv2_send.modelV2, model_ns=int(modelv2_send.logMonoTime), now_ns=mono_now_ns, now_boot_ns=boot_now_ns,
+        valid=bool(modelv2_send.valid), enabled=bool(turn_supported and navigation_turn.steering_capable and
+                                                  navigation_turn.automatic_turn_enabled),
+        clock_skew_ns=clock_skew_ns, lane_change_state=DH.lane_change_state)
       engaged = bool(sm['carControl'].latActive)
       DH.update(car_state, sm['carControl'].latActive, lane_change_prob,
                 auto_evidence=auto_ready, engaged=auto_trigger_engaged(sm, runtime_lane_policy,
                   openpilot_longitudinal=bool(CP.openpilotLongitudinalControl), now_mono_ns=mono_now_ns),
-                navigation_turn=matching_turn_signal(sm, mono_now_ns, supported=turn_supported))
+                navigation_turn=signal_turn or matching_turn_signal(sm, mono_now_ns, supported=navigation_turn.automatic_turn_enabled))
       modelv2_send.modelV2.meta.laneChangeState = DH.lane_change_state
       modelv2_send.modelV2.meta.laneChangeDirection = DH.lane_change_direction
 

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import math
 import threading
 
+from openpilot.starpilot.car.hyundai.software_cruise_settings import slc_configurable
 from openpilot.starpilot.speed_limits import offset_document as od
 from openpilot.starpilot.ui.feature_settings_state import FeatureRow, FeatureSettingsRequest, SLC_OFFSET_KEYS
 from openpilot.starpilot.saved_source import read_saved
@@ -64,12 +65,14 @@ def _whole_limit_cutoff(bound_mps: float, factor: float) -> int:
   return nearest + (c_float(nearest * factor).value < bound_mps)
 
 
-def _capability(cp, configuration_longitudinal=False) -> tuple | None:
+def _capability(cp, configuration_longitudinal=False, *, params=None) -> tuple | None:
   try:
-    if cp is None or not cp.carFingerprint or not (cp.openpilotLongitudinalControl or configuration_longitudinal) or \
-       cp.notCar or cp.dashcamOnly or cp.passive:
+    if cp is None or not cp.carFingerprint or cp.notCar or cp.dashcamOnly or cp.passive:
       return None
-    return (str(cp.carFingerprint), bool(cp.openpilotLongitudinalControl or configuration_longitudinal), bool(cp.pcmCruise and not configuration_longitudinal),
+    longitudinal = bool(cp.openpilotLongitudinalControl or configuration_longitudinal)
+    if not longitudinal and not slc_configurable(cp, params):
+      return None
+    return (str(cp.carFingerprint), longitudinal, bool(cp.pcmCruise and not configuration_longitudinal),
             bool(cp.notCar), bool(cp.dashcamOnly), bool(cp.passive))
   except (AttributeError, TypeError, ValueError):
     return None
@@ -84,7 +87,7 @@ class SlcOffsetOwner:
     self.configuration_longitudinal = configuration_longitudinal
 
   def capability(self) -> tuple | None:
-    return _capability(self.vehicle_params(), self.configuration_longitudinal())
+    return _capability(self.vehicle_params(), self.configuration_longitudinal(), params=self.params)
 
   def _raw(self, key: str) -> bytes | None:
     return read_saved(self.params, key, od.MAX_DOCUMENT_BYTES)[0]

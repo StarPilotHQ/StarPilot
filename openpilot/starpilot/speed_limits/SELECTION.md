@@ -20,6 +20,11 @@ online-fallback Boolean. The default order is Vision, Maps, then Off. The saved
 second and third slots can be Off. A slot may repeat another slot. Online is
 never a primary slot. This module does not activate or translate preferences.
 
+Live SLC does not pick from this policy every frame. `runtime.py` lets the source
+whose number changed most recently hold the offer, then narrows the policy to that
+one slot. The saved mode and order only break ties between numbers that change in
+the same frame, so a stale source cannot hand the offer to another's unchanged reading.
+
 | Mode | Primary candidates | Choice |
 | --- | --- | --- |
 | Ordered | Only the configured slots | First eligible valid observation |

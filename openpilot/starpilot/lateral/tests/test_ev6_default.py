@@ -47,7 +47,7 @@ class TestEV6DefaultLateral(unittest.TestCase):
         controller = CarController(DBC[cp.carFingerprint], cp)
         self.assertIsNone(controller.ioniq6_longitudinal)
         self.assertEqual(controller.params.STEER_MAX, 409)
-        self.assertEqual(controller.params.STEER_DRIVER_ALLOWANCE, 250)
+        self.assertEqual(controller.params.STEER_DRIVER_ALLOWANCE, 100)
 
   def test_opposing_driver_torque_limits_can_command_and_angle_request(self):
     for lka_steering in (False, True):

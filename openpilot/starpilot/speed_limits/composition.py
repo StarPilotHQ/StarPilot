@@ -129,7 +129,9 @@ def step(state: State, frame: Frame) -> Result:
       frame.authority.accelerator_override and not (host.system_long_available and host.selfdrive_enabled and frame.pedal_pressed is True)):
     return Result(replace(state, last_now_ns=frame.now_ns, reset_required=True),
                   status="host_authority_disagreement", errors=("host and system-long authority disagree",))
-  engaged_path = (frame.authority.can_control and (host_long or frame.authority.accelerator_override) and
+  button_cruise = (frame.authority.owner is acc.LongitudinalOwner.CRUISE_BUTTONS and
+                   host.selfdrive_enabled and not host.system_long_available and not host.long_control_active)
+  engaged_path = (frame.authority.can_control and (host_long or frame.authority.accelerator_override or button_cruise) and
                   selected_initialized and not frame.acceptance_policy.display_only)
   active_path = engaged_path and not host.force_decel
   base = replace(state, last_now_ns=frame.now_ns, pedal_target_mps=0., wheel_override_metric=None, wheel_override_since_ns=0)

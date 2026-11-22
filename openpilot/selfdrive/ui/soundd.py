@@ -107,6 +107,8 @@ class Soundd:
     self.stream_report_at = None
     self.native_audio = None
     self.axis_alerts = AxisAlerts()
+    self._cp_checked = False
+    self._refresh_car_fingerprint()
 
     self.spl_filter_weighted = FirstOrderFilter(0, 2.5, FILTER_DT, initialized=False)
 
@@ -152,11 +154,25 @@ class Soundd:
       immediate_ramp=self.current_volume if producing_alert in (AudibleAlert.warningSoft, AudibleAlert.warningImmediate) else None)
     return ret * gain
 
+  def _refresh_car_fingerprint(self) -> None:
+    if getattr(self, "_cp_checked", False) or not hasattr(self, "axis_alerts"):
+      return
+    try:
+      cp_bytes = self.volume_params.get("CarParams")
+    except Exception:
+      cp_bytes = None
+    if cp_bytes:
+      from opendbc.car.structs import car
+      with car.CarParams.from_bytes(cp_bytes) as cp:
+        self.axis_alerts.suppress_lateral = (cp.carFingerprint == "SUBARU_LEGACY_2025")
+      self._cp_checked = True
+
   def refresh_saved_volumes(self, now: float) -> None:
     """Read slow Params state from the service loop, never the audio callback."""
     if now - self.volume_read_at < 0.25:
       return
     self.volume_read_at = now
+    self._refresh_car_fingerprint()
     self.saved_volumes = {key: read_volume(self.volume_params, key).value for key, _, _ in VOLUMES}
 
   def callback(self, data_out: np.ndarray, frames: int, time, status) -> None:

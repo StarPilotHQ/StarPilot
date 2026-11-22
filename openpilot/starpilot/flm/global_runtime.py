@@ -255,7 +255,7 @@ class GlobalRuntime:
     policy = getattr(getattr(self.controller, 'starpilot_extension', None), 'policy', None)
     self.live_manual = bool(
       manual_current
-      or getattr(self.controller, 'manual_flm_effects', None) is not None
+      or (getattr(self.controller, 'manual_flm_effects', None) is not None and getattr(self.controller, 'route_flm_effects', None) is None)
       or getattr(self.controller, 'manual_flm_status', 'not_configured') not in ('configured', 'not_configured')
       or getattr(self.controller, 'flm_surface', None) is not None
       or getattr(policy, 'surface', None) is not None

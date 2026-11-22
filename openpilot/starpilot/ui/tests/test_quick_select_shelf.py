@@ -101,7 +101,7 @@ def test_live_compositor_keeps_widgets_below_the_shelf_and_alerts_above_it(monke
   monkeypatch.setattr(onroad, 'render_large_half_borders', lambda *args: None)
   monkeypatch.setattr(onroad, 'render_corner_hint', draw('corner'))
   onroad.OnroadView._large(view, drawer.present(state))
-  for widget in ('cem_gauge', 'current_speed', 'driver_monitor', 'steering_wheel', 'torque_bar', 'timer', 'guidance'):
+  for widget in ('unified_speed', 'cem_gauge', 'current_speed', 'driver_monitor', 'steering_wheel', 'torque_bar', 'timer'):
     assert seen.index(widget) < seen.index('shelf')
   assert seen.index('shelf') < seen.index('alert') < seen.index('border')
   assert 'corner' not in seen

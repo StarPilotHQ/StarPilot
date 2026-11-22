@@ -53,6 +53,8 @@ class CarInterface(CarInterfaceBase):
     return super().apply(c, now_nanos)
 
   def update(self, can_packets):
+    if self.CC.bolt_pedal_recovery:
+      self.CC.observe_pedal_rejections(can_packets)
     if self.CC.bolt_steering_ack_counter:
       self.CC.observe_steering_receipts(can_packets)
       self.CS.bolt_steering_pending = self.CC.bolt_steering_pending

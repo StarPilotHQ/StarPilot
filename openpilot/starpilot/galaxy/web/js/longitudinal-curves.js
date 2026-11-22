@@ -1,3 +1,4 @@
+import { WikiHelp } from './wiki-help.js'
 import { GxDialog } from "./dialog.js"
 import { GxState } from "./state.js"
 import { GxNotice } from "./notice.js"
@@ -38,7 +39,7 @@ export function curveGeometry(points) {
 }
 
 export const LongitudinalCurvesPage = {
-  components: { GxDialog, GxState, GxNotice, GalaxySettingRow },
+  components: { WikiHelp, GxDialog, GxState, GxNotice, GalaxySettingRow },
   props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true }, go: { type: Function, required: true } },
   setup(props) {
     const state = reactive({ status: "idle", data: null, pending: null, error: "", profile: "standard", category: "acceleration" })
@@ -61,7 +62,7 @@ export const LongitudinalCurvesPage = {
   template: `
     <section class="gx-long-curves" aria-label="Longitudinal curves" :inert="busy" :aria-busy="busy || undefined">
       <header class="gx-settings__header gx-page-header"><div><h2>Longitudinal Curves</h2>
-        <p>Adjust acceleration, braking, and following curves for each driving personality.</p></div></header>
+        <p>Adjust acceleration, braking, and following curves for each driving personality.</p></div><WikiHelp /></header>
       <GxState v-if="mode !== 'local'">Local saved curves are unavailable in preview.</GxState>
       <template v-else>
         <div class="gx-long-curves__tabs gx-tabs" role="group" aria-label="Personality profile">

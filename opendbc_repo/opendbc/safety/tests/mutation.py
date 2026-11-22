@@ -429,33 +429,8 @@ def verify_equivalence_artifact(path):
 
 
 def _build_core_tests(catalog):
-  """Build test ordering for core (non-mode) files.
-
-  Tests are ordered by how widely each method is shared. Methods inherited by
-  many classes exercise the most fundamental safety logic and run first.
-
-  Keep every implementation of each method.
-  """
-  method_freq = {}
-  method_by_module = {}
-  for name in sorted(catalog.keys()):
-    for test_id in catalog[name]:
-      method = test_id.rsplit(".", 1)[-1]
-      method_freq[method] = method_freq.get(method, 0) + 1
-      if method not in method_by_module:
-        method_by_module[method] = {}
-      method_by_module[method].setdefault(name, []).append(test_id)
-  # Round-robin: first instance of each method (by freq), then second, etc.
-  # This ensures diverse early coverage with failfast.
-  sorted_methods = sorted(method_freq, key=lambda m: -method_freq[m])
-  ordered = []
-  max_implementations = max(sum(len(ids) for ids in module_map.values()) for module_map in method_by_module.values())
-  for round_idx in range(max_implementations):
-    for m in sorted_methods:
-      ids = [test_id for module in sorted(method_by_module[m]) for test_id in method_by_module[m][module]]
-      if round_idx < len(ids):
-        ordered.append(ids[round_idx])
-  return ordered
+  """Keep the complete ordering that passed the unmutated baseline."""
+  return [test_id for name in sorted(catalog) for test_id in catalog[name]]
 
 
 def build_priority_tests(site, catalog, core_tests):
@@ -473,8 +448,17 @@ def build_priority_tests(site, catalog, core_tests):
 
   if is_mode:
     family = src.stem.split("_", 1)[0]
-    family_modules = [name for name in sorted(catalog) if name == f"test_{family}.py" or name.startswith(f"test_{family}_") or
-                      (family == "ford" and name == "test_angle_native.py")]
+    aliases = {
+      "hyundai": ("hyundai", "hkg", "ev9", "pe", "ioniq5pe", "ioniq6", "kia", "nexo", "palisade",
+                  "classic_scc", "canfd_damping", "prepared_torque_ev"),
+      "volkswagen": ("volkswagen", "meb"),
+      "volvo": ("volvo", "polestar"),
+      "ford": ("ford", "angle_native"),
+    }.get(family, (family,))
+    family_modules = [name for name in sorted(catalog) if any(name == f"test_{alias}.py" or name.startswith(f"test_{alias}_")
+                                                           for alias in aliases) or
+                      name.startswith(f"openpilot/starpilot/car/{family}/") or
+                      family == "volkswagen" and name == "openpilot/starpilot/aol/tests/test_pq_aol.py"]
     if family_modules:
       targets = [test_id for name in family_modules for test_id in catalog[name]]
       if family == "honda":
@@ -553,19 +537,23 @@ def _pytest_id(item):
 
 def _discover_test_catalog():
   import pytest
-  from tools.ci.safety_pytest_coverage import RELEASE_ONLY
+  from tools.ci.safety_pytest_coverage import RELEASE_ONLY, targets_for_coverage
   from tools.ci.run_vehicle_tests import RELEASE_TARGETS
   if not RELEASE_ONLY.issubset(RELEASE_TARGETS):
     raise RuntimeError("Release-only mutation dispositions lack a mandatory RELEASE gate")
   loader = unittest.TestLoader()
   catalog = {}
   test_files = [*sorted(SAFETY_TESTS_DIR.glob("test_*.py")), *sorted((BLUEPILOT_SAFETY_DIR / "tests").glob("test_*.py"))]
+  test_files.extend(sorted({ROOT.parent / target.split("::", 1)[0] for target in targets_for_coverage(ROOT.parent)
+                            if not (ROOT.parent / target.split("::", 1)[0]).is_relative_to(ROOT)}))
+  keys = {path: path.name if path.is_relative_to(ROOT) else path.relative_to(ROOT.parent).as_posix() for path in test_files}
   for test_file in test_files:
-    module_name = ".".join(test_file.relative_to(ROOT).with_suffix("").parts)
+    module_root = ROOT if test_file.is_relative_to(ROOT) else ROOT.parent
+    module_name = ".".join(test_file.relative_to(module_root).with_suffix("").parts)
     suite = loader.loadTestsFromName(module_name)
     if loader.errors:
       raise RuntimeError("unittest safety collection failed: " + "\n".join(str(error) for error in loader.errors))
-    catalog[test_file.name] = list(_unittest_ids(suite))
+    catalog[keys[test_file]] = list(_unittest_ids(suite))
 
   class Collection:
     def pytest_collection_finish(self, session):
@@ -573,11 +561,11 @@ def _discover_test_catalog():
         if item.cls is None or not issubclass(item.cls, unittest.TestCase):
           owner = item.path.relative_to(ROOT.parent).as_posix() + "::" + item.nodeid.split("::")[1]
           if owner not in RELEASE_ONLY:
-            catalog[item.path.name].append(_pytest_id(item))
+            catalog[keys[item.path]].append(_pytest_id(item))
 
   stream = io.StringIO()
   with redirect_stdout(stream), redirect_stderr(stream):
-    code = pytest.main(["--collect-only", "-q", "-o", "addopts=", *(str(path) for path in test_files)], plugins=[Collection()])
+    code = pytest.main(["--collect-only", "-q", "--import-mode=importlib", "-o", "addopts=", *(str(path) for path in test_files)], plugins=[Collection()])
   if code != 0:
     raise RuntimeError("pytest safety collection failed: " + stream.getvalue()[-32768:])
   return catalog
@@ -639,7 +627,7 @@ def _run_pytest(targets):
       debug_root = Path(native_builds.enter_context(tempfile.TemporaryDirectory(prefix="mutation-pytest-native-")))
       native_builds.callback(libsafety_py.load, native_path)
       native_builds.enter_context(patch.object(libsafety_py, "_build_libsafety", side_effect=fixture_native))
-    code = pytest.main(["-xq", "-o", "addopts=", *(target.removeprefix("pytest:") for target in targets)], plugins=[Results()])
+    code = pytest.main(["-xq", "--import-mode=importlib", "-o", "addopts=", *(target.removeprefix("pytest:") for target in targets)], plugins=[Results()])
   if code not in (0, 1) or (code == 1 and not failures and not errors):
     errors.append(f"pytest exit {code}")
   return TestRun(len(completed), len(skipped), 0, tuple(failures), tuple(errors), stream.getvalue()[-32768:])
@@ -844,7 +832,7 @@ def require_full_baseline(catalog, sites, lib_path, verbose):
   if not catalog or any(not ids for ids in catalog.values()):
     raise RuntimeError("empty safety test catalog or module")
   baseline_ids = [test_id for module in sorted(catalog) for test_id in catalog[module]]
-  baseline = run_unittest(baseline_ids, lib_path, mutant_id=-1, verbose=verbose)
+  baseline = _run_isolated_unittest(-1, baseline_ids, lib_path, 300.0)
   if (baseline.failures or baseline.errors or baseline.ran + baseline.suppressed != len(baseline_ids) or
       baseline.ran == baseline.skipped):
     raise RuntimeError(f"unmutated full safety baseline failed: {baseline}")
@@ -854,6 +842,15 @@ def require_full_baseline(catalog, sites, lib_path, verbose):
   missing = [site_id for site_id, ids in targets.items() if not ids]
   if missing:
     raise RuntimeError(f"mutants lack test targets: {missing[:20]} ({len(missing)} total)")
+  checked = {tuple(baseline_ids)}
+  for selected in targets.values():
+    identity = tuple(selected)
+    if identity in checked:
+      continue
+    run = _run_isolated_unittest(-1, selected, lib_path, 300.0)
+    if (run.failures or run.errors or run.ran + run.suppressed != len(selected) or run.ran == run.skipped):
+      raise RuntimeError(f"unmutated selected safety baseline failed: {run}")
+    checked.add(identity)
   return targets
 
 

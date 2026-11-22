@@ -134,7 +134,7 @@ assert 'opendbc.car.car_helpers' not in sys.modules
         params.put_bool('IsOffroad', True, block=True)
 
       report = SimpleNamespace(restore=lambda cache: events.append('history-restored'), set=lambda value: None,
-                               publish=lambda: None, analyzing=lambda value: None)
+                               publish=lambda: events.append('published'), analyzing=lambda value: events.append(('analysis', value['reason'])))
       with patch.object(daemon, 'Params', return_value=params), patch.object(daemon.messaging, 'SubMaster', return_value=sm), \
            patch.object(daemon, 'StatusReport', return_value=report), \
            patch.object(daemon, 'wait_for_parked', side_effect=lambda *a, stopped, **k: not stopped() and params.get_bool('IsOffroad')), \
@@ -142,6 +142,9 @@ assert 'opendbc.car.car_helpers' not in sys.modules
            patch('openpilot.starpilot.flm.offroad_source.record_drive', side_effect=drive):
         restart = daemon._run()
       self.assertEqual(params.get(KEY), b'declared-existing-saved-tune')
+      preparing = events.index(('analysis', 'loading_parked_analysis'))
+      self.assertEqual(events[preparing + 1], 'published', 'Preparation must reach the UI before optimizer construction')
+      self.assertLess(preparing + 1, events.index('parked-worker'))
       self.assertIn(('cancelled', True), events)
       self.assertIn('child-reaped', events)
       self.assertEqual(sum(isinstance(e, tuple) and e[0] == 'closed' for e in events), 3)
@@ -158,6 +161,81 @@ assert 'opendbc.car.car_helpers' not in sys.modules
     self.assertTrue(restart)
     self.assertLess(events.index('driving-source'), events.index('parked-worker'))
     self.assertEqual(events.count('history-restored'), 1)
+
+  def test_powered_force_offroad_dispatches_analysis_until_request_or_native_safety_changes(self):
+    from openpilot.starpilot.drive_state.owner import DriveStateOwner, Mode
+    from openpilot.starpilot.drive_state.resolver import should_start
+
+    with tempfile.TemporaryDirectory() as root:
+      params = Params(root)
+      params.put_bool('IsOffroad', True, block=True)
+      owner = DriveStateOwner(params, Path(root) / 'drive-state', alive=lambda _: True)
+      initial = owner.initialize(pid=1, birth=2, boot='01234567-89ab-cdef-0123-456789abcdef')
+      assert initial.revision is not None
+      forced = owner.request('offroad', expected_revision=initial.revision, authorized=lambda: True, override_allowed=lambda: True)
+      assert forced.revision is not None
+      revision = forced.revision
+      started = should_start(forced.mode, {'ignition': True}, {}, already_started=True)
+      self.assertFalse(started)
+      panda = SimpleNamespace(pandaType='cuatro', ignitionLine=True, ignitionCan=False, controlsAllowed=False, faults=[], safetyModel='noOutput')
+      messages = {'deviceState': SimpleNamespace(started=started), 'pandaStates': [panda], 'peripheralState': SimpleNamespace()}
+      checked = []
+
+      class Status:
+        sock: dict = {}
+        seen = dict.fromkeys(messages, True)
+        alive = dict.fromkeys(messages, True)
+        valid = dict.fromkeys(messages, True)
+        stale_panda_stamp = False
+
+        def __getitem__(self, key):
+          return messages[key]
+
+        def update(self, timeout):
+          now = time.monotonic_ns()
+          boot = time.clock_gettime_ns(getattr(time, 'CLOCK_BOOTTIME', time.CLOCK_MONOTONIC))
+          self.recv_time = dict.fromkeys(messages, now / 1e9)
+          self.logMonoTime = dict.fromkeys(messages, now)
+          self.logMonoTime['pandaStates'] = boot - int(self.stale_panda_stamp) * 1_000_000_000
+
+      sm = Status()
+
+      class Worker:
+        cache = None
+
+        def __init__(self, *args, permitted, **kwargs):
+          self.permitted = permitted
+
+        def run_once(worker):
+          self.assertTrue(worker.permitted())
+          panda.safetyModel = 'hyundai'
+          self.assertFalse(worker.permitted())
+          panda.safetyModel = 'noOutput'
+          panda.controlsAllowed = True
+          self.assertFalse(worker.permitted())
+          panda.controlsAllowed = False
+          sm.stale_panda_stamp = True
+          self.assertFalse(worker.permitted())
+          sm.stale_panda_stamp = False
+          self.assertTrue(worker.permitted())
+          owner.request('auto', expected_revision=revision, authorized=lambda: True, override_allowed=lambda: False)
+          self.assertEqual(owner.snapshot().mode, Mode.AUTO)
+          self.assertFalse(worker.permitted(), 'Withdrawing Force Offroad revokes work before driving services restart')
+          params.put_bool('IsOffroad', False, block=True)
+          checked.append(True)
+          return {'status': 'collecting', 'reason': 'declared-test-complete'}
+
+      def tick(_):
+        self.assertTrue(checked, 'Confirmed Force Offroad did not dispatch FLM analysis')
+
+      report = daemon.StatusReport(path=Path(root) / 'report.json')
+      with patch.object(daemon, 'Params', return_value=params), patch.object(daemon.messaging, 'SubMaster', return_value=sm), \
+           patch.object(daemon.time, 'sleep', side_effect=tick), \
+           patch.object(daemon, 'StatusReport', return_value=report), patch.object(report, 'restore'), \
+           patch('openpilot.starpilot.drive_state.owner.DriveStateOwner', return_value=owner), \
+           patch.dict(sys.modules, {'openpilot.starpilot.flm.offroad_worker': SimpleNamespace(OffroadWorker=Worker)}):
+        self.assertTrue(daemon._run())
+      self.assertEqual(checked, [True])
 
   def test_term_int_and_hup_cancel_without_reexec_or_losing_saved_tunes(self):
     for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):

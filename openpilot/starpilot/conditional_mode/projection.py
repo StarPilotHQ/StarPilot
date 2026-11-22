@@ -108,6 +108,7 @@ class ProjectedScene:
   slower_source_observed_mono_s: float | None = None
   chill_source_observed_mono_s: float | None = None
   chill_observation: ChillSceneObservation | None = None
+  perceived_stop: bool = False
 
 
 def paired_clocks_ns() -> tuple[int, int, int] | None:
@@ -314,6 +315,8 @@ class SceneProjector:
     self.curve_detector = CurveDetector()
     self.lead_detector = LeadDetector()
     self.stop_detector = StopLightDetector()
+    # Display-only state must survive AOL without warming the control detector.
+    self.perception_stop_detector = StopLightDetector()
     self.slower_lead_detector = SlowerLeadDetector()
     self.chill_detector = ChillSceneDetector()
     self.signal_lane_tracker = SignalLaneTracker()
@@ -329,6 +332,7 @@ class SceneProjector:
     self.curve_detector.reset()
     self.lead_detector.reset()
     self.stop_detector.invalidate()
+    self.perception_stop_detector.reset()
     self.slower_lead_detector.reset()
     self.chill_detector.reset()
     self.signal_lane_tracker.reset()
@@ -476,10 +480,11 @@ class SceneProjector:
           # projecting forward. Use that endpoint only to clear an existing stop;
           # Curve geometry and cold stop acquisition retain strict validation.
           stop_horizon = _standstill_clear_horizon(model)
-        # A fresh discrete stop bit can corroborate an existing Ford stopped
-        # hold even when geometry is unavailable. Geometry admission stays strict.
+        # A fresh stop bit can corroborate a Ford hold or re-arm a light just
+        # released at standstill; cold stop acquisition still needs geometry.
         current_stop = model_should_stop if (stop_horizon is not None or
-          _field(cp, 'carFingerprint') in FORD_STOP_NAMES and _field(car, 'standstill') is True) else None
+          (_field(cp, 'carFingerprint') in FORD_STOP_NAMES or self.stop_detector.released_standstill_light) and
+          _field(car, 'standstill') is True) else None
     lead = _lead(radar) if radar is not None else None
     car_valid = speed is not None
     headway_fresh = (
@@ -619,6 +624,19 @@ class SceneProjector:
     launch_horizon = stop_horizon if stop_horizon is not None else (
       _standstill_clear_horizon(model) if model_transport_current else None)
     stationary_launch_clear = _stationary_launch_clear(model, car, lead, launch_horizon)
+    # Qualify a stationary launch release and keep it valid after clearing; never acquire a stop or
+    # qualify spatial/lead geometry from this bounded launch prefix.
+    if (not stationary_launch_clear and model_transport_current and car_valid and
+        control is not None and selfdrive is not None and control.enabled and control.longActive and selfdrive.enabled and
+        lead is not None and radar is not None):
+      from openpilot.starpilot.conditional_mode.launch_geometry import qualified_launch_horizon
+      try:
+        launch = qualified_launch_horizon(model, car, any(item.present for item in (radar.leadOne, radar.leadTwo)))
+      except (AttributeError, TypeError, ValueError, OverflowError):
+        launch = None
+      if launch is not None:
+        launch_horizon, stationary_launch_clear = launch, True
+
     if stationary_launch_clear:
       # Continue a proven stationary launch after its stop commitment clears.
       # This bounded geometry cannot acquire a stop or qualify curve/lead data.
@@ -665,6 +683,13 @@ class SceneProjector:
       stop_observation = StopObservation(None, None, None, None)
     else:
       stop_observation = self.stop_detector.step(stop_frame)
+    # Independent informational scene. Never consumed by policy or actuation.
+    # Reuse the already projected frame, with all existing lead/turn/freshness gates.
+    if safe_mode is not False:
+      self.perception_stop_detector.reset()
+      perceived_stop = False
+    else:
+      perceived_stop = self.perception_stop_detector.step(stop_frame).light_detected is True
     # Dashboard/pedal evidence is decisive only while stopped. The detector
     # checks both then; stale values cannot become a false hold observation.
 
@@ -808,4 +833,5 @@ class SceneProjector:
       slower_stamp_ns,
       chill_stamp,
       chill_observation,
+      perceived_stop,
     )

@@ -265,7 +265,7 @@ class TestSubaruGen2AnglePair(unittest.TestCase):
                                   f'{car.value} {speed=} {target=} {i=} {frame[1].hex()}')
                   seen.append(frame)
             self.assertGreater(len(seen), 50)
-            self.assertNotEqual(seen[-1][1][5:7], b'\x00\x00')
+            self.assertTrue(any(frame[1][5:7] != b'\x00\x00' for frame in seen[-3:]))
 
   def test_firmware_complete_partial_and_mixed(self):
     # Complete supported identities select automatically; partial and

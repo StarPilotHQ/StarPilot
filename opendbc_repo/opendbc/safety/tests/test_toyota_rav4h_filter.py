@@ -46,6 +46,13 @@ class TestRav4hFilterNative(unittest.TestCase):
       self.assertEqual(self.safety.aol_get_permission_mask(), 0)
       self.assertFalse(self.safety.safety_tx_hook(self.packer.make_can_msg_safety("ACC_CONTROL", 0, {"ACCEL_CMD": .1})))
 
+    for ae in (33, 161, 289):
+      with self.subTest(ae=ae):
+        self.init(0x9049, ae)
+        self.physical(cruise=True)
+        self.assertEqual(self.safety.aol_get_request_mask(), 0)
+        self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+
   def test_exact_factory_stock_profiles_are_distinct_from_filters(self):
     # These exact words now select bare stock PCM, never adapter longitudinal.
     for word in (0x5249, 0x564D, 0x5749):
@@ -60,6 +67,29 @@ class TestRav4hFilterNative(unittest.TestCase):
         self.physical(cruise=True)
         self.assertEqual(self.safety.aol_get_permission_mask(), 1)
         self.assertFalse(self.safety.safety_tx_hook(self.packer.make_can_msg_safety("ACC_CONTROL", 0, {"ACCEL_CMD": .1})))
+
+  def test_every_registered_legacy_advert_profile_earns_only_its_physical_axes(self):
+    from opendbc.car.toyota import legacy_advert_filter
+
+    words = sorted(legacy_advert_filter.WORDS)
+    self.assertTrue(words)
+    for word in words:
+      with self.subTest(word=hex(word)):
+        self.init(word, 32)
+        self.rx(0x224, bytes(8))
+        self.rx(0x365, bytes([1]) + bytes(6))
+        self.base.physical(cruise=True)
+        expected = 1 if word & 0x200 else 3
+        self.assertEqual(self.safety.aol_get_permission_mask(), expected)
+        steer = self.packer.make_can_msg_safety("STEERING_LKA", 0, {"STEER_REQUEST": 1, "STEER_TORQUE_CMD": 0})
+        accel = self.packer.make_can_msg_safety("ACC_CONTROL", 0, {"ACCEL_CMD": .1})
+        self.assertTrue(self.safety.safety_tx_hook(steer))
+        self.assertEqual(bool(self.safety.safety_tx_hook(accel)), expected == 3)
+        self.safety.set_timer(1_400_001)
+        self.safety.safety_tick()
+        self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+        self.assertFalse(self.safety.safety_tx_hook(steer))
+        self.assertFalse(self.safety.safety_tx_hook(accel))
 
   def test_explicit_legacy_advert_words_require_physical_sources(self):
     # The four-byte advertisement owner is distinct from the eight-byte SDSU owner.

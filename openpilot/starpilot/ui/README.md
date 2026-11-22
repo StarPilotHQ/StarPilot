@@ -53,6 +53,14 @@ mounting position on actual hardware before treating a design as validated.
 - Reduce Quick Select motion is available for Large UI in native Appearance and Galaxy Colors
   & Layout. The optional `reduceMotion` boolean uses the existing validated layout
   document without a version bump. See [the design notes](QUICK_SELECT_DESIGN.md).
+- Large UI steering wheel rotation is an opt-in widget option in Galaxy's comma
+  layout editor. It is stored as a device-local sidecar, starts off by default,
+  and is reset to off when restoring a portable layout backup. Saved layouts and
+  backups retain the old schema so older builds can still read them.
+  Only the artwork rotates, with Small UI's negative steering-angle sign; the
+  background and touch target stay fixed. Missing, invalid, stale, previous-drive
+  or offroad carState samples render upright. No additional service subscription
+  or polling is needed. Small UI and StarPort layouts are unchanged.
 - `ui_state.py` in `selfdrive/ui` follows hardwared's effective started state.
   Physical ignition remains separate. Camera reception, model filters and
   transition updates must continue when a settled opaque settings page skips

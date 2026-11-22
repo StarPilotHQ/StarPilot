@@ -337,7 +337,7 @@ class TestFwFingerprintTiming(unittest.TestCase):
     assert first.whitelist_ecus == second.whitelist_ecus
 
   def test_fw_query_timing(self):
-    total_ref_time = 8.4
+    total_ref_time = 8.5
     brand_ref_times = {
       'gm': 1.0,
       'body': 0.1,
@@ -355,7 +355,7 @@ class TestFwFingerprintTiming(unittest.TestCase):
       'rivian': 0.3,
       'psa': 0.1,
       'mg': 0.1,
-      'volvo': 0.0,  # Current Volvo FwQueryConfig has no requests.
+      'volvo': 0.1,
     }
 
     total_times = 0.0

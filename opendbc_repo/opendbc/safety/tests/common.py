@@ -1026,6 +1026,10 @@ class SafetyTest(SafetyTestBase):
               # generic cross-mode probe fabricates eight bytes, which the refresh
               # variant accepts; exact 4/8-byte and bus checks live in Hyundai tests.
               tx = list(filter(lambda m: m[:2] != [0x485, 0], tx))
+            # Volvo EUCD's FSM0 relay and the Hyundai CAN-FD EV longitudinal modes share 0x51 on bus 0.
+            if ((attr in ('TestHyundaiCanfdLKASteeringAltLongEV', 'TestHyundaiCanfdLKASteeringLongEV') and current_test == 'TestVolvoEUCD') or
+                (current_test in ('TestHyundaiCanfdLKASteeringAltLongEV', 'TestHyundaiCanfdLKASteeringLongEV') and attr == 'TestVolvoEUCD')):
+              tx = list(filter(lambda m: not (m[1] == 0 and m[0] == 0x51), tx))
             all_tx.append([[m[0], m[1], attr] for m in tx])
 
     # Independent protocol/whole-caller test files need not declare a SafetyTest

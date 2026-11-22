@@ -61,16 +61,21 @@ class SoundsOwner:
         rows.append(FeatureRow(AUTO_PREFIX + key, "Use Auto " + label, "Follow ambient sound", source=saved.raw,
                                available=parked and saved.readable, repair_value="Auto"))
     rows.append(pack_row)
+    without_lateral_raw, without_lateral_readable = read_saved(self.params, BLINDSPOT_KEYS[1], 8)
+    without_lateral_on = without_lateral_readable and without_lateral_raw == b"1"
     for key, label, reason in (*DEPARTURE_TOGGLES,
       (BLINDSPOT_KEYS[0], "Loud Blindspot Alert", "Uses the soft-warning sound when a lane change is blocked by a detected blind-spot vehicle."),
       (BLINDSPOT_KEYS[1], "Blindspot Alert While Lateral Is Off",
        "Warns when signaling toward a detected blind-spot vehicle with steering assistance off or paused. "
        + "Independent of Loud Blindspot Alert. Hazards do not trigger it."),
+      (BLINDSPOT_KEYS[2], "Mute Blindspot Alert at Standstill",
+       "Mutes Blindspot Alert While Lateral Is Off when stopped or moving below 1 mph."),
     ):
       raw, readable = read_saved(self.params, key, 8)
       valid = readable and raw in (None, b"0", b"1")
+      row_available = parked and valid and (without_lateral_on if key == BLINDSPOT_KEYS[2] else True)
       rows.append(FeatureRow(key, label, ("On" if raw == b"1" else "Off") if valid else "Invalid saved value",
-                             raw, ("Off", "On") if valid else (), available=parked and valid,
+                             raw, ("Off", "On") if valid else (), available=row_available,
                              reason=reason, default_value="Off"))
     defaults = dict.fromkeys(SPECS, 'Auto')
     defaults['SoundPack'] = PACK_LABELS.get(DEFAULT_PACK, DEFAULT_PACK)
@@ -83,6 +88,10 @@ class SoundsOwner:
     if request.key in (*BLINDSPOT_KEYS, *DEPARTURE_KEYS):
       if request.value not in ("Off", "On") or request.expected not in (None, b"0", b"1"):
         return False
+      if request.key == BLINDSPOT_KEYS[2] and request.value == "On":
+        without_raw, without_readable = read_saved(self.params, BLINDSPOT_KEYS[1], 8)
+        if not (without_readable and without_raw == b"1"):
+          return False
       result = commit_exact(self.params, key=request.key, max_bytes=8,
                             raw=b"1" if request.value == "On" else b"0", expected=request.expected,
                             authorized=self.parked, temp_prefix=".optional-alert-")

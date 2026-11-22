@@ -123,3 +123,37 @@ def test_model_join_applies_matching_input_delay_and_exactly_one_filter():
   assert env['lat_delay'] == pytest.approx(.3893982231616974)
   assert action.desiredCurvature == pytest.approx(float(smooth_value(.001, 0., .1)), abs=1e-9)
   assert action.desiredAcceleration == -.25 and action.shouldStop
+
+
+@pytest.mark.parametrize('gearbox', ('manual', 'automatic', 'direct'))
+@pytest.mark.parametrize('alpha', (False, True))
+@pytest.mark.parametrize('offset', (0, 4))
+def test_verified_polaris_vega_uses_the_same_matched_pid_timing(gearbox, alpha, offset):
+  cp, load = setup(gearbox, alpha, offset)
+  load = replace(load, model_id='spz_polaris_vega',
+    artifact_sha256='863de9a72463f9ce51b69b47600db7dcd77c45d232f4913c389f9ea398e3fb2e')
+  assert seconds(cp, load) == (.1 if gearbox == 'manual' else 0.)
+  assert seconds(cp, replace(load, artifact_sha256=POPV2_SHA256)) == 0.
+  assert seconds(cp, replace(load, variant=ModelVariant.CHESTNUT)) == 0.
+  assert seconds(cp, replace(load, fallback_reason='selected-load-failed')) == 0.
+  assert seconds(cp, replace(load, model_id='spz_polaris_r4a')) == 0.
+
+
+def test_polaris_v15_action_units_and_stable_filter_are_preserved():
+  from openpilot.starpilot.models.runner import action_from_outputs
+  cp, load = setup()
+  load = replace(load, model_id='spz_polaris_vega',
+    artifact_sha256='863de9a72463f9ce51b69b47600db7dcd77c45d232f4913c389f9ea398e3fb2e')
+  tau = seconds(cp, load)
+  for speed in (.0, .3, .4, 1., 2.5, 8., 35.):
+    previous = log.ModelDataV2.Action(desiredCurvature=.001, desiredAcceleration=.1)
+    for value in (.1, -.1, .2, 0.):
+      outputs = {'action': np.array([[value, -.1]], dtype=np.float32)}
+      action = action_from_outputs(outputs, 'v15', previous, .4 + tau, .8, speed)
+      acceleration, stop = action.desiredAcceleration, action.shouldStop
+      raw = float(outputs['action'][0, 0]) / max(2.5, speed) ** 2
+      expected = smooth_value(raw, previous.desiredCurvature, .1) if speed > .3 else previous.desiredCurvature
+      filter_action(action, previous, speed, tau)
+      assert action.desiredCurvature == pytest.approx(expected, abs=1e-8)
+      assert action.desiredAcceleration == acceleration and action.shouldStop == stop
+      previous = action

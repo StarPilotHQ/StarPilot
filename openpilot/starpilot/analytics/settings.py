@@ -110,7 +110,7 @@ def _owner_rows(params, CP, profile):
   parked = params.get("IsOffroad") is True
   profile = Profile(profile) if profile is not None else Profile.COMPACT if HARDWARE.get_device_type() == "mici" else Profile.LARGE
   context = AuthorityContext(parked, CP, None)
-  owner = FeatureSettingsOwner(params, lambda group: _qualified(context, group),
+  owner = FeatureSettingsOwner(params, lambda group: _qualified(context, group, params=params),
                                vehicle_fingerprint=lambda: str(CP.carFingerprint) if CP is not None else None,
                                vehicle_params=lambda: CP, show_cruise_intervals=True)
   system_long = bool(CP is not None and CP.openpilotLongitudinalControl)

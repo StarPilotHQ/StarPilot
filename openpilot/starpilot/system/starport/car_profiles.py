@@ -11,7 +11,7 @@ RULES: list[dict] = [
   {"id": "aawireless", "label": "AAWireless", "match": {},
    "tuning": {"max_window": 30, "phone_services": True, "phone_frames": True, "stay_while_projecting": True,
               "dhcp_patience_s": 6.0, "own_handsfree": True, "static_ip": True}},
-  {"id": "unofficial", "label": "Unofficial dongle", "match": {}, "tuning": {"bootstrap_experiments": True}},
+  {"id": "unofficial", "label": "Unofficial dongle", "match": {}, "tuning": {"bootstrap_experiments": True, "dhcp_patience_s": 6.0}},
 ]
 
 

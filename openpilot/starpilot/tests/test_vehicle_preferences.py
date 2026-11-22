@@ -137,7 +137,7 @@ class TestVehicleStartupPreferences(unittest.TestCase):
             observed[2].update({0x320: 6, 0x180: 4, 0x370: 6})
           else:
             observed[0][0x1E1] = 7
-          active = state in ('absent', 'off', 'master_off')
+          active = state in ('absent', 'off')
           word = (0xC170 if active else 0xC171) if camera else (0xC173 if active else 0xC172)
           host, constructed, published = self.start(
             GM_CAR.CHEVROLET_SILVERADO, observed=observed, key='LongPitch', requested=False,
@@ -146,6 +146,8 @@ class TestVehicleStartupPreferences(unittest.TestCase):
           if state == 'master_off':
             self.assertEqual(published.safetyConfigs[0].safetyModel, structs.CarParams.SafetyModel.noOutput)
             self.assertFalse(disable_long_supported(published))
+            self.assertFalse(published.openpilotLongitudinalControl)
+            self.assertTrue(self.params.get_bool('AlphaLongitudinalEnabled'))
             continue
           self.assertEqual(published.safetyConfigs[0].safetyParam, word)
           self.assertEqual(published.openpilotLongitudinalControl, active)
@@ -612,7 +614,7 @@ class TestVehicleStartupPreferences(unittest.TestCase):
     self.assertEqual(cp.alternativeExperience, 0)
 
   def test_unrelated_vehicle_flags_are_untouched(self):
-    cp = SimpleNamespace(brand="other", flags=4096, alternativeExperience=256)
+    cp = structs.CarParams(brand="other", flags=4096, alternativeExperience=256)
     preferences = VehicleStartupPreferences(True)
     self.assertIs(preferences.prepare(cp), cp)
     preferences.finalize(cp)

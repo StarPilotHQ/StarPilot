@@ -63,6 +63,10 @@ AUTOCONNECT_MARKER = DATA_DIR / "wifi_autoconnect_paused.json"
 REJOIN_MARKER = DATA_DIR / "wifi_rejoin.json"
 REJOIN_ATTEMPTS = 2
 DRIVE_JOIN_TIMEOUT_S = 20.0
+DRIVE_SCAN_WAIT_S = 5.0
+DRIVE_SCAN_EVERY_S = 45.0   # a forced scan takes the shared radio off the car's channel, so not on every check
+AP_FRESH_S = 20.0           # a network not heard in the latest scan has been driven away from
+FAILED_SKIP_S = 120.0       # a network that just refused a join is passed over for this long
 DEVICE_STATE_FAILED = 120
 
 
@@ -240,6 +244,8 @@ class NetworkLease:
     self.endpoint_ip: Callable[[], str] = lambda: ""
     self.marker = AUTOCONNECT_MARKER
     self.rejoin_marker = REJOIN_MARKER
+    self._failed_at: dict[str, float] = {}
+    self._scanned_at = -DRIVE_SCAN_EVERY_S
     self._lock = threading.Lock()
 
   def _open(self) -> DBusRouter:
@@ -498,12 +504,15 @@ class NetworkLease:
       return True
 
   def drive_join(self, allowed: Callable[[str], bool], before: Callable[[], bool] = lambda: True,
-                 after: Callable[[], None] = lambda: None, timeout: float = DRIVE_JOIN_TIMEOUT_S) -> str:
+                 after: Callable[[], None] = lambda: None, timeout: float = DRIVE_JOIN_TIMEOUT_S,
+                 cancelled: Callable[[], bool] = lambda: False) -> str:
     """Join the best allowed saved network in range by hand while auto-join stays paused.
 
     Returns "connected" (already on a network), "none" (nothing to join), "joined" or "failed".
     """
     with self._lock:
+      if cancelled():
+        return "none"
       path = self.device_path or next((path for path, name in self._wifi_devices() if name == self.interface), "")
       if not path:
         return "none"
@@ -512,13 +521,24 @@ class NetworkLease:
         return "connected" if self._carrier() else "none"
       if state != DEVICE_STATE_DISCONNECTED:
         return "none"
+    self._scan(path, cancelled)
+    with self._lock:
+      if cancelled() or int(self._get(path, NM_DEVICE_IFACE, "State")) != DEVICE_STATE_DISCONNECTED:
+        return "none"
+      heard = self._heard(path)
+      now = time.monotonic()
+      self._failed_at = {key: at for key, at in self._failed_at.items() if now - at < FAILED_SKIP_S}
       candidates = []
       for connection in self._get(path, NM_DEVICE_IFACE, "AvailableConnections"):
-        profile = self._call(connection, NM_SETTINGS_CONNECTION_IFACE, "GetSettings")[0].get("connection", {})
-        values = {key: entry[1] for key, entry in profile.items()}
+        settings = self._call(connection, NM_SETTINGS_CONNECTION_IFACE, "GetSettings")[0]
+        values = {key: entry[1] for key, entry in settings.get("connection", {}).items()}
         if values.get("id") == CONNECTION_ID or not values.get("autoconnect", True) or not allowed(values.get("uuid", "")):
           continue
-        candidates.append((int(values.get("autoconnect-priority", 0)), int(values.get("timestamp", 0)), connection))
+        wireless = settings.get("802-11-wireless", {})
+        strength = heard.get(bytes(wireless["ssid"][1]), -1) if "ssid" in wireless else -1
+        if strength < 0 or connection in self._failed_at:
+          continue
+        candidates.append((int(values.get("autoconnect-priority", 0)), strength, connection))
       if not candidates:
         return "none"
       target = max(candidates)[2]
@@ -527,6 +547,8 @@ class NetworkLease:
       return "none"
     try:
       with self._lock:
+        if cancelled() or int(self._get(path, NM_DEVICE_IFACE, "State")) != DEVICE_STATE_DISCONNECTED:
+          return "none"
         self._call(NM_PATH, NM_IFACE, "ActivateConnection", "ooo", (target, path, "/"))
       deadline, started = time.monotonic() + timeout, False
       while time.monotonic() < deadline:
@@ -536,12 +558,15 @@ class NetworkLease:
         if state == DEVICE_STATE_ACTIVATED:
           return "joined"
         if state == DEVICE_STATE_FAILED or (started and state == DEVICE_STATE_DISCONNECTED):
+          self._failed_at[target] = time.monotonic()
           return "failed"  # refused, or stopped because the car link stalled
         if state >= DEVICE_STATE_PREPARE:
           started = True
+      self._failed_at[target] = time.monotonic()
       return "failed"
     except NetworkError as error:
       self.log("wifi_drive_join_failed", error=str(error))
+      self._failed_at[target] = time.monotonic()
       return "failed"
     finally:
       after()
@@ -551,6 +576,53 @@ class NetworkLease:
             self._set(path, NM_DEVICE_IFACE, "Autoconnect", "b", False)  # joining by hand turns auto-join back on
         except NetworkError as error:
           self.log("wifi_autoconnect_pause_failed", error=str(error))
+
+  def _scan(self, path: str, cancelled: Callable[[], bool] = lambda: False) -> None:
+    """Request a scan while auto-join is paused and wait briefly for completion."""
+    if time.monotonic() - self._scanned_at < DRIVE_SCAN_EVERY_S:
+      return
+    self._scanned_at = time.monotonic()
+    try:
+      with self._lock:
+        if cancelled():
+          return
+        before = int(self._get(path, NM_WIRELESS_IFACE, "LastScan"))
+        self._call(path, NM_WIRELESS_IFACE, "RequestScan", "a{sv}", ({},))
+    except NetworkError:
+      return  # already scanning, or scans refused; the access points heard so far still count
+    deadline = time.monotonic() + DRIVE_SCAN_WAIT_S
+    while time.monotonic() < deadline:
+      time.sleep(0.25)
+      try:
+        with self._lock:
+          if cancelled():
+            return
+          if int(self._get(path, NM_WIRELESS_IFACE, "LastScan")) != before:
+            return
+      except NetworkError:
+        return
+
+  def _heard(self, path: str) -> dict[bytes, int]:
+    """Strongest signal per network name among access points heard in the latest scan."""
+    try:
+      last_scan = int(self._get(path, NM_WIRELESS_IFACE, "LastScan")) / 1000
+    except NetworkError:
+      last_scan = -1
+    now = time.clock_gettime(getattr(time, "CLOCK_BOOTTIME", time.CLOCK_MONOTONIC))
+    since = now - AP_FRESH_S
+    if 0 < now - last_scan <= DRIVE_SCAN_EVERY_S + DRIVE_SCAN_WAIT_S + 5:
+      since = min(since, last_scan - 5)  # between forced scans, what the last one heard still counts
+    heard: dict[bytes, int] = {}
+    for access_point in self._get(path, NM_WIRELESS_IFACE, "AccessPoints"):
+      try:
+        seen = int(self._get(access_point, NM_AP_IFACE, "LastSeen"))
+        if seen < 0 or seen < since:
+          continue
+        ssid = bytes(self._get(access_point, NM_AP_IFACE, "Ssid"))
+        heard[ssid] = max(heard.get(ssid, 0), int(self._get(access_point, NM_AP_IFACE, "Strength")))
+      except NetworkError:
+        continue
+    return heard
 
   def _remember_join(self) -> None:
     """Disconnect blocks the network being joined from autoconnecting; note it so it can be rejoined after the session."""

@@ -40,6 +40,9 @@ def probe(output, reference_method=None):
   from openpilot.starpilot.lateral.tests.test_lane_centering import model
   from openpilot.starpilot.lateral.lane_change_preferences import LiveLaneChangePolicy
   from openpilot.starpilot.lateral.lane_change_smoothing import LaneChangeSmoother
+  from openpilot.starpilot.lateral.model_turn_assist import ModelTurnAssist
+  from openpilot.starpilot.lateral.turn_initiation_preferences import TurnInitiationPreference
+  from openpilot.starpilot.lateral.turn_unlock import TurnUnlock
   from opendbc.car.car_helpers import interfaces
   from opendbc.car.toyota.values import CAR
   from opendbc.car.vehicle_model import VehicleModel
@@ -73,6 +76,9 @@ def probe(output, reference_method=None):
     control.lane_change_preferences = LiveLaneChangePolicy(control.params, now_ns=1_000_000_000)
     control.lane_change_policy = control.lane_change_preferences.applied
     control.lane_change_smoother = LaneChangeSmoother()
+    control.model_turn_assist = ModelTurnAssist()
+    control.turn_unlock = TurnUnlock()
+    control.turn_initiation_preferences = TurnInitiationPreference(control.params)
     control.torque_host = None  # Explicit feature-off state for the manually constructed Controls fixture.
     control.torque_learning_allowed = False
     control.longitudinal_inputs.gm_start_enabled = False

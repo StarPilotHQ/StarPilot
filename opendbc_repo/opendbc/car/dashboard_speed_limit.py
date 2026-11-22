@@ -79,6 +79,10 @@ def ford_sign(speed: int, unit: int) -> tuple[Status, float]:
   return (Status.ABSENT, 0.0) if speed in (251, 255) else (Status.UNKNOWN, 0.0)
 
 
+def volvo_sign(speed_kph: float) -> tuple[Status, float]:
+  return (Status.VALID, speed_kph / 3.6) if speed_kph > 0 else (Status.ABSENT, 0.0)
+
+
 def hyundai_canfd_sign(speed: int, system_status: int, is_metric: bool) -> tuple[Status, float]:
   # FR_CMR_02_100ms defines 0 as no recognition, 253 as unlimited, and
   # 254/255 as reserved/invalid. A failed ISLW system is not evidence of absence.

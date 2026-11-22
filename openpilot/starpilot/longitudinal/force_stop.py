@@ -15,6 +15,7 @@ SIGN_MAX_SPEED_MPS = 17.88
 SIGN_MODEL_AGREE_M = 50.0
 SIGN_SEED_M = 27.0
 SIGN_ESTIMATE_HOLD_NS = 2_000_000_000
+SIGN_BRAKING_PROOF_NS = 250_000_000
 # Over a long model path a sign is only believed if stopping at its estimate would be a normal stop.
 SIGN_LONG_PATH_MAX_DECEL = 2.5
 SIGN_APPROACH_DECEL = 1.0
@@ -80,6 +81,8 @@ class StopFrame:
   actuator_delay_s: float | None = None
   vision_source_ns: int = 0
   always_hold: bool = False
+  acceleration_ns: int = 0
+  sample_ns: int = 0
 
 
 @dataclass(frozen=True)
@@ -119,6 +122,7 @@ class ForceStop:
     self.standstill_reason = None
     self.sign_confirmed = False
     self.ranged_stop = False
+    self.braking_samples: tuple[tuple[int, float], ...] = ()
     self.previously_enabled = False
     self.distance = 0.0
     self.distance_cap = 0.0
@@ -215,6 +219,23 @@ class ForceStop:
     model_active = available and horizon < (108.0 if self.activation_gate and frame.light else 100.0)
     self.activation_gate = model_active and frame.light
     spatial_permitted = available and now >= self.override_until_ns and not frame.driving_in_curve and not turn
+    # Keep source-bound delivered braking while a lead eases during sign acquisition.
+    braking = frame.acceleration_mps2
+    braking_proof = braking if braking is not None and math.isfinite(braking) else 0.0
+    if (spatial_permitted and not frame.standstill and not frame.pedal_override and not frame.resume_requested and
+        braking is not None and math.isfinite(braking) and braking < 0 and
+        type(frame.acceleration_ns) is int and type(frame.sample_ns) is int and
+        now <= frame.sample_ns <= now + 150_000_000 and
+        0 < frame.acceleration_ns <= frame.sample_ns and frame.sample_ns - frame.acceleration_ns <= 150_000_000):
+      self.braking_samples = tuple(sample for sample in self.braking_samples
+                                   if 0 <= frame.sample_ns - sample[0] <= SIGN_BRAKING_PROOF_NS)
+      if not self.braking_samples or frame.acceleration_ns > self.braking_samples[-1][0]:
+        self.braking_samples = (*self.braking_samples, (frame.acceleration_ns, braking))[-6:]
+      elif frame.acceleration_ns < self.braking_samples[-1][0] or braking != self.braking_samples[-1][1]:
+        self.braking_samples = ()
+      braking_proof = min((accel for _, accel in self.braking_samples), default=braking_proof)
+    else:
+      self.braking_samples = ()
     permitted = spatial_permitted and not frame.tracking_lead and not lead
     model_path = frame.light and model_active and permitted and not curved
     plausible = sign_estimate is None or speed * speed <= 2 * SIGN_LONG_PATH_MAX_DECEL * max(sign_estimate, 1.0)
@@ -226,7 +247,7 @@ class ForceStop:
                    frame.acceleration_mps2 is not None and frame.acceleration_mps2 < 0 and frame.actuator_delay_s is not None and
                    0 <= frame.actuator_delay_s <= 2 - DT_MDL and
                    distance_target(speed, frame.acceleration_mps2, current_range, frame.actuator_delay_s + DT_MDL) >=
-                   max(-SIGN_LONG_PATH_MAX_DECEL, frame.acceleration_mps2))
+                   max(-SIGN_LONG_PATH_MAX_DECEL, braking_proof))
     # Retain sufficient existing braking for a confirmed sign, never for a light alone.
     sign_path = (frame.sign and spatial_permitted and (permitted or ranged_sign) and speed < SIGN_MAX_SPEED_MPS and
                  (horizon < SIGN_MODEL_AGREE_M or self.forcing and plausible))

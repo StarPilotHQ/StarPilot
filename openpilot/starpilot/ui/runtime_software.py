@@ -28,6 +28,8 @@ def deliver_software(self: Any, request: SoftwareAction, *, shell_mode, destinat
     owner._on_select_branch(self._confirmed_offroad)
   elif request.request == software_request.OPEN_UNINSTALL_CONFIRMATION:
     owner._on_uninstall(self._confirmed_offroad)
+  elif request.request == software_request.OPEN_ERROR_LOG:
+    owner._on_error_log()
   else:
     return False
   return True

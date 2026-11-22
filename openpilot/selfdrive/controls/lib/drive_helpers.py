@@ -14,8 +14,8 @@ MAX_LATERAL_JERK = 5.0  # m/s^3
 MAX_LATERAL_ACCEL_NO_ROLL = 3.0  # m/s^2
 
 
-def should_stop(v_ego: float, a_target: float) -> bool:
-  return bool(v_ego < 0.3 and a_target < 0.1)
+def should_stop(v_ego: float, a_target: float, stop_speed: float = .3) -> bool:
+  return bool(v_ego < stop_speed and a_target < 0.1)
 
 def clamp(val, min_val, max_val):
   clamped_val = clip_scalar(val, min_val, max_val)

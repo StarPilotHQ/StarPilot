@@ -225,8 +225,6 @@ def test_supported_hardware_uses_existing_alternate_firmware(setup, monkeypatch,
     HW_TYPE_TRES = Panda.HW_TYPE_TRES
     HW_TYPE_RED_PANDA = Panda.HW_TYPE_RED_PANDA
     HW_TYPE_CUATRO = Panda.HW_TYPE_CUATRO
-    HEALTH_PACKET_VERSION = 1
-    CAN_PACKET_VERSION = 2
     bootstub = False
 
     def __init__(self, serial):
@@ -253,7 +251,7 @@ def test_supported_hardware_uses_existing_alternate_firmware(setup, monkeypatch,
       return b'image'
 
     def get_packets_versions(self):
-      return (1, 2) if protocol_ok else (0, 0)
+      return pandad.PACKET_VERSIONS if protocol_ok else (0, 0)
 
     def close(self):
       pass

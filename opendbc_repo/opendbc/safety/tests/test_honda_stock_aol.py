@@ -41,6 +41,26 @@ CASES = (
 
 
 class TestHondaStockAol(unittest.TestCase):
+  def test_rx_copy_obeys_actual_workspace_capacity(self):
+    safety = libsafety_py.libsafety
+    self.assertEqual(safety.set_safety_hooks(structs.CarParams.SafetyModel.noOutput, 0), 0)
+    for count in range(10):
+      with self.subTest(count=count):
+        self.assertTrue(safety.safety_test_honda_rx_capacity(count))
+    self.assertFalse(safety.get_controls_allowed())
+
+  def test_configuration_shape_respects_rx_and_bus_bounds(self):
+    safety = libsafety_py.libsafety
+    for count in (0, 2, 3, 4, 6, 7, 8, 9):
+      for bus in (0, 1, 2):
+        with self.subTest(count=count, bus=bus):
+          self.assertEqual(safety.set_safety_hooks(structs.CarParams.SafetyModel.noOutput, 0), 0)
+          admitted = 3 <= count <= 6 and bus <= 1
+          length = count + 2 if admitted else count
+          expected = (3 if admitted else 0) | (length << 2)
+          self.assertEqual(safety.safety_test_honda_configuration_bounds(count, bus), expected)
+          self.assertFalse(safety.get_controls_allowed())
+
   def tearDown(self):
     # Later safety suites configure hooks before init_tests resets shared experience.
     libsafety_py.libsafety.set_alternative_experience(0)

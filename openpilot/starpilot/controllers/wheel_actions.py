@@ -72,13 +72,15 @@ def button_reported(cp, key):
     if brand == 'gm':
       from opendbc.car.gm.values import is_volt_flashed_profile
       return is_volt_flashed_profile(cp)
-    if brand in ('chrysler', 'mazda', 'nissan', 'volkswagen', 'volvo'):
+    if brand == 'volvo':
+      return cp.carFingerprint == 'VOLVO_V60'
+    if brand in ('chrysler', 'mazda', 'nissan', 'volkswagen'):
       return False
     if brand == 'hyundai':
       from opendbc.car.hyundai.values import CAR, HyundaiFlags, is_blended
       return bool(cp.flags & (HyundaiFlags.CANFD | HyundaiFlags.HAS_LDA_BUTTON) or
                   cp.carFingerprint == CAR.HYUNDAI_ELANTRA_HEV_2024 or is_blended(cp))
-  if key == 'MainCruiseButtonControl' and brand in ('chrysler', 'ford', 'mazda', 'nissan', 'volkswagen'):
+  if key == 'MainCruiseButtonControl' and (brand in ('chrysler', 'ford', 'mazda', 'nissan', 'volkswagen') or cp.carFingerprint == 'VOLVO_V60'):
     return False
   if key in KEYS[5:8]:
     if brand in ('chrysler', 'nissan'):
@@ -297,7 +299,7 @@ class WheelConsumer:
     self.sequence = 0
     self.last_heartbeat = 0
 
-  def accept(self, event, params, cp, sm, *, now_ns):
+  def accept(self, event, params, cp, sm, *, now_ns, consume=True):
     try:
       if not event.valid or str(event.slcCruiseEvent.kind) != "wheelAction" or not eligible(cp):
         return None
@@ -336,16 +338,17 @@ class WheelConsumer:
         mapping = capture(params)
         if mapping is None or mapping[key] != action:
           return None
-      if session != self.session:
-        if self.session is not None:
-          if len(self.retired) >= 8:
-            return None
-          self.retired.add(self.session)
-        self.session, self.sequence = session, 0
-      if wire.sequence <= self.sequence:
+      if session != self.session and self.session is not None and len(self.retired) >= 8:
         return None
-      self.sequence = int(wire.sequence)
-      self.last_heartbeat = observed
-      return WheelCommand(session, self.sequence, observed, drive, source, key, action)
+      if wire.sequence <= (self.sequence if session == self.session else 0):
+        return None
+      if consume:
+        if session != self.session:
+          if self.session is not None:
+            self.retired.add(self.session)
+          self.session = session
+        self.sequence = int(wire.sequence)
+        self.last_heartbeat = observed
+      return WheelCommand(session, int(wire.sequence), observed, drive, source, key, action)
     except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
       return None

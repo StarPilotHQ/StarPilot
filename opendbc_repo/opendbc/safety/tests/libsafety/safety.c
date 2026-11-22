@@ -539,3 +539,32 @@ bool safety_test_honda_aol_unconfigured_sources(void) {
   honda_stock_aol_eps_index = saved;
   return current;
 }
+
+
+bool safety_test_honda_rx_capacity(unsigned int count) {
+  if ((current_safety_mode != SAFETY_NOOUTPUT) || (count > 9U)) { return false; }
+  RxCheck source[9] = {0};
+  for (unsigned int i = 0U; i < 9U; i++) { source[i].msg[0].addr = 0x100U + i; }
+  const unsigned int capacity = sizeof(honda_rx_workspace) / sizeof(honda_rx_workspace[0]);
+  const unsigned int expected = (count <= capacity) ? count : 0U;
+  const safety_config result = honda_copy_rx(source, count, (safety_config){0});
+  bool copied = (result.rx_checks == honda_rx_workspace) && (result.rx_checks_len == (int)expected);
+  for (unsigned int i = 0U; i < capacity; i++) {
+    copied &= honda_rx_workspace[i].msg[0].addr == ((i < expected) ? source[i].msg[0].addr : 0U);
+  }
+  return copied;
+}
+
+int safety_test_honda_configuration_bounds(unsigned int count, unsigned int pt_bus) {
+  if ((current_safety_mode != SAFETY_NOOUTPUT) || controls_allowed || (aol_policy != NULL) || (count > 9U)) { return -1; }
+  RxCheck source[9] = {0};
+  safety_config config = {.rx_checks = source, .rx_checks_len = (int)count};
+  const int previous_experience = alternative_experience;
+  alternative_experience = 32;
+  config = honda_stock_aol_configure(0U, false, false, pt_bus, config);
+  const int result = (honda_stock_aol_flag(HONDA_STOCK_ENABLED) ? 1 : 0) |
+    ((aol_policy != NULL) ? 2 : 0) | (config.rx_checks_len << 2);
+  alternative_experience = previous_experience;
+  set_safety_hooks(SAFETY_NOOUTPUT, 0U);
+  return result;
+}

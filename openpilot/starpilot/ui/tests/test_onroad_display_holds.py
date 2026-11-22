@@ -247,3 +247,30 @@ def test_sources_row_keeps_each_source_while_no_limit_is_known():
     ui.sm.logMonoTime['slcState'] = NOW + 50_000_000
     shown = adapter.build(ShellMode.ONROAD, now_ns=NOW + 50_000_000).onroad.speed_limit
     assert [(row.source, row.kind) for row in shown.source_readings] == [('dashboard', 'unknown'), ('map', 'unknown')]
+
+
+def test_map_gap_during_pending_decision_keeps_the_prompt_steady():
+  ui = ui_fake()
+  live = ui.sm.messages['slcState']
+  live.source, live.speedLimit, live.status = 'map', 29.06, 'pending'
+  live.hasPending, live.pendingSpeedLimit, live.lastReceivedSpeedLimit, live.lastReceivedSource = True, 29.06, 29.06, 'map'
+  adapter = RuntimeSnapshotAdapter(ui)
+  before = adapter.build(ShellMode.ONROAD, now_ns=NOW).onroad
+  gap = NS(**{**vars(live), 'observationKind': 'unknown', 'source': 'none', 'speedLimit': 0.0, 'status': 'unknown'})
+  ui.sm.messages['slcState'] = gap
+  ui.sm.logMonoTime['slcState'] = NOW + 2_000_000_000
+  held = adapter.build(ShellMode.ONROAD, now_ns=NOW + 2_000_000_000).onroad
+  assert (held.speed_limit.kind, held.speed_limit.source, held.speed_limit.speed_limit_mps) == (ObservationKind.VALID, 'map', 29.06)
+  assert held.speed_limit.decision_id == 7 and held.speed_limit.pending_speed_limit_mps == 29.06
+  assert resolve_unified_speed(held) == resolve_unified_speed(before)
+  ui.sm.logMonoTime['slcState'] = NOW + 3_000_000_001
+  expired = adapter.build(ShellMode.ONROAD, now_ns=NOW + 3_000_000_001).onroad
+  assert expired.speed_limit.kind != ObservationKind.VALID
+  adapter = RuntimeSnapshotAdapter(ui)
+  ui.sm.messages['slcState'] = live
+  ui.sm.logMonoTime['slcState'] = NOW
+  adapter.build(ShellMode.ONROAD, now_ns=NOW)
+  ui.sm.messages['slcState'] = NS(**{**vars(gap), 'decisionId': 8})
+  ui.sm.logMonoTime['slcState'] = NOW + 100_000_000
+  other = adapter.build(ShellMode.ONROAD, now_ns=NOW + 100_000_000).onroad
+  assert other.speed_limit.kind != ObservationKind.VALID, "a new decision never borrows the old reading"

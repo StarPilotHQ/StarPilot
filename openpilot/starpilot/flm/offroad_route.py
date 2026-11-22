@@ -239,8 +239,16 @@ class PartialRouteReceipt(RouteReceipt):
   last_intact_wall_ns: int = 0
 
 
+def _reading_progress(callback, phase, completed, total):
+  if callback is not None:
+    try:
+      callback({'phase': phase, 'completed': completed, 'total': total})
+    except (OSError, ValueError, TypeError, RuntimeError):
+      pass  # Optional display reporting cannot invalidate original recording evidence.
+
+
 @route_reader
-def walk_completed_route(root, route, *, permitted, consume):
+def walk_completed_route(root, route, *, permitted, consume, on_progress=None):
   """Process complete segments one at a time, then revalidate all source identities.
 
   consume receives original readers only during a segment. It must not write or
@@ -267,9 +275,21 @@ def walk_completed_route(root, route, *, permitted, consume):
   def allowed():
     return permitted() and time.monotonic() - started <= MAX_ANALYSIS_SECONDS
 
+  if len(names) > 1:
+    # Prove the ending before spending a full pass on a recording that can only be reviewed in part.
+    _reading_progress(on_progress, 'reading', 0, len(names))
+    with _closed_source(root, names[-1], route['segments'][-1]['files'], allowed, prefer_rlog=True) as (tail, codec, current, _):
+      endings = decode_full_rlog_segment(tail, codec, cancelled=lambda: not allowed(), retain=frozenset({'sentinel'}))
+      if not current() or not allowed():
+        raise RouteInputCancelled('Original ending changed or parked permission was lost')
+      if not any(str(event.sentinel.type) == 'endOfRoute' for event in endings):
+        raise ValueError('Incomplete original drive or missing vehicle identity')
+    del tail, endings
+
   for number, name in enumerate(names):
     if not allowed():
       raise ValueError('Parked analysis cancelled')
+    _reading_progress(on_progress, 'reading', number, len(names))
     expected = route['segments'][number]['files']
     with _closed_source(root, name, expected, allowed, prefer_rlog=True) as (raw, codec, current, revision):
       total += len(raw)
@@ -305,6 +325,8 @@ def walk_completed_route(root, route, *, permitted, consume):
         raise ValueError('Recording changed during analysis')
       receipts.append((name, digest, len(raw)))
       revisions.append(revision)
+      _reading_progress(on_progress, 'reading', number + 1, len(names))
+  _reading_progress(on_progress, 'verifying', len(receipts), len(names))
   if not ended or cp_hash is None or source_start is None or not source_start < source_end:
     raise ValueError('Incomplete original drive or missing vehicle identity')
   if last_clock is None or not 0 <= source_end - last_clock[0] <= 10_000_000_000:

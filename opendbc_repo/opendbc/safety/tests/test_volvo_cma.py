@@ -4,6 +4,7 @@ The fixtures use the same DBCs and checksum encoders as the existing Volvo car
 integration tests. Permissions come from physical RX, never a forced active flag.
 """
 import unittest
+from opendbc.safety.tests.native_callback import assert_native_callback_finishes
 
 from opendbc.can import CANPacker
 from opendbc.car.volvo import cma_can
@@ -39,6 +40,10 @@ class TestVolvoCMASafety(unittest.TestCase):
     self.mid = CANPacker('volvo_mid_1')
     self.pt = CANPacker('volvo_front_1_spa' if self.PARAM else 'volvo_front_1_cma')
     self.reset()
+
+  def test_native_initialization_and_angle_callback_finish(self):
+    address, data, bus = self.mid.make_can_msg('PSCM', 2, {'PSCM_ANGLE_SENSOR': .05596})
+    assert_native_callback_finishes(self, 36, self.PARAM, address, bus, data)
 
   def reset(self):
     self.assertEqual(self.safety.set_safety_hooks(36, self.PARAM), 0)

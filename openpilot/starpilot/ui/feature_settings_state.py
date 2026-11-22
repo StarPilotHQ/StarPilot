@@ -61,6 +61,7 @@ class FeaturePage(StrEnum):
   CURVE = "curve"
   TORQUE = "torque"
   DEVELOPER_LATERAL = "torque/developer"
+  DEVELOPER_LONGITUDINAL = "profiles/developer"
   TUNING = "tuning"
   BLUEPILOT = "torque/bluepilot"
   AOL = "aol"
@@ -116,6 +117,9 @@ class FeatureRow:
   default_reset_available: bool = False
   collapsed: bool = False  # a heading whose rows are hidden until it is opened
   learned_value: str = field(default='', compare=False, repr=False)
+  accepted_finding_value: float | None = None
+  coordinate_locked: bool | None = None
+  learning_eligible: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -316,7 +320,7 @@ def feature_parent_page(page: str) -> str | None:
 def feature_parent_title(page: str) -> str:
   parent = feature_parent_page(page)
   return {None: "StarPilot", FeaturePage.HUB: "Driving Controls", FeaturePage.PROFILES: "Long Planner",
-          FeaturePage.CONDITIONAL: "Conditional Driving Modes", FeaturePage.TORQUE: "Steering and Torque"}.get(parent, (parent or "").replace("_", " ").title())
+          FeaturePage.CONDITIONAL: "Conditional Driving Modes", FeaturePage.TORQUE: "Steering & Torque"}.get(parent, (parent or "").replace("_", " ").title())
 
 
 def boolean_value(row: FeatureRow) -> bool | None:
