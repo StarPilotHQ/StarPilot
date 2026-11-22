@@ -37,41 +37,24 @@ from openpilot.selfdrive.car.cruise import LOW_SPEED_CRUISE_ON_SET, SlcWheelCont
 from openpilot.starpilot.speed_limits import physical_actions as slc_physical
 from openpilot.starpilot.aol.intent import AolProcessFaultContext, independent_axis_requested, read_settings
 from openpilot.starpilot.aol.transport_pause import TransportPauseFeedback, cp_identity
-from opendbc.car.honda.stock_aol import (
-  qualified as qualified_honda_stock_aol, native_observation as honda_native_observation,
-  temporary_restriction as honda_temporary_restriction,
-)
-from opendbc.car.volkswagen.stock_aol import (native_observation as volkswagen_native_observation,
-  safety_config as volkswagen_aol_safety_config)
-from openpilot.starpilot.car.volkswagen.aol import (qualified as qualified_volkswagen_aol,
-  temporary_restriction as volkswagen_temporary_restriction)
+from opendbc.car.honda.stock_aol import qualified as qualified_honda_stock_aol, native_observation as honda_native_observation
+from opendbc.car.volkswagen.stock_aol import safety_config as volkswagen_aol_safety_config
+from openpilot.starpilot.car.volkswagen.aol import qualified as qualified_volkswagen_aol
 from openpilot.starpilot.car.rivian.aol import retained_brake_lateral_intent as rivian_brake_intent_retained
-from opendbc.car.rivian.stock_aol import (qualified as qualified_rivian_aol,
-                                         native_observation as rivian_native_observation,
-                                         temporary_restriction as rivian_temporary_restriction)
-from opendbc.car.mazda.stock_aol import (qualified as qualified_mazda_aol,
-                                        native_observation as mazda_native_observation,
-                                        temporary_restriction as mazda_temporary_restriction)
-from opendbc.car.tesla.preap.aol import (
-  qualified as qualified_tesla_preap, native_observation as preap_native_observation,
-  temporary_restriction as preap_temporary_restriction,
-)
-from opendbc.car.ford.aol import (
-  qualified as qualified_ford_aol, native_observation as ford_native_observation,
-  temporary_restriction as ford_temporary_restriction,
-)
-from opendbc.car.hyundai.canfd_angle_aol import native_observation, temporary_restriction, qualified as qualified_angle_aol
+from opendbc.car.rivian.stock_aol import qualified as qualified_rivian_aol
+from opendbc.car.mazda.stock_aol import qualified as qualified_mazda_aol
+from opendbc.car.tesla.preap.aol import qualified as qualified_tesla_preap
+from opendbc.car.ford.aol import qualified as qualified_ford_aol
+from opendbc.car.hyundai.canfd_angle_aol import qualified as qualified_angle_aol
 from opendbc.car.hyundai.canfd_owner import config_index as hyundai_canfd_config_index
 from opendbc.car.hyundai.captured_adrv_startup import CapturedADRVStartup
-from openpilot.starpilot.car.nissan.aol import (
-  qualified as qualified_nissan_aol, native_observation as nissan_native_observation,
-  temporary_restriction as nissan_temporary_restriction,
-)
+from openpilot.starpilot.car.nissan.aol import qualified as qualified_nissan_aol
 from openpilot.starpilot.car.hyundai.aol import aol_safety_config as hyundai_aol_safety_config, pending_stock_angle_arm
 from openpilot.starpilot.car.hyundai.aol import retained_shared_long_cancel_intent as hkg_cancel_intent_retained
 from openpilot.starpilot.car.ford.aol import (brake_pause_active as ford_brake_pause_active,
                                                awaiting_initial_request as ford_awaiting_initial_request)
 from openpilot.starpilot.car.subaru import aol as subaru_aol
+from openpilot.starpilot.aol.card_native import native_handlers
 from openpilot.starpilot.aol.runtime import AXIS_MAX_AGE_NS, current_axis, current_native
 from openpilot.starpilot.aol.vehicle import create_intent as create_aol_intent, native_latch_rejected, policy_for as aol_policy_for
 from openpilot.starpilot.aol.wire import IntentState, encode_intent
@@ -693,14 +676,10 @@ class Car:
       )
       native_reset = False
       if permission_owner:
-        observe = (rivian_native_observation if rivian_aol else
-                   volkswagen_native_observation if volkswagen_aol else nissan_native_observation if nissan_aol else
-                   preap_native_observation if preap_aol else mazda_native_observation if mazda_aol else self.aol_honda_native_observation if honda_aol else
-                   ford_native_observation if ford_aol else native_observation)
-        restrict = (rivian_temporary_restriction if rivian_aol else
-                    volkswagen_temporary_restriction if volkswagen_aol else nissan_temporary_restriction if nissan_aol else
-                    preap_temporary_restriction if preap_aol else mazda_temporary_restriction if mazda_aol else honda_temporary_restriction if honda_aol else
-                    ford_temporary_restriction if ford_aol else temporary_restriction)
+        observe, restrict = native_handlers(
+          self, rivian_aol=rivian_aol, volkswagen_aol=volkswagen_aol, nissan_aol=nissan_aol, preap_aol=preap_aol,
+          mazda_aol=mazda_aol, honda_aol=honda_aol, ford_aol=ford_aol,
+        )
         preap_observation = {}
         if preap_aol:
           cancel_stamp = int(self.CI.CS.preap.cancel_echo_stamp_ns)
