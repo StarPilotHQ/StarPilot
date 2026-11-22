@@ -81,13 +81,14 @@ def test_combined_authority_survives_repeated_standstill_undershoot():
     assert not control.longActive
 
 
+@pytest.mark.parametrize('candidate', [CAR.CHEVROLET_TRAX, CAR.CHEVROLET_BOLT_ACC_2022_2023, CAR.CHEVROLET_BOLT_EUV])
 @pytest.mark.parametrize('engaged', [False, True])
-def test_trax_keeps_braking_below_entry_speed_only_when_engaged(engaged):
+def test_gm_camera_long_keeps_braking_below_entry_speed_only_when_engaged(candidate, engaged):
   with OpenpilotPrefix(), ExitStack() as cleanup:
     case = fixture.IoniqAvailabilityTests(methodName='runTest')
     cleanup.callback(case.doCleanups)
-    cp = params(CAR.CHEVROLET_TRAX, alpha=True)
-    assert cp.safetyConfigs[0].safetyParam == 0xC170
+    cp = params(candidate, alpha=True)
+    assert cp.safetyConfigs[0].safetyParam == (0xC170 if candidate == CAR.CHEVROLET_TRAX else 7)
     sd, _, step = case._authority_callers(engaged, cp=cp, genuine_events=True)
     sd.aol_settings = read_settings(sd.params)
     speeds = (1.44, 1.39, 1.36, 1.43, 1.34, .7, .2, 0.) if engaged else (1.34, .7)
