@@ -275,6 +275,17 @@ def walk_completed_route(root, route, *, permitted, consume, on_progress=None):
   def allowed():
     return permitted() and time.monotonic() - started <= MAX_ANALYSIS_SECONDS
 
+  if len(names) > 1:
+    # Prove the ending before spending a full pass on a recording that can only be reviewed in part.
+    _reading_progress(on_progress, 'reading', 0, len(names))
+    with _closed_source(root, names[-1], route['segments'][-1]['files'], allowed, prefer_rlog=True) as (tail, codec, current, _):
+      endings = decode_full_rlog_segment(tail, codec, cancelled=lambda: not allowed(), retain=frozenset({'sentinel'}))
+      if not current() or not allowed():
+        raise RouteInputCancelled('Original ending changed or parked permission was lost')
+      if not any(str(event.sentinel.type) == 'endOfRoute' for event in endings):
+        raise ValueError('Incomplete original drive or missing vehicle identity')
+    del tail, endings
+
   for number, name in enumerate(names):
     if not allowed():
       raise ValueError('Parked analysis cancelled')

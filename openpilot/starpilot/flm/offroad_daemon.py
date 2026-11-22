@@ -318,15 +318,18 @@ def parked_status(sm, params, *, stopped=False, now=None):
   return parked_blocker(sm, params, stopped=stopped, now=now) is None
 
 
-def wait_for_parked(sm, params, *, stopped=lambda: False, clock=time.monotonic, powered_offroad=None):
+def wait_for_parked(sm, params, *, stopped=lambda: False, clock=time.monotonic, powered_offroad=None, recover_device_state=False):
   """Refresh a lapped subscriber before resuming analysis; never use stale permission."""
-  deadline = clock() + 0.75
+  started = clock()
   timeout = 0
   while True:
     sm.update(timeout)
-    reason = parked_blocker(sm, params, stopped=stopped(), now=clock(), powered_offroad=powered_offroad)
+    now = clock()
+    reason = parked_blocker(sm, params, stopped=stopped(), now=now, powered_offroad=powered_offroad)
     if reason is None:
       return True
+    # Pause an in-progress read for a late hardwared update without extending status freshness.
+    wait = 2.0 if recover_device_state and reason == 'waiting_for_fresh_deviceState' else 0.75
     if (
       stopped()
       or not params.get_bool('IsOffroad')
@@ -334,7 +337,7 @@ def wait_for_parked(sm, params, *, stopped=lambda: False, clock=time.monotonic, 
       or sm['deviceState'].started
       or reason == 'waiting_for_ignition_off'
       or any(p.controlsAllowed or p.faults or (powered_offroad is None and (p.ignitionLine or p.ignitionCan)) for p in sm['pandaStates'])
-      or clock() >= deadline
+      or now - started >= wait
     ):
       return False
     # A lost/invalid/freshness check grants nothing. Wait for an actual new
@@ -399,8 +402,8 @@ def _run():
     def powered_offroad():
       return drive_state.snapshot().mode is Mode.OFFROAD and physical.update_ready(params.get_bool('IsOffroad'))
 
-    def parked():
-      return wait_for_parked(sm, params, stopped=lambda: stopped, powered_offroad=powered_offroad)
+    def parked(*, recover_device_state=False):
+      return wait_for_parked(sm, params, stopped=lambda: stopped, powered_offroad=powered_offroad, recover_device_state=recover_device_state)
 
     def blocker():
       return parked_blocker(sm, params, stopped=stopped, powered_offroad=powered_offroad) or 'waiting_for_parked_permission'
@@ -409,7 +412,7 @@ def _run():
 
     def permitted():
       nonlocal interrupted
-      allowed = parked()
+      allowed = parked(recover_device_state=True)
       if not allowed and interrupted is None:
         interrupted = blocker()
       report.publish()

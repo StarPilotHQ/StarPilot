@@ -405,7 +405,7 @@ def collect_route_inputs(root, route, *, permitted, walker=None, isolate_segment
     if sum(map(len, windows.values())) + sum(map(len, stable_windows.values())) + sum(map(len, baseline_tracking.values())) > MAX_WINDOWS:
       raise ValueError('Whole-drive tracking window bound exceeded')
 
-  progress = {'on_progress': on_progress} if on_progress is not None and walker is None else {}
+  progress = {'on_progress': on_progress} if on_progress is not None else {}
   receipt = (walk_completed_route if walker is None else walker)(root, route, permitted=permitted, consume=consume, **progress)
   counts['original_segments_reviewed'] = len(getattr(receipt, 'decoded_segments', receipt.segments))
   counts['original_segments_available'] = len(receipt.segments)
