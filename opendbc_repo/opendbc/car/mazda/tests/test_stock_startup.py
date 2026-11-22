@@ -9,7 +9,7 @@ from opendbc.car.mazda.interface import CarInterface
 from opendbc.car.mazda.values import CAR, DBC
 
 
-CARS = (CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021)
+CARS = (CAR.MAZDA_CX5, CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021)
 
 
 def exercise_startup(identity, alpha, release, aol, monkeypatch, mapping=(0, 0), probe=None, cancel_action=3):
@@ -143,7 +143,7 @@ def test_saved_button_mappings_reach_actual_card_owner(identity, mapping, monkey
   exercise_startup(identity, False, False, True, monkeypatch, mapping=mapping)
 
 
-@pytest.mark.parametrize("identity", (CAR.MAZDA_CX5, CAR.MAZDA_CX9, CAR.MAZDA_3, CAR.MAZDA_6))
+@pytest.mark.parametrize("identity", (CAR.MAZDA_CX9, CAR.MAZDA_3, CAR.MAZDA_6))
 def test_unchanged_dashcam_configuration_denies_independent_owner(identity):
   from opendbc.car.mazda.stock_aol import qualified
   from openpilot.starpilot.car.mazda.aol import policy_for

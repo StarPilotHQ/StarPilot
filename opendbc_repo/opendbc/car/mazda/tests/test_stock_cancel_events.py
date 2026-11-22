@@ -8,7 +8,7 @@ from opendbc.car.mazda.values import CAR
 
 class TestStockCancelEvents(unittest.TestCase):
   def test_actual_parser_cancel_is_scoped_to_marked_profile(self):
-    for identity in (CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021):
+    for identity in (CAR.MAZDA_CX5, CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021):
       for experience in (0, 32):
         with self.subTest(identity=identity, experience=experience):
           cp = CarInterface.get_params(identity, gen_empty_fingerprint(), [], False, False, False)
