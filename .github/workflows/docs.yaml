@@ -45,6 +45,11 @@ jobs:
           /openpilot/selfdrive/assets/icons_mici/settings/comma_icon.png
         sparse-checkout-cone-mode: false
 
+    - uses: actions/setup-python@v6
+      if: github.repository == 'StarPilotHQ/StarPilot' && github.event_name == 'push' && github.ref == 'refs/heads/testing'
+      with:
+        python-version: '3.12.13'
+
     # Build
     - name: Build docs
       run: python3 docs/serve.py --build
