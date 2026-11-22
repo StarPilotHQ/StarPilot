@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from opendbc.can import CANPacker
-from opendbc.car import Bus, gen_empty_fingerprint
+from opendbc.car import Bus, gen_empty_fingerprint, structs
 from opendbc.car.gm.interface import CarInterface
 from opendbc.car.gm.radar_interface import RadarInterface
 from opendbc.car.gm.values import CAR, DBC
@@ -271,13 +271,14 @@ def test_actual_selfdrived_alert_path_works_disengaged_and_resets_offroad(monkey
   device = messaging.new_message('deviceState', valid=True, logMonoTime=now[0] - 450_000_000)
   device.deviceState.started, device.deviceState.startedMonoTime = True, 1
   daemon.sm.update_msgs((now[0] - 450_000_000) / 1e9, [device.as_reader()])
+  car_state = structs.CarState(gearShifter="drive", canValid=True)
   for tick in range(48):
     now[0] += 50_000_000
     publish(fault=tick == 1, update_device=tick % 10 == 0)
     daemon.sm.frame = tick * 5
-    daemon.update_alerts(SimpleNamespace())
+    daemon.update_alerts(car_state)
   assert not daemon.enabled and daemon.AM.current_alert.alert_type == ALERT_TYPE
   publish(started=False, update_device=True)
   daemon.sm.frame += 1
-  daemon.update_alerts(SimpleNamespace())
+  daemon.update_alerts(car_state)
   assert not daemon.enabled and daemon.AM.current_alert.alert_type != ALERT_TYPE
