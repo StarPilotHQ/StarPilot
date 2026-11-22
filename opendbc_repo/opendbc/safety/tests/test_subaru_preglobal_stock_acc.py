@@ -34,3 +34,15 @@ class TestOutbackPreglobalStockAcc(unittest.TestCase):
     for _ in range(16):
       self.safety.safety_rx_hook(throttle)
     self.assertFalse(self.safety.get_controls_allowed())
+
+
+def test_release_rejects_unsupported_preglobal_parameters():
+  safety = libsafety_py.ffi.dlopen(libsafety_py._build_libsafety(release=True))
+  steering = libsafety_py.make_CANPacket(0x164, 0, bytes(8))
+  stock_acc = SubaruSafetyFlags.PREGLOBAL_OUTBACK_STOCK_ACC
+  for unsupported in (0, SubaruSafetyFlags.PREGLOBAL_REVERSED_DRIVER_TORQUE,
+                      stock_acc | SubaruSafetyFlags.PREGLOBAL_REVERSED_DRIVER_TORQUE):
+    assert safety.set_safety_hooks(CarParams.SafetyModel.subaruPreglobal, stock_acc) == 0
+    assert safety.safety_tx_hook(steering)
+    assert safety.set_safety_hooks(CarParams.SafetyModel.subaruPreglobal, unsupported) != 0
+    assert not safety.safety_tx_hook(steering)
