@@ -19,7 +19,8 @@ from openpilot.starpilot.controllers.mode_actions import (
 from openpilot.starpilot.controllers.tests.test_mode_actions import DRIVE, NOW, fixture, request
 
 
-VEHICLES = (TOYOTA.TOYOTA_RAV4_TSS2, HONDA.HONDA_CIVIC, MAZDA.MAZDA_CX5_2022,
+VEHICLES = (TOYOTA.TOYOTA_RAV4_TSS2, HONDA.HONDA_CIVIC, MAZDA.MAZDA_CX5,
+            MAZDA.MAZDA_CX5_2022, MAZDA.MAZDA_CX9_2021,
             SUBARU.SUBARU_IMPREZA, FORD.FORD_ESCAPE_MK4, NISSAN.NISSAN_XTRAIL,
             VW.VOLKSWAGEN_GOLF_MK7)
 
@@ -110,7 +111,7 @@ def test_generic_mode_owner_rejects_wrong_identity_expiry_and_inactive_traffic()
 
 
 def test_actual_dashcam_mazda_cannot_dispatch_generic_switchback():
-  sm, cp = prepared(MAZDA.MAZDA_CX5)
+  sm, cp = prepared(MAZDA.MAZDA_CX9)
   assert cp.dashcamOnly
   assert producer_available(sm, now_ns=NOW)
   assert not authority(sm, cp, NOW, 'switchback')
