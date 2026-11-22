@@ -688,9 +688,17 @@ try {
   for (const [width, height, phase] of [[320, 844, 'reading'], [416, 844, 'checking'], [720, 480, 'preparing'], [1280, 900, 'verifying']]) {
     await viewport(width, height);await change('analysis-' + phase)
     const progress = await execute('const e=document.querySelector("[data-role=analysis-progress]"),p=e.querySelector("[role=progressbar]");return {text:e.textContent,now:p.getAttribute("aria-valuenow"),indeterminate:p.classList.contains("is-indeterminate"),animation:getComputedStyle(p.firstElementChild).animationName}')
-    assert.equal(progress.indeterminate, ['checking','preparing'].includes(phase))
-    assert.equal(progress.now === null, progress.indeterminate, 'Unknown work has no invented percentage')
-    assert.match(progress.text, phase === 'preparing' ? /Preparing drive analysis/ : phase === 'reading' ? /23 of 101 sections read/ : /101 of 101 sections read/)
+    assert.equal(progress.indeterminate, phase !== 'reading')
+    assert.equal(progress.now, phase === 'reading' ? String(23 / 101 * 100) : null,
+      'Only reading exposes a measured percentage')
+    const detail = {
+      preparing: /Preparing drive analysis/,
+      reading: /23 of 101 sections read/,
+      verifying: /Checking that the recording is unchanged/,
+      checking: /Checking the suggested changes/,
+    }
+    assert.match(progress.text, detail[phase])
+    if (phase !== 'reading') assert.doesNotMatch(progress.text, /sections read/)
     if (progress.indeterminate) assert.equal(progress.animation, 'none', 'Reduced motion disables the waiting animation')
     assert.equal(await execute('return window.flm.review.count'), 5, 'Scan progress preserves earlier findings')
     await layout('analysis/' + phase + '/' + width);await tabsClear('analysis/' + phase + '/' + width + '/tabs')

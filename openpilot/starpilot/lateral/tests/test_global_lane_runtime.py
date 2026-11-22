@@ -25,6 +25,7 @@ from openpilot.starpilot.lateral.tests.test_lane_runtime import feed, publish_co
 
 GENERIC_STEERING = (
   HONDA.HONDA_CIVIC,
+  MAZDA.MAZDA_CX5,
   MAZDA.MAZDA_CX5_2022,
   SUBARU.SUBARU_IMPREZA,
   FORD.FORD_ESCAPE_MK4,
@@ -165,7 +166,7 @@ def test_generic_native_configuration_and_replay_opt_in_are_distinct():
     assert runtime_supported(None)
 
 
-@pytest.mark.parametrize('identity', (MAZDA.MAZDA_CX5, VOLKSWAGEN.VOLKSWAGEN_ID4_MK1))
+@pytest.mark.parametrize('identity', (MAZDA.MAZDA_CX9, VOLKSWAGEN.VOLKSWAGEN_ID4_MK1))
 def test_actual_dashcam_configurations_never_create_lane_host(identity):
   with OpenpilotPrefix(), mock.patch.dict(os.environ, {'SIMULATION': '1', 'REPLAY': '1',
        'LANE_CENTERING_REPLAY_RUNTIME': '0', 'AOL_REPLAY_RUNTIME': '0'}), \
