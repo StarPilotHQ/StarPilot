@@ -42,7 +42,7 @@ from opendbc.car.gm.steering_authority import monitored_profile
 from openpilot.starpilot.car.gm.steering_companion import SteeringCompanion
 from openpilot.starpilot.car.hyundai.aol import qualified_ioniq6
 from opendbc.car.gm.values import CAR as GM_CAR
-from opendbc.car.gm.values import GMFlags, is_ordinary_camera_profile, is_volt_ascm_longitudinal, malibu_hybrid_profile
+from opendbc.car.gm.values import GMFlags, bolt_pedal_in_drive_requires_low, is_ordinary_camera_profile, is_volt_ascm_longitudinal, malibu_hybrid_profile
 from openpilot.starpilot.aol.intent import read_settings
 from openpilot.starpilot.aol.intent_companion import IntentCompanion
 from openpilot.starpilot.aol.transport_pause import AvailabilityPause, TransportPause, availability_only, cp_identity, healthy_transport
@@ -1188,6 +1188,18 @@ class SelfdriveD:
         [ET.SOFT_DISABLE], [self.CP, CS, self.sm, self.is_metric, 0, pers]) if alert.alert_type != 'doorOpen/softDisable')
     alerts.extend(alert for alert in getattr(self, 'tesla_stock_alerts', [])
                   if alert.event_type in self.state_machine.current_alert_types)
+    shift_alert_type = 'boltPedalShiftToLow/permanent'
+    if bolt_pedal_in_drive_requires_low(self.CP, CS.gearShifter):
+      samples = getattr(self, 'car_state_samples', ()) or ((CS, getattr(self, 'conditional_car_state_valid', False)),)
+      if any(valid and sample.canValid and not sample.canTimeout and sample.gearShifter == 'drive' and sample.buttonEnable
+             for sample, valid in samples):
+        alert = Alert("Shift to L for speed control", "", log.SelfdriveState.AlertStatus.normal,
+                      log.SelfdriveState.AlertSize.small, AlertPriority.LOW, car.CarControl.HUDControl.VisualAlert.none,
+                      log.SelfdriveState.AudibleAlert.none, 3.)
+        alert.alert_type, alert.event_type = shift_alert_type, ET.PERMANENT
+        alerts.append(alert)
+    else:
+      self.AM.alerts.pop(shift_alert_type, None)
     now_ns = time.monotonic_ns()
     drive = int(self.sm['deviceState'].startedMonoTime) if self.sm['deviceState'].started else 0
     from openpilot.starpilot.audio.blindspot_alert import ALERT_TYPE as BSM_ALERT, blindspot_alert

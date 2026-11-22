@@ -39,6 +39,7 @@ from openpilot.starpilot.ui.live_developer_sidebar import DeveloperMetrics
 from openpilot.cereal import log
 from openpilot.cereal.services import SERVICE_LIST
 from openpilot.tools.replay.display_clock import BOOT_TIME_SERVICES
+from opendbc.car.gm.values import bolt_pedal_in_drive_requires_low
 from opendbc.car.structs import car as car_schema
 from openpilot.starpilot.ui.device_state import DeviceRequest, DeviceState
 from openpilot.starpilot.ui.home_state import DriveStatsData, HomeMode, HomeState
@@ -692,8 +693,9 @@ class RuntimeSnapshotAdapter:
       display_control is not None and not getattr(getattr(display_control, 'hudControl', None), 'lanesVisible', True)
     )
     display_lat_active = bool(display_control.latActive) if (display_control is not None and not legacy_2025_lateral_off) else False
-    display_long_active = bool(display_control.longActive) if display_control is not None else False
-    long_engaged = bool(display_selfdrive is not None and getattr(display_selfdrive, 'enabled', False))
+    bolt_needs_low = display_car_valid and bolt_pedal_in_drive_requires_low(cp, getattr(display_car, 'gearShifter', None))
+    display_long_active = bool(display_control is not None and display_control.longActive and not bolt_needs_low)
+    long_engaged = bool(display_selfdrive is not None and getattr(display_selfdrive, 'enabled', False) and not bolt_needs_low)
     if getattr(ui, 'aol_runtime', False):
       # Display only: the control-side 30 ms proof window would blink the override edge whenever a frame runs late.
       axis = display_message(sm, 'aolAxisState', now_ns, after_frame=after) if started else None

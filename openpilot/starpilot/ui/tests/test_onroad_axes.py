@@ -59,6 +59,19 @@ class TestOnroadAxes(unittest.TestCase):
     intent = IntentState('card-ui', 1, NOW, NOW, NOW + 200_000_000, False, True, False, True, armed)
     self.ui.sm.put('aolIntentWire', encode_intent(replace(intent, **changes)))
 
+  def test_older_bolt_pedal_in_drive_displays_lateral_without_speed_control(self):
+    from opendbc.car.gm.tests.test_bolt_pedal import params
+    from opendbc.car.gm.values import CAR
+
+    for candidate in (CAR.CHEVROLET_BOLT_CC_2017, CAR.CHEVROLET_BOLT_CC_2018_2021, CAR.CHEVROLET_BOLT_CC_2022_2023):
+      self.ui.CP = params(candidate, pedal=True)
+      for gear in ('drive', 'low'):
+        with self.subTest(candidate=candidate, gear=gear):
+          self.ui.sm['carState'].gearShifter = gear
+          state = self.state(True, True)
+          self.assertTrue(state.lateral_active)
+          self.assertEqual(state.longitudinal_active, gear == 'low' or candidate == CAR.CHEVROLET_BOLT_CC_2022_2023)
+
   def test_armed_latch_keeps_intent_but_not_active_color_when_steering_pauses(self):
     self.ui.aol_runtime = True
     self.publish_latch()

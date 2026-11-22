@@ -105,3 +105,42 @@ def test_trax_keeps_braking_below_entry_speed_only_when_engaged(engaged):
       cs.brakePressed = True
       _, _, control = step(len(speeds) + 1, observed_state=cs)
       assert not control.longActive
+
+
+@pytest.mark.parametrize(('candidate', 'pedal', 'show_alert'), [
+  (CAR.CHEVROLET_BOLT_CC_2017, True, True),
+  (CAR.CHEVROLET_BOLT_CC_2018_2021, True, True),
+  (CAR.CHEVROLET_BOLT_CC_2017, False, False),
+  (CAR.CHEVROLET_BOLT_CC_2022_2023, True, False),
+  (CAR.CHEVROLET_BOLT_ACC_2022_2023_PEDAL, True, False),
+])
+def test_bolt_shift_to_low_is_a_display_only_button_alert(candidate, pedal, show_alert):
+  from opendbc.car.gm.carstate import CarState
+  from opendbc.car.gm.tests.test_bolt_pedal import params as bolt_params
+
+  with OpenpilotPrefix(), ExitStack() as cleanup:
+    cp = bolt_params(candidate, pedal=pedal)
+    car_state = CarState(cp)
+    case = fixture.IoniqAvailabilityTests(methodName='runTest')
+    cleanup.callback(case.doCleanups)
+    sd, _, step = case._authority_callers(True, cp=cp, genuine_events=True)
+    sd.aol_settings = read_settings(sd.params)
+    message = 'Shift to L for speed control'
+    for tick, (gear, button, pressed) in enumerate((
+      ('drive', 'decelCruise', True),
+      ('drive', 'decelCruise', False),
+      ('low', 'decelCruise', False),
+      ('drive', 'accelCruise', True),
+      ('low', 'accelCruise', True),
+    )):
+      cs = fixture.car_state()
+      cs.gearShifter = gear
+      cs.vCruise = 65.
+      cs.cruiseState.enabled = True
+      cs.buttonEvents = [structs.CarState.ButtonEvent(type=button, pressed=pressed)]
+      cs.buttonEnable = car_state.update_button_enable(cs.buttonEvents)
+      axis, host, control = step(tick, observed_state=cs)
+      assert (host.alertText1 == message) == (show_alert and tick in (1, 3))
+      if show_alert:
+        assert axis.longitudinalActive and control.longActive
+        assert axis.lateralActive and control.latActive
