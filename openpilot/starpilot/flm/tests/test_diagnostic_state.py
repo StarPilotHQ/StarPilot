@@ -81,6 +81,34 @@ class TestDiagnosticState(unittest.TestCase):
     self.assertEqual(report.current['analysis_counts']['recorded_tracking'], 99)
     self.assertEqual(read_state(self.params)['last_attempt']['analysis_counts']['recorded_tracking'], 1234)
 
+  def test_current_verification_and_its_interruption_are_distinct_from_previous_drive(self):
+    from openpilot.starpilot.flm.offroad_route import RouteInputCancelled
+
+    report = daemon.StatusReport(path=self.root / 'report.json')
+    report.diagnostics = DiagnosticState(self.params)
+    report.previous = {'completed_route': 'earlier-drive', 'vehicle': 'KIA_NIRO_PHEV_2022',
+                       'analysis_counts': {'original_segments_reviewed': 3, 'original_segments_available': 3}}
+    report.analyzing({'status': 'fitting', 'reason': 'verifying_recorded_drive',
+                      'analysis_progress': {'phase': 'verifying', 'completed': 2, 'total': 2}})
+    report.publish()
+    active = self.exported(json.loads(report.path.read_bytes()))
+    self.assertEqual(active['current']['analysis']['Parked analysis progress'], ['verifying', 2, 2])
+    self.assertTrue(active['current']['analysis']['Earlier analysis shown while updating'])
+    self.assertEqual(active['current']['analysis']['Recorded drive coverage'], '3 of 3 original recorded segments reviewed')
+
+    def cancelled():
+      raise RouteInputCancelled('Parked route input collection cancelled')
+
+    worker = SimpleNamespace(run_once=cancelled)
+    reason = 'waiting_for_fresh_deviceState'
+    self.assertFalse(daemon.run_parked_analysis(worker, report, permission_loss=lambda: reason))
+    self.assertEqual(report.current['reason'], reason)
+    outcome = self.exported()['learning_diagnostics']['last_result']
+    self.assertEqual(outcome['reason'], reason)
+    self.assertEqual(outcome['interrupted_stage'], 'verifying_recording')
+    self.assertEqual(report.previous['completed_route'], 'earlier-drive')
+    self.assertFalse(directory_for_params(self.params).exists())
+
   def test_worker_startup_failure_is_captured_before_assessment_cache_exists(self):
     self.params.put_bool('IsOffroad', True, block=True)
     self.params.put('AutomaticSteeringProfiles', b'preserved-original', block=True)

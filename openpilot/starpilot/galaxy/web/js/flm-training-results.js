@@ -222,7 +222,8 @@ const REASONS = {
   trial_measurement_inconclusive: "Your saved steering adjustments are kept for the next drive.",
   trial_inconclusive_drive_limit: "Three trial drives did not establish an improvement. The prior tune was restored.",
   next_drive_observed_tracking_worse: "Comparable driving showed a steering regression, so the prior tune was restored.",
-  analyzing_last_completed_drive: "Analyzing the last completed drive while parked.",
+  analyzing_last_completed_drive: "Reading the completed drive.",
+  verifying_recorded_drive: "The sections were read. Auto Learn is verifying the recording.",
   checking_recorded_steering_recommendations: "Checking the recorded-drive recommendations against the original controller and steering outputs.",
   recorded_tracking_suggestion_not_yet_qualified_for_automatic_application: "Auto Learn reviewed the drive and left your tune unchanged. Consistent suggestions are listed when available.",
   original_controller_or_registered_encoder_check_refused: "A tune was suggested, but at least one original controller or encoder check refused it. Your saved tune was kept.",
@@ -407,7 +408,7 @@ export function parkedAnalysisProgress(report) {
   const labels = { preparing: 'Preparing drive analysis', reading: 'Reading a recorded drive',
     verifying: 'Verifying the recording', checking: 'Checking steering suggestions' }
   const fallback = { loading_parked_analysis: 'preparing', analyzing_last_completed_drive: 'reading',
-    checking_recorded_steering_recommendations: 'checking' }[current.reason]
+    verifying_recorded_drive: 'verifying', checking_recorded_steering_recommendations: 'checking' }[current.reason]
   const value = current.details?.['Parked analysis progress']
   const phase = Array.isArray(value) && value.length === 3 && Object.hasOwn(labels, value[0]) ? value[0] : fallback
   if (!Object.hasOwn(labels, phase)) return null
@@ -416,8 +417,8 @@ export function parkedAnalysisProgress(report) {
   const steps = { preparing: 'Starting the parked analyzer.', reading: 'Reading the recording sections.',
     verifying: 'Checking that the recording is unchanged.', checking: 'Checking the suggested changes.' }
   return { phase, label: labels[phase], completed: counted ? done : null, total: counted ? total : null,
-    percent: counted && ['reading', 'verifying'].includes(phase) ? done / total * 100 : null,
-    detail: counted ? `${done} of ${total} sections read in this recording` : steps[phase] }
+    percent: counted && phase === 'reading' && done < total ? done / total * 100 : null,
+    detail: counted && phase === 'reading' ? `${done} of ${total} sections read in this recording` : steps[phase] }
 }
 
 export function tunerStatus(report, live = false, choiceLive = false, error = "", reportFresh = live) {
@@ -426,7 +427,7 @@ export function tunerStatus(report, live = false, choiceLive = false, error = ""
   if (error) return { key: "offline", tone: "muted", title: "Connection interrupted", description: "Earlier results are available below. Current steering activity is unknown." }
   if (preference?.valid && preference.enabled === false || !preference && live && current?.enabled === false)
     return { key: "off", tone: "muted", title: "Auto Learn is off", description: "No driving samples are being collected by the learner. Turn it on in steering settings to begin." }
-  if (reportFresh && current?.status === 'fitting' && ['analyzing_last_completed_drive', 'checking_recorded_steering_recommendations'].includes(current.reason))
+  if (reportFresh && current?.status === 'fitting' && ['analyzing_last_completed_drive', 'verifying_recorded_drive', 'checking_recorded_steering_recommendations'].includes(current.reason))
     return { key: 'fitting', tone: 'active', title: 'Analyzing your drive', description: learningReason(current.reason) + (offroadView(report)?.retained ? ' Earlier drive findings remain below while this analysis runs.' : '') }
   if (reportFresh && preference?.valid && preference.enabled && preference.parked && current?.reason?.startsWith('waiting_for_'))
     return { key: 'waiting-parked', tone: 'muted', title: 'Waiting to analyze your drive', description: learningReason(current.reason) }

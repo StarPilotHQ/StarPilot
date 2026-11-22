@@ -227,12 +227,20 @@ console.log('Saved curve and slider adjustments, unsaved recommendations, absent
 const scan = report();scan.current.status = 'fitting';scan.current.reason = 'analyzing_last_completed_drive'
 scan.current.details['Original route segments reviewed'] = [99, 99]
 assert.equal(parkedAnalysisProgress(scan).percent, null)
-for (const [phase, percent] of [['reading', 20], ['verifying', 20], ['checking', null]]) {
+for (const [phase, percent, detail] of [
+  ['reading', 20, '2 of 10 sections read in this recording'],
+  ['verifying', null, 'Checking that the recording is unchanged.'],
+  ['checking', null, 'Checking the suggested changes.'],
+]) {
   scan.current.details['Parked analysis progress'] = [phase, 2, 10]
   assert(validTrainingResults(scan))
   assert.equal(parkedAnalysisProgress(scan).percent, percent)
-  assert.equal(parkedAnalysisProgress(scan).detail, '2 of 10 sections read in this recording')
+  assert.equal(parkedAnalysisProgress(scan).detail, detail)
 }
+scan.current.details['Parked analysis progress'] = ['reading', 3, 3]
+assert.equal(parkedAnalysisProgress(scan).percent, null)
+scan.current.reason = 'verifying_recorded_drive'
+assert.equal(tunerStatus(scan, true).key, 'fitting')
 for (const counts of [[11, 10], [-1, 10], [true, 10], [1, 181], [1.5, 10], [null, null]]) {
   scan.current.details['Parked analysis progress'] = ['reading', ...counts]
   assert.equal(parkedAnalysisProgress(scan).percent, null)
