@@ -22,6 +22,11 @@ HDA2_NORMAL_BUS_LAYOUT = {(2, 0x50): 16, (2, 0x2A4): 24, (1, 0x35): 32, (1, 0xEA
                          (1, 0xA0): 24, (1, 0x1A0): 32, (1, 0x1CF): 8, (1, 0x130): 16}
 
 
+MIXED_CAN_NORMAL_BUS_LAYOUT = {(2, 0x50): 16, (2, 0x2A4): 24, (0, 0x251): 16,
+                               (1, 0x251): 8, (1, 0x386): 8, (1, 0x394): 8,
+                               (1, 0x4F1): 4, (1, 0x420): 8, (1, 0x421): 8}
+
+
 QUIET_CAMERA_NORMAL_BUS_LAYOUT = {(0, 0xEA): 24, (0, 0xA0): 24, (0, 0x1A0): 32, (0, 0x60): 32,
                                   (0, 0x35): 32, (0, 0x1CF): 8, (0, 0x130): 16,
                                   **{(1, address): 32 for address in range(0x210, 0x220)}}
@@ -59,8 +64,9 @@ def normal_bus_topology(can_recv, *, clock=time.monotonic):
   hda2_invalid = False
   hda1_observed = {}
   hda1_invalid = False
-  variants_observed = [{} for _ in CANFD_VARIANT_LAYOUTS]
-  variants_invalid = [False for _ in CANFD_VARIANT_LAYOUTS]
+  alternate_layouts = (*CANFD_VARIANT_LAYOUTS, MIXED_CAN_NORMAL_BUS_LAYOUT)
+  variants_observed = [{} for _ in alternate_layouts]
+  variants_invalid = [False for _ in alternate_layouts]
   for _ in range(24):
     if clock() >= deadline:
       break
@@ -76,7 +82,7 @@ def normal_bus_topology(can_recv, *, clock=time.monotonic):
                 return False
               original_invalid = True
             received[key] = length
-        for index, layout in enumerate(CANFD_VARIANT_LAYOUTS):
+        for index, layout in enumerate(alternate_layouts):
           if key in layout:
             if len(frame.dat) != layout[key]:
               variants_invalid[index] = True
@@ -98,6 +104,6 @@ def normal_bus_topology(can_recv, *, clock=time.monotonic):
                                   not hda1_invalid and hda1_observed == HDA1_NORMAL_BUS_LAYOUT)):
       return True
     if any(not invalid and received == layout and (not original_invalid or (2, 0x50) in layout)
-           for layout, received, invalid in zip(CANFD_VARIANT_LAYOUTS, variants_observed, variants_invalid, strict=True)):
+           for layout, received, invalid in zip(alternate_layouts, variants_observed, variants_invalid, strict=True)):
       return True
   return False

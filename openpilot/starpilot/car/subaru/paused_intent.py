@@ -155,7 +155,9 @@ def retain_paused_restriction(feedback, sm, cp, state, axis, stamp, now_ns, *, l
       not state.steerFaultTemporary or state.steerFaultPermanent or not state.canValid or state.canTimeout or
       state.accFaulted or state.doorOpen or state.seatbeltUnlatched or state.vehicleSensorsInvalid or
       state.steeringDisengage or state.buttonEvents or state.gasPressed or state.regenBraking or
-      state.gearShifter != structs.CarState.GearShifter.drive or not state.cruiseState.available or state.cruiseState.enabled or
+      (state.gearShifter != structs.CarState.GearShifter.drive and
+       not (cp.carFingerprint == CAR.SUBARU_LEGACY_2025 and state.gearShifter == structs.CarState.GearShifter.manumatic)) or
+      not state.cruiseState.available or state.cruiseState.enabled or
       not 0 < feedback.healthy_feedback_ns <= now_ns or not feedback.healthy_inventory):
     return False
   event_ns = int(sm.logMonoTime['onroadEvents'])
@@ -220,7 +222,9 @@ def retain_pending_restriction_recovery(feedback, sm, cp, state, axis, stamp, no
       state.steerFaultTemporary or state.steerFaultPermanent or not state.canValid or state.canTimeout or
       state.accFaulted or state.doorOpen or state.seatbeltUnlatched or state.vehicleSensorsInvalid or
       state.steeringDisengage or state.buttonEvents or state.regenBraking or
-      state.gearShifter != structs.CarState.GearShifter.drive or not state.cruiseState.available or state.cruiseState.enabled):
+      (state.gearShifter != structs.CarState.GearShifter.drive and
+       not (cp.carFingerprint == CAR.SUBARU_LEGACY_2025 and state.gearShifter == structs.CarState.GearShifter.manumatic)) or
+      not state.cruiseState.available or state.cruiseState.enabled):
     return False
   event_ns = int(sm.logMonoTime['onroadEvents'])
   temporary = (log.OnroadEvent.EventName.steerTempUnavailable, log.OnroadEvent.EventName.steerTempUnavailableSilent)

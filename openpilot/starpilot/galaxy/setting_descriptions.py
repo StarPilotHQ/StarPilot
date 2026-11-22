@@ -86,7 +86,7 @@ DESCRIPTIONS = {
   'SpeedLimitController': 'Follows accepted limits plus offsets up to SET speed. Missing data uses the previous accepted limit.',
   'SLCOnEngage': ('Starts software cruise SET at the SLC limit plus offset. ' +
                   'A limit accepted this session remains available during data gaps. Previous-drive history does not initialize SET. ' +
-                  'RES restores the previous SET.'),
+                  'RES restores the previous SET. Redneck Cruise lowers the new SET only when a current limit is available.'),
   'SLCOverrideMode': ('Cruise uses this target when you lift off the accelerator. ' +
                       'Holding your speed uses the highest speed you reached, up to SET.'),
   'SLCWheelOverride': 'Press + to raise SET past the adjusted limit and use your new SET speed.',
@@ -149,6 +149,7 @@ DESCRIPTIONS = {
   'KeepScreenOnGpuLoading': 'Keeps the driving screen visible while an eGPU model loads. Manual Screen Off still works.',
   'TurnOffCommaScreen': 'Pauses comma UI rendering to reduce CPU and GPU use. Tap once to wake the screen.',
   'LoudBlindspotAlert': 'Uses the soft-warning sound when a lane change is blocked by a detected blind-spot vehicle.',
+  'LoudBlindspotAlertMuteAtStandstill': 'Mutes Blindspot Alert While Lateral Is Off when stopped or moving below 1 mph.',
   'LoudBlindspotAlertWhenDisengaged': ('Warns when signaling toward a detected blind-spot vehicle with steering assistance off or paused. ' +
                                       'Independent of Loud Blindspot Alert. Hazards do not trigger it.'),
   'SoundPack': 'Chooses the sounds used for driving alerts and chimes.',

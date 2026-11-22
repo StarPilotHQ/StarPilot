@@ -4,7 +4,7 @@ from opendbc.car.structs import car
 from opendbc.car import apply_hysteresis
 from openpilot.common.constants import CV
 from openpilot.common.realtime import DT_CTRL
-from openpilot.selfdrive.car.cruise import V_CRUISE_UNSET
+from openpilot.selfdrive.car.cruise import V_CRUISE_MIN, V_CRUISE_UNSET, slc_target_kph
 
 def ready(cs, cc):
   return (cc.enabled and cs.canValid and not cs.canTimeout and cs.gearShifter == car.CarState.GearShifter.drive and
@@ -184,6 +184,7 @@ class RedneckCruise:
     self.is_ready = False
     self.is_ready_prev = False
     self.cruise_button_timers = dict(CRUISE_BUTTON_TIMERS)
+    self.set_match_ns = 0
 
   @staticmethod
   def _send_button_for_state(state: str) -> int:
@@ -284,6 +285,41 @@ class RedneckCruise:
     return send_button, self.v_target
 
 
+  def match_limit_on_set(self, card, cs, now_ns: int) -> None:
+    cc = card.sm['carControl']
+    if (not card.slc_match_on_engage or not card.slc_control_enabled or not cs.canValid or cs.canTimeout or
+        not cs.cruiseState.available or cs.gearShifter != car.CarState.GearShifter.drive or
+        cs.standstill or cs.brakePressed or cs.gasPressed or cs.accFaulted):
+      self.set_match_ns = 0
+      return
+    if not self.set_match_ns and not cs.buttonEvents:
+      return
+    pressed = {button.type.raw for button in cs.buttonEvents if button.pressed}
+    if pressed.intersection((ButtonType.accelCruise, ButtonType.resumeCruise, ButtonType.cancel, ButtonType.mainCruise)):
+      self.set_match_ns = 0
+      return
+    if (not cc.enabled and not card.CS_prev.cruiseState.enabled and
+        pressed.intersection((ButtonType.decelCruise, ButtonType.setCruise))):
+      self.set_match_ns = now_ns
+    if not 0 < self.set_match_ns <= now_ns <= self.set_match_ns + 500_000_000:
+      self.set_match_ns = 0
+      return
+
+    helper = card.v_cruise_helper
+    if (not cc.enabled or not cs.cruiseState.enabled or not current(card.sm, 'carControl', now_ns) or
+        not V_CRUISE_MIN <= helper.v_cruise_kph < V_CRUISE_UNSET):
+      return
+    self.set_match_ns = 0
+    from openpilot.starpilot.speed_limits.physical_actions import engagement_state
+    evidence = getattr(card.CI.CS, 'dashboard_limit', None)
+    state = engagement_state(card.sm, evidence.observation if evidence is not None else None, card.slc_producer_session,
+                             now_ns, after_ns=card.slc_source_floor_ns)
+    if state is not None:
+      target = slc_target_kph(state.presentationAdjustedLimit, card.is_metric)
+      minimum = get_minimum_set_speed(card.is_metric) * (1. if card.is_metric else CV.MPH_TO_KPH)
+      if minimum <= target < helper.v_cruise_kph:
+        helper.apply_slc_target(state.presentationAdjustedLimit, card.is_metric)
+
   def update(self, card, cs, cc, now_ns):
     update(card, cs, cc, now_ns)
 
@@ -332,7 +368,7 @@ def update(card, cs, cc, now_ns):
     lead_distance = lead_rel_speed = 0.0
     if current(card.sm, "radarState", now_ns):
       lead = card.sm["radarState"].leadOne
-      if lead.status and math.isfinite(lead.dRel) and math.isfinite(lead.vRel):
+      if lead.present and math.isfinite(lead.dRel) and math.isfinite(lead.vRel):
         lead_distance, lead_rel_speed = float(lead.dRel), float(lead.vRel)
     speeds = [float(speed) for speed in plan.speeds if math.isfinite(speed)]
     target = select_redneck_target_speed(ceiling_kph, cluster, 0.0, speeds, len(speeds) if plan.hasLead else 10,

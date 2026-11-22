@@ -22,6 +22,8 @@ def _explanation(reason):
     'recording_for_offroad_analysis': 'Recording while driving. Route analysis runs after parking; this is not an analysis result.',
     'loading_parked_analysis': 'Starting the parked analysis worker.',
     'analyzing_last_completed_drive': 'Reading recorded drive data.',
+    'verifying_recorded_drive': 'The sections were read. FLM is verifying that the recording is unchanged.',
+    'Parked route input collection cancelled': 'Reading was interrupted before the drive assessment finished. This report has no specific blocker.',
     'checking_recorded_steering_recommendations': 'Checking recommendations against recorded controller and steering-delivery evidence.',
     'previous_analysis_interrupted_before_completion': 'The learner restarted before its previous analysis reported an outcome.',
     'analysis_interrupted_by_shutdown': 'Analysis was interrupted by shutdown or the return to driving.',
@@ -122,6 +124,7 @@ def diagnostics(report, params):
   result['current']['reason'] = _reason(current.get('reason', 'learner_report_unavailable'))
   result['current']['explanation'] = _explanation(result['current']['reason'])
   result['current']['analysis'] = {key: details[key] for key in (
+    'Parked analysis progress', 'Earlier analysis shown while updating',
     'Recorded steering observations', 'Retained control windows', 'Retained tracking windows', 'Recorded drive coverage',
     'Drives in steering evidence history', 'Saved route adjustment count', 'Saved route configuration state',
             'Recorded coordinate recommendations', 'Recorded suggestion sources', 'Recorded suggestion assessments',

@@ -83,6 +83,45 @@ def engage(instance, *, now=START + 10_000_000):
   return cs
 
 
+@pytest.mark.parametrize('gesture,match,limit,delay,expected', [
+  ('decelCruise', True, 50., 80_000_000, 50.),
+  ('decelCruise', False, 50., 80_000_000, 60.),
+  ('accelCruise', True, 50., 80_000_000, 60.),
+  ('decelCruise', True, 70., 80_000_000, 60.),
+  ('decelCruise', True, 20., 80_000_000, 60.),
+  ('decelCruise', True, 50., 550_000_000, 60.),
+])
+def test_redneck_set_matching_preserves_the_stock_ceiling_and_resume(gesture, match, limit, delay, expected):
+  from opendbc.car.hyundai.interface import CarInterface
+  from opendbc.car.hyundai.software_cruise import prepare
+  from opendbc.car.hyundai.values import CAR
+  from openpilot.starpilot.car.hyundai.redneck_cruise import RedneckCruise
+
+  _, sm, _ = drive(metric=True, limit=limit, offset=0.)
+  cp = prepare(CarInterface.get_non_essential_params(CAR.HYUNDAI_KONA_NON_SCC), True)
+  instance = owner(sm, cp, metric=True, match=match)
+  instance.redneck_cruise = RedneckCruise(cp, SimpleNamespace(redneckCruiseAvailable=True, pcmCruiseSpeed=False))
+  sm.seen, sm.recv_time = dict(sm.valid), {}
+
+  def step(now, *, enabled, stock_speed, buttons=()):
+    sm.advance(now)
+    sm.recv_time['carControl'] = now / 1e9
+    sm['carControl'].enabled = enabled
+    cs = car.CarState(canValid=True, vEgo=15., gearShifter='drive', buttonEvents=list(buttons),
+      cruiseState={'available': True, 'enabled': enabled, 'speed': stock_speed / 3.6, 'speedCluster': stock_speed / 3.6})
+    with patch.object(card.time, 'monotonic_ns', return_value=now), patch.object(cruise, 'monotonic_ns', return_value=now):
+      instance.update_cruise_speed(cs)
+    instance.CS_prev = cs
+    instance.CC_prev = car.CarControl(enabled=enabled)
+    return instance.v_cruise_helper.v_cruise_kph
+
+  step(START, enabled=False, stock_speed=0., buttons=({'type': gesture, 'pressed': True},))
+  assert step(START + 20_000_000, enabled=True, stock_speed=0.) == cruise.V_CRUISE_UNSET
+  assert step(START + delay, enabled=True, stock_speed=60.) == pytest.approx(expected)
+  assert step(START + delay + 20_000_000, enabled=True, stock_speed=60.) == pytest.approx(expected)
+  assert not sm['carControl'].longActive and not cp.openpilotLongitudinalControl
+
+
 def receipt(instance, *, now=START + 10_000_000, event_id=1):
   kind, state, previous, selected, observed = instance.slc_receipts[-1]
   return CruiseEvent(event_id, observed, previous, selected, 'decel', instance.slc_producer_session, now,

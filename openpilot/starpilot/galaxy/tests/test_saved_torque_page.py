@@ -39,7 +39,9 @@ class TestSavedTorquePage(unittest.TestCase):
                                 'Use StarPilot Auto Learn', 'Highway Smoothing'})
     developer = self.page('torque/developer')
     advanced = {row['label']: row for row in developer['rows']}
-    self.assertEqual(set(advanced), {'Lat Accel', 'Friction', 'Actuator delay'})
+    self.assertEqual(set(advanced), {'Steering Controller', 'Lat Accel', 'Friction', 'Actuator delay'})
+    self.assertTrue(advanced['Steering Controller']['available'])
+    self.assertEqual(advanced['Steering Controller']['value'], rows['Steering Controller']['value'])
     for label in ('Lat Accel', 'Friction'):
       self.assertTrue(advanced[label]['resetAvailable'], label)
       self.assertEqual(advanced[label]['defaultValue'], 'Vehicle/learned')

@@ -26,7 +26,7 @@ fi
 export QCOM_PRIORITY=12
 
 if [ -z "$AGNOS_VERSION" ]; then
-  export AGNOS_VERSION="20.5.3"
+  export AGNOS_VERSION="20.5.5"
 fi
 
 # Legacy stagers defer flashing; agnos_init still requires AGNOS_VERSION before manager startup.

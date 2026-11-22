@@ -1,7 +1,7 @@
 from opendbc.car import structs
 from opendbc.car.mazda.values import CAR, MazdaFlags
 
-CARS = frozenset((CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
+CARS = frozenset((CAR.MAZDA_CX5, CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021))
 
 
 def qualified(cp, *, marked_only=False):

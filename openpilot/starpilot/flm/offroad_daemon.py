@@ -61,8 +61,8 @@ class StatusReport:
     counts = value.get('analysis_counts', {})
     if type(counts) is not dict:
       counts = {}
-    phase = ('preparing' if value['reason'] == 'loading_parked_analysis' else
-             'reading' if value['reason'] == 'analyzing_last_completed_drive' else 'checking')
+    phase = {'loading_parked_analysis': 'preparing', 'analyzing_last_completed_drive': 'reading',
+             'verifying_recorded_drive': 'verifying'}.get(value['reason'], 'checking')
     progress = value.get('analysis_progress', {'phase': phase,
       'completed': counts.get('original_segments_reviewed'), 'total': counts.get('original_segments_available')})
     self.set({**(previous or value), 'status': 'fitting', 'reason': value['reason'], 'retained_analysis': bool(previous),
@@ -342,13 +342,16 @@ def wait_for_parked(sm, params, *, stopped=lambda: False, clock=time.monotonic, 
     timeout = 20
 
 
-def run_parked_analysis(worker, report):
+def run_parked_analysis(worker, report, *, permission_loss=lambda: None):
   """Advance promptly only after an unreadable input was durably skipped."""
   from openpilot.starpilot.flm.offroad_route import RouteInputError
 
   try:
     report.set(worker.run_once())
   except (ValueError, OSError, RuntimeError) as error:
+    if (blocker := permission_loss()) is not None:
+      report.set({'status': 'unavailable', 'reason': blocker})
+      return False
     if isinstance(error, RouteInputError):
       cloudlog.warning(
         'FLM skipped unreadable drive %s: %s; continuing with other drives',
@@ -371,7 +374,7 @@ def _run():
   from openpilot.starpilot.drive_state.evidence import PhysicalSource
   from openpilot.starpilot.drive_state.owner import DriveStateOwner, Mode
   from openpilot.starpilot.flm.offroad_cache import directory_for_params
-  from openpilot.starpilot.flm.diagnostic_state import DiagnosticState
+  from openpilot.starpilot.flm.diagnostic_state import ACTIVE, DiagnosticState
   from openpilot.starpilot.storage import starpilot_storage_root
 
   params = Params()
@@ -397,16 +400,29 @@ def _run():
       return drive_state.snapshot().mode is Mode.OFFROAD and physical.update_ready(params.get_bool('IsOffroad'))
 
     def parked():
-      allowed = wait_for_parked(sm, params, stopped=lambda: stopped, powered_offroad=powered_offroad)
-      if not allowed and not stopped and params.get_bool('IsOffroad'):
-        reason = parked_blocker(sm, params, powered_offroad=powered_offroad)
-        report.set({'status': 'collecting', 'reason': reason or 'waiting_for_parked_permission'})
-      return allowed
+      return wait_for_parked(sm, params, stopped=lambda: stopped, powered_offroad=powered_offroad)
+
+    def blocker():
+      return parked_blocker(sm, params, stopped=stopped, powered_offroad=powered_offroad) or 'waiting_for_parked_permission'
+
+    interrupted = None
 
     def permitted():
-      okay = parked()
+      nonlocal interrupted
+      allowed = parked()
+      if not allowed and interrupted is None:
+        interrupted = blocker()
       report.publish()
-      return okay
+      return allowed
+
+    def last_blocker():
+      return interrupted
+
+    def on_progress(progress):
+      reason = {'verifying': 'verifying_recorded_drive', 'checking': 'checking_recorded_steering_recommendations'}.get(
+        progress['phase'], 'analyzing_last_completed_drive')
+      report.analyzing({'status': 'fitting', 'reason': reason, 'analysis_progress': progress})
+      report.publish()
 
     cache = directory_for_params(params)
     worker = None
@@ -434,7 +450,12 @@ def _run():
             report.publish(),
           ),
         )
-      elif parked() and time.monotonic() >= next_analysis:
+      elif not parked():
+        if not stopped and params.get_bool('IsOffroad'):
+          reason = blocker()
+          if report.current.get('reason') != reason:
+            report.set({'status': 'collecting', 'reason': reason})
+      elif time.monotonic() >= next_analysis:
         if worker is None:
           report.analyzing({'status': 'fitting', 'reason': 'loading_parked_analysis'})
           report.publish()
@@ -446,9 +467,7 @@ def _run():
             cache,
             permitted=permitted,
             on_analysis=lambda: report.analyzing({'status': 'fitting', 'reason': 'analyzing_last_completed_drive'}),
-            on_progress=lambda progress: report.analyzing({'status': 'fitting', 'reason':
-              'checking_recorded_steering_recommendations' if progress['phase'] == 'checking' else 'analyzing_last_completed_drive',
-              'analysis_progress': progress}),
+            on_progress=on_progress,
             on_assessment=lambda a: report.analyzing(
               {
                 'status': 'fitting',
@@ -463,7 +482,8 @@ def _run():
           )
           report.restore(worker.cache)
         next_analysis = time.monotonic() + 10.0
-        if run_parked_analysis(worker, report):
+        interrupted = None
+        if run_parked_analysis(worker, report, permission_loss=last_blocker):
           next_analysis = time.monotonic()
       report.publish()
       if not stopped:
@@ -474,9 +494,7 @@ def _run():
     raise
   finally:
     diagnostics = getattr(report, 'diagnostics', None)
-    if diagnostics is not None and diagnostics.state['current'] is not None and diagnostics.state['current']['stage'] in (
-      'starting_analysis', 'reading_recording', 'checking_recommendations'
-    ):
+    if diagnostics is not None and diagnostics.state['current'] is not None and diagnostics.state['current']['stage'] in ACTIVE:
       diagnostics.observe({'status': 'unavailable', 'reason': 'analysis_interrupted_by_shutdown'})
     try:
       if sm is not None:

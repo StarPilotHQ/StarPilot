@@ -105,7 +105,7 @@ class TestVehicleStateContext(unittest.TestCase):
     self.assertEqual(ast.unparse(update.args[0]), 'CS')
     self.assertEqual(ast.unparse(initialize.args[0]), 'self.CS_prev')
     self.assertEqual(ast.unparse(initialize.keywords[0].value), 'self.vehicle_startup.consume_cruise_resume()')
-    enable_edge = next(node for node in ast.walk(helper) if isinstance(node, ast.If))
+    enable_edge = next(node for node in helper.body[0].body if isinstance(node, ast.If) and initialize in ast.walk(node))
     self.assertEqual(ast.unparse(enable_edge.test), "self.sm['carControl'].enabled and (not self.CC_prev.enabled)")
     self.assertIn(initialize, list(ast.walk(enable_edge)))
     step = inspect.getsource(card.Car.step)

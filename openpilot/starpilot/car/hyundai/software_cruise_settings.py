@@ -2,11 +2,16 @@
 
 from dataclasses import replace
 
-from opendbc.car.hyundai.software_cruise import eligible
+from opendbc.car.hyundai.software_cruise import eligible, selected
 from openpilot.starpilot.saved_document import commit_exact
+from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.vehicle_selection import read_selection
 
 KEY = 'RedneckCruise'
+
+
+def slc_configurable(cp, params):
+  return eligible(cp) and (selected(cp) or (params is not None and read_saved(params, KEY, 8) == (b'1', True)))
 
 
 def capability(owner):

@@ -7,8 +7,10 @@ def seatbelt_lateral_soft_event_allowed(cp, cs, intent, native, event, *, source
   from openpilot.starpilot.aol.runtime import AXIS_MAX_AGE_NS, SAFETY_MAX_AGE_NS, native_inventory_matches_cp
   try:
     gears = car.CarState.GearShifter
-    paused_gear = bool(gear_pause is True and cs.gearShifter in
-                       (gears.drive, gears.low, gears.sport, gears.brake, gears.neutral, gears.reverse))
+    legacy_manumatic = cp.carFingerprint == 'SUBARU_LEGACY_2025' and cs.gearShifter == gears.manumatic
+    paused_gear = bool(gear_pause is True and (cs.gearShifter in
+                       (gears.drive, gears.low, gears.sport, gears.brake, gears.neutral, gears.reverse) or
+                       legacy_manumatic))
     paused_native = bool(paused_gear and native is not None and
                          not native.requestedLateral and not native.lateralAllowed and
                          not native.requestedLongitudinal and not native.longitudinalAllowed)
@@ -23,7 +25,7 @@ def seatbelt_lateral_soft_event_allowed(cp, cs, intent, native, event, *, source
       event.noEntry and not event.immediateDisable and not event.userDisable and
       cs.seatbeltUnlatched and cs.canValid and not cs.canTimeout and not cs.accFaulted and not cs.doorOpen and
       (not cs.steerFaultTemporary or paused_eps) and not cs.steerFaultPermanent and cs.cruiseState.available and
-      (paused_gear or cs.gearShifter in (gears.drive, gears.low, gears.sport, gears.brake)) and
+      (paused_gear or cs.gearShifter in (gears.drive, gears.low, gears.sport, gears.brake) or legacy_manumatic) and
       intent is not None and intent.settingsQualified and
       ((intent.allowedLatch or paused_gear) and intent.lateralArmed or
        pending_native and not intent.allowedLatch and not intent.lateralArmed) and

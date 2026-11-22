@@ -8,7 +8,7 @@ from opendbc.car.mazda.values import CAR, DBC
 from opendbc.car.mazda.tests.test_stock_startup import complete_frames, exercise_startup
 from openpilot.starpilot.car.mazda import dashboard
 
-SUPPORTED = (CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021)
+SUPPORTED = (CAR.MAZDA_CX5, CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021)
 
 
 @pytest.mark.parametrize('identity', list(CAR))

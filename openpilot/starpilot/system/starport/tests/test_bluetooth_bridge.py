@@ -524,3 +524,24 @@ def test_default_agent_failure_cleans_registration_before_pairing_visibility():
   with pytest.raises(BluetoothRejected, match='permission denied'):
     client.register_incoming_agent(Mock(wraps=object()), ':1.20')
   assert calls == ['RegisterAgent', 'RequestDefaultAgent', 'UnregisterAgent', 'filter_closed']
+
+
+def test_recovery_defers_while_another_process_holds_the_adapter(tmp_path):
+  state = {'parked': True, 'session': ('galaxy', '42')}
+  bluez = FakeBlueZ()
+  first = owner(tmp_path, state, bluez)
+  lease = first.acquire_phone_role(state['session'], Phone())
+  second = owner(tmp_path, state, bluez)
+  journal = first.journal_path.read_bytes()
+  before = list(bluez.writes)
+
+  assert second.recover_phone_role() is False
+  second.maintain_phone_role()
+  assert first.journal_path.read_bytes() == journal
+  assert bluez.writes == before
+
+  lease.process_lock.close()
+  second.maintain_phone_role()
+  assert bluez.writes[-1] == (False, False)
+  assert not second.journal_path.exists()
+  second.close()

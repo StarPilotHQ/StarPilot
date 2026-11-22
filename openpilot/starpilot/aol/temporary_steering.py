@@ -158,7 +158,8 @@ def temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
     (previous[9] and previous[11] and previous[13] or
      self.temporary_eps_event_ns and previous[6] == self.temporary_eps_event_ns))
   stock_subaru_eps = bool(subaru_temporary_restriction(cp, cs) and subaru_predecessor and
-    cs.gearShifter == structs.CarState.GearShifter.drive and not cs.doorOpen and
+    (cs.gearShifter == structs.CarState.GearShifter.drive or
+     cp.carFingerprint == 'SUBARU_LEGACY_2025' and cs.gearShifter == structs.CarState.GearShifter.manumatic) and not cs.doorOpen and
     not cs.vehicleSensorsInvalid and not cs.steeringDisengage and not cs.buttonEvents and
     all(not event.userDisable or event.name == log.OnroadEvent.EventName.pcmDisable and
         not event.softDisable and not event.immediateDisable for event in events))

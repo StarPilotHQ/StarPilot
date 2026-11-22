@@ -275,7 +275,7 @@ def get_fw_versions_ordered(can_recv: CanRecvCallable, can_send: CanSendCallable
 
 def get_fw_versions(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_multiplexing: ObdCallback, query_brand: str | None = None,
                     extra: OfflineFwVersions | None = None, timeout: float = 0.1, progress: bool = False,
-                    *, normal_bus_only: bool = False) -> list[CarParams.CarFw]:
+                    *, normal_bus_only: bool = False, query_bus: int | None = None) -> list[CarParams.CarFw]:
   versions = VERSIONS.copy()
 
   if query_brand is not None:
@@ -309,6 +309,7 @@ def get_fw_versions(can_recv: CanRecvCallable, can_send: CanSendCallable, set_ob
   # Get versions and build capnp list to put into CarParams
   car_fw = []
   requests = [(brand, config, r) for brand, config, r in REQUESTS if is_brand(brand, query_brand) and
+              (query_bus is None or r.bus == query_bus) and
               not (normal_bus_only and r.bus % 4 == 1 and r.obd_multiplexing)]
   for addr_group in tqdm(addrs, disable=not progress):  # split by subaddr, if any
     for addr_chunk in chunks(addr_group):

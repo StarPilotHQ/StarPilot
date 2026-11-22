@@ -37,44 +37,25 @@ from openpilot.selfdrive.car.cruise import LOW_SPEED_CRUISE_ON_SET, SlcWheelCont
 from openpilot.starpilot.speed_limits import physical_actions as slc_physical
 from openpilot.starpilot.aol.intent import AolProcessFaultContext, independent_axis_requested, read_settings
 from openpilot.starpilot.aol.transport_pause import TransportPauseFeedback, cp_identity
-from opendbc.car.honda.stock_aol import (
-  qualified as qualified_honda_stock_aol, native_observation as honda_native_observation,
-  temporary_restriction as honda_temporary_restriction,
-)
-from opendbc.car.volkswagen.stock_aol import (native_observation as volkswagen_native_observation,
-  safety_config as volkswagen_aol_safety_config)
-from openpilot.starpilot.car.volkswagen.aol import (qualified as qualified_volkswagen_aol,
-  temporary_restriction as volkswagen_temporary_restriction)
+from opendbc.car.honda.stock_aol import qualified as qualified_honda_stock_aol, native_observation as honda_native_observation
+from opendbc.car.volkswagen.stock_aol import safety_config as volkswagen_aol_safety_config
+from openpilot.starpilot.car.volkswagen.aol import qualified as qualified_volkswagen_aol
 from openpilot.starpilot.car.rivian.aol import retained_brake_lateral_intent as rivian_brake_intent_retained
-from opendbc.car.rivian.stock_aol import (qualified as qualified_rivian_aol,
-                                         native_observation as rivian_native_observation,
-                                         temporary_restriction as rivian_temporary_restriction)
-from opendbc.car.mazda.stock_aol import (qualified as qualified_mazda_aol,
-                                        native_observation as mazda_native_observation,
-                                        temporary_restriction as mazda_temporary_restriction)
-from opendbc.car.tesla.preap.aol import (
-  qualified as qualified_tesla_preap, native_observation as preap_native_observation,
-  temporary_restriction as preap_temporary_restriction,
-)
-from opendbc.car.ford.aol import (
-  qualified as qualified_ford_aol, native_observation as ford_native_observation,
-  temporary_restriction as ford_temporary_restriction,
-)
-from opendbc.car.hyundai.canfd_angle_aol import native_observation, temporary_restriction, qualified as qualified_angle_aol
+from opendbc.car.rivian.stock_aol import qualified as qualified_rivian_aol
+from opendbc.car.mazda.stock_aol import qualified as qualified_mazda_aol
+from opendbc.car.tesla.preap.aol import qualified as qualified_tesla_preap
+from opendbc.car.ford.aol import qualified as qualified_ford_aol
+from opendbc.car.hyundai.canfd_angle_aol import qualified as qualified_angle_aol
 from opendbc.car.hyundai.canfd_owner import config_index as hyundai_canfd_config_index
 from opendbc.car.hyundai.captured_adrv_startup import CapturedADRVStartup
-from openpilot.starpilot.car.nissan.aol import (
-  qualified as qualified_nissan_aol, native_observation as nissan_native_observation,
-  temporary_restriction as nissan_temporary_restriction,
-)
-from openpilot.starpilot.car.volvo.aol import (
-  qualified as qualified_volvo_aol, native_observation as volvo_native_observation,
-  temporary_restriction as volvo_temporary_restriction,
-)
+from openpilot.starpilot.car.nissan.aol import qualified as qualified_nissan_aol
+from openpilot.starpilot.car.volvo.aol import qualified as qualified_volvo_aol
 from openpilot.starpilot.car.hyundai.aol import aol_safety_config as hyundai_aol_safety_config, pending_stock_angle_arm
 from openpilot.starpilot.car.hyundai.aol import retained_shared_long_cancel_intent as hkg_cancel_intent_retained
 from openpilot.starpilot.car.ford.aol import (brake_pause_active as ford_brake_pause_active,
                                                awaiting_initial_request as ford_awaiting_initial_request)
+from openpilot.starpilot.car.subaru import aol as subaru_aol
+from openpilot.starpilot.aol.card_native import native_handlers
 from openpilot.starpilot.aol.runtime import AXIS_MAX_AGE_NS, current_axis, current_native
 from openpilot.starpilot.aol.vehicle import create_intent as create_aol_intent, native_latch_rejected, policy_for as aol_policy_for
 from openpilot.starpilot.aol.wire import IntentState, encode_intent
@@ -146,9 +127,9 @@ def can_comm_callbacks(logcan: messaging.SubSocket, sendcan: messaging.PubSocket
 curve_press_receipt = slc_physical.curve_press_receipt
 
 
-def alpha_long_requested(params, *, is_release: bool) -> bool:
+def alpha_long_requested(params, *, is_release: bool, openpilot_enabled: bool = True) -> bool:
   """Retain saved intent on release branches without granting Alpha authority."""
-  return not is_release and params.get_bool("AlphaLongitudinalEnabled")
+  return openpilot_enabled and not is_release and params.get_bool("AlphaLongitudinalEnabled")
 
 
 class Car:
@@ -189,7 +170,6 @@ class Car:
     self.switchback_event_sequence = 0
     publish_services = ['sendcan', 'carState', 'carParams', 'carOutput', 'radarTracks', 'starpilotCarState']
     self.car_gps_publisher = CarGpsPublisher()
-    # One existing event channel also carries source-qualified Switchback gestures.
     publish_services.append('slcCruiseEvent')
     self.wheel_publisher = WheelPublisher(self.params)
     self.wheel_commands = ()
@@ -245,14 +225,13 @@ class Car:
         self.pm.sock['aolIntentWire'] = messaging.pub_sock('aolIntentWire')
 
     if CI is None:
-      # wait for one pandaState and one CAN packet
       print("Waiting for CAN messages...")
       while True:
         can = messaging.recv_one_retry(self.can_sock)
         if len(can.can) > 0:
           break
 
-      alpha_long_allowed = alpha_long_requested(self.params, is_release=is_release)
+      alpha_long_allowed = alpha_long_requested(self.params, is_release=is_release, openpilot_enabled=openpilot_enabled_toggle)
 
       cached_params = None
       cached_params_raw = get_cache(self.params, "CarParamsCache")
@@ -319,7 +298,7 @@ class Car:
         from openpilot.starpilot.car.ford.longitudinal_preferences import prepare_release_long as prepare_ford_release_long
         cp = prepare_ford_release_long(cp, self.params, is_release=is_release, enabled=openpilot_enabled_toggle)
         return self.vehicle_startup.prepare(cp, interfaces[candidate], self.can_callbacks,
-                                            requested=alpha_long_allowed and not is_release and openpilot_enabled_toggle,
+                                            requested=alpha_long_allowed,
                                             admission=self.startup_diagnostic_admission, defer_until_controls=True)
 
       self.CI = get_car(*self.can_callbacks, obd_callback(self.params), alpha_long_allowed, is_release, cached_params,
@@ -328,7 +307,6 @@ class Car:
       self.RI = interfaces[self.CI.CP.carFingerprint].RadarInterface(self.CI.CP)
       self.CP = self.CI.CP
 
-      # continue onto next fingerprinting step in pandad
       self.params.put_bool("FirmwareQueryDone", True, block=True)
     else:
       self.CI, self.CP = CI, CI.CP
@@ -367,7 +345,6 @@ class Car:
     self.vehicle_startup.configure(self.CI)
 
     if self.CP.secOcRequired:
-      # Copy user key if available
       try:
         with open("/cache/params/SecOCKey") as f:
           user_key = f.readline().strip()
@@ -460,7 +437,6 @@ class Car:
     if not self.ioniq6_previous_cp_saved:
       self.save_previous_car_params()
 
-    # Write CarParams for controls and radard
     self.vehicle_startup.seal_publication()
     cp_bytes = self.CP.to_bytes()
     from openpilot.starpilot.car.tesla.pedal_startup import install as install_preap_pedal
@@ -535,7 +511,6 @@ class Car:
     can_received_ns = time.monotonic_ns()
     can_list = can_capnp_to_list(can_strs)
 
-    # Update carState from CAN
     observe_controller_can(self.CI, can_list)
     CS = self.CI.update(can_list)
     self.RI.v_ego = CS.vEgo   # the Honda Bosch-A decoder bounds a reversing coast with it
@@ -553,8 +528,7 @@ class Car:
     distance_owner = getattr(self, 'gm_distance', None)
     distance_observation = distance_owner.update(can_list) if distance_owner is not None else None
 
-    # Direct state_update callers retain eager radar behavior. The production
-    # loop consumes this exact CAN batch after carState and control publication.
+    # Direct callers run radar eagerly. The loop runs it after control publication.
     self._deferred_radar_can = can_list if defer_radar else None
     RD = None if defer_radar else self.radar_update(can_list)
 
@@ -564,7 +538,6 @@ class Car:
 
     can_rcv_valid = len(can_strs) > 0
 
-    # Check for CAN timeout
     if not can_rcv_valid:
       self.can_rcv_cum_timeout_counter += 1
 
@@ -705,14 +678,10 @@ class Car:
       )
       native_reset = False
       if permission_owner:
-        observe = (volvo_native_observation if volvo_aol else rivian_native_observation if rivian_aol else
-                   volkswagen_native_observation if volkswagen_aol else nissan_native_observation if nissan_aol else
-                   preap_native_observation if preap_aol else mazda_native_observation if mazda_aol else self.aol_honda_native_observation if honda_aol else
-                   ford_native_observation if ford_aol else native_observation)
-        restrict = (volvo_temporary_restriction if volvo_aol else rivian_temporary_restriction if rivian_aol else
-                    volkswagen_temporary_restriction if volkswagen_aol else nissan_temporary_restriction if nissan_aol else
-                    preap_temporary_restriction if preap_aol else mazda_temporary_restriction if mazda_aol else honda_temporary_restriction if honda_aol else
-                    ford_temporary_restriction if ford_aol else temporary_restriction)
+        observe, restrict = native_handlers(
+          self, volvo_aol=volvo_aol, rivian_aol=rivian_aol, volkswagen_aol=volkswagen_aol, nissan_aol=nissan_aol,
+          preap_aol=preap_aol, mazda_aol=mazda_aol, honda_aol=honda_aol, ford_aol=ford_aol,
+        )
         preap_observation = {}
         if preap_aol:
           cancel_stamp = int(self.CI.CS.preap.cancel_echo_stamp_ns)
@@ -875,6 +844,10 @@ class Car:
     self.v_cruise_helper.update_v_cruise(CS, self.sm['carControl'].enabled, self.is_metric, pending,
                                        slc_enabled=getattr(self, 'slc_control_enabled', getattr(self, 'slc_replay', False)),
                                        wheel_context=wheel_context)
+    redneck_cruise = getattr(self, 'redneck_cruise', None)
+    if redneck_cruise is not None and (self.slc_match_on_engage or redneck_cruise.set_match_ns):
+      now_ns = int(self.can_log_mono_time) if REPLAY and hasattr(self, 'can_log_mono_time') else time.monotonic_ns()
+      redneck_cruise.match_limit_on_set(self, CS, now_ns)
     if self.sm['carControl'].enabled and not self.CC_prev.enabled:
       target, initial = None, None
       now_ns = int(self.can_log_mono_time) if REPLAY and hasattr(self, 'can_log_mono_time') else time.monotonic_ns()
@@ -1086,7 +1059,6 @@ class Car:
       self.pm.send('carParams', cp_send)
       self.car_params_published = True
 
-    # publish new carOutput
     co_send = messaging.new_message('carOutput')
     co_send.valid = self.sm.all_checks(['carControl'])
     co_send.carOutput.actuatorsOutput = self.last_actuators_output
@@ -1417,8 +1389,7 @@ class Car:
     holder = getattr(self, 'vehicle_startup', None)
     if holder is None or holder.owner is None:
       return
-    # Python controls and receive times use MONOTONIC. Panda/CAN producers
-    # use BOOTTIME, which can diverge after suspend.
+    # MONOTONIC controls time can diverge from Panda BOOTTIME after suspend.
     clocks = clock_pair_ns()
     mono_ns, boot_ns = clocks if clocks is not None else (0, 0)
     sm = self.sm
@@ -1821,7 +1792,6 @@ class Car:
         self.ioniq6_restore_callbacks = self.can_callbacks
       elif self.vehicle_startup.owner is None:
         self.CI.init(self.CP, *self.can_callbacks)
-      # signal pandad to switch to car safety mode
       self.params.put_bool("ControlsReady", True)
       self.ci_initialized = True
 
@@ -1912,7 +1882,6 @@ class Car:
           return
       steering_authority = getattr(self.CI.CS, 'steering_authority', None)
       monitored_steering = self.CP.brand == 'gm' and steering_authority is not None and steering_authority.enabled
-      # send car controls over can
       now_nanos = (self.volt_cc_now_boot_ns if getattr(self, 'volt_cc_selected', False) else
                    self.can_log_mono_time if REPLAY else
                    time.clock_gettime_ns(time.CLOCK_BOOTTIME) if self.volt_startup_keepalive() or monitored_steering else
@@ -1932,6 +1901,7 @@ class Car:
         update_subaru_sng(self, CS, CC, now_nanos)
         from openpilot.starpilot.car.subaru.stop_start_caller import update as update_subaru_startup
         update_subaru_startup(self, now_nanos)
+        subaru_aol.sync_legacy_card_lateral(self, CS, CC)
       if getattr(self, "redneck_cruise", None):
         self.redneck_cruise.update(self, CS, CC, now_nanos)
       self.last_actuators_output, can_sends = self.CI.apply(CC, now_nanos)
@@ -2006,6 +1976,7 @@ class Car:
       self.initial_cruise_speed = self.params.get("InitialCruiseSpeedKph", return_default=True)
       if self.aol_card_intent is not None:
         self.aol_card_intent.settings = read_settings(self.params)
+      subaru_aol.sync_legacy_card_aol(self)
       now = time.monotonic()
       if now >= next_cruise_read:
         self.v_cruise_helper.low_speed_on_set = self.params.get_bool(LOW_SPEED_CRUISE_ON_SET)

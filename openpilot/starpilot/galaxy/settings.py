@@ -99,7 +99,7 @@ class ContextSource(Protocol):
   def sample(self) -> AuthorityContext: ...
 
 
-def _qualified(ctx: AuthorityContext, group: str) -> bool:
+def _qualified(ctx: AuthorityContext, group: str, *, params=None) -> bool:
   cp = ctx.cp
   if group == "preferences":
     return True
@@ -126,8 +126,8 @@ def _qualified(ctx: AuthorityContext, group: str) -> bool:
     if group in ("conditional", "conditional_wheel", "long_output"):
       return bool((cp.openpilotLongitudinalControl or ctx.configuration_longitudinal) and not cp.notCar and not cp.dashcamOnly and not cp.passive)
     if group == "slc":
-      from opendbc.car.hyundai.software_cruise import selected as button_cruise_selected
-      return bool((cp.openpilotLongitudinalControl or ctx.configuration_longitudinal or button_cruise_selected(cp)) and
+      from openpilot.starpilot.car.hyundai.software_cruise_settings import slc_configurable
+      return bool((cp.openpilotLongitudinalControl or ctx.configuration_longitudinal or slc_configurable(cp, params)) and
                   not cp.notCar and not cp.dashcamOnly and not cp.passive)
     if group == "long":
       return bool((cp.openpilotLongitudinalControl or ctx.configuration_longitudinal) and
@@ -558,7 +558,7 @@ class SettingsGateway:
       if not session_valid():
         return False
       fresh = self.context.sample() if live else ctx
-      return fresh.cp_raw == ctx.cp_raw and _qualified(fresh, group)
+      return fresh.cp_raw == ctx.cp_raw and _qualified(fresh, group, params=self.params)
     return FeatureSettingsOwner(self.params, authorized,
                                 learning_messages=lambda: self.context._messages() if isinstance(self.context, LiveContextSource) else None,
                                 vehicle_fingerprint=lambda: getattr(current().cp, "carFingerprint", None),

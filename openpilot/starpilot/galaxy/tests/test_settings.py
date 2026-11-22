@@ -155,6 +155,59 @@ class SettingsGatewayTest(unittest.TestCase):
       self.assertFalse(self.gateway.confirm(intent['intent'], self.session, self.generation))
     self.assertTrue(self.params.get_bool('AlwaysOnLateral'))
 
+  def test_redneck_cruise_allows_slc_setup_before_next_startup(self):
+    from opendbc.car.hyundai.interface import CarInterface
+    from opendbc.car.hyundai.software_cruise import prepare, selected
+    from opendbc.car.hyundai.values import CAR
+
+    cp = CarInterface.get_non_essential_params(CAR.HYUNDAI_KONA_NON_SCC)
+    raw = cp.as_reader().as_builder().to_bytes()
+    self.context.value = AuthorityContext(True, cp, raw)
+    self.params.put_bool('IsMetric', True, block=True)
+
+    def slc_row(page):
+      return next(i for i, row in enumerate(page['rows']) if row['label'] == 'Speed Limit Controller')
+
+    page = self.page('slc')
+    self.assertFalse(page['rows'][slc_row(page)]['available'])
+    self.params.put_bool('RedneckCruise', True, block=True)
+    page = self.page('slc')
+    index = slc_row(page)
+    self.assertTrue(page['rows'][index]['available'])
+    intent = self.gateway.preview(page['view'], index, 0, self.session, self.generation, value='On')
+
+    self.params.put_bool('RedneckCruise', False, block=True)
+    self.assertFalse(self.gateway.confirm(intent['intent'], self.session, self.generation))
+    self.assertFalse(self.params.get_bool('SpeedLimitController'))
+
+    self.params.put_bool('RedneckCruise', True, block=True)
+    page = self.page('slc')
+    intent = self.gateway.preview(page['view'], slc_row(page), 0, self.session, self.generation, value='On')
+    self.assertTrue(self.gateway.confirm(intent['intent'], self.session, self.generation))
+    self.assertTrue(self.params.get_bool('SpeedLimitController'))
+    page = self.page('slc')
+    index = next(i for i, row in enumerate(page['rows']) if row['label'] == 'Match Speed Limit on Engage')
+    self.assertTrue(page['rows'][index]['available'])
+    intent = self.gateway.preview(page['view'], index, 0, self.session, self.generation, value='On')
+    self.assertTrue(self.gateway.confirm(intent['intent'], self.session, self.generation))
+    self.assertTrue(self.params.get_bool('SLCOnEngage'))
+    self.assertFalse(selected(cp))
+    self.assertFalse(cp.openpilotLongitudinalControl)
+    self.assertEqual(cp.as_reader().as_builder().to_bytes(), raw)
+
+    prepare(cp, True)
+    self.context.value = AuthorityContext(True, cp, cp.as_reader().as_builder().to_bytes())
+    page = self.page('slc')
+    index = next(i for i, row in enumerate(page['rows']) if row['label'].endswith('offset'))
+    self.assertTrue(page['rows'][index]['available'])
+    intent = self.gateway.preview(page['view'], index, 0, self.session, self.generation, value=3)
+    self.assertTrue(self.gateway.confirm(intent['intent'], self.session, self.generation))
+
+    scc = CarInterface.get_non_essential_params(CAR.HYUNDAI_KONA)
+    self.context.value = AuthorityContext(True, scc, scc.to_bytes())
+    page = self.page('slc')
+    self.assertFalse(page['rows'][slc_row(page)]['available'])
+
   def test_pcm_cruise_long_owner_can_configure_slc_without_custom_cruise_authority(self):
     cp = self.context.value.cp
     cp.carFingerprint = "TOYOTA_HIGHLANDER_TSS2"

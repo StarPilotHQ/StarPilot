@@ -476,6 +476,10 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
           card.controls_update(state, card.sm['carControl'])
       for addr, data, bus in sent:
         assert offset <= bus < offset + 4
+        if addr == 0x397 and not pq:
+          # The HUD runs after the steering frame on this tick.
+          hca = next(data for address, data, _ in sent if address == 0x126)
+          assert command.latActive and (int.from_bytes(hca, 'little') >> 16) & 511
         accepted = native.safety_tx_hook(make_msg(bus - offset, addr, dat=data))
         if cancel_override and alpha and state.gasPressed and addr in (0x122, 0x12E):
           raw_accel = ((data[4] & 7) << 8 | data[3]) if addr == 0x122 else ((data[7] << 3) | (data[6] >> 5))

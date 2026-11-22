@@ -23,8 +23,10 @@ def test_sdsu_factory_changes_only_owned_hardware_fields(candidate):
   expected['safetyConfigs'][0]['safetyParam']=0x9049
   if candidate == CAR.TOYOTA_SIENNA:
     expected['longitudinalActuatorDelay'] = pytest.approx(.5)
-  elif candidate == CAR.TOYOTA_HIGHLANDER and not cp.flags & ToyotaFlags.HYBRID:
-    expected['longitudinalActuatorDelay'] = pytest.approx(.4)
+  elif candidate == CAR.TOYOTA_HIGHLANDER:
+    expected['minEnableSpeed'] = -1.
+    if not cp.flags & ToyotaFlags.HYBRID:
+      expected['longitudinalActuatorDelay'] = pytest.approx(.4)
   assert cp.to_dict()==expected
   assert configured(cp) and qualified(cp)
   assert not toyota_auto_hold_supported(cp)

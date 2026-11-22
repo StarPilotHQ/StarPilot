@@ -256,7 +256,11 @@ BO_ 964 ES_LKAS_Alert: 8 XXX
  SG_ CHECKSUM : 0|8@1+ (1,0) [0|255] "" XXX
  SG_ COUNTER : 8|4@1+ (1,0) [0|15] "" XXX
  SG_ Signal1 : 12|4@1+ (1,0) [0|15] "" XXX
- SG_ Payload : 16|48@1+ (1,0) [0|281474976710655] "" XXX
+ SG_ LKAS_Alert : 16|8@1+ (1,0) [0|255] "" XXX
+ SG_ LKAS_Alert_Msg : 24|8@1+ (1,0) [0|255] "" XXX
+ SG_ LKAS_HUD_Lights : 32|8@1+ (1,0) [0|255] "" XXX
+ SG_ ACC_Lead_LED : 40|8@1+ (1,0) [0|255] "" XXX
+ SG_ Signal2 : 48|16@1+ (1,0) [0|65535] "" XXX
 
 BO_ 722 AC_State: 8 XXX
  SG_ CHECKSUM : 0|8@1+ (1,0) [0|255] "" XXX
@@ -300,12 +304,24 @@ CM_ SG_ 801 LKAS_State_Msg "1 = LKAS_Off_Sharp_Curve, 2 = Keep_Hands_On_Steering
 CM_ SG_ 801 Cruise_State_Msg "1 = Cruise_Off_Steep_Slope, 2 = Cruise_lvl1_eco, 3 = Cruise_lvl2_comfort, 4 = Cruise_off_empty_reason, 5 = Cruise_off, 6 = Cruise_Unable_to_set, 7 = Cruise_Unable_to_set_brakes_applied, 8 = Eyesight_not_ready, 9 = Cruise_lvl3_standard, 10 = Cruise_lvl4_dynamic, 11 = Cruise_Unable_to_set_steep_slope";
 CM_ SG_ 801 Cruise_Soft_Disable "Eyesight soft disable (eg direct sunlight)";
 CM_ SG_ 801 Cruise_Status_Msg "1 = Disabled_Bad_Visibility, 2 = Disabled_Check_Manual";
+CM_ SG_ 292 SET_3 "2 = LKA / LDP mode, 3 = Lane Centering mode";
 CM_ SG_ 802 LKAS_ACTIVE "Turns on the full LKAS dash display";
-CM_ SG_ 802 LKAS_Alert_Msg "1 = Keep_Hands_On_Wheel, 6 = Pre_Collision_Braking, 7 = Keep_Hands_On_Wheel_Off";
-CM_ SG_ 802 LKAS_Alert "1 = FCW_Cont_Beep, 2 = FCW_Repeated_Beep, 3 = Throttle_Management_Activated_Warning, 4 = Throttle_Management_Activated_Alert, 5 = Pre_Collision_Activated_Alert, 8 = Traffic_Light_Ahead, 9 = Apply_Brake_to_Hold Position, 11 = LDW_Right, 12 = LDW_Left, 13 = Stay_Alert, 14 = Lead_Vehicle_Start_Alert, 18 = Keep_Hands_On_Steering_Alert, 24 = Audio_Beep, 25 = Audio_Lead_Car_Change, 26 = Audio_ACC_Disengaged, 27 = Audio_LKAS_disabled, 28 = Audio_Ding_Ding, 30 = Audio_Repeated_Beep";
+CM_ SG_ 802 LKAS_Alert_Msg "1 = Keep_Hands_On_Wheel (static), 6 = Pre_Collision_Braking, 7 = Keep_Hands_On_Wheel_Red_Flash (flashing red hands); 2-5 = Unused";
+CM_ SG_ 802 LKAS_Alert "1 = FCW_Cont_Beep, 2 = FCW_Repeated_Beep, 3 = Throttle_Management_Activated_Warning, 4 = Throttle_Management_Activated_Alert, 5 = Pre_Collision_Activated_Alert, 8 = Traffic_Light_Ahead, 9 = Apply_Brake_to_Hold Position, 11 = LDW_Right, 12 = LDW_Left, 13 = Stay_Alert, 14 = Lead_Vehicle_Start_Alert, 18 = LC_LDW_Right (lane departure right during Lane Centering), 19 = LC_LDW_Left (lane departure left during Lane Centering), 24 = Audio_Beep, 25 = Audio_Lead_Car_Change, 26 = Audio_ACC_Disengaged, 27 = Audio_LKAS_disabled, 28 = Audio_Ding_Ding, 30 = Audio_Repeated_Beep";
 CM_ SG_ 802 LKAS_Left_Line_Visible "0 = Off, 1 = White, 2 = Green, 3 = Orange";
 CM_ SG_ 802 LKAS_Dash_State "0 = Off, 1 = Ready, 2 = Active";
 CM_ SG_ 802 LKAS_Right_Line_Visible "0 = Off, 1 = White, 2 = Green, 3 = Orange";
+CM_ SG_ 803 LKAS_State_Infotainment "1 = Obstacle_Ahead, 2 = Obstacle_Detected, 3 = Keep_Hands_On_Wheel (adds flashing yellow border on cluster/infotainment), 4 = Keep_Hands_On_Wheel_Off, 5 = Keep_Hands_On_Wheel_Alt; 6-7 = Unused";
+CM_ SG_ 964 LKAS_Alert "11 = LDW_Right (+3 soft chimes), 12 = LDW_Left (+3 soft chimes), 13 = Stay_Alert (+3 soft chimes), 14 = Lead_Vehicle_Start_Alert (+tut-tut chime), 18 = LC_LDW_Right (lane departure right during Lane Centering), 19 = LC_LDW_Left (lane departure left during Lane Centering), 24 = Audio_Beep (soft chirp), 25 = Audio_Lead_Car_Change, 26 = Audio_ACC_Disengaged (1 strong chime), 27 = Audio_LKAS_disabled (1 strong chime), 28 = Audio_Ding_Ding (2 bouncy chimes), 30 = Audio_Repeated_Beep (4 strong chimes); 29,31 = Unused";
+CM_ SG_ 964 LKAS_Alert_Msg "1 = Keep_Hands_On_Wheel (static), 7 = Keep_Hands_On_Wheel_Red_Flash (flashing red hands); 2-5,8 = Unused";
+CM_ SG_ 964 LKAS_HUD_Lights "Windshield HUD LED bitmask: 1 = 2 Yellow Solid, 2 = 2 Yellow Rapid Flash, 4 = 2 Yellow Slow Flash, 16 = 4 Red Solid, 32 = 4 Red Rapid Flash, 48 = 4 Red Solid+Rapid Flash, 64 = 4 Red Slow Flash, 80 = 2 Red Solid + 2 Red Flash Right (0x50), 96 = 2 Red Solid + 2 Red Flash Left (0x60) (8,128 = Unused)";
+CM_ SG_ 964 ACC_Lead_LED "1 = Green_Lead_Tracked";
 CM_ SG_ 912 UNITS "0 = Metric, 1 = Imperial";
 CM_ SG_ 912 ICY_ROAD "1 = DASHLIGHT ON, 2 = WARNING, 3 = OFF";
+VAL_ 292 SET_3 3 "Lane_Centering" 2 "LKA_LDP" 0 "Off";
 VAL_ 544 AEB_Status 12 "AEB related" 8 "AEB actuation" 4 "AEB related" 0 "No AEB actuation";
+VAL_ 803 LKAS_State_Infotainment 7 "Unused_7" 6 "Unused_6" 5 "Keep_Hands_On_Wheel_Alt" 4 "Keep_Hands_On_Wheel_Off" 3 "Keep_Hands_On_Wheel" 2 "Obstacle_Detected" 1 "Obstacle_Ahead" 0 "None";
+VAL_ 964 LKAS_Alert 31 "Unused_31" 30 "Audio_Repeated_Beep" 29 "Unused_29" 28 "Audio_Ding_Ding" 27 "Audio_LKAS_disabled" 26 "Audio_ACC_Disengaged" 25 "Audio_Lead_Car_Change" 24 "Audio_Beep_Chirp" 19 "LC_LDW_Left" 18 "LC_LDW_Right" 14 "Lead_Vehicle_Start_Alert" 13 "Stay_Alert" 12 "LDW_Left" 11 "LDW_Right" 0 "None";
+VAL_ 964 LKAS_Alert_Msg 8 "Unused_8" 7 "Keep_Hands_On_Wheel_Red_Flash" 5 "Unused_5" 4 "Unused_4" 3 "Unused_3" 2 "Unused_2" 1 "Keep_Hands_On_Wheel" 0 "None";
+VAL_ 964 LKAS_HUD_Lights 96 "Red_2_Solid_2_Flash_Left" 80 "Red_2_Solid_2_Flash_Right" 64 "Red_4_Slow_Flash" 48 "Red_4_Flash" 32 "Red_4_Rapid_Flash" 16 "Red_4_Solid" 4 "Yellow_2_Slow_Flash" 2 "Yellow_2_Rapid_Flash" 1 "Yellow_2_Solid" 0 "Off";
+VAL_ 964 ACC_Lead_LED 1 "Green_Lead_Tracked" 0 "Off";

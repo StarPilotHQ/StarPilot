@@ -1,3 +1,5 @@
+import pytest
+
 from opendbc.car.hyundai import software_cruise
 from opendbc.car.hyundai.non_scc_aol import aol_word, NON_SCC_IDS
 from opendbc.car.hyundai.interface import CarInterface
@@ -130,7 +132,8 @@ def test_vehicle_setting_saves_only_with_confirmed_parked_authority(tmp_path):
                                                                       lateral_context=True, metric=True).rows)
 
 
-def test_fresh_limit_drives_only_set_button_and_renewal_requires_all_inputs():
+@pytest.mark.parametrize('lead_present', [False, True])
+def test_fresh_limit_drives_only_set_button_and_renewal_requires_all_inputs(lead_present):
   from types import SimpleNamespace
   from opendbc.car.structs import CarControl, CarState
   from openpilot.cereal import messaging
@@ -159,7 +162,13 @@ def test_fresh_limit_drives_only_set_button_and_renewal_requires_all_inputs():
   assert output.message.slcState.hasCeiling
   plan = messaging.new_message('longitudinalPlan').longitudinalPlan
   plan.speeds = [22.] * 17
+  plan.hasLead = lead_present
+  radar = messaging.new_message('radarState')
+  radar.radarState.leadOne.present = lead_present
+  radar.radarState.leadOne.dRel = 35.
+  radar.radarState.leadOne.vRel = -2.
   services = {'carControl': command, 'selfdriveState': sm['selfdriveState'], 'longitudinalPlan': plan,
+              'radarState': radar.as_reader().radarState,
               'pandaStates': [SimpleNamespace(controlsAllowed=True, faults=[])], 'slcState': output.message.slcState}
   link = ReplaySM(services, 2_000_000_000)
   link.seen = dict(link.valid)

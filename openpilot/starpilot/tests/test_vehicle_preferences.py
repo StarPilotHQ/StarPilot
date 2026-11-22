@@ -612,7 +612,7 @@ class TestVehicleStartupPreferences(unittest.TestCase):
     self.assertEqual(cp.alternativeExperience, 0)
 
   def test_unrelated_vehicle_flags_are_untouched(self):
-    cp = SimpleNamespace(brand="other", flags=4096, alternativeExperience=256)
+    cp = structs.CarParams(brand="other", flags=4096, alternativeExperience=256)
     preferences = VehicleStartupPreferences(True)
     self.assertIs(preferences.prepare(cp), cp)
     preferences.finalize(cp)

@@ -145,6 +145,31 @@ class TestVolkswagenStockAol(unittest.TestCase):
     assert self.safety.aol_get_permission_mask() == 0
     assert not self.safety.safety_tx_hook(self.packet("HCA_01", {"HCA_01_LM_Offset": 0, "HCA_01_Sendestatus": 0}))
 
+  def test_aol_hud_transmission_matches_forwarding_ownership(self):
+    for word in (8, 24, 9, 25, 40, 41):
+      self.configure(word)
+      assert not self.safety.safety_tx_hook(self.packet('LDW_02', {}))
+      assert self.safety.safety_fwd_hook(2, 0x397) == 0
+
+    for word in (8, 24):
+      self.configure(word)
+      self.arm()
+      assert not self.safety.safety_tx_hook(self.packet('LDW_02', {}))
+      assert self.safety.safety_fwd_hook(2, 0x397) == 0
+
+      assert self.safety.safety_tx_hook(self.packet('HCA_01', {'HCA_01_LM_Offset': 4, 'HCA_01_Sendestatus': 1}))
+      assert self.safety.safety_tx_hook(self.packet('LDW_02', {}))
+      assert self.safety.safety_fwd_hook(2, 0x397) == -1
+
+      assert self.safety.safety_tx_hook(self.packet('HCA_01', {}))
+      assert not self.safety.safety_tx_hook(self.packet('LDW_02', {}))
+      assert self.safety.safety_fwd_hook(2, 0x397) == 0
+
+      assert self.safety.safety_tx_hook(self.packet('HCA_01', {'HCA_01_LM_Offset': 4, 'HCA_01_Sendestatus': 1}))
+      self.safety.set_timer(self.time + 300_001)
+      assert not self.safety.safety_tx_hook(self.packet('LDW_02', {}))
+      assert self.safety.safety_fwd_hook(2, 0x397) == 0
+
   def test_fresh_accepted_hud_eps_forwarding_and_ownership_expiry(self):
     self.configure()
     self.arm()

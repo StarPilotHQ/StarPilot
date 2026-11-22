@@ -129,7 +129,7 @@ def face_orientation_from_model(orient_model, pos_model, rpy_calib):
 
 
 class DriverMonitoring:
-  def __init__(self, rhd_saved=False, settings=None, always_on=False):
+  def __init__(self, rhd_saved=False, settings=None, always_on=False, allow_manumatic=False):
     # init policy settings
     self.settings = settings if settings is not None else DRIVER_MONITOR_SETTINGS()
 
@@ -143,6 +143,7 @@ class DriverMonitoring:
 
     self.alert_level = AlertLevel.none
     self.always_on = always_on
+    self.allow_manumatic = allow_manumatic
     self.distracted_types = defaultdict(bool)
     self.driver_distracted = False
     self.driver_distraction_filter = FirstOrderFilter(0., self.settings._DISTRACTED_FILTER_TS, DT_DMON)
@@ -441,7 +442,12 @@ class DriverMonitoring:
     else:
       car_speed = sm['carState'].vEgo
       enabled = sm['selfdriveState'].enabled or aol_lateral_engaged
-      wrong_gear = sm['carState'].gearShifter not in (car.CarState.GearShifter.drive, car.CarState.GearShifter.low)
+      allowed_gears = (
+        (car.CarState.GearShifter.drive, car.CarState.GearShifter.low, car.CarState.GearShifter.manumatic)
+        if self.allow_manumatic else
+        (car.CarState.GearShifter.drive, car.CarState.GearShifter.low)
+      )
+      wrong_gear = sm['carState'].gearShifter not in allowed_gears
       lowspeed = car_speed < self.settings._ALERT_MIN_SPEED
       driver_engaged = sm['carState'].steeringPressed or sm['carState'].gasPressed
       brake_disengage_prob = sm['modelV2'].meta.disengagePredictions.brakeDisengageProbs[0] # brake disengage prob in next 2s
