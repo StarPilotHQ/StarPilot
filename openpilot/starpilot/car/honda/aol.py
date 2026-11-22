@@ -76,6 +76,15 @@ def native_latch_rejected(CP, native):
   return qualified_stock(CP, marked_only=True) and native.requestedLateral and not native.lateralAllowed
 
 
+def below_engage_lateral_allowed(cp, cs, intent, *, previously_active):
+  """Keep armed Fit steering independent of the PCM cruise minimum."""
+  return bool(cp.carFingerprint == CAR.HONDA_FIT and cp.pcmCruise and
+              qualified_stock(cp, marked_only=True) and previously_active and
+              cs.canValid and not cs.canTimeout and cs.cruiseState.available and
+              intent is not None and intent.settingsQualified and intent.allowedLatch and
+              intent.lateralArmed and not intent.pauseLateral)
+
+
 def ordinary_axis_request_allowed(CP, CS):
   return qualified_stock(CP, marked_only=True) and CS.canValid and not CS.canTimeout and not CS.steerFaultPermanent
 

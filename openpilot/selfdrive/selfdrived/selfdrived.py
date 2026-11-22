@@ -1903,7 +1903,8 @@ class SelfdriveD:
     from openpilot.starpilot.car.gm.aol import physical_cancel_lateral_allowed, stock_ascm_independent_lateral, independent_lateral_below_engage
     from openpilot.starpilot.car.hyundai.aol import physical_cancel_lateral_allowed as hkg_cancel_lateral_allowed
     from openpilot.starpilot.car.mazda.aol import physical_cancel_lateral_allowed as mazda_cancel_lateral_allowed
-    from openpilot.starpilot.car.honda.aol import physical_cancel_lateral_allowed as honda_cancel_lateral_allowed
+    from openpilot.starpilot.car.honda.aol import (below_engage_lateral_allowed as honda_below_engage_lateral_allowed,
+                                                   physical_cancel_lateral_allowed as honda_cancel_lateral_allowed)
     from openpilot.starpilot.car.ford.aol import physical_cancel_lateral_allowed as ford_cancel_lateral_allowed
     from openpilot.starpilot.car.subaru.aol import sng_standstill_lateral_inhibit
     from openpilot.starpilot.car.volkswagen.aol import (lateral_output_inhibited as volkswagen_lateral_output_inhibited,
@@ -1918,9 +1919,12 @@ class SelfdriveD:
     pause_brake_mps = self.aol_settings.pause_brake_mps if self.aol_settings is not None else 0.0
     if reverse_pause:
       lateral_events = [event for event in lateral_events if event not in (EventName.wrongGear, EventName.reverseGear)]
+    below_entry_speed = EventName.belowEngageSpeed in lateral_events
+    honda_below_entry_speed = below_entry_speed and honda_below_engage_lateral_allowed(
+      self.CP, CS, intent, previously_active=getattr(self, 'aol_ever_active', False))
     # Full-range GM ACC keeps braking below the initial engagement speed.
     gm_below_entry_speed = (
-      EventName.belowEngageSpeed in lateral_events and self.enabled and self.active and CS.cruiseState.enabled and
+      below_entry_speed and self.enabled and self.active and CS.cruiseState.enabled and
       self.CP.openpilotLongitudinalControl and self.CP.brand == 'gm' and
       (is_bolt_euv_longitudinal(self.CP) or
        is_ordinary_camera_profile(self.CP, longitudinal=True) or
@@ -1929,6 +1933,7 @@ class SelfdriveD:
        (self.CP.carFingerprint in (GM_CAR.BUICK_LACROSSE, GM_CAR.CHEVROLET_SUBURBAN) and qualified_gm(self.CP))))
     return decide_axes(
       standard_lateral=self.active, standard_longitudinal=bool(self.enabled and self.CP.openpilotLongitudinalControl and
+        not honda_below_entry_speed and
         not raw_longitudinal_withdrawal(self.CP, CS, self.sm, native, session=self.aol_session_id, now_ns=now_ns) and
         not any(event in LONGITUDINAL_ONLY_EVENTS for event in self.events.names) and
         not any(sample.seatbeltUnlatched or sample.doorOpen for sample, _ in getattr(self, 'car_state_samples', ()))),
@@ -1962,7 +1967,7 @@ class SelfdriveD:
                                source_ns=getattr(self, 'aol_car_state_log_ns', 0), now_ns=now_ns,
                                axis_session_id=getattr(self, 'aol_session_id', '')),
                            cruise_main_required=getattr(self, 'aol_cruise_main_required', True),
-                           allow_below_engage_speed=gm_below_entry_speed or bool((is_volt_ascm_longitudinal(self.CP) or
+                           allow_below_engage_speed=honda_below_entry_speed or gm_below_entry_speed or bool((is_volt_ascm_longitudinal(self.CP) or
                                                         stock_ascm_independent_lateral(self.CP) or
                                                         independent_lateral_below_engage(self.CP, intent,
                                                           enabled=self.enabled, active=self.active)) and

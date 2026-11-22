@@ -86,3 +86,36 @@ def test_honda_host_gap_retains_every_non_nominal_veto(veto):
         assert log.OnroadEvent.EventName.speedTooLow in sd.events.names
     finally:
       case.doCleanups()
+
+
+@pytest.mark.parametrize(('mph', 'brake', 'warm', 'eps_fault', 'grant', 'expected'), [
+  (25, True, True, False, True, True),
+  (16, True, True, False, True, True),
+  (25, False, True, False, True, True),
+  (25, True, False, False, True, False),
+  (16, True, True, True, True, False),
+  (16, True, True, False, False, False),
+  (0, True, True, False, True, False),
+])
+def test_fit_armed_lateral_below_pcm_cruise_minimum(mph, brake, warm, eps_fault, grant, expected):
+  from opendbc.car.honda.values import CAR
+  from openpilot.starpilot.aol.tests.stock_lateral_test_helpers import car_state
+
+  with OpenpilotPrefix():
+    case = family_case('honda', False)
+    try:
+      case.family_cp = case.interface_type.get_non_essential_params(CAR.HONDA_FIT).as_reader()
+      assert case.family_cp.minSteerSpeed == 0.0 and case.family_cp.minEnableSpeed > 25 * .44704
+      sd, _, step, _, _ = case.family_callers(False)
+      assert sd.aol_ever_active
+      sd.aol_ever_active = warm
+      physical = car_state(brake=brake)
+      physical.vEgo, physical.standstill = mph * .44704, mph == 0
+      physical.steerFaultTemporary = eps_fault
+      physical.cruiseState.available = True
+      axis, _, command = step(2, observed_state=physical, allowed=grant)
+      assert log.OnroadEvent.EventName.belowEngageSpeed in sd.events.names
+      assert command.latActive == expected
+      assert not command.longActive and not axis.longitudinalActive
+    finally:
+      case.doCleanups()
