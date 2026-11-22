@@ -1,6 +1,7 @@
 from dataclasses import replace
 import pytest
 from opendbc.car import structs, gen_empty_fingerprint
+from opendbc.car.toyota import rav4h_filter
 from opendbc.car.toyota.interface import CarInterface
 from opendbc.car.toyota.values import CAR
 from openpilot.starpilot.car.toyota.legacy_lateral import below_engage_lateral_allowed
@@ -16,6 +17,7 @@ def evidence():
   fp=gen_empty_fingerprint()
   fp[0][0x2FF]=8
   cp=CarInterface.get_params(CAR.TOYOTA_HIGHLANDER,fp,firmware(CAR.TOYOTA_HIGHLANDER),False,False,False)
+  assert rav4h_filter.prepare_stock(cp)
   cp.alternativeExperience=32
   cs=structs.CarState(canValid=True,vEgo=0.,gearShifter=structs.CarState.GearShifter.drive)
   cs.cruiseState.available=True

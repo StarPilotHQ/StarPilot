@@ -2,6 +2,7 @@
 from dataclasses import replace
 import pytest
 from opendbc.car import gen_empty_fingerprint
+from opendbc.car.toyota import legacy_advert_filter
 from opendbc.car.toyota.interface import CarInterface
 from opendbc.car.toyota.values import CAR
 from openpilot.starpilot.car.toyota.tests import test_legacy_sdsu_lateral as original
@@ -22,6 +23,8 @@ def bind_evidence(candidate, monkeypatch):
     fp = gen_empty_fingerprint()
     fp[0][0x2FF] = 4
     cp = CarInterface.get_params(candidate, fp, firmware(candidate), False, False, False)
+    if candidate == CAR.TOYOTA_HIGHLANDER:
+      assert legacy_advert_filter.prepare_stock(cp)
     cp.alternativeExperience = previous.alternativeExperience
     slot = replace(native.pandaInventory[0], safetyParam=cp.safetyConfigs[0].safetyParam)
     native = replace(native, safetyParam=slot.safetyParam, pandaInventory=(slot,))
