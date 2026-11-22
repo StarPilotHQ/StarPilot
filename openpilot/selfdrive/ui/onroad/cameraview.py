@@ -41,51 +41,50 @@ void main() {
 }
 """
 
-# Choose fragment shader based on platform capabilities
-if COMMA_HARDWARE:
-  FRAME_FRAGMENT_SHADER = """
-    #version 300 es
-    #extension GL_OES_EGL_image_external_essl3 : enable
-    precision mediump float;
-    in vec2 fragTexCoord;
-    uniform samplerExternalOES texture0;
-    out vec4 fragColor;
-    uniform float color_strength;
-    uniform int road_camera;
-    """ + ROAD_COLOR_SHADER + """
-    void main() {
-      vec4 color = texture(texture0, fragTexCoord);
-      if (road_camera == 1) {
-        color.rgb = road_color(color.rgb, color_strength);
-      } else {
-        color.rgb = pow(color.rgb, vec3(1.0/1.28));
-      }
-      fragColor = vec4(color.rgb, color.a);
+FRAME_FRAGMENT_SHADER = """
+  #version 300 es
+  #extension GL_OES_EGL_image_external_essl3 : enable
+  precision mediump float;
+  in vec2 fragTexCoord;
+  uniform samplerExternalOES texture0;
+  out vec4 fragColor;
+  uniform float color_strength;
+  uniform int road_camera;
+  """ + ROAD_COLOR_SHADER + """
+  void main() {
+    vec4 color = texture(texture0, fragTexCoord);
+    if (road_camera == 1) {
+      color.rgb = road_color(color.rgb, color_strength);
+    } else {
+      color.rgb = pow(color.rgb, vec3(1.0/1.28));
     }
-    """
-else:
-  FRAME_FRAGMENT_SHADER = VERSION + """
-    in vec2 fragTexCoord;
-    uniform sampler2D texture0;
-    uniform sampler2D texture1;
-    out vec4 fragColor;
-    uniform float color_strength;
-    uniform int road_camera;
-    """ + ROAD_COLOR_SHADER + """
-    void main() {
-      float y = texture(texture0, fragTexCoord).r;
-      vec2 uv = texture(texture1, fragTexCoord).ra - 0.5;
-      vec3 rgb = vec3(y + 1.402*uv.y, y - 0.344*uv.x - 0.714*uv.y, y + 1.772*uv.x);
-      if (road_camera == 1) {
-        rgb = road_color(rgb, color_strength);
-      }
-      fragColor = vec4(rgb, 1.0);
+    fragColor = vec4(color.rgb, color.a);
+  }
+  """
+
+TEXTURE_FRAGMENT_SHADER = VERSION + """
+  in vec2 fragTexCoord;
+  uniform sampler2D texture0;
+  uniform sampler2D texture1;
+  out vec4 fragColor;
+  uniform float color_strength;
+  uniform int road_camera;
+  """ + ROAD_COLOR_SHADER + """
+  void main() {
+    float y = texture(texture0, fragTexCoord).r;
+    vec2 uv = texture(texture1, fragTexCoord).ra - 0.5;
+    vec3 rgb = vec3(y + 1.402*uv.y, y - 0.344*uv.x - 0.714*uv.y, y + 1.772*uv.x);
+    if (road_camera == 1) {
+      rgb = road_color(rgb, color_strength);
     }
-    """
+    fragColor = vec4(rgb, 1.0);
+  }
+  """
 
 
 class CameraView(Widget):
   FRAGMENT_SHADER = FRAME_FRAGMENT_SHADER
+  TEXTURE_FRAGMENT_SHADER = TEXTURE_FRAGMENT_SHADER
 
   def __init__(self, name: str, stream_type: VisionStreamType):
     super().__init__()
@@ -101,8 +100,10 @@ class CameraView(Widget):
 
     self._texture_needs_update = True
     self.last_connection_attempt: float = 0.0
-    self.shader = rl.load_shader_from_memory(VERTEX_SHADER, self.FRAGMENT_SHADER)
-    self._texture1_loc: int = rl.get_shader_location(self.shader, "texture1") if not COMMA_HARDWARE else -1
+    self._use_egl = COMMA_HARDWARE and init_egl()
+    fragment = self.FRAGMENT_SHADER if self._use_egl else self.TEXTURE_FRAGMENT_SHADER
+    self.shader = rl.load_shader_from_memory(VERTEX_SHADER, fragment)
+    self._texture1_loc = -1 if self._use_egl else rl.get_shader_location(self.shader, "texture1")
     self._init_color_uniforms(stream_type)
 
     self.frame: VisionBuf | None = None
@@ -116,10 +117,7 @@ class CameraView(Widget):
     self._placeholder_color: rl.Color | None = None
 
     # Initialize EGL for zero-copy rendering on COMMA_HARDWARE
-    if COMMA_HARDWARE:
-      if not init_egl():
-        raise RuntimeError("Failed to initialize EGL")
-
+    if self._use_egl:
       # Create a 1x1 pixel placeholder texture for EGL image binding
       temp_image = rl.gen_image_color(1, 1, rl.BLACK)
       self.egl_texture = rl.load_texture_from_image(temp_image)
@@ -250,7 +248,7 @@ class CameraView(Widget):
     dst_rect = rl.Rectangle(x_offset, y_offset, scale_x, scale_y)
 
     # Render with appropriate method
-    if COMMA_HARDWARE:
+    if self._use_egl:
       self._render_egl(src_rect, dst_rect)
     else:
       self._render_textures(src_rect, dst_rect)
@@ -295,8 +293,14 @@ class CameraView(Widget):
 
     # Update textures with new frame data
     if self._texture_needs_update:
-      y_data = self.frame.data[: self.frame.uv_offset]
-      uv_data = self.frame.data[self.frame.uv_offset:]
+      y_size = self.texture_y.width * self.texture_y.height
+      uv_size = 2 * self.texture_uv.width * self.texture_uv.height
+      uv_offset = self.frame.uv_offset
+      data = self.frame.data
+      if uv_offset < y_size or len(data) < uv_offset + uv_size:
+        return
+      y_data = data[:y_size]
+      uv_data = data[uv_offset:uv_offset + uv_size]
 
       rl.update_texture(self.texture_y, y_data)
       rl.update_texture(self.texture_uv, uv_data)
@@ -372,9 +376,10 @@ class CameraView(Widget):
 
   def _initialize_textures(self):
     self._clear_textures()
-    if not COMMA_HARDWARE:
-      stride, height = self.client.stride, self.client.height
-      assert stride is not None and height is not None
+    if not self._use_egl:
+      width, stride, height = self.client.width, self.client.stride, self.client.height
+      if width is None or stride is None or height is None or not 0 < width <= stride or height <= 0 or stride % 2 or height % 2:
+        return
       self.texture_y = rl.load_texture_from_image(rl.Image(None, stride, height, 1, rl.PixelFormat.PIXELFORMAT_UNCOMPRESSED_GRAYSCALE))
       self.texture_uv = rl.load_texture_from_image(rl.Image(None, stride // 2, height // 2, 1, rl.PixelFormat.PIXELFORMAT_UNCOMPRESSED_GRAY_ALPHA))
 
@@ -388,10 +393,9 @@ class CameraView(Widget):
       self.texture_uv = None
 
     # Clean up EGL resources
-    if COMMA_HARDWARE:
-      for data in self.egl_images.values():
-        destroy_egl_image(data)
-      self.egl_images = {}
+    for image in self.egl_images.values():
+      destroy_egl_image(image)
+    self.egl_images.clear()
 
 
 if __name__ == "__main__":
