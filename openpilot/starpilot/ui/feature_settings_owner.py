@@ -1128,6 +1128,9 @@ class FeatureSettingsOwner:
       rows.extend(longitudinal_developer_rows(self))
     elif page == FeaturePage.DEVELOPER_LATERAL:
       title = 'Developer Parameters'
+      controller_row = self.controller.row()
+      if controller_row is not None:
+        rows.append(controller_row)
       capability = self._capability("torque") or self._capability("gain")
       allowed = configurable and self.authority("torque") and capability is not None
       _, numeric_rows = self.torque.rows(capability, allowed, repair_allowed=parked and allowed)

@@ -85,11 +85,12 @@ class TestControllerFeature(unittest.TestCase):
     self.assertIsNone(self.params.get('ForceAutoTuneOff'))
     self.assertIsNone(self.params.get(DOCUMENT_KEY))
 
-  def test_stock_pid_keeps_learning_preference_without_exposing_a_toggle(self):
+  def test_stock_pid_exposes_controller_choice_without_mutating_cp(self):
     self.cp = interfaces[HONDA.HONDA_CIVIC].get_non_essential_params(HONDA.HONDA_CIVIC)
     self.assertEqual(self.cp.lateralTuning.which(), 'pid')
     original = self.cp.as_reader().as_builder().to_bytes()
-    self.assertIsNone(self.row())  # No torque-only controller/manual editor.
+    self.assertEqual(self.require_row().choices, ('Stock Controller', 'Torque Controller', 'StarPilot Controller'))
+    self.assertEqual(self.require_row().value, 'Stock Controller')
     self.assertIsNone(self.row('ForceAutoTuneOff'))
     self.assertTrue(read_preference(self.params, self.cp).enabled)
     self.assertIsNone(self.params.get('ForceAutoTuneOff'))

@@ -93,6 +93,39 @@ class ControllerSelection:
   mode: ControllerMode
   policy: str | None
   source: str
+  force_torque: bool = False
+
+
+def torque_choice_cp(cp):
+  """Preview only calibrated torque-actuated cars; never change the caller's CP."""
+  if generic_torque_supported(cp):
+    return cp
+  try:
+    platform = PLATFORMS.get(str(cp.carFingerprint))
+    unsafe = (structs.CarParams.SafetyModel.noOutput, structs.CarParams.SafetyModel.silent,
+              structs.CarParams.SafetyModel.allOutput)
+    if (platform is None or platform.__class__.__module__.split('.')[-2] != str(cp.brand) or
+        cp.notCar or cp.passive or cp.dashcamOnly or
+        cp.steerControlType != structs.CarParams.SteerControlType.torque or cp.lateralTuning.which() != 'pid' or
+        not cp.safetyConfigs or any(config.safetyModel in unsafe for config in cp.safetyConfigs)):
+      return None
+    from opendbc.car.interfaces import CarInterfaceBase
+    prepared = cp.as_reader().as_builder()
+    CarInterfaceBase.configure_torque_tune(prepared.carFingerprint, prepared.lateralTuning)
+    return prepared if generic_torque_supported(prepared) else None
+  except (AttributeError, TypeError, ValueError, OverflowError, KeyError, NotImplementedError, OSError):
+    return None
+
+
+def prepare_controller(cp, raw):
+  """Apply an explicit saved type before the interface and published CP exist."""
+  selected = selection_from_bytes(cp, raw)
+  if selected.source != 'invalid' and selected.force_torque and cp.lateralTuning.which() == 'pid':
+    prepared = torque_choice_cp(cp)
+    if prepared is not None:
+      cp.lateralTuning.init('torque')
+      cp.lateralTuning.torque = prepared.lateralTuning.torque.to_dict()
+  return cp
 
 
 def policy_for(CP) -> str | None:
@@ -198,21 +231,27 @@ def parse_document(raw: bytes) -> dict:
   if not isinstance(vehicles, dict) or len(vehicles) > len(KNOWN_POLICIES):
     raise ValueError('Invalid controller selection vehicles')
   for fingerprint, choice in vehicles.items():
-    if (fingerprint not in KNOWN_POLICIES or not isinstance(choice, dict) or set(choice) != {'brand', 'mode'} or
+    if (fingerprint not in KNOWN_POLICIES or not isinstance(choice, dict) or set(choice) not in ({'brand', 'mode'}, {'brand', 'mode', 'forceTorque'}) or
+        ('forceTorque' in choice and type(choice['forceTorque']) is not bool) or
         choice['brand'] != KNOWN_POLICIES[fingerprint] or type(choice['mode']) is not str or
         choice['mode'] not in (ControllerMode.STANDARD, ControllerMode.STARPILOT)):
       raise ValueError('Invalid controller selection choice')
   return document
 
 
-def replace_mode(raw: bytes | None, CP, mode: ControllerMode) -> bytes:
+def replace_mode(raw: bytes | None, CP, mode: ControllerMode, *, force_torque: bool = False) -> bytes:
   """Change only one exact platform's saved choice, preserving other entries."""
-  if policy_for(CP) is None:
-    raise ValueError('No exact torque policy for CarParams')
+  choice_cp = torque_choice_cp(CP)
+  if type(force_torque) is not bool or choice_cp is None or policy_for(choice_cp) is None:
+    raise ValueError('No calibrated torque controller for CarParams')
   mode = ControllerMode(mode)
+  if CP.lateralTuning.which() == 'pid' and mode == ControllerMode.STARPILOT and not force_torque:
+    raise ValueError('PID cars require an explicit torque controller choice')
   document = {'version': DOCUMENT_VERSION, 'vehicles': {}} if raw is None else parse_document(raw)
   vehicles = dict(document['vehicles'])
   vehicles[str(CP.carFingerprint)] = {'brand': str(CP.brand), 'mode': mode.value}
+  if force_torque:
+    vehicles[str(CP.carFingerprint)]['forceTorque'] = True
   encoded = json.dumps({'version': DOCUMENT_VERSION, 'vehicles': vehicles},
                        sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
   if len(encoded) > MAX_DOCUMENT_BYTES:
@@ -222,20 +261,25 @@ def replace_mode(raw: bytes | None, CP, mode: ControllerMode) -> bytes:
 
 def selection_from_bytes(CP, raw: bytes | None) -> ControllerSelection:
   default = default_selection(CP)
-  if raw is None or default.policy is None:
+  if raw is None:
     return default
   try:
     choice = parse_document(raw)['vehicles'].get(str(CP.carFingerprint))
     if choice is None or choice['brand'] != str(CP.brand):
       return default
-    return ControllerSelection(ControllerMode(choice['mode']), default.policy, 'saved')
+    force_torque = choice.get('forceTorque', False)
+    choice_cp = torque_choice_cp(CP) if force_torque else CP
+    policy = policy_for(choice_cp) if choice_cp is not None else None
+    if policy is None and not (not force_torque and choice['mode'] == ControllerMode.STANDARD and torque_choice_cp(CP) is not None):
+      return ControllerSelection(default.mode, default.policy, 'invalid')
+    return ControllerSelection(ControllerMode(choice['mode']), policy, 'saved', force_torque)
   except (UnicodeError, ValueError, TypeError, OverflowError):
     return ControllerSelection(default.mode, default.policy, 'invalid')
 
 
 def read_selection(params, CP) -> ControllerSelection:
   """Read once at controls startup; a later settings write cannot change this controller."""
-  if policy_for(CP) is None:
+  if torque_choice_cp(CP) is None:
     return default_selection(CP)
   try:
     with Path(params.get_param_path(DOCUMENT_KEY)).open('rb') as source:

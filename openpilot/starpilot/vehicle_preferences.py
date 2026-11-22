@@ -19,6 +19,7 @@ def bolt_disable_supported(cp) -> bool:
 
 @dataclass(frozen=True)
 class VehicleStartupPreferences:
+  controller_selection: bytes | None = field(default=None, kw_only=True)
   toyota_auto_hold: bool = False
   toyota_sng: bool = field(default=False, kw_only=True)
   jeep_brake_hold: bool = field(default=False, kw_only=True)
@@ -58,6 +59,10 @@ class VehicleStartupPreferences:
     from openpilot.starpilot.car.tesla.radar_settings import read_radar_settings
     from openpilot.starpilot.car.tesla.pedal_preferences import read_pedal_settings
     from openpilot.starpilot.car.ford.bluepilot import startup_params as ford_bluepilot
+    from openpilot.starpilot.lateral.controller_selection import DOCUMENT_KEY, MAX_DOCUMENT_BYTES
+    controller_selection, readable_selection = read_saved(params, DOCUMENT_KEY, MAX_DOCUMENT_BYTES)
+    if not enabled or not readable_selection:
+      controller_selection = None
     smoothing = read_snapshot(params, enabled=enabled)
     radar = read_radar_settings(params)
     pedal = read_pedal_settings(params)
@@ -87,7 +92,7 @@ class VehicleStartupPreferences:
       volt_one_pedal = bool(enabled and not disable_bolt and read_saved(params, "VoltOnePedalMode", 8) == (b"1", True) and
                             readable and safe in (None, b"0"))
     except (OSError, TypeError, ValueError):
-      return cls(vw_stock_long=vw_stock_long,
+      return cls(controller_selection=controller_selection, vw_stock_long=vw_stock_long,
                  subaru_smoothing=smoothing, disable_bolt_long=disable_bolt, honda_bosch_a_radar=honda_radar, tesla_preap_stock=preap_stock,
                  tesla_preap_radar=radar, tesla_preap_pedal=pedal,
                  gm_camera_pedal=False, toyota_filter=False)
@@ -107,7 +112,7 @@ class VehicleStartupPreferences:
     cooperative = bool(enabled and readable and safe in (None, b"0") and
                        read_saved(params, "TeslaCoopSteering", 8) == (b"1", True))
     screen_brake = read_saved(params, 'TeslaAOLDisengageOnBrake', 8) == (b'1', True)
-    return cls(vw_stock_long=vw_stock_long,
+    return cls(controller_selection=controller_selection, vw_stock_long=vw_stock_long,
                subaru_smoothing=smoothing, subaru_avh_startup=bool(enabled and readable and safe in (None, b"0") and
                     read_saved(params, "IsReleaseBranch", 8) in ((None, True), (b"0", True)) and
                     read_saved(params, "SubaruAvhStartup", 8) == (b"1", True)),
@@ -233,7 +238,8 @@ class VehicleStartupPreferences:
       configure_radar(cp)
     from opendbc.bluepilot_lateral.hosts.starpilot.safety_param import init_ford_safety_param_starpilot
     init_ford_safety_param_starpilot(cp, dict(self.ford_bluepilot))
-    return cp
+    from openpilot.starpilot.lateral.controller_selection import prepare_controller
+    return prepare_controller(cp, self.controller_selection)
 
   def finalize(self, cp) -> None:
     from opendbc.car.volkswagen.meb_modes import prepare_stock as prepare_meb_stock
