@@ -1,12 +1,20 @@
 import copy
 
 from opendbc.can import CANParser
-from opendbc.car import Bus, structs
+from opendbc.car import Bus, create_button_events, structs
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.interfaces import CarStateBase
 from opendbc.car.gwm.values import DBC
 
+ButtonType = structs.CarState.ButtonEvent.Type
 GearShifter = structs.CarState.GearShifter
+
+# The stalk reports the two gap-adjust directions as separate bits. openpilot has
+# a single gap button type, so both collapse onto it; the codes only need to be
+# distinct so a direct reduce -> increase switch still produces both edges.
+DISTANCE_REDUCE, DISTANCE_INCREASE = 1, 2
+BUTTONS_DICT = {DISTANCE_REDUCE: ButtonType.gapAdjustCruise,
+                DISTANCE_INCREASE: ButtonType.gapAdjustCruise}
 
 
 class CarState(CarStateBase):
@@ -32,6 +40,8 @@ class CarState(CarStateBase):
 
     # Stop & Go: track cruise state to distinguish standstill from real fault
     self.cruise_state_2 = 0
+
+    self.prev_distance_button = 0
 
   def update(self, can_parsers) -> structs.CarState:
     cp = can_parsers[Bus.pt]
@@ -159,6 +169,14 @@ class CarState(CarStateBase):
 
     ret.cruiseState.available = self.main_on
     ret.cruiseState.enabled = self.acc_enabled
+
+    # Gap-adjust presses from the stalk. The host reads these off buttonEvents to
+    # follow the car's own distance button, so the two direction bits have to be
+    # surfaced here rather than only forwarded in create_buttons_command.
+    distance_button = DISTANCE_REDUCE if cp.vl["STEER_AND_AP_STALK"]["AP_REDUCE_DISTANCE_COMMAND"] else \
+                      DISTANCE_INCREASE if cp.vl["STEER_AND_AP_STALK"]["AP_INCREASE_DISTANCE_COMMAND"] else 0
+    ret.buttonEvents = create_button_events(distance_button, self.prev_distance_button, BUTTONS_DICT)
+    self.prev_distance_button = distance_button
 
     return ret
 
