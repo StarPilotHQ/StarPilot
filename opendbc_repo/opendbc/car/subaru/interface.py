@@ -131,7 +131,8 @@ class CarInterface(CarInterfaceBase):
       ret.steerActuatorDelay = 0.15
 
     elif candidate == CAR.SUBARU_OUTBACK_PREGLOBAL:
-      pass
+      ret.dashcamOnly = False
+      ret.safetyConfigs[0].safetyParam = SubaruSafetyFlags.PREGLOBAL_OUTBACK_STOCK_ACC.value
     else:
       raise ValueError(f"unknown car: {candidate}")
 
