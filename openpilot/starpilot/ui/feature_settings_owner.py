@@ -1187,7 +1187,8 @@ class FeatureSettingsOwner:
       rows.extend(self.wheel.rows())
     elif page == FeaturePage.SLC:
       cp = self.vehicle_params()
-      slc_available = system_long if cp is None else self.longitudinal_available() or hyundai_software_cruise.slc_configurable(cp, self.params)
+      button_cruise = hyundai_software_cruise.slc_configurable(cp, self.params)
+      slc_available = system_long if cp is None else self.longitudinal_available() or button_cruise
       system_long = slc_available and self.authority("slc")
       allowed = configurable and system_long
       offsets_ready, offset_rows = self.slc_offsets.rows(allowed, repair_allowed=parked and allowed)
@@ -1207,10 +1208,10 @@ class FeatureSettingsOwner:
       control_row = self._bool_row("SpeedLimitController", "Speed Limit Controller",
                                    allowed and (offsets_ready or control == "1"), reason=control_reason)
       rows.append(replace(control_row, reason=control_reason) if control_row.choices else control_row)
-      cp = self.vehicle_params()
-      if cp is not None and not cp.pcmCruise:
+      if cp is not None and (not cp.pcmCruise or button_cruise):
         rows.append(self._bool_row("SLCOnEngage", "Match Speed Limit on Engage", allowed and control == "1",
-                                   reason="Start SET at the SLC limit plus offset. RES restores your previous SET"))
+                                   reason="Lower your new SET to the speed limit plus offset when using Redneck Cruise"
+                                   if button_cruise else "Start SET at the SLC limit plus offset. RES restores your previous SET"))
       rows.append(self._bool_row("ShowSpeedLimits", "Show speed limit signs", self.authority("preferences"),
                                  reason="Display signs independently of Speed Limit Controller; does not change cruise speed"))
       rows.extend(policy_rows(self._value, self._readable, allowed=allowed))
@@ -1755,7 +1756,8 @@ class FeatureSettingsOwner:
           return False
         if key in ("SLCOnEngage", WHEEL_OVERRIDE_KEY):
           cp = self.vehicle_params()
-          if cp is None or cp.pcmCruise or not self.longitudinal_available() or (
+          button_match = key == "SLCOnEngage" and hyundai_software_cruise.slc_configurable(cp, self.params)
+          if (not (button_match or cp is not None and not cp.pcmCruise and self.longitudinal_available()) or
               request.value == "On" and self._raw("SpeedLimitController") != b"1"):
             return False
         encoded = "1" if request.value == "On" else "0"

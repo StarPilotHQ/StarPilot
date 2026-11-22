@@ -86,7 +86,7 @@ DESCRIPTIONS = {
   'SpeedLimitController': 'Follows accepted limits plus offsets up to SET speed. Missing data uses the previous accepted limit.',
   'SLCOnEngage': ('Starts software cruise SET at the SLC limit plus offset. ' +
                   'A limit accepted this session remains available during data gaps. Previous-drive history does not initialize SET. ' +
-                  'RES restores the previous SET.'),
+                  'RES restores the previous SET. Redneck Cruise lowers the new SET only when a current limit is available.'),
   'SLCOverrideMode': ('Cruise uses this target when you lift off the accelerator. ' +
                       'Holding your speed uses the highest speed you reached, up to SET.'),
   'SLCWheelOverride': 'Press + to raise SET past the adjusted limit and use your new SET speed.',

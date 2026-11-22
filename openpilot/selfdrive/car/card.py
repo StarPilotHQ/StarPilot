@@ -869,6 +869,10 @@ class Car:
     self.v_cruise_helper.update_v_cruise(CS, self.sm['carControl'].enabled, self.is_metric, pending,
                                        slc_enabled=getattr(self, 'slc_control_enabled', getattr(self, 'slc_replay', False)),
                                        wheel_context=wheel_context)
+    redneck_cruise = getattr(self, 'redneck_cruise', None)
+    if redneck_cruise is not None and (self.slc_match_on_engage or redneck_cruise.set_match_ns):
+      now_ns = int(self.can_log_mono_time) if REPLAY and hasattr(self, 'can_log_mono_time') else time.monotonic_ns()
+      redneck_cruise.match_limit_on_set(self, CS, now_ns)
     if self.sm['carControl'].enabled and not self.CC_prev.enabled:
       target, initial = None, None
       now_ns = int(self.can_log_mono_time) if REPLAY and hasattr(self, 'can_log_mono_time') else time.monotonic_ns()
