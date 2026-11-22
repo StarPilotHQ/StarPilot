@@ -3404,8 +3404,8 @@ msgid "Chooses the camera view shown on the driving screen."
 msgstr "走行画面に表示するカメラ映像を選択します。"
 
 #: openpilot/starpilot/galaxy/setting_descriptions.py
-msgid "Chooses the first source checked for a fresh speed limit."
-msgstr "最新の速度制限を最初に確認する情報源を選択します。"
+msgid "Chooses where SLC gets speed limits. SLC always uses the newest limit from any source. If two arrive at the same time, this one wins."
+msgstr "SLCが制限速度を取得する情報源を選びます。SLCは常に、いずれかの情報源の最新の制限速度を使用します。同時に届いた場合はこの情報源が優先されます。"
 
 #: openpilot/starpilot/galaxy/setting_descriptions.py
 msgid "Chooses the native Ford steering controller or the supported BluePilot angle controller."
@@ -3416,8 +3416,8 @@ msgid "Chooses the sounds used for driving alerts and chimes."
 msgstr "運転警告とチャイムで使う音を選択します。"
 
 #: openpilot/starpilot/galaxy/setting_descriptions.py
-msgid "Chooses the source used when the primary source has no fresh speed limit."
-msgstr "主情報源に最新の速度制限がないときに使う情報源を選択します。"
+msgid "Chooses a second place SLC gets speed limits. Its new limits are used just like the primary source's. Choose Off to stop using it."
+msgstr "SLCが制限速度を取得する2つ目の情報源を選びます。新しい制限速度は主情報源と同じように使用されます。使用しない場合は「オフ」を選択してください。"
 
 #: openpilot/starpilot/galaxy/setting_descriptions.py
 msgid "Chooses the stock steering controller or the vehicle-specific StarPilot controller."
@@ -14547,8 +14547,8 @@ msgid "Use this code on the device:"
 msgstr "デバイスでこのコードを使用してください:"
 
 #: openpilot/starpilot/ui/feature_settings_owner.py
-msgid "Use this source when the primary source is unavailable"
-msgstr "主情報源が利用できないときにこの情報源を使用"
+msgid "A second place SLC gets speed limits. Its new limits are used just like the primary source's. Choose Off to stop using it."
+msgstr "SLCが制限速度を取得する2つ目の情報源です。新しい制限速度は主情報源と同じように使用されます。使用しない場合は「オフ」を選択してください。"
 
 #: openpilot/starpilot/ui/torque_feature.py
 msgid "Use vehicle values for this model"
@@ -23116,8 +23116,8 @@ msgid "Upper boundary excluded; displayed ranges rounded to whole speeds. Unsafe
 msgstr "上端は含みません。表示範囲は整数の速度に丸めます。安全でない減少では調整前の制限を使用します"
 
 #: openpilot/starpilot/ui/feature_settings_owner.py
-msgid "Use this source first; try the secondary source when it is unavailable"
-msgstr "この情報源を最初に使用し、利用できない場合は副情報源を試します"
+msgid "Where SLC gets speed limits. SLC always uses the newest limit from any source. If two arrive at the same time, this one wins."
+msgstr "SLCが制限速度を取得する情報源です。SLCは常に、いずれかの情報源の最新の制限速度を使用します。同時に届いた場合はこの情報源が優先されます。"
 
 #: openpilot/starpilot/galaxy/setting_descriptions.py
 msgid "Use vision-only adaptive cruise control instead of radar-assisted lead detection. Requires StarPilot longitudinal control. Applies next drive; radar faults and safety checks remain active."

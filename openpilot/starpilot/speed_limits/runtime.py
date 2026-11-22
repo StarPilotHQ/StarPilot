@@ -141,6 +141,8 @@ class Runtime:
     self.ledger = arb.new_ledger(session_id)
     self.map_source = MapSource()
     self.advance = Advance()
+    self._seen: dict[sel.Source, float] = {}
+    self._offered: sel.Source | None = None
     self.vision_diagnostic = acc.Observation(acc.ObservationKind.UNKNOWN)
     self._last_vision_producer = ''
     self._last_vision_frame = 0
@@ -317,6 +319,28 @@ class Runtime:
     # Vision still requires its independent source-specific qualification.
     return values
 
+  def _offer_policy(self, observations: dict[sel.Source, acc.Observation]) -> sel.SelectionPolicy:
+    """The source with the newest number holds the offer; a source going quiet hands nothing over."""
+    policy = self.settings.selection
+    considered = sel.select_limit(observations, policy).considered
+    if self._offered not in considered:
+      self._seen.clear()  # nothing offered yet, or its source was switched off: every current number is new
+    fresh = dict.fromkeys(sel.Source, acc.Observation(acc.ObservationKind.ABSENT))
+    for source in considered:
+      observation = observations[source]
+      if observation.kind is acc.ObservationKind.ABSENT:
+        self._seen.pop(source, None)  # only the dashboard reports "no sign"; its next number is new
+      elif observation.kind is acc.ObservationKind.VALID and observation.candidate.speed_mps != self._seen.get(source):
+        self._seen[source] = observation.candidate.speed_mps
+        fresh[source] = observation
+    # Saved source order only breaks ties between numbers that arrive together.
+    newest = sel.select_limit(fresh, policy).selected_source
+    if newest is not None:
+      self._offered = newest
+    if self._offered in considered:
+      return replace(policy, mode=sel.SelectionMode.ORDERED, slots=(self._offered, None))
+    return policy
+
   def _smoothed_ego_delta(self, ego, CP, sample_ns: int, *, standstill: bool) -> float | None:
     """Estimate dashboard calibration without feeding its display steps into cruise."""
     if (ego.status is not sd.DomainStatus.VALID or ego.raw_mps is None or ego.cluster_mps is None or
@@ -370,11 +394,12 @@ class Runtime:
     host = comp.HostState(bool(CP.openpilotLongitudinalControl), host_long, bool(selfdrive.enabled and selfdrive_fresh),
                           bool(controls.forceDecel) if controls_fresh else True, selected, selected_cluster)
     observations = self._observations(sm, CP, now_ns, now_boot_ns)
+    policy = self._offer_policy(observations)
     wheel_enabled = (self.settings.wheel_override and not CP.pcmCruise and car_fresh and car_state.canValid and
                      V_CRUISE_MIN <= selected <= V_CRUISE_MAX and selected_cluster == selected and
                      not car_state.brakePressed)
     wheel_blocked = wheel_override_blocked or car_state.standstill or car_state.cruiseState.standstill
-    frame = comp.Frame(now_ns, observations, self.settings.selection, authority,
+    frame = comp.Frame(now_ns, observations, policy, authority,
                       self.settings.acceptance, self.settings.offsets,
                       sd.DomainStatus.VALID if car_fresh and selected_cluster is not None else sd.DomainStatus.STALE,
                       ego, bool(car_state.gasPressed) if car_fresh else False, host, action=action, adopt=adopt,
@@ -386,7 +411,7 @@ class Runtime:
     encounter = self.advance.encounter
     if not maps_selected and encounter is None:
       return frame
-    current = sel.select_limit(observations, self.settings.selection).observation.candidate
+    current = sel.select_limit(observations, policy).observation.candidate
     accepted = self.state.acceptance.accepted
     # Confirm the old cap before a short zone can offer its exit preview.
     if (encounter is not None and accepted is not None and accepted == encounter.applied_preview and
@@ -414,7 +439,7 @@ class Runtime:
       current_unresolved = (current is not None and current.source == 'map' and current.speed_mps not in (
                               accepted.candidate.speed_mps if accepted is not None else None,
                               rejected.speed_mps if rejected is not None else None))
-      proposals = self.advance.propose(observations, self.settings.selection, self.map_source.upcoming,
+      proposals = self.advance.propose(observations, policy, self.map_source.upcoming,
         current_way_id=self.map_source.way_id, higher_seconds=self.settings.advance_higher_seconds,
         lower_seconds=self.settings.advance_lower_seconds,
         speed_mps=float(car_state.vEgo) if ego_valid else None,
@@ -488,11 +513,11 @@ class Runtime:
       if result.acceptance.history_write is not None and not provisional:
         self.history_limit = accepted
       elif accepted is not None and accepted != self.history_limit and result.selection is not None:
-        current = sel.select_limit(frame.observations, self.settings.selection).observation.candidate
+        current = sel.select_limit(frame.observations, frame.selection_policy).observation.candidate
         if current is not None and current == result.selection.observation.candidate and current.speed_mps == accepted.candidate.speed_mps:
           self.history_limit = accepted
     if self.state.acceptance.presentation is None and self.advance.encounter is not None:
-      current = sel.select_limit(frame.observations, self.settings.selection).observation.candidate
+      current = sel.select_limit(frame.observations, frame.selection_policy).observation.candidate
       if current is not None and (self.current_presentation is None or self.current_presentation.candidate != current):
         identity = self.state.acceptance.next_presentation_id
         self.current_presentation = acc.Presentation(identity, current)
@@ -524,7 +549,7 @@ class Runtime:
     message.logMonoTime = now_ns
     message.valid = not result.errors
     state = message.slcState
-    current_selection = sel.select_limit(frame.observations, self.settings.selection)
+    current_selection = sel.select_limit(frame.observations, frame.selection_policy)
     state.sessionId = self.session_id
     # Display metadata is copied from the same qualified inputs used by selection.
     enabled_sources = (set(self.settings.selection.slots) if self.settings.selection.mode == sel.SelectionMode.ORDERED

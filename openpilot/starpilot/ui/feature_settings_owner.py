@@ -1221,9 +1221,12 @@ class FeatureSettingsOwner:
       vision_dev, maps_available = source_capability
       source_allowed = configurable and self.authority("preferences")
       for key, label, help_text in (
-          (SLC_PRIORITY, "Primary source", "Use this source first; try the secondary source when it is unavailable"),
-          (SLC_SECONDARY, "Secondary source", "Use this source when the primary source is unavailable"),
-          (SLC_TERTIARY, "Third source", "Use this source when neither earlier source has a usable reading")):
+          (SLC_PRIORITY, "Primary source", ("Where SLC gets speed limits. SLC always uses the newest limit from any source. " +
+                                            "If two arrive at the same time, this one wins.")),
+          (SLC_SECONDARY, "Secondary source", ("A second place SLC gets speed limits. Its new limits are used just like the primary source's. " +
+                                               "Choose Off to stop using it.")),
+          (SLC_TERTIARY, "Third source", ("An optional third place SLC gets speed limits. Its new limits are used like the others. " +
+                                          "Choose Off to stop using it."))):
         choices = self._source_choices(source_capability, key=key)
         source, raw, valid = self._value(key)
         source = "Maps" if source == "Map Data" else source

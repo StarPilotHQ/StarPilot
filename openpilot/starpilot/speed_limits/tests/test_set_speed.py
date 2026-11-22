@@ -77,7 +77,7 @@ def test_retained_confirmation_uses_the_original_choice_without_a_speed_command(
 
 
 @pytest.mark.parametrize('manual', [False, True])
-def test_provider_changes_are_immediate_and_vision_gaps_preserve_the_current_decision(drive, manual):
+def test_source_gaps_keep_the_offer_and_only_a_new_number_changes_it(drive, manual):
   from openpilot.cereal import messaging
   from openpilot.starpilot.speed_limits.vision.observation import MODEL_ID
 
@@ -105,38 +105,21 @@ def test_provider_changes_are_immediate_and_vision_gaps_preserve_the_current_dec
 
   initial = observe(0, dashboard=True)
   assert initial.message.slcState.hasAccepted
-  for seconds, primary in ((.1, False), (.5, True), (1., False), (1.5, True), (2., False)):
-    output = observe(seconds, dashboard=primary)
-    assert output.message.slcState.hasPending == (manual and not primary)
-    if manual:
-      assert output.message.slcState.acceptedMonoTime == initial.message.slcState.acceptedMonoTime
-      assert output.message.slcState.acceptedSource == 'dashboard'
-    else:
-      assert output.message.slcState.acceptedMonoTime == START + round(seconds * 1e9)
-      assert output.message.slcState.acceptedSource == ('dashboard' if primary else 'vision')
-  settled = observe(4.)
-  assert not settled.result.errors
-  assert settled.message.slcState.hasPending == manual
-  assert settled.message.slcState.acceptedMonoTime == output.message.slcState.acceptedMonoTime
-  if manual:
-    assert settled.message.slcState.decisionId == output.message.slcState.decisionId
-    assert settled.message.slcState.pendingSinceMonoTime == START + 2_000_000_000
-  if not manual:
-    assert settled.result.ceiling is not None
-  lost = observe(4.05, available=False)
-  recovered = observe(4.15)
-  assert lost.message.slcState.hasPending == recovered.message.slcState.hasPending == manual
-  assert recovered.message.slcState.acceptedMonoTime == settled.message.slcState.acceptedMonoTime
-  if manual:
-    assert lost.message.slcState.presentationId == settled.message.slcState.presentationId
-    assert lost.message.slcState.decisionId == recovered.message.slcState.decisionId == settled.message.slcState.decisionId
-    assert lost.message.slcState.pendingSinceMonoTime == recovered.message.slcState.pendingSinceMonoTime == settled.message.slcState.pendingSinceMonoTime
+  # Dashboard dropping out does not hand Vision's unchanged 35 the offer.
+  for seconds, primary in ((.1, False), (.5, True), (1., False), (1.5, True), (2., False), (4., False)):
+    state = observe(seconds, dashboard=primary).message.slcState
+    assert not state.hasPending
+    assert (state.acceptedSource, state.acceptedMonoTime) == ('dashboard', initial.message.slcState.acceptedMonoTime)
+  # A Vision gap with its unchanged number changes nothing; a new Vision number is offered at once.
+  lost = observe(4.05, available=False).message.slcState
+  recovered = observe(4.15).message.slcState
+  assert not lost.hasPending and not recovered.hasPending
+  assert lost.acceptedMonoTime == recovered.acceptedMonoTime == initial.message.slcState.acceptedMonoTime
   vision.speedMps = 40 * CV.MPH_TO_MS
   changed = observe(4.2)
-  assert changed.message.slcState.hasPending == manual
+  assert not changed.result.errors and changed.message.slcState.hasPending == manual
+  assert changed.message.slcState.acceptedSource == ('dashboard' if manual else 'vision')
   assert changed.result.ceiling is not None
-  if manual:
-    assert changed.message.slcState.decisionId != settled.message.slcState.decisionId
 
 
 @pytest.mark.parametrize('button,kind', [('accel', 'confirmationAccept'), ('decel', 'confirmationReject')])

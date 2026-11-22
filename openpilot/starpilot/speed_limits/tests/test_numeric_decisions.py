@@ -29,7 +29,7 @@ def test_legacy_map_conversion_does_not_reprompt_for_the_same_limit(metric, post
   exact = posted / 3.6
   # Frozen maps.ParseMaxSpeed conversion; source correction must also account for existing tiles.
   mapped = posted * .277778
-  first = drive.tick(current=mapped, dashboard=exact, target=0.)
+  first = drive.tick(dashboard=exact, target=0.)
   accepted = first.result.acceptance.state.accepted.candidate.speed_mps
   drive.runtime.settings = replace(drive.runtime.settings, acceptance=acc.Policy())
   switched = drive.tick(current=mapped, dashboard=None, target=0.)
@@ -46,7 +46,7 @@ def test_legacy_map_conversion_does_not_reprompt_for_the_same_limit(metric, post
 ])
 def test_equivalent_arithmetic_collapses_to_the_same_live_wire_value(exact, mapped):
   drive = numeric_drive()
-  first = drive.tick(current=mapped, dashboard=exact, target=0.)
+  first = drive.tick(dashboard=exact, target=0.)
   accepted = first.result.acceptance.state.accepted.candidate.speed_mps
   drive.runtime.settings = replace(drive.runtime.settings, acceptance=acc.Policy())
   switched = drive.tick(current=mapped, dashboard=None, target=0.)
