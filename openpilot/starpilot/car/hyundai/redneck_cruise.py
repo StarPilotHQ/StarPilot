@@ -332,7 +332,7 @@ def update(card, cs, cc, now_ns):
     lead_distance = lead_rel_speed = 0.0
     if current(card.sm, "radarState", now_ns):
       lead = card.sm["radarState"].leadOne
-      if lead.status and math.isfinite(lead.dRel) and math.isfinite(lead.vRel):
+      if lead.present and math.isfinite(lead.dRel) and math.isfinite(lead.vRel):
         lead_distance, lead_rel_speed = float(lead.dRel), float(lead.vRel)
     speeds = [float(speed) for speed in plan.speeds if math.isfinite(speed)]
     target = select_redneck_target_speed(ceiling_kph, cluster, 0.0, speeds, len(speeds) if plan.hasLead else 10,
