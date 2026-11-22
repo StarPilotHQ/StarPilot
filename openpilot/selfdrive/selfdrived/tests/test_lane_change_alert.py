@@ -51,7 +51,7 @@ class TestLaneChangeAlert(unittest.TestCase):
     drive.lane_status_session = ""
     drive.lane_status_sequence = -1
     with patch("openpilot.selfdrive.selfdrived.selfdrived.time.monotonic_ns", return_value=1_050_000_000):
-      drive.update_alerts(object())
+      drive.update_alerts(car.CarState.new_message(gearShifter="drive"))
     return alerts.current_alert
 
   def test_missing_or_mismatched_status_is_neutral(self):

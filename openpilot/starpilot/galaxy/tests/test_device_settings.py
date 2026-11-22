@@ -372,7 +372,7 @@ class DeviceSettingsTest(unittest.TestCase):
     keys = [row.key for row in rows]
     self.assertEqual(keys[keys.index(STARPORT_EXPERIMENTS_KEY) + 1:],
                      [STARPORT_EXPERIMENT_PREFIX + "gm_mychevrolet_w28e", STARPORT_EXPERIMENT_PREFIX + "polestar_ps2_aar_301433653",
-                      STARPORT_EXPERIMENT_PREFIX + "phone_ping"])
+                      STARPORT_EXPERIMENT_PREFIX + "honda_fit_t5a_83_01d", STARPORT_EXPERIMENT_PREFIX + "phone_ping"])
     rule_key = STARPORT_EXPERIMENT_PREFIX + "gm_mychevrolet_w28e"
     row = rows[keys.index(rule_key)]
     self.assertEqual((row.value, row.default_value, row.available), ("Off", "Off", True))
