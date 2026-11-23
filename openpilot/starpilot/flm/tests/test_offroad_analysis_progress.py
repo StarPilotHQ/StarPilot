@@ -133,8 +133,33 @@ class TestAnalysisProgress(unittest.TestCase):
                                                        (True, False, False, False, 2.03), (True, True, True, False, 0.93)):
       with self.subTest(recovery=recovery, resumed=resumed, onroad=onroad):
         now, sm, params = fixture(resumed, onroad)
+        refusals = []
         self.assertEqual(wait_for_parked(sm, params, clock=lambda now=now: now[0],
-                                        recover_device_state=recovery), expected)
+                                        recover_device_state=recovery, on_refusal=lambda *result, refusals=refusals: refusals.append(result)), expected)
         self.assertLessEqual(now[0] - 100.0, limit)
         if expected:
           self.assertEqual(sm.recv_time['deviceState'], now[0])
+          self.assertEqual(refusals, [])
+        elif onroad:
+          self.assertEqual(refusals[0][0], 'waiting_for_vehicle_offroad')
+          self.assertFalse(refusals[0][2])
+        else:
+          self.assertEqual(refusals[0][0], 'waiting_for_fresh_deviceState')
+          self.assertTrue(refusals[0][2])
+
+    # A stalled initial poll must not consume the recovery budget. When deviceState
+    # recovers first, wait for fresh Panda data rather than reverting to 750 ms.
+    now, sm, params = fixture(resumed=False, onroad=False)
+    original_update = sm.update
+
+    def staggered_update(timeout):
+      if timeout == 0:
+        now[0] += 2.2
+      original_update(timeout)
+      sm.recv_time['pandaStates'] = now[0] if now[0] >= 103.8 else 100
+      if now[0] >= 103.3:
+        sm.recv_time['deviceState'] = now[0]
+
+    sm.update = staggered_update
+    self.assertTrue(wait_for_parked(sm, params, clock=lambda: now[0], recover_device_state=True))
+    self.assertGreaterEqual(now[0], 103.8)

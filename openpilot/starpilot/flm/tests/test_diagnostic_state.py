@@ -135,6 +135,29 @@ class TestDiagnosticState(unittest.TestCase):
     self.assertEqual(report.previous['completed_route'], 'earlier-drive')
     self.assertFalse(directory_for_params(self.params).exists())
 
+  def test_download_correlates_an_existing_hardwared_phase_without_exporting_raw_log(self):
+    timestamp = 1_789_000_000
+    counts = {'parked_interrupted_wall_ns': timestamp * 10**9, 'device_state_receive_age_ms': 3000,
+              'parked_wait_ms': 2000, 'parked_wait_timed_out': 1}
+    DiagnosticState(self.params).observe({'status': 'unavailable', 'reason': 'waiting_for_fresh_deviceState', 'analysis_counts': counts})
+    entry = {'filename': 'hardware_timing.py', 'created': timestamp + 1, 'ctx': {'location': 'private sample'},
+             'msg': {'event$s': 'hardwared.slow_phase', 'phase$s': 'thermal_read', 'elapsedMs$f': 4500., 'threadCpuMs$f': 12.}}
+    # Ignore an unrelated later pause and an otherwise similar entry from a different source.
+    ignored = [dict(entry, created=timestamp + 90), dict(entry, filename='other.py')]
+    path = self.root / 'swaglog.0000000001'
+    path.write_text('\n'.join(json.dumps(row) for row in [*ignored, entry]) + '\n')
+    with patch('openpilot.starpilot.galaxy.flm_diagnostics.cloudlog_root', return_value=self.root):
+      result = self.exported()['learning_diagnostics']
+      self.assertNotIn('parked_interrupted_wall_ns', json.dumps(result))
+      self.assertNotIn('private sample', json.dumps(result))
+      for event in (result['last_result'], result['events'][-1]):
+        self.assertEqual(event['analysis_counts']['parked_wait_ms'], 2000)
+        self.assertEqual(event['hardwared_pause'], {'status': 'overlapping_logged_phase', 'phase': 'thermal_read',
+                                                   'elapsed_ms': 4500, 'thread_cpu_ms': 12})
+      path.write_text('\n'.join(json.dumps(row) for row in ignored))
+      self.assertEqual(self.exported()['learning_diagnostics']['last_result']['hardwared_pause'],
+                       {'status': 'no_matching_phase_in_recent_logs'})
+
   def test_worker_startup_failure_is_captured_before_assessment_cache_exists(self):
     self.params.put_bool('IsOffroad', True, block=True)
     self.params.put('AutomaticSteeringProfiles', b'preserved-original', block=True)

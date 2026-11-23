@@ -1,11 +1,16 @@
 """Small, read-only support download; no raw routes, CarParams, GPS or credentials."""
 
 import json
+import math
+import os
+from pathlib import Path
 import re
+import stat
 from typing import Any
 
 from capnp import KjException
 
+from openpilot.starpilot.connect.provider import cloudlog_root
 from openpilot.starpilot.flm.offroad_cache import AssessmentCache, directory_for_params
 from openpilot.starpilot.flm.offroad_store import KEY, MAX_BYTES, NAMESPACE
 from openpilot.starpilot.flm.learned_lifecycle import decode
@@ -115,6 +120,66 @@ def _finding_review(report, params, cache):
   return {'status': 'checked', 'scope': 'Stored parked configuration at download', 'manual_coordinates': manual_state, 'findings': findings}
 
 
+def _hardwared_pauses(root):
+  """Read only recent, already recorded slow phases. Never return raw log records."""
+  try:
+    paths = sorted(Path(root).glob('swaglog.[0-9]*'), reverse=True)[:8]
+  except OSError:
+    return []
+  pauses = []
+  for path in paths:
+    try:
+      with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode):
+          continue
+        offset = max(0, info.st_size - 256 * 1024)
+        stream.seek(offset)
+        data = stream.read(256 * 1024)
+      lines = data.splitlines()
+      for line in lines[1:] if offset else lines:
+        if b'hardwared.slow_phase' not in line:
+          continue
+        try:
+          entry = json.loads(line)
+          msg = entry['msg']
+          if entry['filename'] != 'hardware_timing.py' or msg['event$s'] != 'hardwared.slow_phase':
+            continue
+          phase, end = msg['phase$s'], entry['created']
+          elapsed, cpu = msg['elapsedMs$f'], msg['threadCpuMs$f']
+          if (re.fullmatch(r'[a-z_]{1,32}', phase) and type(end) in (int, float) and math.isfinite(end)
+              and 500 <= elapsed <= 60_000 and 0 <= cpu <= elapsed + 1):
+            pauses.append((end - elapsed / 1000, end, phase, round(elapsed), round(cpu)))
+        except (ValueError, TypeError, KeyError, OverflowError, RecursionError):
+          continue
+    except OSError:
+      continue
+  return pauses
+
+
+def _explain_parked_interruptions(history):
+  pauses = None
+  for event in [history['current'], history['last_attempt'], history['last_result'], *history['events']]:
+    if event is None:
+      continue
+    event['explanation'] = _explanation(event['reason'])
+    counts = event.get('analysis_counts', {})
+    interrupted = counts.pop('parked_interrupted_wall_ns', None)
+    age_ms = counts.get('device_state_receive_age_ms')
+    if interrupted is None or age_ms is None:
+      continue
+    if pauses is None:
+      pauses = _hardwared_pauses(cloudlog_root())
+    when = interrupted / 1e9
+    matches = [row for row in pauses if row[0] <= when <= row[1] + 0.5 and
+               row[1] >= when - age_ms / 1000 and row[1] <= when + 60]
+    if matches:
+      _, _, phase, elapsed, cpu = max(matches, key=lambda row: row[3])
+      event['hardwared_pause'] = {'status': 'overlapping_logged_phase', 'phase': phase, 'elapsed_ms': elapsed, 'thread_cpu_ms': cpu}
+    else:
+      event['hardwared_pause'] = {'status': 'no_matching_phase_in_recent_logs'}
+
+
 def diagnostics(report, params):
   current = report.get('current') or {}
   details = current.get('details') or {}
@@ -138,9 +203,7 @@ def diagnostics(report, params):
   result['learning_diagnostics'] = read_state(params)
   history = result['learning_diagnostics']
   if history['status'] == 'recorded':
-    for event in [history['current'], history['last_attempt'], history['last_result'], *history['events']]:
-      if event is not None:
-        event['explanation'] = _explanation(event['reason'])
+    _explain_parked_interruptions(history)
   if details.get('Diagnostic persistence error'):
     result['learning_diagnostics']['write_error'] = _reason(details['Diagnostic persistence error'])
   for key in ('GitCommit', 'GitBranch'):

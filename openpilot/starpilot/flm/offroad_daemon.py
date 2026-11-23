@@ -318,9 +318,11 @@ def parked_status(sm, params, *, stopped=False, now=None):
   return parked_blocker(sm, params, stopped=stopped, now=now) is None
 
 
-def wait_for_parked(sm, params, *, stopped=lambda: False, clock=time.monotonic, powered_offroad=None, recover_device_state=False):
+def wait_for_parked(sm, params, *, stopped=lambda: False, clock=time.monotonic, powered_offroad=None,
+                    recover_device_state=False, on_refusal=None):
   """Refresh a lapped subscriber before resuming analysis; never use stale permission."""
-  started = clock()
+  started = None
+  wait = 0.75
   timeout = 0
   while True:
     sm.update(timeout)
@@ -328,20 +330,33 @@ def wait_for_parked(sm, params, *, stopped=lambda: False, clock=time.monotonic, 
     reason = parked_blocker(sm, params, stopped=stopped(), now=now, powered_offroad=powered_offroad)
     if reason is None:
       return True
-    # Pause an in-progress read for a late hardwared update without extending status freshness.
-    wait = 2.0 if recover_device_state and reason == 'waiting_for_fresh_deviceState' else 0.75
-    if (
-      stopped()
-      or not params.get_bool('IsOffroad')
-      or params.get_bool('IsEngaged')
-      or sm['deviceState'].started
-      or reason == 'waiting_for_ignition_off'
-      or any(p.controlsAllowed or p.faults or (powered_offroad is None and (p.ignitionLine or p.ignitionCan)) for p in sm['pandaStates'])
-      or now - started >= wait
+    if started is None:
+      started = now
+    # A late or temporarily invalid device report can overlap another stale feed.
+    # Once recovery starts, keep its original deadline and recheck every parked gate.
+    if recover_device_state and reason in ('waiting_for_fresh_deviceState', 'waiting_for_valid_deviceState'):
+      wait = 2.0
+    abort = None
+    if stopped():
+      abort = 'waiting_for_shutdown_to_finish'
+    elif not params.get_bool('IsOffroad'):
+      abort = 'waiting_for_vehicle_offroad'
+    elif params.get_bool('IsEngaged'):
+      abort = 'waiting_for_controls_to_disengage'
+    elif sm['deviceState'].started:
+      abort = 'waiting_for_vehicle_to_switch_off'
+    elif reason == 'waiting_for_ignition_off' or (
+      powered_offroad is None and any(p.ignitionLine or p.ignitionCan for p in sm['pandaStates'])
     ):
+      abort = 'waiting_for_ignition_off'
+    elif any(p.controlsAllowed for p in sm['pandaStates']):
+      abort = 'waiting_for_panda_controls_to_disarm'
+    elif any(p.faults for p in sm['pandaStates']):
+      abort = 'waiting_for_panda_fault_to_clear'
+    if abort is not None or now - started >= wait:
+      if on_refusal is not None:
+        on_refusal(abort or reason, round((now - started) * 1000), abort is None)
       return False
-    # A lost/invalid/freshness check grants nothing. Wait for an actual new
-    # message and re-run the identical predicate before any analysis continues.
     timeout = 20
 
 
@@ -445,8 +460,8 @@ def _run():
     def powered_offroad():
       return drive_state.snapshot().mode is Mode.OFFROAD and physical.update_ready(params.get_bool('IsOffroad'))
 
-    def parked(*, recover_device_state=False):
-      return wait_for_parked(sm, params, stopped=lambda: stopped, powered_offroad=powered_offroad, recover_device_state=recover_device_state)
+    def parked():
+      return wait_for_parked(sm, params, stopped=lambda: stopped, powered_offroad=powered_offroad)
 
     def blocker():
       return parked_blocker(sm, params, stopped=stopped, powered_offroad=powered_offroad) or 'waiting_for_parked_permission'
@@ -454,15 +469,19 @@ def _run():
     interrupted = None
     hardwared_pid = None
 
-    def permitted():
+    def record_refusal(reason, wait_ms, timed_out):
       nonlocal interrupted
-      allowed = parked(recover_device_state=True)
-      if not allowed and interrupted is None:
-        reason = blocker()
-        counts = None
-        if reason in ('waiting_for_fresh_deviceState', 'waiting_for_valid_deviceState'):
-          counts = _device_status_snapshot(sm, hardwared_pid, report.current.get('analysis_progress'))
-        interrupted = reason, counts
+      if interrupted is not None:
+        return
+      counts = _device_status_snapshot(sm, hardwared_pid, report.current.get('analysis_progress'))
+      counts.update(parked_wait_ms=wait_ms, parked_wait_timed_out=int(timed_out))
+      if reason in ('waiting_for_fresh_deviceState', 'waiting_for_valid_deviceState'):
+        counts['parked_interrupted_wall_ns'] = time.time_ns()
+      interrupted = reason, counts
+
+    def permitted():
+      allowed = wait_for_parked(sm, params, stopped=lambda: stopped, powered_offroad=powered_offroad,
+                                recover_device_state=True, on_refusal=record_refusal)
       report.publish()
       return allowed
 
