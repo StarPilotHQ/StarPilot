@@ -5,7 +5,7 @@ from opendbc.car.disable_ecu import disable_ecu
 from opendbc.car.interfaces import CarInterfaceBase
 from opendbc.car.subaru.carcontroller import CarController
 from opendbc.car.subaru.carstate import CarState
-from opendbc.car.subaru.values import CAR, EARLY_GLOBAL_TORQUE_CARS, GLOBAL_ES_ADDR, CanBus, SubaruFlags, SubaruSafetyFlags
+from opendbc.car.subaru.values import CAR, FROGGER_ANGLE_SIBLINGS, EARLY_GLOBAL_TORQUE_CARS, GLOBAL_ES_ADDR, CanBus, SubaruFlags, SubaruSafetyFlags
 
 GEN2_ANGLE_PORTS = frozenset((CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025, CAR.SUBARU_LEGACY_2025,
                                CAR.SUBARU_ASCENT_2023, CAR.SUBARU_FORESTER_2022, CAR.SUBARU_OUTBACK_2023))
@@ -59,7 +59,7 @@ class CarInterface(CarInterfaceBase):
     if not (ret.flags & SubaruFlags.PREGLOBAL) and 0x323 in fingerprint[2]:
       ret.flags |= SubaruFlags.SEND_INFOTAINMENT.value
 
-    if candidate in (CAR.SUBARU_ASCENT_2023, CAR.SUBARU_LEGACY_2025) and fingerprint[CanBus.camera].get(0x3C4) == 8:
+    if candidate in FROGGER_ANGLE_SIBLINGS | {CAR.SUBARU_ASCENT_2023, CAR.SUBARU_LEGACY_2025} and fingerprint[CanBus.camera].get(0x3C4) == 8:
       ret.flags |= SubaruFlags.ASCENT_LKAS_ALERT.value
 
     if ret.flags & SubaruFlags.PREGLOBAL:
@@ -76,6 +76,8 @@ class CarInterface(CarInterfaceBase):
         ret.safetyConfigs[0].safetyParam |= SubaruSafetyFlags.LKAS_ANGLE.value
         if candidate in (CAR.SUBARU_LEGACY_2025, CAR.SUBARU_ASCENT_2023, CAR.SUBARU_OUTBACK_2023):
           ret.safetyConfigs[0].safetyParam |= SubaruSafetyFlags.FIXED_ANGLE_LIMITS.value
+        if candidate in FROGGER_ANGLE_SIBLINGS and ret.flags & SubaruFlags.ASCENT_LKAS_ALERT:
+          ret.safetyConfigs[0].safetyParam |= SubaruSafetyFlags.ASCENT_LKAS_ALERT.value
         if candidate == CAR.SUBARU_OUTBACK_2023:
           ret.safetyConfigs[0].safetyParam |= SubaruSafetyFlags.D_PLATFORM.value
         if candidate == CAR.SUBARU_ASCENT_2023:

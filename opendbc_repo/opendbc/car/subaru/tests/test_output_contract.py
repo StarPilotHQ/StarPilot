@@ -7,7 +7,7 @@ from opendbc.car import Bus, structs
 from opendbc.car.subaru import subarucan
 from opendbc.car.subaru.stock_aol import ANGLE_CARS, TORQUE_CARS
 from opendbc.car.subaru.tests.test_ascent_angle import setup_controller, step
-from opendbc.car.subaru.values import CAR, DBC, SubaruSafetyFlags
+from opendbc.car.subaru.values import CAR, DBC, FROGGER_ANGLE_SIBLINGS, SubaruSafetyFlags
 from opendbc.safety.tests import test_subaru_gen2_angle_pair as pair
 from opendbc.safety.tests.libsafety import libsafety_py
 
@@ -74,6 +74,9 @@ def test_dash_uses_current_request_without_mutating_physical_template(car, enabl
       if car == CAR.SUBARU_LEGACY_2025:
         assert bool(dash['LKAS_ACTIVE'])
         assert dash['LKAS_Dash_State'] == (2 if expected else (1 if state.out.cruiseState.available else 0))
+      elif car in FROGGER_ANGLE_SIBLINGS:
+        assert bool(dash['LKAS_ACTIVE'])
+        assert dash['LKAS_Dash_State'] == (2 if expected else (1 if marked and state.out.cruiseState.available else 0))
       else:
         if car in ANGLE_CARS or marked or enabled:
           assert bool(dash['LKAS_ACTIVE']) == expected

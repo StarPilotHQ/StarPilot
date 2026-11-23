@@ -280,6 +280,9 @@ SUBARU_ALT_VERSION_RESPONSE = bytes([uds.SERVICE_TYPE.READ_DATA_BY_IDENTIFIER + 
 EARLY_GLOBAL_TORQUE_CARS = frozenset((CAR.SUBARU_IMPREZA, CAR.SUBARU_CROSSTREK_2018))
 
 
+FROGGER_ANGLE_SIBLINGS = frozenset((CAR.SUBARU_IMPREZA_2025, CAR.SUBARU_CROSSTREK_2025))
+
+
 FW_QUERY_CONFIG = FwQueryConfig(
   validate_fw_match=validate_fw_match,
   fw_version_regex=br"(?:[\x00-\xff]{4,5}|[\x00-\xff]{8}|[\x00-\xff]{10})",

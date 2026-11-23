@@ -2,7 +2,7 @@ from dataclasses import replace
 from pathlib import Path
 from opendbc.car import gen_empty_fingerprint
 from opendbc.car.subaru.interface import CarInterface
-from opendbc.car.subaru.values import CAR
+from opendbc.car.subaru.values import CAR, FROGGER_ANGLE_SIBLINGS
 from openpilot.common.params import Params
 from openpilot.starpilot.ui.feature_settings_owner import FeatureSettingsOwner
 from openpilot.starpilot.ui.feature_settings_state import row_change
@@ -46,9 +46,9 @@ def test_only_supported_identity_and_exact_saved_boolean_startup(tmp_path):
       cp = CarInterface.get_params(car, gen_empty_fingerprint(), [], True, False, False)
       before = cp.to_dict()
       choice.prepare(cp)
-      assert selected(cp) == (expected and car == CAR.SUBARU_LEGACY_2025)
+      assert selected(cp) == (expected and car in FROGGER_ANGLE_SIBLINGS | {CAR.SUBARU_LEGACY_2025})
       assert not cp.openpilotLongitudinalControl and not cp.alphaLongitudinalAvailable
-      if car != CAR.SUBARU_LEGACY_2025 or not expected:
+      if car not in FROGGER_ANGLE_SIBLINGS | {CAR.SUBARU_LEGACY_2025} or not expected:
         assert cp.to_dict() == before
 
 

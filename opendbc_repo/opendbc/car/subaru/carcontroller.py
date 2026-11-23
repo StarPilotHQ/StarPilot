@@ -8,7 +8,7 @@ from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.subaru import subarucan
 from opendbc.car.subaru.jacobw_angle import MAX_ANGLE as JACOBW_MAX_ANGLE, filter_angle as jacobw_filter_angle, limit_angle as jacobw_limit_angle
 from opendbc.car.subaru.stock_aol import qualified as subaru_aol_qualified
-from opendbc.car.subaru.values import CAR, DBC, GLOBAL_ES_ADDR, CanBus, CarControllerParams, SubaruFlags
+from opendbc.car.subaru.values import CAR, FROGGER_ANGLE_SIBLINGS, DBC, GLOBAL_ES_ADDR, CanBus, CarControllerParams, SubaruFlags
 from opendbc.car.vehicle_model import VehicleModel
 
 # FIXME: These limits aren't exact. The real limit is more than likely over a larger time period and
@@ -128,14 +128,15 @@ class CarController(CarControllerBase):
     return self.aol_dash_green_last
 
   def _ascent_lkas_alert(self, CC, CS):
-    if self.CP.carFingerprint not in (CAR.SUBARU_ASCENT_2023, CAR.SUBARU_LEGACY_2025) or not self.CP.flags & SubaruFlags.ASCENT_LKAS_ALERT:
+    if (self.CP.carFingerprint not in FROGGER_ANGLE_SIBLINGS | {CAR.SUBARU_ASCENT_2023, CAR.SUBARU_LEGACY_2025} or
+        not self.CP.flags & SubaruFlags.ASCENT_LKAS_ALERT):
       return None
     dat = CS.es_lkas_alert_dat
-    is_legacy_2025 = self.CP.carFingerprint == CAR.SUBARU_LEGACY_2025
+    frogger_hud = self.CP.carFingerprint != CAR.SUBARU_ASCENT_2023
     lateral_active = self.angle_was_active and CC.latActive and (
       CC.enabled or subaru_aol_qualified(self.CP, marked_only=True)
     )
-    if is_legacy_2025:
+    if frogger_hud:
       armed = CS.out.cruiseState.available
       if self.CP.openpilotLongitudinalControl:
         acc_lead_visible = bool(CC.longActive and not CS.out.gasPressed and CC.hudControl.leadVisible)
@@ -213,7 +214,7 @@ class CarController(CarControllerBase):
                            not legacy_lateral_off and
                            not CS.out.standstill and not CS.out.steerFaultTemporary and not CS.out.steerFaultPermanent)
         angle_active = self.angle_active(CS, angle_available)
-        if self.CP.carFingerprint == CAR.SUBARU_LEGACY_2025:
+        if self.CP.carFingerprint in FROGGER_ANGLE_SIBLINGS | {CAR.SUBARU_LEGACY_2025}:
           if angle_active and self.angle_was_active and abs(self.apply_angle_last - CS.out.steeringAngleDeg) > 5.0:
             self.eps_stall_count += 1
             if self.eps_stall_count >= 8:
@@ -306,7 +307,8 @@ class CarController(CarControllerBase):
     can_sends.extend(send_sng(self, CC, CS, now_nanos))
 
     # *** alerts and pcm cancel ***
-    enabled_for_dash_2025 = False
+    frogger_hud = self.CP.carFingerprint in FROGGER_ANGLE_SIBLINGS | {CAR.SUBARU_LEGACY_2025}
+    enabled_for_dash_2025 = self.angle_was_active
     if self.CP.carFingerprint == CAR.SUBARU_LEGACY_2025:
       enabled_for_dash_2025 = self._legacy_2025_aol_dash_green(
         hud_control,
@@ -341,13 +343,17 @@ class CarController(CarControllerBase):
         can_sends.append(subarucan.create_es_dashstatus(self.packer, self.frame // 10, CS.es_dashstatus_msg, CC.enabled,
                                                         self.CP.openpilotLongitudinalControl, CC.longActive, hud_control.leadVisible))
 
-        if self.CP.carFingerprint == CAR.SUBARU_LEGACY_2025:
+        if frogger_hud:
           in_drive = CS.out.gearShifter in (structs.CarState.GearShifter.drive, structs.CarState.GearShifter.manumatic)
           cruise_available = CS.out.cruiseState.available
           lateral_off = self._legacy_2025_effective_lateral_off(CS, CC)
           aol_enabled = bool(getattr(CS, "aol_enabled", True))
+          if self.CP.carFingerprint in FROGGER_ANGLE_SIBLINGS:
+            aol_enabled = aol_enabled and subaru_aol_qualified(self.CP, marked_only=True)
           wheel_ready = bool(cruise_available and aol_enabled)
-          if not (in_drive and cruise_available) or lateral_off or not hud_control.lanesVisible:
+          lanes_visible = hud_control.lanesVisible or (
+            self.CP.carFingerprint in FROGGER_ANGLE_SIBLINGS and self.angle_was_active)
+          if not (in_drive and cruise_available) or lateral_off or not lanes_visible:
             left_line = 0
             right_line = 0
             left_depart = False
@@ -376,7 +382,7 @@ class CarController(CarControllerBase):
                                                           hud_control.leftLaneDepart, hud_control.rightLaneDepart))
 
         if self.CP.flags & SubaruFlags.SEND_INFOTAINMENT:
-          if self.CP.carFingerprint == CAR.SUBARU_LEGACY_2025:
+          if frogger_hud:
             can_sends.append(subarucan.create_es_infotainment(
               self.packer, self.frame // 10, CS.es_infotainment_msg, hud_control.visualAlert,
               audible_alert=hud_control.audibleAlert, legacy_2025=True,

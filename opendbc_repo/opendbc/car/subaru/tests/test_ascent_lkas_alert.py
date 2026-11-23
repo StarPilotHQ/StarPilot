@@ -4,7 +4,7 @@ from opendbc.car import structs
 from opendbc.car.subaru.carcontroller import CarController
 from opendbc.car.subaru.carstate import CarState
 from opendbc.car.subaru.interface import CarInterface
-from opendbc.car.subaru.values import CAR, DBC, SubaruFlags, SubaruSafetyFlags
+from opendbc.car.subaru.values import CAR, DBC, FROGGER_ANGLE_SIBLINGS, SubaruFlags, SubaruSafetyFlags
 from opendbc.car.subaru import subarucan
 from opendbc.safety.tests.test_subaru_gen2_angle_pair import TestSubaruGen2AnglePair
 
@@ -18,8 +18,8 @@ class TestAscentLkasAlert(unittest.TestCase):
   def test_platform_bus_length_gate_preserves_native_identity(self):
     for car in CAR:
       cp = self.params(car)
-      self.assertEqual(bool(cp.flags & SubaruFlags.ASCENT_LKAS_ALERT), car in (CAR.SUBARU_ASCENT_2023, CAR.SUBARU_LEGACY_2025))
-      self.assertEqual(bool(cp.safetyConfigs[0].safetyParam & SubaruSafetyFlags.ASCENT_LKAS_ALERT), car == CAR.SUBARU_ASCENT_2023)
+      self.assertEqual(bool(cp.flags & SubaruFlags.ASCENT_LKAS_ALERT), car in FROGGER_ANGLE_SIBLINGS | {CAR.SUBARU_ASCENT_2023, CAR.SUBARU_LEGACY_2025})
+      self.assertEqual(bool(cp.safetyConfigs[0].safetyParam & SubaruSafetyFlags.ASCENT_LKAS_ALERT), car in FROGGER_ANGLE_SIBLINGS | {CAR.SUBARU_ASCENT_2023})
     for bus, length in ((0, 8), (1, 8), (2, 4), (2, 16)):
       cp = self.params(bus=bus, length=length)
       self.assertFalse(cp.flags & SubaruFlags.ASCENT_LKAS_ALERT)
