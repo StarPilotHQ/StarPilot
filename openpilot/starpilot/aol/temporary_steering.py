@@ -216,6 +216,62 @@ def temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
   return True
 
 
+
+def retain_fit_eps_intent(feedback, sm, cp, cs, axis, now_ns, *, latched, producer):
+  """Retain armed intent across a verified EPS pause even when feedback arrives out of order."""
+  from opendbc.car import structs
+  from opendbc.car.honda.stock_aol import qualified
+  from openpilot.starpilot.aol.transport_pause import _configured_transport_native
+
+  if (cp.carFingerprint != CAR.HONDA_FIT or not cp.pcmCruise or cs.cruiseState.enabled or
+      not qualified(cp, marked_only=True) or not latched or feedback.failed or feedback.paused or
+      feedback.pending_event or feedback.retention_started_ns or not feedback.ever_lateral_active or
+      feedback.session != axis.sessionId or not producer or axis.intentProducerSessionId != producer or
+      not cs.canValid or cs.canTimeout or not cs.cruiseState.available or cs.steerFaultPermanent or
+      cs.accFaulted or cs.vehicleSensorsInvalid or cs.steeringDisengage or cs.doorOpen or cs.seatbeltUnlatched or
+      cs.buttonEvents or cs.regenBraking or cs.gearShifter not in
+      (structs.CarState.GearShifter.drive, structs.CarState.GearShifter.sport, structs.CarState.GearShifter.low) or
+      str(axis.faultReason) != 'none' or axis.desiredLongitudinal or axis.longitudinalActive or
+      not 0 < axis.sourceCarStateMonoTime <= axis.observedMonoTime <= now_ns or
+      now_ns - axis.sourceCarStateMonoTime > AXIS_MAX_AGE_NS):
+    return False
+  known = feedback.fit_eps_intent
+  epoch = int(axis.intentIntegrityEpoch)
+  if known is not None and (known[:2] != (producer, epoch) or now_ns - known[2] > SAFETY_MAX_AGE_NS):
+    known = None
+    feedback.fit_eps_intent = None
+  event_ns = int(sm.logMonoTime['onroadEvents'])
+  events = sm['onroadEvents']
+  if (not sm.seen['onroadEvents'] or not sm.valid['onroadEvents'] or not sm.alive['onroadEvents'] or
+      not 0 < event_ns <= now_ns <= event_ns + 1_500_000_000 or
+      not 0 < axis.faultEventMonoTime <= axis.observedMonoTime or
+      abs(axis.faultEventMonoTime - event_ns) > AXIS_MAX_AGE_NS or
+      any(e.immediateDisable or e.softDisable and e.name != log.OnroadEvent.EventName.steerTempUnavailable or
+          e.userDisable and not (_fit_cruise_minimum_event(cp, cs, e) or
+            e.name == log.OnroadEvent.EventName.pedalPressed and not e.softDisable and cs.brakePressed)
+          for e in events)):
+    return False
+  native = _configured_transport_native(sm, cp, feedback.session, now_ns, allow_restricted_lateral=True)
+  if native is None or not native.pandaInventory or native.requestedLongitudinal or native.longitudinalAllowed:
+    return False
+  inventory = (native.pandaSerial, tuple(slot.hardwareSerial for slot in native.pandaInventory))
+  if (not cs.steerFaultTemporary and axis.nativeAcknowledged and axis.desiredLateral and
+      axis.lateralActive and native.requestedLateral and native.lateralAllowed):
+    feedback.fit_eps_grant = (producer, epoch, axis.sourceCarStateMonoTime, inventory)
+    feedback.fit_eps_intent = None
+    return False
+  if known is None:
+    grant = feedback.fit_eps_grant
+    if (not cs.steerFaultTemporary or grant is None or grant[:2] != (producer, epoch) or
+        inventory != grant[3] or not 0 < grant[2] <= now_ns <= grant[2] + SAFETY_MAX_AGE_NS):
+      return False
+  elif inventory != known[3]:
+    return False
+  feedback.fit_eps_intent = (producer, epoch, now_ns if cs.steerFaultTemporary else known[2], inventory)
+  if native.requestedLateral and not native.lateralAllowed:
+    feedback.honda_eps_retained_native_ns = native.observedMonoTime
+  return True
+
 def honda_eps_recovery_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, latched, producer):
   """Join physical EPS transitions to their still-withdrawn producer proof.
 

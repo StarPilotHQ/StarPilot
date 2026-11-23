@@ -503,3 +503,41 @@ def test_fit_native_denial_arriving_after_eps_clears_keeps_armed_intent(veto):
   assert feedback.honda_eps_source_ns == original
   assert getattr(feedback, 'honda_eps_retained_native_ns', 0) == (0 if veto else native.observedMonoTime)
   assert not output(state, native).lateral_active and not output(state, native).longitudinal_active
+
+
+@pytest.mark.parametrize('veto', ['', 'permanent', 'native_fault', 'cancel'])
+def test_fit_eps_intent_with_newer_axis_and_delayed_event(veto):
+  from opendbc.car.honda.tests.test_stock_aol import final_cp
+  from opendbc.car.honda.values import CAR
+  from openpilot.starpilot.aol.transport_pause import TransportPauseFeedback
+  from openpilot.starpilot.tests.test_ford_reverse_intent import sample
+
+  cp = final_cp(CAR.HONDA_FIT)
+  cp.alternativeExperience = 32
+  state = structs.CarState(canValid=True, gearShifter='drive', vEgo=4.0)
+  state.cruiseState.available = True
+  feedback = TransportPauseFeedback(cp)
+
+  def low_speed(sm):
+    events = sm.messages['onroadEvents'].as_builder()
+    events.onroadEvents = [{'name': 'speedTooLow', 'userDisable': True}]
+    sm.messages['onroadEvents'] = events.as_reader()
+
+  for sequence, stamp in enumerate((NOW, NOW + 8_000_000), start=1):
+    start, _ = sample(cp, stamp, stamp, sequence)
+    low_speed(start)
+    assert not feedback.observe(start, cp, state, stamp, latched=True, intent_producer_session=PRODUCER)
+
+  stamp = NOW + 45_000_000
+  axis, native = sample(cp, stamp - 10_000_000, stamp, 3, event_stamp=NOW + 30_000_000)
+  low_speed(axis)
+  change(axis, 'aolAxisState', lambda a: setattr(a, 'faultEventMonoTime', NOW + 35_000_000))
+  state.steerFaultTemporary = state.steeringPressed = True
+  if veto == 'permanent':
+    state.steerFaultPermanent = True
+  elif veto == 'cancel':
+    state.buttonEvents = [structs.CarState.ButtonEvent(type='cancel', pressed=True)]
+  elif veto == 'native_fault':
+    native_change(axis, native, pandaInventory=(replace(native.pandaInventory[0], faults=1),))
+  assert feedback.observe(axis, cp, state, stamp, latched=True, intent_producer_session=PRODUCER) == bool(veto)
+  assert not output(state, native).lateral_active

@@ -122,6 +122,7 @@ class TransportPauseFeedback:
     self.subaru_main_retained_native_ns = 0
     self.volkswagen_reverse_retained_native_ns = 0
     self.honda_eps_retained_native_ns = 0
+    self.fit_eps_intent = self.fit_eps_grant = None
     self.subaru_eps_brake_event_ns = 0
     self.hkg_eps_join_until_ns = 0
     self.lateral_source_ns = 0
@@ -1233,6 +1234,7 @@ class TransportPauseFeedback:
     try:
       axis = sm['aolAxisState']
       if not latched or cp_identity(cp) != self.cp or self.session and str(axis.sessionId) != self.session:
+        self.fit_eps_intent = self.fit_eps_grant = None
         self.ordinary_warning_retained = False
         self.ordinary_brake_proof = None
         self.volkswagen_brake_event = None
@@ -1429,6 +1431,10 @@ class TransportPauseFeedback:
         if retain_paused_restriction(self, sm, cp, cs, axis, stamp, now_ns, latched=latched, producer=intent_producer_session):
           self.sequence, self.signature = int(axis.sequence), signature
           return False
+      fit_eps_retained = False
+      if cp.carFingerprint == 'HONDA_FIT' and current and continuity:
+        from openpilot.starpilot.aol.temporary_steering import retain_fit_eps_intent
+        fit_eps_retained = retain_fit_eps_intent(self, sm, cp, cs, axis, now_ns, latched=latched, producer=intent_producer_session)
       if current and continuity and self._temporary_steering_intent_current(sm, cp, cs, axis, stamp, now_ns,
           latched=latched, producer=intent_producer_session, signature=signature):
         self.sequence, self.signature = int(axis.sequence), signature
@@ -1438,6 +1444,9 @@ class TransportPauseFeedback:
         if honda_eps_recovery_intent_current(self, sm, cp, cs, axis, stamp, now_ns, latched=latched, producer=intent_producer_session):
           self.sequence, self.signature = int(axis.sequence), signature
           return False
+      if fit_eps_retained:
+        self.sequence, self.signature = int(axis.sequence), signature
+        return False
       if cp.brand == 'volkswagen' and current and continuity:
         from openpilot.starpilot.car.volkswagen.aol import retain_reverse_withdrawal
         if retain_reverse_withdrawal(self, sm, cp, cs, axis, now_ns, latched=latched, producer=intent_producer_session):
