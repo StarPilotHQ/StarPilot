@@ -25,7 +25,7 @@ from opendbc.car.hyundai.classic_scc_aol import (
 from opendbc.car.hyundai.canfd_owner import config_index
 from opendbc.car.hyundai.canfd_stock_aol import (
   qualified as qualified_canfd_stock, qualified_long as qualified_canfd_long,
-  LONG_AOL_WORDS as CANFD_LONG_AOL_WORDS, STOCK_AOL_MARKER, STOCK_AOL_WORDS, kona_idle_handoff_profile,
+  LONG_AOL_WORDS as CANFD_LONG_AOL_WORDS, STOCK_AOL_MARKER, STOCK_AOL_WORDS,
 )
 from opendbc.car.hyundai.non_scc_aol import qualified as qualified_non_scc, aol_word, AOL_MARKER, AOL_EXPERIENCE, AOL_WORDS, SOFTWARE_CRUISE
 from opendbc.car.hyundai.kona_aol import allow_lateral_onset as kona_lateral_onset
@@ -154,7 +154,7 @@ def _policy_for(CP) -> AolVehiclePolicy:
   if qualified_canfd_long(CP):
     return AolVehiclePolicy(intent_supported=True, settings_supported=True, runtime_supported=True,
                             normal_runtime_supported=True, explicit_latch=True,
-                            safety_param_addition=0x1800 if kona_idle_handoff_profile(CP) else 0x0800,
+                            safety_param_addition=0x0800,
                             alternative_experience_addition=32)
   if qualified_canfd_stock(CP):
     return AolVehiclePolicy(

@@ -37,7 +37,7 @@ def test_factory_ccnc_alpha_admits_only_matching_owner(car, alternate, offset):
   assert qualified_long(cp) and independent_cruise_buttons_supported(cp)
   policy = policy_for(cp)
   assert policy.intent_supported and policy.runtime_supported and policy.explicit_latch
-  expected = 0x1800 if car == CARS[0] and not alternate and offset == 0 else 0x800
+  expected = 0x800
   assert policy.safety_param_addition == expected and policy.alternative_experience_addition == 32
   assert cp.to_dict() == original
   word = int(cp.safetyConfigs[-1].safetyParam) | expected
@@ -109,8 +109,7 @@ def test_actual_card_marker_and_settings_preserve_startup_contract(car, alternat
     try:
       with structs.CarParams.from_bytes(saved.get('CarParams')) as published:
         assert published.openpilotLongitudinalControl and not published.pcmCruise
-        addition = 0x1800 if car == CARS[0] and not alternate and offset == 0 else 0x800
-        assert published.safetyConfigs[-1].safetyParam == (base_word | (addition if enabled else 0))
+        assert published.safetyConfigs[-1].safetyParam == (base_word | (0x800 if enabled else 0))
         assert published.alternativeExperience == (32 if enabled else 0)
         assert qualified_long(published, marked_only=enabled)
         assert CarInterface.startup_required(published) == required
