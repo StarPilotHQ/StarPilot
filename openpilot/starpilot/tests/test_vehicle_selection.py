@@ -31,14 +31,14 @@ class TestVehicleSelection(unittest.TestCase):
     self.assertTrue(self.owner.choose(None, selected.platform).verified)
     self.assertEqual(startup_candidate(self.params), CAR.HYUNDAI_ELANTRA_HEV_2024)
 
-  def test_early_crosstrek_has_separate_factory_safety_profile(self):
+  def test_early_subaru_models_share_factory_safety_profile(self):
     from opendbc.car.subaru.interface import CarInterface
     from opendbc.car.subaru.values import CAR as SUBARU, CarControllerParams, SubaruSafetyFlags
 
     catalog = {choice.platform: choice.label for choice in choices()}
-    for platform, label, torque, safety_word in (
-      (SUBARU.SUBARU_IMPREZA, "Subaru Impreza 2017-19", 2047, 0),
-      (SUBARU.SUBARU_CROSSTREK_2018, "Subaru Crosstrek 2018-19", 3071, SubaruSafetyFlags.CROSSTREK_2018),
+    for platform, label in (
+      (SUBARU.SUBARU_IMPREZA, "Subaru Impreza 2017-19"),
+      (SUBARU.SUBARU_CROSSTREK_2018, "Subaru Crosstrek 2018-19"),
     ):
       self.assertEqual(catalog[platform], label)
       self.assertTrue(self.owner.choose(self.owner.snapshot().raw, str(platform)).verified)
@@ -48,8 +48,8 @@ class TestVehicleSelection(unittest.TestCase):
       self.assertEqual(cp.carFingerprint, platform)
       self.assertTrue(cp.pcmCruise)
       self.assertFalse(cp.openpilotLongitudinalControl)
-      self.assertEqual(cp.safetyConfigs[0].safetyParam, safety_word)
-      self.assertEqual(CarControllerParams(cp).STEER_MAX, torque)
+      self.assertEqual(cp.safetyConfigs[0].safetyParam, SubaruSafetyFlags.EARLY_GLOBAL_TORQUE)
+      self.assertEqual(CarControllerParams(cp).STEER_MAX, 3071)
 
   def test_multiple_documented_trims_share_neutral_platform_choice(self):
     from opendbc.car.hyundai.values import CAR as HYUNDAI

@@ -48,18 +48,19 @@ class CallerRow(TypedDict):
 
 
 @pytest.mark.parametrize("aol", [False, True])
-@pytest.mark.parametrize('candidate,software', [(CAR.SUBARU_ASCENT, False), (CAR.SUBARU_IMPREZA, False),
+@pytest.mark.parametrize('candidate,software', [(CAR.SUBARU_ASCENT, False), (CAR.SUBARU_IMPREZA, False), (CAR.SUBARU_CROSSTREK_2018, False),
                                                    (CAR.SUBARU_IMPREZA_2020, False), (CAR.SUBARU_FORESTER, False),
                                                    (CAR.SUBARU_IMPREZA_2020, True)])
 def test_sng_actual_stock_callers(candidate, software, aol, subaru_native_pair, tmp_path):
-  fw = firmware_records(candidate, FW_VERSIONS, "subaru")
+  early_global = candidate in (CAR.SUBARU_IMPREZA, CAR.SUBARU_CROSSTREK_2018)
+  fw = firmware_records(CAR.SUBARU_IMPREZA if early_global else candidate, FW_VERSIONS, "subaru")
   rows: list[CallerRow] = []
   with actual_factory(
     candidate,
     gen_empty_fingerprint(),
     fw,
     "0" * 17,
-    manual=False,
+    manual=candidate == CAR.SUBARU_CROSSTREK_2018,
     aol=aol,
     preferences={"SubaruSNG": True, "SubaruRedneckCruise": software},
   ) as (
@@ -73,6 +74,8 @@ def test_sng_actual_stock_callers(candidate, software, aol, subaru_native_pair, 
     assert cp.pcmCruise and not cp.openpilotLongitudinalControl and not cp.alphaLongitudinalAvailable
     assert cp.alternativeExperience == (32 if aol else 0) and not cp.dashcamOnly
     expected_word = (520 if software else 8) | (IMPREZA_MAIN_AOL if aol and candidate == CAR.SUBARU_IMPREZA_2020 else 0)
+    if early_global:
+      expected_word |= 8192
     assert cp.safetyConfigs[0].safetyParam == expected_word and cp.autoResumeSng
     sd, controls = SelfdriveD(CP=cp), Controls()
     stream = CompleteCan(ci)

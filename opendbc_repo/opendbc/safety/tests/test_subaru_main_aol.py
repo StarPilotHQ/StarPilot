@@ -5,7 +5,7 @@ from opendbc.safety.tests.libsafety import libsafety_py
 from opendbc.safety.tests import test_subaru_stock_aol as stock_module
 
 
-@pytest.fixture(params=(17, 145, 209, 401, 465, 4096, 4104, 4608, 4616, 8192))
+@pytest.fixture(params=(17, 145, 209, 401, 465, 4096, 4104, 4608, 4616, 8192, 8200))
 def owner(request):
   item = stock_module.TestSubaruStockAol(methodName='runTest')
   item.setUp()
@@ -144,7 +144,7 @@ def test_legacy_2025_cvt_manual_gears():
     item.tearDown()
 
 
-@pytest.mark.parametrize('param, experience, max_torque', [(0, 0, 2047), (8192, 0, 3071), (8192, 32, 3071)])
+@pytest.mark.parametrize('param, experience, max_torque', [(0, 0, 2047), (8192, 0, 3071), (8192, 32, 3071), (8200, 0, 3071), (8200, 32, 3071)])
 def test_early_crosstrek_steering_limit(param, experience, max_torque):
   item = stock_module.TestSubaruStockAol(methodName='runTest')
   item.setUp()
@@ -168,7 +168,7 @@ def test_early_crosstrek_steering_limit(param, experience, max_torque):
     item.tearDown()
 
 
-@pytest.mark.parametrize('param, experience', [(8193, 32), (8194, 0), (8192, 33)])
+@pytest.mark.parametrize('param, experience', [(8193, 32), (8194, 0), (8192, 33), (8200, 33), (8201, 32)])
 def test_early_crosstrek_rejects_mixed_safety_settings(param, experience):
   item = stock_module.TestSubaruStockAol(methodName='runTest')
   item.setUp()
