@@ -20,9 +20,26 @@ WORDS = frozenset(PROFILES.values())
 
 
 def hardware_supported(candidate, fingerprint):
-  return (candidate in PROFILES and
-          not any(address in frames for frames in fingerprint.values() for address in (0x201, 0x2FF, 0x2AA)) and
-          not any(address in fingerprint.get(2, {}) for address in (0x343, 0x4CB)))
+  if candidate not in PROFILES:
+    return False
+  from opendbc.car.toyota.radar_filter import _cluster_radar_bus
+
+  for bus, frames in fingerprint.items():
+    if 0x201 in frames or 0x2AA in frames:
+      return False
+    if 0x2FF in frames and not (candidate == CAR.TOYOTA_CAMRY and _cluster_radar_bus(candidate, bus, frames)):
+      return False
+  camera = fingerprint.get(2, {})
+  if 0x4CB in camera:
+    return False
+  if 0x343 not in camera:
+    return True
+
+  # The stock Camry can mirror its powertrain bus at startup, including ACC_CONTROL.
+  # An independent camera fingerprint is still treated as possible takeover hardware.
+  pt = fingerprint.get(0, {})
+  return (candidate == CAR.TOYOTA_CAMRY and pt == camera and
+          all(pt.get(address) == 8 for address in (0xAA, 0x262, 0x343)))
 
 
 def apply(cp):

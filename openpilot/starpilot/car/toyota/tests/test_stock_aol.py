@@ -51,6 +51,52 @@ def test_stock_hardware_is_not_a_fallback_for_an_adapter(vehicle):
     assert cp.safetyConfigs[0].safetyParam != stock_aol.PROFILES[vehicle]
 
 
+@pytest.mark.parametrize('mirror', (False, True))
+def test_camry_stock_radar_and_startup_mirror(mirror):
+  from opendbc.car.toyota.values import CAR
+
+  fp = gen_empty_fingerprint()
+  fp[0].update({0xAA: 8, 0x262: 8, 0x343: 8})
+  fp[1].update({0x2FF: 8, **dict.fromkeys(range(0x680, 0x686), 8)})
+  if mirror:
+    fp[2].update(fp[0])
+  for alpha in (False, True):
+    cp = CarInterface.get_params(CAR.TOYOTA_CAMRY, fp, [], alpha, False, False)
+    assert cp.safetyConfigs[0].safetyParam == 0x6249
+    assert not cp.openpilotLongitudinalControl and not cp.alphaLongitudinalAvailable
+    assert stock_aol.configured(cp) and qualified(cp)
+
+
+@pytest.mark.parametrize('change', ('pedal', 'filter', 'status', 'unknown_radar', 'radar_dlc',
+                                    'camera_only_acc', 'independent_camera', 'camera_4cb', 'acc_dlc'))
+def test_camry_stock_mirror_rejects_adapter_or_ambiguous_topology(change):
+  from opendbc.car.toyota.values import CAR
+
+  fp = gen_empty_fingerprint()
+  fp[0].update({0xAA: 8, 0x262: 8, 0x343: 8})
+  fp[1].update({0x2FF: 8, **dict.fromkeys(range(0x680, 0x686), 8)})
+  fp[2].update(fp[0])
+  if change == 'pedal':
+    fp[0][0x201] = 6
+  elif change == 'filter':
+    fp[0][0x2AA] = 8
+  elif change == 'status':
+    fp[0][0x2FF] = 8
+  elif change == 'unknown_radar':
+    del fp[1][0x685]
+  elif change == 'radar_dlc':
+    fp[1][0x2FF] = 4
+  elif change == 'camera_only_acc':
+    del fp[0][0x343]
+  elif change == 'independent_camera':
+    fp[2][0x123] = 8
+  elif change == 'camera_4cb':
+    fp[0][0x4CB] = fp[2][0x4CB] = 8
+  else:
+    fp[0][0x343] = fp[2][0x343] = 7
+  assert not stock_aol.hardware_supported(CAR.TOYOTA_CAMRY, fp)
+
+
 @pytest.mark.parametrize('word', sorted(stock_aol.WORDS))
 def test_native_stock_profile_rejects_faults_and_never_owns_acceleration(word):
   vehicle = next(car for car, profile in stock_aol.PROFILES.items() if profile == word)
