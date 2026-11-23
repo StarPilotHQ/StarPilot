@@ -10,7 +10,8 @@ from opendbc.car.fw_versions import (ObdCallback, get_fw_versions, get_fw_versio
                                      get_present_ecus, match_fw_to_car)
 from opendbc.car.mock.values import CAR as MOCK
 from opendbc.car.gm.pedal_capability import automatic_bolt_candidate
-from opendbc.car.gm.discovery import automatic_trax_candidate, automatic_volt_candidate, normal_bus0_topology as gm_normal_bus0_topology
+from opendbc.car.gm.discovery import (automatic_trax_candidate, automatic_volt_ascm_candidate, automatic_volt_candidate,
+                                     normal_bus0_topology as gm_normal_bus0_topology)
 from opendbc.car.ford.discovery import (normal_bus0_selection as ford_normal_bus0_selection,
                                        normal_bus0_queries as ford_normal_bus0_queries, normal_bus_query_brand)
 from opendbc.car.volvo.discovery import normal_bus_topology as volvo_normal_bus_topology, v60_bus_topology as volvo_v60_bus_topology
@@ -96,6 +97,7 @@ def can_fingerprint(can_recv: CanRecvCallable, *, vin: str = VIN_UNKNOWN,
       frame += 1
 
   car_fingerprint = automatic_volt_candidate(car_fingerprint, finger, candidate_cars)
+  car_fingerprint = automatic_volt_ascm_candidate(car_fingerprint, finger, candidate_cars, vin)
   car_fingerprint = automatic_trax_candidate(car_fingerprint, finger, candidate_cars, vin)
   return automatic_bolt_candidate(car_fingerprint, finger, camera_cruise_messages, vin), finger
 

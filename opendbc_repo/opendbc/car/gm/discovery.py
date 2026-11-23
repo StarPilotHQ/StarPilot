@@ -46,6 +46,25 @@ def automatic_volt_candidate(candidate, fingerprint, candidates):
   return CAR.CHEVROLET_VOLT_CC
 
 
+def automatic_volt_ascm_candidate(candidate, fingerprint, candidates, vin):
+  # The recorded 2018 SASCM Volt falls out of both legacy CAN candidate lists.
+  if (candidate is not None or any(candidates.values()) or not isinstance(vin, str) or not is_valid_vin(vin) or
+      not vin.startswith('1G1RD6S5') or vin[9] != 'J'):
+    return candidate
+
+  pt = fingerprint.get(CanBus.POWERTRAIN, {})
+  camera = fingerprint.get(CanBus.CAMERA, {})
+  radar = fingerprint.get(CanBus.OBSTACLE, {})
+  required = {0xC9: 8, 0x180: 4, 0x184: 8, 0x1C4: 8, 0x1E1: 7,
+              0x2FF: 4, 0x348: 5, 0x34A: 5, 0x370: 6}
+  if (pt != camera or any(pt.get(address) != size for address, size in required.items()) or
+      radar.get(0x460) != 8 or radar.get(0x474) != 8 or
+      any(address in pt for address in (0xBE, 0x201)) or pt.get(0x320) not in (None, 3) or
+      any(messages for bus, messages in fingerprint.items() if bus not in (CanBus.POWERTRAIN, CanBus.OBSTACLE, CanBus.CAMERA))):
+    return candidate
+  return CAR.CHEVROLET_VOLT_ASCM
+
+
 # Frequent normal-bus frames observed on mirrored pedal installations. This is
 # only diagnostic query-family evidence, never a vehicle/control fingerprint.
 PEDAL_NORMAL_BUS_LAYOUT = {0xD3: 2, 0xBE: 6, 0xC9: 8, 0x1C4: 8,
