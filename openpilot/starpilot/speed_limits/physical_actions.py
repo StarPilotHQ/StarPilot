@@ -57,6 +57,51 @@ def _current_state(sm, now_ns: int):
                    str(state.source) in tuple(Source) and number(state.speedLimit, positive=True) and adoption_speed(state) is not None) else None
 
 
+def state_current(sm, observation, producer_session: str, now_ns: int):
+  """Tesla set-speed rule: the planner's current limit; a dashboard reading must still be this card's own."""
+  state = _current_state(sm, now_ns)
+  if (state is not None and not state.upcomingBoundaryId and str(state.source) == 'dashboard' and
+      (observation is None or not source_matches(state, observation, producer_session, now_ns))):
+    return None
+  return state
+
+
+def command_applicable(command, state, observation, producer_session: str, now_ns: int, selected_mps: float, *,
+                       long_active: bool, button_event: bool) -> bool:
+  """Tesla set-speed rule: whether card may write this SLC command's target into software SET now."""
+  if state is None or button_event or not long_active or not state.hasAccepted:
+    return False
+  # Adopt limits early: the accepted limit is the upcoming Maps boundary's, not the road's current one, so the command
+  # is bound to Maps (which has no producer episode) and to that boundary instead of the current source.
+  preview = bool(state.acceptedIsPreview)
+  if preview and (str(state.acceptedSource) != 'map' or not str(state.upcomingBoundaryId) or adoption_speed(state) is None or
+                  abs(float(state.acceptedSpeedLimit) - float(state.upcomingSpeedLimit)) > 0.02):
+    return False
+  bound = ('map', 0, '', 0, 0) if preview else (str(state.source), int(state.sourceEpisode), str(state.sourceProducerSessionId),
+                                                 int(state.sourceObservedMonoTime), int(state.sourceValidUntilMonoTime))
+  if (str(command.kind) != 'adoptAcceptedLimit' or not str(command.sessionId) or
+      str(command.sessionId) != str(state.sessionId) or int(command.commandId) <= 0 or int(command.presentationId) <= 0 or
+      int(command.commandId) != int(state.commandId) or
+      int(command.presentationId) != int(state.presentationId) or
+      (str(command.source), int(command.sourceEpisode), str(command.sourceProducerSessionId),
+       int(command.sourceObservedMonoTime), int(command.sourceValidUntilMonoTime)) != bound or
+      (not preview and str(state.source) == 'dashboard' and
+       (observation is None or not source_matches(state, observation, producer_session, now_ns)))):
+    return False
+  issued, expires = int(command.issuedMonoTime), int(command.expiresMonoTime)
+  if not 0 < issued <= now_ns <= expires <= issued + STATE_MAX_AGE_NS:
+    return False
+  expected, target = float(command.expectedSelectedMps), float(command.targetMps)
+  # SET must still be where the planner saw it, and the target must be the accepted limit plus its offset: the road's
+  # current limit, or the early preview checked above.
+  # Float32 transport can round a legal boundary just outside its double-precision value.
+  return (number(expected, positive=True) and number(target, positive=True) and number(selected_mps, positive=True) and
+          abs(expected - selected_mps) <= 0.1 and
+          (preview or abs(float(state.acceptedSpeedLimit) - float(state.speedLimit)) <= 0.02) and
+          abs(target - (float(state.acceptedSpeedLimit) + float(state.offset))) <= 0.1 and
+          V_CRUISE_MIN / 3.6 - 1e-5 <= target <= V_CRUISE_MAX / 3.6 + 1e-5)
+
+
 def active_ceiling(sm, now_ns: int, *, after_ns: int = 0) -> float | None:
   state = _state(sm, now_ns)
   if state is None or int(state.frameMonoTime) <= after_ns or not state.hasCeiling:
@@ -100,8 +145,11 @@ def engagement_state(sm, observation, producer_session: str, now_ns: int, *, aft
   return state if number(target, positive=True) and V_CRUISE_MIN / 3.6 - 1e-5 <= target <= V_CRUISE_MAX / 3.6 + 1e-5 else None
 
 
-def engagement_target(sm, observation, producer_session: str, now_ns: int, *, after_ns: int = 0):
+def engagement_target(sm, observation, producer_session: str, now_ns: int, *, after_ns: int = 0, current_only: bool = False):
   current = engagement_state(sm, observation, producer_session, now_ns, after_ns=after_ns)
+  if current_only:
+    # Tesla set-speed rule: engaging starts SET at the road's current limit, never at an earlier acceptance.
+    return (float(current.presentationAdjustedLimit), current) if current is not None else (None, None)
   state = current if current is not None else _state(sm, now_ns)
   if state is None or int(state.frameMonoTime) <= after_ns:
     return None, None

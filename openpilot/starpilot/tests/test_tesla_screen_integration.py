@@ -148,7 +148,8 @@ class TestTeslaScreenIntegration(unittest.TestCase):
             else:
               selected = start_card(screen_params(platform, marker, longitudinal=longitudinal, release=release))
             cp, ci = selected.CP, selected.CI
-            self.assertEqual(cp.safetyConfigs[0].safetyParam, (1536 if brake_option else 512) + int(cp.openpilotLongitudinalControl))
+            # Startup also admits the scroll speed sync frame (4096) on a car with the cable and StarPilot longitudinal.
+            self.assertEqual(cp.safetyConfigs[0].safetyParam, (1536 if brake_option else 512) + (4097 if cp.openpilotLongitudinalControl else 0))
             self.assertEqual(cp.alternativeExperience, 32)
             self.assertEqual(cp.openpilotLongitudinalControl, longitudinal and not release)
             self.assertTrue(cp.pcmCruise)

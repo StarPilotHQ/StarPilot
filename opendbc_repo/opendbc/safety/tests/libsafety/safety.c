@@ -443,6 +443,15 @@ unsigned int tesla_preap_test_config_read(uint8_t *out) {
   return tesla_preap_pedal_config_read(out);
 }
 
+// Tesla scroll speed sync state for native tests: one bit per flag in declaration
+// order, whether a request was sent this session, and the request tokens in bits 16-23.
+unsigned int safety_test_tesla_sync_state(void) {
+  return (tesla_sync_enabled ? 1U : 0U) | (tesla_sync_seen ? 2U : 0U) | (tesla_sync_di_seen ? 4U : 0U) |
+    (tesla_sync_di_valid ? 8U : 0U) | (tesla_sync_neutral ? 16U : 0U) | (tesla_sync_blocked ? 32U : 0U) |
+    (tesla_sync_pending ? 64U : 0U) | (tesla_sync_drive ? 128U : 0U) | (tesla_sync_occupant ? 256U : 0U) |
+    (tesla_sync_native_active ? 512U : 0U) | ((tesla_sync_steps != 0U) ? 1024U : 0U) | (tesla_sync_tokens << 16U);
+}
+
 // A real foreign catalog must fail closed instead of acquiring the GV60 heartbeat.
 bool safety_test_hyundai_gv60_catalog_rejection(bool alternate) {
   bool rejected = false;

@@ -36,6 +36,26 @@ def check_exact_current_and_hw1_profiles_keep_distinct_steering_encoding():
     assert lib.safety_tx_hook(packet(message))
 
 
+def check_speed_sync_bit_extends_only_modern_long_control_words():
+  modern = TeslaCAN(None, CANPacker(DBC[CAR.TESLA_MODEL_3][Bus.party]))
+  hw1 = ModelSHW1CAN(CANPacker(DBC[CAR.TESLA_MODEL_S_HW1][Bus.party]))
+  debug = lib.set_safety_hooks(structs.CarParams.SafetyModel.allOutput, 0) == 0
+  # Alone, on a stock or HW1 word, or beside an unknown flag, the bit selects nothing.
+  for word in (4096, 4096 | 256, 4096 | 512, 4096 | 2048, 4096 | 16, 4096 | 17, 4096 | 3, 4096 | 1 | 0x8000, 8192 | 1):
+    assert lib.set_safety_hooks(10, word) == -1
+    assert not lib.get_controls_allowed()
+    lib.set_controls_allowed(True)
+    assert not lib.safety_tx_hook(packet(modern.create_steering_control(0., False)))
+    assert not lib.safety_tx_hook(packet(hw1.create_steering_control(0., 0, False)))
+  # The ten exact words keep the modern profile; RELEASE firmware has no such word.
+  for base in (1, 257, 513, 769, 1537, 1793, 2049, 2305, 3073, 3329):
+    assert lib.set_safety_hooks(10, 4096 | base) == (0 if debug else -1)
+    lib.init_tests()  # Clear the separate startup Autopark assumption for this encoding test.
+    lib.set_controls_allowed(False)
+    assert lib.safety_tx_hook(packet(modern.create_steering_control(0., False))) == debug
+    assert lib.get_current_safety_param() == (4096 | base if debug else 0)
+
+
 class TestTeslaEncodingNamespace(unittest.TestCase):
   def tearDown(self):
     lib.init_tests()
@@ -47,3 +67,6 @@ class TestTeslaEncodingNamespace(unittest.TestCase):
 
   def test_exact_current_and_hw1_profiles_keep_distinct_steering_encoding(self):
     check_exact_current_and_hw1_profiles_keep_distinct_steering_encoding()
+
+  def test_speed_sync_bit_extends_only_modern_long_control_words(self):
+    check_speed_sync_bit_extends_only_modern_long_control_words()

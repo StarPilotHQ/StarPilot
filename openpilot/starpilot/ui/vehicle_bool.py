@@ -2,7 +2,7 @@
 
 VEHICLE_BOOL_KEYS = frozenset(("AlphaLongitudinalEnabled", "SubaruAvhStartup", "SubaruStopStartOff", "SubaruSNG", "SubaruRedneckCruise", "RedneckCruise",
                               "GMPedalLongitudinal", "DisableOpenpilotLongitudinal", "LongPitch", "VoltSNG", "SNGHack", "GMAutoHold", "VoltOnePedalMode",
-                              "TeslaCoopSteering", "TeslaAOLScreenTap", "TeslaAOLDisengageOnBrake",
+                              "TeslaCoopSteering", "TeslaAOLDisengageOnBrake", "TeslaSpeedSync",
                               "RemoteStartBootsComma", "HKGRemoteStartBootsComma", "IgnoreIgnitionLine", "TeslaWakeOnCAN"))
 
 
@@ -46,8 +46,9 @@ def confirmation_question(request):
     return f"{verb} compensation for road grade? This refreshes during the drive."
   if request.key == "TeslaCoopSteering":
     return f"{verb} Tesla cooperative steering after the next startup? Light steering input adjusts the assisted steering angle within its limits."
-  if request.key == "TeslaAOLScreenTap":
-    return f"{verb} three-finger screen taps for Always On Lateral after the next startup? Cruise control stays independent."
   if request.key == "TeslaAOLDisengageOnBrake":
     return f"{verb} disarming Always On Lateral with the brake after the next startup? This applies with either Tesla harness."
+  if request.key == "TeslaSpeedSync":
+    return (f"{verb} Comma can set speed on Tesla dashboard? While it is on, StarPilot keeps its own set speed and scrolls the " +
+            "Tesla's set speed to match it.")
   raise ValueError("Unsupported vehicle preference")

@@ -127,7 +127,6 @@
   "SteerLatAccel",
   "StockConfidenceBallWidget",
   "TeslaAOLDisengageOnBrake",
-  "TeslaAOLScreenTap",
   "TeslaWakeOnCAN",
   "ToyotaAutoHold",
   "TrafficFollow",

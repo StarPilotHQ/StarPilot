@@ -11,5 +11,9 @@ after a restart. It never creates a fresh source observation or accepts a pendin
 proposal. Current vehicle coordinates and system-longitudinal authority remain
 required. There is no separate SLC override reducer or retained pedal target.
 
+The one exception is the [Tesla set-speed rule](README.md#tesla-set-speed-rule). With
+`Frame.set_speed_rule`, `composition.step` supplies no ceiling and runs `overrides.step`
+instead, which holds a SET the driver chose until the accepted limit changes.
+
 Lead following, curves, stopping, cruise profiles and actuator restrictions retain
 their existing owners. See the [controller contract](README.md).

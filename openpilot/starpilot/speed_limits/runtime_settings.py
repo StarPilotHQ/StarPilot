@@ -47,6 +47,9 @@ class Settings:
   advance_lower_seconds: int = 0
   pedal_override: PedalOverride = PedalOverride.OFF
   wheel_override: bool = False
+  # Tesla set-speed rule: SLC writes SET on this car (Comma can set speed on Tesla dashboard is on). The planner host
+  # reads the switch; nothing saved under SLC's own keys sets it.
+  set_speed_rule: bool = False
 
 
 def _bool(values: Mapping[str, object], key: str, default: bool = False) -> bool:

@@ -422,6 +422,8 @@ def _projection(row: FeatureRow) -> dict:
           **({"coordinateLocked": row.coordinate_locked} if row.coordinate_locked is not None else {}),
           **({"learningEligible": row.learning_eligible} if row.learning_eligible is not None else {}),
           "heading": is_heading(row.key), "collapsed": bool(row.collapsed),
+          **({"status": True} if row.status else {}),
+          **({"links": [{"label": label, "url": url} for label, url in row.links if url.startswith("https://")]} if row.links else {}),
           **({"previewSound": row.key} if row.key in SOUND_SPECS else {})}
 
 

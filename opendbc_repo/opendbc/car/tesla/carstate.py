@@ -1,4 +1,6 @@
 import copy
+from opendbc.car.dashboard_speed_limit import Tracker as LimitTracker
+from opendbc.car.tesla.speed_limit import update_dashboard_limit
 from opendbc.can import CANDefine, CANParser
 from opendbc.car import Bus, create_button_events, structs
 from opendbc.car.common.conversions import Conversions as CV
@@ -32,6 +34,7 @@ class CarState(CarStateBase):
       self.hands_on_level = 0
       self.das_control = {}
       return
+    self.dashboard_limit = LimitTracker()
     self.cooperative_steering = (CP.carFingerprint in (CAR.TESLA_MODEL_3, CAR.TESLA_MODEL_Y) and
                                 bool(CP.safetyConfigs[0].safetyParam & TeslaSafetyFlags.COOP_STEERING))
     self.can_define = CANDefine(DBC[CP.carFingerprint][Bus.party])
@@ -159,6 +162,9 @@ class CarState(CarStateBase):
       ret.buttonEvents = self.update_screen_button(can_parsers[Bus.adas])
 
     # Buttons # ToDo: add Gap adjust button
+
+    if self.CP.carFingerprint in (CAR.TESLA_MODEL_3, CAR.TESLA_MODEL_Y):
+      update_dashboard_limit(self.dashboard_limit, cp_party, cp_ap_party, speed_units)
 
     # Messages needed by carcontroller
     self.das_control = copy.copy(cp_ap_party.vl["DAS_control"])

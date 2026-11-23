@@ -60,10 +60,10 @@ from openpilot.starpilot.ui.traffic_feature import TrafficFeature, EDIT_KEYS as 
 from openpilot.starpilot.ui.lane_change_feature import LaneChangeFeature, KEYS as LANE_CHANGE_KEYS
 from openpilot.starpilot.ui.conditional_feature import BUTTON_PREFIX, ConditionalFeature
 from openpilot.starpilot.saved_source import read_saved
-from openpilot.starpilot.ui.wheel_feature import WheelFeature, PREFIX as WHEEL_PREFIX
+from openpilot.starpilot.ui.wheel_feature import PREFIX as WHEEL_PREFIX
 from openpilot.starpilot.longitudinal.output_max import KEY as OUTPUT_MAX_KEY
 from openpilot.starpilot.ui.tesla_coop_feature import TeslaCoopFeature
-from openpilot.starpilot.ui.tesla_screen_feature import TeslaScreenFeature, KEYS as TESLA_SCREEN_KEYS
+from openpilot.starpilot.ui.tesla_rows import TeslaVehicleRows, TeslaWheelRows, KEYS as TESLA_SCREEN_KEYS
 from openpilot.starpilot.ui.ford_bluepilot_feature import FordBluePilotFeature, KEYS as FORD_BLUEPILOT_KEYS
 from openpilot.starpilot.ui.ford_cluster_feature import FordClusterFeature
 from openpilot.starpilot.ui.ford_rear_fog_feature import FordRearFogFeature
@@ -185,7 +185,7 @@ class FeatureSettingsOwner:
                                       repair_parked=lambda: self.authority("parked_preferences"),
                                       configuration_longitudinal=self.configuration_longitudinal)
     self.long_profiles = LongProfileFeature(self)
-    self.tesla_screen = TeslaScreenFeature(self)
+    self.tesla_screen = TeslaVehicleRows(self)
     self.tesla_coop = TeslaCoopFeature(self)
     from openpilot.starpilot.ui.gm_cancel_remap_feature import GmCancelRemapFeature
     self.gm_cancel_remap = GmCancelRemapFeature(self)
@@ -202,7 +202,7 @@ class FeatureSettingsOwner:
     self.lane_changes = LaneChangeFeature(params, authority, vehicle_fingerprint, self.vehicle_params,
                                           configuration_longitudinal=self.configuration_longitudinal)
     self.conditional = ConditionalFeature(self)
-    self.wheel = WheelFeature(self)
+    self.wheel = TeslaWheelRows(self)
 
   def _source_capability(self) -> tuple[bool, bool]:
     return bool(self.vision_development()), bool(self.maps_available())
@@ -1183,7 +1183,7 @@ class FeatureSettingsOwner:
       title = "Wheel Controls"
       if self.show_cruise_intervals or toyota_cruise_capability(self.vehicle_params()) is not None:
         rows.extend(self._cruise_rows(configurable))
-      rows.extend(self.wheel.rows())
+      rows = self.wheel.page(rows)
     elif page == FeaturePage.SLC:
       cp = self.vehicle_params()
       button_cruise = hyundai_software_cruise.slc_configurable(cp, self.params)

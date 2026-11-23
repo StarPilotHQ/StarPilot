@@ -13,6 +13,11 @@ class CarInterface(CarInterfaceBase):
   CarController = CarController
   RadarInterface = RadarInterface
 
+  def update(self, can_packets):
+    if self.CC is not None and self.CC.speed_sync is not None:
+      self.CC.speed_sync.observe(can_packets)
+    return super().update(can_packets)
+
   @staticmethod
   def _get_params(ret: structs.CarParams, candidate, fingerprint, car_fw, alpha_long, is_release, docs) -> structs.CarParams:
     ret.brand = "tesla"

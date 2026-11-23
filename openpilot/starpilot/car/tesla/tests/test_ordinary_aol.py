@@ -92,8 +92,9 @@ def test_actual_ui_master_and_brake_toggle_with_either_harness(tmp_path, harness
   gateway = SettingsGateway(params, owner, clock=lambda: 100.0)
   page = gateway.page('vehicle', 'session', b'generation')
   labels = {row['label'] for row in page['rows']}
-  assert 'Disengage AOL on Brake' in labels
-  assert ('Three-Finger AOL Tap' in labels) is harness
+  assert 'Disengage AOL on Brake' in labels and 'Three-Finger AOL Tap' not in labels
+  tap = next(row for row in gateway.page('wheel', 'session', b'generation')['rows'] if row['label'] == 'Tesla screen / Three-finger tap')
+  assert ('Always On Lateral on/off' in tap['choices']) is harness, 'the tap is chosen in Wheel Controls, and needs the harness'
   aol = gateway.page('aol', 'session', b'generation')
   assert next(row for row in aol['rows'] if row['label'] == 'Enable Always On Lateral')['available']
   index = next(i for i, row in enumerate(page['rows']) if row['label'] == 'Disengage AOL on Brake')

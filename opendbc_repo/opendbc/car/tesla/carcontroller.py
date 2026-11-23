@@ -1,3 +1,4 @@
+import time
 import numpy as np
 from opendbc.car import ACCEL_MAX_TAKEOFF
 from opendbc.can import CANPacker
@@ -10,6 +11,7 @@ from opendbc.car.tesla.hw1 import HW1CarController
 from opendbc.car.tesla.values import CAR, CarControllerParams, TeslaSafetyFlags
 from opendbc.car.tesla.coop_steering import CooperativeSteeringController
 from opendbc.car.vehicle_model import VehicleModel
+from opendbc.car.tesla.speed_sync import SpeedSynchronizer, selected as speed_sync_selected, sync_controller
 
 
 def get_safety_CP():
@@ -22,6 +24,7 @@ def get_safety_CP():
 class CarController(CarControllerBase):
   def __init__(self, dbc_names, CP):
     super().__init__(dbc_names, CP)
+    self.speed_sync = SpeedSynchronizer() if speed_sync_selected(CP) else None
     if CP.carFingerprint == CAR.TESLA_MODEL_S_PREAP:
       self.preap = PreAPStockCarController(dbc_names, CP)
       return
@@ -90,6 +93,10 @@ class CarController(CarControllerBase):
       if CC.cruiseControl.cancel:
         cntr = (CS.das_control["DAS_controlCounter"] + 1) % 8
         can_sends.append(self.tesla_can.create_longitudinal_command(13, 0, cntr, CS.out.vEgo, False))
+
+    # Speed sync: append-only mirror; never changes the selected target or actuators.
+    if self.speed_sync is not None:
+      can_sends.extend(sync_controller(self, CC, CS, time.clock_gettime_ns(time.CLOCK_BOOTTIME)))
 
     # TODO: HUD control
     new_actuators = actuators.as_builder()

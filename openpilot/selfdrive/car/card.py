@@ -34,7 +34,7 @@ from opendbc.car.hyundai.values import CAR as HYUNDAI_CAR
 from opendbc.car.interfaces import CarInterfaceBase, RadarInterfaceBase
 from openpilot.selfdrive.pandad import can_capnp_to_list, can_list_to_can_capnp
 from openpilot.selfdrive.car.cruise import LOW_SPEED_CRUISE_ON_SET, SlcWheelContext, VCruiseHelper, slc_target_kph
-from openpilot.starpilot.speed_limits import physical_actions as slc_physical
+from openpilot.starpilot.speed_limits import physical_actions as slc_physical, tesla_set_speed_card
 from openpilot.starpilot.aol.intent import AolProcessFaultContext, independent_axis_requested, read_settings
 from openpilot.starpilot.aol.transport_pause import TransportPauseFeedback, cp_identity
 from opendbc.car.honda.stock_aol import qualified as qualified_honda_stock_aol, native_observation as honda_native_observation
@@ -453,6 +453,7 @@ class Car:
     self.controller_cruise_consumer = CruiseActionConsumer()
     self.controller_cruise_sock = messaging.sub_sock('slcAction', conflate=False) if cruise_action_eligible(self.CP) else None
     self.v_cruise_helper = VCruiseHelper(self.CP)
+    self.slc_set_speed = tesla_set_speed_card.attach(self)
     self.v_cruise_helper.intervals = read_cruise_intervals(self.params, self.CP)
 
     self.experimental_mode = self.params.get_bool("ExperimentalMode")
@@ -592,7 +593,8 @@ class Car:
           break
         self.controller_cruise_consumer.apply(request, self.CP, CS, self.sm, self.v_cruise_helper,
                                              now_ns=now_ns, is_metric=self.is_metric,
-                                             enabled=bool(host_control_enabled and can_rcv_valid and not self.params.get_bool("SafeMode")))
+                                             enabled=bool((host_control_enabled or cruise_helper.tesla_set_speed and host_enabled) and
+                                                          can_rcv_valid and not self.params.get_bool("SafeMode")))
     if self.slc_replay:
       self.apply_slc_adopt(now_ns, host_control_enabled=host_control_enabled, after_ns=floor_ns)
     consumed = self.v_cruise_helper.slc_consumed_button
@@ -809,6 +811,7 @@ class Car:
                                         slc_replay=self.slc_replay, host_long_active=host_long_active, observed_ns=now_ns)
     if curve_receipt is not None:
       self.slc_receipts.append(curve_receipt)
+    tesla_set_speed_card.apply_commands(self, CS, observation, now_ns, long_active=slc_long_active, after_ns=floor_ns)
     blocked_keys = set()
     if self.manual_receipt is not None:
       blocked_keys.add(key_for(self.manual_receipt[0]))
@@ -851,8 +854,9 @@ class Car:
     if self.sm['carControl'].enabled and not self.CC_prev.enabled:
       target, initial = None, None
       now_ns = int(self.can_log_mono_time) if REPLAY and hasattr(self, 'can_log_mono_time') else time.monotonic_ns()
-      if (getattr(self, 'slc_match_on_engage', False) and getattr(self, 'slc_control_enabled', False) and
-          not self.CP.pcmCruise and self.CP.openpilotLongitudinalControl and
+      rule = tesla_set_speed_card.rule(self)
+      if ((rule or getattr(self, 'slc_match_on_engage', False) and not self.CP.pcmCruise) and
+          getattr(self, 'slc_control_enabled', False) and self.CP.openpilotLongitudinalControl and
           CS.canValid and not CS.canTimeout and CS.cruiseState.available and
           self.sm.valid['carControl'] and self.sm.alive['carControl'] and
           0 < int(self.sm.logMonoTime['carControl']) <= now_ns and
@@ -866,7 +870,7 @@ class Car:
           evidence = getattr(self.CI.CS, 'dashboard_limit', None)
           target, initial = slc_physical.engagement_target(
             self.sm, evidence.observation if evidence is not None else None, self.slc_producer_session,
-            now_ns, after_ns=getattr(self, 'slc_source_floor_ns', 0))
+            now_ns, after_ns=getattr(self, 'slc_source_floor_ns', 0), current_only=rule)
       adopted = self.v_cruise_helper.initialize_v_cruise(
         self.CS_prev, self.experimental_mode, resume=self.vehicle_startup.consume_cruise_resume(), initial_speed=self.initial_cruise_speed,
         slc_target_mps=target, is_metric=self.is_metric)
@@ -1235,6 +1239,8 @@ class Car:
           record.decisionId = int(detail.decisionId)
           record.presentationId = int(detail.presentationId)
           record.button = 'decel'
+        else:
+          tesla_set_speed_card.write_receipt(record, kind, detail)
         self.pm.send('slcCruiseEvent', event)
 
     if getattr(self, 'conditional_replay', False) and self.manual_receipt is not None:
@@ -1891,6 +1897,9 @@ class Car:
                    self.can_log_mono_time if REPLAY else
                    time.clock_gettime_ns(time.CLOCK_BOOTTIME) if self.volt_startup_keepalive() or monitored_steering else
                    int(time.monotonic() * 1e9))
+      if getattr(self.CI.CC, "speed_sync", None) is not None:
+        from openpilot.starpilot.car.tesla_speed_sync_context import publish_context
+        publish_context(self, CS)
       learning_snapshot = None
       try:
         from openpilot.starpilot.flm.evidence_hooks import begin_applied_frame, applied_snapshot
@@ -1989,6 +1998,7 @@ class Car:
         if getattr(self, 'slc_transport_available', False):
           self.slc_match_on_engage = self.read_slc_match_on_engage()
         self.v_cruise_helper.intervals = read_cruise_intervals(self.params, self.CP)
+        tesla_set_speed_card.refresh(self)
         for name in ('bluepilot_inputs', 'hands_free_cluster_input'):
           source = getattr(self.CI.CC, name, None)
           if source is not None:

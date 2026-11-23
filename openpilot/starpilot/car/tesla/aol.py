@@ -2,7 +2,7 @@ from opendbc.car import structs
 from opendbc.car.tesla.preap.aol import qualified, temporary_restriction as preap_temporary_restriction
 from openpilot.starpilot.aol.policy import AolVehiclePolicy
 from openpilot.starpilot.car.tesla.stock_intent import TeslaPreapCardIntent
-from opendbc.car.tesla.screen_button import modern_aol_supported, modern_aol_qualified, AOL_WORDS
+from opendbc.car.tesla.screen_button import modern_aol_supported, modern_aol_qualified, AOL_WORDS, SPEED_SYNC, SYNC_WORDS
 from openpilot.starpilot.car.tesla.screen_intent import TeslaScreenCardIntent
 
 
@@ -25,7 +25,9 @@ def policy_for(cp):
 
 
 def native_profile_supported(model, param):
-  return (model == 39 and param in (0, 1, 2, 3, 6, 7)) or (model == 10 and param in AOL_WORDS)
+  # Scroll speed sync rides on top of an Always On Lateral word; the panda reports the whole word.
+  screen = param & ~SPEED_SYNC if param in SYNC_WORDS else param
+  return (model == 39 and param in (0, 1, 2, 3, 6, 7)) or (model == 10 and screen in AOL_WORDS)
 
 
 def native_accepts_cp(cp, model, param):

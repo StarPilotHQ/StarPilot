@@ -4,6 +4,7 @@ import math
 import uuid
 from dataclasses import dataclass, replace
 
+from opendbc.car.tesla.speed_sync import selected as tesla_set_speed_selected
 import openpilot.cereal.messaging as messaging
 from openpilot.cereal.services import SERVICE_LIST
 from openpilot.selfdrive.car.cruise import V_CRUISE_MIN, V_CRUISE_MAX
@@ -12,6 +13,7 @@ from openpilot.starpilot.controllers.wheel_actions import LIFETIME_NS as WHEEL_A
 from openpilot.starpilot.speed_limits import acceptance as acc
 from openpilot.starpilot.speed_limits import action_arbitration as arb
 from openpilot.starpilot.speed_limits import composition as comp
+from openpilot.starpilot.speed_limits import overrides as ov
 from openpilot.starpilot.speed_limits import selection as sel
 from openpilot.starpilot.speed_limits import speed_domain as sd
 from openpilot.starpilot.speed_limits.runtime_settings import ADVANCE_SECONDS, Settings
@@ -108,6 +110,7 @@ class Output:
   result: comp.Result
   message: object
   action_result: arb.Result | None = None
+  command: object | None = None  # Tesla set-speed rule: an slcCruiseCommand for card
 
 
 class Runtime:
@@ -125,6 +128,10 @@ class Runtime:
     # driver confirmation remain independent requirements for each episode.
     self.vision_control_qualified = vision_enabled and vision_control_qualified
     self.vision_display_qualified = bool(vision_enabled and vision_display_qualified and settings.display and not settings.enabled)
+    # Tesla set-speed rule (see step): SLC writes SET through card. A reset keeps this deadline, because the
+    # previous session's command may still be in flight.
+    self.set_speed_rule = False
+    self.set_speed_after_ns = 0
     self._start_session(session_id or uuid.uuid4().hex, previous_limit)
 
   def reset(self) -> None:
@@ -157,12 +164,27 @@ class Runtime:
     self._ego_delta_key: tuple[str, str] | None = None
     self._ego_delta_mps = 0.0
     self._ego_sample_ns = 0
+    # Tesla set-speed rule: the one command card is asked to apply, and what became of it.
+    self.last_command_id = 0
+    self.command_status = ''
+    self.command_interrupted = False
+    self.command_issued_ns = 0
+    self.command_expiry_ns = 0
+    self.command_expected_mps = 0.0
+    self.command_target_mps = 0.0
+    self.command_card_producer = ''
+    self.commanded_acceptance: acc.AcceptedLimit | None = None
 
   def update_offsets(self, offsets: sd.OffsetSchedule, *, is_metric: bool | None = None) -> None:
     if is_metric is not None:
       if type(is_metric) is not bool:
         raise ValueError('SLC display units must be Boolean')
       self.is_metric = is_metric
+    if offsets != self.settings.offsets:
+      # A new offset is a new SET target for the same accepted limit; display units alone are not.
+      self.command_status = ''
+      self.command_interrupted = False
+      self.commanded_acceptance = None
     self.settings = replace(self.settings, offsets=offsets)
     # Renew actions for new offsets/units without forgetting driver choices.
     acceptance = replace(self.state.acceptance, observation=acc.Observation(acc.ObservationKind.UNKNOWN),
@@ -203,7 +225,14 @@ class Runtime:
       return None
     self._mark_event(event)
     action_id = self.ledger.last_action_id + 1
-    begun = arb.step(self.ledger, arb.BeginAction(self.session_id, action_id, arb.Origin.DRIVER_CRUISE, 'driver-set'), now_ns=now_ns)
+    context_id = 'driver-set'
+    if self.set_speed_rule and self.state.override is not None:
+      # A SET change older than the current override context answers an earlier limit.
+      context = self.state.override.context
+      if context is not None and context.issued_at_ns > event.observed_ns:
+        return None
+      context_id = context.context_id if context is not None else 'no-slc-context'
+    begun = arb.step(self.ledger, arb.BeginAction(self.session_id, action_id, arb.Origin.DRIVER_CRUISE, context_id), now_ns=now_ns)
     self.ledger = begun.state
     if begun.errors or begun.status != 'begun':
       return None
@@ -254,6 +283,32 @@ class Runtime:
     assert pending is not None
     kind = acc.ActionKind.ACCEPT if event.kind == 'confirmationAccept' else acc.ActionKind.REJECT
     return acc.DriverAction(self.session_id, action_id, pending.decision_id, kind, event.observed_ns), None, action_id
+
+  def _command_receipt(self, event: CruiseEvent, sm, now_ns: int) -> None:
+    """Card's answer to the command this session issued; anything else is ignored."""
+    if event.kind not in ('commandApplied', 'commandRejected') or not self._event_current(event, sm, now_ns):
+      return
+    self._mark_event(event)
+    if (event.session_id != self.session_id or event.command_id != self.last_command_id or
+        event.producer_session != self.command_card_producer or self.command_status not in ('issued', 'expired') or
+        not self.command_issued_ns <= event.observed_ns <= self.command_expiry_ns):
+      return
+    if event.kind == 'commandRejected':
+      self.command_status = 'rejected'
+      self.set_speed_after_ns = event.observed_ns
+      return
+    # Card rounds the target to whole display units, at most half a mph away.
+    if (not acc.number(event.previous_mps, positive=True) or abs(event.previous_mps - self.command_expected_mps) > 0.1 or
+        not acc.number(event.selected_mps, positive=True) or abs(event.selected_mps - self.command_target_mps) > 0.5):
+      return
+    self.command_status = 'applied'
+    self.set_speed_after_ns = event.observed_ns
+    if self.commanded_acceptance == self.state.acceptance.accepted and self.state.override is not None:
+      self.state = replace(self.state, override=replace(self.state.override, applied_selected_mps=event.selected_mps))
+
+  def _set_speed_ready(self, sm) -> bool:
+    # Trust SET only once carState is newer than card's answer to the last command (or that command's expiry).
+    return int(sm.logMonoTime.get('carState', 0)) > self.set_speed_after_ns
 
   @property
   def _maps_selected(self) -> bool:
@@ -469,7 +524,9 @@ class Runtime:
     if shown is None or shown.presentation_id != request.presentation_id:
       return None, None, None
     action_id = self.ledger.last_action_id + 1
-    begun = arb.step(self.ledger, arb.BeginAction(self.session_id, action_id, arb.Origin.DRIVER_OTHER, 'slc-presentation'),
+    context = self.state.override.context if self.set_speed_rule and self.state.override is not None else None
+    context_id = context.context_id if context is not None else 'slc-presentation'
+    begun = arb.step(self.ledger, arb.BeginAction(self.session_id, action_id, arb.Origin.DRIVER_OTHER, context_id),
                      now_ns=now_ns)
     self.ledger = begun.state
     if begun.errors:
@@ -482,7 +539,15 @@ class Runtime:
 
   def step(self, sm, CP, *, now_ns: int, now_boot_ns: int | None = None, request: Action | None = None,
            cruise_event: CruiseEvent | None = None, confirmation_grace_ns: int = 0, wheel_override_blocked: bool = False) -> Output:
+    # Tesla set-speed rule: on a Model 3/Y whose software SET is mirrored to the car, SLC writes SET (limit plus
+    # offset) through card instead of capping beneath it. The planner host follows the saved switch.
+    self.set_speed_rule = bool(self.settings.set_speed_rule and tesla_set_speed_selected(CP))
+    old_pending = self.state.acceptance.pending
+    if self.command_status == 'issued' and now_ns > self.command_expiry_ns:
+      self.command_status = 'expired'
     classified = self._cruise(cruise_event, sm, now_ns) if request is None else None
+    if self.set_speed_rule and cruise_event is not None and request is None:
+      self._command_receipt(cruise_event, sm, now_ns)
     action, adopt, action_id = self._action(request, now_ns)
     if cruise_event is not None and request is None:
       action, adopt, action_id = self._physical_action(cruise_event, sm, now_ns)
@@ -503,6 +568,16 @@ class Runtime:
       wheel_since = cruise_event.wheel_override_since_ns
     frame = self._frame(sm, CP, now_ns, now_boot_ns, action, adopt, classified, wheel_override_blocked=wheel_override_blocked)
     frame = replace(frame, confirmation_grace_ns=confirmation_grace_ns, wheel_override_since_ns=wheel_since)
+    if self.set_speed_rule:
+      # A written SET is felt at once, so automatic adoption waits and a new source must hold before it counts. An early
+      # Maps preview is offered the chosen number of seconds ahead, so it is adopted when offered, without the wait.
+      wait = 0 if frame.confirmation_started_ns is not None else acc.AUTOMATIC_ADOPTION_NS
+      frame = replace(frame, set_speed_rule=True, set_speed_ready=self._set_speed_ready(sm),
+                      acceptance_policy=replace(frame.acceptance_policy, automatic_adoption_ns=wait,
+                                                source_switch_ns=acc.SOURCE_SWITCH_NS))
+      if frame.preview_reverted and self.state.override is not None:
+        # The withdrawn preview's SET is no longer the accepted limit's own value.
+        self.state = replace(self.state, override=replace(self.state.override, applied_selected_mps=None))
     result = comp.step(self.state, frame)
     self.state = result.state
     self.advance.observe(result)
@@ -529,6 +604,7 @@ class Runtime:
         self.ledger = action_result.state
       completed = arb.step(self.ledger, arb.CompleteAction(self.session_id, action_id), now_ns=now_ns)
       self.ledger = completed.state
+    command = self._command(result, frame, sm, now_ns, old_pending, action, adopt) if self.set_speed_rule else None
     result = replace(result, state=self.state)
     message = self._message(now_ns, result, sm, frame)
     if action_result is not None and action_result.status == 'resolved':
@@ -542,7 +618,86 @@ class Runtime:
     receipt = self._ui_receipt
     if receipt is not None:
       message.slcState.actionSequenceId, message.slcState.actionStatus = receipt
-    return Output(result, message, action_result)
+    return Output(result, message, action_result, command)
+
+  def _command(self, result: comp.Result, frame: comp.Frame, sm, now_ns: int, old_pending: acc.PendingDecision | None,
+               action: acc.DriverAction | None, adopt: acc.AdoptRequest | None):
+    """Ask card to write the accepted limit plus offset into SET: once per accepted limit, again after an explicit
+    adopt, and again while an unanswered or refused command still finds SET where it was."""
+    decision = result.acceptance
+    override = result.state.override
+    if result.errors or decision is None or override is None:
+      return None
+    accepted = decision.state.accepted
+    if (decision.state.pending is not None and self.commanded_acceptance == accepted and
+        self.command_status in ('issued', 'expired', 'rejected')):
+      # Another candidate interrupted this command; only a new acceptance or an explicit adopt may issue again.
+      self.command_interrupted = True
+    current = result.selection.observation.candidate if result.selection is not None else None
+    if (decision.basis not in ('accepted', 'driver_accept', 'driver_adopt') or accepted is None or
+        decision.state.pending is not None or decision.authority is None or not decision.authority.can_control or
+        result.coordinate is None or result.domain is None or result.domain.context is None or current is None or
+        current.speed_mps != accepted.candidate.speed_mps or override.persistent_selected_mps is not None):
+      return None
+    # An accepted early Maps preview (Adopt limits early) is written like any accepted limit. If it is withdrawn before
+    # the car reaches it, acceptance returns to the road's limit, which is then a different acceptance and is written back.
+    target = result.domain.context.effective_cluster_mps
+    selected_kph = float(sm['carState'].vCruise)
+    if (not acc.number(selected_kph, positive=True) or selected_kph >= 255 or
+        not V_CRUISE_MIN / 3.6 <= target <= V_CRUISE_MAX / 3.6):
+      return None
+    if sd.set_speed_matches(target, selected_kph, float(sm['carState'].vCruiseCluster), self.is_metric):
+      if not self._set_speed_ready(sm):
+        return None
+      self.commanded_acceptance = accepted
+      self.command_status = 'applied'
+      self.state = replace(self.state, override=replace(override, applied_selected_mps=selected_kph / 3.6))
+      return None
+    if (self.commanded_acceptance == accepted and ov.explicit_adoption(decision) is None and
+        (self.command_interrupted or self.command_status in ('issued', 'applied') or
+         abs(selected_kph / 3.6 - self.command_expected_mps) > 0.1)):
+      return None
+    source = result.selection.selected_source
+    evidence = sm['slcDashboardObservation']
+    expiry = now_ns + int(2e9 / SERVICE_LIST['slcState'].frequency)
+    if source is sel.Source.VISION:
+      evidence = sm['slcVisionObservation'].vision
+    if source in (sel.Source.DASHBOARD, sel.Source.VISION):
+      expiry = min(expiry, int(evidence.validUntilMonoTime))
+    if expiry <= now_ns:
+      return None
+    self.commanded_acceptance = accepted
+    self.last_command_id += 1
+    self.command_status = 'issued'
+    self.command_interrupted = False
+    self.command_issued_ns = now_ns
+    self.command_expiry_ns = expiry
+    self.set_speed_after_ns = max(self.set_speed_after_ns, expiry)
+    self.command_expected_mps = selected_kph / 3.6
+    self.command_target_mps = target
+    self.command_card_producer = str(sm['slcDashboardObservation'].producerSessionId)
+    command = messaging.new_message('slcCruiseCommand')
+    command.valid = True
+    command.logMonoTime = now_ns
+    record = command.slcCruiseCommand
+    record.kind = 'adoptAcceptedLimit'
+    record.source = source.value
+    record.sessionId = self.session_id
+    record.commandId = self.last_command_id
+    record.actionId = action.sequence_id if action is not None else adopt.sequence_id if adopt is not None else 0
+    record.decisionId = old_pending.decision_id if old_pending is not None else 0
+    shown = self.state.acceptance.presentation
+    record.presentationId = shown.presentation_id if shown is not None else 0
+    if source in (sel.Source.DASHBOARD, sel.Source.VISION):
+      record.sourceProducerSessionId = str(evidence.producerSessionId)
+      record.sourceEpisode = int(evidence.episode)
+      record.sourceObservedMonoTime = int(evidence.observedMonoTime)
+      record.sourceValidUntilMonoTime = int(evidence.validUntilMonoTime)
+    record.issuedMonoTime = now_ns
+    record.expiresMonoTime = expiry
+    record.expectedSelectedMps = selected_kph / 3.6
+    record.targetMps = target
+    return command
 
   def _message(self, now_ns: int, result: comp.Result, sm, frame: comp.Frame):
     message = messaging.new_message("slcState")
@@ -593,6 +748,10 @@ class Runtime:
       state.hasCeiling = True
       state.effectiveCap = result.ceiling.speed_mps
       state.isLimitingMaxSet = context is not None and sd.limit_caps_set(context, self.is_metric)
+    elif self.set_speed_rule and context is not None and accepted is not None:
+      # No cap is published; the limit is in use while SET is the value card writes for it.
+      state.isLimitingMaxSet = sd.set_speed_matches(context.effective_cluster_mps, frame.host.driver_v_cruise_kph,
+                                                    frame.host.selected_cluster_kph, self.is_metric)
     pending = result.state.acceptance.pending
     # Only an already-captured response can finish an expired presentation.
     if pending is not None and not pending.automatic and pending.active_elapsed_ns >= acc.CONFIRMATION_NS:
@@ -606,9 +765,17 @@ class Runtime:
       state.pendingSinceMonoTime = now_ns - pending.active_elapsed_ns
     wheel_active = result.coordinate is not None and result.coordinate.basis == 'wheel'
     state.wheelOverrideSince = result.state.wheel_override_since_ns if not result.errors else 0
-    state.driverOverrideActive = wheel_active or result.ceiling is not None and result.state.pedal_target_mps > 0.
-    state.overrideBasis = 'wheel' if wheel_active else (
-      ('pedal' if frame.pedal_pressed else 'persistent') if state.driverOverrideActive else 'none')
+    if self.set_speed_rule and result.state.override is not None:
+      # An override here is the driver's own held SET; the accelerator never makes one.
+      state.driverOverrideActive = result.state.override.persistent_selected_mps is not None
+      state.overrideBasis = 'persistent' if state.driverOverrideActive else 'none'
+      state.retainedOverride = state.driverOverrideActive
+      state.commandId = self.last_command_id
+      state.commandStatus = self.command_status
+    else:
+      state.driverOverrideActive = wheel_active or result.ceiling is not None and result.state.pedal_target_mps > 0.
+      state.overrideBasis = 'wheel' if wheel_active else (
+        ('pedal' if frame.pedal_pressed else 'persistent') if state.driverOverrideActive else 'none')
     shown = result.state.acceptance.presentation
     ego = frame.ego_pair
     ego_delta = ego.delta_mps if ego.status is sd.DomainStatus.VALID else 0.0

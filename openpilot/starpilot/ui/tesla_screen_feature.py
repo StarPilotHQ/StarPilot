@@ -4,11 +4,9 @@ from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.ui.feature_settings_state import FeatureRow
 
 
-KEYS = frozenset(('TeslaAOLScreenTap', 'TeslaAOLDisengageOnBrake'))
+# The three-finger tap's Always On Lateral on/off is chosen on the tap's own row in Wheel Controls (tesla_controls_feature.py).
+KEYS = frozenset(('TeslaAOLDisengageOnBrake',))
 ROWS = (
-  ('TeslaAOLScreenTap', 'Three-Finger AOL Tap',
-   'Touch the Tesla screen with three fingers to toggle Always On Lateral. Requires Always On Lateral and the detected Vehicle CAN add-on cable. ' +
-   'Does not engage or cancel cruise control. Applies after the next startup.'),
   ('TeslaAOLDisengageOnBrake', 'Disengage AOL on Brake',
    'Pressing the brake disarms Always On Lateral. ' +
    'Turn off to keep steering armed during braking. Applies after the next startup.'),
@@ -36,10 +34,7 @@ class TeslaScreenFeature:
     if capability is None:
       return ()
     rows = []
-    from opendbc.car.tesla.screen_button import screen_tap_supported
     for key, label, reason in ROWS:
-      if key == 'TeslaAOLScreenTap' and not screen_tap_supported(self.vehicle_params()):
-        continue
       raw, readable = read_saved(self.params, key, 8)
       valid = readable and raw in (None, b'0', b'1')
       rows.append(FeatureRow(key, label, ('On' if raw == b'1' else 'Off') if valid else 'Invalid saved choice',
@@ -57,8 +52,7 @@ class TeslaScreenFeature:
     def authorized():
       return (self.authority('parked_preferences') and bool(request.vehicle_fingerprint) and
               self.vehicle_fingerprint() == request.vehicle_fingerprint and request.capability is not None and
-              self.capability() == request.capability and
-              (request.key != 'TeslaAOLScreenTap' or any(row.key == request.key for row in self.rows(True))))
+              self.capability() == request.capability)
 
     result = commit_exact(self.params, key=request.key, max_bytes=8, expected=request.expected,
                           raw=b'1' if request.value == 'On' else b'0', authorized=authorized, temp_prefix='.tesla-screen-')
