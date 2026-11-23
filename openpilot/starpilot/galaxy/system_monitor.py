@@ -63,6 +63,42 @@ class SystemMonitor:
     except OSError:
       return {'usedGiB': None, 'totalGiB': None, 'freeGiB': None}
 
+  def _thermal_vitals(self):
+    if self.messages is None:
+      return {}
+    try:
+      sm = self.messages.snapshot()
+      if sm is None:
+        return {}
+      now = self.clock()
+    except (OSError, RuntimeError, AttributeError, TypeError, ValueError):
+      return {}
+
+    def reading(name):
+      try:
+        stamp = int(sm.logMonoTime[name])
+        age = max(now - stamp / 1e9, now - sm.recv_time[name])
+        if (sm.seen[name] and sm.alive[name] and sm.valid[name] and stamp > sm.after_mono_ns and
+            stamp / 1e9 <= now and sm.recv_time[name] <= now and 0 <= age < 5):
+          return sm[name], round((5 - age) * 1000)
+      except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
+        pass
+      return None, 0
+
+    def temperature(samples):
+      return max((round(value, 1) for value in samples if math.isfinite(value) and 0 < value <= 150), default=None)
+
+    device, onboard_age = reading('deviceState')
+    if device is None:
+      return {}
+    vitals = {'cpuTempC': temperature(device.cpuTempC), 'gpuTempC': temperature(device.gpuTempC),
+              'onboardMaxAgeMs': onboard_age}
+    if device.chestnutPresent:
+      gpu, gpu_age = reading('chestnutGpuState')
+      if gpu is not None:
+        vitals.update(hotspotTempC=temperature((gpu.tempC,)), maxAgeMs=gpu_age)
+    return vitals
+
   def _recording_storage_usage(self):
     # Only C3 supports an added recording drive. A directory on userdata is
     # not a second drive, and mount changes must not leave a stale SSD reading.
@@ -182,5 +218,7 @@ class SystemMonitor:
       'storage': storage, 'recordingStorage': recording_storage,
       'uptimeSeconds': uptime, 'processCount': len(rows), 'processes': rows,
     }
+    if vitals := self._thermal_vitals():
+      result['vitals'] = vitals
     self.previous, self.cpu_previous, self.previous_time = process_ticks, cpu_now, now
     return result

@@ -179,3 +179,33 @@ class BatteryVoltageTest(unittest.TestCase):
     source.snapshot=lambda:None
     self.assertIsNone(monitor._battery_voltage())
     self.assertIsNone(SystemMonitor()._battery_voltage())
+
+
+class ThermalVitalsTest(unittest.TestCase):
+  def test_hottest_real_sensor_and_only_fresh_attached_gpu(self):
+    class Snapshot(SimpleNamespace):
+      def __getitem__(self, key):
+        return self.data[key]
+
+    device = SimpleNamespace(cpuTempC=[0., 43.5, 42.8, float('nan')], gpuTempC=[41.5, 42.2], chestnutPresent=True)
+    names = ('deviceState', 'chestnutGpuState')
+    sm = Snapshot(data={'deviceState': device, 'chestnutGpuState': SimpleNamespace(tempC=72)},
+                  seen=dict.fromkeys(names, True), alive=dict.fromkeys(names, True), valid=dict.fromkeys(names, True),
+                  logMonoTime=dict.fromkeys(names, 9_000_000_000), recv_time=dict.fromkeys(names, 9.),
+                  after_mono_ns=8_000_000_000)
+    monitor = SystemMonitor(messages=SimpleNamespace(snapshot=lambda: sm), clock=lambda: 10.)
+    self.assertEqual(monitor._thermal_vitals(), {'cpuTempC': 43.5, 'gpuTempC': 42.2, 'onboardMaxAgeMs': 4000,
+                                                'hotspotTempC': 72, 'maxAgeMs': 4000})
+    device.chestnutPresent = False
+    self.assertNotIn('hotspotTempC', monitor._thermal_vitals())
+    device.chestnutPresent = True
+    sm.valid['chestnutGpuState'] = False
+    self.assertNotIn('hotspotTempC', monitor._thermal_vitals())
+    sm.valid['chestnutGpuState'] = True
+    sm.logMonoTime['chestnutGpuState'] = 10_000_000_001
+    self.assertNotIn('hotspotTempC', monitor._thermal_vitals())
+    sm.recv_time['deviceState'] = 5.
+    self.assertEqual(monitor._thermal_vitals(), {})
+    sm.recv_time['deviceState'] = 9.
+    sm.after_mono_ns = 9_000_000_000
+    self.assertEqual(monitor._thermal_vitals(), {})

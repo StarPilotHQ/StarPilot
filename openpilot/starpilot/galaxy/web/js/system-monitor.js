@@ -22,14 +22,14 @@ export const SystemMonitor = {
       const s = this.snapshot?.uptimeSeconds
       return s === null || s === undefined ? "—" : `${Math.floor(s / 3600)}h ${Math.floor(s / 60) % 60}m`
     },
-    vramUsed() { return vital(this.snapshot, "memoryUsedBytes", "memoryMaxAgeMs") },
-    vramTotal() { return vital(this.snapshot, "memoryTotalBytes", "memoryMaxAgeMs") },
+    cpuTemp() { return vital(this.snapshot, "cpuTempC", "onboardMaxAgeMs") },
+    gpuTemp() { return vital(this.snapshot, "gpuTempC", "onboardMaxAgeMs") },
+    hotspotTemp() { return vital(this.snapshot, "hotspotTempC", "maxAgeMs") },
   },
   methods: {
     number: displayNumber,
     feature: processFeature,
     state: processState,
-    sensor(field, budget) { return vital(this.snapshot, field, budget) },
     sortBy(key) { if (this.sort === key) this.descending = !this.descending; else { this.sort = key; this.descending = ["cpu", "memoryMiB"].includes(key) } },
     arrow(key) { return this.sort === key ? (this.descending ? " ↓" : " ↑") : "" },
     ariaSort(key) { return this.sort !== key ? "none" : this.descending ? "descending" : "ascending" },
@@ -48,11 +48,9 @@ export const SystemMonitor = {
           <section class="gx-card gx-monitor__metric"><span>Processes</span><strong>{{ snapshot.processCount ?? '—' }}</strong><small>Uptime {{ uptime }}</small></section>
           <section class="gx-card gx-monitor__metric"><span>{{ snapshot.deviceType === 'tici' ? 'Internal storage' : 'Storage' }}</span><strong>{{ number(snapshot.storage.usedGiB) }} GiB</strong><small>{{ number(snapshot.storage.totalGiB) }} GiB total<span v-if="snapshot.deviceType === 'tici'"> · {{ number(snapshot.storage.freeGiB) }} GiB free</span></small></section>
           <section v-if="snapshot.deviceType === 'tici' && snapshot.recordingStorage" class="gx-card gx-monitor__metric"><span>Recording drive</span><strong>{{ number(snapshot.recordingStorage.usedGiB) }} GiB</strong><small>{{ number(snapshot.recordingStorage.totalGiB) }} GiB total · {{ number(snapshot.recordingStorage.freeGiB) }} GiB free</small></section>
-          <section class="gx-card gx-monitor__metric"><span>Onboard CPU temperature</span><strong>{{ number(sensor('cpuTempC', 'onboardMaxAgeMs'), ' °C') }}</strong></section>
-          <section class="gx-card gx-monitor__metric"><span>Onboard GPU temperature</span><strong>{{ number(sensor('gpuTempC', 'onboardMaxAgeMs'), ' °C') }}</strong></section>
-          <section class="gx-card gx-monitor__metric"><span>eGPU hotspot temperature</span><strong>{{ number(sensor('hotspotTempC', 'maxAgeMs'), ' °C') }}</strong></section>
-          <section class="gx-card gx-monitor__metric"><span>eGPU temperature</span><strong>{{ number(sensor('gpuEdgeTempC', 'maxAgeMs'), ' °C') }}</strong></section>
-          <section class="gx-card gx-monitor__metric"><span>eGPU VRAM</span><strong>{{ vramUsed == null ? '—' : number(vramUsed / 1073741824) + ' GiB' }}</strong><small v-if="vramTotal != null">{{ number(vramTotal / 1073741824) }} GiB total</small><progress v-if="vramTotal> 0 && vramUsed != null" :value="vramUsed" :max="vramTotal" aria-label="eGPU VRAM usage"></progress></section>
+          <section v-if="cpuTemp != null" class="gx-card gx-monitor__metric"><span>Onboard CPU temperature</span><strong>{{ number(cpuTemp, ' °C') }}</strong></section>
+          <section v-if="gpuTemp != null" class="gx-card gx-monitor__metric"><span>Onboard GPU temperature</span><strong>{{ number(gpuTemp, ' °C') }}</strong></section>
+          <section v-if="hotspotTemp != null" class="gx-card gx-monitor__metric"><span>eGPU hotspot temperature</span><strong>{{ number(hotspotTemp, ' °C') }}</strong></section>
         </div>
         <details class="gx-card gx-monitor__cores"><summary>CPU cores</summary><div><span v-for="core in snapshot.cores" :key="core.name">{{ core.name.toUpperCase() }} <b>{{ number(core.percent, '%') }}</b><progress v-if="core.percent != null" :value="core.percent" max="100" :aria-label="core.name + ' usage'"></progress></span></div></details>
         <div class="gx-monitor__filters"><input class="gx-field" type="search" v-model="query" aria-label="Search processes" placeholder="Search feature, process, PID or user…"><GalaxySelect class="gx-field gx-field--full" v-model="scope" aria-label="Process group"><option value="comma">Comma processes</option><option value="users">Apps and services</option><option value="all">All processes</option></GalaxySelect></div>
