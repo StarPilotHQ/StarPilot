@@ -100,6 +100,13 @@ class BuildMetadata:
     return self.channel in TESTED_BRANCHES
 
   @property
+  def standard_startup(self) -> bool:
+    starpilot_origins = ('github.com/starpilothq/starpilot', 'github.com/firestar5683/starpilot')
+    if self.openpilot.git_normalized_origin.lower() in starpilot_origins:
+      return self.channel in ('stable', 'StarPilot', 'Dom', 'testing')
+    return self.openpilot.comma_remote and self.tested_channel
+
+  @property
   def release_channel(self) -> bool:
     return self.channel in RELEASE_BRANCHES
 

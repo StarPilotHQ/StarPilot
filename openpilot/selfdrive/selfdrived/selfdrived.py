@@ -261,10 +261,7 @@ class SelfdriveD:
     # Observational only. Do not cache this qualification for authority decisions.
 
     # Determine startup event
-    official_starpilot = (build_metadata.openpilot.git_normalized_origin.lower() == 'github.com/starpilothq/starpilot' and
-                          build_metadata.channel in ('stable', 'testing'))
-    standard_startup = official_starpilot or (build_metadata.openpilot.comma_remote and build_metadata.tested_channel)
-    self.startup_event = EventName.startup if standard_startup else EventName.startupMaster
+    self.startup_event = EventName.startup if build_metadata.standard_startup else EventName.startupMaster
     if HARDWARE.get_device_type() == 'mici':
       self.startup_event = None
     if not car_recognized:
