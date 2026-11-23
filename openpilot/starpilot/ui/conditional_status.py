@@ -104,7 +104,7 @@ class ConditionalPerceptionProjector:
 
   def project(self, state, *, now_ns: int, event_ns: int, drive_id: int,
               choice: ModeChoice | None, lateral_active: bool, selfdrive_enabled: bool,
-              car_valid: bool, system_long: bool) -> ConditionalDisplay | None:
+              car_valid: bool, system_long: bool, aol_armed_at_standstill: bool = False) -> ConditionalDisplay | None:
     from openpilot.starpilot.conditional_mode.status import observation as scene_observation
 
     if type(drive_id) is not int or drive_id <= 0:
@@ -126,7 +126,8 @@ class ConditionalPerceptionProjector:
     if (value is None or value.drive_id != drive_id or
         value.choice is not choice or choice not in (ModeChoice.CEM, ModeChoice.CCM) or
         value.status not in ('proposed', 'inactive_axis') or not car_valid or not system_long or
-        not (lateral_active or selfdrive_enabled) or value.session in self.retired):
+        not (lateral_active or selfdrive_enabled or
+             aol_armed_at_standstill and state.conditionalMode.perceivedStop) or value.session in self.retired):
       return None
     if self.session is not None and value.session != self.session:
       self.retired = (*self.retired[-7:], self.session)

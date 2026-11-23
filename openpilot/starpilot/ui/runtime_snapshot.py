@@ -599,14 +599,6 @@ class RuntimeSnapshotAdapter:
       system_long=bool(cp is not None and getattr(cp, 'openpilotLongitudinalControl', False) and
                        not getattr(cp, 'passive', False)),
     )
-    perception = self._conditional_perception.project(
-      curve_envelope, now_ns=now_ns, event_ns=int(sm.logMonoTime['slcState']) if curve_envelope is not None else 0,
-      drive_id=drive_id, choice=self._conditional_choice,
-      lateral_active=bool(display_control is not None and display_control.latActive),
-      selfdrive_enabled=bool(display_selfdrive is not None and getattr(display_selfdrive, 'enabled', False)),
-      car_valid=display_car_valid,
-      system_long=bool(cp is not None and getattr(cp, "openpilotLongitudinalControl", False) and not getattr(cp, "passive", False)),
-    )
     if not display_car_valid:
       curve = None
     cluster_cruise = _finite(display_car.vCruiseCluster) if display_car_valid else None
@@ -749,6 +741,17 @@ class RuntimeSnapshotAdapter:
           break
     aol_latched = (display_aol_latch(sm, now_ns, after_frame=after)
                    if started and getattr(ui, "aol_runtime", False) and not legacy_2025_lateral_off else None)
+    perception = self._conditional_perception.project(
+      curve_envelope, now_ns=now_ns, event_ns=int(sm.logMonoTime['slcState']) if curve_envelope is not None else 0,
+      drive_id=drive_id, choice=self._conditional_choice,
+      lateral_active=bool(display_control is not None and display_control.latActive),
+      aol_armed_at_standstill=bool(aol_latched and display_car_valid and display_car.standstill and
+        str(display_car.gearShifter) in ('drive', 'sport', 'low', 'brake', 'eco', 'manumatic') and
+        not display_car.steerFaultTemporary and not display_car.steerFaultPermanent),
+      selfdrive_enabled=bool(display_selfdrive is not None and getattr(display_selfdrive, 'enabled', False)),
+      car_valid=display_car_valid,
+      system_long=bool(cp is not None and getattr(cp, "openpilotLongitudinalControl", False) and not getattr(cp, "passive", False)),
+    )
     if cp is not None and getattr(cp, 'carFingerprint', '') == 'SUBARU_LEGACY_2025':
       armed_at_stop = False
       if (aol_latched and display_car_valid and

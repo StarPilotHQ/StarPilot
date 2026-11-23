@@ -98,3 +98,22 @@ def test_independently_stamped_scene_survives_transport_without_control_authorit
   projector = ConditionalPerceptionProjector()
   assert projector.project(event.slcState, **args) is not None
   assert projector.project(first.slcState, **args) is None
+
+@pytest.mark.parametrize('perceived_stop', [False, True])
+def test_stopped_armed_aol_shows_only_observed_stop_scene(perceived_stop):
+  now = 100_000_000_000
+  drive_id = now - 1_000_000_000
+  settings = SettingsSnapshot("test", 1, now, now, DocumentState.ABSENT, SafeModeState.ABSENT_FALSE, None, None, None)
+  proposal = HostProposal(ModeChoice.CEM,
+                          Mock(spec=ProjectedScene, authority=Authority(True, True, False, False, False, True),
+                               perceived_stop=perceived_stop),
+                          Decision(True, False, True, True, Reason.CEM_STOP, 8), None, 'inactive_axis', settings.revision)
+  event = StatusPublisher().attach(None, proposal, settings, now_ns=now, drive_id=drive_id, model_ns=now, car_state_ns=now)
+  args = {"now_ns": now, "event_ns": now, "drive_id": drive_id, "choice": ModeChoice.CEM, "lateral_active": False,
+              "selfdrive_enabled": False, "car_valid": True, "system_long": True}
+  assert ConditionalPerceptionProjector().project(event.slcState, **args) is None
+  result = ConditionalPerceptionProjector().project(event.slcState, **args, aol_armed_at_standstill=True)
+  assert (result is not None) == perceived_stop
+  assert not event.slcState.conditionalMode.hasOverride
+  if result is not None:
+    assert result.perceived_stop and not result.effective_experimental
