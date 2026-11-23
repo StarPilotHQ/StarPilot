@@ -300,14 +300,15 @@ static safety_config subaru_init(uint16_t raw_param) {
     param &= ~4096U;
   }
 #ifdef ALLOW_DEBUG
-  const bool avh = ((param == 1169U) || (param == 1425U)) &&
+  const bool avh = ((param == 1169U) || (param == 1425U) || (param == 1041U) || (param == 3089U)) &&
     (((unsigned int)alternative_experience == 0U) || ((unsigned int)alternative_experience == 32U));
 #else
   const bool avh = false;
 #endif
   const bool stop_start = ((param == 401U) || (param == 465U) || (avh && (param == 1425U))) &&
     (((unsigned int)alternative_experience == 0U) || ((unsigned int)alternative_experience == 32U));
-  const uint16_t base_param = stop_start ? ((param == 465U) ? 209U : 145U) : (avh ? 145U : param);
+  const uint16_t base_param = stop_start ? ((param == 465U) ? 209U : 145U) : (avh ? (param & ~1024U) : param);
+  const bool sibling_hud = (base_param == 2065U);
   static const CanMsg SUBARU_TX_MSGS[] = {
     SUBARU_BASE_TX_MSGS(SUBARU_MAIN_BUS, MSG_SUBARU_ES_LKAS)
     SUBARU_COMMON_TX_MSGS(SUBARU_MAIN_BUS)
@@ -361,6 +362,10 @@ static safety_config subaru_init(uint16_t raw_param) {
     {0x390U, SUBARU_ALT_BUS, 8, .check_relay = false},
   };
 
+  static const CanMsg SUBARU_SIBLING_AVH_TX_MSGS[] = {
+    SUBARU_GEN2_ANGLE_TX_MSGS(SUBARU_MAIN_BUS)
+    {0x6BBU, SUBARU_ALT_BUS, 8, .check_relay = false},
+  };
   static const CanMsg SUBARU_AVH_TX_MSGS[] = {
     SUBARU_GEN2_ANGLE_TX_MSGS(SUBARU_MAIN_BUS)
     {MSG_SUBARU_ES_LKAS_Alert, SUBARU_MAIN_BUS, 8, .check_relay = true},
@@ -401,7 +406,7 @@ static safety_config subaru_init(uint16_t raw_param) {
   subaru_fixed_angle_limits = GET_FLAG(param, SUBARU_PARAM_FIXED_ANGLE);
   subaru_angle_invalid = (subaru_lkas_angle && (base_param != (SUBARU_PARAM_GEN2 | SUBARU_PARAM_LKAS_ANGLE)) &&
                           (base_param != (SUBARU_PARAM_GEN2 | SUBARU_PARAM_LKAS_ANGLE | SUBARU_PARAM_FIXED_ANGLE)) &&
-                          (base_param != (SUBARU_PARAM_GEN2 | SUBARU_PARAM_LKAS_ANGLE | SUBARU_PARAM_FIXED_ANGLE | SUBARU_PARAM_ANGLE_MAIN_BUS)) && !ascent_alert && !subaru_forester_angle && !subaru_d_platform) ||
+                          (base_param != (SUBARU_PARAM_GEN2 | SUBARU_PARAM_LKAS_ANGLE | SUBARU_PARAM_FIXED_ANGLE | SUBARU_PARAM_ANGLE_MAIN_BUS)) && !ascent_alert && !sibling_hud && !subaru_forester_angle && !subaru_d_platform) ||
                          ((subaru_fixed_angle_limits || subaru_angle_main_bus) && !subaru_lkas_angle);
 
   // TODO: re-enable once more work is done on the limits
@@ -419,8 +424,8 @@ static safety_config subaru_init(uint16_t raw_param) {
   subaru_aol_legacy_2025 = legacy_2025;
   subaru_aol_enabled = ((unsigned int)alternative_experience == 32U) &&
     ((param == 209U) || (param == 465U) || (param == 16U) || (param == 0U) || (param == 1U) || (param == 17U) || (param == 145U) ||
-     avh || (param == 177U) || (param == 401U) || (param == 8U) || (param == 520U) || (param == 512U) || (param == 2225U));
-  subaru_aol_main_arm = subaru_aol_enabled && ((param == 17U) || impreza_main || subaru_d_platform || legacy_2025 || subaru_early_global_torque);
+     avh || sibling_hud || (param == 177U) || (param == 401U) || (param == 8U) || (param == 520U) || (param == 512U) || (param == 2225U));
+  subaru_aol_main_arm = subaru_aol_enabled && ((base_param == 17U) || sibling_hud || impreza_main || subaru_d_platform || legacy_2025 || subaru_early_global_torque);
   if (subaru_aol_enabled) {
     static const AolSafetyPolicy policy = {
       .reset = subaru_aol_reset,
@@ -454,10 +459,11 @@ static safety_config subaru_init(uint16_t raw_param) {
     ret = subaru_d_platform ? (stop_start ? BUILD_SAFETY_CFG(subaru_rx_workspace, SUBARU_OUTBACK_STOP_START_TX_MSGS) :
                                           BUILD_SAFETY_CFG(subaru_rx_workspace, SUBARU_ASCENT_ANGLE_TX_MSGS_LIST)) :
           subaru_forester_angle ? BUILD_SAFETY_CFG(subaru_rx_workspace, SUBARU_FORESTER_ANGLE_TX_MSGS) :
+          avh && (base_param == 17U) ? BUILD_SAFETY_CFG(subaru_rx_workspace, SUBARU_SIBLING_AVH_TX_MSGS) :
           avh ? (stop_start ? BUILD_SAFETY_CFG(subaru_rx_workspace, SUBARU_AVH_STOP_START_TX_MSGS) :
                               BUILD_SAFETY_CFG(subaru_rx_workspace, SUBARU_AVH_TX_MSGS)) :
           stop_start ? BUILD_SAFETY_CFG(subaru_rx_workspace, SUBARU_STOP_START_TX_MSGS) :
-          ascent_alert ? BUILD_SAFETY_CFG(subaru_rx_workspace, SUBARU_ASCENT_ALERT_TX_MSGS) :
+          (ascent_alert || sibling_hud) ? BUILD_SAFETY_CFG(subaru_rx_workspace, SUBARU_ASCENT_ALERT_TX_MSGS) :
           legacy_2025 ? BUILD_SAFETY_CFG(subaru_rx_workspace, SUBARU_LEGACY_ANGLE_TX_MSGS) :
           subaru_angle_main_bus ? BUILD_SAFETY_CFG(subaru_rx_workspace, SUBARU_ASCENT_ANGLE_TX_MSGS_LIST) :
                                   BUILD_SAFETY_CFG(subaru_rx_workspace, SUBARU_GEN2_ANGLE_TX_MSGS_LIST);
@@ -493,7 +499,7 @@ static safety_config subaru_init(uint16_t raw_param) {
   }
   ret.rx_checks_len = rx_count;
   if ((((unsigned int)alternative_experience == 32U) && !subaru_aol_enabled) ||
-      (impreza_main && ((unsigned int)alternative_experience != 32U)) || (early_global_bit && !subaru_early_global_torque)) {
+      (impreza_main && ((unsigned int)alternative_experience != 32U)) || (early_global_bit && !subaru_early_global_torque) || (((param == 1041U) || (param == 3089U)) && !avh)) {
     ret.tx_msgs = NULL;
     ret.tx_msgs_len = 0;
   }

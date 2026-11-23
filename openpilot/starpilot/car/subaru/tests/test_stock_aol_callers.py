@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 from opendbc.can import CANParser
 from opendbc.car import Bus, gen_empty_fingerprint, structs
-from opendbc.car.subaru.values import CAR, DBC
+from opendbc.car.subaru.values import CAR, DBC, FROGGER_ANGLE_SIBLINGS
 from opendbc.car.subaru.fingerprints import FW_VERSIONS
 from opendbc.safety.tests.libsafety import libsafety_py
 from openpilot.cereal import log, messaging
@@ -25,7 +25,7 @@ from openpilot.starpilot.car.subaru.tests.native_fixture import subaru_native_pa
                                        CAR.SUBARU_FORESTER, CAR.SUBARU_OUTBACK])
 def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, subaru_native_pair, tmp_path, aol=True, manual=False, stop_resume=False,
                                                                       hard_stop_native_first=False, main_only=False, preferences=None, firmware=None,
-                                                                      manual_ratio=None,
+                                                                      manual_ratio=None, camera_hud=False,
                                                                       deadline_gap=False, fixed_angle_handoff=False, host_first_stop=False,
                                                                       source_outage=False, vm_angle_handoff=0, crawl=False, eps_brake_join=False,
                                                                       high_angle_guard=False, main_on_brake=False, guard_brake_release=False,
@@ -38,7 +38,10 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
   if candidate == CAR.SUBARU_IMPREZA_2025 and firmware is None:
     from opendbc.car.subaru.tests.test_supported_firmware import recorded_impreza_firmware
     fw = recorded_impreza_firmware()
-  with actual_factory(candidate, gen_empty_fingerprint(), fw, '0' * 17, manual=manual, aol=aol, preferences=preferences) as (card, params, matches):
+  fingerprint = gen_empty_fingerprint()
+  if camera_hud:
+    fingerprint[2][0x3C4] = 8
+  with actual_factory(candidate, fingerprint, fw, '0' * 17, manual=manual, aol=aol, preferences=preferences) as (card, params, matches):
     cp = card.CP
     ci = card.CI
     safety = libsafety_py.libsafety
@@ -193,6 +196,8 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
             values['Brake_Pressure_L_R'] = {'Steering_Angle': 101 if 125 <= tick < 148 else 0}
           else:
             values['Steering_Torque']['Steer_Warning'] = int(137 <= tick < 148 or temporary)
+        if camera_hud and candidate in FROGGER_ANGLE_SIBLINGS:
+          values['ES_LKAS_Alert'] = {'LKAS_Alert': 25, 'LKAS_HUD_Lights': 0}
         incoming = stream.frames(values, tick=tick)
         if source_outage:
           pending_host_can.append((now, incoming))
@@ -335,19 +340,33 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
         outgoing = can_capnp_to_list([published['sendcan'].as_builder().to_bytes()], msgtype='sendcan')[0][1] if 'sendcan' in published else []
         tx = [(a, d.hex(), b, bool(safety.safety_tx_hook(libsafety_py.make_CANPacket(a, b, d)))) for a, d, b in outgoing]
         decoder.update([(now, outgoing)])
+        if camera_hud and candidate in FROGGER_ANGLE_SIBLINGS:
+          for address, data, bus, accepted in tx:
+            if address == 0x3C4:
+              assert bus == 0 and accepted, (candidate, tick, tx)
+              stock_chime = bytes((25, 0, 0))
+              suppress = ci.CS.out.cruiseState.available and ci.CC.angle_was_active and card.sm['carControl'].latActive
+              expected_alert = bytes(3) if suppress else stock_chime
+              assert bytes.fromhex(data)[2:5] == expected_alert, (candidate, tick, data)
+        assert not (candidate in FROGGER_ANGLE_SIBLINGS and any(frame[0] == 0x390 for frame in tx))
         dash_decoder.update([(now, outgoing)])
         if any(address == 0x322 for address, _, _ in outgoing):
           dash = dash_decoder.vl['ES_LKAS_State']
           expected = ci.CC.angle_was_active if steering_name == 'ES_LKAS_ANGLE' else card.sm['carControl'].latActive
-          if candidate == 'SUBARU_LEGACY_2025':
+          if candidate in FROGGER_ANGLE_SIBLINGS | {CAR.SUBARU_LEGACY_2025}:
             assert bool(dash['LKAS_ACTIVE']), (candidate, tick, expected, dash)
+            dash_green = ci.CC.aol_dash_green_last if candidate == CAR.SUBARU_LEGACY_2025 else expected
             if not cs.cruiseState.available or cs.steerFaultTemporary or cs.steerFaultPermanent:
               assert not ci.CC.aol_dash_green_last, (candidate, tick, dash)
             if expected:
-              assert ci.CC.aol_dash_green_last, (candidate, tick, dash)
+              assert dash_green, (candidate, tick, dash)
             ready_wheel = cs.cruiseState.available and bool(getattr(ci.CS, 'aol_enabled', True))
-            expected_dash = 2 if ci.CC.aol_dash_green_last else (1 if ready_wheel else 0)
+            if candidate in FROGGER_ANGLE_SIBLINGS:
+              ready_wheel = ready_wheel and aol
+            expected_dash = 2 if dash_green else (1 if ready_wheel else 0)
             assert dash['LKAS_Dash_State'] == expected_dash, (candidate, tick, expected, expected_dash, dash)
+            if camera_hud and expected and candidate in FROGGER_ANGLE_SIBLINGS:
+              assert dash['LKAS_Left_Line_Visible'] and dash['LKAS_Right_Line_Visible'], (candidate, tick, dash)
           else:
             assert bool(dash['LKAS_ACTIVE']) == expected, (candidate, tick, expected, dash)
             assert dash['LKAS_Dash_State'] == (2 if expected else 0), (candidate, tick, expected, dash)

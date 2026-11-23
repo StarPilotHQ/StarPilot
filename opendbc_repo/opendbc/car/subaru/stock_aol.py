@@ -1,6 +1,6 @@
 """Exact stock-cruise Subaru independent-lateral configuration contract."""
 from opendbc.car import structs
-from opendbc.car.subaru.values import CAR, EARLY_GLOBAL_TORQUE_CARS, SubaruFlags, SubaruSafetyFlags
+from opendbc.car.subaru.values import CAR, FROGGER_ANGLE_SIBLINGS, EARLY_GLOBAL_TORQUE_CARS, SubaruFlags, SubaruSafetyFlags
 
 AOL_EXPERIENCE = 32
 IMPREZA_MAIN_AOL = 4096
@@ -37,6 +37,12 @@ def qualified(cp, *, marked_only=False):
       expected |= int(SubaruSafetyFlags.AVH_STARTUP)
     if cp.flags & SubaruFlags.STOP_START_OFF:
       expected |= int(SubaruSafetyFlags.STOP_START_BUTTON)
+  if cp.carFingerprint in FROGGER_ANGLE_SIBLINGS:
+    allowed |= int(SubaruFlags.AVH_STARTUP | SubaruFlags.ASCENT_LKAS_ALERT)
+    if cp.flags & SubaruFlags.AVH_STARTUP:
+      expected |= int(SubaruSafetyFlags.AVH_STARTUP)
+    if cp.flags & SubaruFlags.ASCENT_LKAS_ALERT:
+      expected |= int(SubaruSafetyFlags.ASCENT_LKAS_ALERT)
   angle = cp.carFingerprint in ANGLE_CARS
   if angle:
     expected |= int(SubaruSafetyFlags.LKAS_ANGLE)

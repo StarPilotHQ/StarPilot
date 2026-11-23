@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 from opendbc.can import CANParser
 from opendbc.car import Bus, gen_empty_fingerprint, structs
-from opendbc.car.subaru.values import CAR, DBC
+from opendbc.car.subaru.values import CAR, DBC, FROGGER_ANGLE_SIBLINGS
 from opendbc.car.subaru.fingerprints import FW_VERSIONS
 from opendbc.safety.tests.libsafety import libsafety_py
 from openpilot.cereal import messaging
@@ -24,18 +24,25 @@ from openpilot.starpilot.car.subaru.tests.native_fixture import subaru_native_pa
 @pytest.mark.parametrize('enabled', [False, True])
 @pytest.mark.parametrize('combined', [False, True])
 @pytest.mark.parametrize('aol', [False, True])
-def test_actual_startup_factory_card_controls_native(enabled, combined, aol, subaru_native_pair, tmp_path, configure_delay=0):
-  candidate = CAR.SUBARU_LEGACY_2025
+def test_actual_startup_factory_card_controls_native(enabled, combined, aol, subaru_native_pair, tmp_path, configure_delay=0,
+                                                    candidate=CAR.SUBARU_LEGACY_2025, camera_hud=False):
   fw = firmware_records(candidate, FW_VERSIONS, 'subaru')
   rows = []
-  with actual_factory(candidate, gen_empty_fingerprint(), fw, '0' * 17, manual=False, aol=aol,
+  fingerprint = gen_empty_fingerprint()
+  if camera_hud:
+    fingerprint[2][0x3C4] = 8
+  with actual_factory(candidate, fingerprint, fw, '0' * 17, manual=False, aol=aol,
                       preferences={"SubaruAvhStartup": enabled, "SubaruStopStartOff": combined}) as (card, params, matches):
     cp = card.CP
     ci = card.CI
     safety = libsafety_py.libsafety
     assert cp.pcmCruise and not cp.openpilotLongitudinalControl and not cp.alphaLongitudinalAvailable
     assert cp.alternativeExperience == (32 if aol else 0) and not cp.dashcamOnly
-    assert cp.safetyConfigs[0].safetyParam == (145 + (1024 if enabled else 0) + (256 if combined else 0))
+    sibling = candidate in FROGGER_ANGLE_SIBLINGS
+    expected = (2065 if camera_hud else 17) if sibling else 145
+    assert cp.safetyConfigs[0].safetyParam == expected + (1024 if enabled else 0) + (256 if combined and not sibling else 0)
+    if sibling:
+      assert ci.CC.stop_start is None
     sd, controls = SelfdriveD(CP=cp), Controls()
     stream = CompleteCan(ci)
     base = time.monotonic_ns() + 100_000_000
@@ -190,14 +197,17 @@ def test_actual_startup_factory_card_controls_native(enabled, combined, aol, sub
         if any(address == 0x322 for address, _, _ in outgoing):
           dash = dash_decoder.vl['ES_LKAS_State']
           expected = ci.CC.angle_was_active if steering_name == 'ES_LKAS_ANGLE' else card.sm['carControl'].latActive
-          if candidate == 'SUBARU_LEGACY_2025':
+          if sibling or candidate == CAR.SUBARU_LEGACY_2025:
             assert bool(dash['LKAS_ACTIVE']), (candidate, tick, expected, dash)
+            dash_green = ci.CC.aol_dash_green_last if candidate == CAR.SUBARU_LEGACY_2025 else expected
             if not cs.cruiseState.available or cs.steerFaultTemporary or cs.steerFaultPermanent:
               assert not ci.CC.aol_dash_green_last, (candidate, tick, dash)
             if expected:
-              assert ci.CC.aol_dash_green_last, (candidate, tick, dash)
+              assert dash_green, (candidate, tick, dash)
             ready_wheel = cs.cruiseState.available and bool(getattr(ci.CS, 'aol_enabled', True))
-            expected_dash = 2 if ci.CC.aol_dash_green_last else (1 if ready_wheel else 0)
+            if candidate in FROGGER_ANGLE_SIBLINGS:
+              ready_wheel = ready_wheel and aol
+            expected_dash = 2 if dash_green else (1 if ready_wheel else 0)
             assert dash['LKAS_Dash_State'] == expected_dash, (candidate, tick, expected, expected_dash, dash)
           else:
             assert bool(dash['LKAS_ACTIVE']) == expected, (candidate, tick, expected, dash)
@@ -243,7 +253,7 @@ def test_actual_startup_factory_card_controls_native(enabled, combined, aol, sub
         assert not command.enabled and not command.latActive and not command.longActive, row
         assert not safety.get_controls_allowed() and safety.aol_get_permission_mask() == 0, row
       if configure_delay == 0:
-        assert bool(stop_start_emissions) == combined
+        assert bool(stop_start_emissions) == (combined and not sibling)
       assert dash_emissions >= 20
       assert bool(startup_emissions) == enabled
       assert len(startup_emissions) == (4 if enabled else 0)

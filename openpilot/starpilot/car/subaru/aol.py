@@ -1,7 +1,7 @@
 """Subaru physical cruise intent with independent lateral authority."""
 from opendbc.car import structs
 from opendbc.car.subaru.stock_aol import IMPREZA_MAIN_AOL, qualified, temporary_restriction
-from opendbc.car.subaru.values import CAR, EARLY_GLOBAL_TORQUE_CARS, SubaruSafetyFlags
+from opendbc.car.subaru.values import CAR, EARLY_GLOBAL_TORQUE_CARS, FROGGER_ANGLE_SIBLINGS, SubaruSafetyFlags
 from openpilot.starpilot.aol.intent import AolCardIntent
 from openpilot.starpilot.aol.policy import AolVehiclePolicy
 
@@ -115,7 +115,7 @@ def policy_for(cp):
 def native_profile_supported(model, param):
   return model == int(structs.CarParams.SafetyModel.subaru) and param in (
     0, 1, 8, 16, 17, 145, 177, 209, 401, 465, 512, 520, 1169, 1425, 2225, 4096, 4104, 4608, 4616,
-    SubaruSafetyFlags.EARLY_GLOBAL_TORQUE, SubaruSafetyFlags.EARLY_GLOBAL_TORQUE | 8)
+    SubaruSafetyFlags.EARLY_GLOBAL_TORQUE, SubaruSafetyFlags.EARLY_GLOBAL_TORQUE | 8, 1041, 2065, 3089)
 
 
 def native_accepts_cp(cp, model, param):
@@ -248,7 +248,7 @@ def sync_legacy_card_lateral(card, cs, cc) -> None:
 
 def sync_legacy_card_aol(card) -> None:
   cs = getattr(getattr(card, "CI", None), "CS", None)
-  if cs is not None and getattr(getattr(cs, "CP", None), "carFingerprint", None) == CAR.SUBARU_LEGACY_2025:
+  if cs is not None and getattr(getattr(cs, "CP", None), "carFingerprint", None) in FROGGER_ANGLE_SIBLINGS | {CAR.SUBARU_LEGACY_2025}:
     intent = getattr(card, "aol_card_intent", None)
     settings = getattr(intent, "settings", None)
     cs.aol_enabled = bool(settings.enabled) if settings is not None else bool(card.params.get_bool("AlwaysOnLateral"))

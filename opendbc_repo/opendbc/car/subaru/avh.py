@@ -1,4 +1,4 @@
-"""One bounded Legacy AVH ON request; 0x32B is status, never a TX command."""
+"""One bounded Subaru AVH ON request; 0x32B is status, never a TX command."""
 
 AVH_REQUEST = 0x6BB
 AVH_STATUS = 0x32B
@@ -132,13 +132,14 @@ class AvhStartup:
 
 
 def eligible(cp):
-  from opendbc.car.subaru.startup import supported
-  return bool(supported(cp) and cp.carFingerprint == 'SUBARU_LEGACY_2025')
+  from opendbc.car.subaru.stock_aol import qualified
+  from opendbc.car.subaru.values import CAR, FROGGER_ANGLE_SIBLINGS
+  return bool(qualified(cp) and cp.carFingerprint in FROGGER_ANGLE_SIBLINGS | {CAR.SUBARU_LEGACY_2025})
 
 
 def selected(cp):
   from opendbc.car.subaru.values import SubaruFlags
-  return bool(eligible(cp) and cp.flags & SubaruFlags.AVH_STARTUP and cp.safetyConfigs[0].safetyParam in (1169, 1425))
+  return bool(eligible(cp) and cp.flags & SubaruFlags.AVH_STARTUP and cp.safetyConfigs[0].safetyParam in (1041, 1169, 1425, 3089))
 
 
 def prepare(cp, enabled):

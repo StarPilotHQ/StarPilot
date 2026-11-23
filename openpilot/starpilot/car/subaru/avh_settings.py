@@ -1,4 +1,4 @@
-"""Parked software-cruise preference for Dom's Legacy AVH startup request."""
+"""Parked software-cruise preference for the Subaru AVH startup request."""
 
 from opendbc.car.subaru.avh import eligible
 from openpilot.starpilot.saved_document import commit_exact
