@@ -10,6 +10,12 @@ assert.equal(validLocalAccess({ available: false, addresses: [], reason: 'No act
 assert.equal(validLocalAccess({ ...snapshot, addresses: [{ ...snapshot.addresses[0], url: 'javascript:alert(1)' }] }), false)
 assert.equal(validLocalAccess({ ...snapshot, addresses: [{ ...snapshot.addresses[0], url: 'http://password@example.com' }] }), false)
 assert.equal(validLocalAccess({ ...snapshot, available: false }), false)
+assert.equal(validLocalAccess({ ...snapshot, name: 'http://galaxy-2.local/' }), true)
+assert.equal(validLocalAccess({ ...snapshot, name: 'http://galaxy.local:8082/' }), true)
+assert.equal(validLocalAccess({ ...snapshot, name: '' }), true)
+assert.equal(validLocalAccess({ ...snapshot, name: 'javascript:alert(1)' }), false)
+assert.equal(validLocalAccess({ ...snapshot, name: 'http://evil.example/' }), false)
+assert.equal(validLocalAccess({ ...snapshot, name: { toString: () => 'http://galaxy.local/' } }), false)
 const updates = [], requests = [], timers = []
 let auth = 0
 const feed = new LocalAccessFeed({ publish: value => updates.push(value), onUnauthorized: () => auth++,

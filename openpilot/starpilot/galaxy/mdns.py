@@ -38,10 +38,19 @@ PUBLISH_NO_REVERSE = 16
 ESTABLISHED = 2
 
 _published = None
+_redirected = False
 
 
 def published_record():
   return _published
+
+
+def published_url(port):
+  """Our published name as a link; port-less only while port 80 redirects to Galaxy."""
+  published = _published
+  if published is None:
+    return None
+  return f'http://{published[0]}/' if _redirected else f'http://{published[0]}:{port}/'
 
 
 def _ifaddr(sock, name):
@@ -93,6 +102,7 @@ class Redirect:
     return self.run(['sudo', '-n', self.firewall, '-w', '2', '-t', 'nat', *args], capture_output=True, timeout=5, check=check)
 
   def sync(self, addresses):
+    global _redirected
     wanted = tuple(sorted(a for a in addresses if lan_address(a)))
     if self.firewall is None or wanted == self.applied:
       return
@@ -106,12 +116,14 @@ class Redirect:
       self.ipt('-F', CHAIN)
       for address in wanted:
         self.ipt('-A', CHAIN, '-d', address, '-p', 'tcp', '-j', 'REDIRECT', '--to-ports', str(self.port))
-      self.applied = wanted
+      self.applied, _redirected = wanted, True
     except (OSError, subprocess.SubprocessError) as error:
-      self.applied = wanted  # retried on the next address change, not every poll
+      self.applied, _redirected = wanted, False  # retried on the next address change, not every poll
       _log(f'port 80 redirect failed ({error}); http://galaxy.local needs :{self.port}')
 
   def close(self):
+    global _redirected
+    _redirected = False
     if not self.ready:
       return
     try:
@@ -194,9 +206,12 @@ class Avahi:
   def state(self, group):
     return self.first(group, ENTRY_GROUP, 'GetState', int)
 
-  def claim(self, name, entries, timeout=ESTABLISH_S):
-    """The committed group once avahi has probed the name, or None if another device holds it."""
-    group = self.first('/', SERVER, 'EntryGroupNew', str)
+  def claim(self, name, entries, timeout=ESTABLISH_S, group=None):
+    """The committed group once avahi has probed the name, or None if another device holds it; group updates ours in place."""
+    if group is None:
+      group = self.first('/', SERVER, 'EntryGroupNew', str)
+    else:
+      self.call(group, ENTRY_GROUP, 'Reset')
     try:
       for number, protocol, address in entries:
         self.call(group, ENTRY_GROUP, 'AddAddress', 'iiuss', (number, protocol, PUBLISH_NO_REVERSE, name, address))
@@ -259,8 +274,8 @@ def held_elsewhere(name, own, run=subprocess.run):
   return len(fields) == 2 and fields[0] == name and fields[1] not in own
 
 
-def _claim(avahi, entries, remembered, stop, taken=held_elsewhere):
-  own = {address for _, _, address in entries}
+def _claim(avahi, entries, remembered, stop, taken=held_elsewhere, ours=frozenset()):
+  own = {address for _, _, address in entries} | set(ours)  # our earlier addresses can linger in avahi's answers
   for name in candidates(remembered):
     if stop.is_set():
       break
@@ -283,7 +298,7 @@ def publish(stop, *, avahi=None, addresses=interface_addresses, ipv6=link_local,
   global _published
   avahi = avahi if avahi is not None else Avahi(stopped=stop.is_set)
   group, entries, retry_at, failure = None, (), 0.0, None
-  remembered = load_name(name_file)
+  remembered, ours = load_name(name_file), set()
 
   def failed(message):
     nonlocal failure
@@ -306,13 +321,21 @@ def publish(stop, *, avahi=None, addresses=interface_addresses, ipv6=link_local,
         if lost and _published is not None:
           _log(f'lost {_published[0]}; reclaiming')
       if wanted != entries or lost or (group is None and wanted and time.monotonic() >= retry_at):
-        if group is not None:
-          avahi.free(group)
-        group, _published, entries = None, None, wanted
-        if wanted:
-          name = None
+        held = _published[0] if _published is not None and group is not None and not lost and wanted else None
+        if held is not None:
           try:
-            name, group = _claim(avahi, wanted, remembered, stop, taken)
+            group = avahi.claim(held, wanted, group=group)
+          except (OSError, AvahiError):
+            group = None
+        if group is not None and held is None:
+          avahi.free(group)
+          group = None
+        _published, entries = None, wanted
+        if wanted:
+          name = held if group is not None else None
+          try:
+            if name is None:
+              name, group = _claim(avahi, wanted, remembered, stop, taken, ours)
           except (OSError, AvahiError) as error:
             failed(f'avahi unavailable ({error})')
           else:
@@ -322,6 +345,7 @@ def publish(stop, *, avahi=None, addresses=interface_addresses, ipv6=link_local,
             retry_at = time.monotonic() + retry
           else:
             failure = None
+            ours.update(address for _, _, address in wanted)
             _published = (name, tuple(address for _, protocol, address in wanted if protocol == PROTO_INET))
             interfaces = ', '.join(n for n in INTERFACES if found.get(n) in _published[1])
             _log(f'published {name} on {interfaces}', warning=False)
