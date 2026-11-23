@@ -58,7 +58,10 @@ def supports_toyota_auto_hold(CP):
 
 def get_long_tune(CP, params):
   prius = prius_longitudinal.enabled(CP)
-  if prius or CP.flags & ToyotaFlags.TSS2 or dom_defaults.camry_hybrid(CP) or dom_defaults.rav4h_sdsu(CP):
+  # The generic integral gain amplifies small acceleration requests on the four-byte Sienna filter.
+  sienna_filter = (CP.carFingerprint == CAR.TOYOTA_SIENNA and not CP.flags & ToyotaFlags.GAS_INTERCEPTOR and
+                   legacy_advert_filter.enabled(CP))
+  if prius or sienna_filter or CP.flags & ToyotaFlags.TSS2 or dom_defaults.camry_hybrid(CP) or dom_defaults.rav4h_sdsu(CP):
     kiBP = [2., 5.]
     kiV = [0.5, 0.25]
   else:
