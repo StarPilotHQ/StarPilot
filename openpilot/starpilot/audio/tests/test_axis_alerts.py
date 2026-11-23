@@ -95,7 +95,8 @@ def test_park_lkas_producer_wire_and_sound(audio):
     cs.gearShifter = gear
     cs.buttonEvents = [] if pressed is None else [car.CarState.ButtonEvent(type=car.CarState.ButtonEvent.Type.lkas, pressed=pressed)]
     owner.update(cs)
-    Car.state_publish(card, cs, None)
+    with patch.object(messaging.time, 'monotonic', return_value=(audio.now + 50_000_000) / 1e9):
+      Car.state_publish(card, cs, None)
     decoded = decode_intent(published[INTENT_SERVICE].aolIntentWire)
     assert decoded is not None
     assert decoded.lateralArmed == owner.allowed_latch
