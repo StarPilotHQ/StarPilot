@@ -22,7 +22,7 @@ SAFE_KEY = "SafeMode"
 MAX_SCALAR_BYTES = 8
 CHOICES = {"Off": b"0", "Cycle conditional mode": str(EXPERIMENTAL_MODE_ACTION).encode(),
            "Toggle traffic mode": str(TRAFFIC_MODE_ACTION).encode(), "Switchback Mode": b"7"}
-_CANONICAL_ACTIONS = frozenset(str(value).encode() for value in range(15))
+_CANONICAL_ACTIONS = frozenset(str(value).encode() for value in range(16))
 
 
 @dataclass(frozen=True)

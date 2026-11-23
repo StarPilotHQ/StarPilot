@@ -9,7 +9,7 @@ from openpilot.selfdrive.car.card import Car
 from openpilot.selfdrive.car.tests.publication_fixture import initialize_publication_sources
 from openpilot.selfdrive.car.cruise import CRUISE_LONG_PRESS, VCruiseHelper
 from openpilot.selfdrive.car.tests.test_hyundai_aol import candidate
-from openpilot.starpilot.controllers.wheel_actions import ACTIONS, KEYS, WheelConsumer, WheelPublisher, capture
+from openpilot.starpilot.controllers.wheel_actions import ACTIONS, KEYS, SCREEN_OFF_ACTION, WheelConsumer, WheelPublisher, capture
 
 
 TYPE = car.CarState.ButtonEvent.Type
@@ -53,7 +53,8 @@ def context(tmp_path):
 
 def test_exact_catalog_and_missing_vs_saved_off(context):
   params, _ = context
-  assert sorted(ACTIONS.values()) == list(range(15))
+  assert sorted(ACTIONS.values()) == list(range(16))
+  assert ACTIONS["Toggle Screen Off"] == SCREEN_OFF_ACTION
   assert len(KEYS) == 15
   assert capture(params)['DistanceButtonControl'] == 1
   assert capture(params)['LongDistanceButtonControl'] == 5
@@ -62,7 +63,23 @@ def test_exact_catalog_and_missing_vs_saved_off(context):
   assert capture(params)['DistanceButtonControl'] == 0
 
 
-@pytest.mark.parametrize('key,code', [('DistanceButtonControl', code) for code in (1, 2, 5, 6, 7, 8, 11, 12, 13, 14)])
+def test_screen_off_is_directly_assignable_without_longitudinal_control(context):
+  from openpilot.starpilot.ui.feature_settings_state import FeatureSettingsRequest
+  from openpilot.starpilot.ui.wheel_feature import PREFIX, WheelFeature
+
+  params, cp = context
+  owner = NS(params=params, vehicle_params=lambda: cp, configuration_vehicle=lambda: False,
+             configuration_longitudinal=lambda: False, longitudinal_available=lambda: False,
+             authority=lambda _: True)
+  wheel = WheelFeature(owner)
+  key = 'DistanceButtonControl'
+  assert 'Toggle Screen Off' in wheel.choices(key)
+  request = FeatureSettingsRequest(PREFIX + key, None, 'Toggle Screen Off', capability=wheel.capability())
+  assert wheel.apply(request)
+  assert capture(params)[key] == SCREEN_OFF_ACTION
+
+
+@pytest.mark.parametrize('key,code', [('DistanceButtonControl', code) for code in (1, 2, 5, 6, 7, 8, 11, 12, 13, 14, SCREEN_OFF_ACTION)])
 def test_real_distance_short_delivers_once_and_claims_serialized_release(context, key, code):
   params, cp = context
   params.put(key, code, block=True)

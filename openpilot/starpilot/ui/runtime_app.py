@@ -81,7 +81,7 @@ from openpilot.starpilot.ui.onroad_favorites import OnroadFavorites
 from openpilot.starpilot.ui.onroad_dm import DriverMonitorLayer
 from openpilot.starpilot.favorites.owner import FavoritesOwner
 from openpilot.starpilot.controllers.cruise_action import CruiseActionPublisher, ui_authority as cruise_action_authority
-from openpilot.starpilot.controllers.wheel_actions import WheelConsumer
+from openpilot.starpilot.controllers.wheel_actions import SCREEN_OFF_ACTION, WheelConsumer
 from openpilot.starpilot.ui.wheel_input import onroad_action_context
 from openpilot.starpilot.system.starport.projection_bookmark import BookmarkReceiver
 from openpilot.starpilot.system.starport.projection_slc_action import SlcActionReceiver
@@ -613,6 +613,8 @@ class StarShellSession:
           slot = self.favorites_owner.snapshot().slots[command.action - 11]
           if slot.available and slot.request is not None:
             self.favorites_owner.invoke(slot.request)
+        elif command.action == SCREEN_OFF_ACTION:
+          native_device.toggle_screen_off()
       except (OSError, RuntimeError, ValueError, TypeError):
         pass
 

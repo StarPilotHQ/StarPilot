@@ -15,7 +15,7 @@ from openpilot.starpilot.controllers.tests.test_native_wheel_callbacks import (
   personality_session as personality_session,
 )
 from openpilot.starpilot.controllers.tests.test_wheel_actions import Publisher, DRIVE
-from openpilot.starpilot.controllers.wheel_actions import WheelPublisher
+from openpilot.starpilot.controllers.wheel_actions import SCREEN_OFF_ACTION, WheelPublisher
 from openpilot.starpilot.ui.appearance_preferences import CameraViewChoice
 from openpilot.starpilot.ui.onroad_state import AlertSize, OnroadAlert
 from openpilot.starpilot.ui.presentation import Profile
@@ -73,6 +73,30 @@ def sleeping_wheel(personality_session, monkeypatch):
 
   return NS(session=session, ui=ui, clock=clock, device=device, shown=shown, queue=queue, emit=emit,
             panel=panel, poll=lambda: caller.update_frame(star=session))
+
+
+@pytest.mark.parametrize('profile', ['c3', 'c4'])
+def test_direct_screen_off_action_toggles_asleep_and_awake(sleeping_wheel, profile):
+  test = sleeping_wheel
+  test.panel(profile)
+  test.ui.params.put('DistanceButtonControl', SCREEN_OFF_ACTION, block=True)
+
+  def toggle():
+    test.device.awake = not test.device.awake
+    return True
+
+  test.device.toggle_screen_off = toggle
+  event = test.emit(action=SCREEN_OFF_ACTION)
+  test.poll()
+  assert test.device.awake
+  test.session._mode = ShellMode.ONROAD
+  test.queue.append(event)
+  test.session._poll_wheel(test.clock[0])
+  assert test.device.awake
+  test.clock[0] += 100_000_000
+  test.emit(action=SCREEN_OFF_ACTION)
+  test.session._poll_wheel(test.clock[0])
+  assert not test.device.awake
 
 
 @pytest.mark.parametrize('profile', ['c3', 'c4'])

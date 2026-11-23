@@ -108,7 +108,7 @@ def _action(params, key: str) -> int | None:
   if raw is None:
     return 0
   # Registered INT defaults and Params::put values are canonical decimal.
-  if raw not in tuple(str(value).encode() for value in range(15)):
+  if raw not in tuple(str(value).encode() for value in range(16)):
     return None
   return int(raw)
 

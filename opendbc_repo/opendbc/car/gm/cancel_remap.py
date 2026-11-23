@@ -50,7 +50,7 @@ def migrate_assignments(params, cp):
            ('LongDistanceButtonControl', 'LongCancelButtonControl', 5),
            ('VeryLongDistanceButtonControl', 'VeryLongCancelButtonControl', 6))
   pending = []
-  valid = tuple(str(value).encode() for value in range(15))
+  valid = tuple(str(value).encode() for value in range(16))
   for source, target, default in pairs:
     raw, readable = read_saved(params, target, 8)
     previous, source_readable = read_saved(params, source, 8)
