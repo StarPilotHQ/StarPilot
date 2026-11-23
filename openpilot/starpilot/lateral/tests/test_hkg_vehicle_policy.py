@@ -262,3 +262,38 @@ def test_carnival_crawl_center_tune_boundaries(speed, setpoint, future, expected
   from openpilot.starpilot.lateral import hkg_vehicle_shaping as shaping
   assert shaping.get_kia_carnival_crawl_center_weight(speed, setpoint, future) == pytest.approx(expected)
   assert shaping.get_kia_carnival_crawl_center_weight(speed, -setpoint, -future) == pytest.approx(expected)
+
+
+
+@pytest.mark.parametrize('alpha', (False, True))
+def test_sonata_softens_low_speed_center_without_affecting_turns_or_override(monkeypatch, alpha):
+  import math
+  from types import SimpleNamespace
+
+  from opendbc.car.vehicle_model import VehicleModel
+  from openpilot.cereal import log
+  from openpilot.starpilot.lateral import hkg_vehicle_shaping as shaping
+
+  cp = interfaces[CAR.HYUNDAI_SONATA].get_non_essential_params(CAR.HYUNDAI_SONATA)
+  cp.openpilotLongitudinalControl, cp.pcmCruise = alpha, not alpha
+  params = log.VehicleParameters.new_message(angleOffsetDeg=0., roll=0.)
+
+  def run(speed=6., demand=.08, driver=False, mode=ControllerMode.STARPILOT):
+    controller = LatControlTorque(cp.as_reader(), interfaces[cp.carFingerprint](cp), .01, controller_mode=mode)
+    state = SimpleNamespace(vEgo=speed, steeringAngleDeg=0., steeringPressed=driver)
+    vm = VehicleModel(cp)
+    output = []
+    for tick in range(150):
+      state.steeringAngleDeg = 4.5 * math.sin(tick * .06)
+      torque, _, trace = controller.update(True, state, vm, params, False, demand / speed**2, False, .25)
+      assert trace.active and abs(torque) <= controller.steer_max
+      output.append(torque)
+    return output, controller.steer_max
+
+  cases = ({}, {'demand': .50}, {'speed': 14.}, {'driver': True}, {'mode': ControllerMode.STANDARD})
+  tuned = [run(**case) for case in cases]
+  monkeypatch.setattr(shaping, 'SONATA_LOW_SPEED_CENTER_OUTPUT_REDUCTION', 0., raising=False)
+  baseline = [run(**case) for case in cases]
+  assert tuned[0][1] == baseline[0][1]
+  assert tuned[0][0][40:] == pytest.approx([.78 * torque for torque in baseline[0][0][40:]])
+  assert tuned[1:] == baseline[1:]

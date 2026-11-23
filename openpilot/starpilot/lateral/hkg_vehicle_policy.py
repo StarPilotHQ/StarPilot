@@ -156,6 +156,8 @@ class HKGVehicleTorquePolicy(HKGShapedTorquePolicy):
     return 0.0
 
   def output_context(self, value, setpoint, jerk, measurement, speed):
+    if self.profile == 'sonata' and 2.0 < speed < 12.0 and not (self.steering_pressed or self.previous_pressed):
+      return value * shaping.get_sonata_low_speed_center_output_scale(setpoint, self.future_lateral_accel, speed)
     if self.profile == 'ioniq_5':
       limit = shaping.get_ioniq_5_low_speed_output_limit(
         setpoint, jerk, speed, self.requested_curvature if not self.steering_pressed and not self.previous_pressed else 0.0, value)

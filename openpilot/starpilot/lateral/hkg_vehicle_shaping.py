@@ -52,6 +52,8 @@ SONATA_LOW_SPEED_CENTER_TAPER_SPEED_MAX = 7.0
 
 SONATA_LOW_SPEED_CENTER_TAPER_SPEED_WIDTH = 1.0
 
+SONATA_LOW_SPEED_CENTER_OUTPUT_REDUCTION = 0.22
+
 ELANTRA_NON_SCC_FF_ADJUST_LEFT = 0.02
 
 ELANTRA_NON_SCC_FF_ADJUST_RIGHT = -0.02
@@ -742,6 +744,13 @@ def get_sonata_center_taper_scale(desired_lateral_accel: float, v_ego: float) ->
                                             SONATA_LOW_SPEED_CENTER_TAPER_LAT_WIDTH)
   reduction += SONATA_LOW_SPEED_CENTER_TAPER_MAX * low_speed_weight * low_speed_center_weight
   return 1.0 - reduction
+
+def get_sonata_low_speed_center_output_scale(setpoint: float, future_accel: float, speed: float) -> float:
+  speed_weight = float(np.interp(speed, (2.0, 4.0, 9.0, 12.0), (0.0, 1.0, 1.0, 0.0)))
+  demand = max(abs(setpoint), abs(future_accel))
+  center_weight = float(np.interp(demand, (0.15, 0.40), (1.0, 0.0)))
+  return 1.0 - SONATA_LOW_SPEED_CENTER_OUTPUT_REDUCTION * speed_weight * center_weight
+
 
 def _elantra_non_scc_sigmoid(x: float) -> float:
   return _sigmoid(x)
