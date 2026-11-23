@@ -186,4 +186,6 @@ def intent_disarming_fault(CP, events, state, **context):
     return volkswagen.intent_disarming_fault(CP, events, state, **context)
   if CP.brand == 'chrysler':
     return chrysler.intent_disarming_fault(CP, events, state, **context)
+  if CP.brand == 'subaru':
+    return subaru.intent_disarming_fault(CP, events, state, **context)
   return gm.intent_disarming_fault(CP, events, state, **context)

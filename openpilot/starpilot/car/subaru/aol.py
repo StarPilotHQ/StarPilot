@@ -78,6 +78,28 @@ def policy_for(cp):
                           safety_param_addition=IMPREZA_MAIN_AOL if admitted and cp.carFingerprint == CAR.SUBARU_IMPREZA_2020 else 0)
 
 
+def intent_disarming_fault(cp, events, state, **context):
+  """Manual-mode ratio gears read as GearShifter.unknown on stock Subarus.
+
+  The transmission reports the simulated ratio ("1"-"6") instead of "D" while
+  paddle/manual mode is engaged, and GEAR_SHIFTER_MAP has no entry for those
+  values, so gearShifter is unknown for the whole manual episode. That is a
+  known non-driving gear: it pauses AOL output through the normal runtime
+  gates, but it must not revoke the driver's latched intent, or AOL cannot
+  resume on the return to Drive (no fresh MAIN edge occurs to re-arm it).
+  Filter the soft wrongGear event for qualified cars in that state, the same
+  way disarming_fault() already treats park/reverse/neutral; every other
+  event keeps the generic classification.
+  """
+  from openpilot.cereal import log
+  from openpilot.starpilot.aol.intent import disarming_fault
+  context.pop('startup_calibration_pending', False)
+  if qualified(cp) and state.gearShifter == structs.CarState.GearShifter.unknown:
+    events = [event for event in events if not (
+      event.name == log.OnroadEvent.EventName.wrongGear and event.softDisable and not event.immediateDisable)]
+  return disarming_fault(events, state, **context)
+
+
 def native_profile_supported(model, param):
   return model == int(structs.CarParams.SafetyModel.subaru) and param in (
     0, 1, 8, 16, 17, 145, 177, 209, 401, 465, 512, 520, 1169, 1425, 2225, 4096, 4104, 4608, 4616)
