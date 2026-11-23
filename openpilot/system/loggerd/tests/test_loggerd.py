@@ -159,7 +159,8 @@ class TestLoggerd(OpenpilotTestCase):
     managed_processes["loggerd"].stop()
     managed_processes["encoderd"].stop()
 
-  def test_init_data_values(self):
+  @parameterized.expand([(False,), (True,)])
+  def test_init_data_values(self, safe_mode):
     os.environ["CLEAN"] = random.choice(["0", "1"])
 
     dongle  = ''.join(random.choice(string.printable) for n in range(random.randint(1, 100)))
@@ -175,6 +176,7 @@ class TestLoggerd(OpenpilotTestCase):
     for k, _, v in fake_params:
       params.put(k, v, block=True)
     params.put("AccessToken", "abc", block=True)
+    params.put_bool("SafeMode", safe_mode, block=True)
 
     lr = list(LogReader(str(self._gen_bootlog())))
     initData = lr[0].initData
@@ -191,8 +193,9 @@ class TestLoggerd(OpenpilotTestCase):
 
     # check params
     logged_params = {entry.key: entry.value for entry in initData.params.entries}
-    expected_params = {k for k, _, __ in fake_params} | {'AccessToken', 'BootCount'}
+    expected_params = {k for k, _, __ in fake_params} | {'AccessToken', 'BootCount', 'SafeMode'}
     assert set(logged_params.keys()) == expected_params, set(logged_params.keys()) ^ expected_params
+    assert logged_params['SafeMode'] == (b'1' if safe_mode else b'0')
     assert logged_params['AccessToken'] == b'', f"DONT_LOG param value was logged: {repr(logged_params['AccessToken'])}"
     for param_key, initData_key, v in fake_params:
       assert getattr(initData, initData_key) == v

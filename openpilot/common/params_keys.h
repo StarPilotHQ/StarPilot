@@ -365,7 +365,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"TeslaPreAPPedalStartup", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION | DONT_LOG, BYTES}},
     {"NAPRadarEnabled", {PERSISTENT, BOOL, "0"}},
     {"NAPRadarBehindNosecone", {PERSISTENT, BOOL, "0"}},
-    {"SafeMode", {PERSISTENT | DONT_LOG, BOOL, "0"}},
+    {"SafeMode", {PERSISTENT, BOOL, "0"}},
     {"CurveSpeedController", {PERSISTENT | DONT_LOG, BOOL, "0"}},
     {"CurveSpeedControllerNoLead", {PERSISTENT | DONT_LOG, BOOL, "0"}},
     {"ShowCSCStatus", {PERSISTENT | DONT_LOG, BOOL, "0"}},
