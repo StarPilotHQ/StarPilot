@@ -1129,6 +1129,7 @@ class TransportPauseFeedback:
 
   def _inactive_gear_source_gap(self, sm, cp, cs, axis, stamp, now_ns, *, latched, producer):
     from opendbc.car import structs
+    from openpilot.starpilot.car.subaru.aol import known_paddle_pause
     previous = self.signature
     if (not latched or self.failed or self.paused or self.pending_event or self.retention_started_ns or
       self.source_retention_started_ns or not self.ever_lateral_active or previous is None or
@@ -1137,7 +1138,8 @@ class TransportPauseFeedback:
       not producer or previous[14] != producer or
       not 0 < previous[8] <= previous[2] <= self.healthy_feedback_ns <= now_ns or
       now_ns - previous[8] > SAFETY_MAX_AGE_NS or
-      cs.gearShifter not in (structs.CarState.GearShifter.reverse, structs.CarState.GearShifter.neutral) or
+      (cs.gearShifter not in (structs.CarState.GearShifter.reverse, structs.CarState.GearShifter.neutral) and
+       not known_paddle_pause(cp, cs)) or
       not cs.canValid or cs.canTimeout or cs.steerFaultTemporary or cs.steerFaultPermanent or
       cs.accFaulted or cs.vehicleSensorsInvalid or cs.doorOpen or cs.seatbeltUnlatched or
       cs.steeringDisengage or not cs.cruiseState.available or cs.buttonEvents or

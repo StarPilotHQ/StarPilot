@@ -110,6 +110,8 @@ class CarState(CarStateBase):
     can_gear = int(cp_transmission.vl["Transmission"]["Gear"])
     if self.CP.carFingerprint == CAR.SUBARU_LEGACY_2025 and can_gear in SUBARU_CVT_MANUAL_GEARS:
       ret.gearShifter = structs.CarState.GearShifter.manumatic
+    elif self.CP.carFingerprint == CAR.SUBARU_IMPREZA_2020 and self.shifter_values.get(can_gear) in ("1", "2", "3", "4", "5", "6"):
+      ret.gearShifter = structs.CarState.GearShifter.manumatic
     elif self.CP.carFingerprint == CAR.SUBARU_LEGACY_2025 and can_gear == 0:
       ret.gearShifter = structs.CarState.GearShifter.neutral
     else:

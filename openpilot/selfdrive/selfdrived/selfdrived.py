@@ -1910,7 +1910,7 @@ class SelfdriveD:
     from openpilot.starpilot.car.honda.aol import (below_engage_lateral_allowed as honda_below_engage_lateral_allowed,
                                                    physical_cancel_lateral_allowed as honda_cancel_lateral_allowed)
     from openpilot.starpilot.car.ford.aol import physical_cancel_lateral_allowed as ford_cancel_lateral_allowed
-    from openpilot.starpilot.car.subaru.aol import sng_standstill_lateral_inhibit
+    from openpilot.starpilot.car.subaru.aol import known_paddle_pause, sng_standstill_lateral_inhibit
     from openpilot.starpilot.car.volkswagen.aol import (lateral_output_inhibited as volkswagen_lateral_output_inhibited,
                                                          below_engage_lateral_allowed as volkswagen_below_engage_lateral_allowed,
                                                          physical_cancel_lateral_allowed as volkswagen_cancel_lateral_allowed)
@@ -1920,8 +1920,9 @@ class SelfdriveD:
     from openpilot.starpilot.car.volkswagen.aol import lateral_immediate_disable
     retained_dm_lateral, lateral_events = lateral_event_context(self, CS, intent, native, now_ns, ordinary_lag)
     reverse_pause = known_reverse_pause(CS, getattr(self, 'car_state_samples', ()))
+    gear_pause = reverse_pause or known_paddle_pause(self.CP, CS, getattr(self, 'car_state_samples', ()))
     pause_brake_mps = self.aol_settings.pause_brake_mps if self.aol_settings is not None else 0.0
-    if reverse_pause:
+    if gear_pause:
       lateral_events = [event for event in lateral_events if event not in (EventName.wrongGear, EventName.reverseGear)]
     below_entry_speed = EventName.belowEngageSpeed in lateral_events
     honda_below_entry_speed = below_entry_speed and honda_below_engage_lateral_allowed(
@@ -1986,7 +1987,7 @@ class SelfdriveD:
                         self.sm['driverMonitoringState'].alwaysOnLockout or
                         self.sm['driverMonitoringState'].alertLevel == AlertLevel.three)),
       pause_brake_mps=pause_brake_mps,
-      gear_pause=reverse_pause,
+      gear_pause=gear_pause,
       lateral_inhibit=self.aol_dm_lateral_inhibit or sng_standstill_lateral_inhibit(
         self.CP, CS, initial_wait=bool(native is None or not native.lateralAllowed)) or
         volkswagen_lateral_output_inhibited(self.CP, CS) or any(
@@ -2352,15 +2353,17 @@ class SelfdriveD:
       # Temporary EPS withdraws steering commands without revoking the armed
       # latch. Keep the event and ordinary soft-disable behavior unchanged.
       from openpilot.starpilot.aol.seatbelt import seatbelt_lateral_soft_event_allowed
+      from openpilot.starpilot.car.subaru.aol import known_paddle_pause
       reverse_pause = known_reverse_pause(CS, getattr(self, 'car_state_samples', ()))
+      gear_pause = reverse_pause or known_paddle_pause(self.CP, CS, getattr(self, 'car_state_samples', ()))
       aol_hard_soft_fault = any(event.softDisable and not (
         event.name == EventName.doorOpen or event.name in LONGITUDINAL_ONLY_EVENTS or
-        event.name == EventName.wrongGear and reverse_pause or
+        event.name == EventName.wrongGear and gear_pause or
         event.name == EventName.steerTempUnavailable and CS.steerFaultTemporary and not CS.steerFaultPermanent or
         seatbelt_lateral_soft_event_allowed(self.CP, CS, intent, native, event,
           source_ns=self.aol_car_state_log_ns, now_ns=now_ns, axis_session_id=self.aol_session_id,
           pending_lateral_request=not previous.lateral_active and not self.aol_authority_lost,
-          gear_pause=reverse_pause))
+          gear_pause=gear_pause))
         for event in self.events.to_msg())
       cold_main_wait = self.cold_gm_main_readiness(CS, intent, now_ns)
       cold_park_wait = (self.cold_gm_park_readiness(CS, intent, now_ns) or

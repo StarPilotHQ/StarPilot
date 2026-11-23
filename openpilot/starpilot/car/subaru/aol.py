@@ -6,6 +6,16 @@ from openpilot.starpilot.aol.intent import AolCardIntent
 from openpilot.starpilot.aol.policy import AolVehiclePolicy
 
 
+def known_paddle_pause(cp, state, samples=()):
+  gears = structs.CarState.GearShifter
+  if cp.carFingerprint != CAR.SUBARU_IMPREZA_2020:
+    return False
+  states = [state, *(sample for sample, _ in samples)]
+  return (all(valid for _, valid in samples) and any(sample.gearShifter == gears.manumatic for sample in states) and
+          all(sample.canValid and not sample.canTimeout and sample.gearShifter in (gears.drive, gears.manumatic)
+              for sample in states) and qualified(cp, marked_only=True))
+
+
 def _drive_gear(cp, state):
   if cp is not None and cp.carFingerprint == CAR.SUBARU_LEGACY_2025:
     return state.gearShifter in (structs.CarState.GearShifter.drive, structs.CarState.GearShifter.manumatic)
@@ -27,6 +37,10 @@ class SubaruStockCardIntent(AolCardIntent):
     self._pending_main_restriction_ns = 0
     self._deferred_park_main = False
     self.main_arm_ns = 0
+
+  def output(self, CS):
+    allowed, pause_lateral, pause_longitudinal = super().output(CS)
+    return allowed and (self.allow_manumatic or CS.gearShifter != structs.CarState.GearShifter.manumatic), pause_lateral, pause_longitudinal
 
   def observe_startup_readiness(self, sm, CS, *, now_ns, **kwargs):
     if self.main_arm:
