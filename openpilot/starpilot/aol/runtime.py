@@ -25,6 +25,7 @@ class AxisDecision:
   lateral_active: bool = False
   longitudinal_active: bool = False
   native_acknowledged: bool = False
+  aol_speed_paused: bool = False
 
   @property
   def mode(self) -> str:
