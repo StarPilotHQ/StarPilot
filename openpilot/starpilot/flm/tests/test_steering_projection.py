@@ -151,7 +151,7 @@ def check_packet(ci, frames, witness):
   assert request is witness.steer_requested
 
 
-@pytest.mark.parametrize('platform', (GM.CADILLAC_ATS, SUBARU.SUBARU_FORESTER_PREGLOBAL, MAZDA.MAZDA_CX5, MG.MG_5_EV))
+@pytest.mark.parametrize('platform', (GM.CADILLAC_ATS, SUBARU.SUBARU_FORESTER_PREGLOBAL, MAZDA.MAZDA_CX9, MG.MG_5_EV))
 def test_dashcam_configuration_refuses_observer(platform):
   ci = make_interface(platform)
   assert ci.CP.dashcamOnly

@@ -247,6 +247,7 @@ def test_camera_paint_does_not_receive_or_switch_selected_frame(monkeypatch, pro
   module = importlib.import_module(f'openpilot.selfdrive.ui.{profile}.cameraview')
   monkeypatch.setattr(module, 'COMMA_HARDWARE', True)
   camera = object.__new__(module.CameraView)
+  camera._use_egl = True
   camera.close = Mock()
   camera.client = Mock()
   camera.frame = SimpleNamespace(frame_id=5, width=100, height=50)

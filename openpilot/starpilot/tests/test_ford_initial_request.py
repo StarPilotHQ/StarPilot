@@ -2,6 +2,7 @@ import pytest
 from opendbc.car.ford.values import CAR
 from opendbc.car import structs
 from openpilot.selfdrive.car import card as card_module
+from openpilot.starpilot.aol import card_native
 from openpilot.starpilot.tests.ford_lifecycle_helpers import ford_joined as ford_joined, run_actual_producer
 
 
@@ -64,7 +65,7 @@ def test_initial_request_and_longitudinal_withdrawal(ford_joined, monkeypatch, s
       return update(timestamp, adjusted)
 
     local.setattr(sd.sm, 'update_msgs', calibration)
-    observe = card_module.ford_native_observation
+    observe = card_native.ford_native_observation
 
     def traced_native(native, **kwargs):
       result = observe(native, **kwargs)
@@ -74,7 +75,7 @@ def test_initial_request_and_longitudinal_withdrawal(ford_joined, monkeypatch, s
                                                          native.requestedLongitudinal, native.longitudinalAllowed]})
       return result
 
-    local.setattr(card_module, 'ford_native_observation', traced_native)
+    local.setattr(card_native, 'ford_native_observation', traced_native)
     pending = getattr(card_module, 'ford_awaiting_initial_request', None)
     if pending is not None:
       def checked_pending(cp, cs, sm, native, feedback, intent, **kwargs):

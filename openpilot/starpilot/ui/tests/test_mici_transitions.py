@@ -159,6 +159,7 @@ def camera(monkeypatch):
   monkeypatch.setattr(cameraview.rl, 'unload_shader', lambda shader: events.append(('shader', shader.id)))
   monkeypatch.setattr(cameraview.rl, 'get_time', lambda: 1.0)
   view = object.__new__(cameraview.CameraView)
+  view._use_egl = True
   view.close = Mock()
   view._name = 'camerad'
   view._stream_type = cameraview.VisionStreamType.VISION_STREAM_NARROW_ROAD

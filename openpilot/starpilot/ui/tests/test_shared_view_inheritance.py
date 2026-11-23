@@ -11,23 +11,30 @@ from openpilot.selfdrive.ui.mici.onroad import model_renderer as small_model
 
 
 @pytest.mark.parametrize("module", [large_camera, small_camera])
-def test_shared_camera_constructor_preserves_display_specific_clients_and_uniforms(module, monkeypatch):
+@pytest.mark.parametrize("use_egl", [False, True])
+def test_shared_camera_constructor_preserves_display_specific_clients_and_uniforms(module, use_egl, monkeypatch):
   ui = NS(add_offroad_transition_callback=Mock())
   clients = []
   def client(name, stream, conflate):
     clients.append((name, stream, conflate))
     return NS(stream=stream)
   for target in (large_camera, small_camera):
-    monkeypatch.setattr(target, "COMMA_HARDWARE", False)
+    monkeypatch.setattr(target, "COMMA_HARDWARE", use_egl)
     monkeypatch.setattr(target, "ui_state", ui)
     monkeypatch.setattr(target, "VisionIpcClient", client)
-  monkeypatch.setattr(module.CameraView, "close", lambda self: None)
-  shader = Mock(return_value=NS(id=1))
+  monkeypatch.setattr(large_camera, "init_egl", lambda: True)
+  monkeypatch.setattr(module.rl, "gen_image_color", Mock())
+  monkeypatch.setattr(module.rl, "load_texture_from_image", Mock(return_value=None))
+  monkeypatch.setattr(module.rl, "unload_image", Mock())
+  shader = Mock(return_value=NS(id=0))
   monkeypatch.setattr(module.rl, "load_shader_from_memory", shader)
   monkeypatch.setattr(module.rl, "get_shader_location", lambda *_args: 1)
   stream = module.VisionStreamType.VISION_STREAM_CABIN
   camera = module.CameraView("camerad", stream)
-  assert shader.call_args.args[1] == module.FRAME_FRAGMENT_SHADER
+  assert camera._use_egl == use_egl
+  expected_shader = module.FRAME_FRAGMENT_SHADER if use_egl else module.TEXTURE_FRAGMENT_SHADER
+  assert shader.call_args.args[1] == expected_shader
+  assert camera._texture1_loc == (-1 if use_egl else 1)
   assert camera.stream_type == stream
   assert camera.frame is None and camera._color_strength_val.tolist() == [0.0]
   assert camera.texture_y is None and camera.texture_uv is None
@@ -39,7 +46,6 @@ def test_shared_camera_constructor_preserves_display_specific_clients_and_unifor
   else:
     assert len(clients) == len(list(module.VisionStreamType))
     assert camera._road_camera_val.tolist() == [0]
-  camera.shader.id = 0
 
 
 def test_shared_model_constructor_keeps_distinct_lead_types_and_native_geometry():
