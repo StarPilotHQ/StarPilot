@@ -207,6 +207,12 @@ def allowed_authority(host: str, local_address: str, port: int, *, local_hostnam
     if local_hostnames is None:
       return False
     canonical = dns_authority_name(host, port, allow_portless=allow_portless)
+    from openpilot.starpilot.galaxy.mdns import own_address, published_record
+    published = published_record()
+    # Our mDNS name, with or without :port, on any of our own LAN addresses (port 80 redirects here).
+    if published is not None and dns_authority_name(host, port, allow_portless=True) == published[0] and \
+       own_address(local_address):
+      return True
     return canonical is not None and canonical in local_hostnames.names(local_address)
   try:
     address = ip_address(local_address)

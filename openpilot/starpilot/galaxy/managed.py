@@ -5,6 +5,7 @@ import signal
 import threading
 import time
 
+from openpilot.starpilot.galaxy.mdns import run as run_mdns
 from openpilot.starpilot.galaxy.server import make_server
 from openpilot.starpilot.galaxy.server import make_remote_server
 from openpilot.starpilot.galaxy.remote import default_remote_pairing, make_gateway_auth_server
@@ -126,7 +127,14 @@ def main() -> None:
     server.server_close()
     raise
   print(f'Galaxy local/LAN service listening on port {server.server_port}', flush=True)
-  serve_managed(server, extra_servers=(remote_server, auth_server), tunnel=lambda stop: supervise_tunnel(stop, pairing))
+  mdns_stop = threading.Event()
+  mdns = threading.Thread(target=run_mdns, args=(mdns_stop, server.server_port), name='galaxy-mdns', daemon=True)
+  mdns.start()
+  try:
+    serve_managed(server, extra_servers=(remote_server, auth_server), tunnel=lambda stop: supervise_tunnel(stop, pairing))
+  finally:
+    mdns_stop.set()
+    mdns.join(timeout=3)
 
 
 if __name__ == '__main__':

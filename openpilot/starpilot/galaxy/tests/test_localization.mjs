@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { translateText, localizeDocument } from "../web/js/localization.js"
+import { translateText, localizeDocument, startLocalization, LANGUAGE_RECHECK_MS, LANGUAGE_RETRY_MS } from "../web/js/localization.js"
 
 assert.equal(translateText("  Home\n", { Home: "ホーム" }), "  ホーム\n")
 assert.equal(translateText("SpeedLimitController", {}), "SpeedLimitController")
@@ -67,3 +67,38 @@ const hiddenNative = new Element("select", {hidden:""}, [new Element("option", {
 localizeDocument(hiddenNative, {language:"ja",messages:{Save:"保存"}})
 assert.equal(hiddenText.nodeValue,"Save","GalaxySelect must retain canonical hidden option labels for sync()")
 assert.equal(translateText('Reset Language to default', {Language:'Sprache','Reset {label} to default':'{label} zurücksetzen'}),'Sprache zurücksetzen')
+
+{
+  // Poll the language once a minute after a confirmed load; retry quickly only while it cannot be read.
+  const delays = [], pending = [], listeners = {}
+  const realSetTimeout = globalThis.setTimeout, realClearTimeout = globalThis.clearTimeout
+  globalThis.MutationObserver = class { observe() {} disconnect() {} }
+  globalThis.setTimeout = (fn, ms) => { if (ms === LANGUAGE_RETRY_MS || ms === LANGUAGE_RECHECK_MS) { delays.push(ms); pending.push(fn); return pending.length } return realSetTimeout(fn, ms) }
+  globalThis.clearTimeout = id => { if (typeof id !== "number" || id > 1000) realClearTimeout(id) }
+  const visibility = { visibilityState: "visible", addEventListener: (name, fn) => { listeners[name] = fn }, removeEventListener: name => { delete listeners[name] } }
+  globalThis.document = visibility
+  const responses = [true, true, false]
+  let calls = 0
+  const fetcher = async () => {
+    calls++
+    if (!responses.shift()) throw new Error("offline")
+    return new Response(JSON.stringify({ language: "en", messages: {} }), { status: 200, headers: { "Content-Type": "application/json" } })
+  }
+  const root = new Element("main", {}, [text("Home")])
+  const settle = () => new Promise(resolve => realSetTimeout(resolve, 20))
+  const stop = startLocalization(root, fetcher)
+  await settle()
+  assert.deepEqual(delays, [LANGUAGE_RECHECK_MS], "a confirmed language is rechecked once a minute, not every 2 s")
+  listeners.visibilitychange()
+  await settle()
+  assert.equal(calls, 2, "showing the tab again rechecks at once")
+  assert.equal(delays.at(-1), LANGUAGE_RECHECK_MS)
+  pending.at(-1)()
+  await settle()
+  assert.equal(calls, 3)
+  assert.equal(delays.at(-1), LANGUAGE_RETRY_MS, "an unreadable language retries quickly")
+  stop()
+  assert.equal(listeners.visibilitychange, undefined)
+  globalThis.setTimeout = realSetTimeout; globalThis.clearTimeout = realClearTimeout
+  delete globalThis.document; delete globalThis.MutationObserver
+}
