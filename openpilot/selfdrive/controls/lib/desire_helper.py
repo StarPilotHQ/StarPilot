@@ -28,7 +28,17 @@ class DesireHelper:
   def get_lane_change_direction(CS):
     return LaneChangeDirection.left if CS.leftBlinker else LaneChangeDirection.right
 
-  def update(self, carstate, lateral_active, lane_change_prob, *, auto_evidence=False, engaged=False, navigation_turn=False):
+  def lane_change_speed(self):
+    return max(MINIMUM_SPEED_MPS, self.policy.minimum_speed_mps,
+               20 * CV.MPH_TO_MS if self.policy.turn_signal_guidance else 0.0)
+
+  def waiting_for_lane(self, carstate):
+    return (self.policy.enabled and carstate.vEgo >= self.lane_change_speed() and
+            carstate.leftBlinker != carstate.rightBlinker and
+            (self.lane_change_state == LaneChangeState.preLaneChange or
+             (self.lane_change_state == LaneChangeState.off and not self.prev_one_blinker)))
+
+  def update(self, carstate, lateral_active, lane_change_prob, *, auto_evidence=False, engaged=False, navigation_turn=False, route_turn=False):
     v_ego = carstate.vEgo
     one_blinker = carstate.leftBlinker != carstate.rightBlinker
     if not carstate.leftBlinker and not carstate.rightBlinker:
@@ -41,8 +51,7 @@ class DesireHelper:
       self.auto_signal_blocked = True
     self.last_signal_direction = signal_direction
     self.auto_status = "manualRequired"
-    below_lane_change_speed = v_ego < max(MINIMUM_SPEED_MPS, self.policy.minimum_speed_mps,
-                                          20 * CV.MPH_TO_MS if self.policy.turn_signal_guidance else 0.0)
+    below_lane_change_speed = v_ego < self.lane_change_speed()
 
     if not self.policy.enabled or not lateral_active or below_lane_change_speed or self.lane_change_timer > LANE_CHANGE_TIME_MAX:
       self.lane_change_state = LaneChangeState.off
@@ -50,12 +59,12 @@ class DesireHelper:
       self.lane_change_timer = 0.0
       self.pre_lane_change_timer = 0.0
     else:
-      if navigation_turn and self.lane_change_state == LaneChangeState.preLaneChange:
+      if navigation_turn and not route_turn and self.lane_change_state == LaneChangeState.preLaneChange:
         self.lane_change_state = LaneChangeState.off
         self.lane_change_direction = LaneChangeDirection.none
         self.pre_lane_change_timer = 0.0
       if (self.lane_change_state == LaneChangeState.off and one_blinker and not self.prev_one_blinker and
-          not below_lane_change_speed and not navigation_turn and not (self.policy.one_per_signal and self.lane_change_performed)):
+          not below_lane_change_speed and (route_turn or not navigation_turn) and not (self.policy.one_per_signal and self.lane_change_performed)):
         self.lane_change_state = LaneChangeState.preLaneChange
         self.lane_change_timer = 0.0
         self.pre_lane_change_timer = 0.0
@@ -101,7 +110,7 @@ class DesireHelper:
 
         if lane_change_prob < 0.02 and self.lane_change_timer >= LANE_CHANGE_START_TIME:
           self.lane_change_timer = 0.0
-          if one_blinker and not (self.policy.one_per_signal and self.lane_change_performed):
+          if one_blinker and not route_turn and not (self.policy.one_per_signal and self.lane_change_performed):
             self.lane_change_state = LaneChangeState.preLaneChange
             self.lane_change_direction = self.get_lane_change_direction(carstate)
           else:

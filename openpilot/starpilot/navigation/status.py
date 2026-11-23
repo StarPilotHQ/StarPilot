@@ -14,7 +14,7 @@ def boot_time_ns():
 class NavigationStatusSource:
   def __init__(self, *, mono_clock=time.monotonic_ns, boot_clock=boot_time_ns):
     from openpilot.cereal import messaging
-    self.sm = messaging.SubMaster(list(dict.fromkeys(['starpilotNavigation', *GPS_SERVICES, 'deviceState'])))
+    self.sm = messaging.SubMaster(list(dict.fromkeys(['starpilotNavigation', *GPS_SERVICES, 'deviceState', 'carState', 'carControl', 'modelV2', 'laneChangeAssistWire'])))
     self.mono_clock, self.boot_clock = mono_clock, boot_clock
     self.gps_after_mono_ns = mono_clock()
     self.gps_offset_ns = None
@@ -29,9 +29,45 @@ class NavigationStatusSource:
     state = navigation_state(self.sm['starpilotNavigation'])
     if state is None:
       return None
-    return {'revision': state.revision, 'status': state.status,
+    note = self.turn_note()
+    return {'turnNote': note, 'revision': state.revision, 'status': state.status,
                 'instruction': state.instruction.to_dict() if state.status in ('guiding', 'arrived') else None,
                 'route': [row.to_dict() for row in state.route]}
+
+  def turn_note(self):
+    from openpilot.starpilot.navigation.intent import current_instruction, matching_turn_signal
+    from openpilot.starpilot.lateral.lane_change_status_wire import Direction, Phase, decode, fresh_for_model
+    sm, now = self.sm, self.mono_clock()
+    if current_instruction(sm, now) is None:
+      return None
+    cs, cc = sm['carState'], sm['carControl']
+    if not cc.latActive or cs.standstill or cs.leftBlinker == cs.rightBlinker:
+      return None
+    near_turn = matching_turn_signal(sm, now, supported=True)
+    if not near_turn:
+      service = 'laneChangeAssistWire'
+      if not all(sm.valid[name] and sm.alive[name] for name in (service, 'modelV2')):
+        return None
+      status = decode(sm[service])
+      if (status and status.phase == Phase.LANE_UNAVAILABLE and
+          status.direction == (Direction.LEFT if cs.leftBlinker else Direction.RIGHT) and
+          fresh_for_model(status, sm['modelV2'], now, int(sm.recv_time[service] * 1e9),
+                          message_mono_ns=sm.logMonoTime[service])):
+        return "steer manually when safe. the adjacent lane is unconfirmed."
+      return None
+    if (cs.leftBlinker and cs.leftBlindspot) or (cs.rightBlinker and cs.rightBlindspot):
+      return "steer manually when safe. a vehicle is in the blind spot."
+    if cs.vEgo >= 14:
+      return "steer manually. speed is above the turn guidance range."
+    if not sm.valid['modelV2'] or not sm.alive['modelV2'] or not 0 <= now - sm.logMonoTime['modelV2'] <= 150_000_000:
+      return "steer manually. the turn path is unavailable."
+    model = sm['modelV2']
+    if str(model.meta.laneChangeState) in ('laneChangeStarting', 'laneChangeFinishing'):
+      return None
+    direction = -1 if cs.leftBlinker else 1
+    if not model.action.desiredCurvature * direction > 0:
+      return "steer manually. the planned path has not turned in the signaled direction."
+    return None
 
   def search_position(self) -> tuple[float, float] | None:
     position = self.map_position()

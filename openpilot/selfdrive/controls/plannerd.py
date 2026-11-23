@@ -325,7 +325,10 @@ def starpilot_main():
 
   ldw = LaneDepartureWarning()
   from openpilot.starpilot.longitudinal.developer_tuning import read_tuning
-  longitudinal_planner = LongitudinalPlanner(CP, developer_tuning=read_tuning(params, CP))
+  from openpilot.starpilot.saved_source import read_saved
+  turn_distance, readable = read_saved(params, "NavTurnSlowdownEarlier", 8)
+  earlier_m = int(turn_distance) if readable and turn_distance in (b"25", b"50", b"75") else 0
+  longitudinal_planner = LongitudinalPlanner(CP, developer_tuning=read_tuning(params, CP), nav_turn_earlier_m=earlier_m)
   nudge_preferences = NudgePreferences(params)
   # Saved-on features start only for a finalized, supported driving owner. Their
   # current-source and longitudinal authority checks still run every frame.

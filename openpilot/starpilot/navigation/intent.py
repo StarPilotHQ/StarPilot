@@ -38,6 +38,10 @@ def current_instruction(sm, now_ns: int):
     return None
 
 
+def within_turn_window(speed, distance):
+  return math.isfinite(speed) and speed >= 0 and math.isfinite(distance) and 0 <= distance <= min(90., max(35., speed * 6.))
+
+
 def turn_desire(sm, now_ns: int, current_desire, *, supported: bool):
   if not supported or current_desire != log.Desire.none:
     return current_desire
@@ -45,9 +49,8 @@ def turn_desire(sm, now_ns: int, current_desire, *, supported: bool):
   if nav is None:
     return current_desire
   cs, cc, instruction = sm['carState'], sm['carControl'], nav.instruction
-  if (not cc.latActive or cs.standstill or not math.isfinite(cs.vEgo) or not 0 <= cs.vEgo < 14 or
-      instruction.maneuverType != 'turn' or not math.isfinite(instruction.distanceMeters) or
-      not 0 <= instruction.distanceMeters <= min(90., max(35., cs.vEgo * 6.))):
+  if (not cc.latActive or cs.standstill or cs.vEgo >= 14 or not within_turn_window(cs.vEgo, instruction.distanceMeters) or
+      instruction.maneuverType != 'turn'):
     return current_desire
   if instruction.maneuverModifier in ('left', 'sharpLeft') and cs.leftBlinker and not cs.rightBlinker and not cs.leftBlindspot:
     return log.Desire.turnLeft
@@ -56,7 +59,7 @@ def turn_desire(sm, now_ns: int, current_desire, *, supported: bool):
   return current_desire
 
 
-def turn_speed(maneuver, min_steer_speed: float) -> float | None:
+def turn_speed(maneuver, min_steer_speed: float, distance_offset: float = 0.) -> float | None:
   kind, modifier = maneuver.maneuverType, maneuver.maneuverModifier
   target = TARGET_MPH.get(modifier) if kind == 'turn' else None
   if modifier == 'uturn' or 'uturn' in kind or 'u-turn' in kind:
@@ -68,10 +71,10 @@ def turn_speed(maneuver, min_steer_speed: float) -> float | None:
   target = max(target * CV.MPH_TO_MS, min_steer_speed)
   ordinary = kind == 'turn' and modifier in ('left', 'right')
   approach_decel, settling_distance = (.75, 20.) if ordinary else (.45, 8.)
-  return math.sqrt(target * target + 2 * approach_decel * max(0., maneuver.distanceMeters - settling_distance))
+  return math.sqrt(target * target + 2 * approach_decel * max(0., maneuver.distanceMeters - distance_offset - settling_distance))
 
 
-def cruise_ceiling(sm, CP, now_ns: int, cruise_mps: float) -> float | None:
+def cruise_ceiling(sm, CP, now_ns: int, cruise_mps: float, earlier_m: int = 0) -> float | None:
   nav = current_instruction(sm, now_ns)
   if nav is None:
     return None
@@ -82,8 +85,12 @@ def cruise_ceiling(sm, CP, now_ns: int, cruise_mps: float) -> float | None:
   minimum = float(CP.minSteerSpeed)
   if not math.isfinite(minimum):
     return None
+  if not math.isfinite(cs.vEgo) or cs.vEgo < 0:
+    return None
+  # route distance is measured at the location fix
+  traveled = cs.vEgo * ((now_ns - nav.locationMonoTime) / 1e9)
   for instruction in (nav.instruction, nav.nextManeuver):
-    target = turn_speed(instruction, max(minimum, 0.))
+    target = turn_speed(instruction, max(minimum, 0.), traveled + earlier_m)
     if target is not None and target + .25 < cruise_mps:
       return target
   return None
@@ -96,9 +103,7 @@ def matching_turn_signal(sm, now_ns: int, *, supported: bool) -> bool:
   cs, instruction = sm['carState'], nav.instruction
   matching = ((instruction.maneuverModifier in ('left', 'sharpLeft') and cs.leftBlinker and not cs.rightBlinker) or
               (instruction.maneuverModifier in ('right', 'sharpRight') and cs.rightBlinker and not cs.leftBlinker))
-  return bool(instruction.maneuverType == 'turn' and matching and math.isfinite(cs.vEgo) and
-              math.isfinite(instruction.distanceMeters) and
-              0 <= instruction.distanceMeters <= min(250., max(30., 15. + max(0., cs.vEgo) * 12.)))
+  return bool(instruction.maneuverType == 'turn' and matching and within_turn_window(cs.vEgo, instruction.distanceMeters))
 
 
 class TurnIntent:
@@ -114,7 +119,7 @@ class TurnIntent:
     self.key = None
     self.stop_hold = False
 
-  def select(self, sm, now_ns: int, current_desire, *, supported: bool, model_stop: bool):
+  def select(self, sm, now_ns: int, current_desire, *, supported: bool, model_stop: bool, waiting_for_lane: bool = False):
     try:
       cs = sm['carState']
       signaling = bool(cs.leftBlinker or cs.rightBlinker)
@@ -146,6 +151,8 @@ class TurnIntent:
     elif model_stop or (plan_valid and plan.shouldStop):
       self.stop_hold = True
     if self.stop_hold or not plan_valid:
+      return current_desire
+    if waiting_for_lane and matching_turn_signal(sm, now_ns, supported=supported):
       return current_desire
     selected = turn_desire(sm, now_ns, current_desire, supported=supported)
     if selected != log.Desire.none:

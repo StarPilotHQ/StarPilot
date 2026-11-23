@@ -443,6 +443,7 @@ class NavigationOwner:
       if document['destination'] and isinstance(state, dict) and state.get('revision') == document['revision']:
         for key in ('status', 'instruction', 'route'):
           result[key] = state[key]
+        result['turnNote'] = state.get('turnNote')
         result['route'] = rounded(result['route'])
     # Route lines are most of each status poll; a client that already holds them gets only the key.
     result['routeKey'] = hashlib.sha256(json.dumps([result['route'], result['alternatives']], separators=(',', ':')).encode()).hexdigest()[:16]

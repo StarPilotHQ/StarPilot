@@ -115,9 +115,10 @@ def get_cruise_accel(e2e, v_cruise, v_ego, a_cruise_prev, angle_steers, CP, dt, 
 
 class LongitudinalPlanner:
   def __init__(self, CP, init_v=0.0, init_a=0.0, dt=DT_MDL, clock_ns: Callable[[], int] = time.monotonic_ns, *,
-               developer_tuning=None):
+               developer_tuning=None, nav_turn_earlier_m=0):
     self.CP = CP
     tuning = developer_tuning or {}
+    self.nav_turn_earlier_m = nav_turn_earlier_m if nav_turn_earlier_m in (0, 25, 50, 75) else 0
     self.action_delay_override = tuning.get("delay")
     self.stop_speed = tuning.get("stop_speed", .3)
     self.max_accel_override = tuning.get("max_accel")
@@ -327,7 +328,7 @@ class LongitudinalPlanner:
     self.last_curve_ceiling_applied = False
     if curve.effective_mps is not None:
       v_cruise = curve.effective_mps
-    navigation_target = navigation_ceiling(sm, self.CP, sample_now_ns, v_cruise) if profile_eligible else None
+    navigation_target = navigation_ceiling(sm, self.CP, sample_now_ns, v_cruise, self.nav_turn_earlier_m) if profile_eligible else None
     if navigation_target is not None:
       v_cruise = min(v_cruise, navigation_target)
     coast_plan = None

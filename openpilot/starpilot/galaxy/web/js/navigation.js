@@ -792,6 +792,7 @@ export const NavigationPage = {
             <p v-else class="gx-note">{{statusLabel}}</p>
             <template v-if="data.instruction && !stale">
               <p class="gx-navigation__instruction">{{ data.instruction.text }}</p>
+              <p v-if="data.turnNote" class="gx-note" role="status">{{ data.turnNote }}</p>
               <p class="gx-note">In {{ distance(data.instruction.distanceMeters) }}</p>
             </template>
             <div v-if="data.alternatives?.length > 1" class="gx-navigation__alternatives gx-actions" aria-label="Alternative routes">

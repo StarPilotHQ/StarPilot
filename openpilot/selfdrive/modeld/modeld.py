@@ -560,7 +560,8 @@ def main(demo=False):
     turn_models = (model.lateral, model.longitudinal) if isinstance(model, LaboratoryPair) else (model,)
     turn_supported = all(state.npy.get('desire') is not None and state.npy['desire'].shape[-1] == 8 for state in turn_models)
     desire = navigation_turn.select(sm, time.monotonic_ns(), DH.desire,
-                                     supported=turn_supported, model_stop=bool(prev_action.shouldStop))
+                                     supported=turn_supported, model_stop=bool(prev_action.shouldStop),
+                                     waiting_for_lane=DH.waiting_for_lane(sm["carState"]))
     is_rhd = sm["driverMonitoringState"].isRHD
     frame_id = sm["narrowRoadCameraState"].frameId
     v_ego = max(sm["carState"].vEgo, 0.)
@@ -691,7 +692,7 @@ def main(demo=False):
       DH.update(car_state, sm['carControl'].latActive, lane_change_prob,
                 auto_evidence=auto_ready, engaged=auto_trigger_engaged(sm, runtime_lane_policy,
                   openpilot_longitudinal=bool(CP.openpilotLongitudinalControl), now_mono_ns=mono_now_ns),
-                navigation_turn=signal_turn or matching_turn_signal(sm, mono_now_ns, supported=navigation_turn.automatic_turn_enabled))
+                navigation_turn=signal_turn, route_turn=matching_turn_signal(sm, mono_now_ns, supported=navigation_turn.automatic_turn_enabled))
       modelv2_send.modelV2.meta.laneChangeState = DH.lane_change_state
       modelv2_send.modelV2.meta.laneChangeDirection = DH.lane_change_direction
 

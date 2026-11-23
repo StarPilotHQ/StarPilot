@@ -657,7 +657,7 @@ class FeatureSettingsOwner:
       return "Vision"
     if key == "IsMetric":
       return "0"
-    if key in SLC_OFFSET_KEYS or key in ("ForceStopDistanceOffset", *ADVANCE_KEYS):
+    if key in SLC_OFFSET_KEYS or key in ("ForceStopDistanceOffset", "NavTurnSlowdownEarlier", *ADVANCE_KEYS):
       return "0"
     value = self.params.get_default_value(key)
     return str(value) if value is not None else ""
@@ -1077,6 +1077,13 @@ class FeatureSettingsOwner:
                                  "Invalid saved learning" if not learning.valid else
                                  "Pauses curve speed adjustments while following a lead vehicle" if allowed else
                                  "Unavailable with the current vehicle or feature settings"))
+      nav_value, nav_raw, valid = self._value("NavTurnSlowdownEarlier")
+      valid = valid and nav_value in ("0", "25", "50", "75")
+      rows.append(FeatureRow("NavTurnSlowdownEarlier", "Slow for navigation turns", nav_value if valid else "Invalid saved value",
+                             nav_raw, step=25., minimum=0., maximum=75., unit="m", default_value="0",
+                             repair_value="" if valid else "0", vehicle_fingerprint=self.vehicle_fingerprint(),
+                             available=parked and allowed and self._readable("NavTurnSlowdownEarlier"),
+                             reason="Extra distance before a routed turn. 0 m is standard. Applies on the next drive."))
       rows.append(self._bool_row("ShowCSCStatus", "Show Curve status", allowed,
                                  reason="Display preference only; it does not enable control"))
       rows.append(FeatureRow("", "Saved learning", "Valid" if learning.valid else "Unavailable",
@@ -1470,6 +1477,18 @@ class FeatureSettingsOwner:
       return self.wheel.apply(request)
     if key == OUTPUT_MAX_KEY:
       return False
+    if key == "NavTurnSlowdownEarlier":
+      def authorized():
+        return (self.authority("parked_preferences") and self.authority("long") and self._readable(key) and
+                self._raw(key) == request.expected and self.vehicle_fingerprint() == request.vehicle_fingerprint)
+      try:
+        distance = float(request.value)
+      except (ValueError, TypeError):
+        return False
+      if distance not in (0, 25, 50, 75) or not authorized():
+        return False
+      return commit_exact(self.params, key=key, max_bytes=128, raw=str(int(distance)).encode(),
+                          expected=request.expected, authorized=authorized, temp_prefix=".nav-turn-").verified
     if key == "ReverseCruise":
       return self._apply_reverse_cruise(request)
     if key in LATERAL_PAUSE_KEYS:

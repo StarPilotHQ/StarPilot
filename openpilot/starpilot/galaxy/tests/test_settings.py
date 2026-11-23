@@ -43,6 +43,18 @@ class SettingsGatewayTest(unittest.TestCase):
   def page(self, name):
     return self.gateway.page(name, self.session, self.generation)
 
+  def test_navigation_turn_slider(self):
+    for offset in (25, 75, 50, 0):
+      page = self.page('curve')
+      index = next(i for i, row in enumerate(page['rows']) if row['label'] == 'Slow for navigation turns')
+      row = page['rows'][index]
+      self.assertEqual((row['minimum'], row['maximum'], row['step'], row['unit']), (0, 75, 25, 'm'))
+      with self.assertRaises(SettingsChanged):
+        self.gateway.preview(page['view'], index, 0, self.session, self.generation, value=14)
+      intent = self.gateway.preview(page['view'], index, 0, self.session, self.generation, value=offset)
+      self.assertTrue(self.gateway.confirm(intent['intent'], self.session, self.generation))
+      self.assertEqual(read_saved(self.params, 'NavTurnSlowdownEarlier', 8), (str(offset).encode(), True))
+
   def test_kona_main_cruise_assignment_stays_selected_after_save(self):
     from opendbc.car.hyundai.tests.test_kona_ccnc_long_aol import kona_params
     from opendbc.car.hyundai.values import CAR as HYUNDAI
