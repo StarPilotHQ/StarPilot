@@ -273,7 +273,8 @@ class TransportPauseFeedback:
     # Cancel needs acknowledged LAT, original deadlines and a fresh withdrawal event.
     ford_cancel_health = bool(ford_withdrawal and not cs.cruiseState.enabled and
       not axis.desiredLongitudinal and not axis.longitudinalActive and
-      0 < event_ns <= now_ns and now_ns - event_ns <= AXIS_MAX_AGE_NS and
+      0 < event_ns <= now_ns and (now_ns - event_ns <= AXIS_MAX_AGE_NS or
+        native is not None and native.observedMonoTime < event_ns == axis.faultEventMonoTime <= axis.observedMonoTime) and
       any(event.userDisable and event.name in (log.OnroadEvent.EventName.buttonCancel,
         log.OnroadEvent.EventName.pcmDisable) for event in sm['onroadEvents']) and
       0 < int(sm.logMonoTime['pandaStates']) <= now_ns and

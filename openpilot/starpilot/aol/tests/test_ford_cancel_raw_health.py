@@ -159,6 +159,22 @@ def test_repeated_cancel_does_not_refresh_original_source_or_native_deadlines():
   assert native.validUntilMonoTime == NOW+200_000_000
 
 
+@pytest.mark.parametrize('event_matches, expired', [(True, False), (False, False), (True, True)])
+def test_cancel_echo_uses_the_original_event_and_native_deadline(event_matches, expired):
+  cp, cs, feedback, sm, native, now = fixture()
+  assert not invoke(cp, cs, feedback, sm, now)
+  stamp = native.observedMonoTime + (201 if expired else 106) * 1_000_000
+  next_sample = sample(cp, stamp, 3, native, combined=False)
+  event_ns = sm.logMonoTime['onroadEvents']
+  next_sample.messages['onroadEvents'] = sm.messages['onroadEvents']
+  next_sample.logMonoTime['onroadEvents'] = event_ns
+  if event_matches:
+    change(next_sample, 'aolAxisState', lambda axis: setattr(axis, 'faultEventMonoTime', event_ns))
+  assert invoke(cp, cs, feedback, next_sample, stamp + 1_000_000) == (not event_matches or expired)
+  assert next_sample.logMonoTime['onroadEvents'] == event_ns
+  assert native.validUntilMonoTime == NOW + 200_000_000
+
+
 def test_fresh_native_receipts_allow_repeated_cancel_and_new_full_engagement():
   cp, cs, f, sm, native, now = fixture()
   assert not invoke(cp, cs, f, sm, now)
