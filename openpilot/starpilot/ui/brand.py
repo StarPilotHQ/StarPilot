@@ -1,6 +1,6 @@
 """User-facing StarPilot identity, separate from upstream build metadata."""
 
-DISPLAY_VERSION = "7.0.1"
+DISPLAY_VERSION = "7.0.2"
 
 
 def home_description(updater_description: str) -> str:
