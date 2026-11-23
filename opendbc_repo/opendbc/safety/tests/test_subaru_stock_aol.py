@@ -47,7 +47,7 @@ class TestSubaruStockAol(unittest.TestCase):
       ('ES_Status', {'Cruise_Activated': int(cruise)}, 2 if self.param == 16 else 1),
       ('ES_DashStatus', {'Cruise_On': int(main)}, 2),
     ]
-    if not omit_distance and self.param in (17, 145, 209, 401, 465, 1169, 1425, 4096, 4104, 4608, 4616):
+    if not omit_distance and self.param in (17, 145, 209, 401, 465, 1169, 1425, 4096, 4104, 4608, 4616, 8192):
       frames.append(('ES_Distance', {'Cruise_Fault': int(acc_fault)},
                      1 if self.param in (17, 145, 209, 401, 465, 1169, 1425) else 2))
     if not omit_gear:

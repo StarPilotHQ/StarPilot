@@ -97,7 +97,7 @@ int main() {
     subaru.capability_flags = 1U;
     const bool expected = (word == 16U) || (word == 0U) || (word == 1U) || (word == 17U) ||
                           (word == 209U) || (word == 465U) || (word == 145U) || (word == 1169U) || (word == 1425U) || (word == 401U) || (word == 177U) || (word == 8U) || (word == 520U) || (word == 512U) || (word == 2225U) ||
-                          (word == 4096U) || (word == 4104U) || (word == 4608U) || (word == 4616U);
+                          (word == 4096U) || (word == 4104U) || (word == 4608U) || (word == 4616U) || (word == 8192U);
     assert(aol_capable(subaru, 11U, VEHICLE_REGISTRY) == expected);
     subaru.capability_flags = 0U;
     assert(!aol_capable(subaru, 11U, VEHICLE_REGISTRY));

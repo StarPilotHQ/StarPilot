@@ -456,7 +456,7 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
         if 240 <= tick < 255:
           assert not command.latActive and bool(intent and intent.lateralArmed) == aol and row['cardLatch'] == aol and row['permission'] == 0, row
         main_rearm = aol and candidate in (CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025, CAR.SUBARU_IMPREZA_2020,
-                                         CAR.SUBARU_LEGACY_2025, CAR.SUBARU_OUTBACK_2023)
+                                         CAR.SUBARU_LEGACY_2025, CAR.SUBARU_OUTBACK_2023, CAR.SUBARU_CROSSTREK_2018)
         if 330 <= tick < (350 if main_rearm else 400):
           assert not command.latActive and not bool(intent and intent.allowedLatch), row
         if rearm_on_brake and 355 <= tick < 365:
@@ -474,6 +474,27 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
     finally:
       pandad.close()
       (tmp_path / (str(candidate) + '-' + str(aol) + '-actual.json')).write_text(json.dumps(rows, indent=2) + '\n')
+
+
+@pytest.mark.parametrize('vin, expected', [
+  ('JF2GTAAC0JH000001', CAR.SUBARU_CROSSTREK_2018),
+  ('JF2GTAAC0KH000001', CAR.SUBARU_CROSSTREK_2018),
+  ('4S3GTAA60K3000001', CAR.SUBARU_IMPREZA),
+  ('JF2GTAAC0LH000001', CAR.SUBARU_IMPREZA),
+  ('0' * 17, CAR.SUBARU_IMPREZA),
+])
+def test_actual_early_subaru_automatic_startup(vin, expected):
+  firmware = firmware_records(CAR.SUBARU_IMPREZA, FW_VERSIONS, 'subaru')
+  with actual_factory(expected, gen_empty_fingerprint(), firmware, vin, manual=False,
+                      firmware_candidate=CAR.SUBARU_IMPREZA) as (card, _, _):
+    assert card.CP.safetyConfigs[0].safetyParam == (8192 if expected == CAR.SUBARU_CROSSTREK_2018 else 0)
+    assert card.CP.pcmCruise and not card.CP.openpilotLongitudinalControl
+
+
+def test_actual_early_crosstrek_main_only(subaru_native_pair, tmp_path):
+  firmware = firmware_records(CAR.SUBARU_IMPREZA, FW_VERSIONS, 'subaru')
+  test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(
+    CAR.SUBARU_CROSSTREK_2018, subaru_native_pair, tmp_path, manual=True, main_only=True, firmware=firmware)
 
 
 @pytest.mark.parametrize('candidate', [CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025, CAR.SUBARU_LEGACY_2025, CAR.SUBARU_FORESTER, CAR.SUBARU_OUTBACK])

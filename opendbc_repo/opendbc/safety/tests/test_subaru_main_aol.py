@@ -5,7 +5,7 @@ from opendbc.safety.tests.libsafety import libsafety_py
 from opendbc.safety.tests import test_subaru_stock_aol as stock_module
 
 
-@pytest.fixture(params=(17, 145, 209, 401, 465, 4096, 4104, 4608, 4616))
+@pytest.fixture(params=(17, 145, 209, 401, 465, 4096, 4104, 4608, 4616, 8192))
 def owner(request):
   item = stock_module.TestSubaruStockAol(methodName='runTest')
   item.setUp()
@@ -140,5 +140,42 @@ def test_legacy_2025_cvt_manual_gears():
     neutral(item)
     assert item.feed() == 1
     assert item.feed(gear=137) == 0
+  finally:
+    item.tearDown()
+
+
+@pytest.mark.parametrize('param, experience, max_torque', [(0, 0, 2047), (8192, 0, 3071), (8192, 32, 3071)])
+def test_early_crosstrek_steering_limit(param, experience, max_torque):
+  item = stock_module.TestSubaruStockAol(methodName='runTest')
+  item.setUp()
+  try:
+    item.configure(param, experience)
+    neutral(item)
+    assert item.feed(cruise=experience == 0) == int(experience == 32)
+    assert item.safety.get_controls_allowed() == (experience == 0)
+
+    def tx(torque):
+      item.safety.set_desired_torque_last(torque)
+      item.safety.set_rt_torque_last(torque)
+      return item.safety.safety_tx_hook(item.frame('ES_LKAS', {'LKAS_Output': torque, 'LKAS_Request': 1}))
+
+    for direction in (-1, 1):
+      assert tx(direction * max_torque)
+      assert not tx(direction * (max_torque + 1))
+    assert item.feed(main=False) == 0
+    assert not tx(50)
+  finally:
+    item.tearDown()
+
+
+@pytest.mark.parametrize('param, experience', [(8193, 32), (8194, 0), (8192, 33)])
+def test_early_crosstrek_rejects_mixed_safety_settings(param, experience):
+  item = stock_module.TestSubaruStockAol(methodName='runTest')
+  item.setUp()
+  try:
+    item.configure(param, experience)
+    neutral(item)
+    assert item.feed() == 0
+    assert not item.safety.safety_tx_hook(item.frame('ES_LKAS', {}))
   finally:
     item.tearDown()
