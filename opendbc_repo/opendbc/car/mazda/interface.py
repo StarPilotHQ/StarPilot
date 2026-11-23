@@ -132,8 +132,9 @@ class CarInterface(CarInterfaceBase):
       ret.transmissionType = structs.CarParams.TransmissionType.automatic
 
     if candidate in GEN1:
-      ret.steerActuatorDelay = 0.335
+      ret.steerActuatorDelay = 0.1  # upstream's stock GEN1 tuning
       if p.get_bool("TorqueInterceptorEnabled"): # Torque Interceptor Installed
+        ret.steerActuatorDelay = 0.335  # MoreTore's TI1 value
         ret.flags |= MazdaSafetyFlags.TORQUE_INTERCEPTOR.value
         ret.safetyConfigs[0].safetyParam |= MazdaSafetyFlags.TORQUE_INTERCEPTOR.value
         ret.minSteerSpeed = 0.0

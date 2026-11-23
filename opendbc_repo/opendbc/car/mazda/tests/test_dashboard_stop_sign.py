@@ -4,14 +4,19 @@ import pytest
 from opendbc.can import CANPacker
 from opendbc.car import Bus, gen_empty_fingerprint
 from opendbc.car.mazda.interface import CarInterface
-from opendbc.car.mazda.values import CAR, DBC
+from opendbc.car.mazda.values import CAR, DBC, GEN1, GEN2, GEN3, MazdaSafetyFlags
 from opendbc.car.mazda.tests.test_stock_startup import complete_frames, exercise_startup
 from openpilot.starpilot.car.mazda import dashboard
 
 SUPPORTED = (CAR.MAZDA_CX5, CAR.MAZDA_CX5_2022, CAR.MAZDA_CX9_2021)
 
 
-@pytest.mark.parametrize('identity', list(CAR))
+# GEN1 keeps Dom's stock ownership. GEN2/GEN3 need a TI2 and have their own
+# contract below; their CarState and DBCs do not carry the GEN1 frames.
+DOM_IDENTITIES = sorted(GEN1)
+
+
+@pytest.mark.parametrize('identity', DOM_IDENTITIES)
 @pytest.mark.parametrize('alpha,release', ((False, False), (True, False), (False, True), (True, True)))
 def test_all_factory_variants_preserve_stock_ownership(identity, alpha, release):
   cp = CarInterface.get_params(identity, gen_empty_fingerprint(), [], alpha, release, False)
@@ -95,7 +100,7 @@ def test_composition_preserves_other_evidence(age, health, monkeypatch):
   assert message.starpilotCarState.dashboardStopSign == int(valid)
 
 
-@pytest.mark.parametrize('identity', list(CAR))
+@pytest.mark.parametrize('identity', DOM_IDENTITIES)
 def test_all_six_dom_dashboard_identities_observe_without_new_actuation(identity, monkeypatch):
   cp = CarInterface.get_params(identity, gen_empty_fingerprint(), [], False, False, False)
   ci = CarInterface(cp)
@@ -116,3 +121,17 @@ def test_all_six_dom_dashboard_identities_observe_without_new_actuation(identity
   assert cp.to_dict() == before
   assert cp.dashcamOnly is (identity not in SUPPORTED)
   assert cp.pcmCruise and not cp.openpilotLongitudinalControl
+
+
+@pytest.mark.parametrize('identity', sorted(GEN2 | GEN3))
+@pytest.mark.parametrize('alpha,release', ((False, False), (True, False), (False, True), (True, True)))
+def test_ti2_generations_have_their_own_contract(identity, alpha, release):
+  cp = CarInterface.get_params(identity, gen_empty_fingerprint(), [], alpha, release, False)
+  if identity in GEN3:
+    # Not validated on a car: dashcam-only, and panda refuses TX (mazda_init).
+    assert cp.dashcamOnly and cp.safetyConfigs[0].safetyParam == int(MazdaSafetyFlags.GEN3)
+  else:
+    assert not cp.dashcamOnly and cp.safetyConfigs[0].safetyParam == int(MazdaSafetyFlags.GEN2)
+    assert cp.openpilotLongitudinalControl and cp.steerAtStandstill
+  assert len(cp.safetyConfigs) == 1
+  assert type(CarInterface(cp).CC).__module__ == 'opendbc.car.mazda.carcontroller'
