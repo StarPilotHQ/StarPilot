@@ -14,9 +14,15 @@ class LatControlPID(LatControl):
       pos_limit=self.steer_max,
       neg_limit=-self.steer_max,
     )
+    self.fit_pid_reset = CP.carFingerprint == "HONDA_FIT"
     self.ff_factor = CP.lateralTuning.pid.kf
     self.get_steer_feedforward = CI.get_steer_feedforward_function()
     self.automatic_pid_previous_setpoint = None
+
+  def reset(self):
+    super().reset()
+    if self.fit_pid_reset:
+      self.pid.reset()
 
   def update(self, active, CS, VM, params, steer_limited_by_safety, desired_curvature, curvature_limited, lat_delay):
     if getattr(self, 'route_flm_effects', None) is not None:
@@ -55,6 +61,9 @@ class LatControlPID(LatControl):
       )
       error = error_for_frame(self, CS, error, active=active, limited=steer_limited_by_safety or curvature_limited)
       freeze_integrator = steer_limited_by_safety or CS.steeringPressed or CS.vEgo < 5
+
+      if self.fit_pid_reset and CS.steeringPressed:
+        self.pid.reset()
 
       output_torque = self.pid.update(error, feedforward=ff, speed=CS.vEgo, freeze_integrator=freeze_integrator)
 
