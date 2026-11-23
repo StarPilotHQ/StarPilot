@@ -6,6 +6,7 @@ import { GxNotice } from "./notice.js"
 export function validLocalAccess(value) {
   if (!value || typeof value.available !== "boolean" || typeof value.reason !== "string" || value.reason.length > 1024 ||
       !Array.isArray(value.addresses) || value.addresses.length > 32 || value.available !== (value.addresses.length > 0)) return false
+  if (value.name !== undefined && (typeof value.name !== "string" || value.name !== "" && !/^http:\/\/galaxy(-[2-9])?\.local(:\d{1,5})?\/$/.test(value.name))) return false
   return value.addresses.every(address => {
     if (!address || !["interface", "label", "url"].every(key => typeof address[key] === "string" && address[key].length > 0 && address[key].length <= 512)) return false
     try {
@@ -65,7 +66,8 @@ export const LocalAccess = {
     <GxNotice v-if="state.error" tone="danger">{{ state.error }}</GxNotice>
     <template v-else-if="state.data?.available">
       <p>Connect your phone to the Galaxy hotspot or the same network as your comma, then open an address below. No Internet or Galaxy password needed.</p>
-      <ul class="gx-stack"><li v-for="address in state.data.addresses" :key="address.interface + address.url"><a :href="address.url" target="_blank" rel="noopener" class="gx-btn gx-btn--tonal gx-wrap">{{ address.label }} · {{ address.url }}</a></li></ul>
+      <ul class="gx-stack"><li v-if="state.data.name"><a :href="state.data.name" target="_blank" rel="noopener" class="gx-btn gx-btn--tonal gx-wrap">This comma · {{ state.data.name }}</a></li><li v-for="address in state.data.addresses" :key="address.interface + address.url"><a :href="address.url" target="_blank" rel="noopener" class="gx-btn gx-btn--tonal gx-wrap">{{ address.label }} · {{ address.url }}</a></li></ul>
+      <p v-if="state.data.name" class="gx-note">The first comma on a network is galaxy.local; the next ones become galaxy-2.local, galaxy-3.local, and so on.</p>
       <p class="gx-note">Use the full http:// address and bookmark it. Allow local-network access if prompted. Your Firestar Link uses Internet instead.</p>
     </template>
     <p v-else-if="state.data" class="gx-note" role="status">{{ state.data.reason || 'The comma has no local network address available.' }}</p>

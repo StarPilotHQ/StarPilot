@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from openpilot.starpilot.galaxy import mdns
 from openpilot.starpilot.galaxy.access import AccessStatus, GalaxyAccessOwner
 from openpilot.starpilot.galaxy.remote import RemotePairing
 from openpilot.starpilot.galaxy.server import make_server
@@ -30,7 +31,10 @@ class TestGalaxyConnection(unittest.TestCase):
       try:
         with patch.object(galaxy_access, "LOCAL_PORT", server.server_port), \
              patch.object(galaxy_access, "LOCAL_ORIGIN", f"http://127.0.0.1:{server.server_port}"):
-          self.assertFalse(galaxy_access._remote_operation("status").paired)
+          with patch.object(mdns, "_published", ("galaxy-2.local", ("127.0.0.1",))), patch.object(mdns, "_redirected", True):
+            status = galaxy_access._remote_operation("status")
+          self.assertFalse(status.paired)
+          self.assertEqual(status.name, "http://galaxy-2.local/")
           paired = galaxy_access._remote_operation("pair", "  password123  ")
           self.assertTrue(paired.paired)
           self.assertTrue(galaxy_access.REMOTE_URL.fullmatch(paired.url))
@@ -172,10 +176,42 @@ class TestGalaxyConnection(unittest.TestCase):
       texts = [call.args[1] for call in draw.call_args_list]
       self.assertIn(url, texts)
       self.assertIn("No password is needed on this network.", texts)
+      self.assertNotIn("http://galaxy.local/", texts)
       self.assertLess(texts.index("Choose a password, then pair your comma with Galaxy."), texts.index("Local network"))
       self.assertEqual((view._close.text, view._pair.text, view._unpair.text),
                        ("Close", "Set password & pair", "Unpair remote Galaxy"))
     self.assertEqual(owner.mock_calls, [])
+
+  def test_large_page_shows_this_commas_name_above_the_address(self):
+    class Button(Widget):
+      def __init__(self, text, callback, **kwargs):
+        super().__init__()
+
+      def _render(self, rect):
+        pass
+
+    flow = GalaxyAccessFlow(Mock(), lambda: True)
+    url = "http://192.168.1.111:8082/#/"
+    with patch("openpilot.system.ui.widgets.button.Button", Button), \
+         patch.object(flow, "_url", return_value=url), \
+         patch.object(flow, "update_remote", return_value=RemoteStatus(name="http://galaxy-2.local/")), \
+         patch("openpilot.starpilot.ui.galaxy_access.make_texture", return_value=None) as qr, \
+         patch("openpilot.starpilot.ui.galaxy_access.gui_app.font"), \
+         patch.object(rl, "draw_rectangle_rec"), patch.object(rl, "draw_text_ex") as draw:
+      view = GalaxyConnectionView(flow)
+      view._update_state()
+      view._render(rl.Rectangle(0, 0, 2160, 1080))
+      qr.assert_called_once_with(url)  # the QR stays on the IP, which every phone can open
+      texts = [call.args[1] for call in draw.call_args_list]
+      self.assertLess(texts.index("http://galaxy-2.local/"), texts.index(url))
+
+  def test_local_name_accepts_only_galaxy_names(self):
+    for name, expected in (("http://galaxy.local/", True), ("http://galaxy-9.local:8082/", True), ("http://evil.local/", False),
+                           ("http://galaxy.local/x", False), ("https://galaxy.local/", False)):
+      with self.subTest(name=name), patch.object(galaxy_access, "_local_api", return_value=(200, {"name": name}, "")):
+        self.assertEqual(galaxy_access._local_name("c", 0), name if expected else "")
+    with patch.object(galaxy_access, "_local_api", side_effect=TimeoutError):
+      self.assertEqual(galaxy_access._local_name("c", 0), "")
 
   def test_compact_page_has_local_and_remote_views_without_credential_access(self):
     class Scroller:
@@ -207,10 +243,12 @@ class TestGalaxyConnection(unittest.TestCase):
       self.assertEqual(button.call_args_list[0].args, ("local Galaxy • no password", "connect to Wi-Fi"))
       self.assertEqual([call.args for call in button.call_args_list], [
         ("local Galaxy • no password", "connect to Wi-Fi"),
+        ("this comma's name", ""),
         ("remote Galaxy", "checking pairing"),
         ("remote connection", "")])
       self.assertEqual(page._scroller.add_widgets.call_args.args[0],
-                       [page._pair, page._remote_qr, page._remote_address, page._remote_state, page._unpair, page._qr, page._address])
+                       [page._pair, page._remote_qr, page._remote_address, page._remote_state, page._unpair, page._name, page._qr, page._address])
+      page._name.set_visible.assert_called_with(False)
       with patch("openpilot.starpilot.ui.galaxy_access.gui_app.push_widget") as pushed:
         page._enter_password()
         self.assertIs(prompt.call_args.kwargs["password_mode"], True)

@@ -32,16 +32,22 @@ class FakeAvahi:
   """Names other devices hold collide; dropped groups read as not established."""
 
   def __init__(self, taken=(), down=0):
-    self.taken, self.down, self.visible = set(taken), down, set()
-    self.claims, self.groups, self.freed, self.closed = [], {}, [], 0
+    self.taken: set[str] = set(taken)
+    self.down, self.visible = down, set()
+    self.claims, self.groups, self.freed, self.updates, self.closed = [], {}, [], [], 0
 
-  def claim(self, name, entries):
+  def claim(self, name, entries, group=None):
     if self.down:
       self.down -= 1
       raise ConnectionRefusedError(111, 'avahi down')
     self.claims.append((name, entries))
     if name in self.taken:
+      if group is not None:
+        self.free(group)
       return None
+    if group is not None:
+      self.updates.append(group)
+      return group
     group = f'/group/{len(self.claims)}'
     self.groups[group] = mdns.ESTABLISHED
     return group
@@ -89,6 +95,10 @@ class MdnsTest(unittest.TestCase):
   def setUp(self):
     self.tmp = tempfile.TemporaryDirectory()
     self.name_file = Path(self.tmp.name) / 'mdns_name'
+    for name, value in (('_published', None), ('_redirected', False)):  # module state the publisher and Redirect share
+      patcher = patch.object(mdns, name, value)
+      patcher.start()
+      self.addCleanup(patcher.stop)
 
   def tearDown(self):
     self.tmp.cleanup()
@@ -162,7 +172,49 @@ class MdnsTest(unittest.TestCase):
     self.run_publish(avahi, [{'wlan0': '192.168.1.5'}, {'wlan0': '192.168.1.5', 'galaxy0': '172.31.254.1'}])
     self.assertEqual(avahi.claims, [('galaxy.local', ((12, 0, '192.168.1.5'),)),
                                     ('galaxy.local', ((12, 0, '192.168.1.5'), (29, 0, '172.31.254.1')))])
-    self.assertEqual(avahi.freed[0], '/group/1')
+    self.assertEqual(avahi.updates, ['/group/1'], 'the established group is republished in place')
+
+  def test_network_switch_keeps_the_name_even_if_our_old_address_still_answers(self):
+    avahi = FakeAvahi()
+    asked = []
+
+    def stale_answer(name, own):
+      asked.append(name)
+      return name == 'galaxy.local' and '10.10.99.177' not in own  # avahi still returns our old work address
+
+    stop, steps = threading.Event(), iter([{'wlan0': '10.10.99.177'}, {'wlan0': '172.20.10.4'}])
+
+    def addresses():
+      try:
+        return next(steps)
+      except StopIteration:
+        stop.set()
+        return {}
+
+    mdns.publish(stop, avahi=avahi, addresses=addresses, ipv6=lambda name: None, index=index, taken=stale_answer,
+                 name_file=self.name_file, refresh=0, retry=0)
+    self.assertEqual(self.names(avahi), ['galaxy.local', 'galaxy.local'])
+    self.assertEqual(asked, ['galaxy.local'], 'an in-place update never re-checks a name we hold')
+    self.assertEqual(mdns.load_name(self.name_file), 'galaxy.local')
+
+  def test_our_earlier_addresses_never_count_as_another_device(self):
+    run = Mock(return_value=SimpleNamespace(stdout='galaxy.local\t10.10.99.177\n'))
+    avahi = FakeAvahi()
+    taken = lambda name, own: mdns.held_elsewhere(name, own, run)  # noqa: E731
+    entries = ((12, 0, '172.20.10.4'),)
+    self.assertEqual(mdns._claim(avahi, entries, None, threading.Event(), taken, {'10.10.99.177'})[0], 'galaxy.local')
+    self.assertEqual(mdns._claim(FakeAvahi(), entries, None, threading.Event(), taken)[0], 'galaxy-2.local')
+
+  def test_failed_in_place_update_falls_back_to_a_fresh_claim(self):
+    avahi = FakeAvahi()
+
+    def lose_name_on_update():
+      if len(avahi.claims) == 1:
+        avahi.taken.add('galaxy.local')
+
+    self.run_publish(avahi, [{'wlan0': '192.168.1.5'}, {'wlan0': '192.168.1.9'}], check=lose_name_on_update)
+    # update collides, the fresh claim probes galaxy.local once more, then moves on
+    self.assertEqual(self.names(avahi), ['galaxy.local', 'galaxy.local', 'galaxy.local', 'galaxy-2.local'])
 
   def test_lost_name_is_reclaimed(self):
     avahi = FakeAvahi()
@@ -260,6 +312,14 @@ class MdnsTest(unittest.TestCase):
     self.assertEqual(mdns._claim(avahi, ((12, 0, '10.10.99.177'),), None, stop, lambda name, own: False), (None, None))
     self.assertEqual(avahi.claims, [])
 
+  def test_claim_with_our_group_resets_it_in_place(self):
+    connection = FakeConnection()
+    group = mdns.Avahi(connect=lambda: connection).claim('galaxy.local', ((12, 0, '172.20.10.4'),), group='/Client1/EntryGroup1')
+    self.assertEqual(group, '/Client1/EntryGroup1')
+    self.assertEqual([m for m, _ in connection.calls][:3], ['Reset', 'AddAddress', 'Commit'])
+    self.assertNotIn('EntryGroupNew', [m for m, _ in connection.calls])
+    self.assertNotIn('Free', [m for m, _ in connection.calls])
+
   def test_avahi_reconnects_after_connection_loss(self):
     connections = [Mock(send_and_get_reply=Mock(side_effect=ConnectionResetError())), FakeConnection()]
     avahi = mdns.Avahi(connect=lambda: connections.pop(0))
@@ -311,6 +371,21 @@ class MdnsTest(unittest.TestCase):
     self.assertEqual(mdns.link_local('wlan0', proc), 'fe80::20a:f5ff:fe66:c88a')
     self.assertIsNone(mdns.link_local('eth0', proc))
     self.assertIsNone(mdns.link_local('wlan0', Path(self.tmp.name) / 'missing'))
+
+  def test_published_url_drops_the_port_only_while_port_80_redirects(self):
+    with patch.object(mdns, '_published', None):
+      self.assertIsNone(mdns.published_url(8082))
+    with patch.object(mdns, '_published', ('galaxy-2.local', ('192.168.1.5',))):
+      run = Mock(return_value=SimpleNamespace(returncode=0))
+      redirect = mdns.Redirect(8082, run=run, which=lambda name: '/usr/sbin/iptables')
+      self.assertEqual(mdns.published_url(8082), 'http://galaxy-2.local:8082/')
+      redirect.sync(['192.168.1.5'])
+      self.assertEqual(mdns.published_url(8082), 'http://galaxy-2.local/')
+      redirect.close()
+      self.assertEqual(mdns.published_url(8082), 'http://galaxy-2.local:8082/')
+      with patch.object(mdns, '_log'):
+        mdns.Redirect(8082, run=Mock(side_effect=OSError('denied')), which=lambda name: '/usr/sbin/iptables').sync(['192.168.1.5'])
+      self.assertEqual(mdns.published_url(8082), 'http://galaxy-2.local:8082/')
 
   def test_redirect_close_removes_rules_once(self):
     calls = []

@@ -24,6 +24,7 @@ GALAXY_ICON = "icons_mici/settings/galaxy.png"
 REMOTE_URL = re.compile(r"https://galaxy\.firestar\.link/[A-Za-z0-9]{16}\Z")
 LOCAL_PORT = 8082
 LOCAL_ORIGIN = f"http://127.0.0.1:{LOCAL_PORT}"
+LOCAL_NAME = re.compile(r"http://galaxy(-[2-9])?\.local(:8082)?/\Z")
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,7 @@ class RemoteStatus:
   available: bool = False
   legacy: bool = False
   error: str = ""
+  name: str = ""
 
 
 def _local_api(path: str, *, cookie: str = "", payload: dict | None = None, deadline: float) -> tuple[int, dict, str]:
@@ -89,7 +91,16 @@ def _remote_operation(action: str, password: str = "") -> RemoteStatus:
   if paired and (type(url) is not str or REMOTE_URL.fullmatch(url) is None):
     return RemoteStatus(error="Galaxy pairing status is unavailable")
   return RemoteStatus(paired, url if paired and isinstance(url, str) else "", result.get("tunnelClientAvailable") is True,
-                      result.get("legacyPairingAvailable") is True)
+                      result.get("legacyPairingAvailable") is True, name=_local_name(cookie, deadline))
+
+
+def _local_name(cookie: str, deadline: float) -> str:
+  try:
+    code, result, _ = _local_api("/api/local-access", cookie=cookie, deadline=deadline)
+  except (OSError, ValueError, http.client.HTTPException):
+    return ""
+  name = result.get("name") if code == 200 else None
+  return name if type(name) is str and LOCAL_NAME.fullmatch(name) else ""
 
 
 def connection_url(address: str) -> str | None:
@@ -134,9 +145,9 @@ class GalaxyAccessFlow:
       self._remote_future = None
       try:
         updated = future.result()
-        self.remote = replace(self.remote, error=updated.error) if updated.error and self._remote_action == "status" else updated
+        self.remote = replace(self.remote, error=updated.error, name="") if updated.error and self._remote_action == "status" else updated
       except (OSError, ValueError, RuntimeError, http.client.HTTPException):
-        self.remote = replace(self.remote, error="Local Galaxy is unavailable") if self._remote_action == "status" else \
+        self.remote = replace(self.remote, error="Local Galaxy is unavailable", name="") if self._remote_action == "status" else \
           RemoteStatus(error="Local Galaxy is unavailable")
     if self._remote_future is None and time.monotonic() >= self._remote_next_check:
       self._submit("status")
@@ -286,12 +297,17 @@ class GalaxyConnectionView(Widget):
     message = ("Or open this address on the same network:" if self._url else
                "Connect to Wi-Fi to show the local address.")
     rl.draw_text_ex(font, message, rl.Vector2(left, rect.y + 680), 36, 0, rl.LIGHTGRAY)
+    y = rect.y + 745
+    if remote.name:
+      rl.draw_text_ex(font, remote.name, rl.Vector2(left, y), 44, 0, rl.WHITE)
+      y += 60
     if self._url:
-      rl.draw_text_ex(font, self._url, rl.Vector2(left, rect.y + 745), 44, 0, rl.WHITE)
+      rl.draw_text_ex(font, self._url, rl.Vector2(left, y), 44, 0, rl.WHITE)
+      y += 65
       if self._qr is not None:
         rl.draw_texture_pro(self._qr, rl.Rectangle(0, 0, self._qr.width, self._qr.height),
                             rl.Rectangle(rect.x + rect.width - 420, rect.y + 610, 220, 220), rl.Vector2(0, 0), 0, rl.WHITE)
-    rl.draw_text_ex(font, "No password is needed on this network.", rl.Vector2(left, rect.y + 810), 36, 0, rl.LIGHTGRAY)
+    rl.draw_text_ex(font, "No password is needed on this network.", rl.Vector2(left, max(y, rect.y + 810)), 36, 0, rl.LIGHTGRAY)
     self._close.render(rl.Rectangle(rect.x + rect.width - 430, rect.y + rect.height - 165, 300, 110))
 
   def __del__(self):
@@ -318,6 +334,7 @@ class GalaxyConnectionPage:
         self._remote_url: str | None = None
         self._remote_qr = QR("", width=300)
         self._address = GreyBigButton("local Galaxy • no password", "connect to Wi-Fi")
+        self._name = GreyBigButton("this comma's name", "")
         self._remote_address = GreyBigButton("remote Galaxy", "checking pairing")
         self._remote_state = GreyBigButton("remote connection", "")
         self._pair = BigButton("pair with Galaxy", "1. set a password", gui_app.texture(GALAXY_ICON, 64, 64))
@@ -325,7 +342,7 @@ class GalaxyConnectionPage:
         self._unpair = BigButton("unpair remote Galaxy", "", gui_app.texture(GALAXY_ICON, 64, 64))
         self._unpair.set_click_callback(self._confirm_unpair)
         self._scroller.add_widgets([self._pair, self._remote_qr, self._remote_address, self._remote_state,
-                                    self._unpair, self._qr, self._address])
+                                    self._unpair, self._name, self._qr, self._address])
 
       def _submit_password(self, password: str) -> None:
         flow.pair(password)
@@ -358,6 +375,8 @@ class GalaxyConnectionPage:
         self._set_qr(self._qr, url or "")
         self._address.set_value(url or "connect to Wi-Fi to show the local address")
         remote = flow.update_remote()
+        self._name.set_value(remote.name)
+        self._name.set_visible(bool(remote.name))
         self._remote_url = remote.url
         self._set_qr(self._remote_qr, remote.url)
         self._remote_address.set_value(remote.url if remote.paired else "not paired • set a password")

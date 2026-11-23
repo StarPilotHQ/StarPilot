@@ -69,7 +69,8 @@ class LocalAccess:
       except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError, AttributeError):
         reason = 'The comma could not read its network addresses. Check its Network settings and refresh.'
         addresses = []
+      from openpilot.starpilot.galaxy.mdns import published_url
       self.cached = {'available': bool(addresses), 'addresses': addresses,
-                     'reason': '' if addresses else reason}
+                     'reason': '' if addresses else reason, 'name': published_url(self.port) or ''}
       self.expiry = self.clock() + 5.0
       return self.cached
