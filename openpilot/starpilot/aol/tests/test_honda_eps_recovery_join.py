@@ -460,3 +460,46 @@ def test_fit_turn_eps_with_factory_cruise_speed_event_preserves_only_armed_later
       assert not feedback.observe(sm, cp, state, stamp + 10_000_000, latched=True, intent_producer_session=PRODUCER)
       assert not output(state, native).lateral_active
       assert lease == (feedback.lateral_source_ns, feedback.lateral_native_ns)
+
+
+@pytest.mark.parametrize('veto', ['', 'expired_eps', 'native_fault', 'cancel', 'other_honda'])
+def test_fit_native_denial_arriving_after_eps_clears_keeps_armed_intent(veto):
+  from opendbc.car.honda.tests.test_stock_aol import final_cp
+  from opendbc.car.honda.values import CAR
+  from openpilot.starpilot.aol.transport_pause import TransportPauseFeedback
+  from openpilot.starpilot.tests.test_ford_reverse_intent import sample
+
+  cp = final_cp(CAR.HONDA_CIVIC_BOSCH if veto == 'other_honda' else CAR.HONDA_FIT)
+  cp.alternativeExperience = 32
+  state = structs.CarState(canValid=True, gearShifter='drive', vEgo=4.)
+  state.cruiseState.available = True
+  feedback = TransportPauseFeedback(cp)
+  initial, _ = sample(cp, NOW, NOW, 1)
+  events = initial.messages['onroadEvents'].as_builder()
+  events.onroadEvents = [{'name': 'steerOverride', 'overrideLateral': True},
+                         {'name': 'speedTooLow', 'userDisable': veto != 'other_honda'}]
+  initial.messages['onroadEvents'] = events.as_reader()
+  assert not feedback.observe(initial, cp, state, NOW, latched=True, intent_producer_session=PRODUCER)
+
+  stamp = NOW + 10_000_000
+  state.steeringPressed = state.steerFaultTemporary = True
+  received, native = sample(cp, NOW, stamp, 1, allowed=False)
+  received.messages['onroadEvents'] = initial.messages['onroadEvents']
+  assert not feedback.observe(received, cp, state, stamp, latched=True, intent_producer_session=PRODUCER)
+  assert not output(state, native).lateral_active
+  original = feedback.honda_eps_source_ns
+
+  state.steerFaultTemporary = False
+  now = stamp + (201_000_000 if veto == 'expired_eps' else 10_000_000)
+  cleared, native = sample(cp, stamp, now, 2, active=False, allowed=False)
+  cleared.messages['onroadEvents'] = initial.messages['onroadEvents']
+  if veto == 'expired_eps':
+    change(cleared, 'aolAxisState', lambda a: setattr(a, 'validUntilMonoTime', now + 10_000_000))
+  elif veto == 'native_fault':
+    native = native_change(cleared, native, pandaInventory=(replace(native.pandaInventory[0], faults=1),))
+  elif veto == 'cancel':
+    state.buttonEvents = [structs.CarState.ButtonEvent(type='cancel', pressed=True)]
+  assert feedback.observe(cleared, cp, state, now, latched=True, intent_producer_session=PRODUCER) == bool(veto)
+  assert feedback.honda_eps_source_ns == original
+  assert getattr(feedback, 'honda_eps_retained_native_ns', 0) == (0 if veto else native.observedMonoTime)
+  assert not output(state, native).lateral_active and not output(state, native).longitudinal_active

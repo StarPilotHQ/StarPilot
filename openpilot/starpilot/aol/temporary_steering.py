@@ -238,7 +238,9 @@ def honda_eps_recovery_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
     source = previous[8]
     known_eps = False
   event_ns = int(sm.logMonoTime['onroadEvents'])
-  active_recovery = bool(known_eps and cs.steerFaultTemporary and axis.desiredLateral and axis.lateralActive)
+  fit_eps_join = bool(cp.carFingerprint == CAR.HONDA_FIT and cp.pcmCruise and
+    not cs.cruiseState.enabled and known_eps and 0 < source <= now_ns <= source + SAFETY_MAX_AGE_NS)
+  active_recovery = bool(known_eps and (cs.steerFaultTemporary or fit_eps_join) and axis.desiredLateral and axis.lateralActive)
   brake_continuation = bool(known_eps and cs.brakePressed and
     event_ns == self.temporary_eps_event_ns == getattr(self, 'honda_eps_brake_event_ns', 0))
   event_successor = bool(known_eps and previous is not None and
@@ -249,13 +251,13 @@ def honda_eps_recovery_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
       not self.lateral_only_baseline or not self.lateral_inventory or not self.lateral_baseline_ns or
       not 0 < source <= now_ns or now_ns - source > SAFETY_MAX_AGE_NS or
       not (known_eps or first_native_eps) or previous is None or
-      previous[5] != 'none' or (previous[9] and not (first_native_eps or active_recovery)) or previous[10] or previous[12] or
+      previous[5] != 'none' or (previous[9] and not (first_native_eps or active_recovery or fit_eps_join)) or previous[10] or previous[12] or
       (previous[6] != self.temporary_eps_event_ns and not (first_native_eps or event_successor)) or
       not self.session or str(axis.sessionId) != self.session or
       not producer or producer != self.availability_producer or
       str(axis.intentProducerSessionId) != producer or int(axis.intentIntegrityEpoch) != self.availability_epoch or
       previous[14:16] != (producer, self.availability_epoch) or
-      not cs.canValid or cs.canTimeout or (cs.steerFaultTemporary and not axis.desiredLateral) or cs.steerFaultPermanent or
+      not cs.canValid or cs.canTimeout or (cs.steerFaultTemporary and not axis.desiredLateral and not fit_eps_join) or cs.steerFaultPermanent or
       cs.accFaulted or cs.doorOpen or cs.seatbeltUnlatched or cs.vehicleSensorsInvalid or cs.steeringDisengage or
       (cs.brakePressed and not cs.steerFaultTemporary and not brake_continuation) or
       cs.regenBraking or cs.buttonEvents or not cs.cruiseState.available or cs.cruiseState.enabled and not cp.pcmCruise or
@@ -292,6 +294,8 @@ def honda_eps_recovery_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
     native.observedMonoTime >= self.lateral_native_ns and
     self.lateral_inventory == (native.pandaSerial, tuple(p.hardwareSerial for p in native.pandaInventory)))
   if retained:
+    if fit_eps_join and native.requestedLateral and not native.lateralAllowed:
+      self.honda_eps_retained_native_ns = native.observedMonoTime
     if first_native_eps and not known_eps:
       self.honda_eps_source_ns = source
     self.temporary_eps_event_ns = event_ns

@@ -676,6 +676,8 @@ class Car:
         if self.aol_card_intent.explicit_latch and (permission_owner or self.sm.updated['aolSafetyWire'])
         else None
       )
+      honda_eps_pending = bool(honda_aol and not transport_reset and native is not None and
+        getattr(self.aol_transport_feedback, 'honda_eps_retained_native_ns', 0) == int(native.observedMonoTime))
       native_reset = False
       if permission_owner:
         observe, restrict = native_handlers(
@@ -693,7 +695,7 @@ class Car:
           native,
           latched=self.aol_card_intent.allowed_latch,
           panda_ready=angle_panda_ready,
-          restricted=(getattr(self.aol_transport_feedback, 'ordinary_warning_qualified', False) or
+          restricted=(honda_eps_pending or getattr(self.aol_transport_feedback, 'ordinary_warning_qualified', False) or
             ford_initial_wait and not self.sm['aolAxisState'].desiredLateral or
             restrict(self.CP, CS) or
             ((angle_aol or ford_aol or mazda_aol or preap_aol or rivian_aol) and self.aol_card_intent.pause_lateral) or
@@ -719,7 +721,7 @@ class Car:
       volkswagen_reverse_pending = bool(volkswagen_aol and not transport_reset and native is not None and
         getattr(self.aol_transport_feedback, 'volkswagen_reverse_retained_native_ns', 0) == int(native.observedMonoTime))
       rejected = native_reset or (not angle_arm_pending and not subaru_braked_main_pending and
-        not volkswagen_initial_wait and not volkswagen_reverse_pending and
+        not volkswagen_initial_wait and not volkswagen_reverse_pending and not honda_eps_pending and
         native_latch_rejected(self.CP, native, state=CS if angle_panda_ready else None))
       rejection_ns = now_ns if native_reset else int(native.observedMonoTime) if rejected else 0
       observe_physical = getattr(self.aol_card_intent, 'observe_physical_samples', None)

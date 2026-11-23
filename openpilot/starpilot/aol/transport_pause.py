@@ -121,6 +121,7 @@ class TransportPauseFeedback:
     self.subaru_lateral_grant_ns = 0
     self.subaru_main_retained_native_ns = 0
     self.volkswagen_reverse_retained_native_ns = 0
+    self.honda_eps_retained_native_ns = 0
     self.subaru_eps_brake_event_ns = 0
     self.hkg_eps_join_until_ns = 0
     self.lateral_source_ns = 0
@@ -1224,6 +1225,7 @@ class TransportPauseFeedback:
     self.temporary_host_qualified = False
     self.subaru_main_retained_native_ns = 0
     self.volkswagen_reverse_retained_native_ns = 0
+    self.honda_eps_retained_native_ns = 0
     self.qualified = False
     self.awaiting = False
     self.retention_qualified = False
