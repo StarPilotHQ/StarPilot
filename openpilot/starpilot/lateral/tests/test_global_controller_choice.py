@@ -38,17 +38,21 @@ def test_niro_2023_choice_is_visible_and_saves(tmp_path):
   row = next((row for row in snapshot.rows if row.key == DOCUMENT_KEY), None)
   assert row is not None, '2023 Niro EV must expose the controller selector'
   assert row.choices == ('Stock Controller', 'StarPilot Controller')
-  assert row.value == 'Stock Controller'
-  request = row_change(row)
-  assert request is not None and request.value == 'StarPilot Controller'
-  assert owner.apply(request)
-  assert read_selection(params, cp).mode == ControllerMode.STARPILOT
-  assert not owner.apply(request), 'stale expected bytes must remain rejected'
+  assert row.value == 'StarPilot Controller'
   ci = interfaces[CAR.KIA_NIRO_EV_2ND_GEN](cp)
-  controller = LatControlTorque(cp.as_reader(), ci, DT_CTRL, controller_mode=read_selection(params, cp).mode)
+  controller = LatControlTorque(cp.as_reader(), ci, DT_CTRL)
   assert selected_policy(controller) is not None
   assert controller.controller_policy == 'generic'
   assert controller.torque_params.to_dict() == cp.lateralTuning.torque.to_dict()
+  request = row_change(row)
+  assert request is not None and request.value == 'Stock Controller'
+  assert owner.apply(request)
+  selection = read_selection(params, cp)
+  assert selection.mode == ControllerMode.STANDARD and selection.source == 'saved'
+  assert not owner.apply(request), 'stale expected bytes must remain rejected'
+  stock = LatControlTorque(cp.as_reader(), ci, DT_CTRL, controller_mode=selection.mode)
+  assert selected_policy(stock) is None
+  assert stock.steer_max == controller.steer_max
 
 
 def test_every_registered_torque_tune_can_save_both_choices():
@@ -108,7 +112,7 @@ def test_generic_refuses_invalid_controller_configuration(failure):
 
 def test_generic_defaults_and_existing_learning_are_preserved(tmp_path):
   params = Params(str(tmp_path))
-  cp = cp_for(CAR.KIA_NIRO_EV_2ND_GEN)
+  cp = cp_for(CAR.HYUNDAI_KONA_EV_2ND_GEN)
   assert default_selection(cp).mode == ControllerMode.STANDARD
   assert learning_allowed(params, cp)
   params.put_bool('ForceAutoTuneOff', True, block=True)
