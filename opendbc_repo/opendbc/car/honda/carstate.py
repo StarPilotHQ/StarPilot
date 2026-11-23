@@ -39,6 +39,8 @@ class CarState(CarStateBase):
 
     self.steer_status_values = defaultdict(lambda: "UNKNOWN", can_define.dv["STEER_STATUS"]["STEER_STATUS"])
 
+    self.eps_inactive_window = (0, 0)
+
     self.brake_switch_prev = False
     self.brake_switch_active = False
     self.low_speed_alert = False
@@ -104,6 +106,9 @@ class CarState(CarStateBase):
     ret.seatbeltUnlatched = bool(cp.vl["SEATBELT_STATUS"]["SEATBELT_DRIVER_LAMP"] or not cp.vl["SEATBELT_STATUS"]["SEATBELT_DRIVER_LATCHED"])
 
     steer_status = self.steer_status_values[cp.vl["STEER_STATUS"]["STEER_STATUS"]]
+    if self.CP.carFingerprint == CAR.HONDA_FIT:
+      self.eps_inactive_window = (parser_expiry(cp, "STEER_STATUS", "STEER_CONTROL_ACTIVE")
+                                  if not cp.vl["STEER_STATUS"]["STEER_CONTROL_ACTIVE"] else (0, 0))
     ret.steerFaultPermanent = steer_status not in ("NORMAL", "NO_TORQUE_ALERT_1", "NO_TORQUE_ALERT_2", "LOW_SPEED_LOCKOUT", "TMP_FAULT")
     if self.CP.flags & HondaFlags.BOSCH_ALT_RADAR:
       # TODO: See if this logic works for all other Honda
