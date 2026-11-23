@@ -1,6 +1,6 @@
 """Bounded Galaxy HTTP connections and shared-source shutdown."""
 
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from functools import lru_cache
@@ -46,7 +46,8 @@ class ReverseProxy:
 class _LocalHTTPServer(ThreadingHTTPServer):
   """Bound idle browser connections without blocking other local requests."""
 
-  MAX_CONNECTIONS = 8
+  MAX_CONNECTIONS = 32  # open sockets, one thread each
+  MAX_ACTIVE_REQUESTS = 8  # requests being handled; idle keep-alive sockets don't count
   # comma's own services call back over loopback while a browser request waits on them.
   LOOPBACK_CONNECTIONS = 4
   REQUEST_TIMEOUT = 4.0
@@ -54,6 +55,7 @@ class _LocalHTTPServer(ThreadingHTTPServer):
   def __init__(self, *args, **kwargs):
     self._slots = threading.BoundedSemaphore(self.MAX_CONNECTIONS)
     self._loopback_slots = threading.BoundedSemaphore(self.LOOPBACK_CONNECTIONS)
+    self._active = threading.BoundedSemaphore(self.MAX_ACTIVE_REQUESTS)
     self._draining = False
     super().__init__(*args, **kwargs)
 
@@ -93,6 +95,22 @@ class _LocalHTTPServer(ThreadingHTTPServer):
         super().process_request_thread(request, client_address)
     finally:
       slots.release()
+
+  @contextmanager
+  def request_slot(self, request):
+    """Held while one request is handled; loopback skips it because it serves browser requests in flight."""
+    if self._draining:
+      yield False
+      return
+    if self.loopback(request):
+      yield True
+      return
+    admitted = self._active.acquire(timeout=self.REQUEST_TIMEOUT)
+    try:
+      yield admitted
+    finally:
+      if admitted:
+        self._active.release()
 
   def drain_requests(self, timeout: float) -> bool:
     """Wait for accepted requests before closing their shared data sources."""
@@ -225,6 +243,24 @@ class _LocalHTTPHandler(BaseHTTPRequestHandler):
 
   def log_message(self, format, *args):  # noqa: A002 - Match BaseHTTPRequestHandler's keyword signature.
     pass
+
+  def handle_one_request(self):
+    slot = getattr(self.server, 'request_slot', None)
+    if slot is None:
+      return super().handle_one_request()
+    try:
+      # Wait for the next keep-alive request without holding a request slot.
+      if not self.rfile.peek(1):
+        self.close_connection = True
+        return
+    except TimeoutError:
+      self.close_connection = True
+      return
+    with slot(self.connection) as admitted:
+      if not admitted:
+        self.close_connection = True
+        return
+      super().handle_one_request()
 
   def handle(self):
     try:
