@@ -1293,7 +1293,7 @@ class FeatureSettingsOwner:
                                        "Leads, stops, curve limits and driver overrides retain priority."))
       downhill_allowed = allowed and self.authority("long") and self._value(PLANNER_SELECTION_KEY)[0] == "1"
       downhill = self._bool_row(DOWNHILL_KEY, "Coast Downhills", downhill_allowed,
-                                "Lets gravity carry the car above set speed without targeting a higher speed. Applies next drive.")
+                                "Lets gravity carry the car above set speed without targeting a higher speed. Changes apply while driving.")
       rows.append(downhill)
       if downhill.value == "On":
         rows.append(self._number_row(SURPLUS_KEY, "Maximum Speed Above Set Speed", downhill_allowed))
