@@ -31,6 +31,21 @@ class TestVehicleSelection(unittest.TestCase):
     self.assertTrue(self.owner.choose(None, selected.platform).verified)
     self.assertEqual(startup_candidate(self.params), CAR.HYUNDAI_ELANTRA_HEV_2024)
 
+  def test_early_crosstrek_label_keeps_shared_subaru_profile(self):
+    from opendbc.car.subaru.interface import CarInterface
+    from opendbc.car.subaru.values import CAR as SUBARU
+
+    selected = [choice for choice in choices() if choice.platform == SUBARU.SUBARU_IMPREZA]
+    self.assertEqual(len(selected), 1)
+    self.assertEqual(selected[0].label, "Subaru Crosstrek / XV 2018-19 or Impreza 2017-19")
+    self.assertTrue(self.owner.choose(None, selected[0].platform).verified)
+    candidate = startup_candidate(self.params)
+    self.assertEqual(candidate, SUBARU.SUBARU_IMPREZA)
+    cp = CarInterface.get_params(candidate, gen_empty_fingerprint(), [], False, False, False)
+    self.assertEqual(cp.carFingerprint, SUBARU.SUBARU_IMPREZA)
+    self.assertTrue(cp.pcmCruise)
+    self.assertFalse(cp.openpilotLongitudinalControl)
+
   def test_multiple_documented_trims_share_neutral_platform_choice(self):
     from opendbc.car.hyundai.values import CAR as HYUNDAI
     from opendbc.car.values import PLATFORMS

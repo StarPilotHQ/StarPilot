@@ -42,6 +42,8 @@ def choices() -> tuple[VehicleChoice, ...]:
       label = "Toyota Prius / Prius Prime 2016-20"
     elif platform == "TOYOTA_PRIUS_RETROFIT":
       label = "Toyota Prius 2016-20 (TSS2 EPS retrofit)"
+    elif platform == "SUBARU_IMPREZA":
+      label = "Subaru Crosstrek / XV 2018-19 or Impreza 2017-19"
     elif platform == "HYUNDAI_ELANTRA_HEV_2024":
       label = "Hyundai Elantra Hybrid 2024-2026"
     result.append(VehicleChoice(platform, make, label))
