@@ -18,6 +18,11 @@ from openpilot.starpilot.controllers.tesla_input_protocol import (
 
 # A Resume press during a short speed-limit dropout waits this long for the limit to come back, then runs once.
 RESUME_WAIT_SECONDS = 2.
+# How long a stopped worker waits before it is started again: longer after each failure in a row, and the last wait
+# repeats. A worker that then runs for RESTART_HEALTHY_SECONDS starts the waits from the beginning. It is never given
+# up on: with Comma can set speed on Tesla dashboard on, the scroll wheel only sets the speed while the worker runs.
+RESTART_WAIT_SECONDS = (2., 4., 8., 16., 30.)
+RESTART_HEALTHY_SECONDS = 60.
 
 
 class WorkerChannel:
@@ -75,8 +80,8 @@ class TeslaReceiver:
     # page (including the maps package), which took 2.3 s on a cold first press
     # and outlived MAX_AGE, so the press was dropped.
     self.keyed_actions = keyed_actions
-    self._restart_drive = None
-    self._restarts = 0
+    self._restarts = 0        # failures in a row
+    self._started_at = None   # when the current (or last) worker started
     self._diagnostic_at = 0.
     self.clock, self.messages, self.channel_factory = clock, messages, channel_factory
     self.channel = None
@@ -94,12 +99,23 @@ class TeslaReceiver:
     try:
       self.channel = self.channel_factory()
       self._started = True
+      self._started_at = self.clock()
       self.sequence = 0
       self.failed = False
     except (OSError, RuntimeError):
       LOGGER.exception('Tesla input worker could not start')
-      self.failed = True
-    self.next_start = self.clock() + 2.
+      self.fail()
+
+  def fail(self):
+    """The worker stopped, could not start, or handling its input failed: close it and set when it may start again."""
+    self.close()
+    now = self.clock()
+    if self._started_at is not None and now - self._started_at >= RESTART_HEALTHY_SECONDS:
+      self._restarts = 0
+    self._started_at = None
+    self.failed = True
+    self.next_start = now + RESTART_WAIT_SECONDS[min(self._restarts, len(RESTART_WAIT_SECONDS) - 1)]
+    self._restarts += 1
 
   def close(self):
     if self.channel is not None:
@@ -128,16 +144,11 @@ class TeslaReceiver:
       self.close()
       return
     if self.channel is None:
-      if not self._started:
-        self._start()
+      if self.clock() < self.next_start:
         return
-      # Receive-only recovery is bounded per drive; a new worker must observe
-      # a fresh neutral gesture and exact current authority before dispatch.
-      drive = self.drive()
-      if drive != self._restart_drive and drive is not None:
-        self._restart_drive, self._restarts = drive, 0
-      if self.clock() >= self.next_start and (self._offroad() or drive is not None and self._restarts < 3):
-        self._restarts += 1
+      # The first start needs nothing more. A restart waits for a drive or a parked car that is known for certain; the
+      # new worker must observe a fresh neutral gesture and exact current authority before anything is dispatched.
+      if not self._started or self._offroad() or self.drive() is not None:
         self._start()
       return
     try:
@@ -157,10 +168,8 @@ class TeslaReceiver:
         self._dispatch(raw)
       self._retry_resume()
     except (OSError, EOFError, RuntimeError):
-      LOGGER.exception('Tesla input worker stopped; bounded fresh-context recovery scheduled')
-      self.failed = True
-      self.close()
-      self.next_start = self.clock() + 2.
+      LOGGER.exception('Tesla input worker stopped; fresh-context recovery scheduled')
+      self.fail()
 
   def _dispatch(self, raw, *, retry=False):
     event = decode_event(raw, self.clock())
@@ -179,7 +188,7 @@ class TeslaReceiver:
       self._diagnostic('assignment_changed_or_unreadable', event)
       return
     doc = parse_assignments(current)
-    if not doc or doc['vehicle'] not in ('', cp.carFingerprint) or cp_fingerprint(cp) != event['vehicle']:
+    if not doc or cp_fingerprint(cp) != event['vehicle']:
       self._diagnostic('assignment_vehicle_identity_mismatch', event)
       return
     name = event['name']

@@ -48,7 +48,9 @@ class TeslaControlsFeature:
     cp = self.owner.vehicle_params()
     raw, readable = read_saved(self.owner.params, PARAM, MAX_ASSIGNMENT_BYTES)
     doc = parse_assignments(raw) if readable else None
-    valid = bool(doc is not None and (not doc['vehicle'] or cp is not None and doc['vehicle'] == cp.carFingerprint))
+    # A saved document is a Model 3's or a Model Y's. The two have the same controls, so either car uses it, and the
+    # next change saves it under this car.
+    valid = doc is not None
     return cp, raw, doc, valid
 
   def allowed(self):
@@ -90,7 +92,7 @@ class TeslaControlsFeature:
       notes = [*missing, *([SET_SPEED_NEEDS] if key == SPEED_SET and not owned else []),
                *([AOL_PENDING] if reserved and not aol_on else [AOL_NOTE] if aol else [])]
       help_text = '.\n'.join(notes)
-      rows.append(FeatureRow(PREFIX + name, group + ' / ' + label, choice if valid else 'Invalid or other-vehicle assignments', raw,
+      rows.append(FeatureRow(PREFIX + name, group + ' / ' + label, choice if valid else 'Invalid saved assignments', raw,
         tuple(OPTIONS) + ((AOL_ACTION,) if aol else ()), available=self.allowed() and valid and not fixed, reason=help_text,
         vehicle_fingerprint=self.owner.vehicle_fingerprint()))
       if key == SPEED_SET:

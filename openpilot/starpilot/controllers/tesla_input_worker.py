@@ -27,6 +27,9 @@ from openpilot.starpilot.controllers.tesla_controls import TeslaInputDecoder
 from openpilot.starpilot.controllers.tesla_input_protocol import MAX_AGE, READY, document_hash, drive_id, encode_event
 from openpilot.starpilot.controllers.wheel_actions import cp_fingerprint
 
+# Nothing read yet. The first read is always parsed, also when it finds no saved file (read_saved gives None for that).
+UNREAD = object()
+
 
 class InputPump:
   def __init__(self, params, send, *, socket_factory, receive, clock=time.monotonic, boot_clock_ns=None):
@@ -41,7 +44,7 @@ class InputPump:
     self.decoder: TeslaInputDecoder | None = None
     self.identity = None
     self.sequence = 0
-    self.raw = None
+    self.raw = UNREAD
     self.document = None
     self.cp = None
     self.cp_hash = None
@@ -73,9 +76,9 @@ class InputPump:
       self.raw = raw
       self.document = parse_assignments(raw) if readable else None
     doc = self.document if readable else None
-    # Nothing saved yet still has the fixed and default bindings (the right stalk hold and half press).
-    bindings = (effective_bindings(doc, comma_speed=self.comma_speed(cp))
-                if doc and doc['vehicle'] in ('', cp.carFingerprint) else {})
+    # Nothing saved yet still has the fixed and default bindings (the right stalk hold and half press). A saved document
+    # is a Model 3's or a Model Y's (parse_assignments); the two have the same controls, so either car uses it.
+    bindings = effective_bindings(doc, comma_speed=self.comma_speed(cp)) if doc else {}
     if not bindings:
       self.reset()
       return

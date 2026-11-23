@@ -181,6 +181,26 @@ def test_no_response_is_retried_a_few_times_then_waits_for_the_tesla():
   assert any(r.tick() for _ in range(20))
 
 
+def test_an_unanswered_request_does_not_hold_back_the_other_direction():
+  # The Tesla ignores scrolls one way (it is at its own lowest or highest set speed). A comma speed still on that side
+  # keeps waiting; once it is on the other side of the Tesla's, sync carries on without the Tesla changing first.
+  r = Rig()
+  r.tick()
+  for _ in range(100):
+    r.tick(dt=100_000_000)
+  assert r.sync.status == 'waiting_for_native_change'
+  sent = len(r.sent)
+  r.target = 55   # further the same way (the Tesla shows 45)
+  for _ in range(20):
+    assert r.tick() is None
+  assert r.sync.status == 'waiting_for_native_change'
+  r.target = 40   # now below the Tesla's
+  assert any(r.tick() for _ in range(20))
+  assert len(r.sent) == sent + 1 and clicks(r.sent[-1][1]) == -1
+  r.speed -= 1    # the Tesla follows: nothing is left of the old wait
+  assert any(r.tick() for _ in range(20)) and r.sync.unanswered is None
+
+
 def test_request_needs_a_new_physical_neutral_frame():
   r = Rig()
   r.tick()

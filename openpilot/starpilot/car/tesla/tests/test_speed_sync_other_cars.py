@@ -204,7 +204,7 @@ GATES = {
   'openpilot/starpilot/controllers/tesla_input_worker.py': [
     'fingerprint = cp_fingerprint(cp) if vehicle_supported(cp) else None',
     'provenance = bool(fingerprint) and speed_sync_selected(cp)',
-    'bindings = (effective_bindings(doc, comma_speed=self.comma_speed(cp))',
+    'bindings = effective_bindings(doc, comma_speed=self.comma_speed(cp)) if doc else {}',
   ],
   'openpilot/starpilot/car/tesla_speed_sync_context.py': [
     'if controller is None or getattr(controller, "speed_sync", None) is None: return',

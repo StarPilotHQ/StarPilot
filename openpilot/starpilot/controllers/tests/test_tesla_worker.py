@@ -184,10 +184,19 @@ def test_engaging_press_runs_no_action_while_engaged(setup):
   assert s.calls == ['resume']
 
 
-def test_hold_and_half_press_work_with_nothing_saved(setup):
+def nothing_saved(s, saved):
+  """An empty saved document, or (None) an install where the Wheel Controls were never saved: no file at all."""
+  if saved is None:
+    os.remove(s.params.get_param_path(PARAM))
+  else:
+    s.params.put(PARAM, saved, block=True)
+
+
+@pytest.mark.parametrize('saved', [b'{}', None])
+def test_hold_and_half_press_work_with_nothing_saved(setup, saved):
   # The right stalk hold is fixed and the half press while engaged starts on Resume Speed Limit + Offset.
   s = setup
-  s.params.put(PARAM, b'{}', block=True)  # nothing assigned
+  nothing_saved(s, saved)
   s.actions[SPEED_RESUME] = NS(available=True, invoke=lambda: s.calls.append('resume'), invoke_value=None)
   s.sm.engaged = True
   for _ in range(6):
@@ -198,6 +207,44 @@ def test_hold_and_half_press_work_with_nothing_saved(setup):
   for counter in range(3, 12):
     s.feed(stalk(3, counter), address=0x229)
   assert s.calls == ['resume', 'resume']
+
+
+@pytest.mark.parametrize('saved', [b'{}', None])
+def test_the_scroll_sets_the_comma_speed_with_nothing_saved(setup, saved):
+  s = setup
+  nothing_saved(s, saved)
+  s.feed(wheel())
+  s.feed(wheel(right_scroll=1))
+  s.feed(wheel())
+  assert s.calls == [0]
+
+
+def test_the_file_removed_mid_drive_leaves_the_defaults(setup):
+  s = setup
+  s.feed(wheel())
+  s.feed(wheel(right_wheel_left=2))
+  s.feed(wheel())
+  assert s.calls == [CUSTOM], 'the saved nudge left'
+  os.remove(s.params.get_param_path(PARAM))
+  for scroll in (0, 1, 0):
+    s.feed(wheel(right_scroll=scroll))
+  s.feed(wheel(right_wheel_left=2))
+  s.feed(wheel())
+  assert s.calls == [CUSTOM, 0], 'the scroll still acts; the nudge left has no default'
+
+
+def test_assignments_saved_on_the_other_model_are_used(setup):
+  # A Model 3 and a Model Y have the same controls, so a comma moved from one to the other keeps its assignments.
+  s = setup
+  assert s.cp.carFingerprint == 'TESLA_MODEL_3'
+  s.doc['vehicle'] = 'TESLA_MODEL_Y'
+  save(s)
+  s.feed(wheel())
+  s.feed(wheel(right_wheel_left=2))
+  s.feed(wheel())
+  s.feed(wheel(right_scroll=1))
+  s.feed(wheel())
+  assert s.calls == [CUSTOM, 0]
 
 
 @pytest.mark.parametrize('fault', ['safe', 'config', 'invalid', 'wrong_bus', 'offroad', 'vehicle', 'stale'])

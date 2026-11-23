@@ -626,7 +626,9 @@ class SpeedSynchronizer:
     retry = False
     if self.unanswered is not None:
       u = self.unanswered
-      if self.native_ns > u.sent_ns and self.native != u.before:
+      # The Tesla moved, or the comma now wants the other way (the Tesla was at its own limit in the old direction):
+      # the unanswered request says nothing about this one.
+      if (self.native_ns > u.sent_ns and self.native != u.before) or u.direction != (1 if target > native else -1):
         self.unanswered = None
         self.unanswered_count = 0
         self.retry_refused = False

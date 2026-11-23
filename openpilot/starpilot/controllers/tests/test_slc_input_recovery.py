@@ -1,5 +1,5 @@
 """Tesla input failure paths: a failing receiver or worker never takes the other controllers down, never repeats an
-input, and recovers a bounded number of times."""
+input, and is started again after a wait that grows with each failure in a row."""
 import json
 from types import SimpleNamespace as NS
 from unittest.mock import Mock, patch
@@ -11,6 +11,8 @@ from openpilot.starpilot.controllers import tesla_receiver
 from openpilot.starpilot.controllers.runtime import ControllerRuntime
 from openpilot.starpilot.controllers.tests.test_tesla_decoder import wheel
 from openpilot.starpilot.controllers.tests.tesla_worker_fixture import Channel, selected_rig
+from openpilot.starpilot.tests.port_settings_fixture import Saved
+from openpilot.starpilot.tests.tesla_set_speed_fixture import tesla
 
 
 @pytest.fixture
@@ -23,7 +25,7 @@ def bare_runtime(presses=(), capture=None):
   vars(r).update(_closed=False, _next_warm=float('inf'), _warm_until=0, input_capture=lambda: capture,
                  reader=NS(poll=lambda _: presses, devices=list, close=Mock()),
                  owner=NS(set_devices=Mock(), tick=Mock(), feed=Mock()),
-                 tesla=NS(poll=Mock(), close=Mock()), service=NS(poll=Mock(), close=Mock()), authority=NS(close=Mock()))
+                 tesla=NS(poll=Mock(), close=Mock(), fail=Mock()), service=NS(poll=Mock(), close=Mock()), authority=NS(close=Mock()))
   return r
 
 
@@ -31,8 +33,8 @@ def test_tesla_exception_without_button_press_does_not_close_all_controllers():
   r = bare_runtime()
   r.tesla.poll.side_effect = ValueError('injected dispatch failure')
   r.poll()
-  assert not r._closed and r.tesla.next_start > 0
-  r.tesla.close.assert_called_once()
+  assert not r._closed
+  r.tesla.fail.assert_called_once()
   r.service.poll.assert_called_once()
   r.reader.close.assert_not_called()
 
@@ -115,28 +117,79 @@ def test_speed_input_does_not_build_unrelated_action_catalog(setup):
   s.receiver.actions.assert_not_called()
 
 
-def test_worker_recovery_is_bounded_and_requires_fresh_drive(setup):
-  s = setup
+def recovering(s):
+  """Swap in a channel factory that counts, and return (created channels, fail-and-time-the-restart)."""
   created = []
 
   def factory():
     created.append(Channel())
     return created[-1]
   s.receiver.channel_factory = factory
-  s.receiver.close()
-  s.clock[0] += 3
+
+  def restart_after_failure():
+    s.receiver.fail()
+    failed_at = s.clock[0]
+    assert s.receiver.channel is None and s.receiver.failed
+    while s.receiver.channel is None:
+      s.clock[0] += .5
+      s.sm.refresh(s.clock[0])
+      s.receiver.poll()
+    return s.clock[0] - failed_at
+  return created, restart_after_failure
+
+
+def test_worker_recovery_waits_longer_each_time_and_never_gives_up(setup):
+  # With Comma can set speed on Tesla dashboard on, the scroll only sets the speed while the worker runs, so a drive
+  # never ends up without it: the wait grows to 30 s and then repeats.
+  s = setup
+  created, restart_after_failure = recovering(s)
+  assert [restart_after_failure() for _ in range(8)] == [2., 4., 8., 16., 30., 30., 30., 30.]
+  assert len(created) == 8 and s.receiver.channel is created[-1] and not s.receiver.failed
+
+
+def test_a_worker_that_ran_for_a_minute_starts_the_waits_again(setup):
+  s = setup
+  created, restart_after_failure = recovering(s)
+  assert [restart_after_failure() for _ in range(3)] == [2., 4., 8.]
+  s.clock[0] += tesla_receiver.RESTART_HEALTHY_SECONDS - 1
+  s.sm.refresh(s.clock[0])
+  assert restart_after_failure() == 16., 'not yet a minute'
+  s.clock[0] += tesla_receiver.RESTART_HEALTHY_SECONDS
+  s.sm.refresh(s.clock[0])
+  assert restart_after_failure() == 2.
+
+
+def test_a_stopped_worker_is_restarted_through_the_same_wait(setup):
+  # A backlog (the screen stalled while the driver scrolled) closes the worker; it is back after the wait.
+  s = setup
+  s.channel.queue.extend([b'{}'] * 500)
+  s.receiver.poll()
+  assert s.channel.closed and s.receiver.channel is None and s.receiver.failed
+  created = []
+  s.receiver.channel_factory = lambda: created.append(Channel()) or created[-1]
+  s.clock[0] += 1.9
   s.sm.refresh(s.clock[0])
   s.receiver.poll()
-  assert len(created) == 1
-  for _ in range(3):
-    s.receiver.close()
-    s.clock[0] += 3
-    s.sm.refresh(s.clock[0])
-    s.receiver.poll()
-  assert len(created) == 3 and s.receiver.channel is None
-  s.clock[0] += 10
+  assert not created
+  s.clock[0] += .2
+  s.sm.refresh(s.clock[0])
   s.receiver.poll()
-  assert len(created) == 3
+  assert s.receiver.channel is created[0]
+
+
+def test_a_first_start_that_fails_is_not_retried_every_frame(tmp_path):
+  clock, attempts = [1.], []
+
+  def factory():
+    attempts.append(clock[0])
+    raise OSError('no process')
+  receiver = tesla_receiver.TeslaReceiver(Saved(tmp_path), dict, tesla, clock=lambda: clock[0], channel_factory=factory)
+  for _ in range(100):
+    receiver.poll()
+  assert attempts == [1.] and receiver.failed and receiver.channel is None
+  clock[0] += 2.
+  receiver.poll()
+  assert attempts == [1., 3.]
 
 
 def test_a_worker_that_cannot_start_is_retried_after_a_pause_not_every_frame(setup):

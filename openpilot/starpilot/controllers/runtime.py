@@ -37,8 +37,7 @@ class ControllerRuntime:
       self.tesla.poll()
     except Exception:
       LOGGER.exception('Tesla input stopped')
-      self.tesla.close()
-      self.tesla.next_start = time.monotonic() + 2.
+      self.tesla.fail()
     try:
       now = time.monotonic()
       if now >= self._next_warm:

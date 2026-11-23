@@ -249,17 +249,33 @@ def test_a_speed_cannot_be_set_on_a_control_that_is_not_on_set_speed_to(rig):
 
 
 @pytest.mark.parametrize('raw', [b'not json', b'[]', json.dumps({'version': 2, 'vehicle': 'TESLA_MODEL_3', 'bindings': {}}).encode(),
-                                 json.dumps({'version': 1, 'vehicle': 'TESLA_MODEL_Y', 'bindings': {}}).encode(),
+                                 json.dumps({'version': 1, 'vehicle': 'TESLA_MODEL_S', 'bindings': {}}).encode(),
                                  json.dumps({'version': 1, 'vehicle': 'TESLA_MODEL_3', 'bindings': {'unknown_control': {}}}).encode()])
-def test_invalid_or_other_vehicle_assignments_are_shown_and_never_overwritten(rig, raw):
+def test_invalid_assignments_are_shown_and_never_overwritten(rig, raw):
   rig.params.put(PARAM, raw, block=True)
   rows = rig.feature.rows()
   assert [row.label for row in rows] == ROW_LABELS
   for row in rows:
     if row.key:
-      assert row.value == 'Invalid or other-vehicle assignments' and not row.available
+      assert row.value == 'Invalid saved assignments' and not row.available
   assert not rig.choose(LEFT, 'Bookmark')
   assert rig.saved(PARAM) == raw
+
+
+@pytest.mark.parametrize('here,there', [('TESLA_MODEL_3', 'TESLA_MODEL_Y'), ('TESLA_MODEL_Y', 'TESLA_MODEL_3')])
+def test_assignments_saved_on_the_other_model_are_used_and_kept(tmp_path, here, there):
+  # A Model 3 and a Model Y have the same controls: a comma moved between them keeps its assignments, and the next
+  # change saves them under the car it is in.
+  rig = Rig(tmp_path, tesla(here))
+  saved = {'version': 1, 'vehicle': there, 'bindings': {'right_wheel_left': {'key': BOOKMARK, 'value': None, 'label': 'Bookmark'}}}
+  rig.params.put(PARAM, json.dumps(saved).encode(), block=True)
+  row = rig.row(LEFT)
+  assert row.value == 'Bookmark' and row.available
+  assert rig.choose(PREFIX + 'right_wheel_right', 'Experimental Mode')
+  document = rig.document()
+  assert document['vehicle'] == here
+  assert document['bindings']['right_wheel_left'] == saved['bindings']['right_wheel_left']
+  assert document['bindings']['right_wheel_right']['label'] == 'Experimental Mode'
 
 
 def test_three_finger_tap_can_be_always_on_lateral_on_off(rig):
