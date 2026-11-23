@@ -390,9 +390,13 @@
       "source_sha256": "25fb3caade53ed424333daf4883fe4bdbf7b44d36286c2839d95473ca3937d48"
     },
     "openpilot/starpilot/car/subaru/tests/test_stock_aol_callers.py": {
-      "cases": 5,
-      "seconds": 14.857802873000082,
-      "source_sha256": "1ed4f9d45907b2c41a6cd8344e1623f9e1c74825f6e2395ef2459589f1a7ca9e"
+      "cases": 98,
+      "reference": {
+        "run_id": 45106737848,
+        "shard": 1
+      },
+      "seconds": 522.562,
+      "source_sha256": "856596ac2784ce8659d8de8cda3ea89ec46a7bfccc60b0306bce7d5ebd594bac"
     },
     "openpilot/starpilot/car/subaru/tests/test_stop_start.py": {
       "cases": 5,
@@ -612,9 +616,13 @@
       "source_sha256": "4913c7ff75306f576258d25082fd6036e71f2ffb5d4685f20ccee12fae456c61"
     },
     "openpilot/starpilot/aol/tests/test_mqb_actual_callers.py": {
-      "cases": 8,
-      "seconds": 5.072349360999738,
-      "source_sha256": "1d7a44e338b7e2edab6fa02ecca967e0ab57577e4a33f649eca28b282792923e"
+      "cases": 456,
+      "reference": {
+        "run_id": 45106737848,
+        "shard": 3
+      },
+      "seconds": 300.112,
+      "source_sha256": "a1f9fea01f6cba6797155ff806637d5beedfd5a52d4bf3679c76a63560974777"
     },
     "opendbc_repo/opendbc/car/volkswagen/tests/test_meb_stock_modes.py": {
       "cases": 36,
