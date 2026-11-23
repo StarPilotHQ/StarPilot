@@ -438,6 +438,8 @@ def purpose(row):
 
 def description(row):
   """Keep actual error/prerequisite information after the setting's purpose."""
+  if row.key == 'DisableOpenpilotLongitudinal' and (row.capability or ())[1:2] == ('toyota',):
+    return row.reason
   base = purpose(row)
   if base is None:
     return row.reason

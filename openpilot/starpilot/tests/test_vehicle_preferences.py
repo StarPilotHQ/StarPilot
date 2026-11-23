@@ -15,6 +15,7 @@ from openpilot.starpilot.vehicle_preferences import VehicleStartupPreferences
 class TestVehicleStartupPreferences(unittest.TestCase):
   def test_toyota_camera_stock_acc_uses_saved_preference(self):
     from opendbc.car.toyota.interface import CAMERA_TORQUE_CARS, camera_stock_acc_supported
+    from openpilot.starpilot.galaxy.settings import _projection
     from openpilot.starpilot.car.toyota.aol import qualified
     from openpilot.starpilot.ui.feature_settings_owner import FeatureSettingsOwner
     from openpilot.starpilot.vehicle_preferences import toyota_disable_long_supported
@@ -41,6 +42,10 @@ class TestVehicleStartupPreferences(unittest.TestCase):
             row = next(row for row in rows if row.key == "DisableOpenpilotLongitudinal")
             self.assertTrue(row.available)
             self.assertEqual(row.value, "On" if stock else "Off")
+            self.assertEqual(row.label, "Use Factory ACC")
+            self.assertEqual(row.reason, "Turn this on to use your car's factory adaptive cruise instead of StarPilot's")
+            projected = _projection(row)
+            self.assertEqual((projected["label"], projected["reason"]), (row.label, row.reason))
     for candidate in (CAR.TOYOTA_HIGHLANDER, CAR.TOYOTA_RAV4_TSS2_2023, CAR.TOYOTA_RAV4_PRIME):
       cp = car_helpers.interfaces[candidate].get_params(candidate, gen_empty_fingerprint(), [], False, False, False)
       self.assertFalse(toyota_disable_long_supported(cp))

@@ -984,8 +984,10 @@ class FeatureSettingsOwner:
                                capability=pedal_capability))
       bolt_capability = self._bolt_disable_capability()
       if bolt_capability is not None:
-        row = self._bool_row("DisableOpenpilotLongitudinal", "Disable StarPilot Speed Control",
+        toyota_factory_acc = bolt_capability[1] == "toyota"
+        row = self._bool_row("DisableOpenpilotLongitudinal", "Use Factory ACC" if toyota_factory_acc else "Disable StarPilot Speed Control",
                              parked and self.authority("parked_preferences"),
+                             "Turn this on to use your car's factory adaptive cruise instead of StarPilot's" if toyota_factory_acc else
                              "StarPilot does not control speed in this mode. Steering remains available after the next startup")
         if self._vw_alpha_off():
           row = replace(row, value="On", available=False,
