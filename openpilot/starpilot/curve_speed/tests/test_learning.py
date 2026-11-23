@@ -11,8 +11,16 @@ class TestLearning(unittest.TestCase):
     result = LearnedCurve.load({KEYS[5]: {'average': 3.0, 'count': 1000}, KEYS[6]: {'average': 1.2, 'count': 1}})
     assert result.valid
     values = [result.curve.comfort(k) for k in CURVATURES]
-    assert all((a <= b for a, b in zip(values, values[1:], strict=False)))
+    speeds = [math.sqrt(value / k) for value, k in zip(values, CURVATURES, strict=True)]
+    assert all((a >= b for a, b in zip(speeds, speeds[1:], strict=False)))
     assert values[5] > LearnedCurve().comfort(CURVATURES[5])
+
+  def test_gentle_curves_may_learn_more_comfort_than_tighter_street_curves(self):
+    highway, street = bucket_index(0.004), bucket_index(0.0055)
+    result = LearnedCurve.load({KEYS[highway]: {'average': 2.7, 'count': 600}, KEYS[street]: {'average': 1.57, 'count': 600}})
+    assert result.valid
+    self.assertGreater(result.curve.comfort(CURVATURES[highway]), 2.5)
+    self.assertLess(result.curve.comfort(CURVATURES[street]), 1.8)
 
   def test_legacy_duplicate_buckets_merge_without_mutating_or_dirtying_saved_input(self):
     document = {'0.001': {'average': 2.0, 'count': 3}, '-0.0010001': {'average': 3.0, 'count': 1}}

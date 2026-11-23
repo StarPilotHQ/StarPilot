@@ -52,7 +52,7 @@ def bucket_index(curvature: float) -> int:
 
 
 def monotone_fit(values: list[float], weights: list[int]) -> tuple[float, ...]:
-  """Weighted pool-adjacent-violators fit, increasing with curvature."""
+  """Weighted pool-adjacent-violators fit, non-decreasing in list order."""
   if len(values) != len(weights) or any(not finite_number(v) for v in values) or any(type(w) is not int or w <= 0 for w in weights):
     raise ValueError("fit requires finite values and positive integer weights")
   blocks: list[tuple[float, int, int]] = []
@@ -181,4 +181,7 @@ class LearnedCurve:
       confidence = sample.count / (sample.count + PRIOR_WEIGHT)
       values.append(min(max(confidence * sample.average + (1 - confidence) * prior, MIN_COMFORT), MAX_COMFORT))
       weights.append(sample.count + PRIOR_WEIGHT)
-    self._fit = monotone_fit(values, weights)
+    # Constrain apex speed, not comfort: a sharper curve is never taken faster, but a
+    # driver may corner harder on gentle highway curves than on tight street ones.
+    speeds = monotone_fit([math.sqrt(value / k) for value, k in zip(values[::-1], CURVATURES[::-1], strict=True)], weights[::-1])[::-1]
+    self._fit = tuple(min(max(speed * speed * k, MIN_COMFORT), MAX_COMFORT) for speed, k in zip(speeds, CURVATURES, strict=True))

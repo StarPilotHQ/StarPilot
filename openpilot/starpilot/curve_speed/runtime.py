@@ -351,12 +351,19 @@ class Runtime:
                  now >= self.quiet_until_ns and finite_number(measured_accel) and
                  not controlling)
     learned = False
+    below_comfort = False
     if trainable:
       if not self.last_training_ns:
         self.last_training_ns = now
       if now - self.last_training_ns >= TRAINING_SETTLE_NS and in_curve:
-        self.curve.observe(abs(frame.measured_curvature), measured_accel)
-        learned = True
+        curvature = abs(frame.measured_curvature)
+        # A driver-chosen speed is a floor on comfort; posted limits and traffic also
+        # hold speed down, so only brake/disengage nudges may lower it.
+        if measured_accel > self.curve.comfort(curvature):
+          self.curve.observe(curvature, measured_accel)
+          learned = True
+        else:
+          below_comfort = True
     else:
       self.last_training_ns = 0
     learning_reason = ('learning_disabled' if not self.enabled else
@@ -371,7 +378,8 @@ class Runtime:
                        'learning_feedback_quiet_wait' if now < self.quiet_until_ns else
                        'learning_controller_active' if controlling else
                        'learning_settling' if now - self.last_training_ns < TRAINING_SETTLE_NS else
-                       'learning' if learned else 'learning_waiting_for_curve')
+                       'learning' if learned else
+                       'learning_below_comfort' if below_comfort else 'learning_waiting_for_curve')
     self.was_long_active = frame.long_active
     self.was_gas = frame.gas_pressed
     self.was_brake = frame.brake_pressed

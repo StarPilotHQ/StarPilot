@@ -82,6 +82,19 @@ class TestCurveRuntime(unittest.TestCase):
     run(18, False)
     self.assertFalse(rt.glow)
 
+  def test_passive_samples_below_learned_comfort_never_lower_it(self):
+    rt = Runtime(enabled=True)
+    before = rt.curve.comfort(0.01)
+    for n in range(1, 80):
+      result = rt.step(frame(n, long_active=False, ego_mps=13.0))
+    self.assertEqual(rt.curve.revision, 0)
+    self.assertFalse(result.training)
+    self.assertEqual(result.learning_reason, 'learning_below_comfort')
+    for n in range(80, 85):
+      result = rt.step(frame(n, long_active=False, ego_mps=16.0))
+    self.assertTrue(result.training)
+    self.assertGreater(rt.curve.comfort(0.01), before)
+
   def test_accel_press_latches_override_and_confirmation_does_not(self):
     rt = Runtime(enabled=True)
     arm_selected(rt)

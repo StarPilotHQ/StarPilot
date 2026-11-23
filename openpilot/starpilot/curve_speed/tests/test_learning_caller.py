@@ -204,4 +204,4 @@ def test_actual_host_24_by_200_progress_is_coverage_and_saturates():
   assert host.runtime.curve.revision == 4800 and result.progress == 100.
   sm, stamp = inputs(tick, curve=True)
   result = host.sample(sm, cp, stamp)
-  assert result.training and result.progress == 100.
+  assert not result.training and result.learning_reason == 'learning_below_comfort' and result.progress == 100.
