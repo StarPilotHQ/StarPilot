@@ -345,6 +345,44 @@ def wait_for_parked(sm, params, *, stopped=lambda: False, clock=time.monotonic, 
     timeout = 20
 
 
+def _hardwared_process(sm, now):
+  if (getattr(sm, 'seen', {}).get('managerState') and sm.valid['managerState'] and sm.alive['managerState']
+      and 0 <= now - sm.recv_time['managerState'] <= 2.0
+      and 0 < sm.logMonoTime['managerState'] and 0 <= now - sm.logMonoTime['managerState'] / 1e9 <= 2.0):
+    return next((process for process in sm['managerState'].processes if process.name == 'hardwared'), None)
+  return None
+
+
+def _device_status_snapshot(sm, hardwared_pid, progress, *, now=None):
+  """Keep relative ages and process state only, once per interrupted attempt."""
+  now = time.monotonic() if now is None else now
+  counts = {}
+  for service, key in (('deviceState', 'device_state'), ('pandaStates', 'panda_states'),
+                       ('peripheralState', 'peripheral_state'), ('managerState', 'manager_state')):
+    receipt = sm.recv_time.get(service, 0.0)
+    if sm.seen.get(service) and 0 < receipt <= now:
+      counts[key + '_receive_age_ms'] = round((now - receipt) * 1000)
+  if sm.seen.get('deviceState'):
+    counts['device_state_valid'] = int(sm.valid['deviceState'])
+    counts['device_state_alive'] = int(sm.alive['deviceState'])
+    stamp = sm.logMonoTime['deviceState'] / 1e9  # hardwared uses CLOCK_MONOTONIC.
+    received = sm.recv_time['deviceState']
+    if 0 < stamp <= now:
+      counts['device_state_message_age_ms'] = round((now - stamp) * 1000)
+    if 0 < stamp <= received <= now:
+      counts['device_state_age_at_receipt_ms'] = round((received - stamp) * 1000)
+  process = _hardwared_process(sm, now)
+  if process is not None:
+    counts['hardwared_running'] = int(process.running)
+    if process.running and process.pid > 0 and hardwared_pid is not None:
+      counts['hardwared_pid_changed'] = int(process.pid != hardwared_pid)
+  if progress is not None:
+    completed, total = progress.get('completed'), progress.get('total')
+    if type(completed) is int and type(total) is int and 0 <= completed <= total <= 180 and total > 0:
+      counts.update(original_segments_reviewed=completed, original_segments_available=total)
+  return counts
+
+
 def run_parked_analysis(worker, report, *, permission_loss=lambda: None):
   """Advance promptly only after an unreadable input was durably skipped."""
   from openpilot.starpilot.flm.offroad_route import RouteInputError
@@ -353,7 +391,12 @@ def run_parked_analysis(worker, report, *, permission_loss=lambda: None):
     report.set(worker.run_once())
   except (ValueError, OSError, RuntimeError) as error:
     if (blocker := permission_loss()) is not None:
-      report.set({'status': 'unavailable', 'reason': blocker})
+      reason, counts = blocker
+      failure = {'status': 'unavailable', 'reason': reason}
+      if counts:
+        report.set(failure, diagnostic_value={**failure, 'analysis_counts': counts})
+      else:
+        report.set(failure)
       return False
     if isinstance(error, RouteInputError):
       cloudlog.warning(
@@ -395,7 +438,7 @@ def _run():
     report.diagnostics = DiagnosticState(params)
     from openpilot.starpilot.flm.offroad_source import record_drive
 
-    sm = messaging.SubMaster(['deviceState', 'pandaStates', 'peripheralState'])
+    sm = messaging.SubMaster(['deviceState', 'pandaStates', 'peripheralState', 'managerState'])
     drive_state = DriveStateOwner(params, starpilot_storage_root() / 'drive-state')
     physical = PhysicalSource(sm)
 
@@ -409,12 +452,17 @@ def _run():
       return parked_blocker(sm, params, stopped=stopped, powered_offroad=powered_offroad) or 'waiting_for_parked_permission'
 
     interrupted = None
+    hardwared_pid = None
 
     def permitted():
       nonlocal interrupted
       allowed = parked(recover_device_state=True)
       if not allowed and interrupted is None:
-        interrupted = blocker()
+        reason = blocker()
+        counts = None
+        if reason in ('waiting_for_fresh_deviceState', 'waiting_for_valid_deviceState'):
+          counts = _device_status_snapshot(sm, hardwared_pid, report.current.get('analysis_progress'))
+        interrupted = reason, counts
       report.publish()
       return allowed
 
@@ -486,6 +534,8 @@ def _run():
           report.restore(worker.cache)
         next_analysis = time.monotonic() + 10.0
         interrupted = None
+        hardwared = _hardwared_process(sm, time.monotonic())
+        hardwared_pid = hardwared.pid if hardwared is not None and hardwared.running and hardwared.pid > 0 else None
         if run_parked_analysis(worker, report, permission_loss=last_blocker):
           next_analysis = time.monotonic()
       report.publish()
