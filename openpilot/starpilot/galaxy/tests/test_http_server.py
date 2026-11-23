@@ -11,8 +11,10 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import pytest
+from unittest.mock import patch
 
-from openpilot.starpilot.galaxy.http_server import _LocalHTTPHandler, _LocalHTTPServer
+from openpilot.starpilot.galaxy import mdns
+from openpilot.starpilot.galaxy.http_server import _LocalHTTPHandler, _LocalHTTPServer, allowed_authority
 from openpilot.starpilot.galaxy.replay_http import ReplayHTTP
 from openpilot.starpilot.galaxy.recording_http import send_recording
 
@@ -270,3 +272,22 @@ def test_drain_turns_away_requests_still_waiting_for_capacity(server, monkeypatc
     for connection in held:
       connection.close()
 
+
+def test_authority_admits_only_published_mdns_name_on_own_lan_address():
+  names = SimpleNamespace(names=lambda destination: ())
+  own = {'wlan0': '192.168.35.249', 'galaxy0': '172.31.254.1'}
+  with patch.object(mdns, '_published', ('galaxy-2.local', '192.168.35.249')), \
+       patch.object(mdns, 'interface_addresses', return_value=own):
+    assert allowed_authority('galaxy-2.local:8082', '192.168.35.249', 8082, local_hostnames=names)
+    assert allowed_authority('GALAXY-2.local.:8082', '192.168.35.249', 8082, local_hostnames=names)
+    # Port 80 is redirected to Galaxy, so the browser sends no port.
+    assert allowed_authority('galaxy-2.local', '192.168.35.249', 8082, local_hostnames=names)
+    # Hotspot clients: REDIRECT rewrites the destination to galaxy0's address.
+    assert allowed_authority('galaxy-2.local', '172.31.254.1', 8082, local_hostnames=names)
+    assert not allowed_authority('galaxy-2.local:9999', '192.168.35.249', 8082, local_hostnames=names)
+    assert not allowed_authority('galaxy.local', '192.168.35.249', 8082, local_hostnames=names)
+    assert not allowed_authority('galaxy-2.local', '10.228.238.20', 8082, local_hostnames=names)
+    assert not allowed_authority('galaxy-2.local', '127.0.0.1', 8082, local_hostnames=names)
+    assert not allowed_authority('galaxy-2.local', '100.64.1.5', 8082, local_hostnames=names)
+    assert not allowed_authority('galaxy-2.local', '192.168.35.249', 8082, local_hostnames=None)
+  assert not allowed_authority('galaxy-2.local', '192.168.35.249', 8082, local_hostnames=names)

@@ -88,6 +88,10 @@ export function localizeDocument(root, { language, messages }, records = new Wea
   return records
 }
 
+// Recheck the language each minute and when shown; retry quickly only while it cannot be read.
+export const LANGUAGE_RECHECK_MS = 60000
+export const LANGUAGE_RETRY_MS = 2000
+
 export function startLocalization(root = document.body, fetcher = fetch) {
   let state = { language: "en", messages: {} }, stopped = false, timer, scheduled = false, generation = 0, request
   const records = new WeakMap()
@@ -113,21 +117,28 @@ export function startLocalization(root = document.body, fetcher = fetch) {
     request?.abort()
     const current = ++generation
     request = new AbortController()
+    let delay = LANGUAGE_RETRY_MS
     try {
       const next = await requestJson(`./api/localization?language=${encodeURIComponent(state.language)}`,
         { fetcher, timeout: 4000, request: { signal: request.signal } })
       if (!stopped && current === generation && typeof next.language === "string" && next.messages && typeof next.messages === "object") {
         state = next
         apply()
+        delay = LANGUAGE_RECHECK_MS
       }
     } catch { /* Keep the last confirmed language during connection loss. */ }
-    if (!stopped && current === generation) timer = setTimeout(refresh, 2000)
+    if (!stopped && current === generation) timer = setTimeout(refresh, delay)
+  }
+  function shown() {
+    if (globalThis.document?.visibilityState === "visible") refresh()
   }
   apply()
   globalThis.addEventListener?.("galaxy-language-changed", refresh)
+  globalThis.document?.addEventListener?.("visibilitychange", shown)
   refresh()
   return () => {
     stopped = true; generation++; request?.abort(); clearTimeout(timer); observer.disconnect()
     globalThis.removeEventListener?.("galaxy-language-changed", refresh)
+    globalThis.document?.removeEventListener?.("visibilitychange", shown)
   }
 }
