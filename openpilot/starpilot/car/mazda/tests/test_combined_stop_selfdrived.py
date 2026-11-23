@@ -139,9 +139,24 @@ def test_stop_history_is_per_session():
   host = Host(combined_drive(160_000_000))
   cruise(host)
   cs, _, _ = delayed_stop_sample(host)
-  last_stop = host.sd.aol_mazda_stop_history[1]
-  assert mazda_aol.note_standstill(('other-session', last_stop), host.drive.cp, cs, host.drive.now, SESSION) is None
-  assert mazda_aol.note_standstill((SESSION, last_stop), host.drive.cp, cs, host.drive.now, SESSION) == (SESSION, last_stop)
+  _, first, last, standing = host.sd.aol_mazda_stop_history
+  assert first < last and not standing
+  assert mazda_aol.note_standstill(('other-session', first, last, False), host.drive.cp, cs, host.drive.now, SESSION) is None
+  assert (mazda_aol.note_standstill((SESSION, first, last, False), host.drive.cp, cs, host.drive.now, SESSION) ==
+          (SESSION, first, last, False))
+
+
+def test_a_new_stop_restarts_the_history():
+  host = Host(combined_drive())
+  cruise(host)
+  [host.tick(standstill=True) for _ in range(10)]
+  _, first, last, standing = host.sd.aol_mazda_stop_history
+  assert standing and last - first == 9 * FRAME_NS
+  [host.tick() for _ in range(5)]
+  assert host.sd.aol_mazda_stop_history == (SESSION, first, last, False)
+  host.tick(standstill=True)
+  _, first2, last2, standing2 = host.sd.aol_mazda_stop_history
+  assert standing2 and first2 == last2 == host.drive.now and first2 > last
 
 
 def test_stop_history_bounds():
@@ -150,14 +165,34 @@ def test_stop_history_bounds():
   cruise(host)
   cs, sm, native = delayed_stop_sample(host)
   drive = host.drive
-  last_stop = host.sd.aol_mazda_stop_history[1]
+  _, first, last, _ = host.sd.aol_mazda_stop_history
   check = lambda history, now: mazda_aol.expected_stopped_lateral_denial(  # noqa: E731
     drive.cp, cs, native, sm=sm, axis_session_id=SESSION, now_ns=now, stop_history=history)
-  assert not cs.standstill and native.observedMonoTime <= last_stop
-  assert check((SESSION, last_stop), drive.now)
-  assert not check(('other-session', last_stop), drive.now)
+  assert not cs.standstill and first <= native.observedMonoTime <= last
+  assert check((SESSION, first, last, False), drive.now)
+  assert not check(('other-session', first, last, False), drive.now)
   assert not check(None, drive.now)
   # A sample taken more than the margin after the last standstill frame is not a stop sample.
-  assert not check((SESSION, native.observedMonoTime - STOP_SAMPLE_MARGIN_NS - 1), drive.now)
+  sample = native.observedMonoTime
+  assert not check((SESSION, first, sample - STOP_SAMPLE_MARGIN_NS - 1, False), drive.now)
+  # Nor is one taken more than the margin before the stop began (a denial sampled while moving).
+  assert not check((SESSION, sample + STOP_SAMPLE_MARGIN_NS + 1, last, False), drive.now)
+  assert check((SESSION, sample + STOP_SAMPLE_MARGIN_NS, max(last, sample + STOP_SAMPLE_MARGIN_NS), False), drive.now)
   # The history expires with the release grace.
-  assert not check((SESSION, drive.now - STOP_HISTORY_NS - 1), drive.now)
+  assert not check((SESSION, first, drive.now - STOP_HISTORY_NS - 1, False), drive.now)
+
+
+def test_a_denial_sampled_before_the_stop_is_not_the_stops():
+  # Review finding: panda withdraws lateral while the car is still moving, the host then reads a
+  # brief standstill, and that still-fresh pre-stop sample must not be excused as the stop's.
+  from openpilot.starpilot.car.mazda.aol import STOP_SAMPLE_MARGIN_NS
+  host = Host(combined_drive(160_000_000))
+  cruise(host)
+  cs, sm, native = delayed_stop_sample(host)
+  drive = host.drive
+  standing = cs.as_builder()
+  standing.standstill = True
+  early_stop = native.observedMonoTime + STOP_SAMPLE_MARGIN_NS + FRAME_NS
+  assert not mazda_aol.expected_stopped_lateral_denial(
+    drive.cp, standing, native, sm=sm, axis_session_id=SESSION, now_ns=drive.now,
+    stop_history=(SESSION, early_stop, early_stop, True))

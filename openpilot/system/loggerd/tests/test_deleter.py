@@ -107,6 +107,19 @@ class TestDeleter(UploaderTestCase):
       os.utime(f, (t, t))
     self.assertDeleteOrder([early, late])
 
+  def test_duplicate_route_counts_are_not_chained(self):
+    # Two routes share count 0x11 after a reset. Which one chained used to depend on directory order;
+    # a duplicated count is ambiguous, so neither it nor the route after it is chained, in any order.
+    times = {"00000010--aaaaaaaaaa": 1_900_000_000., "00000011--bbbbbbbbbb": 1_500_000_000.,
+             "00000011--cccccccccc": 1_700_000_000., "00000012--dddddddddd": 1_600_000_000.}
+    for names in (list(times), list(reversed(times))):
+      chained = deleter._chain_route_counts({("root", n): times[n] for n in names})
+      assert chained == {("root", n): t for n, t in times.items()}
+    # Once one duplicate is gone the count is unique again and chains as usual.
+    del times["00000011--bbbbbbbbbb"]
+    chained = deleter._chain_route_counts({("root", n): t for n, t in times.items()})
+    assert chained[("root", "00000011--cccccccccc")] == chained[("root", "00000012--dddddddddd")] == 1_900_000_000.
+
   def test_no_delete_when_available_space(self):
     f_path = self.make_file_with_data(self.seg_dir, self.f_type)
 

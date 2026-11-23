@@ -533,10 +533,18 @@ def stop_sample(drive, **cs_overrides):
   return cs.as_reader(), sm, native
 
 
+def standing_history(drive, cs, native, now):
+  # selfdrived notes every standstill frame first; model a host that has been standing since panda's sample.
+  from openpilot.starpilot.car.mazda.aol import note_standstill
+  history = note_standstill(None, drive.cp, cs, native.observedMonoTime, SESSION)
+  return note_standstill(history, drive.cp, cs, now, SESSION)
+
+
 def stopped_denial(drive, **cs_overrides):
   from openpilot.starpilot.car.mazda.aol import expected_stopped_lateral_denial
   cs, sm, native = stop_sample(drive, **cs_overrides)
-  return expected_stopped_lateral_denial(drive.cp, cs, native, sm=sm, axis_session_id=SESSION, now_ns=drive.now)
+  return expected_stopped_lateral_denial(drive.cp, cs, native, sm=sm, axis_session_id=SESSION, now_ns=drive.now,
+                                         stop_history=standing_history(drive, cs, native, drive.now))
 
 
 def test_selfdrived_accepts_the_logged_stop_withdrawal():
@@ -573,7 +581,8 @@ def test_selfdrived_still_faults_when_panda_or_the_car_disagree(change):
     native = native.__class__(**{**native.__dict__, 'lateralAllowed': True})
   if change == 'stale':
     now += SAFETY_MAX_AGE_NS + FRAME_NS
-  assert not expected_stopped_lateral_denial(drive.cp, cs, native, sm=sm, axis_session_id=session, now_ns=now)
+  assert not expected_stopped_lateral_denial(drive.cp, cs, native, sm=sm, axis_session_id=session, now_ns=now,
+                                            stop_history=standing_history(drive, cs, native, now))
 
 
 @pytest.mark.parametrize('wire_lag_ns', (WIRE_LAG_NS, 160_000_000, SAFETY_MAX_AGE_NS - PANDA_CATCHUP_NS))

@@ -234,14 +234,17 @@ static void mazda_rx_hook(const CANPacket_t *msg) {
       // edge (reports/mazda-gen2-aol-gate-report.md section 8). It does not
       // establish the engaged or override states.
       if (msg->addr == MAZDA_2019_CRUISE) {
-        acc_main_on = (msg->data[0] & 0x70U) != 0U;
-        bool cruise_engaged = msg->data[0] & 0x20U;
-        bool pre_enable = msg->data[0] & 0x40U;
+        const uint8_t crz_state = (msg->data[0] >> 4) & 0x7U;
+        acc_main_on = crz_state != 0U;
+        // Engaged only in the two defined engaged states, 2 = CRUISE_ENABLED and
+        // 4 = GAS_OVERRIDE. Undefined codes (3, 5..7) never grant control: 40
+        // logged drives show only 0, 1, 2 and 4.
+        const bool cruise_engaged = (crz_state == 2U) || (crz_state == 4U);
         const bool was_allowed = controls_allowed;
-        pcm_cruise_check((cruise_engaged || pre_enable));
+        pcm_cruise_check(cruise_engaged);
         // GEN2 must feed the same accepted-cruise observation the GEN1 path
         // provides, or AOL's neutral/grant sequencing never sees engagement.
-        mazda_aol_engagement(msg, cruise_engaged || pre_enable, !was_allowed && controls_allowed);
+        mazda_aol_engagement(msg, cruise_engaged, !was_allowed && controls_allowed);
       }
     }
 

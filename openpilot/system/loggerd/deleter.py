@@ -117,18 +117,20 @@ def _chain_route_counts(route_times):
   # it the first one deleted. Route N was recorded after route N-1 in the same folder, so it is
   # never treated as older than N-1. Only consecutive counts are chained: a RouteCount reset
   # leaves a gap, so routes on either side of a reset keep their own times.
+  # Two routes with the same count (a reset while older recordings remain) make the order
+  # ambiguous, so a duplicated count breaks the chain on both sides instead of picking one.
   chains = {}
   for key in route_times:
     root, route = key
     match = _COUNTED_ROUTE.fullmatch(route)
     if match:
-      chains.setdefault((root, match['prefix']), {})[int(match['count'], 16)] = key
+      chains.setdefault((root, match['prefix']), {}).setdefault(int(match['count'], 16), []).append(key)
   chained = dict(route_times)
   for routes in chains.values():
     for count in sorted(routes):
-      previous = routes.get(count - 1)
-      if previous is not None:
-        chained[routes[count]] = max(chained[routes[count]], chained[previous])
+      current, previous = routes[count], routes.get(count - 1)
+      if len(current) == 1 and previous is not None and len(previous) == 1:
+        chained[current[0]] = max(chained[current[0]], chained[previous[0]])
   return chained
 
 

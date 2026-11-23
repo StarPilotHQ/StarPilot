@@ -92,8 +92,8 @@ def _stock_stopped_lateral_denial(cp, state, native, *, sm, axis_session_id, now
     _configured_transport_native(sm, cp, axis_session_id, now_ns, native, allow_restricted_lateral=True) == native)
 
 
-# Tolerance for treating a delayed denial as the stop's: the sample must have been taken no later
-# than this after the host's last standstill frame. In 39 logged stops (drives 4f-53) panda's
+# Tolerance for treating a denial as the stop's: the sample must have been taken no earlier than
+# this before the host's first standstill frame and no later than this after its last. In 39 logged stops (drives 4f-53) panda's
 # stop denials began from 14 ms before the host's first standstill frame and ended 4-95 ms before
 # its last, so real stop samples fall well inside it. It is a tolerance, not proof of cause: a
 # denial for another reason sampled within it also passes, which is why every other check (no
@@ -105,17 +105,24 @@ STOP_HISTORY_NS = 250_000_000
 
 
 def note_standstill(history, cp, cs, cs_ns, session):
-  """(session, ns) of the host's last standstill frame in Drive for this AOL session.
+  """(session, first_ns, last_ns, standing) for the host's latest stop in Drive in this AOL session.
 
-  A different session discards the history, so a stop never explains a later session's denial.
+  first_ns and last_ns are the stop's first and last standstill frames; standing says the car is
+  still in it, so the next standstill frame after moving starts a new stop. A different session
+  discards the history, so a stop never explains a later session's denial.
   """
   try:
     if (cs.standstill and session and cs_ns > 0 and cp.brand == "mazda" and cs.canValid and not cs.canTimeout and
         cs.gearShifter == structs.CarState.GearShifter.drive):
-      return (session, int(cs_ns))
-  except (AttributeError, TypeError, ValueError):
+      cs_ns = int(cs_ns)
+      if history is not None and history[0] == session and history[3] and history[2] <= cs_ns:
+        return (session, history[1], cs_ns, True)
+      return (session, cs_ns, cs_ns, True)
+  except (AttributeError, TypeError, ValueError, IndexError):
     return None
-  return history if history is not None and history[0] == session else None
+  if history is None or history[0] != session:
+    return None
+  return (session, history[1], history[2], False)
 
 
 def expected_stopped_lateral_denial(cp, cs, native, *, sm, axis_session_id, now_ns, stop_history=None) -> bool:
@@ -128,10 +135,11 @@ def expected_stopped_lateral_denial(cp, cs, native, *, sm, axis_session_id, now_
   Lateral still goes inactive on the same frame and needs a fresh panda grant to return;
   this only stops the withdrawal being a fault.
 
-  The denial is treated as the stop's when the host reads standstill now, or when panda took
-  the sample no later than STOP_SAMPLE_MARGIN_NS after the host's last standstill frame
-  (stop_history, from note_standstill) and the car left standstill at most STOP_HISTORY_NS ago:
-  a short stop can end before panda's delayed sample arrives. Host standstill (SPEED < 0.1 m/s) covers panda's not-moving gate
+  The denial is treated as the stop's only when panda took the sample within the host's latest
+  stop (stop_history, from note_standstill), give or take STOP_SAMPLE_MARGIN_NS at either end,
+  and the host either reads standstill now or left it at most STOP_HISTORY_NS ago: a short stop
+  can end before panda's delayed sample arrives. A sample from before the stop began is not
+  the stop's, even if it is still fresh when the host reaches standstill. Host standstill (SPEED < 0.1 m/s) covers panda's not-moving gate
   (<= 0.1 km/h). Everything else stays a fault: a steering fault, an ACC fault, not in
   Drive, a stale or different panda or session, or longitudinal also withdrawn
   (_configured_transport_native refuses a requested-but-denied longitudinal axis).
@@ -144,11 +152,13 @@ def expected_stopped_lateral_denial(cp, cs, native, *, sm, axis_session_id, now_
     # admission check reads CarParams (about 100 us on the device).
     if native is None or not native.requestedLateral or native.lateralAllowed:
       return False
-    stopped_ns = (int(stop_history[1]) if stop_history is not None and axis_session_id and
-                  stop_history[0] == axis_session_id else 0)
-    stopped = bool(cs.standstill or
-      0 < stopped_ns <= now_ns <= stopped_ns + STOP_HISTORY_NS and
-      0 < native.observedMonoTime <= stopped_ns + STOP_SAMPLE_MARGIN_NS)
+    if stop_history is None or not axis_session_id or stop_history[0] != axis_session_id:
+      return False
+    first_ns, last_ns = int(stop_history[1]), int(stop_history[2])
+    # The sample must fall inside this stop, within the timing margin at either end: a denial
+    # sampled while still moving, before the stop began, is not the stop's.
+    in_stop = 0 < first_ns <= last_ns and first_ns - STOP_SAMPLE_MARGIN_NS <= native.observedMonoTime <= last_ns + STOP_SAMPLE_MARGIN_NS
+    stopped = bool(in_stop and (cs.standstill or last_ns <= now_ns <= last_ns + STOP_HISTORY_NS))
     return bool(stopped and
       cs.canValid and not cs.canTimeout and not cs.steerFaultTemporary and not cs.steerFaultPermanent and
       not cs.accFaulted and cs.gearShifter == structs.CarState.GearShifter.drive and native.pandaInventory and

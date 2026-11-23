@@ -176,7 +176,19 @@ class TestMazda2019Safety(common.CarSafetyTest, common.DriverTorqueSteeringSafet
     return self.packer.make_can_msg_safety("ENGINE_DATA", 2, {"PEDAL_GAS": gas})
 
   def _pcm_status_msg(self, enable):
-    return self.packer.make_can_msg_safety("CRUZE_STATE", 0, {"CRZ_STATE": 3 if enable else 1})
+    return self.packer.make_can_msg_safety("CRUZE_STATE", 0, {"CRZ_STATE": 2 if enable else 1})
+
+  def test_only_defined_cruise_states_engage(self):
+    if not (self.SAFETY_PARAM & MazdaSafetyFlags.GEN2):
+      self.skipTest("GEN2 decode")
+    # 2 = CRUISE_ENABLED and 4 = GAS_OVERRIDE engage; the undefined codes 3, 5, 6
+    # and 7 must not, including on a rising edge from READY.
+    for state in range(8):
+      with self.subTest(state=state):
+        self.safety.set_controls_allowed(0)
+        self._rx(self.packer.make_can_msg_safety("CRUZE_STATE", 0, {"CRZ_STATE": 1}))
+        self._rx(self.packer.make_can_msg_safety("CRUZE_STATE", 0, {"CRZ_STATE": state}))
+        self.assertEqual(bool(self.safety.get_controls_allowed()), state in (2, 4), f"CRZ_STATE={state}")
 
   def test_acc_main_follows_cruise_state(self):
     if not (self.SAFETY_PARAM & MazdaSafetyFlags.GEN2):
@@ -572,6 +584,22 @@ class TestMazda2019Safety(common.CarSafetyTest, common.DriverTorqueSteeringSafet
     self.assertTrue(self._tx(self._torque_cmd_msg(0)))
     self._healthy()
     self.assertFalse(self._tx(self._torque_cmd_msg(225)))
+    self.assertTrue(self._tx(self._torque_cmd_msg(45)))
+
+  def test_recovery_without_a_zero_still_ramps_from_zero(self):
+    # Review question: the pause starts at 180 and every command during it is a refused nonzero, so no
+    # zero ever reaches the TI2. The reset history still lets the first command after recovery only
+    # ramp up from zero (one MAX_RATE_UP step, either sign); it can never jump back to 180. The
+    # only rule bent is a faster-than-MAX_RATE_DOWN drop toward zero, which releases torque.
+    self.safety.set_controls_allowed(1)
+    self._set_prev_torque(0)
+    for t in (45, 90, 135, 180):
+      self.assertTrue(self._tx(self._torque_cmd_msg(t)))
+    self._rx_raw(self._ti2_feedback_msg(viol=self.TI_ALL_02))
+    self.assertFalse(self._tx(self._torque_cmd_msg(180)))
+    self._healthy()
+    for t in (180, 90, -90):
+      self.assertFalse(self._tx(self._torque_cmd_msg(t)), t)
     self.assertTrue(self._tx(self._torque_cmd_msg(45)))
 
   def test_refused_torque_while_unhealthy_does_not_advance_the_ramp(self):

@@ -282,7 +282,8 @@ class CarState(CarStateBase):
     self.steer_release_speed = round(cp_cam.vl["SPEED"]["SPEED"] * 100) <= GEN2_STEER_RELEASE_SPEED_RAW
     if self.CP.flags & MazdaSafetyFlags.GEN2:
       ret.cruiseState.speed = cp.vl["CRUZE_STATE"]["CRZ_SPEED"] * unit_conversion
-      ret.cruiseState.enabled = (cp.vl["CRUZE_STATE"]["CRZ_STATE"] >= 2)
+      # Only the defined engaged states (2 = ENABLED, 4 = GAS_OVERRIDE); panda decodes the same way.
+      ret.cruiseState.enabled = int(cp.vl["CRUZE_STATE"]["CRZ_STATE"]) in (2, 4)
       ret.cruiseState.available = (cp.vl["CRUZE_STATE"]["CRZ_STATE"] != 0)
     else:
       ret.cruiseState.speed = cp_body.vl["CRUZE_STATE"]["CRZ_SPEED"] * unit_conversion
