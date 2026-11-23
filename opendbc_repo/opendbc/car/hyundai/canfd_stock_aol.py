@@ -117,7 +117,8 @@ CARNIVAL_LONG_AOL_WORD = 0x28B4
 LONG_AOL_WORDS = frozenset((CARNIVAL_LONG_AOL_WORD, 0x080D, 0x0815, 0x0895, 0x2815, 0x2895)) | SPORTAGE_LONG_AOL_WORDS
 CCNC_LONG_AOL_WORDS = frozenset((0x0C0C, 0x0C0E, 0x0C2C, 0x0C2E))
 LONG_EV_CARS = frozenset((CAR.HYUNDAI_IONIQ_5, CAR.HYUNDAI_KONA_EV_2ND_GEN))
-LONG_AOL_WORDS |= CCNC_LONG_AOL_WORDS
+KONA_IDLE_AOL_WORD = 0x1C0C
+LONG_AOL_WORDS |= CCNC_LONG_AOL_WORDS | {KONA_IDLE_AOL_WORD}
 GENERIC_HDA2_CARS = frozenset((
   CAR.GENESIS_G80_2ND_GEN_FL,
   CAR.HYUNDAI_IONIQ_5_N,
@@ -147,6 +148,12 @@ INDEPENDENT_LONG_BUTTON_CARS = LONG_EV_CARS | GENERIC_HDA2_CARS | {
   CAR.KIA_EV6, CAR.KIA_NIRO_EV_2ND_GEN, CAR.HYUNDAI_IONIQ_6, CAR.GENESIS_GV70_ELECTRIFIED_1ST_GEN,
   CAR.GENESIS_GV60_EV_1ST_GEN, CAR.KIA_SPORTAGE_5TH_GEN, CAR.KIA_CARNIVAL_2025,
 }
+
+
+def kona_idle_handoff_profile(cp):
+  return (cp.carFingerprint == CAR.HYUNDAI_KONA_2ND_GEN and len(cp.safetyConfigs) == 1 and
+          cp.alphaLongitudinalAvailable and cp.openpilotLongitudinalControl and not cp.pcmCruise and
+          _base_word(cp, experiences=(0, 32)) == 0x408)
 
 
 def qualified_long(cp, *, marked_only=False):
@@ -189,6 +196,8 @@ def qualified_long(cp, *, marked_only=False):
     if not raw & 0x2000:
       return False
     raw &= ~0x2000
+  if raw == KONA_IDLE_AOL_WORD:
+    return cp.alternativeExperience == 32 and kona_idle_handoff_profile(cp)
   return (raw == (word | 0x804) and cp.alternativeExperience == 32) or (
     not marked_only and raw == (word | 4) and cp.alternativeExperience == 0
   )

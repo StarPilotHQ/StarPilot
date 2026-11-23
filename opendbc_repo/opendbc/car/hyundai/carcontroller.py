@@ -31,6 +31,7 @@ from opendbc.car.hyundai.canfd_lfa_status import preserves_stock_lfa
 from opendbc.car.hyundai.classic_scc_aol import qualified as qualified_classic_stock_aol
 from opendbc.car.hyundai.classic_long_aol import AOL_EXPERIENCE, qualified as qualified_classic_long_aol
 from opendbc.car.hyundai.canfd_stock_aol import qualified as qualified_canfd_stock_aol, qualified_long as qualified_canfd_long_aol
+from opendbc.car.hyundai.canfd_stock_aol import KONA_IDLE_AOL_WORD
 from opendbc.car.hyundai.g90_longitudinal import G90LongitudinalPolicy
 from opendbc.car.hyundai.gv70_longitudinal import is_gv70, scc_request, suppress_stock_cancel
 from opendbc.car.hyundai.g90_lead import G90LeadState, eligible as g90_lead_eligible
@@ -174,6 +175,7 @@ class CarController(CarControllerBase):
                                   int(CP.safetyConfigs[-1].safetyParam) in (0x0811, 0x0891))
     self.canfd_torque_aol_status = (qualified_canfd_stock_aol(CP) or qualified_canfd_long_aol(CP))
     self.ccnc_fault_ownership_required = preserves_stock_lfa(CP)
+    self.kona_last_lfa_counter = None
     self.canfd_dash_icons = CanFDDashIcons() if ioniq6_status or self.canfd_torque_aol_status else None
     self.classic_dash_icons = CanFDDashIcons() if classic_aol_dash_enabled(CP) else None
     self.classic_lfa_icon = None
@@ -569,14 +571,26 @@ class CarController(CarControllerBase):
           stock_ccnc_owned = stock_source.owns_ccnc_fault_status(clock_boot_ns(), display_sample_ns=CS.ccnc_162_ts_ns,
                                                                healthy=display_healthy, qualified_warning=stock_owned_status)
       damping_source = getattr(CS, "stock_lkas_damping", None)
-      can_sends.extend(hyundaicanfd.create_steering_messages(self.packer, self.CP, self.CAN,
-                                                            steering_status_active, apply_steer_req, apply_torque,
-                                                            stock_lfa=stock_lfa, stock_lfa_faults=stock_faults,
-                                                            stock_lfa_owned_status=stock_owned_status,
-                                                            stock_lkas_damping=(damping_source.current_damping(clock_boot_ns())
-                                                              if damping_source is not None else None)))
-      if _projection is not None:
-        _projection.emit('hyundai.CANFD_TORQUE', apply_torque, apply_steer_req, can_sends[-1])
+      kona_handoff = (self.CP.carFingerprint == CAR.HYUNDAI_KONA_2ND_GEN and
+                      self.CP.safetyConfigs[-1].safetyParam == KONA_IDLE_AOL_WORD)
+      lfa_counter = None
+      if kona_handoff:
+        if (CC.enabled or CC.latActive) and stock_lfa is not None:
+          if stock_lfa[2] != self.kona_last_lfa_counter:
+            lfa_counter = stock_lfa[2]
+            self.kona_last_lfa_counter = lfa_counter
+        else:
+          self.kona_last_lfa_counter = None
+      if not kona_handoff or lfa_counter is not None:
+        can_sends.extend(hyundaicanfd.create_steering_messages(self.packer, self.CP, self.CAN,
+                                                              steering_status_active, apply_steer_req, apply_torque,
+                                                              stock_lfa=stock_lfa, stock_lfa_faults=stock_faults,
+                                                              stock_lfa_owned_status=stock_owned_status,
+                                                              stock_lkas_damping=(damping_source.current_damping(clock_boot_ns())
+                                                                if damping_source is not None else None),
+                                                              lfa_counter=lfa_counter))
+        if _projection is not None:
+          _projection.emit('hyundai.CANFD_TORQUE', apply_torque, apply_steer_req, can_sends[-1])
 
     # prevent LFA from activating on LKA steering cars by sending "no lane lines detected" to ADAS ECU
     if (

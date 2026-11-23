@@ -37,9 +37,10 @@ def test_factory_ccnc_alpha_admits_only_matching_owner(car, alternate, offset):
   assert qualified_long(cp) and independent_cruise_buttons_supported(cp)
   policy = policy_for(cp)
   assert policy.intent_supported and policy.runtime_supported and policy.explicit_latch
-  assert policy.safety_param_addition == 0x800 and policy.alternative_experience_addition == 32
+  expected = 0x1800 if car == CARS[0] and not alternate and offset == 0 else 0x800
+  assert policy.safety_param_addition == expected and policy.alternative_experience_addition == 32
   assert cp.to_dict() == original
-  word = int(cp.safetyConfigs[-1].safetyParam) | 0x800
+  word = int(cp.safetyConfigs[-1].safetyParam) | expected
   cp.safetyConfigs[-1].safetyParam = word
   cp.alternativeExperience = 32
   assert qualified_long(cp, marked_only=True)
@@ -108,7 +109,8 @@ def test_actual_card_marker_and_settings_preserve_startup_contract(car, alternat
     try:
       with structs.CarParams.from_bytes(saved.get('CarParams')) as published:
         assert published.openpilotLongitudinalControl and not published.pcmCruise
-        assert published.safetyConfigs[-1].safetyParam == (base_word | (0x800 if enabled else 0))
+        addition = 0x1800 if car == CARS[0] and not alternate and offset == 0 else 0x800
+        assert published.safetyConfigs[-1].safetyParam == (base_word | (addition if enabled else 0))
         assert published.alternativeExperience == (32 if enabled else 0)
         assert qualified_long(published, marked_only=enabled)
         assert CarInterface.startup_required(published) == required
@@ -199,3 +201,29 @@ def test_wheel_choices_keep_aol_with_either_longitudinal_owner(car, alternate, a
   feature = WheelFeature(Owner())
   assert 'Toggle AOL' in feature.choices('LKASButtonControl')
   assert 'Toggle AOL' in feature.choices('MainCruiseButtonControl')
+
+
+def test_idle_handoff_omits_only_kona_steering_packet():
+  reference_cp = kona_params(CARS[0])
+  handoff_cp = kona_params(CARS[0])
+  for cp, word in ((reference_cp, 0x0C0C), (handoff_cp, 0x1C0C)):
+    cp.safetyConfigs[0].safetyParam = word
+    cp.alternativeExperience = 32
+  reference, candidate = CarInterface(reference_cp), CarInterface(handoff_cp)
+  source = Mock()
+  source.owns_display_status.return_value = False
+  candidate.CS.stock_lfa_status = source
+  states = ((False, False, 10), (True, True, 11), (False, True, 11), (True, False, 12),
+            (True, True, None), (False, False, 13), (True, True, 14))
+  expected_counters = (None, 11, None, 12, None, None, 14)
+  for (enabled, lateral, camera_counter), expected in zip(states, expected_counters, strict=True):
+    if camera_counter is None:
+      source.current.return_value = None
+    else:
+      source.current.return_value = bytes([0, 0, camera_counter] + [0] * 13)
+    ctrl = structs.CarControl(enabled=enabled, latActive=lateral).as_reader()
+    _, before = reference.apply(ctrl, 1_000_000_000)
+    _, after = candidate.apply(ctrl, 1_000_000_000)
+    assert [frame for frame in after if frame[0] != 0x12A] == [frame for frame in before if frame[0] != 0x12A]
+    assert any(frame[0] == 0x12A for frame in before)
+    assert [data[2] for addr, data, _ in after if addr == 0x12A] == ([] if expected is None else [expected])
