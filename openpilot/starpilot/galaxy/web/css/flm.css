@@ -47,7 +47,10 @@
 .gx-tuner .gx-tuner__saved-list { display: grid;gap: 12px;border-radius: 14px;padding: 20px;background: color-mix(in srgb, var(--tuner-saved) 7%, var(--tuner-panel));border: 1px solid color-mix(in srgb, var(--tuner-saved) 35%, var(--tuner-border)); }
 .gx-tuner__tune-report { display: grid;gap: 24px; }
 .gx-tuner__saved-list h3 { color: var(--tuner-saved);font-size: 21px;line-height: 1.3; }
+.gx-tuner__saved-list h4 { font-size: 15px;line-height: 1.4; }
 .gx-tuner__saved-list > div { display: flex;justify-content: space-between;gap: 16px;font-size: 14px; }
+.gx-tuner__saved-list small { display: block;margin-top: 3px;color: var(--on-surface-variant);line-height: 1.4; }
+.gx-tuner__saved-value { flex: none;text-align: end;font-variant-numeric: tabular-nums; }
 .gx-tuner__saved-list p { font-size: 13px;color: var(--on-surface-variant);line-height: 1.6; }
 .gx-tuner .gx-tuner__tune-layout { grid-template-columns: minmax(0, 1fr);gap: 24px; }
 .gx-tuner .gx-tuner__groups { grid-template-columns: repeat(3, minmax(0, 1fr));gap: 12px; }

@@ -229,6 +229,32 @@ for (const [row, expected, forbidden] of [[confirmedRow, 'Change confirmed', 'Ma
   assert(!textOf(dial).includes(forbidden), forbidden)
   assert.equal(JSON.stringify(context.manualState), before, 'Rendering labels never changes the saved value, lock or reset state')
 }
+const savedReport = structuredClone(data)
+Object.assign(savedReport.current.details, {
+  'Saved route configuration state': 'ready_for_next_drive',
+  'Full surface coordinates': SURFACE_NAMES.map(name => [name, { center_taper_max: .005, turn_in_boost_right: .0025 }[name] ?? 0]),
+})
+context.report = savedReport
+context.manualState = { status: 'ready', data: { parked: false, rows: [
+  { ...confirmedRow, coordinate: 'center_taper_max' }, // Existing auto value copied into the manual document.
+  { ...confirmedRow, coordinate: 'turn_in_boost_right', value: '0.7500', acceptedFindingValue: undefined, coordinateLocked: true },
+  { ...confirmedRow, coordinate: 'friction_threshold_mid', value: '0', acceptedFindingValue: 0, available: false },
+  { ...confirmedRow, coordinate: 'unwind_taper_right', acceptedFindingValue: undefined },
+] }, error: '' }
+const savedCard = () => walk(rendered.call(context, context, [])).find(node => node.props?.['aria-labelledby'] === 'tuner-saved-title')
+const summaryRows = () => Object.fromEntries(walk(savedCard()).filter(node => node.props?.['data-saved-coordinate'])
+  .map(node => [node.props['data-saved-coordinate'], textOf(node)]))
+assert.match(textOf(savedCard()), /Auto-learned settings.*Your changes/)
+const savedRows = summaryRows()
+assert.deepEqual(Object.keys(savedRows), ['center_taper_max', 'turn_in_boost_right', 'friction_threshold_mid'])
+assert.match(savedRows.center_taper_max, /0.5%.*Default 0%/)
+assert.doesNotMatch(savedRows.center_taper_max, /Change confirmed/)
+assert.match(savedRows.turn_in_boost_right, /Manual override.*0.75%.*Default 0%/)
+assert.doesNotMatch(savedRows.turn_in_boost_right, /0.25%/)
+assert.match(savedRows.friction_threshold_mid, /Change confirmed.*Eligible for Auto Learn.*0%.*Default 0%/)
+context.report = null
+assert.equal(Object.keys(summaryRows()).length, 3, 'Saved manual settings do not require a completed-drive report')
+assert.match(textOf(savedCard()), /Auto-learned settings.*No automatic save.*Your changes/)
 Object.assign(context, beforeOwnership)
 assert.doesNotMatch(FlmPage.template, /Manual override saved|Number\(row.value\) !== 0/)
 console.log('Actual tune cards distinguish confirmed eligible changes from manual locks, defaults, context mismatch and read-only editing')

@@ -329,7 +329,7 @@ try {
       assert.equal(await execute('return document.querySelectorAll(".gx-tuner__idea-grid .gx-tuner__idea").length'), 1)
       assert.equal(await execute('return document.querySelectorAll(".gx-tuner__curve-summary [data-coordinate]").length'), 4)
       assert(await execute(`const saved=document.querySelector('[aria-labelledby="tuner-saved-title"]'),suggestions=document.querySelector('[aria-labelledby="tuner-suggestions-title"]'),heading=document.querySelector('#tuner-suggestions-title');
-        return saved.nextElementSibling===suggestions&&saved.textContent.includes('No saved adjustments reported.')&&saved.querySelector('h3').textContent==='Auto-learned settings'&&
+        return saved.nextElementSibling===suggestions&&saved.textContent.includes('No saved adjustments reported.')&&saved.querySelector('h3').textContent==='Saved settings'&&saved.querySelector('h4').textContent==='Auto-learned settings'&&
           heading.textContent==='Suggestions · needs more evidence'&&saved.getBoundingClientRect().bottom<suggestions.getBoundingClientRect().top&&
           [...suggestions.querySelectorAll('.gx-tuner__idea')].every(e=>Boolean(heading.compareDocumentPosition(e)&Node.DOCUMENT_POSITION_FOLLOWING))`), 'One suggestions heading separates every steering and speed finding from the auto-learned settings')
       checks.push(`${width}/${theme}/saved-and-suggestion-section-boundary`)
@@ -420,7 +420,7 @@ try {
     }
     if (['saved', 'none', 'contradictory', 'unknown-change'].includes(name)) {
       await click('#tuner-tab-tune')
-      assert(await execute('return document.querySelector("#tuner-saved-title").textContent==="Auto-learned settings"'))
+      assert(await execute('return document.querySelector("#tuner-saved-title").textContent==="Saved settings"'))
       if (name === 'saved') {
         assert(await execute('const e=document.querySelector(".gx-tuner__saved-list");return e.textContent.includes("Saved for the next drive")&&e.textContent.includes("Highway center taper")&&!e.querySelector(".gx-tuner__idea")'))
         assert.equal(await execute('return document.querySelectorAll(".gx-tuner__findings [data-coordinate]").length'), 4, 'The already-saved target stays in learned settings; the four remaining suggestions stay visible')
@@ -599,9 +599,10 @@ try {
   await click('dialog[aria-labelledby=flm-restore-title] .gx-actions button:last-child')
   await until(() => execute('return !document.querySelector("dialog[open]")'))
   await until(() => execute('return document.querySelector("[data-role=flm-backup]").textContent.includes("Manual values stay locked")'))
-  await until(() => execute('return !!document.querySelector("#tuner-recovered-title")'))
-  await show('#tuner-recovered-title');await layout('backup/recovered-manual-values');await capture('backup-recovered-manual-values')
-  assert(await execute('return document.querySelector("#tuner-recovered-title").parentElement.textContent.includes("Manually selected values stay locked")'))
+  await until(() => execute('return !!document.querySelector("#tuner-panel-tune [data-saved-coordinate=friction_threshold_mid]")'))
+  await show('#tuner-saved-title');await layout('backup/recovered-manual-values');await capture('backup-recovered-manual-values')
+  assert(await execute(`const row=document.querySelector('[data-saved-coordinate=friction_threshold_mid]');
+    return row.textContent.includes('Manual override')&&row.textContent.includes('0.36%')&&row.textContent.includes('Default 0%')`))
   checks.push('backup/explicit-manual-recovery-without-auto-qualification')
   await change('applied', { parked: false });await click('#tuner-tab-tune')
   await click('[data-role=flm-backup] summary')
@@ -631,6 +632,8 @@ try {
   assert(await execute('return document.querySelector("[data-coordinate=highway_center_taper_max]").textContent.includes("Accepted for next drive")'))
   await execute('window.flm.acceptedFindingNames=[]')
   assert(await execute('return window.flm.findingAccepted(window.flm.review.manual[0])'), 'Saved acceptance survives clearing local UI state')
+  assert(await execute(`const row=document.querySelector('[data-saved-coordinate=highway_center_taper_max]');
+    return row.textContent.includes('Change confirmed')&&row.textContent.includes('Eligible for Auto Learn')&&row.textContent.includes('Default 0%')`))
   await layout('finding/accepted-learning-on');await capture('finding-accepted-learning-on')
   await click('.gx-tuner__curve-summary > details > summary')
   await click('[data-coordinate=friction_threshold_mid] [data-action=accept-finding]')
