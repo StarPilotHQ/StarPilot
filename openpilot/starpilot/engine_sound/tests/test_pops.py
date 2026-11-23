@@ -62,9 +62,9 @@ def test_quiet_at_zero_volume_and_profiles_without_pops_are_unchanged(tmp_path):
   pops = Pops(1.0, 700.0, 7000.0)
   assert not np.concatenate([pops.render(6000.0, load, FRAMES, 0.0) for load in [1.0] * 50 + [0.0] * 100]).any()
   bank = load_bank(make_bank(tmp_path))
-  plain = LoopSynth(PROFILES['bmw_m52'], bank)
+  plain = LoopSynth(PROFILES['ferrari_f136'], bank)
   assert plain.effects == []
-  popping = LoopSynth(replace(PROFILES['bmw_m52'], pops=1.0), bank)
+  popping = LoopSynth(replace(PROFILES['ferrari_f136'], pops=1.0), bank)
   steps = [(5000.0, 1.0)] * 50 + [(5000.0 - 20 * i, 0.0) for i in range(150)]
   quiet = np.concatenate([plain.render(rpm, load, FRAMES, 1.0) for rpm, load in steps])
   loud = np.concatenate([popping.render(rpm, load, FRAMES, 1.0) for rpm, load in steps])
@@ -72,10 +72,9 @@ def test_quiet_at_zero_volume_and_profiles_without_pops_are_unchanged(tmp_path):
   assert np.abs(loud - quiet).max() > 0.05 and np.abs(loud).max() <= 1.0
 
 
-def test_the_m3s_pop_on_their_own_banks_and_the_m52_does_not():
+def test_the_m3s_pop_on_their_own_banks():
   assert (PROFILES['bmw_m3'].loops, PROFILES['bmw_m3_deep'].loops) == ('bmw_m3', 'bmw_m3_deep')
   assert PROFILES['bmw_m3'].pops > 0 and PROFILES['bmw_m3_deep'].pops > 0
-  assert PROFILES['bmw_m52'].pops == 0
 
 
 def test_burbling_profiles():

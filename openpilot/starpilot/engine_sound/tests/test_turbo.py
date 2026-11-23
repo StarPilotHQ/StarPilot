@@ -104,9 +104,9 @@ def test_no_valve_without_boost_or_without_a_lift():
 def test_quiet_at_zero_volume_and_engines_without_a_turbo_are_unchanged(tmp_path):
   assert not run(Turbo(1.0, 800.0, 6000.0), [(4000.0, 1.0)] * 200 + [(3800.0, 0.0)] * 50, volume=0.0).any()
   bank = load_bank(make_bank(tmp_path))
-  plain = LoopSynth(PROFILES['bmw_m52'], bank)
+  plain = LoopSynth(PROFILES['ferrari_f136'], bank)
   assert plain.effects == []
-  turbo = LoopSynth(replace(PROFILES['bmw_m52'], turbo=1.0), bank)
+  turbo = LoopSynth(replace(PROFILES['ferrari_f136'], turbo=1.0), bank)
   steps = [(4000.0, 1.0)] * 200 + [(3800.0, 0.0)] * 50
   out = np.concatenate([turbo.render(rpm, load, FRAMES, 1.0) for rpm, load in steps])
   assert np.abs(out).max() <= 1.0

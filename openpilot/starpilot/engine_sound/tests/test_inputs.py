@@ -66,8 +66,8 @@ def test_profile_switch_restarts_from_idle():
   engine = Engine('lfa')
   for _ in range(100):
     engine.block(1.0, 0.0, 0.0, False, 1.0)
-  engine.select('bmw_m52')
-  assert engine.profile.name == 'bmw_m52' and engine.model.rpm == engine.profile.idle_rpm
+  engine.select('ferrari_f136')
+  assert engine.profile.name == 'ferrari_f136' and engine.model.rpm == engine.profile.idle_rpm
 
 
 class Sub:
@@ -92,7 +92,7 @@ class Params:
 def test_settings_fall_back_on_missing_or_unknown_values():
   assert settings.profile_name(Params({})) == 'lfa'
   assert settings.profile_name(Params({'EngineSoundProfile': 'tractor'})) == 'lfa'
-  assert settings.profile_name(Params({'EngineSoundProfile': b'bmw_m52'})) == 'bmw_m52'
+  assert settings.profile_name(Params({'EngineSoundProfile': b'ferrari_f136'})) == 'ferrari_f136'
   assert settings.volume(Params({})) == 0.6
   assert settings.volume(Params({'EngineSoundVolume': 80})) == 0.8
   assert settings.volume(Params({'EngineSoundVolume': 500})) == 1.0

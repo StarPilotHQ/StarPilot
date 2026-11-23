@@ -74,7 +74,7 @@ def test_openpilot_acceleration_counts_as_load_with_pedal_at_rest():
 
 
 def test_stopped_in_drive_idles_and_pedal_slips_above_idle():
-  profile = PROFILES['bmw_m52']
+  profile = PROFILES['ferrari_f136']
   model = EngineModel(profile)
   assert run(model, 2.0, 0.0, in_gear=True)[0] == pytest.approx(profile.idle_rpm, abs=1)
   assert run(model, 2.0, 1.0, in_gear=True)[0] == pytest.approx(profile.idle_rpm + profile.launch_slip_rpm, abs=5)

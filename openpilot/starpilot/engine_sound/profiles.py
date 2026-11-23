@@ -81,23 +81,22 @@ def _recorded(name: str, label: str, *, cylinders: int, idle: float, redline: fl
 
 
 PROFILES: dict[str, Profile] = {profile.name: profile for profile in (
-  # trim_db evens the average of 30 and 65 mph cruise and the demo drive (tools/render_drive.py) at -17.6 LUFS.
-  _recorded('bmw_m3', 'BMW M3', cylinders=6, idle=700.0, redline=7000.0, pops=1.0, burble=True, trim_db=-1.4),
+  # trim_db evens the average of 30 and 65 mph cruise and the demo drive (tools/render_drive.py) at -14.6 LUFS.
+  _recorded('bmw_m3', 'BMW M3', cylinders=6, idle=700.0, redline=7000.0, pops=1.0, burble=True, trim_db=1.6),
   _recorded('bmw_m3_deep', 'BMW M3 Deep', cylinders=6, idle=700.0, redline=7000.0, pops=1.0, burble=True, pop_pitch=0.8,
-            trim_db=0.2),
-  _recorded('bmw_m52', 'BMW M52', cylinders=6, idle=700.0, redline=7000.0, trim_db=0.5),
-  _recorded('f1_car', 'F1 Car', cylinders=12, idle=2000.0, redline=17000.0),
-  _recorded('ferrari_f136', 'Ferrari F136', cylinders=8, idle=1000.0, redline=9000.0),
+            trim_db=3.2),
+  _recorded('f1_car', 'F1 Car', cylinders=12, idle=2000.0, redline=17000.0, trim_db=3.0),
+  _recorded('ferrari_f136', 'Ferrari F136', cylinders=8, idle=1000.0, redline=9000.0, trim_db=3.0),
   # Banks from real recordings that end at 3000 and 5250 rpm; above about 1.5 times that the loops sound sped up.
-  _recorded('hellcat', 'Hellcat', cylinders=8, idle=700.0, redline=4500.0, trim_db=0.5),
-  _recorded('jaguar_ftype', 'Jaguar F-Type', cylinders=8, idle=721.0, redline=6500.0, pops=1.0, burble=True, trim_db=3.6),
-  _recorded('lfa', 'LFA', cylinders=10, idle=1000.0, redline=9000.0, trim_db=-0.5),
+  _recorded('hellcat', 'Hellcat', cylinders=8, idle=700.0, redline=4500.0, trim_db=3.5),
+  _recorded('jaguar_ftype', 'Jaguar F-Type', cylinders=8, idle=721.0, redline=6500.0, pops=1.0, burble=True, trim_db=6.6),
+  _recorded('lfa', 'LFA', cylinders=10, idle=1000.0, redline=9000.0, trim_db=2.5),
   # Recorded only at idle and from 3250 rpm up, so it is geared short and shifts like a race car to stay in that range.
   _recorded('nissan_super_gt', 'Nissan Super GT1', cylinders=4, idle=1556.0, redline=7500.0, upshift=0.62, downshift=0.45,
-            gearing=1.2, trim_db=-0.2),
+            gearing=1.2, trim_db=2.8),
   _recorded('nissan_super_gt2', 'Nissan Super GT2', cylinders=4, idle=1556.0, redline=7500.0, upshift=0.62, downshift=0.45,
-            gearing=1.2, trim_db=1.8),
-  _recorded('supra_turbo', 'Supra Turbo', cylinders=6, idle=800.0, redline=6000.0, turbo=1.0, trim_db=-4.0),
+            gearing=1.2, trim_db=4.8),
+  _recorded('supra_turbo', 'Supra Turbo', cylinders=6, idle=800.0, redline=6000.0, turbo=1.0, trim_db=-1.0),
 )}
 
 

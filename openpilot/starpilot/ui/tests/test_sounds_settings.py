@@ -101,7 +101,7 @@ class SoundsSettingsTests(unittest.TestCase):
     self.assertEqual([self.row(key).value for key in ("EngineSound", "EngineSoundProfile", "EngineSoundVolume")],
                      ["Off", "LFA", "60"])
     self.assertNotIn("EngineSoundPreview", [row.key for row in self.owner.snapshot().rows])
-    for key, value, saved in (("EngineSound", "On", True), ("EngineSoundProfile", "BMW M52", "bmw_m52"),
+    for key, value, saved in (("EngineSound", "On", True), ("EngineSoundProfile", "F1 Car", "f1_car"),
                               ("EngineSoundVolume", "80", 80)):
       row = self.row(key)
       self.assertTrue(self.owner.apply(FeatureSettingsRequest(key, row.source, value)))
@@ -122,16 +122,16 @@ class SoundsSettingsTests(unittest.TestCase):
     self.params.put("EngineSoundProfile", "race_car", block=True)
     row = self.row("EngineSoundProfile")
     self.assertEqual((row.value, row.repair_value), ("LFA", ""))
-    self.assertEqual([r.value for r in self.owner.engine_type_snapshot().rows], ["", "", "", "", "", "", "", "Active", "", "", ""])
-    self.assertTrue(self.owner.apply(FeatureSettingsRequest("EngineSoundProfile", row.source, "BMW M52")))
-    self.assertEqual(self.params.get("EngineSoundProfile"), "bmw_m52")
+    self.assertEqual([r.value for r in self.owner.engine_type_snapshot().rows], ["", "", "", "", "", "", "Active", "", "", ""])
+    self.assertTrue(self.owner.apply(FeatureSettingsRequest("EngineSoundProfile", row.source, "F1 Car")))
+    self.assertEqual(self.params.get("EngineSoundProfile"), "f1_car")
 
   def test_engine_choices_rev_the_engine_and_turning_it_on_does_not(self):
     revs = []
     owner = SoundsOwner(self.params, lambda: self.parked, engine_preview=lambda: revs.append(1))
     def row(key):
       return next(row for row in owner.snapshot().rows if row.key == key)
-    self.assertTrue(owner.apply(FeatureSettingsRequest("EngineSoundProfile", row("EngineSoundProfile").source, "BMW M52")))
+    self.assertTrue(owner.apply(FeatureSettingsRequest("EngineSoundProfile", row("EngineSoundProfile").source, "F1 Car")))
     self.assertTrue(owner.apply(FeatureSettingsRequest("EngineSoundVolume", row("EngineSoundVolume").source, "40")))
     self.assertTrue(owner.apply(FeatureSettingsRequest("EngineSound", row("EngineSound").source, "On")))
     self.assertEqual(len(revs), 2)
@@ -158,7 +158,7 @@ class SoundsSettingsTests(unittest.TestCase):
     picker = owner.engine_type_snapshot()
     self.assertEqual((picker.page, picker.title, picker.parent_title), (ENGINE_TYPE_PAGE, "Engine Type", "Engine Sounds"))
     self.assertEqual([(row.label, row.value, row.actions) for row in picker.rows],
-                     [("BMW M3", "", (("Use", True),)), ("BMW M3 Deep", "", (("Use", True),)), ("BMW M52", "", (("Use", True),)),
+                     [("BMW M3", "", (("Use", True),)), ("BMW M3 Deep", "", (("Use", True),)),
                       ("F1 Car", "", (("Use", True),)), ("Ferrari F136", "", (("Use", True),)), ("Hellcat", "", (("Use", True),)),
                       ("Jaguar F-Type", "", (("Use", True),)), ("LFA", "Active", (("Active", True),)),
                       ("Nissan Super GT1", "", (("Use", True),)), ("Nissan Super GT2", "", (("Use", True),)),
@@ -167,15 +167,15 @@ class SoundsSettingsTests(unittest.TestCase):
     request = owner.engine_choice_request(stale)
     assert request is not None
     self.assertTrue(owner.apply(request))
-    self.assertEqual((self.params.get("EngineSoundProfile"), revs), ("bmw_m52", [1]))
+    self.assertEqual((self.params.get("EngineSoundProfile"), revs), ("f1_car", [1]))
     picker = owner.engine_type_snapshot()
-    self.assertEqual([row.value for row in picker.rows], ["", "", "Active", "", "", "", "", "", "", "", ""])
+    self.assertEqual([row.value for row in picker.rows], ["", "", "Active", "", "", "", "", "", "", ""])
     replay = owner.engine_choice_request(picker.rows[2])
     assert replay is not None
     self.assertTrue(owner.apply(replay))
     self.assertEqual(revs, [1, 1])
     self.assertFalse(owner.apply(request))
-    self.assertEqual(self.params.get("EngineSoundProfile"), "bmw_m52")
+    self.assertEqual(self.params.get("EngineSoundProfile"), "f1_car")
     self.parked = False
     parked_off = owner.engine_type_snapshot()
     self.assertTrue(all(not row.available and row.actions[0][1] is False for row in parked_off.rows))
@@ -202,7 +202,7 @@ class SoundsSettingsTests(unittest.TestCase):
     picker = session.sounds_snapshot()
     self.assertEqual(picker.page, ENGINE_TYPE_PAGE)
     session._sounds_ui(FeatureUiAction("action", picker.rows[2], 0))
-    self.assertEqual((self.params.get("EngineSoundProfile"), revs), ("bmw_m52", [1]))
+    self.assertEqual((self.params.get("EngineSoundProfile"), revs), ("f1_car", [1]))
     session._sounds_ui(FeatureUiAction("back"))
     self.assertEqual(session.sounds_menu, ENGINE_PAGE)
     session._sounds_ui(FeatureUiAction("open", session.sounds_snapshot().rows[2]))

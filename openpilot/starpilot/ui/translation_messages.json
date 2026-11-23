@@ -32219,12 +32219,6 @@
       ]
     },
     {
-      "source": "BMW M52",
-      "refs": [
-        "openpilot/starpilot/engine_sound/profiles.py"
-      ]
-    },
-    {
       "source": "F1 Car",
       "refs": [
         "openpilot/starpilot/engine_sound/profiles.py"

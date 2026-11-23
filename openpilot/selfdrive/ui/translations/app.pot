@@ -23504,10 +23504,6 @@ msgid "BMW M3 Deep"
 msgstr ""
 
 #: openpilot/starpilot/engine_sound/profiles.py
-msgid "BMW M52"
-msgstr ""
-
-#: openpilot/starpilot/engine_sound/profiles.py
 msgid "F1 Car"
 msgstr ""
 

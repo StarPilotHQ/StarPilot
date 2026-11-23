@@ -105,7 +105,7 @@ def test_render_is_continuous_bounded_and_load_blends_layers(tmp_path):
 
 
 def test_profiles_use_an_installed_bank_and_fall_back_to_the_synth(tmp_path):
-  profile = replace(PROFILES['bmw_m52'], loops='test')
+  profile = replace(PROFILES['ferrari_f136'], loops='test')
   assert isinstance(voice(profile, tmp_path), Synth)
   make_bank(tmp_path)
   assert isinstance(voice(profile, tmp_path), LoopSynth)

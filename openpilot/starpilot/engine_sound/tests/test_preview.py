@@ -46,7 +46,7 @@ def test_car_playback_writes_everything_then_drains_and_closes():
 
 
 def test_car_playback_stops_when_parking_is_lost_or_the_output_closes():
-  blocks = preview.render('bmw_m52', 0.5)
+  blocks = preview.render('ferrari_f136', 0.5)
   allowed = iter([True, True, False])
   writer = Writer()
   assert not preview.play_car(writer, blocks, lambda: next(allowed))
