@@ -89,6 +89,9 @@ PROFILES: dict[str, Profile] = {profile.name: profile for profile in (
   _recorded('ferrari_f136', 'Ferrari F136', cylinders=8, idle=1000.0, redline=9000.0, trim_db=3.0),
   # Banks from real recordings that end at 3000 and 5250 rpm; above about 1.5 times that the loops sound sped up.
   _recorded('hellcat', 'Hellcat', cylinders=8, idle=700.0, redline=4500.0, trim_db=3.5),
+  # Recorded at idle and from 4000 rpm up (coasting from 2250), so it is geared short like the Super GTs.
+  _recorded('ioniq_5n', 'Ioniq 5N Ignition', cylinders=4, idle=2346.0, redline=7500.0, upshift=0.62, downshift=0.45,
+            gearing=1.2, trim_db=3.2),
   _recorded('jaguar_ftype', 'Jaguar F-Type', cylinders=8, idle=721.0, redline=6500.0, pops=1.0, burble=True, trim_db=6.6),
   _recorded('lfa', 'LFA', cylinders=10, idle=1000.0, redline=9000.0, trim_db=2.5),
   # Recorded only at idle and from 3250 rpm up, so it is geared short and shifts like a race car to stay in that range.

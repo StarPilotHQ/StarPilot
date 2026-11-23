@@ -23535,6 +23535,10 @@ msgid "Hellcat"
 msgstr "Hellcat"
 
 #: openpilot/starpilot/engine_sound/profiles.py
+msgid "Ioniq 5N Ignition"
+msgstr "Ioniq 5N Ignition"
+
+#: openpilot/starpilot/engine_sound/profiles.py
 msgid "Jaguar F-Type"
 msgstr "Jaguar F-Type"
 

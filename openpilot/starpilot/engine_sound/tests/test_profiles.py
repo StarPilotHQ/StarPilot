@@ -9,13 +9,13 @@ from openpilot.starpilot.engine_sound.profiles import PROFILES, RACE_GEARS, RACE
 from openpilot.starpilot.engine_sound.synth import Synth
 
 DT = 0.01
-SUPER_GT_RECORDED_FROM = 3250.0
+SHORT_GEARED_CRUISE_FLOOR = 3250.0
 
 
-SUPER_GTS = ('nissan_super_gt', 'nissan_super_gt2')
+SHORT_GEARED = ('ioniq_5n', 'nissan_super_gt', 'nissan_super_gt2')
 
 
-@pytest.mark.parametrize('name', [name for name in PROFILES if name not in SUPER_GTS])
+@pytest.mark.parametrize('name', [name for name in PROFILES if name not in SHORT_GEARED])
 def test_default_gearing_and_shift_points(name):
   p = PROFILES[name]
   assert p.upshift_rpm == pytest.approx((0.38 * p.redline_rpm, 0.96 * p.redline_rpm))
@@ -23,8 +23,8 @@ def test_default_gearing_and_shift_points(name):
   assert p.gears == pytest.approx(tuple(ratio * p.redline_rpm / RACE_REDLINE for ratio in RACE_GEARS))
 
 
-@pytest.mark.parametrize('name', SUPER_GTS)
-def test_super_gt_is_geared_short_and_holds_revs(name):
+@pytest.mark.parametrize('name', SHORT_GEARED)
+def test_short_geared_holds_revs(name):
   p = PROFILES[name]
   assert p.gears[0] == pytest.approx(RACE_GEARS[0] * p.redline_rpm / RACE_REDLINE * 1.2)
   assert p.upshift_rpm[0] == pytest.approx(0.62 * p.redline_rpm)
@@ -47,8 +47,8 @@ def test_trim_scales_the_whole_voice(voice):
   assert level(6.0) / level(0.0) == pytest.approx(10 ** (6 / 20), rel=0.02)
 
 
-@pytest.mark.parametrize('name', SUPER_GTS)
-def test_super_gt_light_pedal_stays_in_the_recorded_range_and_clear_of_redline(name):
+@pytest.mark.parametrize('name', SHORT_GEARED)
+def test_short_geared_light_pedal_stays_in_the_recorded_range_and_clear_of_redline(name):
   p = PROFILES[name]
   model = EngineModel(p)
   speed, revs = 0.0, []
@@ -56,6 +56,6 @@ def test_super_gt_light_pedal_stays_in_the_recorded_range_and_clear_of_redline(n
     speed += 1.2 * DT
     revs.append(model.update(DT, 0.25, speed, 1.2, True)[0])
   cruising = [rpm for rpm, v in zip(revs, (DT * 1.2 * i for i in range(len(revs))), strict=True) if v > 8.0]
-  assert min(cruising) > SUPER_GT_RECORDED_FROM
+  assert min(cruising) > SHORT_GEARED_CRUISE_FLOOR
   assert max(revs) < 0.75 * p.redline_rpm
   assert model.gear >= 3

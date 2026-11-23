@@ -32237,6 +32237,12 @@
       ]
     },
     {
+      "source": "Ioniq 5N Ignition",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
       "source": "Jaguar F-Type",
       "refs": [
         "openpilot/starpilot/engine_sound/profiles.py"

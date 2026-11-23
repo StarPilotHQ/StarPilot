@@ -18,6 +18,11 @@ From recordings of real cars supplied for this project, built with tools/bank_fr
 
   hellcat      hellcat.wav: --cylinders 8 --anchor 14 700 --idle 10.5-17.5 --on 25-94 --off 94-119,
                then equalised with tools/lower_bank.py --pitch 1.0 --off-mix 0 --off-mid 0
+  ioniq_5n     Ioniq5.mp3 (the Ioniq 5 N's Ignition sound), its closing video fade from 52 s divided back out first:
+               --cylinders 6 (the comb's strongest line is the 6th) --half-orders --anchor 6 6180 --anchor 20.5 7140
+               --on 4.6-6.8 10.2-11.7 16-17.3 17.6-21.3 31.5-33.4 34-35.2 35.6-37.9 41.5-43.3 43.5-44.6 46-48.2
+               --off 12-14.3 22.6-25.1 48.5-49.9 50.3-57.9 --idle 57.9-59.7 --denoise 15, leaving out the stretches with
+               tyre squeal
   jaguar_ftype Jaguar2.wav: --cylinders 8 --half-orders --anchor 17 721 --anchor 40 5122 --anchor 66 4402
                --idle 14.5-19.5 --on 20.5-45.8 52-77 --denoise 10, not equalised (the in-car recording is already
                bass-heavy); the 750 rpm loop (a second idle) and the 3500 rpm loop (dominated by crank-rate boom) removed

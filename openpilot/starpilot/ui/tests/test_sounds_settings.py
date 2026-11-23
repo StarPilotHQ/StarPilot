@@ -122,7 +122,7 @@ class SoundsSettingsTests(unittest.TestCase):
     self.params.put("EngineSoundProfile", "race_car", block=True)
     row = self.row("EngineSoundProfile")
     self.assertEqual((row.value, row.repair_value), ("LFA", ""))
-    self.assertEqual([r.value for r in self.owner.engine_type_snapshot().rows], ["", "", "", "", "", "", "Active", "", "", ""])
+    self.assertEqual([r.value for r in self.owner.engine_type_snapshot().rows], ["", "", "", "", "", "", "", "Active", "", "", ""])
     self.assertTrue(self.owner.apply(FeatureSettingsRequest("EngineSoundProfile", row.source, "F1 Car")))
     self.assertEqual(self.params.get("EngineSoundProfile"), "f1_car")
 
@@ -160,7 +160,7 @@ class SoundsSettingsTests(unittest.TestCase):
     self.assertEqual([(row.label, row.value, row.actions) for row in picker.rows],
                      [("BMW M3", "", (("Use", True),)), ("BMW M3 Deep", "", (("Use", True),)),
                       ("F1 Car", "", (("Use", True),)), ("Ferrari F136", "", (("Use", True),)), ("Hellcat", "", (("Use", True),)),
-                      ("Jaguar F-Type", "", (("Use", True),)), ("LFA", "Active", (("Active", True),)),
+                      ("Ioniq 5N Ignition", "", (("Use", True),)), ("Jaguar F-Type", "", (("Use", True),)), ("LFA", "Active", (("Active", True),)),
                       ("Nissan Super GT1", "", (("Use", True),)), ("Nissan Super GT2", "", (("Use", True),)),
                       ("Supra Turbo", "", (("Use", True),))])
     stale = picker.rows[2]
@@ -169,7 +169,7 @@ class SoundsSettingsTests(unittest.TestCase):
     self.assertTrue(owner.apply(request))
     self.assertEqual((self.params.get("EngineSoundProfile"), revs), ("f1_car", [1]))
     picker = owner.engine_type_snapshot()
-    self.assertEqual([row.value for row in picker.rows], ["", "", "Active", "", "", "", "", "", "", ""])
+    self.assertEqual([row.value for row in picker.rows], ["", "", "Active", "", "", "", "", "", "", "", ""])
     replay = owner.engine_choice_request(picker.rows[2])
     assert replay is not None
     self.assertTrue(owner.apply(replay))
