@@ -342,7 +342,7 @@ assert.match(SoftwarePage.template, /@change="changeBranch"/)
 assert.match(SoftwarePage.template, /Download only/)
 assert.match(SoftwarePage.template, /Select previous version/)
 assert.doesNotMatch(SoftwarePage.template, /Save target/)
-assert.match(SoftwarePage.template, /displayVersion \?\? data\.installed\.version/)
+assert.match(SoftwarePage.template, /shown\(data\.installed\.displayVersion\)/)
 
 const preferences = fixture()
 preferences.feed.start()

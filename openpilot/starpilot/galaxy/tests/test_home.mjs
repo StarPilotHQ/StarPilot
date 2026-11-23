@@ -48,6 +48,8 @@ assert.match(Home.template, /summary.system.recordingStorage.free }} free/)
 assert.equal(current.model.variant, "Big")
 assert.equal(current.software.branch, "Unavailable")
 assert.equal(current.software.version, "StarPilot 0.11.2")
+assert.equal(homeSummary({ status: "unavailable" }, { status: "unavailable" },
+  { status: "ready", data: { installed: { version: "0.11.3" }, updater: {} } }).software.version, "Unavailable")
 assert.equal(current.software.update, "Unavailable")
 assert.equal(homeSummary({ status: "unavailable", snapshot: { cpuPercent: 100 } },
   { status: "stale", data: { health: "active" } }, { status: "idle", data: {} }).model.health, "Unavailable")

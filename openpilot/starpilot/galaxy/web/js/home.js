@@ -137,7 +137,7 @@ export function homeSummary(monitor, model, software) {
     },
     software: {
       available: !!installed,
-      version: shown(installed?.installed?.displayVersion ?? installed?.installed?.version),
+      version: shown(installed?.installed?.displayVersion),
       branch: shown(installed?.installed?.branch),
       update: installed?.updater?.finalizedUpdateReady === true ? "Finalized update ready" :
         installed?.updater?.finalizedUpdateReady === false ? "None reported" : "Unavailable",

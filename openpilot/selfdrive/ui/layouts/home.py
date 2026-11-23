@@ -1,4 +1,5 @@
 import time
+from openpilot.starpilot.ui.brand import home_description
 from openpilot.starpilot.ui.raylib import rl
 from collections.abc import Callable
 from enum import IntEnum
@@ -232,6 +233,5 @@ class HomeLayout(Widget):
     self._prev_alerts_present = alerts_present
 
   def _get_version_text(self) -> str:
-    brand = "openpilot"
-    description = self.params.get("UpdaterCurrentDescription")
-    return f"{brand} {description}" if description else brand
+    description = home_description(self.params.get("UpdaterCurrentDescription") or "")
+    return f"StarPilot {description}"

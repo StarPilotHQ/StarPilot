@@ -30,6 +30,7 @@ from openpilot.starpilot.software.fast_update import (
 )
 from openpilot.starpilot.software.history import MAX_COMMITS, METADATA_ROOT, commit_history
 from openpilot.starpilot.software.auto_install import InstallSettings, cron_matches, scheduled_restart
+from openpilot.starpilot.ui.brand import read_display_version
 
 LOCK_FILE = os.getenv("UPDATER_LOCK_FILE", "/tmp/safe_staging_overlay.lock")
 STAGING_ROOT = os.getenv("UPDATER_STAGING_ROOT", "/data/safe_staging")
@@ -567,8 +568,7 @@ class Updater:
       try:
         branch = self.get_branch(basedir)
         commit = self.get_commit_hash(basedir)[:7]
-        with open(os.path.join(basedir, "openpilot", "common", "version.h")) as f:
-          version = f.read().split('"')[1]
+        version = read_display_version(basedir)
 
         commit_unix_ts = run(["git", "show", "-s", "--format=%ct", "HEAD"], basedir).rstrip()
         dt = datetime.datetime.fromtimestamp(int(commit_unix_ts))

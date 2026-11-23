@@ -30,8 +30,9 @@ class MemoryParams:
   def __init__(self):
     self.values = {"UpdaterTargetBranch": BRANCH}
 
-  def get(self, key):
-    return self.values.get(key)
+  def get(self, key, return_default=False):
+    default = 0 if return_default and key in ("UptimeOnroad", "RouteCount", "LastUpdateUptimeOnroad", "LastUpdateRouteCount") else None
+    return self.values.get(key, default)
 
   def get_bool(self, key):
     return bool(self.values.get(key))
@@ -40,6 +41,9 @@ class MemoryParams:
     self.values[key] = value
 
   put_bool = put
+
+  def remove(self, key):
+    self.values.pop(key, None)
 
 
 def load_updater():
@@ -158,6 +162,35 @@ class TestVendoredUpdate(unittest.TestCase):
     self.assertFalse((self.finalized / ".overlay_consistent").exists())
     self.updated.handle_agnos_update.assert_not_called()
     self.assertFalse(self.updater.params.values["UpdateAvailable"])
+
+  def test_update_descriptions_use_each_checkouts_starpilot_version(self):
+    installed = self.root / "installed"
+    self.git(self.root, "clone", "--no-local", str(self.merged), str(installed))
+    self.git(self.root, "clone", "--no-local", str(self.merged), str(self.finalized))
+    self.updated.BASEDIR = str(installed)
+
+    for root, version in ((installed, "7.0.2"), (self.finalized, "7.0.1")):
+      upstream = root / "openpilot/common/version.h"
+      upstream.parent.mkdir(parents=True, exist_ok=True)
+      upstream.write_text('#define COMMA_VERSION "0.11.3"\n')
+      label = root / "openpilot/starpilot/ui/brand.py"
+      label.parent.mkdir(parents=True, exist_ok=True)
+      label.write_text(f'DISPLAY_VERSION = "{version}"\n')
+
+    self.updater.set_params(False, 0, None)
+    self.assertEqual(self.updater.params.values["UpdaterCurrentDescription"].split(" / ")[0], "7.0.2")
+    self.assertEqual(self.updater.params.values["UpdaterNewDescription"].split(" / ")[0], "7.0.1")
+
+    (self.finalized / "openpilot/starpilot/ui/brand.py").unlink()
+    legacy = self.finalized / "selfdrive/ui/lib/starpilot_version.py"
+    legacy.parent.mkdir(parents=True, exist_ok=True)
+    legacy.write_text('STARPILOT_DISPLAY_VERSION = "6.7.9"\n')
+    self.updater.set_params(False, 0, None)
+    self.assertEqual(self.updater.params.values["UpdaterNewDescription"].split(" / ")[0], "6.7.9")
+
+    legacy.unlink()
+    self.updater.set_params(False, 0, None)
+    self.assertEqual(self.updater.params.values["UpdaterNewDescription"].split(" / ")[0], "")
 
   def test_automatic_update_uses_fast_path_and_only_falls_back_on_incompatibility(self):
     fast_update = importlib.import_module("openpilot.starpilot.software.fast_update")

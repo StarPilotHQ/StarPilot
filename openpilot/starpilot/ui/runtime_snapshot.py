@@ -935,7 +935,7 @@ class RuntimeSnapshotAdapter:
         software_actions.discard(SoftwareRequest.DOWNLOAD_UPDATE)
       if not _flag(params, "IsTestedBranch") and _text(params, "UpdaterAvailableBranches"):
         software_actions.add(SoftwareRequest.OPEN_BRANCH_CHOOSER)
-    software = SoftwareState(current_version=_text(params, "UpdaterCurrentDescription"),
+    software = SoftwareState(current_version=home_description(_text(params, "UpdaterCurrentDescription")),
                              automatic_updates=(None if _text(params, "DisableUpdates") == "" else
                                                 not _flag(params, "DisableUpdates")),
                              download_status=status,
