@@ -89,7 +89,39 @@ void queue(FakeTransport &transport, const aol_safety_health_t &before,
 }
 }  // namespace
 
+static void test_manual_mqb_startup_poll() {
+  const AolWritePlan lat{true, 1U, true};
+  const aol_safety_health_t pending{AOL_SAFETY_PROTOCOL_MAGIC, AOL_SAFETY_PROTOCOL_VERSION,
+                                   1U, 0U, VOLKSWAGEN_LONG_AOL_PROFILE.mode, 25U, 1U};
+  const AolOutcome ready{true, pending, "cold"};
+  for (unsigned refusal = 0; refusal < 11U; ++refusal) {
+    VolkswagenManualAolStartupPoll poll;
+    auto plan = lat;
+    auto outcome = ready;
+    if (refusal == 1U) outcome.status->safety_param = 9U;
+    if (refusal == 2U) outcome.status->safety_mode = 34U;
+    if (refusal == 3U) outcome.status->permission_mask = 1U;
+    if (refusal == 4U) plan.request_mask = 3U;
+    if (refusal == 5U) plan.retain_lateral_arm = false;
+    if (refusal == 6U) outcome.compatible = false;
+    if (refusal == 7U) outcome.session.clear();
+    poll.observe(refusal != 8U, refusal == 9U, refusal != 10U, plan, outcome);
+    for (uint64_t frame = 1U; frame < 10U; ++frame) {
+      assert(poll.due(frame) == (refusal == 0U && frame == 5U));
+    }
+    assert(!poll.due(15U));
+    if (refusal == 0U) {
+      poll.observe(true, false, true, lat, ready);
+      assert(!poll.due(15U));
+    }
+    poll.observe(false, false, true, lat, ready);
+    poll.observe(true, false, true, lat, ready);
+    assert(poll.due(25U));
+  }
+}
+
 int main() {
+  test_manual_mqb_startup_poll();
   for (uint32_t word = 0U; word <= 65535U; word++) {
     auto subaru = status();
     subaru.safety_mode = 11U;

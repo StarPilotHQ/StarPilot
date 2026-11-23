@@ -473,6 +473,7 @@ void pandad_run(std::vector<Panda *> &pandas) {
   constexpr AolSafetyProfile aol_profiles[] = {HONDA_AOL_PROFILE, HONDA_STOCK_AOL_PROFILE, HONDA_NIDEC_AOL_PROFILE, HYUNDAI_AOL_PROFILE, HYUNDAI_CLASSIC_AOL_PROFILE, HYUNDAI_LEGACY_AOL_PROFILE, GM_AOL_PROFILE, FORD_AOL_PROFILE, MAZDA_AOL_PROFILE, RIVIAN_AOL_PROFILE, CHRYSLER_AOL_PROFILE, TESLA_PREAP_AOL_PROFILE, TESLA_SCREEN_AOL_PROFILE, TOYOTA_AOL_PROFILE, NISSAN_AOL_PROFILE, VOLKSWAGEN_STOCK_AOL_PROFILE, VOLKSWAGEN_LONG_AOL_PROFILE, VOLKSWAGEN_MEB_AOL_PROFILE, VOLKSWAGEN_PQ_AOL_PROFILE, SUBARU_AOL_PROFILE, VOLVO_AOL_PROFILE};
   const AolProfileRegistry aol_registry{aol_profiles, std::size(aol_profiles)};
   AolAxisNegotiator aol_negotiator(aol_registry);
+  VolkswagenManualAolStartupPoll vw_startup_poll;
   // Main loop: receive CAN first, then process lower priority panda and peripheral state.
   while (!do_exit) {
     if (!check_all_connected(pandas)) { break; }
@@ -483,10 +484,11 @@ void pandad_run(std::vector<Panda *> &pandas) {
       { process_peripheral_state(peripheral_panda, &pm, no_fan_control, is_onroad); }
     }
 
-    // Process panda state at 10 Hz
-    if (rk.frame() % 10 == 0) {
+    // Process Panda state at 10 Hz, with one midpoint confirmation for pending manual MQB startup.
+    if (rk.frame() % 10 == 0 || vw_startup_poll.due(rk.frame())) {
       sm.update(0);
-      engaged = sm.allAliveAndValid({"selfdriveState"}) && sm["selfdriveState"].getSelfdriveState().getEnabled();
+      const bool ordinary_engaged = sm.allAliveAndValid({"selfdriveState"}) && sm["selfdriveState"].getSelfdriveState().getEnabled();
+      engaged = ordinary_engaged;
       // AOL axis and intent timestamps come from Python CLOCK_MONOTONIC.
       // Keep the ordinary pandad/CAN BOOTTIME clock unchanged.
       uint64_t now_ns = aol_monotonic_ns();
@@ -534,6 +536,11 @@ void pandad_run(std::vector<Panda *> &pandas) {
       { aol_after = (aol_write_ok && panda_safety.aolOwner() == panda) ? panda->get_aol_safety_state() : std::nullopt; }
       if (aol_after && !panda_safety.aolStatusMatches(panda, *aol_after)) aol_after.reset();
       auto outcome = aol_negotiator.complete(plan, aol_write_ok, aol_after);
+      const bool healthy_inventory = inventory.source_mono_time != 0U && inventory.slots.size() == pandas.size() &&
+        std::all_of(inventory.slots.begin(), inventory.slots.end(), [](const AolPandaSlot &slot) {
+          return !slot.safety_rx_checks_invalid && !slot.heartbeat_lost && slot.faults == 0U;
+        });
+      vw_startup_poll.observe(is_onroad, ordinary_engaged, healthy_inventory, plan, outcome);
       if (aol_runtime) {
         MessageBuilder axis_status_msg;
         auto axis_status_event = axis_status_msg.initEvent();
