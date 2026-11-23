@@ -77,7 +77,7 @@ class HomeState:
   recording_audio: bool = False
   branch: str = ""
   gpu_state: str = "disconnected"
-  metric: bool = False
+  temperature_metric: bool = False
   temperature_high: bool = False
   jetlink: str = "off"
 

@@ -651,7 +651,7 @@ class SettingsGateway:
 
   def _state(self, page: str, ctx: AuthorityContext):
     if page == "localization":
-      return self._localization_owner(ctx).snapshot()
+      return self._localization_owner(ctx).snapshot(include_temperature=True)
     if page == "starport_options":
       return self._device_settings_owner(ctx).snapshot(page)
     if page == "developer":

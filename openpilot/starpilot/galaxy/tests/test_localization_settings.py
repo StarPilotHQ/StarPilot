@@ -11,6 +11,7 @@ from openpilot.starpilot.galaxy.settings import AuthorityContext, ContextSource,
 from openpilot.starpilot.speed_limits import offset_document as od
 from openpilot.starpilot.ui.feature_settings_state import FeatureSettingsRequest
 from openpilot.starpilot.ui.slc_offset_feature import DOCUMENT_KEY
+from openpilot.starpilot.ui.temperature import FOLLOW_METRIC, TEMPERATURE_UNIT_KEY, format_temperature, read_temperature_metric
 
 
 def test_real_gateway_units_and_wheel_side_without_a_vehicle(tmp_path):
@@ -23,15 +24,15 @@ def test_real_gateway_units_and_wheel_side_without_a_vehicle(tmp_path):
   def preview(index, value):
     page = gateway.page("localization", token, generation)
     assert page["title"] == "Localization" and not page["vehicleIdentified"]
-    assert [row["label"] for row in page["rows"]] == ["Use Metric", "Right-Hand Drive", "Language"]
+    assert [row["label"] for row in page["rows"]] == ["Use Metric", "TEMP Gauge Units", "Right-Hand Drive", "Language"]
     return gateway.preview(page["view"], index, 0, token, generation, value=value)["intent"]
 
   assert gateway.confirm(preview(0, "On"), token, generation)
   assert params.get_bool("IsMetric")
   assert not Path(params.get_param_path(DOCUMENT_KEY)).exists()
-  assert gateway.confirm(preview(1, "On"), token, generation)
+  assert gateway.confirm(preview(2, "On"), token, generation)
   assert params.get_bool("IsRhdDetected") and params.get_bool("OnroadCycleRequested")
-  pending = preview(1, "Off")
+  pending = preview(2, "Off")
   context.value = replace(context.value, parked=False)
   with pytest.raises(SettingsChanged):
     gateway.confirm(pending, token, generation)
@@ -69,7 +70,7 @@ def test_settings_session_rechecked_before_localization_commit(tmp_path):
   context = SimpleNamespace(sample=lambda: AuthorityContext(True, None, None))
   gateway = SettingsGateway(params, cast(ContextSource, context))
   page = gateway.page("localization", "session", b"generation")
-  pending = gateway.preview(page["view"], 1, 0, "session", b"generation", value="On")["intent"]
+  pending = gateway.preview(page["view"], 2, 0, "session", b"generation", value="On")["intent"]
   with pytest.raises(SettingsChanged):
     gateway.confirm(pending, "session", b"generation", session_valid=lambda: False)
   assert not params.get_bool("IsRhdDetected")
@@ -126,12 +127,39 @@ def test_language_dropdown_through_gateway_rechecks_session(tmp_path):
   gateway = SettingsGateway(params, cast(ContextSource, context))
   token, generation = "language-session", b"generation"
   page = gateway.page("localization", token, generation)
-  assert page["rows"][2]["choices"] == list(LocalizationSettingsOwner(params, lambda: True, lambda: True).snapshot().rows[2].choices)
-  pending = gateway.preview(page["view"], 2, 0, token, generation, value="日本語")["intent"]
+  assert page["rows"][3]["choices"] == list(LocalizationSettingsOwner(params, lambda: True, lambda: True).snapshot().rows[2].choices)
+  pending = gateway.preview(page["view"], 3, 0, token, generation, value="日本語")["intent"]
   with pytest.raises(SettingsChanged):
     gateway.confirm(pending, token, generation, session_valid=lambda: False)
   assert not Path(params.get_param_path("LanguageSetting")).exists()
   page = gateway.page("localization", token, generation)
-  pending = gateway.preview(page["view"], 2, 0, token, generation, value="日本語")["intent"]
+  pending = gateway.preview(page["view"], 3, 0, token, generation, value="日本語")["intent"]
   assert gateway.confirm(pending, token, generation)
   assert params.get("LanguageSetting") == "ja"
+
+
+@pytest.mark.parametrize("metric", [False, True])
+def test_temperature_gauge_units_change_without_changing_metric(tmp_path, metric):
+  params = Params(str(tmp_path))
+  params.put_bool("IsMetric", metric, block=True)
+  context = SimpleNamespace(sample=lambda: AuthorityContext(False, None, None))
+  gateway = SettingsGateway(params, cast(ContextSource, context))
+  token, generation = "temperature-session", b"generation"
+
+  def preview(value):
+    page = gateway.page("localization", token, generation)
+    assert page["rows"][1]["choices"] == [FOLLOW_METRIC, "Fahrenheit", "Celsius"]
+    return gateway.preview(page["view"], 1, 0, token, generation, value=value)["intent"]
+
+  assert read_temperature_metric(params, metric) == metric
+  assert params.get_default_value(TEMPERATURE_UNIT_KEY) == "auto"
+  for choice, unit in (("Celsius", True), ("Fahrenheit", False), (FOLLOW_METRIC, metric)):
+    assert gateway.confirm(preview(choice), token, generation)
+    assert params.get_bool("IsMetric") == metric
+    assert format_temperature(50., read_temperature_metric(params, metric)) == ("50\u00b0C" if unit else "122\u00b0F")
+  pending = preview("Celsius")
+  with pytest.raises(SettingsChanged):
+    gateway.confirm(pending, token, generation, session_valid=lambda: False)
+  assert params.get(TEMPERATURE_UNIT_KEY) == "auto"
+  Path(params.get_param_path(TEMPERATURE_UNIT_KEY)).write_bytes(b"invalid")
+  assert read_temperature_metric(params, metric) == metric

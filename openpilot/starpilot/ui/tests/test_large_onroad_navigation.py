@@ -70,16 +70,28 @@ def tap(n, x, y, *, dx=0, dy=0):
                                                 (ThermalStatus.overheated, Colors.DANGER),
                                                 (ThermalStatus.critical, Colors.DANGER)])
 @pytest.mark.parametrize('temperature,celsius,fahrenheit', [(0, '0°C', '32°F'), (65.6, '66°C', '150°F'), (107, '107°C', '225°F')])
-def test_sidebar_temperature_follows_metric_setting(thermal_status, color, temperature, celsius, fahrenheit):
+def test_sidebar_temperature_uses_independent_gauge_unit(thermal_status, color, temperature, celsius, fahrenheit):
   with patch('openpilot.selfdrive.ui.layouts.sidebar.gui_app'):
     sidebar = Sidebar()
   assert sidebar._temp_status.value == '--'
   device_state = NS(maxTempC=temperature, thermalStatus=thermal_status)
   for metric, value in ((True, celsius), (False, fahrenheit), (True, celsius)):
-    with patch('openpilot.selfdrive.ui.layouts.sidebar.ui_state', NS(is_metric=metric)):
+    with patch('openpilot.selfdrive.ui.layouts.sidebar.ui_state', NS(is_metric=not metric, temperature_metric=metric)):
       sidebar._update_temperature_status(device_state)
     assert (sidebar._temp_status.label, sidebar._temp_status.value) == ('TEMP', value)
     assert sidebar._temp_status.color == color
+
+
+@pytest.mark.parametrize("metric", [False, True])
+def test_home_snapshot_projects_temperature_override_without_changing_onroad_units(metric):
+  from openpilot.starpilot.ui.tests.test_runtime_snapshot import NOW, ShellMode, RuntimeSnapshotAdapter, ui_fake
+
+  ui = ui_fake()
+  ui.is_metric = metric
+  ui.temperature_metric = not metric
+  state = RuntimeSnapshotAdapter(ui).build(ShellMode.HOME, now_ns=NOW)
+  assert state.home.temperature_metric is (not metric)
+  assert state.onroad.metric is metric
 
 
 def test_background_tap_opens_settings_sidebar_and_can_close_repeatedly(large_layout):

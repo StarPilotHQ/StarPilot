@@ -14,6 +14,7 @@ from openpilot.common.params import Params
 from openpilot.starpilot.schema_cache import get_cache, prewarm_cache_contracts
 from openpilot.starpilot.feature_runtime import enabled as feature_enabled
 from openpilot.starpilot.ui.display_preferences import AUTO, DisplayPreferences, read_preferences
+from openpilot.starpilot.ui.temperature import read_temperature_metric
 from openpilot.common.realtime import drop_realtime
 from openpilot.common.swaglog import cloudlog
 from openpilot.selfdrive.ui.lib.prime_state import PrimeState
@@ -157,6 +158,7 @@ class UIState:
 
     # Core state variables
     self.is_metric: bool = self.params.get_bool("IsMetric")
+    self.temperature_metric = read_temperature_metric(self.params, self.is_metric)
     self.initial_cruise_speed: int = self.params.get("InitialCruiseSpeedKph", return_default=True)
     self.is_release = self.params.get_bool("IsReleaseBranch")
     self.always_on_dm: bool = self.params.get_bool("AlwaysOnDM")
@@ -476,6 +478,7 @@ class UIState:
     self.aol_runtime = bool(self.CP is not None and feature_enabled(self.params, self.CP, "aol", os.environ))
     self.recording_audio = self.params.get_bool("RecordAudio") and self.started
     self.is_metric = self.params.get_bool("IsMetric")
+    self.temperature_metric = read_temperature_metric(self.params, self.is_metric)
     self.initial_cruise_speed = self.params.get("InitialCruiseSpeedKph", return_default=True)
     self.always_on_dm = self.params.get_bool("AlwaysOnDM")
     self.experimental_mode = self.params.get_bool("ExperimentalMode")

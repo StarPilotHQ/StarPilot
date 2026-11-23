@@ -7,6 +7,7 @@ from openpilot.starpilot.saved_document import commit_exact
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.ui.feature_settings_state import FeatureRow, FeatureSettingsState
 from openpilot.starpilot.ui.slc_offset_feature import SlcOffsetOwner
+from openpilot.starpilot.ui.temperature import FOLLOW_METRIC, TEMPERATURE_UNIT_KEY, TEMPERATURE_UNITS
 
 
 LANGUAGES = json.loads(files("openpilot.selfdrive.ui").joinpath("translations/languages.json").read_text(encoding="utf-8"))
@@ -22,7 +23,7 @@ class LocalizationSettingsOwner:
   def _wheel_side_allowed(self):
     return self.authorized() and self.parked() and not self.params.get_bool("IsDriverViewEnabled")
 
-  def snapshot(self):
+  def snapshot(self, *, include_temperature=False):
     rows = []
     for key, label, reason in (
       ("IsMetric", "Use Metric", "On uses kilometers; Off uses miles. Saved speed-limit offsets keep their physical values."),
@@ -36,6 +37,12 @@ class LocalizationSettingsOwner:
       rows.append(FeatureRow(key, label, ("On" if raw == b"1" else "Off") if valid else "Invalid saved value",
                              raw, ("Off", "On") if valid else (), available=valid and allowed,
                              reason=reason if valid else "Invalid saved value", default_value="Off"))
+    if include_temperature:
+      raw, readable = read_saved(self.params, TEMPERATURE_UNIT_KEY, 8)
+      name = next((label for label, value in TEMPERATURE_UNITS.items() if value == raw), FOLLOW_METRIC)
+      rows.insert(1, FeatureRow(TEMPERATURE_UNIT_KEY, "TEMP Gauge Units", name, raw, tuple(TEMPERATURE_UNITS),
+                                available=readable and self.authorized(),
+                                reason="Changes only the device TEMP gauge.", default_value=FOLLOW_METRIC))
     raw, readable = read_saved(self.params, "LanguageSetting", 32)
     code = (raw or b"en").decode("utf-8", errors="replace").removeprefix("main_")
     name = next((name for name, value in LANGUAGES.items() if value == code), "English")
@@ -47,6 +54,13 @@ class LocalizationSettingsOwner:
                                 tuple(rows), self.parked())
 
   def apply(self, request):
+    if request.key == TEMPERATURE_UNIT_KEY:
+      raw = TEMPERATURE_UNITS.get(request.value)
+      if raw is None:
+        return False
+      result = commit_exact(self.params, key=request.key, max_bytes=8, raw=raw, expected=request.expected,
+                            authorized=self.authorized, temp_prefix=".temperature-unit-")
+      return result.committed and result.verified
     if request.key == "LanguageSetting":
       if request.value not in LANGUAGES:
         return False

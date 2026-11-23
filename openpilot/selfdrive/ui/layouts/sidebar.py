@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from collections.abc import Callable
 from openpilot.cereal import log
 from openpilot.selfdrive.ui.ui_state import ui_state
+from openpilot.starpilot.ui.temperature import format_temperature
 from openpilot.system.ui.lib.application import gui_app, FontWeight, MousePos, FONT_SCALE
 from openpilot.system.ui.lib.multilang import tr, tr_noop
 from openpilot.system.ui.lib.text_measure import measure_text_cached
@@ -119,8 +120,7 @@ class Sidebar(Widget):
     self._net_strength = max(0, min(5, strength.raw + 1)) if strength.raw > 0 else 0
 
   def _update_temperature_status(self, device_state):
-    temperature = device_state.maxTempC
-    value = f"{temperature:.0f}°C" if ui_state.is_metric else f"{temperature * 1.8 + 32:.0f}°F"
+    value = format_temperature(device_state.maxTempC, ui_state.temperature_metric)
     color = Colors.GOOD if device_state.thermalStatus == ThermalStatus.ok else Colors.DANGER
     self._temp_status.update(tr_noop("TEMP"), value, color)
 
