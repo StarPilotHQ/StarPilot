@@ -6,6 +6,7 @@ from opendbc.car.structs import CarParams
 from opendbc.car.mazda.values import MazdaSafetyFlags
 import opendbc.safety.tests.common as common
 from opendbc.safety.tests.common import make_msg
+from opendbc.safety.tests.libsafety import libsafety_py
 
 ACC_PACKER = CANPacker("mazda_2019")
 
@@ -107,6 +108,7 @@ class TestMazdaIgnition(common.SafetyTestBase):
     self.assertFalse(self.safety.get_ignition_can())
 
 
+@unittest.skip("GEN1 torque interceptor fails closed in mazda_init: 0x249 has no TX content checks")
 class TestMazdaTorqueInterceptorSafety(TestMazdaSafety):
   """Gen1 with the original Torque Interceptor: driver torque comes from the interceptor on bus 1."""
   TX_MSGS = [[0x243, 0], [0x249, 1], [0x09d, 0], [0x440, 0]]
@@ -194,10 +196,10 @@ class TestMazda2019Safety(common.CarSafetyTest, common.DriverTorqueSteeringSafet
     if not (self.SAFETY_PARAM & MazdaSafetyFlags.GEN2):
       self.skipTest("GEN2 evidence only; GEN3 still hardcodes MAIN")
     # GEN2 evidence (reports/mazda-gen2-aol-gate-report.md section 8): CRZ_STATE
-    # 0 means the ACC main switch is off, 1 is main on in standby, and 2..7 keep
-    # it on. acc_main_on must track that instead of being hardcoded true.
+    # 0 means the ACC main switch is off, 1 is main on in standby, 2 engaged and
+    # 4 gas override. 3 and 5..7 are undefined and fail closed as main-off.
     self.safety.set_controls_allowed(0)
-    for state, expected in ((0, False), (1, True), (2, True), (3, True), (4, True), (7, True)):
+    for state, expected in ((0, False), (1, True), (2, True), (3, False), (4, True), (5, False), (6, False), (7, False)):
       self._rx(self.packer.make_can_msg_safety("CRUZE_STATE", 0, {"CRZ_STATE": state}))
       self.assertEqual(bool(self.safety.get_acc_main_on()), expected, f"CRZ_STATE={state}")
 
@@ -968,6 +970,7 @@ class TestMazda2019Safety(common.CarSafetyTest, common.DriverTorqueSteeringSafet
                     [(1, "blend")] * 4 + [(0, "stock")] * 3)
 
 
+@unittest.skip("GEN3 fails closed in mazda_init until it is validated on a car")
 class TestMazda2023Safety(TestMazda2019Safety):
   """Gen3 (2023+ Mazda 3/CX-30) — TI steering only; no openpilot longitudinal."""
   DBC = "mazda_2023"
@@ -1029,3 +1032,28 @@ class TestMazda2023Safety(TestMazda2019Safety):
 
 if __name__ == "__main__":
   unittest.main()
+
+
+class TestMazdaUnsupportedConfigurationsFailClosed(unittest.TestCase):
+  """Configurations nobody has validated on a car get no TX at all (mazda_init)."""
+  GEN1, GEN2, GEN3 = int(MazdaSafetyFlags.GEN1), int(MazdaSafetyFlags.GEN2), int(MazdaSafetyFlags.GEN3)
+  TI, RI = int(MazdaSafetyFlags.TORQUE_INTERCEPTOR), int(MazdaSafetyFlags.RADAR_INTERCEPTOR)
+  # Every address any Mazda TX table has ever whitelisted, on every bus.
+  ADDRS = (0x243, 0x249, 0x09D, 0x440, 0x21B, 0x21C, 0x220)
+
+  def test_no_tx_for_unvalidated_configurations(self):
+    safety = libsafety_py.libsafety
+    for param in (self.GEN1 | self.TI, self.GEN1 | self.RI, self.GEN1 | self.TI | self.RI, self.GEN3,
+                  self.GEN2 | self.TI, self.GEN1 | self.GEN2, self.GEN2 | self.GEN3, self.GEN2 | 128, 256):
+      for experience in (0, 32):
+        with self.subTest(param=param, experience=experience):
+          safety.init_tests()
+          safety.set_alternative_experience(experience)
+          safety.set_safety_hooks(CarParams.SafetyModel.mazda, param)
+          safety.set_controls_allowed(True)
+          for addr in self.ADDRS:
+            for bus in (0, 1, 2):
+              self.assertFalse(safety.safety_tx_hook(common.make_msg(bus, addr, dat=bytes(8))), f"0x{addr:X} bus {bus}")
+    safety.init_tests()
+    safety.set_alternative_experience(0)
+    safety.set_safety_hooks(CarParams.SafetyModel.noOutput, 0)

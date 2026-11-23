@@ -180,6 +180,7 @@ static void mazda_rx_hook(const CANPacket_t *msg) {
     mazda_ti_latch = true;
     mazda_ti_clean_frames = 0U;
     controls_allowed = false;
+    mazda_aol_startup_pending = false;  // recovery needs a fresh physical MAIN edge
     mazda_ti_end_pause();
   }
 
@@ -227,15 +228,15 @@ static void mazda_rx_hook(const CANPacket_t *msg) {
 
       // CRZ_STATE (byte 0 bits 6..4) is the GEN2 ACC main switch. mazda_2019.dbc
       // defines 0 = CRUISE_DISABLED, 1 = CRUISE_READY, 2 = CRUISE_ENABLED and
-      // 4 = GAS_OVERRIDE; 3 and 5..7 are undefined. Treating "anything but 0" as
-      // main-on is the conservative reading for an undefined code.
+      // 4 = GAS_OVERRIDE; 3 and 5..7 are undefined and fail closed as main-off,
+      // since main-on is what permits an AOL grant.
       // Evidence: a parked capture in which the physical switch produced 16
       // alternating 0<->1 transitions, each 19-162 ms after a CRZ_BTNS MODE_ACC
       // edge (reports/mazda-gen2-aol-gate-report.md section 8). It does not
       // establish the engaged or override states.
       if (msg->addr == MAZDA_2019_CRUISE) {
         const uint8_t crz_state = (msg->data[0] >> 4) & 0x7U;
-        acc_main_on = crz_state != 0U;
+        acc_main_on = (crz_state == 1U) || (crz_state == 2U) || (crz_state == 4U);
         // Engaged only in the two defined engaged states, 2 = CRUISE_ENABLED and
         // 4 = GAS_OVERRIDE. Undefined codes (3, 5..7) never grant control: 40
         // logged drives show only 0, 1, 2 and 4.
@@ -303,6 +304,7 @@ static void mazda_rx_hook(const CANPacket_t *msg) {
         mazda_ti_latch = true;
         mazda_ti_clean_frames = 0U;
         controls_allowed = false;
+        mazda_aol_startup_pending = false;  // recovery needs a fresh physical MAIN edge
         mazda_ti_end_pause();  // the latch now governs recovery
       } else if (ti_transient) {
         if (!mazda_ti_pause && (mazda_ti_pause_clean_frames >= MAZDA_TI_RECOVERY_FRAMES)) {
@@ -637,6 +639,21 @@ static safety_config mazda_init(uint16_t param) {
       {.msg = {{MAZDA_2019_STEER_TORQUE,  1, 8, 50U, .ignore_checksum = true, .ignore_counter = true, .ignore_quality_flag = true}, { 0 }, { 0 }}},
     };
     ret = BUILD_SAFETY_CFG(checks, MAZDA_2023_TX_MSGS);
+  }
+
+  // Fail closed for configurations nobody has validated on a car: unknown
+  // param bits, zero or several generations, GEN1 torque/radar interceptors
+  // (their 0x249 and 0x21B/0x21C frames have no TX content checks) and GEN3.
+  // The host marks the same configurations dashcam-only (car/mazda/interface.py).
+  const uint16_t known_flags = (uint16_t)(FLAG_GEN1 | FLAG_GEN2 | FLAG_GEN3 | FLAG_TORQUE_INTERCEPTOR |
+                                          FLAG_RADAR_INTERCEPTOR | FLAG_NO_FSC | FLAG_NO_MRCC);
+  const int generations = (mazda_gen1 ? 1 : 0) + (mazda_gen2 ? 1 : 0) + (mazda_gen3 ? 1 : 0);
+  const bool unsupported = ((param & (uint16_t)~known_flags) != 0U) || (generations != 1) || mazda_gen3 ||
+                           (!mazda_gen1 && (mazda_torque_interceptor || mazda_radar_interceptor || mazda_no_fsc || mazda_no_mrcc)) ||
+                           (mazda_gen1 && (mazda_torque_interceptor || mazda_radar_interceptor));
+  if (unsupported) {
+    ret.tx_msgs = NULL;
+    ret.tx_msgs_len = 0;
   }
 
   // Alt-exp 32 without a supported profile gets no TX at all. GEN2 now has its

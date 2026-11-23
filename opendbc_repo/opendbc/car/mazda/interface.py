@@ -80,7 +80,6 @@ class CarInterface(CarInterfaceBase):
 
     lataccel_values = np.arange(-8.0, 8.0, 0.01)
     torque_values = [torque_from_lateral_accel_siglin_func(x) for x in lataccel_values]
-    print(torque_values)
     assert min(torque_values) < -1 and max(torque_values) > 1, "The torque values should cover the range [-1, 1]"
     return torque_values, lataccel_values
 
@@ -186,6 +185,13 @@ class CarInterface(CarInterfaceBase):
       if p.get_bool("ManualTransmission"):
         ret.flags |= MazdaSafetyFlags.MANUAL_TRANSMISSION.value
       ret.deprecated.enableBsm = False
+
+    # Fail closed: GEN1 torque/radar interceptor and GEN3 configurations have not
+    # been validated on a car, and panda refuses to transmit for them
+    # (safety/modes/mazda.h mazda_init), so they stay dashcam-only.
+    interceptor = ret.safetyConfigs[0].safetyParam & (MazdaSafetyFlags.TORQUE_INTERCEPTOR | MazdaSafetyFlags.RADAR_INTERCEPTOR)
+    if candidate in GEN3 or (candidate in GEN1 and interceptor):
+      ret.dashcamOnly = True
 
     # centerToFront comes from the platform CarSpecs ratio via CarInterfaceBase.get_params;
     # do not hardcode a single ratio for all Mazda platforms.

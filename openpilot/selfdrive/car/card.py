@@ -193,7 +193,8 @@ class Car:
       enroll_missing_preference(self.params, cp)
       if not self.aol_replay and feature_requested(self.params, 'aol'):
         self.aol_replay = True
-        subscribed_services.extend(('aolSafetyWire', 'managerState', 'aolAxisState', 'selfdriveState'))
+        subscribed_services.extend(service for service in ('aolSafetyWire', 'managerState', 'aolAxisState', 'selfdriveState')
+                                   if service not in subscribed_services)
         self.sm = messaging.SubMaster(subscribed_services)
         self.pm.sock['aolIntentWire'] = messaging.pub_sock('aolIntentWire')
 
@@ -342,7 +343,8 @@ class Car:
     aol_policy = aol_policy_for(self.CP)
     if aol_policy.full_axis_runtime_required and not self.aol_replay:
       self.aol_replay = True
-      subscribed_services.extend(('aolSafetyWire', 'managerState', 'aolAxisState', 'selfdriveState'))
+      subscribed_services.extend(service for service in ('aolSafetyWire', 'managerState', 'aolAxisState', 'selfdriveState')
+                                 if service not in subscribed_services)
       self.sm = messaging.SubMaster(subscribed_services)
       self.pm.sock['aolIntentWire'] = messaging.pub_sock('aolIntentWire')
     initialize_aol_preference(self.CP)

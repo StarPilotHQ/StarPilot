@@ -22,12 +22,18 @@ class CarController(CarControllerBase):
     self.ccp = CarControllerParams(CP)
     self.hold_timer_frame = 0
     self.hold_delay_frame = 0
-    self.resume_timer_frame = 0
+    self.resume_timer_frame = -1000
     self.acc_filter = FirstOrderFilter(0.0, .1, DT_CTRL, initialized=False)
     self.filtered_acc_last = 0
     self.long_active_last = False
     self.acc_synthesized_last = False
     self.params = Params()
+    # Read once: the setting applies after the next startup (longcontrol.py caches
+    # it the same way), and this loop must not hit the filesystem at 100 Hz.
+    self.blended_acc = self.params.get_bool("BlendedACC")
+    self.acc_stock_exact = False
+    self.acc_blending_out = False
+    self.acc_experimental_last = False
     # CEM state is injected by controlsd each frame (see controlsd.py apply path).
     self.experimental_mode = False
 
@@ -48,6 +54,7 @@ class CarController(CarControllerBase):
     # Releasing on CS.out.standstill was one frame late, because SPEED drops from about
     # 0.66 straight to 0 and panda sees that frame first; see GEN2_STEER_RELEASE_SPEED_RAW.
     stopping = CS.out.standstill or CS.steer_release_speed
+    # Evaluated per frame: card sets the AOL marker on CP after construction.
     steer_requested = CC.latActive and not (stopping and gen2_qualified(self.CP, marked_only=True))
 
     if CC.latActive:
@@ -104,7 +111,7 @@ class CarController(CarControllerBase):
           op_acc = CC.actuators.accel * 1150
           op_acc = max(-1000, min(op_acc, 1000))
 
-          if self.params.get_bool("BlendedACC"):
+          if self.blended_acc:
             if CC.longActive:
               if not self.long_active_last:
                 self.acc_filter.initialized = False
@@ -132,15 +139,38 @@ class CarController(CarControllerBase):
         stock_acc = CS.acc["ACCEL_CMD"]
         op_acc = (CC.actuators.accel * self.ccp.ACC_ACCEL_SCALE) + self.ccp.ACC_ACCEL_NEUTRAL
 
-        if self.params.get_bool("BlendedACC"):
+        self.acc_stock_exact = False
+        if self.blended_acc:
+          experimental = bool(self.experimental_mode)
           if not self.acc_synthesized_last:
             self.acc_filter.initialized = False
-          target_acc = op_acc if bool(self.experimental_mode) else stock_acc
+            self.acc_blending_out = False
+          elif self.acc_experimental_last and not experimental:
+            self.acc_blending_out = True  # hand back from openpilot to stock ACC
+          self.acc_experimental_last = experimental
+          target_acc = op_acc if experimental else stock_acc
           acc_output = self.acc_filter.update(target_acc)
+          if not experimental:
+            # Stock ACC is driving. Only the hand-back from openpilot is blended,
+            # and never into weaker braking (a higher ACCEL_CMD) than stock asks
+            # for: otherwise relay the stock frame exactly. An exact stock copy is
+            # the stock path in safety/modes/mazda.h, so it also passes beyond the
+            # synthesized ACCEL_CMD bounds (e.g. braking harder than -3.5 m/s^2).
+            bounded = min(max(acc_output, self.ccp.ACC_ACCEL_MIN), self.ccp.ACC_ACCEL_MAX)
+            if not self.acc_blending_out or stock_acc <= bounded or abs(bounded - stock_acc) <= 2:
+              self.acc_stock_exact = True
+              self.acc_blending_out = False
+              self.acc_filter.x = float(stock_acc)
+              acc_output = stock_acc
         else:
           acc_output = op_acc
 
-        CS.acc["ACCEL_CMD"] = int(round(min(max(acc_output, self.ccp.ACC_ACCEL_MIN), self.ccp.ACC_ACCEL_MAX)))
+        if self.acc_stock_exact:
+          CS.acc["ACCEL_CMD"] = stock_acc  # unchanged stock value
+        else:
+          CS.acc["ACCEL_CMD"] = int(round(min(max(acc_output, self.ccp.ACC_ACCEL_MIN), self.ccp.ACC_ACCEL_MAX)))
+      else:
+        self.acc_stock_exact = False
       self.acc_synthesized_last = synthesize_long
 
       resume = False
@@ -174,11 +204,19 @@ class CarController(CarControllerBase):
             self.hold_delay_frame = self.frame # reset the hold delay
             self.resume_timer_frame = self.frame - 1000 # moving: the resume pulse has done its job
 
+          if CC.actuators.longControlState == LongCtrlState.stopping:
+            self.resume_timer_frame = self.frame - 1000 # the planner wants to stop: never release the brake
           resume = (self.frame - self.resume_timer_frame) < 50 # stay on for 0.5s to release the brake. This allows the car to move.
+          hold = hold and not resume # HOLD and RESUME are mutually exclusive
           # The panda only permits HOLD/RESUME at its own standstill (raw SPEED <= 10).
           hold = hold and CS.acc_standstill
           resume = resume and CS.acc_standstill
-          can_sends.append(mazdacan.create_acc_cmd(self.packer, CS.acc, hold, resume))
+          if self.acc_stock_exact and not (hold or resume):
+            can_sends.append(mazdacan.create_acc_passthrough(self.packer, CS.acc))
+          else:
+            # A synthesized frame must stay inside panda's ACCEL_CMD bounds.
+            CS.acc["ACCEL_CMD"] = int(round(min(max(CS.acc["ACCEL_CMD"], self.ccp.ACC_ACCEL_MIN), self.ccp.ACC_ACCEL_MAX)))
+            can_sends.append(mazdacan.create_acc_cmd(self.packer, CS.acc, hold, resume))
         else:
           # Stock relay, or openpilot longitudinal is inactive: never synthesize
           # HOLD/RESUME. The timers were already reset above.

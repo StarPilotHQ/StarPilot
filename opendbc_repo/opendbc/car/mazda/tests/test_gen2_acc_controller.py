@@ -67,6 +67,7 @@ class Rig:
     self.ctl.learning_projection_observer = None
     self.ctl.params = FakeParams()
     self.ctl.params.blended = blended
+    self.ctl.blended_acc = blended  # the controller reads BlendedACC once at startup
     self.ctl.experimental_mode = experimental
     self.stock = {"ACCEL_CMD": stock_accel, "ACC_ENABLED": acc_enabled, "ACC_ENABLED_2": acc_enabled,
                   "NEW_SIGNAL_1": 1, "NEW_SIGNAL_4": 0}
@@ -232,7 +233,7 @@ def test_stock_acc_disabled_frame_is_relayed():
   # frames in the target drive); openpilot never commands into that frame.
   rig = Rig(stock_accel=4000, acc_enabled=0)
   for blended in (False, True):
-    rig.ctl.params.blended = blended
+    rig.ctl.blended_acc = blended
     for _ in range(4):
       dat, ok = rig.step(True, accel=1.0, speed_raw=500)
       if dat is not None:
@@ -304,6 +305,89 @@ def test_blended_filter_restarts_after_gas_interrupts_synthesis():
       first = accel_cmd(dat) if first is None else first
   assert first == 1800, first
 
+
+
+def test_blended_stock_braking_is_never_weakened():
+  # Stock ACC driving (experimental off): braking beyond the synthesized envelope
+  # (1300 = -3.5 m/s^2) and any braking stronger than the blend is relayed
+  # exactly, with no low-pass onset, and panda accepts it as the stock path.
+  rig = Rig(blended=True, experimental=False)
+  rig.step(False, speed_raw=500)
+  for _ in range(10):
+    rig.step(True, speed_raw=500)
+  for stock in (1500, 1100, 900, 1100, 1250, 1995):
+    for _ in range(2):
+      dat, ok = rig.step(True, speed_raw=500, ACCEL_CMD=stock)
+      if dat is not None:
+        assert ok and dat == rig.stock_dat, (stock, dat.hex(), rig.stock_dat.hex())
+        assert accel_cmd(dat) == stock
+
+
+def test_blend_out_of_experimental_never_delays_stronger_stock_braking():
+  rig = Rig(blended=True, experimental=True)
+  rig.step(False, speed_raw=500)
+  for _ in range(20):
+    rig.step(True, accel=1.0, speed_raw=500)  # openpilot asks for +1 m/s^2 (2200)
+  rig.ctl.experimental_mode = False
+  for _ in range(2):
+    dat, ok = rig.step(True, accel=1.0, speed_raw=500, ACCEL_CMD=1200)
+    if dat is not None:
+      assert ok and accel_cmd(dat) == 1200 and dat == rig.stock_dat, dat.hex()
+
+
+
+def test_blend_out_eases_toward_stock_but_never_weaker_than_stock():
+  # Handing back from openpilot's harder braking to gentler stock braking is
+  # still smoothed, but every frame brakes at least as hard as stock asks.
+  rig = Rig(blended=True, experimental=True)
+  rig.step(False, speed_raw=500)
+  for _ in range(20):
+    rig.step(True, accel=-3.0, speed_raw=500, ACCEL_CMD=1800)  # openpilot: 1400
+  rig.ctl.experimental_mode = False
+  values = []
+  for _ in range(100):
+    dat, ok = rig.step(True, accel=-3.0, speed_raw=500)
+    if dat is not None:
+      assert ok and accel_cmd(dat) <= 1800, accel_cmd(dat)
+      values.append(accel_cmd(dat))
+  assert values[0] < 1800 and values == sorted(values) and values[-1] == 1800, values
+  assert rig.outputs[-1][0] == rig.stock_dat
+
+def test_hold_and_resume_are_exclusive_and_stopping_cancels_resume():
+  rig = Rig()
+  rig.step(False, speed_raw=0)
+  for _ in range(60):
+    rig.step(True, accel=-0.5, speed_raw=0, lcs=LongCtrlState.stopping)
+  # One starting frame starts a 0.5 s RESUME pulse...
+  rig.step(True, accel=0.5, speed_raw=0, lcs=LongCtrlState.starting)
+  rig.step(True, accel=0.5, speed_raw=0, lcs=LongCtrlState.starting)
+  assert any(dat is not None and dat[6] & 0x40 for dat, _ in rig.outputs[-2:])
+  # ...but the planner going back to stopping ends it on the next send frame.
+  for _ in range(10):
+    dat, ok = rig.step(True, accel=-0.5, speed_raw=0, lcs=LongCtrlState.stopping)
+    if dat is not None:
+      assert ok and not dat[6] & 0x40, ("RESUME after stopping", dat.hex())
+  for dat, ok in rig.outputs:
+    if dat is not None:
+      assert ok and (dat[6] & 0x42) != 0x42, ("HOLD and RESUME together", dat.hex())
+
+
+def test_short_resume_trigger_keeps_its_full_pulse():
+  # A brief starting request (one 50 Hz send frame) outside stopping still
+  # releases the brake for the full pulse instead of being cut short.
+  rig = Rig()
+  rig.step(False, speed_raw=0)
+  for _ in range(60):
+    rig.step(True, accel=-0.5, speed_raw=0, lcs=LongCtrlState.stopping)
+  for _ in range(2):
+    rig.step(True, accel=0.5, speed_raw=0, lcs=LongCtrlState.starting)
+  resumes = 0
+  for _ in range(40):
+    dat, ok = rig.step(True, accel=0.5, speed_raw=0, lcs=LongCtrlState.pid)
+    if dat is not None:
+      assert ok and (dat[6] & 0x42) != 0x42, dat.hex()
+      resumes += bool(dat[6] & 0x40)
+  assert resumes >= 15, resumes
 
 def test_carstate_standstill_matches_native_vehicle_moving():
   # The controller trusts CS.acc_standstill to emit HOLD/RESUME only where the

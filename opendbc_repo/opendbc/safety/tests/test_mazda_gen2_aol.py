@@ -13,7 +13,7 @@ import unittest
 from opendbc.car import structs
 from opendbc.car.mazda.values import MazdaSafetyFlags
 from opendbc.can.dbc import DBC
-from opendbc.safety.tests.common import CANPackerSafety
+from opendbc.safety.tests.common import CANPackerSafety, make_msg
 from opendbc.safety.tests.libsafety import libsafety_py
 
 GEN2 = int(MazdaSafetyFlags.GEN2)
@@ -67,6 +67,80 @@ class TestMazdaGen2Aol(unittest.TestCase):
       self.feed(main=True)
     self.feed(main=False)
     self.feed(main=True)
+    self.assertEqual(self.safety.aol_get_permission_mask(), 1)
+
+  def startup_then_request(self, **startup):
+    # Panda starts with this state while the host stays silent past TI2's warmup,
+    # then the host asks for lateral without any physical MAIN off->on edge.
+    self.configure()
+    self.safety.set_controls_allowed(False)
+    for _ in range(11):
+      self.feed(request=0, **startup)
+    for _ in range(5):
+      self.feed(**{k: v for k, v in startup.items() if k != 'violation'})
+    return self.safety.aol_get_permission_mask()
+
+  def test_startup_with_cruise_engaged_never_grants(self):
+    # GEN1 drops the startup grant when 0x21C shows cruise already engaged; GEN2
+    # must do the same with CRZ_STATE 2/4, or a host request alone grants lateral.
+    self.assertEqual(self.startup_then_request(cruise=True), 0)
+
+  def test_startup_ti2_fault_needs_a_fresh_main_edge(self):
+    self.configure()
+    self.safety.set_controls_allowed(False)
+    for _ in range(3):
+      self.feed(violation=True, request=0)
+    for _ in range(11):
+      self.feed(request=0)
+    for _ in range(5):
+      self.feed()
+    self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+    # A physical MAIN off->on edge still arms normally.
+    self.feed(main=False)
+    self.feed(main=True)
+    self.assertEqual(self.safety.aol_get_permission_mask(), 1)
+
+  def lose_session_with_buttons_neutral(self):
+    self.configure()
+    self.arm()
+    self.safety.set_aol_test_heartbeat(False)
+    self.feed(buttons=3)
+    self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+    self.safety.set_aol_test_heartbeat(True)
+    self.feed(buttons=0)
+
+  def test_gen2_set_minus_is_a_cruise_button(self):
+    # mazda_2019.dbc: SET_M is byte 0 bit 3 (0x08). The GEN1 mask (0x35) missed it.
+    self.lose_session_with_buttons_neutral()
+    self.feed(buttons=2)
+    self.assertEqual(self.safety.aol_get_permission_mask(), 1)
+
+  def test_gen2_bit0_is_not_a_cruise_button(self):
+    # Bit 0 is GEN1's CAN_OFF but is undefined on GEN2; it must never arm.
+    self.lose_session_with_buttons_neutral()
+    self.safety.safety_rx_hook(make_msg(0, 0x9D, dat=bytes([0x01, 0, 0, 0, 0, 0, 0, 0])))
+    self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+
+  def test_undefined_crz_state_is_not_main_on(self):
+    for state in (3, 5, 6, 7):
+      with self.subTest(crz_state=state):
+        self.configure()
+        for _ in range(10):
+          self.feed()
+        self.feed(main=False)
+        self.safety.safety_rx_hook(self.packet('CRUZE_STATE', {'CRZ_STATE': state}, 0))
+        self.assertFalse(self.safety.get_acc_main_on())
+        self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+
+  def test_gen1_only_sources_are_ignored_on_gen2(self):
+    # 0x241 (GEN1 EPS) and 0x243 (GEN1 camera) are not GEN2 messages. Their
+    # override/fault bits must not revoke or wedge a GEN2 token.
+    self.configure()
+    self.arm()
+    self.safety.safety_rx_hook(make_msg(0, 0x241, dat=bytes([0, 0, 0, 0, 0, 0, 0x04, 0])))
+    self.safety.safety_rx_hook(make_msg(2, 0x243, dat=bytes([0, 0, 0x01, 0, 0, 0, 0, 0])))
+    for _ in range(3):
+      self.feed()
     self.assertEqual(self.safety.aol_get_permission_mask(), 1)
 
   def test_profile_is_enabled_for_gen2_and_tx_is_not_withdrawn(self):

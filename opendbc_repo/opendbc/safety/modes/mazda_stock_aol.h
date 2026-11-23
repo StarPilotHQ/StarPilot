@@ -140,11 +140,11 @@ static void mazda_aol_optional_rx(const CANPacket_t *msg) {
       } else {
         mazda_aol_sources = (mazda_aol_sources & 6U) | (((msg->data[0] & 7U) == 4U) ? 1U : 0U);
       }
-    } else if (msg_matches(msg, 0x241U, 0U, 8U)) {
+    } else if (mazda_gen1 && msg_matches(msg, 0x241U, 0U, 8U)) {
       mazda_aol_seen |= 4U;
       mazda_aol_eps_ts = now;
       mazda_aol_sources = (mazda_aol_sources & 5U) | (GET_BIT(msg, 50U) ? 2U : 0U);
-    } else if (msg_matches(msg, 0x243U, 2U, 8U)) {
+    } else if (mazda_gen1 && msg_matches(msg, 0x243U, 2U, 8U)) {
       mazda_aol_seen |= 8U;
       mazda_aol_cam_ts = now;
       mazda_aol_sources = (mazda_aol_sources & 3U) | (GET_BIT(msg, 16U) ? 4U : 0U);
@@ -160,17 +160,22 @@ static void mazda_aol_optional_rx(const CANPacket_t *msg) {
 static void mazda_aol_rx(const CANPacket_t *msg) {
   if (mazda_aol_enabled) {
     if (msg_matches(msg, 0x44AU, 0U, 8U)) {
-      // GEN2 main switch (see mazda.h): CRZ_STATE != 0. States 0 = off, 1 = ready,
-      // 2 = engaged, 4 = gas override; 3 and 5..7 are undefined and treated as on.
+      // GEN2 main switch (see mazda.h): CRZ_STATE 0 = off, 1 = ready, 2 = engaged,
+      // 4 = gas override. 3 and 5..7 are undefined and fail closed as main-off.
       mazda_aol_seen |= 1U;
       mazda_aol_main_ts = microsecond_timer_get();
-      acc_main_on = (msg->data[0] & 0x70U) != 0U;
+      const uint8_t crz_state = (msg->data[0] >> 4) & 0x7U;
+      acc_main_on = (crz_state == 1U) || (crz_state == 2U) || (crz_state == 4U);
       if ((mazda_aol_session && !heartbeat_engaged) || !aol_rx_healthy() || !mazda_aol_current() || safety_rx_checks_invalid || ((mazda_aol_sources & 4U) != 0U)) {
         mazda_aol_clear();
       } else if (!acc_main_on) {
         mazda_aol_clear();
         mazda_aol_startup_pending = false;
         mazda_aol_neutral = true;
+      } else if (mazda_aol_startup_pending && ((crz_state == 2U) || (crz_state == 4U))) {
+        // Same as GEN1's 0x21C bit 3: cruise already engaged at startup is not a
+        // fresh MAIN, so it can never become an AOL grant.
+        mazda_aol_startup_pending = false;
       } else if (mazda_aol_startup_pending && vehicle_moving && (mazda_aol_sources == 1U) && !brake_pressed && !gas_pressed &&
                  ((aol_host_axis_mask & 1U) != 0U) &&
                  (safety_get_ts_elapsed(microsecond_timer_get(), aol_host_request_ts) <= AOL_HOST_REQUEST_TIMEOUT_US)) {
@@ -232,7 +237,11 @@ static void mazda_aol_button_rx(const CANPacket_t *msg) {
   if (mazda_aol_enabled && msg_matches(msg, 0x9DU, 0U, 8U)) {
     // Mapped Cancel can request LAT only after the same fresh physical edge
     // and current host acknowledgment used by the other cruise buttons.
-    const bool press = (msg->data[0] & 0x35U) != 0U;
+    // Byte 0 cruise buttons. GEN1 (mazda_2017.dbc): CAN_OFF 0x01, RES 0x04,
+    // SET_P 0x10, SET_M 0x20. GEN2 (mazda_2019.dbc): RES 0x04, SET_M 0x08,
+    // SET_P 0x10, CAN 0x20; bit 0 is not a button there.
+    const uint8_t button_mask = mazda_gen2 ? 0x3CU : 0x35U;
+    const bool press = (msg->data[0] & button_mask) != 0U;
     if ((mazda_aol_session && !heartbeat_engaged) || !aol_rx_healthy() || !mazda_aol_current() || safety_rx_checks_invalid || ((mazda_aol_sources & 4U) != 0U)) {
       mazda_aol_clear();
     } else if (!press) {
