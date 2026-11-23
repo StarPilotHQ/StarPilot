@@ -28,12 +28,6 @@ AOL_WORDS = frozenset((
 
 SECOC_TORQUE_CARS = frozenset((CAR.TOYOTA_SIENNA_4TH_GEN, CAR.TOYOTA_RAV4_PRIME, CAR.TOYOTA_YARIS))
 RADAR_TORQUE_CARS = frozenset((CAR.TOYOTA_CHR_TSS2, CAR.TOYOTA_RAV4_TSS2_2022))
-CAMERA_TORQUE_CARS = frozenset((
-  CAR.TOYOTA_ALPHARD_TSS2, CAR.TOYOTA_AVALON_TSS2, CAR.TOYOTA_CAMRY_TSS2, CAR.TOYOTA_COROLLA_TSS2,
-  CAR.TOYOTA_HIGHLANDER_TSS2, CAR.TOYOTA_PRIUS_TSS2, CAR.TOYOTA_RAV4_TSS2, CAR.TOYOTA_MIRAI,
-  CAR.LEXUS_ES_TSS2, CAR.LEXUS_NX_TSS2, CAR.LEXUS_LC_TSS2, CAR.LEXUS_RX_TSS2,
-  CAR.LEXUS_IS_TSS2, CAR.LEXUS_RC_TSS2,
-))
 
 
 def secoc_qualified(cp, *, marked_only=False):
@@ -154,6 +148,9 @@ def qualified(cp, *, marked_only=False):
     return secoc_qualified(cp, marked_only=marked_only)
   from opendbc.car.toyota.prius_longitudinal import configured as prius_filter_configured
   if cp is not None and prius_filter_configured(cp):
+    return cp.alternativeExperience in ((32,) if marked_only else (0, 32))
+  from opendbc.car.toyota.interface import CAMERA_TORQUE_CARS, camera_stock_acc_supported
+  if camera_stock_acc_supported(cp) and not cp.openpilotLongitudinalControl:
     return cp.alternativeExperience in ((32,) if marked_only else (0, 32))
   if (cp is None or cp.brand != 'toyota' or cp.carFingerprint not in CAMERA_TORQUE_CARS | RADAR_TORQUE_CARS or
       cp.notCar or cp.passive or cp.dashcamOnly or not cp.pcmCruise or

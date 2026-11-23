@@ -333,12 +333,13 @@ class FeatureSettingsOwner:
     return False
 
   def _bolt_disable_capability(self) -> tuple | None:
-    from openpilot.starpilot.vehicle_preferences import bolt_disable_supported
+    from openpilot.starpilot.vehicle_preferences import bolt_disable_supported, toyota_disable_long_supported
     from opendbc.car.gm.startup_preferences import disable_long_supported
     cp = self.vehicle_params()
     try:
       from opendbc.car.volkswagen.meb_modes import supported as meb_stock_supported
-      if cp is None or not (bolt_disable_supported(cp) or disable_long_supported(cp) or meb_stock_supported(cp)):
+      if cp is None or not (bolt_disable_supported(cp) or disable_long_supported(cp) or meb_stock_supported(cp) or
+                            toyota_disable_long_supported(cp)):
         return None
       return (str(cp.carFingerprint), str(cp.brand), bool(cp.openpilotLongitudinalControl),
               bool(cp.pcmCruise), int(cp.flags),

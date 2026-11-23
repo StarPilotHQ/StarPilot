@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from openpilot.starpilot.car.subaru.smoothing import Snapshot, read_snapshot, prepare as prepare_smoothing
 
 from opendbc.car.gm.startup_preferences import prepare_disable_longitudinal
-from opendbc.car.toyota.interface import apply_toyota_auto_hold
+from opendbc.car.toyota.interface import apply_toyota_auto_hold, prepare_camera_stock_acc
 from opendbc.car.toyota.values import ToyotaFlags
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.car.tesla.radar_settings import RadarSettings
@@ -15,6 +15,17 @@ def bolt_disable_supported(cp) -> bool:
                 "CHEVROLET_BOLT_ACC_2022_2023_PEDAL")
   return cp.carFingerprint in identities and (is_bolt_cc_profile(cp) or is_bolt_pedal_profile(cp) or
                                                is_bolt_pedal_profile(cp, stock_only=True) or is_bolt_pedal_stock_denied(cp))
+
+
+def toyota_disable_long_supported(cp) -> bool:
+  if cp is None or cp.brand != "toyota" or cp.alphaLongitudinalAvailable:
+    return False
+  from opendbc.car.toyota import advert_filter, angle_control, dsu_bypass, pedal, prius_longitudinal, rav4h_filter
+  from opendbc.car.toyota.interface import camera_stock_acc_supported
+
+  return camera_stock_acc_supported(cp) or any(module.configured(cp) for module in (
+    prius_longitudinal, rav4h_filter, pedal, advert_filter, angle_control, dsu_bypass,
+  ))
 
 
 @dataclass(frozen=True)
@@ -227,6 +238,7 @@ class VehicleStartupPreferences:
       prepare_bypass_stock(cp)
     self._prepare_bolt(cp, fingerprints)
     prepare_disable_longitudinal(cp, self.disable_bolt_long)
+    prepare_camera_stock_acc(cp, self.disable_bolt_long)
     self._prepare_camera_pedal(cp)
     apply_gm_auto_hold(cp, self.gm_auto_hold)
     apply_volt_one_pedal(cp, self.volt_one_pedal and not self.disable_bolt_long, self.gm_auto_hold)
@@ -273,6 +285,7 @@ class VehicleStartupPreferences:
       prepare_bypass_stock(cp)
     self._prepare_bolt(cp)
     prepare_disable_longitudinal(cp, self.disable_bolt_long)
+    prepare_camera_stock_acc(cp, self.disable_bolt_long)
     self._prepare_camera_pedal(cp)
     apply_gm_auto_hold(cp, self.gm_auto_hold and admitted_hold)
     apply_volt_one_pedal(cp, self.volt_one_pedal and admitted_one_pedal and not self.disable_bolt_long, self.gm_auto_hold and admitted_hold)

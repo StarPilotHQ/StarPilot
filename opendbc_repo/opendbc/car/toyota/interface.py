@@ -12,6 +12,36 @@ from opendbc.safety import ALTERNATIVE_EXPERIENCE
 SteerControlType = structs.CarParams.SteerControlType
 
 
+CAMERA_TORQUE_CARS = frozenset((
+  CAR.TOYOTA_ALPHARD_TSS2, CAR.TOYOTA_AVALON_TSS2, CAR.TOYOTA_CAMRY_TSS2, CAR.TOYOTA_COROLLA_TSS2,
+  CAR.TOYOTA_HIGHLANDER_TSS2, CAR.TOYOTA_PRIUS_TSS2, CAR.TOYOTA_RAV4_TSS2, CAR.TOYOTA_MIRAI,
+  CAR.LEXUS_ES_TSS2, CAR.LEXUS_NX_TSS2, CAR.LEXUS_LC_TSS2, CAR.LEXUS_RX_TSS2,
+  CAR.LEXUS_IS_TSS2, CAR.LEXUS_RC_TSS2,
+))
+
+
+def camera_stock_acc_supported(cp) -> bool:
+  required = ToyotaFlags.TSS2 | ToyotaFlags.NO_DSU | ToyotaFlags.RAISED_ACCEL_LIMIT
+  allowed = required | ToyotaFlags.HYBRID | ToyotaFlags.HAS_BSM
+  if (cp is None or cp.brand != "toyota" or cp.carFingerprint not in CAMERA_TORQUE_CARS or
+      cp.notCar or cp.passive or cp.dashcamOnly or cp.secOcRequired or cp.alphaLongitudinalAvailable or not cp.pcmCruise or
+      cp.steerControlType != SteerControlType.torque or len(cp.safetyConfigs) != 1 or
+      cp.flags & required != required or int(cp.flags) & ~int(allowed)):
+    return False
+  config = cp.safetyConfigs[0]
+  expected = EPS_SCALE[cp.carFingerprint]
+  if not cp.openpilotLongitudinalControl:
+    expected |= int(ToyotaSafetyFlags.STOCK_LONGITUDINAL)
+  return config.safetyModel == structs.CarParams.SafetyModel.toyota and config.safetyParam == expected
+
+
+def prepare_camera_stock_acc(cp, requested: bool) -> None:
+  if requested and camera_stock_acc_supported(cp):
+    cp.openpilotLongitudinalControl = False
+    cp.autoResumeSng = False
+    cp.safetyConfigs[0].safetyParam |= int(ToyotaSafetyFlags.STOCK_LONGITUDINAL)
+
+
 def toyota_auto_hold_supported(CP) -> bool:
   from opendbc.car.toyota import pedal, pedal_composite
   if not (CP.brand == "toyota" and CP.carFingerprint in TOYOTA_AUTO_HOLD_CARS and
