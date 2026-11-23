@@ -338,12 +338,13 @@ def _read_original_results(assessment, original, ids, values, root, *, permitted
       original_outputs = tuple(outputs)
       numerical = check_candidate(assessment.cp, block, values, score_start_ns=start, score_end_ns=end, require_change=False, original_outputs=original_outputs)
       commands = numerical.pop('commands', ())
+      unchanged_inhibited = numerical.pop('unchanged_inhibited_commands', ())
       native = None
       if numerical['qualified']:
         stamps = {r[0] for r in commands}
         scored = tuple(c for c in block if c.control_ns in stamps)
         emissions = tuple(o for o in outputs if o.control_ns in stamps)
-        native = check_original_native(assessment.cp, scored, emissions, commands, require_change=False)
+        native = check_original_native(assessment.cp, scored, emissions, commands, require_change=False, unchanged_inhibited=unchanged_inhibited)
       okay = bool(numerical['qualified'] and native is not None and native['qualified'])
       results.append({'window': wid, 'qualified': okay, 'numerical': numerical, 'registered_encoder': native})
     # Retain only one original segment of pre-roll for the following segment.

@@ -263,3 +263,30 @@ def test_actual_runtime_applies_an_unlocked_adjustment_and_quality_rollback_keep
         drive.frame()
     assert controls.global_learning.eligible and owner.frame_allowed
     assert owner.source.values['center_taper_max'] == .01
+
+
+def test_first_automatic_trial_uses_the_confirmed_settings_as_its_exact_rollback(tmp_path, cp):
+  from openpilot.starpilot.flm.manual_coordinates import context
+  from openpilot.starpilot.flm.offroad_store import KEY, MAX_BYTES, RouteScope, RouteStorage, startup_row
+  from openpilot.starpilot.flm.offroad_worker import _save_route_trial
+
+  params = PrivateParams(tmp_path)
+  prior = dict.fromkeys(ROUTE_NAMES, 0.) | {'ff_gain_left': .005, 'center_taper_max': .01}
+  selected = ManualCoordinates(context(cp, 'starpilot', recovered=True), tuple(prior.items()), automatic=('ff_gain_left',)).validate()
+  original = save(params, cp, selected)
+  scope = RouteScope(selected.context[0], 'selected-controller', 'a' * 64, 'b' * 64, '0', 'starpilot', 'torque')
+  row = {'scope': scope.document(), 'previous': prior, 'values': dict(prior, friction_threshold_highway=.005),
+         'route_sha256s': ['c' * 64], 'source_start_ns': 1, 'source_end_ns': 2, 'completed_wall_ns': 3,
+         'analysis_sha256': 'd' * 64, 'sequence': 1, 'state': 'ready_for_next_drive'}
+  altered = dict(row, previous=dict(prior, ff_gain_left=.004))
+  locked = dict(row, values=dict(row['values'], center_taper_max=.011))
+  assert not _save_route_trial(params, cp, altered, expected=None, authorized=lambda: True)
+  assert not _save_route_trial(params, cp, locked, expected=None, authorized=lambda: True)
+  assert not _save_route_trial(params, cp, row, expected=None, authorized=lambda: False)
+  assert read_saved(params, KEY, MAX_BYTES) == (None, True)
+  assert _save_route_trial(params, cp, row, expected=None, authorized=lambda: True)
+  assert startup_row(params, scope)[0] == row
+  stored, readable = read_saved(params, KEY, MAX_BYTES)
+  assert readable and RouteStorage(params).rollback(scope=scope, expected=stored, authorized=lambda: True)
+  assert startup_row(params, scope)[0]['values'] == prior
+  assert read_saved(params, DOCUMENT_KEY, 16384) == (original, True)

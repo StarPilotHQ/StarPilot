@@ -492,6 +492,57 @@ def input_coverage(cohort):
   return cohort['whole_windows'] * min(references) ** 2
 
 
+def _candidate_order(choice):
+  group, cohort, proposal = choice
+  # Prefer a direct correction when independent sections both show notchy
+  # curves. Use original coverage to order the remaining choices.
+  return (proposal.get('notchy_curve_quieting') is not True, -input_coverage(cohort), -cohort['whole_windows'],
+          cohort['cohort'], group['original_context_sha256'])
+
+
+def _save_route_trial(params, cp, trial, *, expected, authorized):
+  storage = RouteStorage(params)
+  from openpilot.starpilot.flm.offroad_store import MAX_SCOPES, validate_row
+
+  scope = validate_row(trial)
+  document = decode(expected)
+  rows = document.get(NAMESPACE, {})
+  if scope.key() in rows or not any(trial['previous'].values()):
+    return storage.save(trial, expected=expected, authorized=authorized)
+  # Derive the first rollback map from the actual saved settings, not the trial.
+  if trial['state'] != 'ready_for_next_drive' or trial['sequence'] != 1:
+    return False
+
+  from openpilot.starpilot.flm.learned_lifecycle import encode
+  from openpilot.starpilot.flm.manual_coordinates import selected_manual
+  from openpilot.starpilot.flm.runtime_adapter_registry import car_params_digest
+  from openpilot.starpilot.saved_document import commit_exact
+
+  if car_params_digest(cp) != scope.cp_sha256:
+    return False
+  manual = selected_manual(cp, params)
+  if (manual is None or trial['previous'] != (ZERO | manual.starting_values)
+      or any(trial['values'][name] != trial['previous'][name] for name in manual.locked)):
+    return False
+
+  def permitted():
+    return (storage.directory == Path(params.get_param_path(KEY)).parent.resolve()
+            and storage.directory.stat().st_uid == os.geteuid() and authorized() and selected_manual(cp, params) == manual)
+
+  if not permitted() or read_saved(params, KEY, MAX_BYTES) != (expected, True):
+    return False
+  if len(rows) >= MAX_SCOPES:
+    from openpilot.starpilot.flm.offroad_saved_history import SavedHistory
+
+    SavedHistory(params).preserve(expected)
+    del rows[min(rows, key=lambda key: (rows[key]['completed_wall_ns'], key))]
+  rows[scope.key()] = trial
+  desired = encode(dict(document, version=3, fullSurfaces=document.get('fullSurfaces', {}), routeSurfaces=rows))
+  result = commit_exact(params, key=KEY, max_bytes=MAX_BYTES, raw=desired, expected=expected,
+                        authorized=permitted, temp_prefix='.route-steering-')
+  return result.committed and result.verified
+
+
 def _input_spans(group, cohort, ids):
   name = 'qualification_original_windows' if 'qualification_roles' in cohort else 'selected_original_windows'
   return {
@@ -1259,7 +1310,7 @@ class OffroadWorker:
         reason = outcome['reason']
     else:
       # Freeze input-only ranking; training may select a candidate, validation may not.
-      choices.sort(key=lambda v: (-input_coverage(v[1]), -v[1]['whole_windows'], v[1]['cohort'], v[0]['original_context_sha256']))
+      choices.sort(key=_candidate_order)
       recommendations_ready()
       training_seen = set()
       training_spans = set()
@@ -1397,7 +1448,7 @@ class OffroadWorker:
                 inventory = route_inventory(self.root)
                 return not inventory['scanIncomplete'] and all(sum(r == source for r in inventory['routes']) == 1 for source in required)
 
-              saved = RouteStorage(self.params).save(new, expected=expected, authorized=original_sources_current)
+              saved = _save_route_trial(self.params, assessment.cp, new, expected=expected, authorized=original_sources_current)
               if not saved:
                 raise ValueError('Next-drive tune compare-and-swap refused')
               status = 'ready_for_next_drive'

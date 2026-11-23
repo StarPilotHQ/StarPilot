@@ -9,6 +9,7 @@ import hashlib
 import math
 from pathlib import Path
 from statistics import fmean
+from typing import cast
 
 from openpilot.starpilot.flm.offroad_stable_policy import (
   FLMSample,
@@ -345,7 +346,8 @@ class StableRouteSelector:
     recommended = next((p for p in profiles if p['label'] == 'Recommended'), None)
     if recommended is not None:
       recommended['frictionCurveUnits'] = 'relative_actual_selected_threshold'
-    report = {'original_windows': windows, 'supported_dimensions': len(selected), 'unavailable_dimensions': unavailable, 'profile': recommended}
+    report = {'original_windows': windows, 'supported_dimensions': len(selected), 'unavailable_dimensions': unavailable, 'profile': recommended,
+              'notchy_mid_curve_observed': any(row['bucket'] == 'notchy_mid_curve' for _, row in observations)}
     report['coordinate_candidates'] = coordinate_candidates(observations, self.previous)
     if observations_only:
       report['coordinate_observations'] = observations
@@ -406,9 +408,9 @@ class StableRouteSelector:
       return None, {'reason': 'original_stable_input_fields_missing', 'original_windows': all_ids}
     training, training_report = self.profile(ids['training'], cohort['cohort'])
     selection = 'training_values_only_no_heldout_resizing'
-    if training is not None:
-      from openpilot.starpilot.flm.offroad_surface import CURVE_NAMES
+    from openpilot.starpilot.flm.offroad_surface import CURVE_NAMES
 
+    if training is not None:
       if any(training['values'][name] != self.previous[name] for name in CURVE_NAMES):
         # Quieting is one trial; unrelated turn changes need their own evidence.
         values = dict(self.previous)
@@ -451,8 +453,14 @@ class StableRouteSelector:
     if not agrees:
       return None, proof
     assert training is not None
+    training_values = cast(dict[str, float], training['values'])
+    notchy_curve_quieting = (
+      training_report.get('notchy_mid_curve_observed') is True and heldout_report.get('notchy_mid_curve_observed') is True
+      and all(name in CURVE_NAMES and training_values[name] > self.previous[name] for name in training['changed_parameters'])
+    )
     return {
       'parameter': 'stable:' + ','.join(training['changed_parameters']),
+      'notchy_curve_quieting': notchy_curve_quieting,
       'delta': training['maximum_coordinate_step'],
       'values': training['values'],
       'policy': 'original_stable_recommended_bounded_route_v1',

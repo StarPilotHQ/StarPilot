@@ -597,11 +597,20 @@ def _assess_inputs(route, collected, previous, *, permitted, sources=None, route
         }
     return None
 
+  stable_count = 0
   for key, values in sorted(stable_windows.items()):
+    if not permitted():
+      raise RouteInputCancelled('Parked analysis cancelled')
+    grade = stable_grades.get(key, 'continuous_original_control_metadata')
+    references = {w.identity: gross_reference(w) for w in values}
+    if grade != 'bookended_zero_route_tracking':
+      # Freeze input-only eligibility before partitioning. A trial needs a
+      # comparable two-second revocation reference for every selected parent.
+      values = [w for w in values if references[w.identity] is not None]
     if not values:
       continue
+    stable_count += len(values)
     report = analyze_stable_windows(tuple(values), permitted=permitted, route_order=route_order, comparison=comparisons.get(key))
-    grade = stable_grades.get(key, 'continuous_original_control_metadata')
     report['tracking_source_grade'] = grade
     if grade == 'bookended_zero_route_tracking':
       _separate_qualification(report, windows.get(key, ()), proposal_windows=values, route_order=route_order)
@@ -618,7 +627,7 @@ def _assess_inputs(route, collected, previous, *, permitted, sources=None, route
           'end_ns': w.points[-1].mono_ns,
           'metrics': tracking_metrics(w.points),
           'demand': window_demand(w),
-          'gross_reference': gross_reference(w),
+          'gross_reference': references[w.identity],
           'categorical_bookends_original_ns': bookends.get(w.identity, ()),
         }
         for w in values
@@ -630,7 +639,7 @@ def _assess_inputs(route, collected, previous, *, permitted, sources=None, route
 
       bind_original_contexts(report, [*values, *windows.get(key, ())], comparisons[key])
     stable.append(report)
-  counts['stable_qualified_whole_windows'] = sum(map(len, stable_windows.values()))
+  counts['stable_qualified_whole_windows'] = stable_count
   diagnostic = []
   from openpilot.starpilot.flm.offroad_observed import merge_sources
 
