@@ -99,7 +99,9 @@ class CarInterface(CarInterfaceBase):
       ret.lateralTuning.pid.kiBP, ret.lateralTuning.pid.kpBP = [[0., 20.], [0., 20.]]
       ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.0025, 0.1], [0.00025, 0.01]]
 
-    elif candidate == CAR.SUBARU_IMPREZA:
+    elif candidate in (CAR.SUBARU_IMPREZA, CAR.SUBARU_CROSSTREK_2018):
+      if candidate == CAR.SUBARU_CROSSTREK_2018:
+        ret.safetyConfigs[0].safetyParam = SubaruSafetyFlags.CROSSTREK_2018.value
       ret.steerActuatorDelay = 0.4  # end-to-end angle controller
       ret.lateralTuning.init('pid')
       ret.lateralTuning.pid.kf = 0.00005

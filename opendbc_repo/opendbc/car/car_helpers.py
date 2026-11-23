@@ -261,6 +261,11 @@ def fingerprint(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_mu
   # Refine after both automatic sources, before the explicit override below.
   if not fixed_fingerprint:
     car_fingerprint = automatic_bolt_candidate(car_fingerprint, finger, camera_cruise_messages, vin)
+    if car_fingerprint == 'SUBARU_IMPREZA' and source == CarParams.FingerprintSource.fw and exact_match:
+      # Subaru's early GT Crosstrek and Impreza share a firmware bucket.
+      # NHTSA vPIC identifies JF2GT with model-year codes J and K as Crosstrek.
+      if is_valid_vin(vin) and vin.startswith('JF2GT') and vin[9] in ('J', 'K'):
+        car_fingerprint = 'SUBARU_CROSSTREK_2018'
 
   if fixed_fingerprint:
     car_fingerprint = fixed_fingerprint

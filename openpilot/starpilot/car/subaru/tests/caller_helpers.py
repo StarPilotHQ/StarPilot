@@ -49,7 +49,7 @@ def firmware_records(candidate, versions, brand):
 
 
 @contextmanager
-def actual_factory(candidate, fingerprint, fw, vin, *, manual, alpha=False, release=False, aol=True, preferences=None):
+def actual_factory(candidate, fingerprint, fw, vin, *, manual, alpha=False, release=False, aol=True, preferences=None, firmware_candidate=None):
   with (
     OpenpilotPrefix(),
     patch.object(selfdrived_module, 'SIMULATION', True),
@@ -77,7 +77,7 @@ def actual_factory(candidate, fingerprint, fw, vin, *, manual, alpha=False, rele
     params.put('VehicleSelection', json.loads(encode(str(candidate) if manual else None)), block=True)
     _, matches = match_fw_to_car(fw, vin, log=False)
     if not manual:
-      assert matches == {candidate}, (candidate, matches)
+      assert matches == {firmware_candidate or candidate}, (candidate, matches)
     with ExitStack() as io:
       io.enter_context(patch('openpilot.selfdrive.car.card.messaging.recv_one_retry', return_value=messaging.new_message('can', 1)))
       io.enter_context(patch('openpilot.selfdrive.car.card.can_comm_callbacks', return_value=(lambda *a, **kw: [], lambda *a, **kw: None)))
