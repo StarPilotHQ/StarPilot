@@ -96,10 +96,11 @@ class FakeHeadUnit:
   def __init__(self, identity: dict[str, Path], *, window: int = 4, reject_auth: bool = False, require_client_cert: bool = True,
                unsolicited_focus: bool = False, version: tuple[int, int] = (1, 7), ack_codec_config: bool | int = True,
                connect_to: tuple[str, int] | None = None, ack_fragments: bool = False,
-               phone_services: bool = False, bolt: bool = False, silent_discovery: bool = False, withhold_focus: bool = False,
+               phone_services: bool = False, native_focus: bool = False, bolt: bool = False, silent_discovery: bool = False, withhold_focus: bool = False,
                grant_focus_after_s: float | None = None, hang_up_after_s: float | None = None,
                hang_up_unless: frozenset[int] = frozenset()):
     self.phone_services = phone_services
+    self.native_focus = native_focus  # like the 2026-10-30 Honda: answer every projection request with its own screen
     self.bolt = bolt
     self.silent_discovery = silent_discovery  # never answer service discovery
     self.withhold_focus = withhold_focus  # never grant focus, whatever the phone asks
@@ -298,7 +299,9 @@ class FakeHeadUnit:
         reason = int(one(fields, 3, 0) or 0)
         self.focus_requests.append((requested, reason))
         self.focus_request_bodies.append(data)
-        if requested == 1 and not focused and self.withhold_focus:
+        if requested == 1 and self.native_focus:
+          self._send(3, 0x8008, field(1, 2) + field(2, 0))
+        elif requested == 1 and not focused and self.withhold_focus:
           pass
         elif requested == 1 and not focused and self.grant_focus_after_s is not None:
           self._grant_at = time.monotonic() + self.grant_focus_after_s

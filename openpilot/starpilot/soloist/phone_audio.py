@@ -140,6 +140,19 @@ class PhoneInput:
           return action
     return None
 
+  def disconnect(self, address: str) -> bool:
+    """Drop only the phone's audio profile (the companion app's link to the comma stays); never raises."""
+    try:
+      from openpilot.starpilot.bluetooth.owner import DEVICE
+      for path, interfaces in self._objects().items():
+        props = interfaces.get(DEVICE, {})
+        if str(props.get('Address', '')).upper() == address and props.get('Connected'):
+          self._call(path, DEVICE, 'DisconnectProfile', 's', (A2DP_SOURCE,), timeout=5.0)
+          return True
+    except Exception:
+      pass
+    return False
+
   def close(self):
     if self.client is not None:
       try:

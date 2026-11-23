@@ -38,7 +38,9 @@ from openpilot.starpilot.system.starport import (car_profiles, device_health, he
 from openpilot.starpilot.system.starport import reconnect_notice
 from openpilot.starpilot.system.starport.adapter_syslog import AdapterSyslog
 from openpilot.starpilot.system.starport.auto_connect import AutoConnectPolicy
-from openpilot.starpilot.system.starport.bootstrap import MODERN_MAJOR, NAMES, BootstrapError, BootstrapTimeout, WirelessBootstrap
+from openpilot.starpilot.system.starport.home_wifi import HomeWifiKeeper
+from openpilot.starpilot.system.starport.bootstrap import (MODERN_MAJOR, NAMES, WIFI_VERSION_REQUEST, BootstrapError, BootstrapTimeout,
+                                                            WirelessBootstrap)
 from openpilot.starpilot.system.starport.bugsink_report import PairingAttempt
 from openpilot.starpilot.system.starport.frame_source import (DEFAULT_PATH as DEFAULT_FRAME_PATH, FLAG_ASYNC_READBACK, FLAG_NV12,
                                                                   FORMAT_NV12, FrameRequest)
@@ -63,6 +65,8 @@ PATIENT_TCP_SECONDS = 60.0  # owner toggle: keep retrying a refused projection c
 STANDARD_AA_PORT = 5288
 VERSION_WAIT_SECONDS = 90.0
 MAX_LOG_FILES = 20
+DAEMON_LOG = "daemon.jsonl"   # events logged between sessions (what held an auto-connect start); rolls to daemon.1.jsonl
+DAEMON_LOG_BYTES = 256 << 10
 LOG_QUEUE_MAX = 1000          # session log records waiting for the writer; past this they are dropped and counted
 ENCODER_RECOVERIES = 3       # hardware encoder reopens allowed per window before the session is torn down
 ENCODER_RECOVERY_WINDOW = 10.0
@@ -82,6 +86,39 @@ USB_CONFIGURE_WAIT = 15.0    # slower receivers need time to enumerate after the
 LINK_CHECK_INTERVAL = 1.0    # how often the link watcher asks whether the car's Wi-Fi is still up
 LINK_CHECK_SLOW = 1.0        # a link check slower than this is logged (NetworkManager answers over D-Bus)
 STREAM_STALL_LOG = 1.0       # a streaming loop pass slower than this is logged
+# A head unit that answers the first VideoFocusRequest with native focus and then stays silent (2026-10-29 Honda,
+# 15 min with no frames) is asked again: after this long, then every FOCUS_RETRY_INTERVAL, at most FOCUS_RETRIES times.
+FOCUS_RETRY_FIRST = 3.0
+FOCUS_RETRY_INTERVAL = 10.0
+FOCUS_RETRIES = 5
+# Wireless only, and only for a car profile with "native_reconnects": a car that still holds its own screen this long into
+# streaming (two re-requests in) is sent a clean ShutdownRequest and the session reconnects, at most that many times per
+# session. 2026-10-28..30 Honda/OTTOCAST: 9 of 12 projections were refused for the whole drive, and reconnecting was the
+# only thing that ever got video.
+NATIVE_FOCUS_GIVE_UP_S = 15.0
+# A car that grants the screen only once its own hands-free link to the comma is up (2026-11-02 Honda/OTTOCAST, 24 of 24):
+# while it keeps its own screen, open that link again this often, each try bounded by this timeout.
+COMPANION_LINK_RETRY_S = 10.0
+COMPANION_CONNECT_TIMEOUT_S = 8.0
+# 2026-11-08: a page the car did not answer (D-Bus timeout, or "busy" because the kernel is still paging from the last
+# one) kept the controller paging 8 s of every 10; the car's own hands-free connection, the one that grants the screen,
+# only landed in the idle window. After such a page the keeper rests this long so the car gets the air to call us.
+COMPANION_PAGE_BACKOFF_S = 30.0
+COMPANION_READY_POLL_S = 0.5
+COMPANION_PAGING_OUTCOMES = ("TimeoutError", "br-connection-busy", "InProgress", "page-timeout")
+# 2026-11-13, sessions 37-56 and the controller traces of 55 and 56: in 7 of 20 drives the Honda's first Bluetooth link
+# at ignition came up and then carried nothing: no authentication, no hands-free, and the comma's own service lookup on
+# it went unanswered for 40 s. The Honda hung each such link up 68.2 s after it connected and called again 2-3 s later,
+# so the screen came at 79-85 s, or at 221-228 s after three in a row. A working link had its hands-free up within 0.5 s.
+# With "recycle_silent_link" the keeper hangs up a link from the car that has been up this long without hands-free, at
+# most this many times a session, and then gives the car this long to call back before it pages the car itself.
+COMPANION_SILENT_LINK_S = 5.0
+COMPANION_RECYCLE_LIMIT = 3
+COMPANION_REDIAL_WAIT_S = 6.0
+COMPANION_SILENT_POLL_S = 1.0
+COMPANION_LINK_HINT = ("Waiting for the car's hands-free link to StarPilot; the car keeps its own screen until it is up. "
+                       "If another phone is connected to the car's hands-free, connect StarPilot on the car's phone screen.")
+WIFI_READY_PROBE_S = 5.0     # how often auto-connect asks NetworkManager whether it manages the Wi-Fi radio yet
 STALL_CAPTURE_S = 20.0       # device logs kept from before a shared-radio stall is reported
 REPORTED_SETTINGS = ("connection", "usb_mode", "view", "encoder", "fps", "bitrate_kbps", "rate_control", "gpu_nv12",
                      "async_readback", "wifi_interface", "dedicated_wifi_interface", "verify_head_unit", "version_status",
@@ -175,6 +212,10 @@ class Cancelled(Exception):
 
 class StrayLinkError(RuntimeError):
   """The controller holds a link to the car that the kernel lost; every new channel to the car fails with EALREADY."""
+
+
+class NativeFocusHeld(TimeoutError):
+  """The car never granted video focus; the session was shut down cleanly to try a fresh connection."""
 
 
 def _stray_link(error: BaseException) -> bool:
@@ -305,6 +346,7 @@ class EventLog:
 
   def __init__(self, directory: Path | None = None):
     self.directory = directory or identity_store.LOG_DIR
+    self.daemon_path = self.directory / DAEMON_LOG
     self.recent: deque[dict] = deque(maxlen=40)
     self.lock = threading.Lock()
     self._queue: queue.Queue = queue.Queue(maxsize=LOG_QUEUE_MAX)
@@ -377,11 +419,29 @@ class EventLog:
   def _line(self, record: dict) -> str:
     return json.dumps(record, default=str) + "\n"
 
+  def _daemon(self, record: dict) -> None:
+    """Between sessions, records go to a small rolling file beside the session logs.
+
+    2026-11-03: a cold boot's start was held 23 s by pre-session Bluetooth paging, and nothing in the bundle showed
+    it; the device journal misses the first ~50 s after a boot and these records only lived in ``recent``.
+    """
+    try:
+      self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+      path = self.daemon_path
+      if path.is_file() and path.stat().st_size >= DAEMON_LOG_BYTES:
+        os.replace(path, path.with_name("daemon.1.jsonl"))
+      fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+      with os.fdopen(fd, "a") as handle:
+        handle.write(self._line(record))
+    except OSError:
+      pass
+
   def __call__(self, name: str, **values) -> None:
     record = {"t": datetime.now(UTC).isoformat(timespec="milliseconds"), "event": name, "mono_s": time.monotonic(), **values}
     with self.lock:
       self.recent.append(record)
       if self._writer is None:
+        self._daemon(record)
         return
       try:
         if self._dropped:
@@ -390,6 +450,119 @@ class EventLog:
         self._queue.put_nowait(self._line(record))
       except queue.Full:
         self._dropped += 1
+
+
+class CompanionLinkKeeper:
+  """While a car that gates its screen on its own hands-free link keeps that screen, keep opening the link to the comma.
+
+  2026-11-02 Honda/OTTOCAST: the car granted video within a second of its HandsFreeLink completing a hands-free
+  connection to the comma, 38 s into one projection; without that link it never did. Runs beside the projection
+  connection until the car hands over or the session ends.
+
+  2026-11-08 session 38: paging from the moment the adapter accepted us held the phone's D-Bus lock through the
+  projection's own setup (connecting_tcp -> authenticating took the page's full 8.0 s, 0.0-0.2 s in every other
+  session), so with ``ready`` the first page waits until the projection is streaming. A page the car did not answer is
+  followed by ``backoff`` instead of ``interval``: the car connected by itself 6 s into the one idle window it got.
+
+  2026-11-13 sessions 55/56: the wait was not for a link at all. The Honda's Bluetooth link was up from ignition and
+  carried nothing; the Honda dropped it after 68.2 s and its next call brought hands-free and the screen within a
+  second. With ``silent_for`` and ``drop`` the keeper hangs such a link up itself (see COMPANION_SILENT_LINK_S).
+  """
+
+  def __init__(self, connect: Callable[[float], str], link_up: Callable[[], bool], log: Callable[..., None],
+               interval: float = COMPANION_LINK_RETRY_S, timeout: float = COMPANION_CONNECT_TIMEOUT_S,
+               backoff: float = COMPANION_PAGE_BACKOFF_S, ready: Callable[[], bool] | None = None,
+               ready_poll: float = COMPANION_READY_POLL_S,
+               silent_for: Callable[[], float | None] | None = None, drop: Callable[[], str] | None = None,
+               silent_after: float = COMPANION_SILENT_LINK_S, recycle_limit: int = COMPANION_RECYCLE_LIMIT,
+               redial_wait: float = COMPANION_REDIAL_WAIT_S, silent_poll: float = COMPANION_SILENT_POLL_S):
+    self.connect, self.link_up, self.log = connect, link_up, log
+    self.interval, self.timeout, self.backoff = interval, timeout, backoff
+    self.ready, self.ready_poll = ready, ready_poll
+    # ``silent_for``: seconds the car's Bluetooth link has been up (None while it is down); ``drop`` hangs it up.
+    self.silent_for, self.drop = silent_for, drop
+    self.silent_after, self.recycle_limit = silent_after, recycle_limit
+    self.redial_wait, self.silent_poll = redial_wait, silent_poll
+    self.attempts = 0
+    self.recycles = 0
+    self.outcome = ""
+    self._ready_seen = ready is None
+    self._stop = threading.Event()
+    self._thread = threading.Thread(target=self._run, name="aa_companion_link", daemon=True)
+
+  def start(self) -> CompanionLinkKeeper:
+    self._thread.start()
+    return self
+
+  def stop(self) -> None:
+    self._stop.set()
+    if self._thread.is_alive() and threading.current_thread() is not self._thread:
+      self._thread.join(timeout=1.0)
+
+  @staticmethod
+  def paged(outcome: str) -> bool:
+    """The attempt paged the car and it did not answer (or the kernel is still paging from the last one)."""
+    return any(marker in outcome for marker in COMPANION_PAGING_OUTCOMES)
+
+  def _silent_seconds(self) -> float | None:
+    """How long the car's Bluetooth link has been up without hands-free, while hanging it up is still an option."""
+    if self.silent_for is None or self.drop is None or self.recycles >= self.recycle_limit:
+      return None
+    try:
+      return self.silent_for()
+    except Exception:
+      return None
+
+  def _recycle(self, silent: float) -> float:
+    """Hang up a link that carries no hands-free and leave the air to the car: it calls back within seconds of a link
+    ending, where it would otherwise sit on the silent one for 68 s."""
+    try:
+      outcome = self.drop()
+    except Exception as error:  # never let a Bluetooth hiccup take the keeper down
+      outcome = f"{type(error).__name__}: {error}"
+    if outcome == "dropped":
+      self.recycles += 1
+      wait = self.redial_wait
+    else:
+      if outcome != "not connected":   # refused, failed, or the link carries the car's audio: leave this car's links alone
+        self.recycles = self.recycle_limit
+      wait = self.silent_poll
+    self.log("companion_link_recycled", recycle=self.recycles, silent_s=round(silent, 1), outcome=outcome[:160],
+             next_s=round(wait, 1))
+    return wait
+
+  def _step(self) -> float:
+    """One pass; returns how long to rest before the next."""
+    if self.link_up():
+      return self.interval if self._ready_seen else self.ready_poll
+    silent = self._silent_seconds()
+    if silent is not None:
+      # The car's Bluetooth link is up and its hands-free is not. Paging cannot help (the link is there, and a service
+      # lookup on a silent one goes unanswered and leaves BlueZ "busy" for 40 s): watch it, then hang it up. This needs
+      # no page of ours, so it does not wait for the projection to stream.
+      if silent >= self.silent_after:
+        return self._recycle(silent)
+      return max(0.05, min(self.silent_poll, self.silent_after - silent))
+    if not self._ready_seen:
+      if not self.ready():
+        return self.ready_poll
+      self._ready_seen = True
+    wait = self.interval
+    self.attempts += 1
+    try:
+      self.outcome = self.connect(self.timeout)
+    except Exception as error:  # never let a Bluetooth hiccup take the keeper down
+      self.outcome = f"{type(error).__name__}: {error}"
+    up = self.link_up()
+    if not up and self.paged(self.outcome):
+      wait = self.backoff
+    self.log("companion_link", attempt=self.attempts, outcome=self.outcome[:160], up=up, next_s=round(wait, 1))
+    return wait
+
+  def _run(self) -> None:
+    while not self._stop.is_set():
+      if self._stop.wait(self._step()):
+        return
 
 
 class Supervisor:
@@ -412,6 +585,8 @@ class Supervisor:
     self._projection_enabled = projection_enabled
     self._lease_factory = lease_factory
     self._dedicated_strikes: dict[str, int] = {}
+    self._native_reconnects = 0  # per session: how often a car that never granted focus was reconnected
+    self._native_reconnect_limit = 0  # from the car profile, wireless sessions only
     self._wifi_recover_at = 0.0
     self._bt_client = bluetooth_client
     self._frame_path = frame_path
@@ -444,6 +619,13 @@ class Supervisor:
     self._run_started = 0.0
     self.auto = AutoConnectPolicy()
     self._companion_retry_at = 0.0
+    self._companion_acl_since: float | None = None   # when the saved car's Bluetooth link was first seen up; None while down
+    self._companion_keeper: CompanionLinkKeeper | None = None
+    self._setup_phase = False  # TCP/TLS of the projection connection still being set up (a handshake restart is answered)
+    self._setup_sock: socket.socket | None = None
+    self._wifi_probe: Any = None
+    self._wifi_probe_at = -WIFI_READY_PROBE_S
+    self._wifi_ready_state = True
     self.log = EventLog()
     self.config = identity_store.load_config()
     self._status: dict = {"state": "idle", "detail": "", "error": "", "last_stage": "", "attempt": 0,
@@ -617,7 +799,7 @@ class Supervisor:
       if not self._projection_enabled():
         raise RuntimeError("Android Auto is disabled")
       if self._adapter_choice_needed():
-        raise RuntimeError("Choose your adapter model (AAWireless or Other) in Galaxy first")
+        raise RuntimeError("Choose your adapter model (AAWireless, OTTOCAST or Other) in Galaxy first")
       if self.config["connection"] == "wired" and (reason := wired_blocker()):
         raise RuntimeError(reason)
       if self._thread is not None and self._thread.is_alive():
@@ -845,7 +1027,7 @@ class Supervisor:
   def prepare_pairing(self, seconds: float = 180.0) -> None:
     """Present as a phone (HFP gateway, smartphone class) while the car pairs."""
     if self._adapter_choice_needed():
-      raise RuntimeError("Choose your adapter model (AAWireless or Other) in Galaxy first")
+      raise RuntimeError("Choose your adapter model (AAWireless, OTTOCAST or Other) in Galaxy first")
     if self._bluez_factory is None and (self._source_session is None or self._shared_bluetooth_owner is None or
                                         not self._shared_bluetooth_owner.session_valid(self._source_session)):
       raise RuntimeError('Current Galaxy pairing authorization required')
@@ -943,6 +1125,7 @@ class Supervisor:
     """Periodic housekeeping from the daemon thread: pairing window, auto-connect."""
     now = time.monotonic() if now is None else now
     self.recover_wifi(now)
+    self.keep_home_wifi(now)
     owner = self._shared_bluetooth_owner
     if not self._projection_enabled():
       self._set(error='Android Auto was disabled')
@@ -1081,22 +1264,58 @@ class Supervisor:
       adapter_ready, device = False, None  # Bluetooth still starting (or restarting)
     car_device = device
     companion = config.get('companion_address', '')
+    # 2026-11-03: with the hands-free gate the session's keeper owns the car's link. Paging the car from here instead
+    # ran every 15 s all day while parked (218 page timeouts an hour) and, after a cold boot, a page whose service
+    # lookup hung held the start 23 s and left the keeper's first attempt "busy".
+    keeper_owns_link = bool(car_profiles.tuning(config)["hfp_gate"])
     if companion and adapter_ready and device and device['paired'] and self._shared_bluetooth_owner is not None:
       try:
         car_device = self._shared_bluetooth_owner.prepare_companion(companion, lambda: self.config.get('companion_address', ''))
-        if not running and not car_device['connected'] and now >= self._companion_retry_at:
+        if not keeper_owns_link and not running and not car_device['connected'] and now >= self._companion_retry_at:
           self._companion_retry_at = now + 15.0
           car_device = self._shared_bluetooth_owner.prepare_companion(
             companion, lambda: self.config.get('companion_address', ''), connect=True)
       except Exception as error:
         car_device = None
         self._set(error=f'Waiting for selected car: {error}'[:300])
+    self._note_companion_acl(bool(companion and car_device and car_device is not device and car_device["connected"]), now)
     car_link = bool(car_device and car_device["connected"]) or now - self._car_seen_at < CAR_LINK_HOLD
     onroad = self._onroad()
+    paired = bool(device and device["paired"])
+    ready = adapter_ready and paired and (not companion or car_link or keeper_owns_link) and self._wifi_ready(now)
+    self._note_gate(onroad=onroad, car_link=car_link, adapter=adapter_ready, paired=paired, ready=ready, running=running)
     linked = car_profiles.tuning(self.config)["stay_while_projecting"] and self._status.get("state") in ("streaming", "suspended")
-    action = self.auto.decide(now, enabled=True, onroad=onroad, car_link=car_link, linked=linked,
-                              ready=adapter_ready and bool(device and device["paired"]) and (not companion or car_link), running=running)
+    action = self.auto.decide(now, enabled=True, onroad=onroad, car_link=car_link, linked=linked, ready=ready, running=running)
     self._apply_auto_action(now, action, onroad)
+
+  def _note_gate(self, **gate) -> None:
+    """Log the auto-connect gate whenever it changes: between sessions this is what a bundle has to show why a start waited."""
+    if gate != getattr(self, "_auto_gate", None):
+      self._auto_gate = gate
+      self.log("auto_connect_gate", **gate)
+
+  def _wifi_ready(self, now: float) -> bool:
+    """NetworkManager manages the Wi-Fi radio. After a cold boot it takes the radio ~25 s after StarPort starts
+    (2026-11-02), and a session started before that fails its joins with "device wlan0 is strictly unmanaged"."""
+    if self._lease_factory is not None or self.config["connection"] != "wireless":
+      return True
+    if now - self._wifi_probe_at < WIFI_READY_PROBE_S:
+      return self._wifi_ready_state
+    self._wifi_probe_at = now
+    state = None
+    try:
+      if self._wifi_probe is None:
+        from openpilot.starpilot.system.starport.network import NetworkLease
+        self._wifi_probe = NetworkLease(self.log, self.config["wifi_interface"])
+      state = self._wifi_probe.interface_state()
+      from openpilot.starpilot.system.starport.network import NM_DEVICE_STATE_USABLE
+      ready = state >= NM_DEVICE_STATE_USABLE
+    except Exception:
+      ready = True  # fail open: a join reports the real problem
+    if ready != self._wifi_ready_state:
+      self.log("wifi_radio_ready" if ready else "wifi_radio_waiting", interface=self.config["wifi_interface"], state=state)
+      self._wifi_ready_state = ready
+    return ready
 
   def _apply_auto_action(self, now: float, action: str | None, onroad: bool) -> None:
     if action == "start":
@@ -1260,7 +1479,9 @@ class Supervisor:
         for previous in list(owner.companion_devices):
           if previous != device['address']:
             owner.companion_devices.pop(previous, None)
-      elif self.config.get('companion_address', '').upper() == address.upper():
+      elif operation == 'forget' and self.config.get('companion_address', '').upper() == address.upper():
+        # Only forgetting drops the saved car. Disconnecting used to drop it too; with no saved car the comma refuses
+        # the car's hands-free link, and a car that gates its screen on that link (Honda) never shows Android Auto again.
         self.config.update(companion_address='', companion_name='')
         identity_store.save_config(self.config)
       return result
@@ -1331,6 +1552,114 @@ class Supervisor:
       self._car_seen_at = now
       self._hfp_link.set()
 
+  def _admit_companion(self, tuning: dict) -> None:
+    """Admit the saved car to the lease. Without the hands-free gate its link is opened here, before the adapter; with
+    the gate the session's keeper opens it beside the projection (2026-11-03: opening it here cost a cold boot ~25 s)."""
+    if self._shared_bluetooth_owner is None:
+      raise RuntimeError('Shared Bluetooth owner required for the selected car')
+    companion = self.config.get('companion_address', '')
+    connect = not tuning["hfp_gate"]
+    self._shared_bluetooth_owner.prepare_companion(companion, lambda: self.config.get('companion_address', ''), connect=connect)
+    self._check_cancel()
+    self.log('companion_car_connected' if connect else 'companion_car_admitted', address=companion)
+
+  def _companion_link_up(self) -> bool:
+    """The saved car's own hands-free link to the comma is open (not merely some BlueZ profile of it)."""
+    companion = self.config.get('companion_address', '')
+    bluez = self._bluez
+    link = getattr(bluez, 'hfp_link', None) if companion and bluez is not None else None
+    try:
+      return bool(link is not None and link(companion))
+    except Exception:
+      return False
+
+  def _connect_companion_link(self, timeout: float) -> str:
+    """Open the saved car's hands-free link to the comma: "up", "connected", or why not."""
+    companion = self.config.get('companion_address', '')
+    owner = self._shared_bluetooth_owner
+    if not companion or owner is None:
+      return "no saved car"
+    if self._companion_link_up():
+      return "up"
+    try:
+      owner.prepare_companion(companion, lambda: self.config.get('companion_address', ''), connect=True, timeout=timeout,
+                              link_up=self._companion_link_up)
+    except Exception as error:
+      return str(error) or type(error).__name__
+    return "connected" if self._companion_link_up() else "no link"
+
+  def _note_companion_acl(self, up: bool, now: float) -> None:
+    """Remember since when the saved car's Bluetooth link (any of it, not only hands-free) has been up."""
+    if not up:
+      self._companion_acl_since = None
+    elif getattr(self, "_companion_acl_since", None) is None:
+      self._companion_acl_since = now
+
+  def _companion_silent_for(self) -> float | None:
+    """Seconds the saved car's Bluetooth link has been up, as of the last housekeeping pass; None while it is down."""
+    since = getattr(self, "_companion_acl_since", None)
+    return None if since is None else max(0.0, time.monotonic() - since)
+
+  def _drop_companion_link(self) -> str:
+    """Hang up the saved car's Bluetooth link so the car calls again: "dropped", "not connected", or why not."""
+    companion = self.config.get('companion_address', '')
+    owner = self._shared_bluetooth_owner
+    if not companion or owner is None:
+      return "no saved car"
+    try:
+      outcome = owner.drop_companion(companion, lambda: self.config.get('companion_address', ''))
+    except Exception as error:
+      return str(error) or type(error).__name__
+    self._companion_acl_since = None   # the next link starts its own count
+    return outcome
+
+  def _start_companion_keeper(self, tuning: dict) -> None:
+    self._stop_companion_keeper()
+    if tuning["hfp_gate"] and self.config.get('companion_address', '') and self._shared_bluetooth_owner is not None:
+      recycle = {"silent_for": self._companion_silent_for, "drop": self._drop_companion_link} \
+                if tuning.get("recycle_silent_link") else {}
+      self._companion_keeper = CompanionLinkKeeper(self._connect_companion_link, self._companion_link_up, self.log,
+                                                   ready=self._projection_streaming, **recycle).start()
+
+  def _projection_streaming(self) -> bool:
+    """The projection connection is up and past its own Bluetooth work; the keeper may page the car now."""
+    return getattr(self, "_status", {}).get("state") in ("streaming", "suspended")
+
+  def _start_bluetooth_trace(self) -> None:
+    """The controller's own account of the session's first minutes; never allowed to stop a session from starting."""
+    self._stop_bluetooth_trace()
+    try:
+      from openpilot.starpilot.system.starport.bt_trace import BluetoothTrace
+      self._bluetooth_trace = BluetoothTrace(self.log.directory, self.log).start()
+    except Exception as error:
+      self._bluetooth_trace = None
+      self.log("bt_trace_unavailable", error=str(error)[:120])
+
+  def _stop_bluetooth_trace(self) -> None:
+    trace, self._bluetooth_trace = getattr(self, "_bluetooth_trace", None), None
+    if trace is not None:
+      try:
+        trace.stop()
+      except Exception as error:
+        self.log("bt_trace_failed", error=str(error)[:120])
+
+  def _stop_companion_keeper(self) -> None:
+    keeper, self._companion_keeper = self._companion_keeper, None
+    if keeper is not None:
+      keeper.stop()
+
+  def _drop_setup_socket(self) -> None:
+    sock, self._setup_sock = self._setup_sock, None
+    if sock is None:
+      return
+    with self._lock:
+      self._sockets.discard(sock)
+    for close in (lambda: sock.shutdown(socket.SHUT_RDWR), sock.close):
+      try:
+        close()
+      except OSError:
+        pass
+
   def _release_phone(self) -> None:
     """Stop looking like a phone; keep only the standby gateway auto-connect needs."""
     bluez = self._bluez
@@ -1387,15 +1716,57 @@ class Supervisor:
     if factory is None:
       from openpilot.starpilot.system.starport.network import NetworkLease
       factory = NetworkLease
+    tuning = car_profiles.tuning(self.config)
+    reuse_join = tuning["reuse_wifi_join"]
+    channel_memory = self._channel_memory() if tuning["remember_wifi_channel"] else None
+    address_memory = self._address_memory() if tuning.get("remember_wifi_address") else None
     if self.config["dedicated_wifi_interface"]:
       from openpilot.starpilot.system.starport.car_interface import DedicatedLease
       strikes = self._dedicated_strikes.get(self.config["receiver_address"], 0)
       if strikes >= DEDICATED_STRIKES:
         self.log("wifi_dedicated_skipped", strikes=strikes)
       lease = DedicatedLease(self.log, self.config["wifi_interface"], factory, enabled=strikes < DEDICATED_STRIKES)
+      lease.reuse_join = reuse_join
+      lease.channel_memory = channel_memory
+      lease.address_memory = address_memory
       lease.prepare()
       return lease
-    return factory(self.log, self.config["wifi_interface"])
+    lease = factory(self.log, self.config["wifi_interface"])
+    lease.reuse_join = reuse_join
+    lease.channel_memory = channel_memory
+    lease.address_memory = address_memory
+    return lease
+
+  def _channel_memory(self):
+    from openpilot.starpilot.system.starport.network import ChannelMemory
+    return ChannelMemory(lambda: self.config.get("wifi_channels", {}), self._save_wifi_channels)
+
+  def _save_wifi_channels(self, channels: dict) -> None:
+    with self._lock:
+      self.config["wifi_channels"] = dict(channels)
+      identity_store.save_config(self.config)
+
+  def _address_memory(self):
+    from openpilot.starpilot.system.starport.network import AddressMemory
+    return AddressMemory(lambda: self.config.get("wifi_addresses", {}), self._save_wifi_addresses)
+
+  def _save_wifi_addresses(self, addresses: dict) -> None:
+    with self._lock:
+      self.config["wifi_addresses"] = dict(addresses)
+      identity_store.save_config(self.config)
+
+  @staticmethod
+  def _join(lease, boot, credentials, tuning: dict):
+    """Join the car's network once it has named it. A profile that remembers addresses also tells the lease where
+    the car will be (known by now), so the join can assume last time's address and check the car answers from it."""
+    endpoint = getattr(boot, "endpoint", None)
+    if tuning.get("remember_wifi_address") and endpoint is not None:
+      lease.peer = endpoint.ip
+    # A profile with DHCP patience falls back to a made-up address beside the adapter's own; "static_ip" starts with it.
+    patience, static_first = tuning.get("dhcp_patience_s") or 0.0, bool(tuning.get("static_ip"))
+    options = ({"dhcp_patience": patience, "endpoint_ip": lambda: getattr(boot, "endpoint_ip", ""), "static_first": static_first}
+               if patience or static_first else {})
+    return lease.acquire(credentials, cancelled=boot.join_is_cancelled, **options)
 
   def _count_dedicated(self, lease) -> None:
     """A car whose network keeps failing on aa0 but joining on wlan0 stays on wlan0 until the daemon restarts."""
@@ -1511,10 +1882,13 @@ class Supervisor:
              # What the owner chose, so a report can tell a built-in unit from a dongle and say which profile applied.
              setup={"type": {"wired": "usb", "headunitpad": "app", "openheadunit": "app"}.get(connection) or self.car_type(),
                     "profile": profile, "profile_source": profile_source})
+    self._start_bluetooth_trace()
     self._flush_reset_note()   # a handshake reset made while nothing was running
     lease = self._lease() if wireless else NoLease()
     attempt = 0
     car_first = trigger == "onroad" and wireless
+    self._native_reconnects = 0
+    self._native_reconnect_limit = car_profiles.tuning(self.config)["native_reconnects"] if wireless else 0
     try:
       while not self._stop.is_set():
         started = time.monotonic()
@@ -1555,6 +1929,8 @@ class Supervisor:
           if isinstance(error, StrayLinkError):
             self._clear_stray_link()
             car_first = True  # the car pages right back once its link drops; let it, rather than crossing it again
+          if isinstance(error, NativeFocusHeld):
+            self._native_reconnects += 1
         finally:
           self._close_sockets()
           self._attempt_ended_at = time.monotonic()
@@ -1592,6 +1968,7 @@ class Supervisor:
         self._release_phone()
       except Exception as error:
         self.log("bluetooth_release_failed", error=str(error))
+      self._stop_bluetooth_trace()
       self.log("session_stop")
       self.log.close()
       self.log.capture_system()
@@ -1626,18 +2003,15 @@ class Supervisor:
     device = bluez.device(address)
     if device is None or not device["paired"]:
       raise RuntimeError("The car is not paired with this comma; pair it in Bluetooth settings")
+    tuning = car_profiles.tuning(config)
     companion = config.get('companion_address', '')
     if companion:
-      if self._shared_bluetooth_owner is None:
-        raise RuntimeError('Shared Bluetooth owner required for the selected car')
-      self._shared_bluetooth_owner.prepare_companion(companion, lambda: self.config.get('companion_address', ''), connect=True)
-      self._check_cancel()
-      self.log('companion_car_connected', address=companion)
+      self._admit_companion(tuning)
     elif device.get('starport') and '0000111e-0000-1000-8000-00805f9b34fb' not in device.get('uuids', []):
       if car_profiles.tuning(config)["own_handsfree"]:
         raise RuntimeError('Waiting for the adapter to finish starting up')
       raise RuntimeError('Connect your paired car in Galaxy Bluetooth first to select it for this Android Auto adapter')
-    if delay := car_profiles.tuning(config)["connect_delay_s"]:
+    if delay := tuning["connect_delay_s"]:
       self.log("car_profile_connect_delay", seconds=delay)
       self._wait(delay)
     self._paged_at = time.monotonic()
@@ -1678,10 +2052,7 @@ class Supervisor:
                                # a car that once took 70 s to be ready gets more than the standard wait for the Wi-Fi handshake
                                patience=max(strategy.patience, self._ladder.ready_patience(address, 20.0)))
       self._set(state="wifi_start")
-      tuning = car_profiles.tuning(config)
-      join_options = {"dhcp_patience": tuning["dhcp_patience_s"], "endpoint_ip": lambda: boot.endpoint_ip,
-                      "static_first": tuning["static_ip"]} if tuning["dhcp_patience_s"] or tuning["static_ip"] else {}
-      result = boot.run(lambda credentials: lease.acquire(credentials, cancelled=boot.join_is_cancelled, **join_options), cancelled=self._stop.is_set)
+      result = boot.run(lambda credentials: self._join(lease, boot, credentials, tuning), cancelled=self._stop.is_set)
     except Exception as error:
       if _stray_link(error):
         raise StrayLinkError(f"Bluetooth link to the car is stuck: {error}") from error  # says nothing about the cached channel
@@ -1713,16 +2084,69 @@ class Supervisor:
     self._set(head_unit=result.head_unit)
     self._remember_fingerprint(result.head_unit)
     bluez.restore_class()  # the car has accepted the comma; stop looking like a phone to everything else
-    keepalive_stop = threading.Event()
-    threading.Thread(target=boot.keepalive, args=(keepalive_stop,), name="aa_rfcomm_keepalive", daemon=True).start()
+    self._start_companion_keeper(tuning)
     try:
-      self._project(result, lease, ident)
+      self._project_with_restarts(boot, result, lease, ident, tuning)
     finally:
-      keepalive_stop.set()
+      self._stop_companion_keeper()
       with self._lock:
         if (self._strategy is strategy and boot.version_major >= MODERN_MAJOR and
             self._ladder.snapshot(address, adapter, unofficial)["learned"]):
           self._remember_reply(address, boot.modern_reply)
+
+  def _project_with_restarts(self, boot, result, lease, ident, tuning: dict) -> None:
+    """Project; when the adapter restarts its handshake while TCP/TLS are still being set up, answer it and connect again.
+
+    2026-11-02 OTTOCAST: the dongle re-sent WifiVersionRequest ~12 s after its network details, 1 s after we had connected
+    to the endpoint it first gave; that socket then sat idle until "disconnected after 0/4 bytes" and a 30 s retry cycle.
+    """
+    restarts = 0
+    limit = int(tuning["setup_restarts"])
+    if not limit and not tuning["tcp_stops_with_rfcomm"]:  # no profile asks for either: project as every other adapter does
+      keepalive_stop = threading.Event()
+      threading.Thread(target=boot.keepalive, args=(keepalive_stop,), name="aa_rfcomm_keepalive", daemon=True).start()
+      try:
+        self._project(result, lease, ident)
+      finally:
+        keepalive_stop.set()
+      return
+
+    def take_restart() -> bool:
+      if not self._setup_phase or restarts >= limit or self._stop.is_set():
+        return False
+      sock = self._setup_sock
+      if sock is not None:
+        try:
+          sock.shutdown(socket.SHUT_RDWR)  # whoever waits on the dead endpoint stops at once
+        except OSError:
+          pass
+      return True
+
+    boot.on_restart = take_restart
+    link_lost = (lambda: boot.link_closed.is_set() or boot.restarted.is_set()) if tuning["tcp_stops_with_rfcomm"] else (lambda: False)
+    while True:
+      boot.restarted.clear()
+      self._setup_phase = limit > 0
+      keepalive_stop = threading.Event()
+      keepalive = threading.Thread(target=boot.keepalive, args=(keepalive_stop,), name="aa_rfcomm_keepalive", daemon=True)
+      keepalive.start()
+      try:
+        self._project(result, lease, ident, link_lost=link_lost)
+        return
+      except Exception as error:
+        if not (boot.restarted.is_set() and self._setup_phase and not self._stop.is_set()):
+          raise
+        restarts += 1
+        self.log("bootstrap_restarted_during_setup", stage=self._status["last_stage"], restarts=restarts, error=str(error)[:120])
+      finally:
+        self._setup_phase = False
+        keepalive_stop.set()
+      keepalive.join(2.0)
+      self._drop_setup_socket()
+      boot.queue.insert(0, (WIFI_VERSION_REQUEST, boot.restart_payload))
+      self._set(state="wifi_start")
+      result = boot.run(lambda credentials: self._join(lease, boot, credentials, tuning), cancelled=self._stop.is_set)
+      self._set(head_unit=result.head_unit)
 
   def _connect_rfcomm(self, address: str, channel: int):
     from openpilot.starpilot.system.starport import bt_sockets
@@ -1917,6 +2341,19 @@ class Supervisor:
       done = False
     self._wifi_recover_at = float("inf") if done else now + WIFI_RECOVER_RETRY_S
 
+  _home_wifi: HomeWifiKeeper | None = None
+
+  def keep_home_wifi(self, now: float) -> None:
+    """Rejoin a saved network in range that NetworkManager has given up on (see home_wifi.py). Never during a session."""
+    if self._session_alive():
+      return
+    if self._home_wifi is None:
+      self._home_wifi = HomeWifiKeeper(self.log)
+    try:
+      self._home_wifi.step(now)
+    except Exception as error:
+      self.log("home_wifi_check_failed", error=str(error))
+
   def recover_usb(self) -> None:
     """At startup: undo a wired session a crash interrupted, so the car stops seeing a dead accessory
     and ADB comes back if it is on. Nothing happens unless our gadget was left holding the USB port."""
@@ -2035,7 +2472,7 @@ class Supervisor:
       return f"{who} hung up partway through the handshake"
     return (str(error) or type(error).__name__)[:160]
 
-  def _connect_tcp(self, result, lease) -> socket.socket:
+  def _connect_tcp(self, result, lease, link_lost: Callable[[], bool] = lambda: False) -> socket.socket:
     self._stage("connecting_tcp", f"{result.endpoint.ip}:{result.endpoint.port}")
     last_error: Exception | None = None
     patient_until = time.monotonic() + PATIENT_TCP_SECONDS if self.config["patient_tcp"] else 0.0
@@ -2048,11 +2485,18 @@ class Supervisor:
       try:
         sock = _open_projection(result.endpoint.ip, ports, advertised, lease.local_ip, self.log)
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        confirm = getattr(lease, "confirm_address", None)
+        if confirm is not None:
+          confirm()  # a join that assumed last time's address: the car took a connection from it, so it is kept
         return self._track(sock)
       except OSError as error:
         last_error = error
         kind = _tcp_failure_kind(error)
         self.log("tcp_retry", attempt=attempt + 1, error=str(error), kind=kind)
+        # A head unit closes RFCOMM only once it accepted us or gave up; with no connection it gave up. 2026-10-29
+        # OTTOCAST: it refused, closed RFCOMM 1 s later, and 5 more tries over 28 s all failed. A fresh attempt took 11 s.
+        if link_lost():
+          raise RuntimeError(f"Car closed the Bluetooth link without accepting the projection connection: {error}")
         self._wait(min(1.0 + attempt * 0.5, 3.5))
         attempt += 1
         if attempt >= TCP_ATTEMPTS and not (kind == "refused" and time.monotonic() < patient_until):
@@ -2064,8 +2508,12 @@ class Supervisor:
 
   def _adapter_address(self) -> str:
     """This comma's Bluetooth address for the head unit's pairing request; empty when BlueZ is not up."""
+    bluez = self._bluez
+    if bluez is None:
+      return ""
+    phone = getattr(bluez, "phone", bluez)  # in production LeaseAwarePhone wraps the BlueZ phone, which owns adapter()
     try:
-      return str(self._bluez.adapter()[1].get("Address", "")).upper() if self._bluez is not None else ""
+      return str(phone.adapter()[1].get("Address", "")).upper()
     except Exception as error:  # DBus errors vary; the pairing request is optional
       # Never silent: a missing adapter() once left every wireless session without the request (no address, no picture).
       self.log("adapter_address_unavailable", kind=type(error).__name__, error=str(error)[:120])
@@ -2085,9 +2533,11 @@ class Supervisor:
     except Exception as error:  # diagnostics only; never block cleanup
       self.log("adapter_syslog", ok=False, error=str(error)[:160], kind=type(error).__name__)
 
-  def _project(self, result, lease, ident, connect=None, fragment_acks: bool = False) -> None:
+  def _project(self, result, lease, ident, connect=None, fragment_acks: bool = False,
+               link_lost: Callable[[], bool] = lambda: False) -> None:
     config = self.config
-    sock = connect() if connect is not None else self._connect_tcp(result, lease)
+    sock = connect() if connect is not None else self._connect_tcp(result, lease, link_lost)
+    self._setup_sock = sock
     ca = ident.root if config.get("verify_head_unit", False) else None
     version_wait = VERSION_WAIT_SECONDS if self.car_type() == "adapter" else None
     session = ProjectionSession(sock, ident.cert, ident.key, self.log, ca, version_wait=version_wait)
@@ -2104,6 +2554,9 @@ class Supervisor:
       session.phone_address = self._adapter_address()
     self._stage("authenticating")
     session.authenticate()
+    if delay := tuning["negotiate_delay_s"]:
+      self.log("car_profile_negotiate_delay", seconds=delay)
+      self._wait(delay)
     self._stage("negotiating")
     self._fix_context = None
     session.on_discovered = self._choose_fixes
@@ -2112,6 +2565,7 @@ class Supervisor:
     session.touch_units = dict(config.get("touch_units_cache", {}))
     session.on_touch_units = self._remember_touch_units
     mode = session.start(config["device_name"], "comma.ai")
+    self._setup_phase, self._setup_sock = False, None  # from here a handshake restart is the adapter dropping the session
     self._set(mode=mode.as_dict(), error="")
     self.log("projection_ready", mode=mode.as_dict(), head_unit_subject=session.head_unit_subject)
     try:
@@ -2173,11 +2627,15 @@ class Supervisor:
       session.nav = NavStatus.create(session, self.log)
     except Exception as error:  # turn-by-turn is optional; projection must never depend on it
       self.log("nav_status_unavailable", error=str(error))
+    clean_exit = False
     car_ended = False
     syslog_done = threading.Event()
     self._save_adapter_syslog(result, lease, syslog_done)
     try:
       self._stream(session, encoder, source, watch, interval)
+    except NativeFocusHeld:
+      clean_exit = True  # tell the car we are leaving, so it does not hold a dead session against the reconnect
+      raise
     except PeerRequestedStop:
       car_ended = True
       raise
@@ -2195,7 +2653,7 @@ class Supervisor:
       source.close()
       encoder.close()
       self._save_adapter_syslog(result, lease)
-      if self._stop.is_set():
+      if clean_exit or self._stop.is_set():
         try:
           session.shutdown()
         except Exception:
@@ -2287,6 +2745,8 @@ class Supervisor:
     wait_for_frame = False
     audio = getattr(session, "audio", None)
     nav = getattr(session, "nav", None)
+    focus_retries = 0
+    next_focus_retry = started + FOCUS_RETRY_FIRST
     self._stage("streaming")
     while not self._stop.is_set():
       pass_started = time.monotonic()
@@ -2336,6 +2796,16 @@ class Supervisor:
       for action in source.drain_controls():
         if action == NATIVE_FOCUS:
           session.request_native()
+      # Only while the car has never granted focus this session: once it has, native focus is the driver's choice.
+      if session.focus_epoch == 0 and not session.focused:
+        if self._native_reconnects < self._native_reconnect_limit and now - started >= NATIVE_FOCUS_GIVE_UP_S:
+          self.log("projection_native_give_up", after_s=round(now - started, 1), reconnect=self._native_reconnects + 1)
+          raise NativeFocusHeld(f"Car kept its own screen for {NATIVE_FOCUS_GIVE_UP_S:.0f} s; reconnecting")
+        if focus_retries < FOCUS_RETRIES and now >= next_focus_retry:
+          focus_retries += 1
+          next_focus_retry = now + FOCUS_RETRY_INTERVAL
+          session.request_projection()
+          self.log("projection_rerequested", attempt=focus_retries, after_s=round(now - started, 1))
       state = "streaming" if session.focused else "suspended"
       if self._status["state"] != state:
         self._set(state=state)
@@ -2372,6 +2842,15 @@ class Supervisor:
         next_check = now + 1.0
         if watch.lost:
           raise RuntimeError(watch.lost)
+        keeper = self._companion_keeper
+        if keeper is not None:
+          if session.focused:
+            self._stop_companion_keeper()  # the car handed over; its hands-free link is now its own business
+            hint = ""
+          else:
+            hint = "" if self._companion_link_up() else COMPANION_LINK_HINT
+          if session.focus_epoch == 0 and self._status.get("detail", "") != hint:
+            self._set(detail=hint)
         label = source.label
         source.check(now, focused=session.focused)
         if source.label != label:

@@ -13,12 +13,19 @@ CAR = 'AA:BB:CC:DD:EE:FF'
 
 class Phone:
   on = connected = True
-  def __init__(self): self.paused, self.controls = [], []
+  def __init__(self): self.paused, self.controls, self.pages, self.disconnects = [], [], 0, []
   def powered(self): return self.on
-  def ready(self, address, now): return self.connected
+  def ready(self, address, now):
+    self.pages += 1
+    return self.connected
   def control(self, address, action):
     self.controls.append((address, action))
     return 'pause' if action == 'play_pause' else action
+  def disconnect(self, address):
+    self.disconnects.append(address)
+    was, self.connected = self.connected, False
+    return was
+  def track(self, address): return None
   def close(self): pass
 
 
@@ -367,6 +374,99 @@ def test_pairing_window_advertises_the_receiver_then_releases_it_unless_phone_is
   now[0] += 1000
   sup.tick()
   assert profiles[-1] == 'acquire' and sup.phone_profile
+
+
+def test_phone_audio_waits_for_ignition_then_pages_at_once(music):
+  sup, now, processes, profiles, _ = music
+  car_off = [True]
+  sup.parked = lambda: car_off[0]
+  for _ in range(5):  # started while parked: no grace, nothing advertised or paged
+    sup.tick()
+    now[0] += 60
+  assert sup.state == 'parked' and 'resumes when the car is on' in sup.message
+  assert profiles == [] and processes == [] and sup.phone.pages == 0
+  car_off[0] = False
+  sup.phone.connected = True  # the phone answers the page
+  sup.tick()
+  assert sup.state == 'phone_ready' and profiles == ['acquire'] and len(processes) == 2
+
+
+def test_ignition_off_keeps_audio_through_the_grace_then_drops_the_phone_once(music):
+  sup, now, processes, profiles, stopped = music
+  car_off = [False]
+  sup.parked = lambda: car_off[0]
+  sup.tick()
+  assert sup.state == 'phone_ready'
+  car_off[0] = True
+  sup.tick()  # the grace counts from the first tick that sees ignition off
+  now[0] += supervisor.PHONE_PARKED_GRACE_SECONDS - 1
+  sup.tick()
+  assert sup.state == 'phone_ready' and sup.phone.disconnects == [] and stopped == []
+  now[0] += 1
+  sup.tick()
+  assert sup.state == 'parked' and sup.phone.disconnects == [PHONE] and len(stopped) == 2
+  assert profiles == ['acquire', 'release'] and sup.player is None and sup.server is None
+  assert any('disconnected' in line and 'car off' in line for line in sup.log)
+  pages = sup.phone.pages
+  for _ in range(10):
+    now[0] += 60
+    sup.tick()
+  assert sup.phone.disconnects == [PHONE] and sup.phone.pages == pages and profiles == ['acquire', 'release']
+  # Ignition on again: the sink is advertised and the phone paged on the very next tick.
+  car_off[0] = False
+  sup.phone.connected = True
+  sup.tick()
+  assert sup.state == 'phone_ready' and profiles == ['acquire', 'release', 'acquire'] and len(processes) == 4
+
+
+def test_a_short_stop_keeps_the_phone_audio(music):
+  sup, now, _, profiles, stopped = music
+  car_off = [False]
+  sup.parked = lambda: car_off[0]
+  sup.tick()
+  car_off[0] = True
+  now[0] += 20
+  sup.tick()
+  car_off[0] = False
+  now[0] += 1
+  sup.tick()
+  assert sup.state == 'phone_ready' and stopped == [] and sup.phone.disconnects == [] and profiles == ['acquire']
+
+
+def test_parked_phone_keeps_the_receiver_advertised_during_a_pairing_window(music):
+  sup, now, _, profiles, _ = music
+  sup.parked = lambda: True
+  sup.tick()
+  assert profiles == []
+  assert sup.handle({'command': 'prepare_phone_pairing'}) == {'ok': True}
+  sup.tick()
+  assert profiles == ['acquire'] and sup.phone_profile
+  now[0] += supervisor.PAIRING_PROFILE_SECONDS - 1
+  sup.tick()
+  assert profiles == ['acquire'] and sup.phone_profile
+  now[0] += 2
+  sup.tick()
+  assert profiles == ['acquire', 'release'] and not sup.phone_profile and sup.state == 'parked'
+
+
+def test_phone_disconnect_drops_only_the_audio_profile_and_never_raises():
+  from openpilot.starpilot.bluetooth.owner import ADAPTER, DEVICE
+  path = '/org/bluez/hci0/dev_11_22_33_44_55_66'
+  props = {'Address': PHONE, 'Paired': True, 'Connected': True, 'UUIDs': [phone_audio.A2DP_SOURCE]}
+  objects: dict = {'/org/bluez/hci0': {ADAPTER: {'Powered': True}}, path: {DEVICE: props}}
+  class BlueZ:
+    def __init__(self): self.calls = []
+    def _objects(self): return objects
+    def _call(self, *args, **kwargs): self.calls.append(args)
+    def close(self): pass
+  phone = phone_audio.PhoneInput()
+  phone.client = BlueZ()  # ty: ignore[invalid-assignment]  # test double
+  assert phone.disconnect(PHONE)
+  assert phone.client.calls == [(path, DEVICE, 'DisconnectProfile', 's', (phone_audio.A2DP_SOURCE,))]
+  props['Connected'] = False
+  assert not phone.disconnect(PHONE) and len(phone.client.calls) == 1
+  phone.client = None
+  assert not phone.disconnect(PHONE)  # Bluetooth unreachable: a parked comma has nothing to drop
 
 
 def test_pairing_window_failure_is_reported_without_holding_the_profile(music, monkeypatch):

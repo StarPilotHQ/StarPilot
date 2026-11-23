@@ -39,12 +39,31 @@ def config(**values):
 def test_aawireless_tuning_applies_only_when_chosen():
   chosen = config(car_profile_override="aawireless", receiver_name="AAWireless-4F2A")
   assert car_profiles.resolve(chosen) == ("aawireless", "override")
-  assert car_profiles.tuning(chosen) == {"connect_delay_s": 0.0, "max_window": 30, "phone_services": True, "phone_frames": True,
-                                          "bootstrap_experiments": False, "stay_while_projecting": True, "dhcp_patience_s": 6.0,
+  assert car_profiles.tuning(chosen) == {**car_profiles.DEFAULTS, "max_window": 30, "phone_services": True, "phone_frames": True,
+                                          "stay_while_projecting": True, "dhcp_patience_s": 6.0,
                                           "own_handsfree": True, "static_ip": True}
   assert car_profiles.summary(chosen)["car_profile_label"] == "AAWireless"
   for other in (config(receiver_name="AAWireless-4F2A"), config(car_profile_override="default")):
     assert car_profiles.tuning(other) == car_profiles.DEFAULTS
+
+
+def test_ottocast_tuning_applies_only_when_chosen():
+  # The operator's set for that dongle: every connection fix is off for everyone else. 2026-11-02: the screen is gated
+  # by the car's own hands-free link, so the negotiate delay and the native-screen reconnects are gone.
+  chosen = config(car_profile_override="ottocast")
+  assert car_profiles.resolve(chosen) == ("ottocast", "override")
+  # 2026-11-13: plus recycle_silent_link, for the Honda link that comes up at ignition and carries nothing for 68 s,
+  # and remember_wifi_address, for the 6 s the join spent on DHCP.
+  assert car_profiles.tuning(chosen) == {**car_profiles.DEFAULTS, "phone_services": True, "reuse_wifi_join": True,
+                                         "tcp_stops_with_rfcomm": True, "hfp_gate": True, "recycle_silent_link": True,
+                                         "remember_wifi_channel": True, "remember_wifi_address": True,
+                                         "setup_restarts": 2, "max_window": 30}  # the car's full video window (it offers 4)
+  assert car_profiles.tuning(chosen)["negotiate_delay_s"] == 0.0 and car_profiles.tuning(chosen)["native_reconnects"] == 0
+  assert car_profiles.summary(chosen)["car_profile_label"] == "OTTOCAST"
+  for other in (config(), config(car_profile_override="default"), config(car_profile_override="aawireless")):
+    tuning = car_profiles.tuning(other)
+    assert (tuning["negotiate_delay_s"], tuning["native_reconnects"], tuning["reuse_wifi_join"], tuning["tcp_stops_with_rfcomm"],
+            tuning["hfp_gate"], tuning["remember_wifi_channel"], tuning["setup_restarts"]) == (0.0, 0, False, False, False, False, 0)
 
 
 def test_leaving_the_adapter_setup_clears_the_adapter_model(sup):
@@ -223,6 +242,84 @@ def test_a_new_adapter_setup_is_not_migrated(tmp_path):
   path = tmp_path / "config.json"
   path.write_text(json.dumps({"config_version": identity_store.CONFIG_VERSION, "car_type": "adapter"}))
   assert identity_store.load_config(path)["car_profile_override"] == ""
+
+
+def test_negotiate_delay_holds_discovery_until_the_car_side_is_up(identity, tmp_path, monkeypatch):
+  # 2026-10-31 OTTOCAST: the dongle answers the version request ~2 s in, and a video setup right after is refused.
+  import socket
+  import time
+  from openpilot.starpilot.system.starport import hw_encoder
+  from openpilot.starpilot.system.starport.tests.fake_head_unit import FakeHeadUnit, rfcomm_head_unit
+
+  class NoEncoder:
+    backend = 'fixture'
+    supports_nv12 = False
+    last_encode_ms = 0.0
+
+    def encode_rgba(self, pixels, *, keyframe=False):
+      raise AssertionError("no frame may be encoded without video focus")
+
+    def close(self): pass
+
+  monkeypatch.setattr(hw_encoder, 'create_encoder', lambda width, height, **_kwargs: (NoEncoder(), 15))
+  monkeypatch.setattr(car_profiles, "RULES", [{"id": "ottocast", "label": "OTTOCAST", "match": {}, "tuning": {"negotiate_delay_s": 0.4}}])
+  cars = []
+  stopping = threading.Event()
+
+  def rfcomm(address, channel, timeout=15.0):
+    hu = FakeHeadUnit(identity, native_focus=True)
+    cars.append(hu)
+    phone, car = socket.socketpair()
+
+    def car_side():
+      try:
+        with car:
+          rfcomm_head_unit(car, ("127.0.0.1", hu.port), pings=False)
+          stopping.wait(1.0)
+      except Exception:
+        pass
+    threading.Thread(target=car_side, daemon=True).start()
+    return phone
+
+  sup, _ = make_supervisor(identity, tmp_path, monkeypatch, rfcomm)
+  sup.config["car_profile_override"] = "ottocast"
+  sup.start()
+  try:
+    deadline = time.monotonic() + 15
+    while not cars or not cars[0].focus_requests:
+      assert time.monotonic() < deadline, sup.status()
+      time.sleep(0.05)
+  finally:
+    stopping.set()
+    sup.stop()
+    for hu in cars:
+      hu.close()
+  events = [json.loads(line) for path in (tmp_path / "aa" / "logs").glob("session-*.jsonl") for line in path.read_text().splitlines()]
+  by_name = {e["event"]: e for e in events}
+  assert by_name["car_profile_negotiate_delay"]["seconds"] == 0.4
+  assert by_name["discovered"]["mono_s"] - by_name["authenticated"]["mono_s"] >= 0.4
+
+
+def test_pairing_request_address_comes_from_the_wrapped_bluez_phone():
+  # 2026-10-31 Honda: bluetooth_opened logged phone_address "" because LeaseAwarePhone has no adapter(); the car was
+  # never asked to pair with the comma. The wrapped BlueZ phone owns that call.
+  class Phone:
+    def adapter(self):
+      return "/org/bluez/hci0", {"Address": "aa:bb:cc:dd:ee:ff"}
+
+  class Wrapped:
+    phone = Phone()
+
+  sup = Supervisor.__new__(Supervisor)
+  sup.log = lambda *args, **kwargs: None  # a failed lookup is logged
+  sup._bluez = Wrapped()
+  assert sup._adapter_address() == "AA:BB:CC:DD:EE:FF"
+  sup._bluez = Phone()
+  assert sup._adapter_address() == "AA:BB:CC:DD:EE:FF"
+  sup._bluez = object()
+  assert sup._adapter_address() == ""
+  sup._bluez = None
+  assert sup._adapter_address() == ""
 
 
 def test_unofficial_dongle_turns_on_the_handshake_experiments_only_when_chosen():

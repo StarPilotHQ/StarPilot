@@ -109,6 +109,10 @@ class DedicatedLease:
     self.lease_factory, self.interface_factory = lease_factory, interface_factory or DedicatedInterface
     self.enabled = enabled
     self.lease = None
+    self.reuse_join = False  # copied onto the aa0 lease once it exists
+    self.channel_memory = None  # likewise
+    self.address_memory = None  # likewise
+    self.peer = ""  # the car's address on its network, handed to whichever lease does the join
     self.iface = None
     self.legacy = not enabled
     self.timeouts = 0
@@ -151,6 +155,9 @@ class DedicatedLease:
       self.iface = self.interface_factory(self.log)
       self.iface.open()
       lease = self.lease_factory(self.log, INTERFACE, dedicated=True)
+      lease.reuse_join = self.reuse_join
+      lease.channel_memory = self.channel_memory
+      lease.address_memory = self.address_memory
       try:
         lease.prepare_device(self._cancel.is_set)
       except BaseException:
@@ -177,6 +184,9 @@ class DedicatedLease:
     if self.lease is None:
       self.legacy = True
       self.lease = self.lease_factory(self.log, self.fallback_interface)
+      self.lease.reuse_join = self.reuse_join
+      self.lease.channel_memory = self.channel_memory
+      self.lease.address_memory = self.address_memory
 
   def hold_home_wifi(self) -> None:
     """Hold wlan0 off the shared radio; each hold lasts longer, up to HOME_RETRY_MAX_S."""
@@ -304,10 +314,14 @@ class DedicatedLease:
     self.lease = self.iface = None
     self._ensure()
 
+  def _join(self, credentials, cancelled: Callable[[], bool], kwargs: dict):
+    self.lease.peer = self.peer
+    return self.lease.acquire(credentials, cancelled=cancelled, **kwargs)
+
   def acquire(self, credentials, cancelled: Callable[[], bool] = lambda: False, **kwargs):
     self._ensure()
     try:
-      local_ip = self.lease.acquire(credentials, cancelled=cancelled, **kwargs)
+      local_ip = self._join(credentials, cancelled, kwargs)
     except NetworkError as error:
       if self.legacy or cancelled():
         raise
@@ -322,7 +336,7 @@ class DedicatedLease:
         self.log("wifi_dedicated_reopen", error=str(error) or type(error).__name__)
         self._reopen()
         try:
-          local_ip = self.lease.acquire(credentials, cancelled=cancelled, **kwargs)
+          local_ip = self._join(credentials, cancelled, kwargs)
         except NetworkError as retry_error:
           if self.legacy or cancelled() or isinstance(retry_error, JoinTimeout):
             raise
@@ -335,7 +349,7 @@ class DedicatedLease:
       # aa0 itself failed; finish this same join on wlan0 rather than report a failure to the car.
       self._fall_back(error)
       self._ensure()
-      local_ip = self.lease.acquire(credentials, cancelled=cancelled, **kwargs)
+      local_ip = self._join(credentials, cancelled, kwargs)
       self.aa0_failed = not isinstance(error, DedicatedUnavailable)
       return local_ip
     if not self.legacy:
@@ -345,6 +359,11 @@ class DedicatedLease:
 
   def still_connected(self) -> bool:
     return self.lease is not None and self.lease.still_connected()
+
+  def confirm_address(self) -> None:
+    confirm = getattr(self.lease, "confirm_address", None)
+    if confirm is not None:
+      confirm()
 
   def release(self, restore: bool = True) -> None:
     if restore:

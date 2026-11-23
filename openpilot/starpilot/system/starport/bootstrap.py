@@ -76,6 +76,9 @@ REFUSAL_PATIENCE = 3
 # Phone-side WifiPing while joining the receiver's Wi-Fi, so an impatient receiver (a wireless adapter) keeps the
 # idle RFCOMM link. Sent only to a receiver that pings us first: one that never pings may not expect them.
 JOIN_PING_INTERVAL = 2.0
+# A wireless adapter that sends WifiVersionRequest again while we join gave up on us (2026-10-29 OTTOCAST, ~12 s after
+# WifiStartResponse); it resets RFCOMM 8-10 s later. Answer it on the same link instead, a bounded number of times.
+MAX_HANDSHAKE_RESTARTS = 2
 # Opt-in handshake variations for dongles that stall the standard exchange; "" is the standard behavior.
 EXPERIMENTS = {
   "start_response_first": ("Answer start request first", {"start_response_first"}),
@@ -97,6 +100,14 @@ class BootstrapError(RuntimeError):
 
 class BootstrapTimeout(BootstrapError):
   pass
+
+
+class HandshakeRestarted(BootstrapError):
+  """The head unit began the handshake again while we joined its Wi-Fi; carries its new WifiVersionRequest."""
+
+  def __init__(self, stage: str, payload: bytes):
+    super().__init__(stage, "head unit restarted the handshake")
+    self.payload = payload
 
 
 class BootstrapClosed(BootstrapError):
@@ -308,6 +319,11 @@ class WirelessBootstrap:
     self.frames_seen = 0
     self.cancelled: Callable[[], bool] = lambda: False
     self.join_cancelled = threading.Event()
+    self.link_closed = threading.Event()  # set when keepalive saw the head unit close or break RFCOMM
+    self.restarted = threading.Event()  # keepalive saw a new WifiVersionRequest and on_restart() took it
+    self.restart_payload = b""
+    self.endpoint: Endpoint | None = None  # the car's projection address, once it has sent it
+    self.on_restart: Callable[[], bool] = lambda: False  # supervisor: True while the projection connection is still being set up
 
   def only_not_ready(self) -> bool:
     """Every refusal so far said "not ready": the car was busy, which says nothing about the handshake."""
@@ -406,6 +422,19 @@ class WirelessBootstrap:
     return False
 
   def run(self, join_wifi: Callable[[WifiCredentials], None], cancelled: Callable[[], bool] = lambda: False) -> BootstrapResult:
+    restarts = 0
+    while True:
+      try:
+        return self._handshake(join_wifi, cancelled)
+      except HandshakeRestarted as restart:
+        restarts += 1
+        if restarts > MAX_HANDSHAKE_RESTARTS:
+          raise BootstrapError(restart.stage, "head unit kept restarting the handshake") from restart
+        # The join was cancelled and stopped; the new request is answered first, exactly as the first one was.
+        self.log("bootstrap_restarted", stage=restart.stage, restarts=restarts)
+        self.queue.insert(0, (WIFI_VERSION_REQUEST, restart.payload))
+
+  def _handshake(self, join_wifi: Callable[[WifiCredentials], None], cancelled: Callable[[], bool]) -> BootstrapResult:
     self.cancelled = cancelled
     endpoint: Endpoint | None = None
     credentials: WifiCredentials | None = None
@@ -514,6 +543,7 @@ class WirelessBootstrap:
       else:
         self.log("bootstrap_ignored", message=NAMES.get(message_id, message_id))
     assert endpoint is not None
+    self.endpoint = endpoint  # known before the join: where the car will be on the network it is about to name
     self.endpoint_ip = endpoint.ip
     self.log("bootstrap_endpoint", ip=endpoint.ip, port=endpoint.port)
 
@@ -587,7 +617,7 @@ class WirelessBootstrap:
       except OSError:
         pass
       error = outcome["error"]
-      raise BootstrapError(self.stage, str(error)) from error
+      raise BootstrapError(self.stage, str(error) or type(error).__name__) from error
     if self.cancelled():
       raise BootstrapError(self.stage, "cancelled")
     self.send(WIFI_CONNECT_STATUS, field(1, STATUS_SUCCESS))
@@ -605,11 +635,21 @@ class WirelessBootstrap:
         message_id, payload = self.next_frame(0.25)
       except BootstrapTimeout:
         continue
-      if not self.service(message_id, payload):
-        self.log("bootstrap_ignored", message=NAMES.get(message_id, message_id))
+      if self.service(message_id, payload):
+        continue
+      if message_id == WIFI_VERSION_REQUEST:
+        raise HandshakeRestarted(self.stage, payload)
+      self.log("bootstrap_ignored", message=NAMES.get(message_id, message_id))
 
   def keepalive(self, stop: threading.Event) -> None:
     """Keep the RFCOMM link serviced for the life of the projection session."""
+    try:
+      self._keepalive(stop)
+    finally:
+      if not stop.is_set() and not self.restarted.is_set():
+        self.link_closed.set()
+
+  def _keepalive(self, stop: threading.Event) -> None:
     while not stop.is_set():
       try:
         message_id, payload = self.next_frame(0.5)
@@ -623,6 +663,13 @@ class WirelessBootstrap:
           self.log("bootstrap_link_closed", error=str(error))
         return
       self.frames_seen = 0  # the frame budget applies to the handshake, not the session
+      if message_id == WIFI_VERSION_REQUEST and self.on_restart():
+        # The adapter restarted its handshake (2026-11-02 OTTOCAST: ~12 s after sending its network) while TCP/TLS were
+        # still being set up; the endpoint it gave us is dead. The supervisor answers this request and connects again.
+        self.restart_payload = payload
+        self.restarted.set()
+        self.log("bootstrap_restart_during_setup")
+        return
       try:
         if not self.service(message_id, payload):
           self.log("bootstrap_ignored", message=NAMES.get(message_id, message_id))

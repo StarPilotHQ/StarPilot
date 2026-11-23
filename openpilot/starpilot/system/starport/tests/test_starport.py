@@ -309,6 +309,23 @@ def test_bootstrap_join_failure_reports_status():
   assert signed(one(seen["connect_status"], 1)) == bs.STATUS_NETWORK_UNAVAILABLE
 
 
+def test_bootstrap_join_failure_names_a_bare_exception():
+  """2026-11-02: jeepney's bare TimeoutError left the session log with a blank join error."""
+  phone, car = socket.socketpair()
+  thread = threading.Thread(target=lambda: rfcomm_head_unit(car, ("10.0.0.1", 5000), pings=False), daemon=True)
+  thread.start()
+
+  def join(_):
+    raise TimeoutError
+
+  with pytest.raises(bs.BootstrapError) as error:
+    bs.WirelessBootstrap(phone, lambda *a, **k: None, stage_timeout=5.0).run(join)
+  assert str(error.value) == "joining_wifi: TimeoutError"
+  thread.join(5)
+  phone.close()
+  car.close()
+
+
 def test_bootstrap_timeout_names_stage():
   phone, car = socket.socketpair()
   with pytest.raises(bs.BootstrapError) as error:
@@ -1107,6 +1124,59 @@ def test_network_lease_retries_without_bssid_and_restores_previous():
   assert nm.calls[-1] == "ActivateConnection"  # home Wi-Fi comes back
 
 
+def test_network_lease_names_a_networkmanager_timeout():
+  from openpilot.starpilot.system.starport import network
+  lease = network.NetworkLease(lambda *a, **k: None)
+  lease.router = Mock(send_and_get_reply=Mock(side_effect=TimeoutError))
+  with pytest.raises(network.NetworkTimeout, match="did not answer reading Ip4Config within 5 s"):
+    lease._get("/active/aa1", network.NM_ACTIVE_IFACE, "Ip4Config")
+  with pytest.raises(network.NetworkTimeout, match="did not answer RequestScan within 10 s"):
+    lease._call("/dev/wlan0", network.NM_WIRELESS_IFACE, "RequestScan", "a{sv}", ({},))
+
+
+def test_network_lease_keeps_a_joined_network_through_slow_answers(monkeypatch):
+  """2026-11-02 OTTOCAST: NetworkManager had activated the profile, then three 5 s reads timed out and each join was
+  reported failed and torn down. The network is up; wait for the answer instead."""
+  from openpilot.starpilot.system.starport import network
+  monkeypatch.setattr(network.time, "sleep", lambda _: None)
+  nm = FakeNetworkManager()
+  lease = make_lease(nm)
+  events = []
+  lease.log = lambda event, **fields: events.append((event, fields))
+  slow = {"State": 1, "Ip4Config": 2}  # one slow State read while activating, two slow address reads once activated
+  real_get = lease._get.side_effect
+
+  def get(path, interface, name):
+    if slow.get(name) and interface != network.NM_DEVICE_IFACE:  # the connection's State, not the device's before the join
+      slow[name] -= 1
+      raise network.NetworkTimeout(f"NetworkManager did not answer reading {name} within 5 s")
+    return real_get(path, interface, name)
+
+  lease._get = Mock(side_effect=get)
+  assert lease.acquire(credentials(), timeout=2.0) == "192.168.50.23"
+  assert [e for e, _ in events].count("wifi_slow_answer") == 3 and "DeactivateConnection" not in nm.calls
+  assert len(nm.added) == 1  # no retry without the BSSID either
+
+
+def test_network_lease_gives_up_when_networkmanager_never_answers(monkeypatch):
+  from openpilot.starpilot.system.starport import network
+  clock = [1000.0]
+  monkeypatch.setattr(network.time, "monotonic", lambda: clock[0])
+  monkeypatch.setattr(network.time, "sleep", lambda s: clock.__setitem__(0, clock[0] + s))
+  nm = FakeNetworkManager()
+  lease = make_lease(nm)
+  real_get = lease._get.side_effect
+
+  def get(path, interface, name):
+    if name == "Ip4Config":
+      raise network.NetworkTimeout("NetworkManager did not answer reading Ip4Config within 5 s")
+    return real_get(path, interface, name)
+
+  lease._get = Mock(side_effect=get)
+  with pytest.raises(network.JoinTimeout, match="stopped answering"):
+    lease._acquire_once(credentials(), 3.0, lambda: False)
+
+
 def test_network_lease_waits_for_a_slow_honda_access_point(monkeypatch):
   from openpilot.starpilot.system.starport import network
   lease = network.NetworkLease(lambda *a, **k: None)
@@ -1417,6 +1487,101 @@ def test_discovery_waits_past_the_message_timeout_for_a_slow_adapter():
     sender.join()
     a.close()
     b.close()
+
+
+@pytest.mark.parametrize("closed_after", [1, None])
+def test_tcp_retries_stop_once_the_car_closes_rfcomm(identity, tmp_path, monkeypatch, closed_after):
+  # 2026-10-29 OTTOCAST: refused, RFCOMM reset 1 s later, then 5 more tries over 28 s that all failed.
+  from openpilot.starpilot.system.starport import supervisor as supervisor_module
+  sup, _ = make_supervisor(identity, tmp_path, monkeypatch, lambda *a, **k: socket.socketpair()[0])
+  tries = []
+
+  def refuse(*args, **kwargs):
+    tries.append(args[0])
+    raise ConnectionRefusedError(111, "Connection refused")
+
+  monkeypatch.setattr(supervisor_module.socket, "create_connection", refuse)
+  monkeypatch.setattr(sup, "_wait", lambda seconds: None)
+  # The standard port, so each try is one connection (another advertised port is tried together with the standard one).
+  result = type("R", (), {"endpoint": bs.Endpoint("192.168.1.101", supervisor_module.STANDARD_AA_PORT)})()
+  lease = type("L", (), {"local_ip": ""})()
+  with pytest.raises(RuntimeError) as failure:
+    sup._connect_tcp(result, lease, link_lost=lambda: closed_after is not None and len(tries) >= closed_after)
+  if closed_after is None:
+    assert len(tries) == supervisor_module.TCP_ATTEMPTS and "did not accept" in str(failure.value)
+  else:
+    assert len(tries) == closed_after and "closed the Bluetooth link" in str(failure.value)
+
+
+def test_supervisor_reconnects_when_the_car_keeps_its_own_screen(identity, tmp_path, monkeypatch):
+  # 2026-10-30 Honda/OTTOCAST: "native" to every VideoFocusRequest, then 13 idle minutes. Leave cleanly and try
+  # again, twice; the third session is asked again and otherwise left for the driver.
+  from openpilot.starpilot.system.starport import hw_encoder, supervisor as supervisor_module
+
+  class NoEncoder:
+    backend = 'fixture'
+    supports_nv12 = False
+    last_encode_ms = 0.0
+
+    def encode_rgba(self, pixels, *, keyframe=False):
+      raise AssertionError("no frame may be encoded without video focus")
+
+    def close(self): pass
+
+  monkeypatch.setattr(hw_encoder, 'create_encoder', lambda width, height, **_kwargs: (NoEncoder(), 15))
+  cars, threads, failures = [], [], []
+  stopping = threading.Event()
+
+  def rfcomm(address, channel, timeout=15.0):
+    hu = FakeHeadUnit(identity, native_focus=True)
+    cars.append(hu)
+    phone, car = socket.socketpair()
+    def car_side():
+      try:
+        with car:
+          rfcomm_head_unit(car, ("127.0.0.1", hu.port), pings=False)
+          stopping.wait(1.0)
+      except EOFError as error:
+        if not stopping.is_set():
+          failures.append(error)
+      except Exception as error:
+        failures.append(error)
+    thread = threading.Thread(target=car_side, daemon=True)
+    threads.append(thread)
+    thread.start()
+    return phone
+
+  monkeypatch.setattr(supervisor_module, "NATIVE_FOCUS_GIVE_UP_S", 0.5)
+  monkeypatch.setattr(supervisor_module, "FOCUS_RETRY_FIRST", 0.1)
+  monkeypatch.setattr(supervisor_module, "FOCUS_RETRY_INTERVAL", 0.1)
+  sup, leases = make_supervisor(identity, tmp_path, monkeypatch, rfcomm)
+  from openpilot.starpilot.system.starport import car_profiles
+  sup.config["car_profile_override"] = "ottocast"  # the reconnect mechanism is per profile; give this one two (2026-11-02: off by default)
+  ottocast = next(rule for rule in car_profiles.RULES if rule["id"] == "ottocast")
+  monkeypatch.setitem(ottocast["tuning"], "native_reconnects", 2)
+  sup.start()
+  try:
+    deadline = time.monotonic() + 15
+    while len(cars) < 3 or len(cars[2].focus_requests) < 3:
+      assert time.monotonic() < deadline, (sup.status(), [len(hu.focus_requests) for hu in cars])
+      time.sleep(0.05)
+    time.sleep(2 * 0.5)
+    assert len(cars) == 3, "the third session must not be given up on"
+    assert all(hu.shutdown_received.is_set() for hu in cars[:2]) and not cars[2].shutdown_received.is_set()
+    assert sup.status()["state"] == "suspended"
+  finally:
+    stopping.set()
+    sup.stop()
+    for hu in cars:
+      hu.close()
+  for thread in threads:
+    thread.join(timeout=5)
+    assert not thread.is_alive(), "RFCOMM fixture did not finish after stop"
+  assert not failures, failures
+  events = [json.loads(line) for path in (tmp_path / "aa" / "logs").glob("session-*.jsonl") for line in path.read_text().splitlines()]
+  give_ups = [e for e in events if e["event"] == "projection_native_give_up"]
+  assert [e["reconnect"] for e in give_ups] == [1, 2]
+  assert sum(1 for e in events if e["event"] == "attempt_failed" and e["kind"] == "NativeFocusHeld") == 2
 
 
 def test_drive_join_picks_the_best_allowed_network_and_re_pauses_auto_join(monkeypatch):

@@ -47,7 +47,7 @@ export function uploadPackage(path, options, progress, makeRequest = () => new X
 }
 
 const ADDRESS = /^(?:[0-9A-F]{2}:){5}[0-9A-F]{2}$/
-const ADAPTER_MODELS = { aawireless: "AAWireless", default: "Motorola MA1", unofficial: "Unofficial dongle" }
+const ADAPTER_MODELS = { aawireless: "AAWireless", ottocast: "OTTOCAST", default: "Motorola MA1", unofficial: "Unofficial dongle" }
 const HEAD_UNIT_APPS = { headunitpad: "HeadunitPad", openheadunit: "Open Headunit" }
 const HOTSPOT_LINK = `<a class="gx-link" href="#/galaxy">Galaxy Wi-Fi Hotspot</a>`
 const WIRED_STATUS = `<div v-if="wired" class="gx-note">
@@ -550,7 +550,7 @@ export function connectionProgress(runtime, { wired = false, app = "", selected 
   const state = runtime?.state || "idle"
   const base = { active: false, tone: "ready", icon: "arrow-right-circle", eyebrow: "NEXT · CONNECT" }
   if (state === "streaming") return { ...base, tone: "success", icon: "check-circle-fill", eyebrow: "CONNECTED", title: "Your dashboard is live", detail: "StarPilot is showing on your screen. You’re ready to drive." }
-  if (state === "suspended") return { ...base, title: "Connected · car screen in use", detail: "Open Android Auto on your car’s screen to return to StarPilot." }
+  if (state === "suspended") return { ...base, title: "Connected · car screen in use", detail: runtime.detail || "Open Android Auto on your car’s screen to return to StarPilot." }
   if (state === "error" || state === "backoff") return { ...base, active: state === "backoff" && !!runtime?.running, tone: "warning", icon: "exclamation-circle", eyebrow: state === "backoff" ? "RECONNECTING" : "NEEDS ATTENTION", title: state === "backoff" ? "Trying your connection again" : "Connection needs attention", detail: runtime.error || runtime.detail || "Check your device, then try connecting again." }
   if (runtime?.running && state !== "idle") {
     const titles = { wifi_info: "Getting car Wi-Fi details", joining_wifi: "Joining car Wi-Fi", connecting_bluetooth: "Connecting over Bluetooth", discovering: "Finding Android Auto", rfcomm: "Starting wireless setup", wifi_start: "Waiting for car Wi-Fi", connecting_tcp: "Opening the connection", authenticating: "Securing your connection", negotiating: "Preparing your dashboard", waiting_for_usb: "Waiting for your USB cable", usb_accessory: "Starting USB connection", waiting_for_ipad: "Open HeadunitPad on your iPad", waiting_for_tablet: "Open Open Headunit on your tablet", stopping: "Disconnecting" }

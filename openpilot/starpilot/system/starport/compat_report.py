@@ -31,7 +31,8 @@ MAX_LOG_BYTES = 8 << 20
 MAX_BUNDLE_BYTES = 64 << 20
 MAX_SESSION_LOGS = 20
 MAX_EVENTS = 200_000         # a day of 30 s stats is ~3000 lines; this only stops a runaway file
-EXTRA_LOGS = ("render_profile.txt", "render_profile.1.txt", "car_ui.log", "adapter_syslog.txt")
+EXTRA_LOGS = ("render_profile.txt", "render_profile.1.txt", "car_ui.log", "adapter_syslog.txt", "daemon.jsonl", "daemon.1.jsonl",
+              "bt_trace.txt", "bt_trace.1.txt")  # bt_trace: filtered and address-masked when written
 EXTRA_LOG_BYTES = 1 << 20    # the tail of each extra log kept in a bundle
 
 # Connection stages in the order a session passes them, for "how far did it get".
