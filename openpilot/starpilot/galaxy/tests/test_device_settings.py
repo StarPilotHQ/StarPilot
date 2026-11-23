@@ -12,6 +12,7 @@ from openpilot.starpilot.galaxy.device_settings import (CALIBRATION_RESET, DRIVE
                                                           STARPORT_EXPERIMENTS_KEY,
                                                           STARPORT_HEVC_KEY, STARPORT_KEYFRAME_TEST_KEY,
                                                           STARPORT_TALL_HEVC_KEY, STARPORT_UNACKED_VIDEO_KEY, STARPORT_PATIENT_TCP_KEY,
+                                                          STARPORT_WIRED_HANDSFREE_KEY,
                                                           STARPORT_WIFI_KEY, DeviceSettingsOwner)
 from openpilot.starpilot.galaxy.settings import AuthorityContext, ContextSource, SettingsChanged, SettingsGateway, PAGES
 from openpilot.starpilot.longitudinal.voacc import KEY, selected
@@ -45,7 +46,7 @@ class FileParams:
 class FakeStarPort:
   def __init__(self, enabled=False, running=True):
     self.enabled, self.running, self.hevc = enabled, running, False
-    self.keyframe_test = self.tall_hevc = self.unacked_video = self.patient_tcp = False
+    self.keyframe_test = self.tall_hevc = self.unacked_video = self.patient_tcp = self.wired_handsfree = False
     self.experiments, self.rules = False, []
 
   def call(self, command, **payload):
@@ -66,6 +67,9 @@ class FakeStarPort:
     if command == "set_patient_tcp":
       self.patient_tcp = payload["enabled"]
       return {"ok": True}
+    if command == "set_wired_handsfree":
+      self.wired_handsfree = payload["enabled"]
+      return {"ok": True}
     if command == "set_unacked_video":
       self.unacked_video = payload["enabled"]
       return {"ok": True}
@@ -77,6 +81,7 @@ class FakeStarPort:
       return {"ok": True, "changed": True}
     return {"ok": True, "status": {"dedicated_wifi_interface": self.enabled, "allow_hevc": self.hevc, "keyframe_test": self.keyframe_test,
                                    "tall_hevc": self.tall_hevc, "unacked_video": self.unacked_video, "patient_tcp": self.patient_tcp,
+                                   "wired_handsfree": self.wired_handsfree,
                                    "head_unit_experiments": self.experiments, "head_unit_experiment_rules": self.rules}}
 
 
@@ -348,6 +353,17 @@ class DeviceSettingsTest(unittest.TestCase):
     self.assertTrue(service.patient_tcp)
     self.assertFalse(service.unacked_video)
 
+  def test_wired_handsfree_defaults_off_and_follows_the_daemon(self):
+    service = FakeStarPort()
+    owner = DeviceSettingsOwner(self.params, lambda: self.parked, starport=lambda: service)
+    rows = owner.snapshot("starport_options").rows
+    keys = [row.key for row in rows]
+    row = rows[keys.index(STARPORT_WIRED_HANDSFREE_KEY)]
+    self.assertEqual((row.value, row.default_value, row.available), ("Off", "Off", True))
+    self.assertTrue(owner.apply(FeatureSettingsRequest(STARPORT_WIRED_HANDSFREE_KEY, row.source, "On")))
+    self.assertTrue(service.wired_handsfree)
+    self.assertFalse(service.unacked_video or service.experiments)
+
   def test_try_experimental_fixes_defaults_off_and_is_the_only_master_switch(self):
     service = FakeStarPort()
     owner = DeviceSettingsOwner(self.params, lambda: self.parked, starport=lambda: service)
@@ -372,7 +388,7 @@ class DeviceSettingsTest(unittest.TestCase):
     keys = [row.key for row in rows]
     self.assertEqual(keys[keys.index(STARPORT_EXPERIMENTS_KEY) + 1:],
                      [STARPORT_EXPERIMENT_PREFIX + "gm_mychevrolet_w28e", STARPORT_EXPERIMENT_PREFIX + "polestar_ps2_aar_301433653",
-                      STARPORT_EXPERIMENT_PREFIX + "honda_fit_t5a_83_01d", STARPORT_EXPERIMENT_PREFIX + "phone_ping"])
+                      STARPORT_EXPERIMENT_PREFIX + "phone_ping"])
     rule_key = STARPORT_EXPERIMENT_PREFIX + "gm_mychevrolet_w28e"
     row = rows[keys.index(rule_key)]
     self.assertEqual((row.value, row.default_value, row.available), ("Off", "Off", True))

@@ -153,6 +153,7 @@ DEFAULT_CONFIG = {
   "tall_hevc": False,          # H.265 only: use the car's 1080x1920 mode when offered (Galaxy Developer > StarPort)
   "unacked_video": False,      # any codec: send video without waiting for the car's acknowledgments (Galaxy Developer > StarPort)
   "patient_tcp": False,        # wireless: keep retrying a refused projection connection for a minute (Galaxy Developer > StarPort)
+  "wired_handsfree": False,    # wired: connect hands-free and send the pairing request before asking for the screen (Galaxy Developer > StarPort)
   "keyframe_test": False,      # H.265 sessions only: every frame a keyframe, plus ack and frame logging (Galaxy Developer > StarPort)
   "device_name": "StarPilot",
   "version_status": 0,         # WifiVersionResponse status (0 = success) for receivers that negotiate a version
@@ -210,6 +211,7 @@ def load_config(path: Path | None = None) -> dict:
   config["tall_hevc"] = config["tall_hevc"] is True
   config["unacked_video"] = config["unacked_video"] is True
   config["patient_tcp"] = config["patient_tcp"] is True
+  config["wired_handsfree"] = config["wired_handsfree"] is True
   config["head_unit_experiments"] = config["head_unit_experiments"] is True
   config["head_unit_experiment_rules"] = sorted({str(rule)[:64] for rule in config["head_unit_experiment_rules"]
                                                  if isinstance(rule, str)})[:16]

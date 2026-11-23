@@ -29,6 +29,11 @@ STARPORT_UNACKED_VIDEO_DESCRIPTION = ("Experimental. For a car that shows video 
                                       "and reconnects every few seconds. Sends video without waiting for acknowledgments, on " +
                                       "H.264 or H.265. Applies from the next StarPort connection.")
 STARPORT_PATIENT_TCP_KEY = "StarPortPatientConnect"
+STARPORT_WIRED_HANDSFREE_KEY = "StarPortWiredHandsFree"
+STARPORT_WIRED_HANDSFREE_DESCRIPTION = ("Experimental. For a car that stays on its own screen over USB, or shows Bluetooth connecting. " +
+                                        "Connects hands-free to the car and sends the Bluetooth pairing request before asking for the " +
+                                        "screen, as a phone does. Pair the comma in the car's Bluetooth menu first. It may take the " +
+                                        "car's hands-free link from your phone. Applies from the next StarPort connection.")
 STARPORT_PATIENT_TCP_DESCRIPTION = ("Experimental. For a wireless adapter that hands over its Wi-Fi but then refuses the connection, " +
                                     "as if it is still starting up. Keeps trying for up to a minute instead of about 15 seconds. " +
                                     "Applies from the next StarPort connection.")
@@ -84,6 +89,11 @@ class DeviceSettingsOwner:
       rows.append(FeatureRow(STARPORT_PATIENT_TCP_KEY, "Wait longer for the adapter", "On" if patient_tcp else "Off",
                              b"1" if patient_tcp else b"0",
                              ("Off", "On"), available=parked, reason=STARPORT_PATIENT_TCP_DESCRIPTION if parked else held,
+                             default_value="Off"))
+      wired_handsfree = bool(status.get("wired_handsfree"))
+      rows.append(FeatureRow(STARPORT_WIRED_HANDSFREE_KEY, "Wired hands-free", "On" if wired_handsfree else "Off",
+                             b"1" if wired_handsfree else b"0",
+                             ("Off", "On"), available=parked, reason=STARPORT_WIRED_HANDSFREE_DESCRIPTION if parked else held,
                              default_value="Off"))
       experiments = bool(status.get("head_unit_experiments"))
       chosen = set(status.get("head_unit_experiment_rules") or ())
@@ -177,6 +187,8 @@ class DeviceSettingsOwner:
       return self._apply_starport(request, "unacked_video", "set_unacked_video")
     if request.key == STARPORT_PATIENT_TCP_KEY:
       return self._apply_starport(request, "patient_tcp", "set_patient_tcp")
+    if request.key == STARPORT_WIRED_HANDSFREE_KEY:
+      return self._apply_starport(request, "wired_handsfree", "set_wired_handsfree")
     if request.key == STARPORT_EXPERIMENTS_KEY:
       return self._apply_starport(request, "head_unit_experiments", "set_head_unit_experiments")
     if request.key.startswith(STARPORT_EXPERIMENT_PREFIX):
