@@ -1,5 +1,6 @@
 from openpilot.starpilot.navigation.wire import navigation_envelope
 from types import SimpleNamespace as NS
+from typing import cast
 
 import pytest
 
@@ -9,6 +10,23 @@ from openpilot.starpilot.navigation.intent import current_instruction, turn_desi
 
 
 NOW = 20_000_000_000
+
+
+@pytest.mark.parametrize('modifier,target_mph,decel,settling', [('right', 14., .75, 20.), ('sharpLeft', 10., .45, 8.)])
+def test_slowdown_slider_preserves_default_target_and_braking_envelope(modifier, target_mph, decel, settling):
+  target = target_mph * CV.MPH_TO_MS
+  maneuver = NS(maneuverType='turn', maneuverModifier=modifier, distanceMeters=settling + 100.)
+  ceilings = [turn_speed(maneuver, 0., percent) for percent in range(101)]
+  assert all(ceiling is not None for ceiling in ceilings)
+  ceilings = cast(list[float], ceilings)
+  assert all(a >= b for a, b in zip(ceilings, ceilings[1:], strict=False))
+  assert ceilings[0] == pytest.approx((target ** 2 + 2 * 100.) ** .5)
+  assert ceilings[50] == turn_speed(maneuver, 0.) == pytest.approx((target ** 2 + 2 * decel * 100.) ** .5)
+  assert ceilings[100] == pytest.approx((target ** 2 + decel * 100.) ** .5)
+  for bad in (True, -1, 101, float('nan'), None, '0'):
+    assert turn_speed(maneuver, 0., cast(int, bad)) == ceilings[50]
+  maneuver.distanceMeters = settling
+  assert all(turn_speed(maneuver, 0., percent) == target for percent in (0, 50, 100))
 
 
 @pytest.fixture

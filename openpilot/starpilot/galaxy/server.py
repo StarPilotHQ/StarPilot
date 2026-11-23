@@ -2042,12 +2042,15 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
                         {'intentId'} if action == 'share' and 'intentId' in payload else set())
             if type(action) is not str or action not in fields or set(payload) != {'action', 'revision'} | fields[action] | optional:
               raise ValidationError('Invalid navigation action')
-            needs_park = action == 'configure' and isinstance(payload['patch'], dict) and bool({'token', 'googleKey'} & payload['patch'].keys())
+            config_keys = payload['patch'].keys() if action == 'configure' and isinstance(payload['patch'], dict) else ()
+            slowdown_change = 'turnSlowdownPercent' in config_keys
+            needs_park = slowdown_change or 'token' in config_keys or 'googleKey' in config_keys
             def authorized():
               return self.settings_session() == identity and (not needs_park or configuration_allowed())
             with (nullcontext() if action in ('selectPlace', 'favoritePlace', 'testGoogleKey', 'resolveShare', 'share') else effect_lock):
               if not authorized():
-                raise PermissionError('Park your car before changing a map key' if needs_park else 'Sign in to Galaxy')
+                raise PermissionError('Park your car before changing turn slowdown distance' if slowdown_change else
+                                      'Park your car before changing a map key' if needs_park else 'Sign in to Galaxy')
               nav = navigation_owner()
               keywords = {'expected_revision': payload['revision'], 'authorized': authorized}
               if action == 'configure':

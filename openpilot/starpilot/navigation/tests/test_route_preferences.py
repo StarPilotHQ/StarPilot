@@ -41,6 +41,24 @@ def test_preferences_default_and_survive_restart(owner):
   assert restarted.snapshot()['destination']['name'] == 'Library'
 
 
+def test_turn_slowdown_preferences_are_saved_without_rerouting(owner):
+  assert owner.snapshot()['turnSlowdownPercent'] == 50
+  saved = owner.configure({'enabled': True, 'token': 'pk.test'}, '0', True)
+  selected = owner.select(PLACE, saved['revision'], True)
+  routing_revision = owner.read()['routingRevision']
+  for value in (True, -1, 101, 50.0, '50'):
+    with pytest.raises(ValidationError):
+      owner.configure({'turnSlowdownPercent': value}, selected['revision'], True)
+  with pytest.raises(PermissionError):
+    owner.configure({'turnSlowdownPercent': 0}, selected['revision'], False)
+  updated = owner.configure({'turnSlowdownPercent': 0}, selected['revision'], True)
+  assert updated['turnSlowdownPercent'] == 0
+  assert updated['destination'] == selected['destination']
+  assert owner.read()['routingRevision'] == routing_revision
+  restarted = NavigationOwner(owner.root, runtime_source=lambda: None, transient_root=owner.transient_root)
+  assert restarted.read()['turnSlowdownPercent'] == 0
+
+
 def test_old_settings_default_without_rewriting(owner):
   owner.configure({'enabled': True, 'token': 'pk.test'}, '0', True)
   document = json.loads(owner.path.read_text())

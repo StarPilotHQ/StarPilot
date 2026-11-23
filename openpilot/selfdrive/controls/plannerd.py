@@ -325,7 +325,16 @@ def starpilot_main():
 
   ldw = LaneDepartureWarning()
   from openpilot.starpilot.longitudinal.developer_tuning import read_tuning
-  longitudinal_planner = LongitudinalPlanner(CP, developer_tuning=read_tuning(params, CP))
+  from openpilot.starpilot.navigation.slowdown import DEFAULT_SLOWDOWN_PERCENT
+  navigation_slowdown_percent = DEFAULT_SLOWDOWN_PERCENT
+  if CP.openpilotLongitudinalControl and not CP.passive and not CP.dashcamOnly:
+    from openpilot.starpilot.navigation.owner import NavigationOwner
+    try:
+      navigation_slowdown_percent = NavigationOwner().read()['turnSlowdownPercent']
+    except (OSError, ValueError):
+      pass
+  longitudinal_planner = LongitudinalPlanner(CP, developer_tuning=read_tuning(params, CP),
+                                             navigation_slowdown_percent=navigation_slowdown_percent)
   nudge_preferences = NudgePreferences(params)
   # Saved-on features start only for a finalized, supported driving owner. Their
   # current-source and longitudinal authority checks still run every frame.

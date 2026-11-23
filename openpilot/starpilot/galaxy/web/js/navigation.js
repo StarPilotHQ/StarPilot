@@ -50,6 +50,8 @@ export function validNavigation(value) {
       !Number.isInteger(value.selectedRoute) || value.selectedRoute < 0 || value.selectedRoute > 2)) return false
   return !!value && typeof value.enabled === "boolean" && typeof value.isMetric === "boolean" && typeof value.hasKey === "boolean" && STATUS.has(value.status) &&
     ROUTE_AVOIDANCES.every(({ key }) => value[key] === undefined || typeof value[key] === "boolean") &&
+    (value.turnSlowdownPercent === undefined || Number.isInteger(value.turnSlowdownPercent) &&
+      value.turnSlowdownPercent >= 0 && value.turnSlowdownPercent <= 100) &&
     (value.gpsSource === undefined || GPS_MODES.some((mode) => mode.value === value.gpsSource)) &&
     (value.network === undefined || ["online", "offline", "unknown"].includes(value.network)) &&
     typeof value.revision === "string" && value.revision.length > 0 && value.revision.length <= 128 &&
@@ -314,7 +316,8 @@ export const NavigationPage = {
   props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
     go: { type: Function, default: null }, initialTab: { type: String, default: "route" }, tabs: { type: Array, required: true } },
   data() { return { bluetooth: bluetoothConnection(), data: null, results: [], busy: false, error: "", stale: false, tab: this.initialTab, gpsGuide: "android", query: "", token: "", googleKey: "", googleTest: null, mapboxOpen: false, googleOpen: false, searched: false,
-    suggestions: [], suggestOpen: false, savedSuggestionPlaces: {}, favoritePicker: null, searchPending: false, resultsProvider: null, suggestionsProvider: null } },
+    suggestions: [], suggestOpen: false, savedSuggestionPlaces: {}, favoritePicker: null, searchPending: false, resultsProvider: null,
+    suggestionsProvider: null, slowdownDraft: null } },
   watch: { initialTab(value) { this.tab = value } },
   computed: {
     routeAvoidances() { return ROUTE_AVOIDANCES },
@@ -431,6 +434,12 @@ export const NavigationPage = {
   beforeUnmount() { document.removeEventListener("visibilitychange", this.visibilityHandler); clearTimeout(this.suggestTimer); this.client.stop(); this.token = ""; this.googleKey = "" },
   methods: {
     reportSave,
+    async saveSlowdown() {
+      const percent = this.slowdownDraft
+      if (!this.available || percent === null) return
+      const saved = await this.reportSave(() => this.client.action('configure', { patch: { turnSlowdownPercent: percent } }))
+      if (saved) this.slowdownDraft = null
+    },
     async openGpsSetup() {
       this.selectTab('setup')
       await this.$nextTick()
@@ -572,6 +581,21 @@ export const NavigationPage = {
                 <span>{{ option.label }}</span>
               </label>
             </div>
+          </div>
+          <div v-if="data?.turnSlowdownPercent !== undefined" class="gx-navigation__prefs">
+            <label for="navigation-slowdown" class="gx-row__label">Turn slowdown distance</label>
+            <strong>{{ slowdownDraft ?? data.turnSlowdownPercent }}%</strong>
+            <input id="navigation-slowdown" type="range" class="gx-slider" min="0" max="100" step="1"
+              :value="slowdownDraft ?? data.turnSlowdownPercent" :disabled="!available"
+              :aria-valuetext="(slowdownDraft ?? data.turnSlowdownPercent) + '%'"
+              @input="slowdownDraft = Number($event.target.value)">
+            <div class="gx-actions">
+              <button type="button" class="gx-btn gx-btn--tonal" :disabled="!available || (slowdownDraft ?? data.turnSlowdownPercent) === 50"
+                @click="slowdownDraft = 50">Default</button>
+              <button type="button" class="gx-btn" :disabled="!available || slowdownDraft === null || slowdownDraft === data.turnSlowdownPercent"
+                @click="saveSlowdown">Save</button>
+            </div>
+            <small class="gx-note">Lower starts later; higher starts earlier. Save while parked. Applies next drive.</small>
           </div>
         </section>
 

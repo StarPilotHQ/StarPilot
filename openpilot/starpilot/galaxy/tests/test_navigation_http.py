@@ -160,6 +160,14 @@ class NavigationHttpTest(unittest.TestCase):
     self.assertEqual(self.action('configure', patch={'enabled': True})[0], 200)
     self.assertEqual(self.action('select', destination=PLACE)[0], 200)
 
+  def test_turn_slowdown_requires_parked(self):
+    self.parked = False
+    self.assertEqual(self.action('configure', patch={'turnSlowdownPercent': 100})[0], 409)
+    self.assertEqual(self.navigation.snapshot()['turnSlowdownPercent'], 50)
+    self.parked = True
+    status, body, _ = self.action('configure', patch={'turnSlowdownPercent': 100})
+    self.assertEqual((status, body['turnSlowdownPercent']), (200, 100))
+
   def test_google_key_needs_parked_and_test_key_reports_without_leaking(self):
     key = 'AIzaSyFixtureKey_0123456789abcdef'
     self.parked = False

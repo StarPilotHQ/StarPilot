@@ -22,6 +22,7 @@ from openpilot.selfdrive.controls.lib.drive_helpers import CONTROL_N, get_accel_
 from openpilot.selfdrive.car.cruise import V_CRUISE_MAX, V_CRUISE_UNSET
 from openpilot.common.swaglog import cloudlog
 from openpilot.starpilot.navigation.intent import NAVIGATION_BRAKE_MAGNITUDE, cruise_ceiling as navigation_ceiling
+from openpilot.starpilot.navigation.slowdown import DEFAULT_SLOWDOWN_PERCENT
 from openpilot.starpilot.car.tesla.preap_adaptive import startup_owner as preap_adaptive_owner
 from openpilot.starpilot.longitudinal.vehicle_policy import forecast_should_stop, planner_cost_owner, far_follow_owner
 from openpilot.starpilot.longitudinal.cruise_ceiling import CruiseCeiling, CurveCeiling, select_cruise_ceiling, select_curve_ceiling
@@ -120,9 +121,10 @@ def get_cruise_accel(e2e, v_cruise, v_ego, a_cruise_prev, angle_steers, CP, dt, 
 
 class LongitudinalPlanner:
   def __init__(self, CP, init_v=0.0, init_a=0.0, dt=DT_MDL, clock_ns: Callable[[], int] = time.monotonic_ns, *,
-               developer_tuning=None):
+               developer_tuning=None, navigation_slowdown_percent: int = DEFAULT_SLOWDOWN_PERCENT):
     self.CP = CP
     tuning = developer_tuning or {}
+    self.navigation_slowdown_percent = navigation_slowdown_percent
     self.action_delay_override = tuning.get("delay")
     self.stop_speed = tuning.get("stop_speed", .3)
     self.max_accel_override = tuning.get("max_accel")
@@ -336,7 +338,8 @@ class LongitudinalPlanner:
     self.last_curve_ceiling_applied = False
     if curve.effective_mps is not None:
       v_cruise = curve.effective_mps
-    navigation_target = navigation_ceiling(sm, self.CP, sample_now_ns, v_cruise) if profile_eligible else None
+    navigation_target = (navigation_ceiling(sm, self.CP, sample_now_ns, v_cruise, slowdown_percent=self.navigation_slowdown_percent)
+                         if profile_eligible else None)
     if navigation_target is not None:
       v_cruise = min(v_cruise, navigation_target)
     coast_plan = None
