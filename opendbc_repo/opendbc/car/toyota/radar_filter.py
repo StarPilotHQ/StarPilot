@@ -49,6 +49,17 @@ def configured(cp):
               cp.safetyConfigs[0].safetyParam == (profile[1] if cp.openpilotLongitudinalControl else profile[2]))
 
 
+def camry_se_idle_contract(cp):
+  if (cp.carFingerprint != CAR.TOYOTA_CAMRY or not cp.openpilotLongitudinalControl or
+      not cp.pcmCruise or cp.passive or cp.dashcamOnly or cp.notCar or
+      not cp.flags & ToyotaFlags.FILTER_BUTTONS or cp.flags & (ToyotaFlags.HYBRID | ToyotaFlags.GAS_INTERCEPTOR) or
+      not configured(cp)):
+    return False
+  firmware = {(str(fw.ecu), fw.address, bytes(fw.fwVersion)) for fw in cp.carFw}
+  return {("engine", 0x700, b"\x018966333P4700\x00\x00\x00\x00"),
+          ("dsu", 0x791, b"8821F0601300    ")} <= firmware
+
+
 def prepare_stock(cp):
   from opendbc.car.toyota import pedal_composite
   if pedal_composite.marked(cp):
