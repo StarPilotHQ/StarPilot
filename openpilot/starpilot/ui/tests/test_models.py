@@ -242,6 +242,51 @@ class TestModelManager(unittest.TestCase):
       callback(DialogResult.CONFIRM)
     self.assertEqual((session.model_size, session.model_scroll), ("big", 0))
 
+  def test_large_picker_keeps_working_when_runtime_receipt_is_unavailable(self):
+    from openpilot.starpilot.ui import runtime_app
+
+    session = runtime_app.StarShellSession.__new__(runtime_app.StarShellSession)
+    session.model_source = mock.Mock()
+    session.model_source.snapshot.side_effect = OSError("runtime receipt unavailable")
+    session.model_manager_snapshot = mock.Mock(return_value=self.data)
+    with mock.patch.object(runtime_app.cloudlog, "exception"):
+      rows = session.model_snapshot().rows
+    self.assertEqual(rows[0].key, "models:active")
+    self.assertEqual(rows[0].actions, (("Small", True), ("Big", True)))
+
+  def test_large_picker_tap_survives_metadata_refresh_but_not_action_change(self):
+    from openpilot.starpilot.ui import runtime_app
+    from openpilot.starpilot.ui.shell import ShellInput, ShellSnapshot
+
+    session = runtime_app.StarShellSession.__new__(runtime_app.StarShellSession)
+    session._mode, session.selected = ShellMode.SETTINGS, Destination.DRIVING_MODEL
+    session.profile = Profile.LARGE
+    session.model_source = mock.Mock()
+    session.model_source.snapshot.return_value = ModelStatus(BUNDLED_CURRENT, None, None, ModelHealth.UNAVAILABLE, False, None, None)
+    session.model_page, session.model_filter, session.model_sort = "models:pick:small", "installed", "date"
+    session.model_manager_action = mock.Mock(return_value={"message": "Model selected for the next drive"})
+    session._on_destination_change = None
+    original = self.data | {"activeSmallModel": BUNDLED_CURRENT}
+    session.model_manager_snapshot = mock.Mock(return_value=original)
+    shown = session.model_snapshot()
+    row, = shown.rows
+    button = next(i for i, (label, enabled) in enumerate(row.actions) if label == "Use" and enabled)
+    x, y, w, h = feature_action_rects(row, feature_row_top(shown))[button]
+    snapshot = ShellSnapshot(ShellMode.SETTINGS, mock.Mock(), mock.Mock(sidebar_expanded=False), mock.Mock(),
+                             selected=Destination.DRIVING_MODEL, models=shown)
+    tap = ShellInput(Profile.LARGE, session._emit)
+    with mock.patch.object(tap.settings, "press"), mock.patch.object(tap.settings, "release"):
+      tap.press(x + w / 2, y + h / 2, 0., snapshot)
+      session.model_manager_snapshot.return_value = original | {"models": [self.small | {"communityFavorite": True}]}
+      tap.release(x + w / 2, y + h / 2, .1, snapshot)
+      session.model_manager_action.assert_called_once_with("active", {"profile": "small", "model": "small"})
+      session.model_manager_action.reset_mock()
+      for changed in (original | {"activeSmallModel": "small"}, original | {"randomizer": True}, original | {"models": []}):
+        tap.press(x + w / 2, y + h / 2, 0., snapshot)
+        session.model_manager_snapshot.return_value = changed
+        tap.release(x + w / 2, y + h / 2, .1, snapshot)
+        session.model_manager_action.assert_not_called()
+
   def test_compact_catalog_keeps_installation_and_exclusion_visible_first(self):
     session = mock.Mock()
     data = self.data | {"models": [self.small | {"blacklisted": True, "userFavorite": True}]}
