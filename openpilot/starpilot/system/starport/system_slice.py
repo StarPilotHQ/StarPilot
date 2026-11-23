@@ -29,8 +29,11 @@ def _timestamp(value: float) -> str:
 
 def commands(start: float, end: float) -> dict[str, list[str]]:
   """Window-limited journals plus point-in-time state; every command runs at the lowest priority."""
+  # The window goes in as epoch seconds. journalctl reads a bare "YYYY-MM-DD HH:MM:SS" in the device's own timezone
+  # (--utc only changes what it prints), so the UTC strings used before asked a comma on Pacific time for a window
+  # eight hours ahead: every sidecar of sessions 50-56 says "no output" for network, bluetooth and kernel.
   journal = ["nice", "-n", "19", "journalctl", "--no-pager", "-q", "-o", "short-iso-precise", "--utc",
-             "--since", _timestamp(start - MARGIN_S), "--until", _timestamp(end + MARGIN_S), "-n", "2000"]
+             "--since", f"@{int(start - MARGIN_S)}", "--until", f"@{int(end + MARGIN_S)}", "-n", "2000"]
   return {
     "network": [*journal, "-u", "NetworkManager", "-u", "wpa_supplicant"],
     "bluetooth": [*journal, "-u", "bluetooth"],

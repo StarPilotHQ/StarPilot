@@ -66,6 +66,7 @@ def commands(since: float) -> dict[str, list[str]]:
   return {
     "journal_network.log": [*journal, "-u", "NetworkManager", "-u", "wpa_supplicant"],
     "journal_bluetooth.log": [*journal, "-u", "bluetooth"],
+    "journal_galaxy_ble.log": [*journal, "-u", "galaxy-ble-fork"],  # when the phone app connected: 2026-11-08 it was unknowable
     "journal_kernel.log": [*journal, "-k"],
     "dmesg.log": ["dmesg", "-T"],
     "processes.txt": ["ps", "-eo", "pid,psr,ni,pcpu,pmem,rss,etime,stat,args", "--sort=-pcpu"],

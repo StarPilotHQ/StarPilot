@@ -160,6 +160,8 @@ DEFAULT_CONFIG = {
   "phone_class": True,         # while pairing/connecting, present as a phone: HFP gateway + smartphone Class of Device
   "auto_connect": True,        # start projection on its own when the chosen car is on (onroad, or it reaches the comma)
   "rfcomm_cache": {},          # car address -> Android Auto RFCOMM channel learned over SDP, to skip discovery next time
+  "wifi_channels": {},         # car access point BSSID -> frequency (MHz) it was last found on, for profiles that pin the first join
+  "wifi_addresses": {},        # car access point BSSID -> "address/prefix" it leased last time, for profiles that skip DHCP
   "modern_reply_cache": {},    # car address -> True when its v4+ head unit only started after the phone-style version reply
   "touch_units_cache": {},     # touch geometry -> "pixels" or "touchscreen": the units the car's touches arrive in
   "car_type": "",              # wireless setup shown in Galaxy: "builtin" or "adapter"; "" = work it out from the saved companion car
@@ -220,6 +222,10 @@ def load_config(path: Path | None = None) -> dict:
   config["render_profile_kb"] = max(16, min(4096, int(config["render_profile_kb"])))
   config["rfcomm_cache"] = {str(address).upper(): channel for address, channel in config["rfcomm_cache"].items()
                             if type(channel) is int and 1 <= channel <= 30}
+  config["wifi_channels"] = {str(bssid).upper(): frequency for bssid, frequency in config["wifi_channels"].items()
+                             if type(frequency) is int and 2400 <= frequency <= 5900}
+  config["wifi_addresses"] = {str(bssid).upper(): address for bssid, address in config["wifi_addresses"].items()
+                              if type(address) is str and len(address) <= 18 and "/" in address}
   config["modern_reply_cache"] = {str(address).upper(): True for address, modern in config["modern_reply_cache"].items()
                                   if modern is True}
   config["touch_units_cache"] = {str(key)[:64]: units for key, units in config["touch_units_cache"].items()

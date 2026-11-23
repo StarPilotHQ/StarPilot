@@ -566,6 +566,125 @@ def test_daemon_saves_and_reports_the_dedicated_wifi_choice(identity, tmp_path, 
   assert sup.status()["dedicated_wifi_interface"] is False
 
 
+class SightedNM(FakeNM):
+  """aa0 has already scanned the car's access point (a retry), seen `age` seconds ago with `ssid`."""
+
+  def __init__(self, age=2.0, ssid=b"Car-4E91", **kwargs):
+    super().__init__(autoconnect=False, **kwargs)
+    self.age, self.ssid = age, ssid
+    self.added = []
+
+  def call(self, path, interface, member, signature=None, body=(), timeout=10.0):
+    if member == "GetAllAccessPoints":
+      self.calls.append(member)
+      return [["/ap/other", "/ap/car"]]
+    if member == "AddAndActivateConnection2":
+      self.added.append(body[0])
+    return super().call(path, interface, member, signature, body, timeout)
+
+  def get(self, path, interface, name):
+    if path in ("/ap/other", "/ap/car") and name in ("HwAddress", "Ssid", "LastSeen", "Frequency"):
+      car = path == "/ap/car"
+      return {"HwAddress": "c6:b7:57:f7:4e:91" if car else "11:22:33:44:55:66", "Ssid": self.ssid if car else b"home",
+              "LastSeen": int(network._boottime() - self.age), "Frequency": 5180 if car else 2437}[name]
+    return super().get(path, interface, name)
+
+
+def test_band_channel_from_frequency():
+  assert network.band_channel(5180) == ("a", 36) and network.band_channel(5745) == ("a", 149)
+  assert network.band_channel(2412) == ("bg", 1) and network.band_channel(2437) == ("bg", 6) and network.band_channel(2484) == ("bg", 14)
+  assert network.band_channel(0) is None and network.band_channel(5955) is None  # 6 GHz: left to NetworkManager
+
+
+def test_profile_is_unchanged_without_a_sighted_bssid():
+  wireless = network.connection_settings(credentials(), "aa0")["802-11-wireless"]
+  assert wireless["hidden"] == ("b", True) and "band" not in wireless and "channel" not in wireless
+  no_bssid = WifiCredentials(ssid="Car-4E91", key="k", bssid="", security=8, ap_type=0)
+  wireless = network.connection_settings(no_bssid, "aa0", 5180, hidden=False)["802-11-wireless"]
+  assert wireless["hidden"] == ("b", True) and "band" not in wireless and "bssid" not in wireless
+
+
+def test_join_pins_the_channel_aa0_saw_the_car_broadcast_on():
+  nm = SightedNM()
+  lease = nm_lease(nm)
+  lease.acquire(credentials(), timeout=2.0)
+  wireless = nm.added[0]["802-11-wireless"]
+  assert wireless["band"] == ("s", "a") and wireless["channel"] == ("u", 36) and wireless["hidden"] == ("b", False)
+  assert dict(lease.log.events)["wifi_joining"]["pinned_freq"] == 5180
+
+
+@pytest.mark.parametrize("sighting", [{"age": network.AP_FRESH_S + 5}, {"ssid": b""}])
+def test_stale_or_hidden_sighting_is_not_pinned(sighting):
+  nm = SightedNM(**sighting)
+  lease = nm_lease(nm)
+  lease.acquire(credentials(), timeout=2.0)
+  wireless = nm.added[0]["802-11-wireless"]
+  assert "channel" not in wireless and wireless["hidden"] == ("b", True)
+
+
+def test_every_join_requests_a_scan(monkeypatch):
+  monkeypatch.setattr(time, "sleep", lambda _: None)
+  nm = FakeNM(autoconnect=False)
+  lease = nm_lease(nm)
+  lease.prepare_device()
+  lease.acquire(credentials(), timeout=2.0)
+  assert nm.calls.count("RequestScan") == 1  # preparation just scanned
+  lease.release(restore=False)
+  lease.scan_requested_at -= network.SCAN_REUSE_S  # the retry, after the adapter gave up
+  lease.acquire(credentials(), timeout=2.0)
+  assert nm.calls.count("RequestScan") == 2
+  assert nm.calls.index("RequestScan", nm.calls.index("AddAndActivateConnection2") + 1) < len(nm.calls) - 1
+
+
+class JoinNM(SightedNM):
+  """Reports the state of our aa0 connection; a new join starts it activated."""
+
+  def __init__(self, **kwargs):
+    super().__init__(**kwargs)
+    self.active_state = 2
+
+  def call(self, path, interface, member, signature=None, body=(), timeout=10.0):
+    if member == "AddAndActivateConnection2":
+      self.active_state = 2
+    return super().call(path, interface, member, signature, body, timeout)
+
+  def get(self, path, interface, name):
+    if name == "State" and path == "/active/aa":
+      return self.active_state
+    return super().get(path, interface, name)
+
+
+def test_handshake_restart_keeps_the_join_in_progress(tmp_path, monkeypatch):
+  # 2026-10-29: DHCP finished 11.4 s in, the adapter restarted at 12 s, and the working connection was deleted.
+  nm = JoinNM()
+  lease = nm_lease(nm)
+  lease.marker = tmp_path / "paused.json"
+  lease.reuse_join = True  # OTTOCAST profile
+  lease.acquire(credentials(), timeout=2.0)
+  nm.active_state = 1  # still getting its address when the adapter asks again
+  monkeypatch.setattr(network.time, "sleep", lambda _: setattr(nm, "active_state", 2))
+  assert lease.acquire(credentials(), timeout=2.0) == "192.168.180.183"
+  assert nm.calls.count("AddAndActivateConnection2") == 1 and "wifi_join_reused" in lease.log.names()
+
+
+@pytest.mark.parametrize("change", ["credentials", "deactivated", "standard profile"])
+def test_a_different_or_dead_join_is_replaced(tmp_path, change):
+  nm = JoinNM()
+  lease = nm_lease(nm)
+  lease.marker = tmp_path / "paused.json"
+  lease.reuse_join = change != "standard profile"
+  lease.acquire(credentials(), timeout=2.0)
+  again = credentials()
+  if change == "credentials":
+    again = WifiCredentials(ssid="Car-4E91", key="new-key", bssid="C6:B7:57:F7:4E:91", security=8, ap_type=0)
+  elif change == "deactivated":
+    nm.active_state = 4  # the adapter's access point restarted and dropped us
+  else:
+    nm.active_state = 1  # same restart as the OTTOCAST case, but no profile asked to keep the join
+  lease.acquire(again, timeout=2.0)
+  assert nm.calls.count("AddAndActivateConnection2") == 2 and "wifi_join_reused" not in lease.log.names()
+
+
 class JoiningLease(FakeLease):
   outcomes: list = []
   calls: list = []

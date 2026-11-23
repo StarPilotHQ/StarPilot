@@ -25,7 +25,10 @@ def test_collect_turns_command_output_into_line_lists():
 def test_commands_are_niced_and_cover_the_session_window():
   command = system_slice.commands(1_000_000.0, 1_000_060.0)["network"]
   assert command[:3] == ["nice", "-n", "19"] and "--utc" in command
-  assert command[command.index("--since") + 1] == "1970-01-12 13:46:10 UTC" and "NetworkManager" in command
+  # Epoch seconds, not a wall-clock string: journalctl reads a bare date in the device's timezone (2026-11-13: a comma
+  # on Pacific time got an empty window for every session).
+  assert command[command.index("--since") + 1] == "@999970" and command[command.index("--until") + 1] == "@1000090"
+  assert "NetworkManager" in command
 
 
 def test_scrub_line_masks_names_ssids_and_addresses_and_caps_length():

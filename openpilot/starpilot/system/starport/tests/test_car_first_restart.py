@@ -14,6 +14,7 @@ def fixture():
   unit._bluez = None
   unit._car_seen_at = -10.0
   unit._companion_retry_at = 0.0
+  unit._wifi_ready = lambda now: True  # NetworkManager is not part of this fixture
   phone = Mock()
   phone.snapshot.return_value = True, {'paired': True, 'connected': False}
   unit._phone = Mock(return_value=phone)

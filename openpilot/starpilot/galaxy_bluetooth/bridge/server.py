@@ -56,6 +56,8 @@ class Session:
     self.claiming = False
 
   def close(self):
+    if not self.closed:
+      LOG.info("Galaxy BLE session closed after %.0f s idle", time.monotonic() - self.last_seen)
     self.closed = True
     if self.task:
       self.task.cancel()

@@ -11,6 +11,6 @@ def test_static_address_sits_beside_the_dongle():
 def test_static_ip_switches_the_join_to_a_manual_address():
   credentials = WifiCredentials("dongle", "12345678", "", 2, 0)
   assert connection_settings(credentials, "aa0")["ipv4"]["method"] == ("s", "auto")
-  ipv4 = connection_settings(credentials, "aa0", "10.42.1.77")["ipv4"]
+  ipv4 = connection_settings(credentials, "aa0", static_ip="10.42.1.77")["ipv4"]
   assert ipv4["method"] == ("s", "manual")
   assert ipv4["address-data"] == ("aa{sv}", [{"address": ("s", "10.42.1.77"), "prefix": ("u", 24)}])

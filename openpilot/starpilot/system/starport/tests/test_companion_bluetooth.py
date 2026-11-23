@@ -91,6 +91,42 @@ class CompanionTests(unittest.TestCase):
     self.assertEqual(self.owner.companion_devices, {})
     self.assertFalse(self.lease.released)
 
+  def test_disconnecting_the_saved_car_keeps_it_saved_and_only_forgetting_drops_it(self):
+    # 2026-11-02: Galaxy's Disconnect used to drop the saved car; the comma then refused the car's hands-free link and a
+    # Honda, which grants its screen only over that link, never showed Android Auto again until the car was re-selected.
+    from openpilot.starpilot.system.starport.supervisor import Supervisor
+    def operation(operation, address):
+      self.forgotten.append((operation, address))
+      self.devices[address]['connected'] = operation == 'connect'
+    self.client.operation = operation
+    host = Supervisor.__new__(Supervisor)
+    host._lock = threading.RLock()
+    host.config = {'receiver_address': ADAPTER, 'companion_address': CAR, 'companion_name': 'HandsFreeLink'}
+    host._shared_bluetooth_owner = self.owner
+    with patch.object(host, '_phone', return_value=self.phone), patch('openpilot.starpilot.system.starport.identity.save_config') as save:
+      host.companion_bluetooth_action('disconnect', CAR, SESSION)
+      self.assertEqual((host.config['companion_address'], host.config['companion_name']), (CAR, 'HandsFreeLink'))
+      save.assert_not_called()
+      host.companion_bluetooth_action('forget', CAR, SESSION)
+      self.assertEqual(host.config['companion_address'], '')
+      save.assert_called_once()
+
+  def test_saved_car_connect_follows_its_hands_free_link_not_the_bluez_flag(self):
+    # BlueZ says Connected while only the car's audio profile is up; the hands-free link, the one a Honda gates its
+    # screen on, is not. With link_up the connect goes ahead and uses the caller's timeout.
+    self.devices[CAR]['connected'] = True
+    link = {'up': False}
+    def call(*args, **kwargs):
+      self.calls.append((args, kwargs))
+      link['up'] = args[2] == 'ConnectProfile'
+    self.phone._call = call
+    self.owner.prepare_companion(CAR, lambda: CAR, connect=True, timeout=8.0, link_up=lambda: link['up'])
+    self.assertEqual(self.calls[0][0][2:], ('ConnectProfile', 's', (HFP,)))
+    self.assertEqual(self.calls[0][1], {'timeout': 8.0, 'exclusive': False})  # the page never holds the phone's D-Bus lock
+    self.calls.clear()
+    self.owner.prepare_companion(CAR, lambda: CAR, connect=True, link_up=lambda: True)
+    self.assertEqual(self.calls, [])  # the link is up: nothing to connect, whatever BlueZ's flag says
+
   def test_session_pairing_and_changed_owner_are_fail_closed(self):
     alterations = [('valid', False), ('enabled', False), ('selected', CAR)]
     for key, value in alterations:
@@ -197,6 +233,84 @@ class CompanionTests(unittest.TestCase):
     self.assertEqual(self.calls[0][0][2:5], ('ConnectProfile', 's', (HFP,)))
     self.assertTrue(self.devices[ADAPTER]['connected'])
     self.assertFalse(self.lease.released)
+
+  def test_the_page_runs_outside_the_owner_lock_and_the_phone_lock(self):
+    # 2026-11-08: an 8 s ConnectProfile under both locks stalled the projection's own setup for exactly those 8 s.
+    seen = {}
+
+    def other_thread_can_take_owner_lock():
+      taken = self.owner.lock.acquire(blocking=False)
+      if taken:
+        self.owner.lock.release()
+      seen['owner_free'] = taken
+
+    def callback():
+      worker = threading.Thread(target=other_thread_can_take_owner_lock)
+      worker.start()
+      worker.join(1.0)
+    self.hook = callback
+    self.owner.prepare_companion(CAR, lambda: CAR, connect=True, timeout=8.0)
+    self.assertTrue(seen['owner_free'])
+    self.assertEqual(self.calls[0][1], {'timeout': 8.0, 'exclusive': False})
+    self.assertTrue(self.owner.companion_accepts(CAR))
+
+  def test_a_silent_link_from_the_saved_car_is_hung_up_and_the_car_stays_admitted(self):
+    # 2026-11-13: the Honda's link came up at ignition and carried nothing; hang it up so the car calls again. Its next
+    # call must still be accepted, the adapter must be untouched, and the Disconnect must not hold either lock.
+    self.owner.prepare_companion(CAR, lambda: CAR)
+    self.assertEqual(self.owner.drop_companion(CAR, lambda: CAR), "not connected")
+    self.assertEqual(self.calls, [])
+    self.devices[CAR]['connected'] = True
+    seen = {}
+
+    def other_thread_can_take_owner_lock():
+      taken = self.owner.lock.acquire(blocking=False)
+      if taken:
+        self.owner.lock.release()
+      seen['owner_free'] = taken
+
+    def callback():
+      worker = threading.Thread(target=other_thread_can_take_owner_lock)
+      worker.start()
+      worker.join(1.0)
+    self.hook = callback
+    self.assertEqual(self.owner.drop_companion(CAR, lambda: CAR), "dropped")
+    self.assertEqual(self.calls, [((self.devices[CAR]['path'], 'org.bluez.Device1', 'Disconnect'), {'timeout': 6.0, 'exclusive': False})])
+    self.assertTrue(seen['owner_free'])
+    self.assertFalse(self.devices[CAR]['connected'])
+    self.assertTrue(self.owner.companion_accepts(CAR))
+    self.assertTrue(self.devices[ADAPTER]['connected'])
+    self.assertFalse(self.lease.released)
+
+  def test_only_the_admitted_saved_car_can_be_hung_up(self):
+    self.devices[CAR]['connected'] = True
+    with self.assertRaises(Rejected):           # never admitted for this lease
+      self.owner.drop_companion(CAR, lambda: CAR)
+    self.owner.prepare_companion(CAR, lambda: CAR)
+    for address, selected in [(ADAPTER, lambda: ADAPTER), (CAR, lambda: ADAPTER)]:   # the adapter; a car no longer saved
+      with self.assertRaises(Rejected):
+        self.owner.drop_companion(address, selected)
+    self.state['enabled'] = False
+    with self.assertRaises(Rejected):
+      self.owner.drop_companion(CAR, lambda: CAR)
+    self.state['enabled'] = True
+    self.lease.session = SESSION                # a pairing lease, not a projection
+    with self.assertRaises(Rejected):
+      self.owner.drop_companion(CAR, lambda: CAR)
+    self.assertEqual(self.calls, [])
+
+  def test_a_link_that_carries_the_cars_audio_is_not_a_silent_one(self):
+    self.owner.prepare_companion(CAR, lambda: CAR)
+    self.devices[CAR]['connected'] = True
+    path = self.devices[CAR]['path']
+    for objects in ({path + '/sep1/fd0': {'org.bluez.MediaTransport1': {}}},
+                    {path: {'org.bluez.MediaControl1': {'Connected': True}}}):
+      self.phone.managed_objects = lambda objects=objects: objects
+      self.assertEqual(self.owner.drop_companion(CAR, lambda: CAR), "audio connected")
+    self.phone.managed_objects = lambda: {path: {'org.bluez.MediaControl1': {'Connected': False}},
+                                          self.devices[ADAPTER]['path'] + '/sep1/fd0': {'org.bluez.MediaTransport1': {}}}
+    self.assertEqual(self.owner.drop_companion(CAR, lambda: CAR), "dropped")
+    self.assertEqual(len(self.calls), 1)
 
   def test_saved_companion_standby_admission_and_reconnect_fail_closed(self):
     self.owner.prepare_companion(CAR, lambda: CAR)
