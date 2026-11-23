@@ -1,6 +1,7 @@
 #pragma once
 
 #include "opendbc/safety/declarations.h"
+#include "opendbc/safety/modes/gwm_aol.h"
 
 // GWM Haval H6 GT safety. Message layout, checksum polynomial and the
 // longitudinal gas/brake scaling derive from Alexandre Sato's GWM Haval H6
@@ -97,6 +98,8 @@ static uint32_t gwm_compute_checksum(const CANPacket_t *msg) {
 }
 
 static void gwm_rx_hook(const CANPacket_t *msg) {
+  gwm_aol_observe(msg);
+
   if (msg->bus == GWM_MAIN_BUS) {
     // GAS_POSITION
     if (msg->addr == GWM_GAS) {
@@ -234,6 +237,22 @@ static safety_config gwm_init(uint16_t param) {
   #else
     UNUSED(param);
   #endif
+
+  // Always On Lateral. Qualified on the safety word rather than on
+  // gwm_longitudinal, which only exists in ALLOW_DEBUG builds; the host side
+  // (starpilot/car/gwm/aol.py) admits the same single profile. The param test
+  // is intentionally unconditional so a release build qualifies identically.
+  gwm_aol_reset();
+  gwm_aol_enabled = ((unsigned int)alternative_experience == 32U) && ((unsigned int)param == 1U);
+  if (gwm_aol_enabled) {
+    static const AolSafetyPolicy policy = {
+      .reset = gwm_aol_reset,
+      .request_mask = gwm_aol_request_mask,
+      .permission_mask = gwm_aol_permission,
+      .rx_invalid = gwm_aol_clear,
+    };
+    aol_policy = &policy;
+  }
 
   return gwm_longitudinal ? BUILD_SAFETY_CFG(gwm_rx_checks, GWM_LONG_TX_MSGS) : \
                             BUILD_SAFETY_CFG(gwm_rx_checks, GWM_TX_MSGS);
