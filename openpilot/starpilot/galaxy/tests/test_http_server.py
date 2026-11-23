@@ -164,6 +164,52 @@ def test_idle_persistent_connections_release_capacity(server):
       connection.close()
 
 
+def test_busy_keepalive_tabs_do_not_hold_request_slots(server, monkeypatch):
+  """Two polling tabs' worth of keep-alive sockets must not starve a third tab's first load."""
+  running, _, _ = server
+  monkeypatch.setattr(running, 'loopback', lambda request: False)
+  held = []
+  try:
+    for _ in range(running.MAX_ACTIVE_REQUESTS + 4):
+      connection = http.client.HTTPConnection('127.0.0.1', running.server_port, timeout=2)
+      held.append(connection)
+      connection.request('GET', '/poll')
+      assert connection.getresponse().read() == b'ok'
+    started = time.monotonic()
+    with closing(http.client.HTTPConnection('127.0.0.1', running.server_port, timeout=2)) as opening:
+      opening.request('GET', '/css/galaxy.css')
+      assert opening.getresponse().read() == b'ok'
+    assert time.monotonic() - started < 1
+    # The held sockets are still usable keep-alive connections.
+    for connection in held:
+      connection.request('GET', '/poll')
+      assert connection.getresponse().read() == b'ok'
+  finally:
+    for connection in held:
+      connection.close()
+
+
+def test_requests_in_flight_are_bounded(server, monkeypatch):
+  running, _, _ = server
+  monkeypatch.setattr(running, 'loopback', lambda request: False)
+  for _ in range(running.MAX_ACTIVE_REQUESTS):
+    assert running._active.acquire(blocking=False)
+  monkeypatch.setattr(running, 'REQUEST_TIMEOUT', .2)
+  try:
+    with closing(socket.create_connection(('127.0.0.1', running.server_port), timeout=2)) as waiting:
+      waiting.sendall(b'GET /blocked HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n')
+      try:
+        assert waiting.recv(64) == b''
+      except ConnectionResetError:
+        pass
+  finally:
+    for _ in range(running.MAX_ACTIVE_REQUESTS):
+      running._active.release()
+  with closing(http.client.HTTPConnection('127.0.0.1', running.server_port, timeout=2)) as later:
+    later.request('GET', '/after')
+    assert later.getresponse().read() == b'ok'
+
+
 def test_full_browser_pool_still_serves_comma_services(server):
   running, _, _ = server
   held = []
@@ -223,3 +269,4 @@ def test_drain_turns_away_requests_still_waiting_for_capacity(server, monkeypatc
   finally:
     for connection in held:
       connection.close()
+
