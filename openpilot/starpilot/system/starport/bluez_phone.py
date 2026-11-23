@@ -186,6 +186,13 @@ class BluezPhone:
       # raw SDP/RFCOMM socket needs is created on demand anyway.
       self.log("device_connect_warning", error=str(error))
 
+  def connect_handsfree(self, address: str, timeout: float = 10.0) -> None:
+    """Open only the hands-free link, even when the car is already connected for something else."""
+    info = self.device(address)
+    if info is None:
+      raise RuntimeError(f"{address} is not known to Bluetooth; pair the car first")
+    self._call(info["path"], DEVICE_IFACE, "ConnectProfile", "s", (HFP_HF_UUID,), timeout=timeout)
+
   # ---------------------------------------------------------- phone identity
 
   def acquire(self, phone_class: bool = True) -> None:

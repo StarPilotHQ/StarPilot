@@ -128,6 +128,8 @@ def handle(supervisor: Supervisor, request: dict[str, Any], verifier: StarPortSo
     supervisor.set_unacked_video(request.get("enabled") is True)
   elif command == "set_patient_tcp":
     supervisor.set_patient_tcp(request.get("enabled") is True)
+  elif command == "set_wired_handsfree":
+    supervisor.set_wired_handsfree(request.get("enabled") is True)
   elif command == "set_head_unit_experiments":
     supervisor.set_head_unit_experiments(request.get("enabled") is True)
   elif command == "set_head_unit_experiment_rule":

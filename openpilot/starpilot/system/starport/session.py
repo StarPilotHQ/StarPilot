@@ -748,6 +748,8 @@ class ProjectionSession(Session):
     self.head_unit_info: dict = {}
     self.on_discovered: Callable[[dict], tuple[str, ...]] | None = None  # set by the supervisor: the car-specific actions to run
     self.fix_actions: tuple[str, ...] = ()
+    # set by the supervisor with the wired hands-free toggle: connects to the car's address, returns this comma's address or ""
+    self.connect_handsfree: Callable[[str], str] | None = None
     self.focus_requested_at: float | None = None
     self.focus_granted_at: float | None = None
     self.nav = None  # NavStatus, attached by the supervisor when the head unit offers turn-by-turn
@@ -776,7 +778,10 @@ class ProjectionSession(Session):
         self.event("fix_selection_failed", error=str(error)[:120])
     self.open_video()
     self.open_input()
-    if self.phone_services:
+    if self.connect_handsfree is not None:
+      self._open_sensors()
+      self.link_handsfree()
+    elif self.phone_services:
       self.open_phone_services()
     if self.fix_actions:
       self.run_fix_actions()
@@ -894,10 +899,6 @@ class ProjectionSession(Session):
       done = False
       if action == "open_bluetooth":
         done = self.bluetooth_channel is not None or self._open_bluetooth(pair=False)
-      elif action == "open_phone_services":
-        sensors = self.sensor_channel is not None or self._open_sensors()
-        bluetooth = self.bluetooth_channel is not None or self._open_bluetooth(pair=False)
-        done = sensors and bluetooth
       elif action == "open_phone_status":
         if self.phone_status_channel is None:
           self.phone_status_channel = self._open_service(PHONE_STATUS_SERVICE, "phone_status")
@@ -916,6 +917,20 @@ class ProjectionSession(Session):
           self._send_pairing_request((bluetooth.get("bluetooth") or {}).get("pairing_methods") or [])
           done = True
       self.event("fix_action", action=action, done=done)
+
+  def link_handsfree(self) -> bool:
+    """Connect hands-free to the address the car reports, then send the pairing request, as a wired phone does."""
+    if self.connect_handsfree is None or not (self.bluetooth_channel is not None or self._open_bluetooth(pair=False)):
+      return False
+    car_bt = next((ch for ch in self.channels if ch.get("id") == self.bluetooth_channel), {}).get("bluetooth") or {}
+    car_address = car_bt.get("car_address", "")
+    linked = self.connect_handsfree(car_address) if car_address else ""
+    sent = bool(linked)
+    if sent:
+      self.phone_address = linked
+      self._send_pairing_request(car_bt.get("pairing_methods") or [])
+    self.event("handsfree_link", has_car_address=bool(car_address), pairing_request_sent=sent)
+    return sent
 
   def request_projection(self) -> None:
     """Ask for display focus; the Mazda donor needed this, DHU grants it unsolicited."""

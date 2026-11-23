@@ -74,10 +74,13 @@ def test_ladder_adds_one_channel_per_level(identity, tmp_path):
   assert VENDOR_CHANNEL in hu.opened and hu.pairing_requests == []
 
 
-def test_phone_services_action_opens_sensors_and_bluetooth_without_pairing(identity, tmp_path):
+def handsfree_session(identity, answer, preloaded=""):
   hu = FakeHeadUnit(identity, bolt=True)
   session = connect(hu, identity)
-  session.on_discovered = lambda info: (hf.OPEN_PHONE_SERVICES,)
+  session.phone_services = bool(preloaded)
+  session.phone_address = preloaded
+  asked = []
+  session.connect_handsfree = lambda car: asked.append(car) or answer
   session.authenticate()
   session.start("StarPilot", "comma.ai")
   pump_until(session, lambda: session.focused, timeout=8.0)
@@ -85,8 +88,26 @@ def test_phone_services_action_opens_sensors_and_bluetooth_without_pairing(ident
   session.peer.close()
   hu.thread.join(5)
   assert hu.error is None, hu.error
-  assert sorted(hu.opened) == [1, 3, SENSOR_CHANNEL, BLUETOOTH_CHANNEL]
-  assert hu.sensor_requests and hu.pairing_requests == []
+  return hu, asked
+
+
+def test_wired_handsfree_sends_pairing_request_with_the_linked_address(identity):
+  hu, asked = handsfree_session(identity, "39:90:21:64:07:00")
+  assert asked == ["F8:36:9B:0A:7D:C8"]
+  assert SENSOR_CHANNEL in hu.opened and BLUETOOTH_CHANNEL in hu.opened
+  assert hu.pairing_requests == [("39:90:21:64:07:00", 2)]
+
+
+def test_wired_handsfree_without_a_link_sends_no_pairing_request(identity):
+  hu, asked = handsfree_session(identity, "")
+  assert asked == ["F8:36:9B:0A:7D:C8"] and hu.pairing_requests == []
+
+
+def test_wired_handsfree_ignores_a_preloaded_profile_address(identity):
+  hu, _ = handsfree_session(identity, "", preloaded="11:22:33:44:55:66")
+  assert hu.pairing_requests == []
+  hu, _ = handsfree_session(identity, "39:90:21:64:07:00", preloaded="11:22:33:44:55:66")
+  assert hu.pairing_requests == [("39:90:21:64:07:00", 2)]
 
 
 def test_pairing_request_only_at_the_last_level(identity, tmp_path):

@@ -16,8 +16,7 @@ OPEN_SENSORS = "open_sensors"              # open the car-data channel (driving 
 OPEN_VENDOR = "open_vendor"                # open the car's vendor channel; nothing is sent on it
 REQUEST_BT_PAIRING = "request_bt_pairing"  # send the Bluetooth pairing request with this comma's own address
 UNACKED_VIDEO = "unacked_video"            # send video without waiting for acknowledgments; the car's pings show it is there
-OPEN_PHONE_SERVICES = "open_phone_services"  # open the car-data and Bluetooth channels together, as a phone does
-ACTIONS = (OPEN_BLUETOOTH, OPEN_PHONE_STATUS, OPEN_SENSORS, OPEN_VENDOR, REQUEST_BT_PAIRING, UNACKED_VIDEO, OPEN_PHONE_SERVICES)
+ACTIONS = (OPEN_BLUETOOTH, OPEN_PHONE_STATUS, OPEN_SENSORS, OPEN_VENDOR, REQUEST_BT_PAIRING, UNACKED_VIDEO)
 
 # ServiceDiscoveryResponse field numbers (JSON turns them into strings).
 SDR_LABELS = {"2": "car_make", "3": "car_model", "4": "car_year", "7": "head_unit_make", "8": "head_unit_model",
@@ -64,14 +63,6 @@ RULES: tuple[Rule, ...] = (
                          ("2026-11-16 sessions 1-15",)),
        ladder=(UNACKED_VIDEO,),
        summary="This car shows a still picture for a few seconds, then reconnects, over and over."),
-  Rule(id="honda_fit_t5a_83_01d", label="2018 Honda Fit (83.01D.00.B.1021 build)",
-       match={"car_make": "Honda", "car_model": "T5A", "car_year": "2018", "head_unit_make": "HONDA/06",
-              "head_unit_model": "39100-T5A-L313-M1", "head_unit_software_version": "83.01D.00.B.1021"},
-       transports=(WIRED,), status=EXPERIMENTAL,
-       evidence=Evidence("The car answers the screen request with its own screen and stays silent when the Android Auto tile is tapped.",
-                         ("2026-11-22 sessions 1, 6-9", "2026-11-22 after-tap sessions 1, 3")),
-       ladder=(OPEN_PHONE_SERVICES,),
-       summary="This car connects but never shows the Android Auto screen."),
 )
 
 
