@@ -90,6 +90,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"ForceStopDistanceOffset", {PERSISTENT, INT, "0"}},
     {"LeadApproachBuffer", {PERSISTENT, BOOL, "0"}},
     {"FasterLeadTakeoff", {PERSISTENT, BOOL, "0"}},
+    {"CoastDownhills", {PERSISTENT, BOOL, "0"}},
+    {"DownhillSpeedSurplus", {PERSISTENT, FLOAT, "0.0"}},
     {"SwitchbackModeCooldown", {PERSISTENT, FLOAT, "5.0"}},
     {"CustomCruise", {PERSISTENT, FLOAT, "1.0"}},
     {"CustomCruiseLong", {PERSISTENT, FLOAT, "5.0"}},

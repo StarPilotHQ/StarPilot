@@ -325,6 +325,7 @@ def starpilot_main():
 
   ldw = LaneDepartureWarning()
   from openpilot.starpilot.longitudinal.developer_tuning import read_tuning
+  from openpilot.starpilot.longitudinal.downhill_coast import read_surplus
   from openpilot.starpilot.navigation.slowdown import DEFAULT_SLOWDOWN_PERCENT
   navigation_slowdown_percent = DEFAULT_SLOWDOWN_PERCENT
   if CP.openpilotLongitudinalControl and not CP.passive and not CP.dashcamOnly:
@@ -334,7 +335,8 @@ def starpilot_main():
     except (OSError, ValueError):
       pass
   longitudinal_planner = LongitudinalPlanner(CP, developer_tuning=read_tuning(params, CP),
-                                             navigation_slowdown_percent=navigation_slowdown_percent)
+                                             navigation_slowdown_percent=navigation_slowdown_percent,
+                                             downhill_surplus_mps=read_surplus(params))
   nudge_preferences = NudgePreferences(params)
   # Saved-on features start only for a finalized, supported driving owner. Their
   # current-source and longitudinal authority checks still run every frame.
@@ -398,6 +400,9 @@ def starpilot_main():
   subscribed_services.extend(optional_slc)
   subscribed_services.append('starpilotNavigation')
   optional_conditional = ['starpilotNavigation'] + (['starpilotRadarState'] if conditional_host is not None else []) + optional_slc
+  if longitudinal_planner.downhill_surplus_mps > 0.:
+    subscribed_services.append('deviceMotion')
+    optional_conditional.append('deviceMotion')
   sm = messaging.SubMaster(subscribed_services, poll='modelV2',
                            ignore_alive=optional_conditional, ignore_valid=optional_conditional,
                            ignore_avg_freq=optional_conditional)

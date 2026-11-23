@@ -27,6 +27,7 @@ from openpilot.starpilot.longitudinal.profile_runtime import TRAFFIC_CRUISE_BRAK
 from openpilot.starpilot.longitudinal.lead_approach_runtime import KEY as LEAD_APPROACH_KEY
 from openpilot.starpilot.longitudinal.lead_takeoff_preferences import KEY as LEAD_TAKEOFF_KEY
 from openpilot.starpilot.longitudinal.encouragement import KEY as NUDGE_KEY
+from openpilot.starpilot.longitudinal.downhill_coast import KEY as DOWNHILL_KEY, SURPLUS_KEY, MAX_SURPLUS_MPH
 from openpilot.selfdrive.car.cruise import LOW_SPEED_CRUISE_ON_SET
 from openpilot.starpilot.longitudinal.planner_selection import KEY as PLANNER_SELECTION_KEY, save_selection
 
@@ -116,6 +117,7 @@ BOOL_DEFAULTS = {
   "CustomPersonalities": False, PLANNER_SELECTION_KEY: True,
   LEAD_APPROACH_KEY: False,
   LEAD_TAKEOFF_KEY: False,
+  DOWNHILL_KEY: False,
   NUDGE_KEY: True,
   LOW_SPEED_CRUISE_ON_SET: False,
   "DisengageOnAccelerator": False,
@@ -125,6 +127,7 @@ BOOL_DEFAULTS = {
   "ForceAutoTuneOff": False, "AlwaysOnLateral": True, "NostalgiaMode": False,
 }
 FLOAT_SPECS = {
+  SURPLUS_KEY: (0, MAX_SURPLUS_MPH, 1, "mph"),
   "ForceStopDistanceOffset": (-20, 20, 1, "ft"),
   "LaneCenterOffset": (-0.3, 0.3, 0.01, "m"),
   "LaneCenteringE2EAuthority": (0.0, 1.0, 0.05, "fraction"),
@@ -1288,6 +1291,12 @@ class FeatureSettingsOwner:
       rows.append(self._bool_row(NUDGE_KEY, "Experimental Speed Nudge", self.authority("preferences"),
                                 reason="Gently recovers toward set speed when Experimental mode hesitates on a clear road. " +
                                        "Leads, stops, curve limits and driver overrides retain priority."))
+      downhill_allowed = allowed and self.authority("long") and self._value(PLANNER_SELECTION_KEY)[0] == "1"
+      downhill = self._bool_row(DOWNHILL_KEY, "Coast Downhills", downhill_allowed,
+                                "Lets gravity carry the car above set speed without targeting a higher speed. Applies next drive.")
+      rows.append(downhill)
+      if downhill.value == "On":
+        rows.append(self._number_row(SURPLUS_KEY, "Maximum Speed Above Set Speed", downhill_allowed))
       rows.append(self._bool_row(LOW_SPEED_CRUISE_ON_SET, "Low-Speed Cruise Start", self.authority("preferences"),
                                 reason="Lets StarPilot SET at your current speed down to the vehicle’s minimum engagement speed. " +
                                        "Factory cruise still uses the car’s minimum speed."))
@@ -1601,8 +1610,8 @@ class FeatureSettingsOwner:
       group = "long"
     elif key in BOOL_DEFAULTS or key in FLOAT_SPECS or key in (*SOURCE_PRIORITY_KEYS, *ADVANCE_KEYS, 'SLCConfirmation', PEDAL_OVERRIDE_KEY):
       source_key = key
-      long_key = (key in ("CustomPersonalities", "ForceStops", "ForceStopDistanceOffset", *DRIVE_MODE_KEYS) or "Personality" in key or
-                  key.endswith(("Follow", "FollowHigh")) or "Jerk" in key)
+      long_key = (key in ("CustomPersonalities", "ForceStops", "ForceStopDistanceOffset", DOWNHILL_KEY, SURPLUS_KEY, *DRIVE_MODE_KEYS) or
+                  "Personality" in key or key.endswith(("Follow", "FollowHigh")) or "Jerk" in key)
       if key in ("ShowSpeedLimits", "AlwaysAllowUploads", *SOURCE_PRIORITY_KEYS) or (key == "ForceStops" and request.value == "Off"):
         group = "preferences"
       elif key in LANE_LIVE_KEYS and not self.authority("lane"):
@@ -1649,6 +1658,9 @@ class FeatureSettingsOwner:
           not (reset_default and request.value == ("On" if self._default(key) == "1" else "Off"))):
         return False
       if key == "ForceStopDistanceOffset" and self._value("ForceStops")[0] != "1" and not (reset_default and float(request.value) == float(self._default(key))):
+        return False
+      if key in (DOWNHILL_KEY, SURPLUS_KEY) and (self._value(PLANNER_SELECTION_KEY)[0] != "1" or
+          key == SURPLUS_KEY and self._value(DOWNHILL_KEY)[0] != "1"):
         return False
       if key == "reset_profiles":
         if not request.confirmation or self._document()[2]:
