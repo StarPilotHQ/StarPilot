@@ -1,6 +1,6 @@
 """Exact stock-cruise Subaru independent-lateral configuration contract."""
 from opendbc.car import structs
-from opendbc.car.subaru.values import CAR, SubaruFlags, SubaruSafetyFlags
+from opendbc.car.subaru.values import CAR, EARLY_GLOBAL_TORQUE_CARS, SubaruFlags, SubaruSafetyFlags
 
 AOL_EXPERIENCE = 32
 IMPREZA_MAIN_AOL = 4096
@@ -24,8 +24,8 @@ def qualified(cp, *, marked_only=False):
   static = int(CAR[cp.carFingerprint].config.flags)
   allowed = int(SubaruFlags.HAS_BSM | SubaruFlags.SEND_INFOTAINMENT | SubaruFlags.SMOOTHING_BOUND)
   expected = int(SubaruSafetyFlags.GEN2) if static & SubaruFlags.GLOBAL_GEN2 else 0
-  if cp.carFingerprint == CAR.SUBARU_CROSSTREK_2018:
-    expected |= int(SubaruSafetyFlags.CROSSTREK_2018)
+  if cp.carFingerprint in EARLY_GLOBAL_TORQUE_CARS:
+    expected |= int(SubaruSafetyFlags.EARLY_GLOBAL_TORQUE) | (word & 8)
   if cp.carFingerprint == CAR.SUBARU_OUTBACK_2023:
     expected |= int(SubaruSafetyFlags.D_PLATFORM)
     allowed |= int(SubaruFlags.STOP_START_OFF)
@@ -52,7 +52,7 @@ def qualified(cp, *, marked_only=False):
     return False
   if cp.carFingerprint == CAR.SUBARU_IMPREZA_2020 and word == 512:
     expected |= 512
-  if cp.carFingerprint in (CAR.SUBARU_ASCENT, CAR.SUBARU_IMPREZA, CAR.SUBARU_IMPREZA_2020, CAR.SUBARU_FORESTER) and word in (8, 520):
+  if cp.carFingerprint in (CAR.SUBARU_ASCENT, CAR.SUBARU_IMPREZA_2020, CAR.SUBARU_FORESTER) and word in (8, 520):
     expected |= 8
     if cp.carFingerprint == CAR.SUBARU_IMPREZA_2020:
       expected |= word & 512

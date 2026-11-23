@@ -5,7 +5,7 @@ from opendbc.car.disable_ecu import disable_ecu
 from opendbc.car.interfaces import CarInterfaceBase
 from opendbc.car.subaru.carcontroller import CarController
 from opendbc.car.subaru.carstate import CarState
-from opendbc.car.subaru.values import CAR, GLOBAL_ES_ADDR, CanBus, SubaruFlags, SubaruSafetyFlags
+from opendbc.car.subaru.values import CAR, EARLY_GLOBAL_TORQUE_CARS, GLOBAL_ES_ADDR, CanBus, SubaruFlags, SubaruSafetyFlags
 
 GEN2_ANGLE_PORTS = frozenset((CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_IMPREZA_2025, CAR.SUBARU_LEGACY_2025,
                                CAR.SUBARU_ASCENT_2023, CAR.SUBARU_FORESTER_2022, CAR.SUBARU_OUTBACK_2023))
@@ -99,9 +99,8 @@ class CarInterface(CarInterfaceBase):
       ret.lateralTuning.pid.kiBP, ret.lateralTuning.pid.kpBP = [[0., 20.], [0., 20.]]
       ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.0025, 0.1], [0.00025, 0.01]]
 
-    elif candidate in (CAR.SUBARU_IMPREZA, CAR.SUBARU_CROSSTREK_2018):
-      if candidate == CAR.SUBARU_CROSSTREK_2018:
-        ret.safetyConfigs[0].safetyParam = SubaruSafetyFlags.CROSSTREK_2018.value
+    elif candidate in EARLY_GLOBAL_TORQUE_CARS:
+      ret.safetyConfigs[0].safetyParam = SubaruSafetyFlags.EARLY_GLOBAL_TORQUE.value
       ret.steerActuatorDelay = 0.4  # end-to-end angle controller
       ret.lateralTuning.init('pid')
       ret.lateralTuning.pid.kf = 0.00005

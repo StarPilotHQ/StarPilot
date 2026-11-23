@@ -2,10 +2,10 @@
 
 from opendbc.car import structs
 from opendbc.car.subaru.stock_aol import IMPREZA_MAIN_AOL
-from opendbc.car.subaru.values import CAR, SubaruFlags
+from opendbc.car.subaru.values import CAR, EARLY_GLOBAL_TORQUE_CARS, SubaruFlags, SubaruSafetyFlags
 
 STOP_AND_GO = 8
-SUPPORTED = frozenset((CAR.SUBARU_ASCENT, CAR.SUBARU_IMPREZA, CAR.SUBARU_IMPREZA_2020, CAR.SUBARU_FORESTER))
+SUPPORTED = EARLY_GLOBAL_TORQUE_CARS | {CAR.SUBARU_ASCENT, CAR.SUBARU_IMPREZA_2020, CAR.SUBARU_FORESTER}
 
 
 def eligible(cp):
@@ -16,6 +16,8 @@ def eligible(cp):
         return False
       word &= ~IMPREZA_MAIN_AOL
     words = (0, 8, 512, 520) if cp.carFingerprint == CAR.SUBARU_IMPREZA_2020 else (0, 8)
+    if cp.carFingerprint in EARLY_GLOBAL_TORQUE_CARS:
+      words = (SubaruSafetyFlags.EARLY_GLOBAL_TORQUE, SubaruSafetyFlags.EARLY_GLOBAL_TORQUE | STOP_AND_GO)
     return bool(
       cp.brand == 'subaru'
       and cp.carFingerprint in SUPPORTED

@@ -177,11 +177,11 @@ static void subaru_rx_hook(const CANPacket_t *msg) {
   subaru_avh_rx(msg);
 }
 
-static bool subaru_crosstrek_2018 = false;
+static bool subaru_early_global_torque = false;
 
 static bool subaru_tx_hook(const CANPacket_t *msg) {
   const TorqueSteeringLimits SUBARU_STEERING_LIMITS      = SUBARU_STEERING_LIMITS_GENERATOR(2047, 50, 70);
-  const TorqueSteeringLimits SUBARU_CROSSTREK_STEERING_LIMITS = SUBARU_STEERING_LIMITS_GENERATOR(3071, 50, 70);
+  const TorqueSteeringLimits SUBARU_EARLY_GLOBAL_STEERING_LIMITS = SUBARU_STEERING_LIMITS_GENERATOR(3071, 50, 70);
   const TorqueSteeringLimits SUBARU_GEN2_STEERING_LIMITS = SUBARU_STEERING_LIMITS_GENERATOR(1000, 40, 40);
   const AngleSteeringLimits SUBARU_ANGLE_STEERING_LIMITS = {
     .max_angle = (subaru_forester_angle ? 650 : SUBARU_JACOBW_MAX_ANGLE) * 100,
@@ -239,7 +239,7 @@ static bool subaru_tx_hook(const CANPacket_t *msg) {
 
       bool steer_req = (msg->data[3] >> 5) & 1U;
 
-      const TorqueSteeringLimits limits = subaru_crosstrek_2018 ? SUBARU_CROSSTREK_STEERING_LIMITS :
+      const TorqueSteeringLimits limits = subaru_early_global_torque ? SUBARU_EARLY_GLOBAL_STEERING_LIMITS :
         (subaru_gen2 ? SUBARU_GEN2_STEERING_LIMITS : SUBARU_STEERING_LIMITS);
       violation |= steer_torque_cmd_checks(desired_torque, steer_req, limits);
     }
@@ -291,10 +291,10 @@ static bool subaru_tx_hook(const CANPacket_t *msg) {
 }
 
 static safety_config subaru_init(uint16_t raw_param) {
-  const bool crosstrek_bit = GET_FLAG(raw_param, 8192U);
-  subaru_crosstrek_2018 = (raw_param == 8192U) &&
+  const bool early_global_bit = GET_FLAG(raw_param, 8192U);
+  subaru_early_global_torque = ((raw_param == 8192U) || (raw_param == 8200U)) &&
     (((unsigned int)alternative_experience == 0U) || ((unsigned int)alternative_experience == 32U));
-  uint16_t param = subaru_crosstrek_2018 ? 0U : raw_param;
+  uint16_t param = subaru_early_global_torque ? (raw_param & ~8192U) : raw_param;
   const bool impreza_main = (param == 4096U) || (param == 4104U) || (param == 4608U) || (param == 4616U);
   if (impreza_main) {
     param &= ~4096U;
@@ -420,7 +420,7 @@ static safety_config subaru_init(uint16_t raw_param) {
   subaru_aol_enabled = ((unsigned int)alternative_experience == 32U) &&
     ((param == 209U) || (param == 465U) || (param == 16U) || (param == 0U) || (param == 1U) || (param == 17U) || (param == 145U) ||
      avh || (param == 177U) || (param == 401U) || (param == 8U) || (param == 520U) || (param == 512U) || (param == 2225U));
-  subaru_aol_main_arm = subaru_aol_enabled && ((param == 17U) || impreza_main || subaru_d_platform || legacy_2025 || subaru_crosstrek_2018);
+  subaru_aol_main_arm = subaru_aol_enabled && ((param == 17U) || impreza_main || subaru_d_platform || legacy_2025 || subaru_early_global_torque);
   if (subaru_aol_enabled) {
     static const AolSafetyPolicy policy = {
       .reset = subaru_aol_reset,
@@ -493,7 +493,7 @@ static safety_config subaru_init(uint16_t raw_param) {
   }
   ret.rx_checks_len = rx_count;
   if ((((unsigned int)alternative_experience == 32U) && !subaru_aol_enabled) ||
-      (impreza_main && ((unsigned int)alternative_experience != 32U)) || (crosstrek_bit && !subaru_crosstrek_2018)) {
+      (impreza_main && ((unsigned int)alternative_experience != 32U)) || (early_global_bit && !subaru_early_global_torque)) {
     ret.tx_msgs = NULL;
     ret.tx_msgs_len = 0;
   }
