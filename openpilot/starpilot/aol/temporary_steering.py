@@ -1,6 +1,13 @@
 """Temporary EPS intent retention; native permission and original deadlines remain required."""
+from opendbc.car.honda.values import CAR
 from openpilot.cereal import log
 from openpilot.starpilot.aol.runtime import AXIS_MAX_AGE_NS, SAFETY_MAX_AGE_NS
+
+
+def _fit_cruise_minimum_event(cp, cs, event):
+  return (cp.carFingerprint == CAR.HONDA_FIT and cp.pcmCruise and not cs.cruiseState.enabled and
+          0 <= cs.vEgo < cp.minEnableSpeed and event.name == log.OnroadEvent.EventName.speedTooLow and
+          event.userDisable and not event.softDisable and not event.immediateDisable)
 
 
 def temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, latched, producer, signature):
@@ -79,6 +86,7 @@ def temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
     0 < getattr(self, 'honda_eps_source_ns', 0) <= now_ns <= self.honda_eps_source_ns + SAFETY_MAX_AGE_NS)
   # Seatbelt blocks normal LONG, not admitted LAT intent. Keep warnings/native/output checks.
   events = tuple(event for event in sm['onroadEvents'] if not (
+    honda_eps and _fit_cruise_minimum_event(cp, cs, event)) and not (
     stock_eps_user and event.name == stock_user and event.userDisable and
     not event.softDisable and not event.immediateDisable) and not (
     (subaru_brake or honda_eps and (cs.brakePressed or honda_brake_release)) and
@@ -267,7 +275,7 @@ def honda_eps_recovery_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
   brake_release = bool(known_eps and not cs.brakePressed and
     event_ns == self.temporary_eps_event_ns == getattr(self, 'honda_eps_brake_event_ns', 0))
   stock_user = stock_lateral_user_event(cp) if not cs.cruiseState.enabled else None
-  events = tuple(e for e in sm['onroadEvents'] if not (
+  events = tuple(e for e in sm['onroadEvents'] if not _fit_cruise_minimum_event(cp, cs, e) and not (
     e.name == stock_user and e.userDisable and not e.softDisable and not e.immediateDisable) and not (
     (cs.steerFaultTemporary and cs.brakePressed or brake_continuation or brake_release) and
     e.name == log.OnroadEvent.EventName.pedalPressed and e.userDisable and

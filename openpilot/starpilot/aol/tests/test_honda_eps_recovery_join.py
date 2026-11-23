@@ -412,3 +412,51 @@ def test_recovered_native_grant_does_not_override_independent_vetoes(fault):
     native_change(sm, native, requestedLongitudinal=True)
   assert observe(case, stamp + 10_000_000)
   assert not output(state, native).lateral_active
+
+
+@pytest.mark.parametrize('withdrawn', [False, True])
+@pytest.mark.parametrize('veto', ['', 'cancel', 'hard', 'soft', 'above_minimum', 'pcm_on', 'other_honda'])
+def test_fit_turn_eps_with_factory_cruise_speed_event_preserves_only_armed_lateral(withdrawn, veto):
+  from opendbc.car.honda.tests.test_stock_aol import final_cp
+  from opendbc.car.honda.values import CAR
+  from openpilot.starpilot.aol.transport_pause import TransportPauseFeedback
+  from openpilot.starpilot.tests.test_ford_reverse_intent import sample
+
+  cp = final_cp(CAR.HONDA_CIVIC_BOSCH if veto == 'other_honda' else CAR.HONDA_FIT)
+  cp.alternativeExperience = 32
+  state = structs.CarState(canValid=True, gearShifter='drive', vEgo=4.0, rightBlinker=True)
+  state.cruiseState.available = True
+  feedback = TransportPauseFeedback(cp)
+  initial, _ = sample(cp, NOW, NOW, 1)
+  events = initial.messages['onroadEvents'].as_builder()
+  events.onroadEvents = [{'name': 'steerOverride', 'overrideLateral': True},
+                         {'name': 'speedTooLow', 'userDisable': True},
+                         {'name': 'belowEngageSpeed', 'noEntry': True}]
+  initial.messages['onroadEvents'] = events.as_reader()
+  assert not feedback.observe(initial, cp, state, NOW, latched=True, intent_producer_session=PRODUCER)
+  assert feedback.lateral_only_baseline
+  lease = feedback.lateral_source_ns, feedback.lateral_native_ns
+
+  stamp = NOW + 10_000_000
+  state.steeringPressed = state.steerFaultTemporary = True
+  state.cruiseState.enabled = veto == 'pcm_on'
+  state.vEgo = 15.0 if veto == 'above_minimum' else state.vEgo
+  sm, native = eps_sample(cp, stamp, withdrawn=withdrawn)
+  events = sm.messages['onroadEvents'].as_builder()
+  events.onroadEvents = [*(e.to_dict() for e in initial['onroadEvents'])]
+  if veto in ('hard', 'soft'):
+    setattr(events.onroadEvents[1], 'immediateDisable' if veto == 'hard' else 'softDisable', True)
+  if veto == 'cancel':
+    events.onroadEvents = [*(e.to_dict() for e in events.onroadEvents), {'name': 'buttonCancel', 'userDisable': True}]
+    state.buttonEvents = [structs.CarState.ButtonEvent(type='cancel', pressed=True)]
+  sm.messages['onroadEvents'] = events.as_reader()
+
+  assert feedback.observe(sm, cp, state, stamp, latched=True, intent_producer_session=PRODUCER) == bool(veto)
+  assert not output(state, native).lateral_active and not output(state, native).longitudinal_active
+  if not veto:
+    assert lease == (feedback.lateral_source_ns, feedback.lateral_native_ns)
+    if withdrawn:
+      state.steerFaultTemporary = state.steeringPressed = False
+      assert not feedback.observe(sm, cp, state, stamp + 10_000_000, latched=True, intent_producer_session=PRODUCER)
+      assert not output(state, native).lateral_active
+      assert lease == (feedback.lateral_source_ns, feedback.lateral_native_ns)
