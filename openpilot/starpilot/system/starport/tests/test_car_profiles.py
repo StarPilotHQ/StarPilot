@@ -237,6 +237,7 @@ def test_unofficial_dongle_turns_on_the_handshake_experiments_only_when_chosen()
 def test_an_adapter_without_hands_free_yet_waits_or_asks_for_the_car(sup, profile, expected):
   bluez = Mock()
   bluez.device.return_value = {"address": ADAPTER, "paired": True, "starport": True, "uuids": []}
+  bluez.devices.return_value = [{**bluez.device.return_value, "connected": True}]
   sup._phone = lambda: bluez
   sup.config.update(connection="wireless", receiver_address=ADAPTER, receiver_name="AAWireless-4F2A", companion_address="",
                     car_type="adapter", car_profile_override=profile)

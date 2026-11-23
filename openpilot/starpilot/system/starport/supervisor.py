@@ -114,6 +114,14 @@ def _tcp_failure_kind(error: OSError) -> str:
   return "other"
 
 
+HANDSFREE_UUID = "0000111e-0000-1000-8000-00805f9b34fb"
+REFUSED_CAR_HINT_S = 120.0
+
+
+def short_uuids(device: dict) -> list[str]:
+  return sorted(uuid[4:8] for uuid in device.get("uuids", []) if uuid.endswith("-0000-1000-8000-00805f9b34fb"))
+
+
 def encoder_preference(configured: str) -> str:
   return 'hardware' if COMMA_HARDWARE else configured
 
@@ -397,6 +405,8 @@ class Supervisor:
   _reset_note: dict | None = None   # a handshake reset waiting for a session log to be written to
   _no_starport_since = 0.0
   _wired_car = ""         # the car's Bluetooth address while a wired session holds hands-free
+  _refused_car: tuple[str, str, float] = ("", "", 0.0)  # adapter, car, when
+  _adapter_car_note: dict | None = None
   def __init__(self, bluez_factory=None, lease_factory=None, bluetooth_client=None, frame_path: str | None = None,
                synthetic: bool = False, car_frame_path: str = CAR_FRAME_PATH, touch_path: str = DEFAULT_TOUCH_SOCKET,
                control_path: str = DEFAULT_CONTROL_SOCKET, renderer_command: list[str] | None = None, onroad=_is_onroad,
@@ -1207,8 +1217,11 @@ class Supervisor:
       return bool(lease is not None and not lease.released and
                   (lease.receiver == address.upper() or lease.incoming is not None and
                    lease.incoming.approved_address == address.upper()))
-    return bool(receiver) and (address.upper() == receiver.upper() or
+    accepted = bool(receiver) and (address.upper() == receiver.upper() or
       self._shared_bluetooth_owner is not None and self._shared_bluetooth_owner.companion_accepts(address))
+    if not accepted and self.config.get("car_type") == "adapter" and not self.config.get("companion_address"):
+      self._refused_car = (receiver.upper(), address.upper(), time.monotonic())
+    return accepted
 
   def phone_window(self, operation: str, session: tuple, **arguments):
     owner = self._shared_bluetooth_owner
@@ -1233,6 +1246,18 @@ class Supervisor:
       return self._forget_selected_car(owner, address, session)
     if operation == 'disconnect' and self.config['receiver_address'].upper() == address.upper():
       return self._disconnect_selected_car(owner, address, session)
+    if operation != 'connect':
+      return self._companion_action(owner, operation, address, session)
+    try:
+      result = self._companion_action(owner, operation, address, session)
+    except Exception as error:
+      self.log("adapter_car_connect", tail=address[-2:], outcome="failed", error=str(error)[:120])
+      raise
+    if result is None:
+      self.log("adapter_car_connect", tail=address[-2:], outcome="not_holding_bluetooth")
+    return result
+
+  def _companion_action(self, owner, operation: str, address: str, session: tuple):
     # select_receiver takes the supervisor lock before releasing an owner lease.
     # Keep that same order through connection, save and admission pruning so an
     # old adapter's successful action cannot save its car under a new adapter.
@@ -1253,10 +1278,13 @@ class Supervisor:
             owner.phone_lease is not lease or lease.released or
             not owner.session_valid(session) or not lease.enabled()):
           raise RuntimeError('Selected car connection was not confirmed')
-        if '0000111e-0000-1000-8000-00805f9b34fb' not in device.get('uuids', []):
+        if HANDSFREE_UUID not in device.get('uuids', []):
+          self.log("adapter_car_connect", tail=address[-2:], outcome="not_handsfree", services=short_uuids(device))
           return result  # An accessory must never replace the dongle's selected car.
         self.config.update(companion_address=device['address'], companion_name=device['name'])
         identity_store.save_config(self.config)
+        self._refused_car = ("", "", 0.0)
+        self.log("adapter_car_connect", tail=address[-2:], outcome="saved")
         for previous in list(owner.companion_devices):
           if previous != device['address']:
             owner.companion_devices.pop(previous, None)
@@ -1608,6 +1636,27 @@ class Supervisor:
       text += " (set verify_head_unit false in config.json to test without verifying the car)"
     return f"{STATE_LABELS.get(stage, stage)}: {text}"[:300]
 
+  def _missing_adapter_car(self, bluez, receiver: str) -> str:
+    receiver = receiver.upper()
+    adapter, refused, at = self._refused_car
+    if adapter != receiver or not 0 <= time.monotonic() - at <= REFUSED_CAR_HINT_S:
+      refused = ""
+    devices = bluez.devices()
+    paired = [item for item in devices if item.get("paired") and item["address"] != receiver]
+    connected = any(item["address"] == receiver and item["connected"] for item in devices)
+    cars = []
+    for item in paired:
+      services = short_uuids(item)
+      cars.append({"tail": item["address"][-2:], "handsfree": "111e" in services, "connected": item["connected"], "services": services})
+    note = {"paired": cars, "refused_tail": refused[-2:], "adapter_connected": connected}
+    if note != self._adapter_car_note:
+      self._adapter_car_note = note
+      self.log("adapter_car_missing", **note)
+    car = next((item for item in paired if item["address"] == refused), None)
+    if car is not None:
+      return f"Connect your paired car in Galaxy Bluetooth first: {car['name']} tried to connect, so tap Connect on it there"
+    return 'Connect your paired car in Galaxy Bluetooth first to select it for this Android Auto adapter'
+
   def _attempt(self, lease) -> None:
     if self.config["connection"] == "wired":
       self._attempt_usb()
@@ -1633,10 +1682,10 @@ class Supervisor:
       self._shared_bluetooth_owner.prepare_companion(companion, lambda: self.config.get('companion_address', ''), connect=True)
       self._check_cancel()
       self.log('companion_car_connected', address=companion)
-    elif device.get('starport') and '0000111e-0000-1000-8000-00805f9b34fb' not in device.get('uuids', []):
+    elif device.get('starport') and HANDSFREE_UUID not in device.get('uuids', []):
       if car_profiles.tuning(config)["own_handsfree"]:
         raise RuntimeError('Waiting for the adapter to finish starting up')
-      raise RuntimeError('Connect your paired car in Galaxy Bluetooth first to select it for this Android Auto adapter')
+      raise RuntimeError(self._missing_adapter_car(bluez, address))
     if delay := car_profiles.tuning(config)["connect_delay_s"]:
       self.log("car_profile_connect_delay", seconds=delay)
       self._wait(delay)

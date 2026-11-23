@@ -4,6 +4,8 @@ from types import SimpleNamespace
 import unittest
 
 from unittest.mock import Mock, patch
+
+import pytest
 from openpilot.starpilot.bluetooth.owner import BluetoothRejected as Rejected
 from openpilot.starpilot.system.starport.bluetooth_bridge import SharedBluetoothOwner as OwnerMethods
 from openpilot.starpilot.system.starport import daemon
@@ -79,6 +81,7 @@ class CompanionTests(unittest.TestCase):
       self.devices[address]['connected'] = operation == 'connect'
     self.client.operation = operation
     host = Supervisor.__new__(Supervisor)
+    host.log = Mock()
     host._lock = threading.RLock()
     host.config = {'receiver_address': ADAPTER, 'companion_address': 'saved-car', 'companion_name': 'My car'}
     host._shared_bluetooth_owner = self.owner
@@ -222,6 +225,7 @@ class CompanionTests(unittest.TestCase):
   def test_manual_car_save_cannot_cross_receiver_change(self):
     from openpilot.starpilot.system.starport.supervisor import Supervisor
     host = Supervisor.__new__(Supervisor)
+    host.log = Mock()
     host._lock = threading.RLock()
     host._thread, host._bluez = None, None
     host.config = {'receiver_address': ADAPTER, 'companion_address': '', 'companion_name': ''}
@@ -260,6 +264,7 @@ class CompanionTests(unittest.TestCase):
   def test_manual_car_save_revalidates_source_after_action(self):
     from openpilot.starpilot.system.starport.supervisor import Supervisor
     host = Supervisor.__new__(Supervisor)
+    host.log = Mock()
     host._lock = threading.RLock()
     host.config = {'receiver_address': ADAPTER, 'companion_address': '', 'companion_name': ''}
     host._shared_bluetooth_owner = self.owner
@@ -281,6 +286,7 @@ class CompanionTests(unittest.TestCase):
   def test_forgetting_the_selected_car_stops_its_retry_then_deletes_it(self):
     from openpilot.starpilot.system.starport.supervisor import Supervisor
     host = Supervisor.__new__(Supervisor)
+    host.log = Mock()
     host._lock = threading.RLock()
     host.config = {'receiver_address': ADAPTER}
     host._shared_bluetooth_owner = self.owner
@@ -302,6 +308,7 @@ class CompanionTests(unittest.TestCase):
   def test_forgetting_the_selected_car_waits_out_pairing_and_expired_sessions(self):
     from openpilot.starpilot.system.starport.supervisor import Supervisor
     host = Supervisor.__new__(Supervisor)
+    host.log = Mock()
     host.config = {'receiver_address': ADAPTER}
     host._shared_bluetooth_owner = self.owner
     host.stop = Mock()
@@ -405,3 +412,86 @@ class CompanionTests(unittest.TestCase):
 
 if __name__ == '__main__':
   unittest.main()
+
+
+def adapter_host(car_uuids=(HFP,)):
+  from openpilot.starpilot.system.starport.supervisor import Supervisor
+  host = Supervisor.__new__(Supervisor)
+  host.config = {'receiver_address': ADAPTER, 'companion_address': '', 'car_type': 'adapter', 'connection': 'wireless'}
+  host._wired_car = ''
+  host._pairing_until = 0.0
+  host._shared_bluetooth_owner = Mock(companion_accepts=Mock(return_value=False))
+  host.log = Mock()
+  phone = Mock()
+  phone.devices.return_value = [
+    {'address': ADAPTER, 'name': 'Adapter', 'paired': True, 'connected': True, 'uuids': []},
+    {'address': CAR, 'name': 'HandsFreeLink', 'paired': True, 'connected': False, 'uuids': list(car_uuids)},
+  ]
+  return host, phone
+
+
+def test_refused_car_is_named_in_the_adapter_error():
+  host, phone = adapter_host()
+  assert not host._hfp_accepts(CAR.lower())
+  message = host._missing_adapter_car(phone, ADAPTER)
+  assert message.startswith('Connect your paired car in Galaxy Bluetooth first') and 'HandsFreeLink' in message
+  assert host.log.call_args.kwargs == {
+    'paired': [{'tail': '01', 'handsfree': True, 'connected': False, 'services': ['111e']}], 'refused_tail': '01',
+    'adapter_connected': True}
+
+
+def test_adapter_car_note_is_logged_only_when_it_changes():
+  host, phone = adapter_host()
+  host._missing_adapter_car(phone, ADAPTER)
+  host._missing_adapter_car(phone, ADAPTER)
+  assert host.log.call_count == 1
+  phone.devices.return_value[0]['connected'] = False
+  host._missing_adapter_car(phone, ADAPTER)
+  assert host.log.call_count == 2 and host.log.call_args.kwargs['adapter_connected'] is False
+
+
+def test_old_or_other_adapter_refusal_is_not_shown(monkeypatch):
+  from openpilot.starpilot.system.starport import supervisor
+  host, phone = adapter_host()
+  host._hfp_accepts(CAR)
+  monkeypatch.setattr(supervisor.time, 'monotonic', lambda: 10_000.0)
+  assert host._missing_adapter_car(phone, ADAPTER).endswith('for this Android Auto adapter')
+  host._refused_car = ('02:00:00:00:00:09', CAR, 10_000.0)
+  assert host._missing_adapter_car(phone, ADAPTER).endswith('for this Android Auto adapter')
+
+
+def test_accessory_without_handsfree_keeps_the_usual_error():
+  host, phone = adapter_host(car_uuids=('0000110b-0000-1000-8000-00805f9b34fb',))
+  assert host._missing_adapter_car(phone, ADAPTER).endswith('for this Android Auto adapter')
+  assert host.log.call_args.kwargs['paired'][0]['services'] == ['110b']
+
+
+def test_selected_car_or_builtin_setup_records_no_refusal():
+  host, _ = adapter_host()
+  host.config['companion_address'] = '02:00:00:00:00:03'
+  host._hfp_accepts(CAR)
+  host.config.update(companion_address='', car_type='builtin')
+  host._hfp_accepts(CAR)
+  assert host._refused_car[1] == ''
+
+
+def test_device_list_failure_propagates():
+  host, phone = adapter_host()
+  phone.devices.side_effect = RuntimeError('BlueZ is not running')
+  with pytest.raises(RuntimeError, match='BlueZ'):
+    host._missing_adapter_car(phone, ADAPTER)
+
+
+def test_adapter_car_connect_outcomes_are_logged():
+  host, _ = adapter_host()
+  host._companion_action = Mock(return_value=None)
+  assert host.companion_bluetooth_action('connect', CAR, SESSION) is None
+  assert host.log.call_args.kwargs == {'tail': '01', 'outcome': 'not_holding_bluetooth'}
+  host._companion_action.side_effect = RuntimeError('Selected car connection was not confirmed')
+  with pytest.raises(RuntimeError):
+    host.companion_bluetooth_action('connect', CAR, SESSION)
+  assert host.log.call_args.kwargs['outcome'] == 'failed'
+  host.log.reset_mock()
+  host._companion_action = Mock(return_value=None)
+  host.companion_bluetooth_action('disconnect', CAR, SESSION)
+  host.log.assert_not_called()
