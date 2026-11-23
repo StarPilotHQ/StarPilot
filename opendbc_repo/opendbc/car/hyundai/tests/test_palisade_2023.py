@@ -23,13 +23,17 @@ def params(topology='hdai', *, adas=False, alpha=False, release=False):
   return CarInterface.get_params(CAR.HYUNDAI_PALISADE_2023, fp, fw, alpha, release, False)
 
 
-def feed(ci, tick, *, main=True, cruise=1, display=0, gas=False, brake=False, torque=0):
+def feed(ci, tick, *, main=True, cruise=1, display=0, gas=False, brake=False, torque=0, camera=True):
   packer = CANPacker(DBC[ci.CP.carFingerprint][Bus.pt])
   messages = []
   for parser in ci.can_parsers.values():
     for address in parser.addresses:
+      if address == 0x2A4 and camera is False:
+        continue
       message = parser.dbc.addr_to_msg[address]
       values = {'COUNTER': tick % 16} if 'COUNTER' in message.sigs else {}
+      if address == 0x2A4 and type(camera) is int:
+        values['COUNTER'] = camera
       if message.name == 'SCC12':
         values.update(MainMode_ACC=int(main), ACCMode=cruise, SCCInfoDisplay=display, VSetDis=90)
       elif message.name == 'EMS16':
@@ -100,13 +104,14 @@ class TestPalisade2023(unittest.TestCase):
       command.hudControl.setSpeed = 25.
       previous = 0
       for tick in range(20):
+        feed(ci, tick + 12, camera=12 + (tick + 3) // 5 if tick == 0 or tick % 5 == 2 else False)
         actuators, messages = ci.apply(command.as_reader(), 1_200_000_000 + tick * 10_000_000)
         self.assertEqual(actuators.torqueOutputCan - previous, 3 if topology == 'hdaii' else 2)
         previous = actuators.torqueOutputCan
         addresses = {a for a, _, _ in messages}
         self.assertFalse(addresses & {0x420, 0x421, 0x389, 0x7D0, 0x730})
         if topology == 'hdaii':
-          self.assertEqual(addresses, {0x50, 0x2A4} if tick % 5 == 0 else {0x50})
+          self.assertEqual(addresses, {0x50, 0x2A4} if tick in (0, 5, 10, 15) else {0x50})
           self.assertTrue(all(bus == 0 for _, _, bus in messages))
         else:
           self.assertEqual(addresses, {0x340, 0x364})
@@ -122,6 +127,37 @@ class TestPalisade2023(unittest.TestCase):
       command.latActive = False
       actuators, _ = ci.apply(command.as_reader(), 1_500_000_000)
       self.assertEqual(actuators.torqueOutputCan, 0)
+
+  def test_hda2_camera_copy_follows_new_input_instead_of_free_running(self):
+    ci = CarInterface(params('hdaii'))
+    for tick in range(12):
+      feed(ci, tick)
+    command = structs.CarControl(enabled=True, latActive=True)
+    copied = []
+    for frame in range(20):
+      tick = frame + 12
+      feed(ci, tick, camera={0: 12, 6: 13, 11: 14, 16: 15}.get(frame, False))
+      _, messages = ci.apply(command.as_reader(), 1_000_000_000 + tick * 10_000_000)
+      copied.extend((frame, data[2]) for address, data, _ in messages if address == 0x2A4)
+    self.assertEqual(copied, [(0, 12), (6, 13), (11, 14), (16, 15)])
+
+  def test_hda2_alpha_long_keeps_primary_steering_payload(self):
+    from opendbc.car.hyundai.blended_longitudinal import candidate_from_stock
+
+    stock = params('hdaii')
+    alpha = candidate_from_stock(stock, alpha_requested=True, native_qualified=True)
+    self.assertTrue(alpha.openpilotLongitudinalControl)
+    interfaces = [CarInterface(cp) for cp in (stock, alpha)]
+    command = structs.CarControl(enabled=True, latActive=True)
+    command.actuators.torque = .25
+    for tick in range(12):
+      steering = []
+      for ci in interfaces:
+        feed(ci, tick)
+        _, messages = ci.apply(command.as_reader(), 1_000_000_000 + tick * 10_000_000)
+        steering.append(next((data, bus) for address, data, bus in messages if address == 0x50))
+      self.assertEqual(steering[0], steering[1])
+      self.assertEqual(steering[0][0][8], 0)
 
   def test_cancel_resume_route_to_exact_pt_bus_and_sibling_params_unchanged(self):
     for topology in ('hdai', 'hdaii'):

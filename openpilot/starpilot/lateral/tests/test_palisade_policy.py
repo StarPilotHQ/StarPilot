@@ -85,3 +85,15 @@ def test_unrelated_or_unadmitted_profiles_cannot_select_palisade():
     assert not supported_cp(candidate)
   cp.carFingerprint = CAR.HYUNDAI_IONIQ_6
   assert not supported_cp(cp)
+
+
+def test_only_palisade_hda2_softens_highway_center_corrections():
+  def policy(topology):
+    cp = topology_params(topology)
+    controller = LatControlTorque(cp.as_reader(), interfaces[cp.carFingerprint](cp), .01)
+    return controller.starpilot_extension.policy
+
+  hda1, hda2 = policy('hdai'), policy('hdaii')
+  assert hda2.output(.5, .1, 30.) < .91 * hda1.output(.5, .1, 30.)
+  assert hda2.output(.5, .8, 30.) == pytest.approx(hda1.output(.5, .8, 30.), abs=4e-6)
+  assert hda2.output(.5, .1, 4.) == pytest.approx(hda1.output(.5, .1, 4.), abs=.002)

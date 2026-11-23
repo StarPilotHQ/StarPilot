@@ -141,6 +141,8 @@ class CarController(CarControllerBase):
     self.blended_longitudinal = None
     self.blended_previous_lateral = False
     self.blended_disengage_frame = None
+    self.blended_camera_sent_frame = -5
+    self.blended_camera_sent_counter = None
     self.last_ccnc_161_ts_ns = 0
     self.last_ccnc_162_ts_ns = 0
     self.last_ccnc_now_ns = 0
@@ -354,9 +356,14 @@ class CarController(CarControllerBase):
             sys_warning, sys_state, CC.enabled, hud_control.leftLaneVisible, hud_control.rightLaneVisible,
             left_lane_warning, right_lane_warning, {}, include_alerts=False, counter_mod=0xF,
             fcw_opt_usm=2 if apply_steer_req or icon == 3 else 1))
-        if (self.frame % 5 == 0 and CS.out.canValid and not CS.out.canTimeout and
-            CS.blended_camera_current):
-          can_sends.append(hyundaicanfd.create_suppress_lfa(self.packer, self.CAN, CS.lfa_block_msg, False))
+        if CS.out.canValid and not CS.out.canTimeout and CS.blended_camera_current:
+          camera_counter = CS.lfa_block_msg["COUNTER"]
+          if self.frame - self.blended_camera_sent_frame >= 5 and camera_counter != self.blended_camera_sent_counter:
+            can_sends.append(hyundaicanfd.create_suppress_lfa(self.packer, self.CAN, CS.lfa_block_msg, False))
+            self.blended_camera_sent_frame = self.frame
+            self.blended_camera_sent_counter = camera_counter
+        else:
+          self.blended_camera_sent_counter = None
       else:
         _projection_packet_index = len(can_sends) if _projection is not None else 0
         can_sends.extend(hyundaican.create_lkas11_can_canfd_blended(

@@ -145,10 +145,10 @@ def get_palisade_center_taper_scale(desired_lateral_accel: float, v_ego: float) 
                                     PALISADE_CENTER_TAPER_LAT_WIDTH)
   return 1.0 - (PALISADE_CENTER_TAPER_MAX * speed_weight * center_weight)
 
-def get_palisade_center_output_scale(desired_lateral_accel: float, v_ego: float) -> float:
+def get_palisade_center_output_scale(desired_lateral_accel: float, v_ego: float, *, taper_max: float = PALISADE_CENTER_OUTPUT_TAPER_MAX) -> float:
   """Reduce high-speed center corrections without reducing normal turn authority."""
   speed_weight = _palisade_sigmoid((v_ego - PALISADE_CENTER_OUTPUT_TAPER_SPEED) /
                                     PALISADE_CENTER_OUTPUT_TAPER_SPEED_WIDTH)
   center_weight = _palisade_sigmoid((PALISADE_CENTER_OUTPUT_TAPER_LAT - abs(desired_lateral_accel)) /
                                     PALISADE_CENTER_OUTPUT_TAPER_LAT_WIDTH)
-  return 1.0 - (PALISADE_CENTER_OUTPUT_TAPER_MAX * speed_weight * center_weight)
+  return 1.0 - (taper_max * speed_weight * center_weight)
