@@ -358,7 +358,8 @@ class CarController(CarControllerBase):
             fcw_opt_usm=2 if apply_steer_req or icon == 3 else 1))
         if CS.out.canValid and not CS.out.canTimeout and CS.blended_camera_current:
           camera_counter = CS.lfa_block_msg["COUNTER"]
-          if self.frame - self.blended_camera_sent_frame >= 5 and camera_counter != self.blended_camera_sent_counter:
+          if (self.frame - self.blended_camera_sent_frame >= 5 and camera_counter != self.blended_camera_sent_counter and
+              (not CC.latActive or CS.blended_camera_updated)):
             can_sends.append(hyundaicanfd.create_suppress_lfa(self.packer, self.CAN, CS.lfa_block_msg, False))
             self.blended_camera_sent_frame = self.frame
             self.blended_camera_sent_counter = camera_counter

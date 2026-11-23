@@ -150,6 +150,7 @@ class CarState(CarStateBase):
 
     self.params = CarControllerParams(CP)
     self.blended_camera_current = False
+    self.blended_camera_updated = False
     self.ray_pedal_valid = False
     self.ray_pedal_state = 5
 
@@ -347,6 +348,7 @@ class CarState(CarStateBase):
         self.lfa_block_msg = copy.copy(cp_cam.vl["CAM_0x2a4"])
         from opendbc.car.hyundai.blended_stock_aol import camera_current
         self.blended_camera_current = camera_current(cp_cam)
+        self.blended_camera_updated = bool(cp_cam.vl_all["CAM_0x2a4"]["COUNTER"])
         self.lkas11 = {}
       else:
         self.msg_364 = copy.copy(cp_cam.vl["ALERTS_364"])

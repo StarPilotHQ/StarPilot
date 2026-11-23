@@ -111,7 +111,7 @@ class TestPalisade2023(unittest.TestCase):
         addresses = {a for a, _, _ in messages}
         self.assertFalse(addresses & {0x420, 0x421, 0x389, 0x7D0, 0x730})
         if topology == 'hdaii':
-          self.assertEqual(addresses, {0x50, 0x2A4} if tick in (0, 5, 10, 15) else {0x50})
+          self.assertEqual(addresses, {0x50, 0x2A4} if tick in (0, 7, 12, 17) else {0x50})
           self.assertTrue(all(bus == 0 for _, _, bus in messages))
         else:
           self.assertEqual(addresses, {0x340, 0x364})
@@ -128,7 +128,7 @@ class TestPalisade2023(unittest.TestCase):
       actuators, _ = ci.apply(command.as_reader(), 1_500_000_000)
       self.assertEqual(actuators.torqueOutputCan, 0)
 
-  def test_hda2_camera_copy_follows_new_input_instead_of_free_running(self):
+  def test_hda2_camera_copy_skips_samples_that_miss_the_send_slot(self):
     ci = CarInterface(params('hdaii'))
     for tick in range(12):
       feed(ci, tick)
@@ -136,10 +136,10 @@ class TestPalisade2023(unittest.TestCase):
     copied = []
     for frame in range(20):
       tick = frame + 12
-      feed(ci, tick, camera={0: 12, 6: 13, 11: 14, 16: 15}.get(frame, False))
+      feed(ci, tick, camera={0: 12, 4: 13, 9: 14, 14: 15, 19: 16}.get(frame, False))
       _, messages = ci.apply(command.as_reader(), 1_000_000_000 + tick * 10_000_000)
       copied.extend((frame, data[2]) for address, data, _ in messages if address == 0x2A4)
-    self.assertEqual(copied, [(0, 12), (6, 13), (11, 14), (16, 15)])
+    self.assertEqual(copied, [(0, 12), (9, 14), (14, 15), (19, 16)])
 
   def test_hda2_alpha_long_keeps_primary_steering_payload(self):
     from opendbc.car.hyundai.blended_longitudinal import candidate_from_stock

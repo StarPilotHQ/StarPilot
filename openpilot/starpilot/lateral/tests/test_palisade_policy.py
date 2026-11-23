@@ -97,3 +97,17 @@ def test_only_palisade_hda2_softens_highway_center_corrections():
   assert hda2.output(.5, .1, 30.) < .91 * hda1.output(.5, .1, 30.)
   assert hda2.output(.5, .8, 30.) == pytest.approx(hda1.output(.5, .8, 30.), abs=4e-6)
   assert hda2.output(.5, .1, 4.) == pytest.approx(hda1.output(.5, .1, 4.), abs=.002)
+
+
+@pytest.mark.parametrize('alpha', (False, True))
+@pytest.mark.parametrize('direction', (-1., 1.))
+def test_hda2_softens_rapid_highway_corrections_across_longitudinal_modes(alpha, direction):
+  cp = topology_params('hdaii')
+  cp.openpilotLongitudinalControl, cp.pcmCruise = alpha, not alpha
+  policy = LatControlTorque(cp.as_reader(), interfaces[cp.carFingerprint](cp), .01).starpilot_extension.policy
+  value, demand, jerk = direction * .4, direction * .45, direction * 1.1
+  baseline = policy.output(value, demand, 31.)
+  assert policy.output_context(value, demand, jerk, 0., 31.) == pytest.approx(.88 * baseline)
+  assert policy.output_context(value, demand, .2, 0., 31.) == baseline
+  assert policy.output_context(value, direction, jerk, 0., 31.) == policy.output(value, direction, 31.)
+  assert policy.output_context(value, demand, jerk, 0., 20.) == policy.output(value, demand, 20.)
