@@ -17,7 +17,7 @@ from openpilot.common.hardware import HARDWARE, PC
 from openpilot.system.manager.helpers import unblock_stdout, save_bootlog
 from openpilot.system.manager.process import ensure_running
 from openpilot.system.manager.process_config import managed_processes
-from openpilot.system.athena.registration import register, UNREGISTERED_DONGLE_ID
+from openpilot.system.athena.registration import register_at_startup, UNREGISTERED_DONGLE_ID
 from openpilot.common.swaglog import cloudlog, add_file_handler
 from openpilot.common.version import get_build_metadata
 from openpilot.common.hardware.hw import Paths
@@ -104,7 +104,7 @@ def manager_init() -> None:
   params.put("HardwareSerial", serial, block=True)
 
   # set dongle id
-  reg_res = register(show_spinner=True)
+  reg_res = register_at_startup()
   if reg_res:
     dongle_id = reg_res
   else:

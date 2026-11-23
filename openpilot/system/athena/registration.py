@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 import time
 import json
+import subprocess
+import sys
 import jwt
+from contextlib import nullcontext
 from typing import cast
 from pathlib import Path
 
@@ -19,6 +22,23 @@ from openpilot.common.swaglog import cloudlog
 
 
 UNREGISTERED_DONGLE_ID = "UnregisteredDevice"
+STARTUP_REGISTRATION_TIMEOUT = 30
+
+
+def register_at_startup() -> str | None:
+  params = Params()
+  has_identity = params.get("DongleId") or Path(Paths.persist_root(), "comma", "dongle_id").is_file()
+  with nullcontext() if has_identity else Spinner() as spinner:
+    if spinner is not None:
+      spinner.update(f"Registering device (up to {STARTUP_REGISTRATION_TIMEOUT} seconds)")
+    try:
+      result = subprocess.run([sys.executable, "-m", "openpilot.system.athena.registration"],
+                              stdout=subprocess.PIPE, text=True, check=True, timeout=STARTUP_REGISTRATION_TIMEOUT)
+    except subprocess.TimeoutExpired:
+      cloudlog.warning("Connect registration timed out; starting offline")
+      return UNREGISTERED_DONGLE_ID
+  dongle_id = result.stdout.strip().rsplit("\n", 1)[-1]
+  return None if dongle_id == "None" else dongle_id
 
 def is_registered_device() -> bool:
   dongle = Params().get("DongleId")

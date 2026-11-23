@@ -1,11 +1,12 @@
 import json
+import subprocess
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from pathlib import Path
 
 from openpilot.common.test import OpenpilotTestCase
 from openpilot.common.params import Params
-from openpilot.system.athena.registration import register, UNREGISTERED_DONGLE_ID
+from openpilot.system.athena.registration import register, register_at_startup, STARTUP_REGISTRATION_TIMEOUT, UNREGISTERED_DONGLE_ID
 from openpilot.system.athena.tests.helpers import MockResponse
 from openpilot.common.hardware.hw import Paths
 
@@ -75,3 +76,19 @@ class TestRegistration(OpenpilotTestCase):
     assert m.call_count == 1
     assert dongle == UNREGISTERED_DONGLE_ID
     assert self.params.get("DongleId") == dongle
+
+  def test_startup_timeout_leaves_registration_retryable(self, mocker):
+    spinner = mocker.patch("openpilot.system.athena.registration.Spinner", autospec=True)
+    run = mocker.patch("openpilot.system.athena.registration.subprocess.run", autospec=True)
+    run.side_effect = subprocess.TimeoutExpired("registration", STARTUP_REGISTRATION_TIMEOUT)
+
+    assert register_at_startup() == UNREGISTERED_DONGLE_ID
+    assert self.params.get("DongleId") is None
+    assert run.call_args.kwargs["timeout"] == STARTUP_REGISTRATION_TIMEOUT
+    spinner.return_value.__enter__.return_value.update.assert_called_once_with(
+      f"Registering device (up to {STARTUP_REGISTRATION_TIMEOUT} seconds)")
+    spinner.return_value.__exit__.assert_called_once()
+
+    run.side_effect = None
+    run.return_value = subprocess.CompletedProcess([], 0, stdout="DONGLE_ID_123\n")
+    assert register_at_startup() == "DONGLE_ID_123"
