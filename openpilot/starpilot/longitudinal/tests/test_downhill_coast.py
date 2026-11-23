@@ -43,6 +43,8 @@ def test_gravity_only_allowance_and_approach_to_limit():
   assert error(LIMIT + 1) == pytest.approx(-1.075)
   assert error(SET_SPEED + 1, pitch=.05) is None
   assert error(SET_SPEED + 1, pitch=0.) is None
+  assert error(SET_SPEED + 1, pitch=-math.atan(.009)) is None
+  assert error(SET_SPEED + 1, pitch=-math.atan(.01)) == 0.
   assert error(SET_SPEED + 1, pitch=math.nan) is None
   assert error(SET_SPEED + 1, limit=SET_SPEED) is None
 
@@ -56,7 +58,7 @@ class Frame(dict):
     self['carState'].canValid = True
     self['carControl'].enabled = True
     self['carControl'].longActive = True
-    self['carControl'].orientationNED = [0., -.05, 0.]
+    self['carControl'].orientationNED = [0., -.015, 0.]
     self.seen = dict.fromkeys(self, True)
     self.alive = self.seen.copy()
     self.valid = self.seen.copy()

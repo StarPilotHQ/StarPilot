@@ -23,7 +23,7 @@ def read_surplus(params) -> float:
 
 def speed_error(set_speed: float, speed: float, accel: float, pitch: float, *, limit: float, delay: float) -> float | None:
   if (not all(map(math.isfinite, (set_speed, speed, accel, pitch, limit, delay))) or
-      not 0. < set_speed < limit or speed < set_speed or not -math.radians(20.) <= pitch <= -math.atan(.02)):
+      not 0. < set_speed < limit or speed < set_speed or not -math.radians(20.) <= pitch <= -math.atan(.01)):
     return None
   # Only delay cruise braking. Never create positive speed error or chase the allowance.
   return min(0., limit - (speed + max(0., accel) * max(0., delay)))
