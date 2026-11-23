@@ -893,9 +893,9 @@ class SelfdriveD:
             qualified_toyota(self.CP, marked_only=True) or qualified_mazda(self.CP, marked_only=True) or
             self.ford_source_deadline_supported())
 
-  def held_axis_override_wait(self, CS, proof, now_ns, *, fresh_successor=False):
+  def held_axis_override_wait(self, CS, proof, now_ns, *, fresh_successor=False, fresh_mqb_brake=False):
     """Recognize an already applied override; never admit a new physical edge."""
-    if (proof is None or not (qualified_ioniq6(self.CP) or qualified_gm(self.CP) or
+    if (proof is None or not (fresh_mqb_brake or qualified_ioniq6(self.CP) or qualified_gm(self.CP) or
         (self.CP.brand == 'hyundai' and self.source_deadline_deferral_supported()) or
         self.ford_source_deadline_supported()) or not self.sm.seen['carControl'] or
         not self.sm.valid['carControl'] or self.sm['carControl'].longActive or
@@ -912,7 +912,9 @@ class SelfdriveD:
     held_brake = bool(proof[8] and not proof[9] and not self.enabled and not self.active and
       (previous.brakePressed or previous.regenBraking) and
       all(valid and sample.brakePressed == previous.brakePressed and sample.regenBraking == previous.regenBraking
-          and not sample.gasPressed and not sample.buttonEvents for sample, valid in samples))
+          and not sample.gasPressed and not sample.buttonEvents
+          and (not fresh_mqb_brake or sample.canValid and not sample.canTimeout and
+               not sample.steerFaultTemporary and not sample.steerFaultPermanent) for sample, valid in samples))
     ford_lateral_gas = bool(self.ford_source_deadline_supported() and proof[8] and not proof[9] and
       (not self.enabled and not self.active and not CS.cruiseState.enabled or
        self.enabled and self.active and CS.cruiseState.enabled and proof[7]))
@@ -1615,8 +1617,16 @@ class SelfdriveD:
           previous=decision, source_ns=source_ns, now_ns=now_ns, axis_session_id=self.aol_session_id, allow_brake=True):
         user_disable = any(event.userDisable and event.name not in
           (EventName.buttonCancel, EventName.pcmDisable, EventName.pedalPressed) for event in self.events.to_msg())
+    fresh_mqb_brake = False
+    if (user_disable and fresh_successor and self.CP.brand == 'volkswagen' and
+        decision.desired_lateral and not decision.desired_longitudinal and not decision.longitudinal_active and
+        intent.allowedLatch and intent.lateralArmed and not intent.pauseLateral and CS.brakePressed):
+      from opendbc.car.volkswagen.long_aol import qualified as mqb_long_qualified
+      from opendbc.car.volkswagen.stock_aol import qualified as mqb_stock_qualified
+      fresh_mqb_brake = mqb_long_qualified(self.CP, marked_only=True) or mqb_stock_qualified(self.CP, marked_only=True)
     held_brake, held_gas = self.held_axis_override_wait(CS, proof, now_ns,
-      fresh_successor=fresh_successor and (qualified_gm(self.CP) or self.ford_source_deadline_supported()))
+      fresh_successor=fresh_successor and (qualified_gm(self.CP) or self.ford_source_deadline_supported()),
+      fresh_mqb_brake=fresh_mqb_brake)
     if user_disable and (held_brake or self.ford_source_deadline_supported() and held_gas):
       # A fresh same-owner source can establish its own LAT permission after
       # an old output expires. Held-brake continuity does not renew that output;
