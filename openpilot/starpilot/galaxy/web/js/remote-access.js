@@ -108,10 +108,9 @@ export const RemoteAccess = {
           <div class="gx-actions"><button type="button" class="gx-btn gx-btn--danger" @click="unpair">{{ busy ? 'Disconnecting…' : 'Turn off remote access' }}</button></div>
         </template>
         <template v-else>
-          <p v-if="legacyPassword">Enter your existing password to keep your Galaxy link.</p>
-          <p v-else-if="legacyPairingAvailable">Enter your old password to keep the link, or choose a new one with at least 8 characters.</p>
+          <p v-if="legacyPassword || legacyPairingAvailable">Use your old password or choose a new one with at least 8 characters.</p>
           <p v-else>Choose a password to pair your comma.</p>
-          <div class="gx-actions"><input class="gx-field gx-filter-field" type="password" v-model="password" :minlength="legacyPassword || legacyPairingAvailable ? 6 : 8" maxlength="255" :autocomplete="legacyPassword ? 'current-password' : 'new-password'" :placeholder="legacyPassword ? 'Existing Galaxy password' : legacyPairingAvailable ? 'Existing or new Galaxy password' : 'New password (at least 8 characters)'" @keydown.enter="pair" />
+          <div class="gx-actions"><input class="gx-field gx-filter-field" type="password" v-model="password" :minlength="legacyPassword || legacyPairingAvailable ? 6 : 8" maxlength="255" autocomplete="new-password" :placeholder="legacyPassword || legacyPairingAvailable ? 'Existing or new Galaxy password' : 'New password (at least 8 characters)'" @keydown.enter="pair" />
             <button type="button" class="gx-btn" :disabled="password.trim().length < (legacyPassword || legacyPairingAvailable ? 6 : 8)" @click="pair">{{ busy ? 'Setting up…' : 'Set up remote access' }}</button></div>
         </template>
         <GxNotice tone="danger" v-if="error">{{ error }}</GxNotice>

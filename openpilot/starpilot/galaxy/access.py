@@ -177,10 +177,13 @@ class GalaxyAccessOwner:
 
   def replace_for_pairing(self, password: str, parked: Callable[[], bool]) -> bool:
     """Set a new remote login password from an authorized, parked local pairing flow."""
-    if not 8 <= len(password) <= 255 or not parked() or self.status().status != AccessStatus.CONFIGURED_LOCAL:
+    if not 8 <= len(password) <= 255 or not parked():
       return False
-    generation = self.current_generation()
-    if generation is None:
+    status = self.status().status
+    if status not in (AccessStatus.CONFIGURED_LOCAL, AccessStatus.LEGACY_IMPORT_AVAILABLE):
+      return False
+    generation = self.current_generation() if status == AccessStatus.CONFIGURED_LOCAL else None
+    if status == AccessStatus.CONFIGURED_LOCAL and generation is None:
       return False
     try:
       return self._write(password, parked, replace_generation=generation)

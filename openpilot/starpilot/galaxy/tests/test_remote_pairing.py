@@ -436,6 +436,42 @@ class RemotePairingTest(unittest.TestCase):
         worker.join(timeout=2)
         server.server_close()
 
+  def test_direct_local_unpair_and_repair_with_new_password_without_a_local_verifier(self):
+    legacy = self.pairing.root.parent / 'legacy'
+    legacy.mkdir()
+    old_password = 'oldpw6'
+    slug = 'ExistingGalaxy01'
+    old_token = 'b' * 64
+    (legacy / 'glxyauth').write_text(hashlib.sha256(old_password.encode()).hexdigest())
+    (legacy / 'glxyslug').write_text(slug)
+    (legacy / 'glxysession').write_text(old_token)
+    self.owner.legacy_root = legacy
+    self.assertTrue(self.pairing.migrate_legacy(legacy))
+    self.assertIsNone(self.owner.current_generation())
+    origin = f'http://127.0.0.1:{self.local.server_port}'
+    cookie = self.request(self.local, '/api/auth/session')[2]['Set-Cookie'].split(';', 1)[0]
+    local = dict(method='POST', origin=origin, cookie=cookie)
+    pair = '/api/galaxy/pair'
+    new_password = {'password': 'different-password'}
+    self.assertEqual(self.request(self.local, pair, payload=new_password, **local)[0], 409)
+    self.assertEqual(self.request(self.local, '/api/galaxy/unpair', payload={}, **local)[0], 200)
+    self.assertEqual(self.request(self.local, pair, method='POST', origin=origin, payload=new_password)[0], 401)
+    self.assertEqual(self.request(self.local, pair, method='POST', origin='https://wrong.example',
+                                  cookie=cookie, payload=new_password)[0], 403)
+    with mock.patch('openpilot.starpilot.galaxy.server.direct_local_connection', return_value=False):
+      self.assertEqual(self.request(self.local, pair, payload=new_password, **local)[0], 403)
+    self.assertEqual(self.request(self.local, pair, payload={'password': 'other6'}, **local)[0], 400)
+    self.assertIsNone(self.owner.current_generation())
+    code, body, _ = self.request(self.local, pair, payload=new_password, **local)
+    self.assertEqual(code, 200)
+    record = self.pairing.read()
+    assert record is not None
+    self.assertNotEqual(record['slug'], slug)
+    self.assertNotEqual(record['session'], old_token)
+    self.assertTrue(json.loads(body)['url'].endswith(record['slug']))
+    self.assertTrue(self.owner.verify(new_password['password']))
+    self.assertFalse(self.owner.verify(old_password))
+
   def test_existing_local_verifier_does_not_hide_matching_legacy_link(self):
     with tempfile.TemporaryDirectory() as directory:
       root = Path(directory)

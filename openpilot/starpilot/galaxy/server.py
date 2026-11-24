@@ -2194,7 +2194,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
             except (OSError, ValueError, UnicodeError):
               self.json(503, {'error': 'Remote password storage is unavailable'})
               return
-            legacy_root = access.legacy_root if status == AccessStatus.LEGACY_IMPORT_AVAILABLE else None
+            legacy_root = None
             if status == AccessStatus.UNCONFIGURED:
               if len(password) < 8:
                 self.json(400, {'error': 'New Galaxy passwords must be at least 8 characters'})
@@ -2202,11 +2202,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
               if not access.configure(password, parked):
                 self.json(503, {'error': 'Could not configure remote password'})
                 return
-            elif status == AccessStatus.LEGACY_IMPORT_AVAILABLE:
-              if not access.import_legacy(password, parked):
-                self.json(403, {'error': 'Galaxy password does not match existing pairing'})
-                return
-            elif status == AccessStatus.CONFIGURED_LOCAL:
+            elif status in (AccessStatus.LEGACY_IMPORT_AVAILABLE, AccessStatus.CONFIGURED_LOCAL):
               if access.legacy_available() is None:
                 self.json(503, {'error': 'Existing Galaxy pairing storage is unavailable'})
                 return

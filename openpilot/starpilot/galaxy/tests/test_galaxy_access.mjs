@@ -63,10 +63,12 @@ try {
   await nextTick()
   assert.match(text(host), /test key/)
   await remote.unpair()
+  remote.legacyPassword = true
   await nextTick()
   assert.equal(vm.url, '')
   assert.equal(remote.appKey, '')
   assert.equal(remote.keyVisible, false)
+  assert.match(text(host), /choose a new one with at least 8 characters/)
   remote.password = 'new-password'
   await remote.pair()
   await nextTick()
