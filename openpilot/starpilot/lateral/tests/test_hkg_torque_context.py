@@ -209,8 +209,9 @@ def test_ioniq5_hda1_feedforward_damps_transients_and_reseeds_on_override(op_lon
     return policy.feedforward_context(1.0, .5, 0., .5, state.vEgo) / original
 
   assert tick(0.) == pytest.approx(1.)
+  assert tick(.1) == pytest.approx(1. if hda2 else 1. - .1 * .20 / .21)
   assert tick(.5) == pytest.approx(1. if hda2 else .76)
-  for _ in range(120):
+  for _ in range(180):
     steady = tick(.5)
   assert steady == pytest.approx(1.0, abs=.0001)
   state.steeringPressed = True

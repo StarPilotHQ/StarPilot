@@ -77,7 +77,7 @@ class HKGVehicleTorquePolicy(HKGShapedTorquePolicy):
     self.hev_center_weight = 0.0
     super().__init__(parent, cp)
     hda1_camera = self.profile == 'ioniq_5' and bool(cp.flags & HyundaiFlags.CANFD_CAMERA_SCC) and not self.ioniq_5_hda2
-    self.ioniq_5_hda1_ff = FirstOrderFilter(0.0, 0.13, self.dt, initialized=False) if hda1_camera else None
+    self.ioniq_5_hda1_ff = FirstOrderFilter(0.0, 0.20, self.dt, initialized=False) if hda1_camera else None
 
   supported_cp = staticmethod(lambda cp: policy_for(cp) is not None)
 
