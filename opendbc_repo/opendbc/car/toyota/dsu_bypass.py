@@ -30,8 +30,18 @@ AUTO_RESUME_CARS = frozenset((CAR.TOYOTA_HIGHLANDER, CAR.TOYOTA_PRIUS_V, CAR.TOY
 WORDS = frozenset(word | stock for word in PROFILES.values() for stock in (0, 0x200))
 
 
+def corolla_startup_mirror(candidate, fingerprint):
+  if candidate != CAR.TOYOTA_COROLLA:
+    return False
+  pt = fingerprint.get(0, {})
+  return pt == fingerprint.get(2, {}) and all(pt.get(address) == length for address, length in
+                                             ((0xAA, 8), (0x262, 5), (0x1D3, 8), (0x343, 8), (0x4CB, 8)))
+
+
 def hardware_supported(candidate, fingerprint, car_fw):
   if candidate not in PROFILES or any(address in frames for frames in fingerprint.values() for address in (0x201, 0x2FF, 0x2AA)):
+    return False
+  if corolla_startup_mirror(candidate, fingerprint):
     return False
   camera = fingerprint.get(2, {})
   if not any(camera.get(address) == 8 for address in (0x343, 0x4CB)) or any(camera.get(address, 8) != 8 for address in (0x343, 0x4CB)):
