@@ -304,7 +304,9 @@ def set_speed_kph(car_state) -> float | None:
 
 
 def read_speeds(sm, metric: bool) -> tuple[str, str] | None:
-  """(current speed, set speed or '--') as displayed in mph or km/h; None before carState with a finite vEgo."""
+  """(current speed, set speed or '--') as displayed in mph or km/h; None before carState with a finite vEgo.
+
+  The current speed is carState.vEgoCluster when the car reports one (non-zero), else vEgo."""
   try:
     if not sm.seen['carState']:
       return None
@@ -312,6 +314,9 @@ def read_speeds(sm, metric: bool) -> tuple[str, str] | None:
     v_ego = _finite(getattr(car_state, 'vEgo', None))
     if v_ego is None:
       return None
+    # The speed the car's own cluster shows, where the car reports one (the onroad HUD's rule), beside a set speed
+    # that is the cluster's too.
+    v_ego = _finite(getattr(car_state, 'vEgoCluster', None), 0.0) or v_ego
     # Only while cruise is engaged: lateral-only and disengaged show "--", not the last set speed the car still reports.
     cruise = set_speed_kph(car_state) if getattr(getattr(car_state, 'cruiseState', None), 'enabled', False) else None
   except (AttributeError, KeyError, TypeError):

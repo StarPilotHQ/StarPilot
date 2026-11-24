@@ -1,5 +1,6 @@
 """Birds-eye stream HUD: acceleration bar colours, limits and geometry, flat torque bar, turn-signal arrows, the status
 cluster (steering wheel, drive mode, follow distance), and per-frame cost with fakes."""
+from pathlib import Path
 from types import SimpleNamespace
 import time
 
@@ -79,7 +80,7 @@ def sm(*, desired=0.0, actual=0.0, long_active=True, brake=False, plan=None, lim
   return FakeSM(**messages)
 
 
-def hud(source, feedback=lambda sm, cp: TorqueFeedback(0.4, 'angle_error', 'observed'), clock=lambda: 0.0):
+def hud(source, feedback=lambda sm, cp: TorqueFeedback(0.4, 'actuator_output', 'observed'), clock=lambda: 0.0):
   rl, text = FakeRl(), FakeText()
   return BirdsEyeHud(rl, text, source, feedback=feedback, clock=clock), rl, text
 
@@ -366,7 +367,7 @@ def test_torque_bar_is_flat_and_stays_visible_when_inactive():
 
 def test_torque_bar_grows_and_returns_to_centre():
   t = torque_geometry(*LOGICAL_720P)
-  state = {'feedback': TorqueFeedback(-1.0, 'angle_error', 'observed')}
+  state = {'feedback': TorqueFeedback(-1.0, 'actuator_output', 'observed')}
   view, rl, _ = hud(lambda: (sm(), 'CP'), feedback=lambda sm, cp: state['feedback'])
   for _ in range(60):
     view.render(*LOGICAL_720P)
@@ -432,7 +433,7 @@ def test_turn_signal_texture_is_loaded_once_flipped_for_the_right_and_unloaded()
       self.loaded, self.unloaded = 0, []
 
     def load_image(self, path):
-      assert path.endswith('icons_mici/onroad/turn_signal_left.png')
+      assert Path(path).as_posix().endswith('icons_mici/onroad/turn_signal_left.png')
       return SimpleNamespace(data=b'x', width=208, height=192)
 
     def is_image_valid(self, image):
@@ -474,6 +475,14 @@ def test_turn_signal_texture_is_loaded_once_flipped_for_the_right_and_unloaded()
 class SizedText(FakeText):
   def draw(self, text, size, x, y, color):
     self.drawn.append((text, size, x, y))
+
+
+def test_speed_readout_is_the_cluster_speed_where_the_car_reports_one():
+  messages = sm(v_ego=26.8224, v_cruise=112.654)
+  messages['carState'].vEgoCluster = 27.9
+  assert read_speeds(messages, metric=False) == ('62', '70'), 'the speed the cluster shows, beside the cluster set speed'
+  messages['carState'].vEgoCluster = 0.0
+  assert read_speeds(messages, metric=False) == ('60', '70'), 'no cluster speed: vEgo'
 
 
 def test_speed_readout_shows_speed_and_set_speed_at_twice_the_lead_label():
@@ -749,7 +758,7 @@ def test_wheel_texture_is_loaded_once_turned_by_the_angle_and_unloaded():
   view.render(*LOGICAL_720P)
   state['angle'] = -75.5
   view.render(*LOGICAL_720P)
-  assert len(rl.paths) == 1 and rl.paths[0].endswith('selfdrive/assets/icons/chffr_wheel.png')
+  assert len(rl.paths) == 1 and Path(rl.paths[0]).as_posix().endswith('selfdrive/assets/icons/chffr_wheel.png')
   first, second = [call for call in rl.calls if call[0] == 'draw_texture_pro']
   side = 2 * g.badge[2] * hud_module.WHEEL_ART
   assert first[3] == pytest.approx((g.badge[0], g.badge[1], side, side)), 'centred on the badge'

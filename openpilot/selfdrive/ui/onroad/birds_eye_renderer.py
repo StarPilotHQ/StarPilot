@@ -297,9 +297,10 @@ def scene_leads(radar_state, model, tracks=None) -> list[BirdsEyeLead]:
   leads: list[BirdsEyeLead] = []
   if radar_state is not None:
     for lead in (radar_state.leadOne, radar_state.leadTwo):
-      if lead.present and math.isfinite(lead.dRel) and lead.dRel > 0:
+      if lead.present and math.isfinite(lead.dRel) and lead.dRel > 0 and math.isfinite(lead.yRel):
         # radarState yRel is left-positive.
-        leads.append(BirdsEyeLead(float(lead.dRel), -float(lead.yRel), float(lead.vRel), radar=True))
+        v_rel = float(lead.vRel)
+        leads.append(BirdsEyeLead(float(lead.dRel), -float(lead.yRel), v_rel if math.isfinite(v_rel) else 0.0, radar=True))
   for xs, ys in tracks:
     d, y = float(xs[0]) - EGO_FRONT, float(ys[0])
     if d > 0 and not any(abs(o.d_rel - d) < 6.0 and abs(o.y - y) < 2.0 for o in leads):
@@ -573,6 +574,7 @@ class BirdsEyeRenderer(Widget):
     self._throttle_blend = 1.0
     self._last_model_frame = -1
     self._rainbow = None
+    self._car_fresh = False  # the last poll read a current carState (the rainbow path scrolls with its speed)
     self._lead_model = None
     self._cache: dict[str, tuple] = {}
     self._zoom = bem.ZoomFilter(self.config)
@@ -661,8 +663,13 @@ class BirdsEyeRenderer(Widget):
     if fresh('modelV2') and sm.updated['modelV2'] and sm.recv_frame['modelV2'] != self._last_model_frame:
       model = sm['modelV2']
       self._last_model_frame = sm.recv_frame['modelV2']
+    alive = getattr(sm, 'alive', None)
+    if sm.recv_frame['modelV2'] < started_frame or (hasattr(alive, 'get') and alive.get('modelV2') is False):
+      # The model is from an earlier drive or has stopped: its road is not drawn as if it were live.
+      self.scene.valid = False
     radar = sm['radarState'] if fresh('radarState') else None
     car = sm['carState'] if fresh('carState') else None
+    self._car_fresh = car is not None
     engaged = experimental = allow = None
     if fresh('selfdriveState'):
       engaged = sm['selfdriveState'].enabled
@@ -673,7 +680,7 @@ class BirdsEyeRenderer(Widget):
     # Blue only while the fork's own freshness and consistency rules say the correction applies, on its side.
     lane_dir = self._lane_centering_direction(sm, started_frame) if lat_active else 0
     now_ns = self.clock_ns()
-    # Without a new modelV2 the road keeps its last good frame; leads, wheel and blinkers still follow.
+    # Between modelV2 messages the road keeps its last good frame; leads, wheel and blinkers still follow.
     self.ingest(model, radar, car, engaged=engaged, experimental=experimental, allow_throttle=allow,
                 lat_active=lat_active, lane_centering_direction=lane_dir,
                 curve=read_curve(sm, now_ns, started_frame), speed_limit=self._read_speed_limit(sm, now_ns, started_frame))
@@ -699,7 +706,8 @@ class BirdsEyeRenderer(Widget):
     if self._limit_frame is None or self._limit_frame[0] != frame:
       observation = speed_limit_from_message(message)
       value = observation.speed_limit_mps if observation.kind == ObservationKind.VALID else None
-      self._limit_frame = (frame, float(value) if value is not None and math.isfinite(value) and value > 0 else None)
+      # The message is kept so its id in the key cannot be reused by a later one.
+      self._limit_frame = (frame, float(value) if value is not None and math.isfinite(value) and value > 0 else None, message)
     return self._limit_frame[1]
 
   # ---- caching ----------------------------------------------------------------------------------
@@ -1084,8 +1092,10 @@ class BirdsEyeRenderer(Widget):
       if self._rainbow is None:
         from openpilot.starpilot.ui.rainbow_path import RainbowPath
         self._rainbow = RainbowPath()
-      self._rainbow.update(time.monotonic_ns(), None, source_alive=False)
-      return self._sample(self._rainbow.gradient(), t, 1.8 * a)
+      # Scrolls with the car's speed, as the camera path's does.
+      self._rainbow.update(time.monotonic_ns(), scene.v_ego if self._car_fresh else None, source_alive=self._car_fresh)
+      # The shader gradient runs down the screen: its first stop is the far end, so the path reads it backwards.
+      return self._sample(self._rainbow.gradient(), 1.0 - t, 1.8 * a)
     if mode == 'color':
       from openpilot.starpilot.ui.onroad_customization import ROAD_COLORS
       return self._sample(solid_gradient(style.get('path', ROAD_COLORS['path'])), t, a)

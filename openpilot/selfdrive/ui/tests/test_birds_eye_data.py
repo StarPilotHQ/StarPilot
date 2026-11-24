@@ -320,3 +320,12 @@ def test_the_lane_change_ghost_is_off_by_default():
   view.ingest(_rich_model(state='laneChangeStarting', direction='right'), None,
               SimpleNamespace(steeringAngleDeg=0.0, leftBlinker=False, rightBlinker=True, leftBlindspot=False, rightBlindspot=False))
   assert view._lane_change_ghost(view.scene) == []
+
+
+def test_radar_lead_without_a_finite_lateral_position_is_not_drawn():
+  from openpilot.selfdrive.ui.onroad.birds_eye_renderer import scene_leads
+  def lead(**values):
+    return SimpleNamespace(**{'present': True, 'dRel': 30.0, 'yRel': 0.5, 'vRel': -1.0, **values})
+  radar = SimpleNamespace(leadOne=lead(yRel=math.nan), leadTwo=lead(dRel=50.0, vRel=math.nan))
+  leads = scene_leads(radar, None, [])
+  assert [(found.d_rel, found.y, found.v_rel) for found in leads] == [(50.0, -0.5, 0.0)]
