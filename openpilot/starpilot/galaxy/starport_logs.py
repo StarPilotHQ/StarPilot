@@ -1,8 +1,6 @@
 """Read-only access to the Android Auto logs under /data/starport/logs, for Logs & Diagnostics.
 
-Lists the kept session logs with a one-line summary each, and serves one log or the shareable
-bundle (``compat_report.bundle``: every session with its report, the settings without Bluetooth
-addresses, and the renderer logs). Only names the log directory itself lists are served.
+Lists the kept session logs with a one-line summary each, and builds the bundle that is sent to Discord.
 """
 
 from __future__ import annotations
@@ -14,14 +12,7 @@ from pathlib import Path
 from openpilot.starpilot.system.starport import compat_report
 from openpilot.starpilot.system.starport import identity as identity_store
 
-MAX_FILE_BYTES = 8 << 20  # a session log is normally well under 1 MiB; the renderer logs rotate at 256 KiB
-
-
 class LogsUnavailable(Exception):
-  pass
-
-
-class LogMissing(Exception):
   pass
 
 
@@ -59,17 +50,6 @@ class StarPortLogs:
     except OSError:
       raise LogsUnavailable from None
     return {"schemaVersion": 1, "sessions": sessions, "others": others}
-
-  def file(self, name: str) -> tuple[str, bytes]:
-    path = next((path for path in self._files() if path.name == name), None)
-    if path is None or path.is_symlink():
-      raise LogMissing
-    try:
-      return path.name, compat_report.read_log(path, MAX_FILE_BYTES)
-    except FileNotFoundError:
-      raise LogMissing from None
-    except OSError:
-      raise LogsUnavailable from None
 
   def bundle(self, now: datetime | None = None, *, system_snapshot: bool = True) -> tuple[str, bytes]:
     try:

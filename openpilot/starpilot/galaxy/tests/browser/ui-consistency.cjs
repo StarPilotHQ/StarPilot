@@ -86,13 +86,10 @@ const { resolve } = require('node:path')
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, 'Android Auto logs fit a phone viewport')
   const phoneCards = await page.locator('.gx-starport-log').evaluateAll(cards => cards.map(card => {
     const row = card.getBoundingClientRect(), body = card.querySelector('.gx-starport-log__body').getBoundingClientRect()
-    const download = card.querySelector('.gx-starport-log__download').getBoundingClientRect()
-    return { leftInset: body.left - row.left, rightInset: row.right - download.right, width: download.width, height: download.height }
+    return { leftInset: body.left - row.left }
   }))
-  assert.ok(phoneCards.every(card => card.leftInset >= 11 && card.rightInset >= 11), 'log text and downloads are padded inside cards')
-  assert.ok(phoneCards.every(card => card.width === 44 && card.height === 44), 'individual downloads remain compact touch targets')
-  assert.deepEqual(await page.locator('.gx-starport-log__download').evaluateAll(links => links.map(link => link.getAttribute('download'))),
-    ['session-000003.jsonl', 'session-000002.jsonl', 'car_ui.log'])
+  assert.ok(phoneCards.every(card => card.leftInset >= 11), 'log text is padded inside cards')
+  assert.equal(await page.locator('.gx-starport-logs a[download]').count(), 0, 'StarPort logs are sent, not downloaded')
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
   const desktop = await page.locator('.gx-starport-logs').evaluate(section => {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { StarPortLogSend, SEND_URL, MESSAGE_LIMIT } from "../web/js/starport-logs.js"
+import { StarPortLogSend, SEND_URL, BLUETOOTH_SEND_URL, MESSAGE_LIMIT } from "../web/js/starport-logs.js"
 
 const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve() }
 function fixture() {
@@ -24,10 +24,10 @@ normal.client.start()
 assert.equal(normal.requests[0].url, SEND_URL)
 await normal.reply(0, { state: "idle", message: "", available: true })
 assert.equal(normal.states.at(-1).state, "idle")
-const sending = normal.client.send("  Black screen  ")
+const sending = normal.client.send("  Black screen  ", "starfan_42")
 assert.equal(normal.states.at(-1).state, "sending")
 assert.equal(normal.requests[1].options.method, "POST")
-assert.deepEqual(JSON.parse(normal.requests[1].options.body), { message: "Black screen" })
+assert.deepEqual(JSON.parse(normal.requests[1].options.body), { message: "Black screen", discord: "starfan_42" })
 await normal.reply(1, { state: "sending", message: "Collecting logs" }, 202)
 assert.equal(await sending, true)
 assert.equal(normal.timers.length, 1)
@@ -40,13 +40,16 @@ assert.equal(normal.timers.length, 1)
 const limited = fixture()
 limited.client.start()
 await limited.reply(0, { state: "idle" })
-assert.equal(await limited.client.send("x".repeat(61)), false)
+assert.equal(await limited.client.send("x".repeat(61), "starfan_42"), false)
 assert.equal(limited.requests.length, 1)
 assert.match(limited.states.at(-1).error, /60 characters/)
-assert.equal(await limited.client.send("   "), false)
+assert.equal(await limited.client.send("   ", "starfan_42"), false)
 assert.equal(limited.requests.length, 1)
 assert.match(limited.states.at(-1).error, /short note/)
-const busy = limited.client.send("hi")
+assert.equal(await limited.client.send("hi", "  @ "), false)
+assert.equal(limited.requests.length, 1)
+assert.match(limited.states.at(-1).error, /Discord username/)
+const busy = limited.client.send("hi", "starfan_42")
 await limited.reply(1, { error: "StarPort logs are already being sent." }, 409)
 assert.equal(await busy, false)
 assert.equal(limited.states.at(-1).error, "StarPort logs are already being sent.")
@@ -56,7 +59,7 @@ const signedOut = fixture()
 signedOut.client.start()
 await signedOut.reply(0, {}, 401)
 assert.equal(signedOut.unauthorized, 1)
-assert.equal(await signedOut.client.send("hi"), false)
+assert.equal(await signedOut.client.send("hi", "starfan_42"), false)
 
 // Sending unavailable on this build hides the card.
 const unset = fixture()
@@ -88,7 +91,7 @@ assert.ok(interrupted.requests.every(({ options }) => options.method !== "POST")
 // An older status read cannot replace a send's newer status, even across navigation.
 const stale = fixture()
 stale.client.start()
-const pendingSend = stale.client.send("hello")
+const pendingSend = stale.client.send("hello", "starfan_42")
 await stale.reply(1, { state: "sending" }, 202)
 assert.equal(await pendingSend, true)
 await stale.reply(0, { state: "idle" })
@@ -100,12 +103,55 @@ assert.equal(stale.unauthorized, 0)
 await stale.reply(3, { state: "sent" })
 assert.equal(stale.states.at(-1).state, "sent")
 
-// A Discord username for a follow-up rides along only when given.
+// The Discord username is sent as typed; the device strips the @.
 {
   const followUp = fixture()
   followUp.client.start()
   await followUp.reply(0, { state: "idle", message: "", available: true })
   followUp.client.send("No video", "  @star.fan_42 ")
   assert.deepEqual(JSON.parse(followUp.requests[1].options.body), { message: "No video", discord: "@star.fan_42" })
+}
+
+// The Bluetooth Log uses the same client with its own route and wording.
+{
+  const requests = [], states = []
+  const client = new StarPortLogSend({ url: BLUETOOTH_SEND_URL, unavailable: "Sending the Bluetooth Log is unavailable",
+    publish: (state) => states.push(state), fetcher: (url) => { requests.push(url); return Promise.reject(new TypeError("offline")) },
+    schedule: () => 1, cancel: () => {} })
+  client.start()
+  await flush()
+  assert.equal(requests[0], "./api/controllers/log/send")
+  assert.equal(states.at(-1).error, "offline")
+  const failing = new StarPortLogSend({ url: BLUETOOTH_SEND_URL, unavailable: "Sending the Bluetooth Log is unavailable",
+    publish: (state) => states.push(state), fetcher: () => Promise.resolve({ ok: false, status: 503, json: async () => ({}) }),
+    schedule: () => 1, cancel: () => {} })
+  failing.start()
+  await flush()
+  assert.equal(states.at(-1).error, "Sending the Bluetooth Log is unavailable")
+}
+
+// Clicking Send with an empty field outlines it like the theme maker's save prompt, without sending.
+{
+  const { LogSendCard } = await import("../web/js/starport-logs.js")
+  const sent = [], focused = []
+  const card = { ...LogSendCard.data(), feed: { send: async (...args) => { sent.push(args); return true } },
+    $refs: { note: { focus: () => focused.push("note") }, discord: { focus: () => focused.push("discord") } } }
+  const submit = LogSendCard.methods.submit.bind(card)
+  await submit()
+  assert.deepEqual(card.missing, ["note", "discord"])
+  assert.deepEqual(focused, ["note"])
+  card.note = "No pad"
+  LogSendCard.watch.note.call(card, card.note)
+  assert.deepEqual(card.missing, ["discord"])
+  card.discord = "@"
+  await submit()
+  assert.deepEqual(card.missing, ["discord"])
+  assert.equal(sent.length, 0)
+  card.discord = "starfan_42"
+  await submit()
+  assert.deepEqual(card.missing, [])
+  assert.deepEqual(sent, [["No pad", "starfan_42"]])
+  assert.equal(card.note, "")
+  assert.match(LogSendCard.template, /gx-field--required/)
 }
 console.log("StarPort log send: Discord follow-up passed")

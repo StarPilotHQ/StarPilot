@@ -6,21 +6,21 @@ import { navigate } from "./router.js"
 import { SystemMonitor } from "./system-monitor.js"
 import { CrashReportsFeed } from "./crash-reports.js"
 import { storedSize } from "./record-deletion.js"
-import { StarPortLogsFeed, StarPortLogSend, BUNDLE_URL, MESSAGE_LIMIT, fileUrl, outcomeLabel } from "./starport-logs.js"
+import { StarPortLogsFeed, StarPortLogSend, LogSendCard, BLUETOOTH_SEND_URL, outcomeLabel } from "./starport-logs.js"
 import { MenuTile } from "./menu-tile.js"
-import { BluetoothNotice, bluetoothConnection } from "./bluetooth-notice.js"
 
 export const Logs = {
   name: "Logs",
-  components: { WikiHelp, GxState, GxNotice, BluetoothNotice, SystemMonitor, TroubleshootPage, TmuxPage, MenuTile },
+  components: { WikiHelp, GxState, GxNotice, LogSendCard, SystemMonitor, TroubleshootPage, TmuxPage, MenuTile },
   props: {
     path: { type: String, required: true }, mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
     tools: { type: Array, required: true }
   },
   data: () => ({
     crashes: { reports: [], scanIncomplete: false, listLimited: false, status: "idle", error: "", selected: null, preview: null, previewStatus: "idle", deleting: false, storageBytes: 0, reportCount: 0 }, search: "",
-    starportLogs: { sessions: [], others: [], status: "idle", error: "" }, bluetooth: bluetoothConnection(),
-    logSend: { state: "idle", message: "", available: true, fork: false, error: "" }, sendNote: "", sendDiscord: "", messageLimit: MESSAGE_LIMIT
+    starportLogs: { sessions: [], others: [], status: "idle", error: "" },
+    logSend: { state: "idle", message: "", available: true, fork: false, error: "" },
+    bluetoothSend: { state: "idle", message: "", available: true, fork: false, error: "" }
   }),
   computed: {
     visibleReports() { return this.crashes.reports.filter((item) => item.name.toLowerCase().includes(this.search.toLowerCase())) },
@@ -29,29 +29,29 @@ export const Logs = {
     this.crashFeed = new CrashReportsFeed({ publish: (update) => Object.assign(this.crashes, update), unauthorized: this.unauthorized })
     this.starportFeed = new StarPortLogsFeed({ publish: (update) => Object.assign(this.starportLogs, update), unauthorized: this.unauthorized })
     this.sendFeed = new StarPortLogSend({ publish: (update) => Object.assign(this.logSend, update), unauthorized: this.unauthorized })
+    this.bluetoothFeed = new StarPortLogSend({ url: BLUETOOTH_SEND_URL, unavailable: "Sending the Bluetooth Log is unavailable",
+      publish: (update) => Object.assign(this.bluetoothSend, update), unauthorized: this.unauthorized })
   },
   mounted() {
     if (this.path === "/logs/crashes" && this.mode === "local") this.crashFeed.start()
     if (this.path === "/logs/starport" && this.mode === "local") { this.starportFeed.start(); this.sendFeed.start() }
+    if (this.path === "/logs/bluetooth" && this.mode === "local") this.bluetoothFeed.start()
   },
-  beforeUnmount() { this.crashFeed.stop(); this.starportFeed.stop(); this.sendFeed.stop() },
+  beforeUnmount() { this.crashFeed.stop(); this.starportFeed.stop(); this.sendFeed.stop(); this.bluetoothFeed.stop() },
   watch: {
     path(next, previous) {
       if (next === "/logs/crashes" && this.mode === "local") this.crashFeed.start()
       else if (previous === "/logs/crashes") { this.crashFeed.stop(); this.search = "" }
       if (next === "/logs/starport" && this.mode === "local") { this.starportFeed.start(); this.sendFeed.start() }
       else if (previous === "/logs/starport") { this.starportFeed.stop(); this.sendFeed.stop() }
+      if (next === "/logs/bluetooth" && this.mode === "local") this.bluetoothFeed.start()
+      else if (previous === "/logs/bluetooth") this.bluetoothFeed.stop()
     },
   },
   methods: {
     storedSize,
     go: navigate,
-    bundleUrl: () => BUNDLE_URL,
-    fileUrl,
     outcomeLabel,
-    async sendLogs() {
-      if (await this.sendFeed.send(this.sendNote, this.sendDiscord)) this.sendNote = ""
-    },
     reportDate(seconds) { return new Date(seconds * 1000).toLocaleString() },
     reportSize(bytes) { return `${(bytes / 1024).toFixed(1)} KiB` },
     async copyPreview() {
@@ -70,6 +70,12 @@ export const Logs = {
           :availability="mode !== 'local' && tool.availability === 'local-only' ? 'Unavailable in preview' : ''"
           :disabled="mode !== 'local' && tool.availability === 'local-only'" @select="go(tool.path)" />
       </div>
+      <section v-else-if="path === '/logs/bluetooth' && mode === 'local'" class="gx-settings">
+        <header class="gx-settings__header gx-page-header"><div><h2>Bluetooth Log</h2>
+          <p>Sends the USB and Bluetooth input devices the comma sees to the developer.</p></div></header>
+        <LogSendCard v-if="bluetoothSend.available" :feed="bluetoothFeed" :state="bluetoothSend" title="Send Bluetooth Log">Connect the controller and wake it before sending. A short note and your Discord username are required.</LogSendCard>
+        <GxNotice v-else tone="warn">Sending isn't set up on this build.</GxNotice>
+      </section>
       <section v-else-if="path === '/logs/help'" class="gx-settings">
         <header class="gx-settings__header gx-page-header"><div><h2>Help & Community</h2><p>Guides and help from the community.</p></div><WikiHelp path="/logs/help" /></header>
         <section class="gx-card"><div class="gx-section__header"><i class="bi bi-discord" aria-hidden="true"></i><span class="gx-section__title">Discord</span></div>
@@ -98,23 +104,10 @@ export const Logs = {
       </template>
       <section v-else-if="path === '/logs/starport' && mode === 'local'" class="gx-settings gx-starport-logs" aria-labelledby="gx-starport-logs-title">
         <header class="gx-settings__header gx-page-header"><div><h2 id="gx-starport-logs-title">StarPort Logs</h2>
-          <p>The last 20 connection sessions, newest first. The archive includes every session, a readable report for each, StarPort settings, the car view's renderer logs, and a snapshot of the device (Wi-Fi, Bluetooth and kernel logs, build, CPU load). Hardware addresses are masked.</p></div><WikiHelp /></header>
-        <BluetoothNotice v-if="bluetooth" feature="Log downloads">Log summaries remain available.</BluetoothNotice>
-        <div class="gx-settings__controls gx-actions"><a v-if="!bluetooth" class="gx-btn" :href="bundleUrl()" download><i class="bi bi-file-earmark-zip" aria-hidden="true"></i><span>Download all logs</span><span class="gx-starport-logs__format">ZIP</span></a><button type="button" class="gx-btn gx-btn--tonal" @click="starportFeed.load()"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i><span>Refresh</span></button></div>
+          <p>The last 20 connection sessions, newest first. Sent logs include every session, a readable report for each, StarPort settings, the car view's renderer logs, and a snapshot of the device (Wi-Fi, Bluetooth and kernel logs, build, CPU load). Hardware addresses are masked.</p></div><WikiHelp /></header>
+        <div class="gx-settings__controls gx-actions"><button type="button" class="gx-btn gx-btn--tonal" @click="starportFeed.load()"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i><span>Refresh</span></button></div>
         <GxNotice v-if="logSend.fork" class="gx-starport-send__fork" tone="warn" title="This device is running a StarPilot fork">Custom forks may have changed StarPort or be out of date. Make sure your branch is up to date with StarPilotHQ before sending, or share the logs with your branch's maintainer or in the StarPilot Discord.</GxNotice>
-        <section v-if="logSend.available" class="gx-card gx-panel gx-starport-send" aria-labelledby="gx-starport-send-title">
-          <div class="gx-section__header"><i class="bi bi-send" aria-hidden="true"></i><span id="gx-starport-send-title" class="gx-section__title">Send StarPort logs</span></div>
-          <p class="gx-note">Only for StarPort issues. For anything else, ask in the Discord. Sends the same archive as Download all logs straight from the device. A short note about what happened is required.</p>
-          <div class="gx-starport-send__row">
-            <div class="gx-starport-send__field"><input class="gx-field" type="text" v-model="sendNote" :maxlength="messageLimit" placeholder="What happened?" aria-label="Note for the developer" :disabled="logSend.state === 'sending'" @keydown.enter="sendLogs"><span class="gx-starport-send__count" aria-live="polite">{{ sendNote.length }}/{{ messageLimit }}</span></div>
-            <input class="gx-field" type="text" v-model="sendDiscord" maxlength="40" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Discord username (optional)" aria-label="Discord username for a follow-up" :disabled="logSend.state === 'sending'" @keydown.enter="sendLogs">
-            <button type="button" class="gx-btn" :disabled="logSend.state === 'sending' || !sendNote.trim()" @click="sendLogs"><i class="bi bi-send" aria-hidden="true"></i><span>Send StarPort logs</span></button>
-          </div>
-          <GxState v-if="logSend.state === 'sending'" loading>{{ logSend.message || 'Sending logs' }}…</GxState>
-          <GxNotice v-else-if="logSend.state === 'sent'" tone="success">{{ logSend.message }}</GxNotice>
-          <GxNotice v-else-if="logSend.state === 'failed'" tone="danger">{{ logSend.message }}</GxNotice>
-          <GxNotice v-if="logSend.error" tone="danger">{{ logSend.error }}</GxNotice>
-        </section>
+        <LogSendCard v-if="logSend.available" :feed="sendFeed" :state="logSend" title="Send StarPort logs">Only for StarPort issues. For anything else, ask in the Discord. Sends every session with its report, StarPort settings, renderer logs and a device snapshot straight from the device. A short note and your Discord username are required.</LogSendCard>
 
         <GxState v-if="starportLogs.status === 'loading'" loading>Loading StarPort logs…</GxState>
         <GxNotice v-else-if="starportLogs.status === 'unavailable'" tone="danger">{{ starportLogs.error || 'StarPort logs are unavailable.' }}</GxNotice>
@@ -122,7 +115,6 @@ export const Logs = {
         <div v-if="starportLogs.status === 'ready'" class="gx-starport-log-list">
           <article v-for="log in starportLogs.sessions" :key="log.name" class="gx-card gx-starport-log">
             <div class="gx-starport-log__body"><strong>{{ outcomeLabel(log.outcome) }}</strong><span>{{ log.car || 'Car not identified' }}{{ log.transport ? ' · ' + log.transport : '' }}{{ log.trigger ? ' · ' + log.trigger : '' }}</span><span>{{ reportDate(log.modifiedAt) }} · {{ reportSize(log.size) }}</span></div>
-            <a v-if="!bluetooth" class="gx-icon-btn gx-starport-log__download" :href="fileUrl(log.name)" :download="log.name" :aria-label="'Download ' + log.name" :title="'Download ' + log.name"><i class="bi bi-download" aria-hidden="true"></i></a>
           </article>
         </div>
         <template v-if="starportLogs.status === 'ready' && starportLogs.others.length">
@@ -130,7 +122,6 @@ export const Logs = {
           <div class="gx-starport-log-list">
             <article v-for="log in starportLogs.others" :key="log.name" class="gx-card gx-starport-log">
               <div class="gx-starport-log__body"><strong>{{ log.name }}</strong><span>{{ reportDate(log.modifiedAt) }} · {{ reportSize(log.size) }}</span></div>
-              <a v-if="!bluetooth" class="gx-icon-btn gx-starport-log__download" :href="fileUrl(log.name)" :download="log.name" :aria-label="'Download ' + log.name" :title="'Download ' + log.name"><i class="bi bi-download" aria-hidden="true"></i></a>
             </article>
           </div>
         </template>

@@ -16,26 +16,7 @@ from openpilot.starpilot.galaxy.server import make_server
 from openpilot.starpilot.galaxy.starport_send import (DISCORD_FILE_LIMIT, MESSAGE_LIMIT, SendBusy, SendRejected, StarPortLogSender,
                                                       clean_discord, clean_message, send, thread_title)
 
-URL = "https://discord.example/api/webhooks/1/token"
-SUMMARY = {"device_id": "0123456789abcdef", "car_fingerprint": "HONDA_CIVIC_2022", "head_unit": "Honda Display Audio",
-           "branch": "Dom", "commit": "abcdef1234567890"}
-
-
-class Response:
-  def __init__(self, status_code=200, body=None):
-    self.status_code, self.body = status_code, body if body is not None else {"channel_id": "555"}
-
-  def json(self):
-    return self.body
-
-
-class Poster:
-  def __init__(self, *responses):
-    self.responses, self.calls = list(responses), []
-
-  def __call__(self, url, data, files, timeout):
-    self.calls.append({"url": url, "payload": json.loads(data["payload_json"]), "files": files})
-    return self.responses.pop(0)
+from openpilot.starpilot.galaxy.tests.discord_fakes import SUMMARY, URL, Poster, Response
 
 
 def query(call):
@@ -49,7 +30,7 @@ class SendTest(unittest.TestCase):
     self.threads = Path(temporary.name)
 
   def send(self, post, note="Dropped at the light", data=b"zip"):
-    return send(data, "logs.zip", note, SUMMARY, url=URL, post=post, thread_dir=self.threads)
+    return send(data, "logs.zip", note, SUMMARY, url=URL, post=post, thread_dir=self.threads, discord="starfan_42")
 
   def test_first_send_opens_a_device_thread_and_later_sends_reuse_it(self):
     first = Poster(Response(body={"channel_id": "555"}))
@@ -91,7 +72,7 @@ class SendTest(unittest.TestCase):
       self.send(poster, data=b"x" * (DISCORD_FILE_LIMIT + 1))
     self.assertEqual(poster.calls, [])
     with self.assertRaisesRegex(SendRejected, "isn't set up"):
-      send(b"zip", "logs.zip", "", SUMMARY, url="", post=poster, thread_dir=self.threads)
+      send(b"zip", "logs.zip", "", SUMMARY, url="", post=poster, thread_dir=self.threads, discord="starfan_42")
 
   def test_message_is_limited_and_single_line(self):
     self.assertEqual(MESSAGE_LIMIT, 60)
@@ -133,7 +114,7 @@ class SenderJobTest(unittest.TestCase):
 
     job = StarPortLogSender(bundle, sender=sender, summary=lambda: SUMMARY, url=lambda: URL, official=lambda: True)
     try:
-      self.assertEqual(job.start("hello")["state"], "sending")
+      self.assertEqual(job.start("hello", "starfan_42")["state"], "sending")
       self.assertTrue(sending.wait(2))
       self.assertEqual(job.status()["state"], "sending")
       self.assertEqual(sent, [])
@@ -146,7 +127,7 @@ class SenderJobTest(unittest.TestCase):
     self.assertEqual(status["state"], "sent")
     self.assertIn("snapshot was left out", status["message"])
     self.assertEqual(bundles, [True, False])
-    self.assertEqual(sent, [((b"x" * 10, "logs.zip", "hello", SUMMARY), {"discord": ""})])
+    self.assertEqual(sent, [((b"x" * 10, "logs.zip", "hello", SUMMARY), {"discord": "starfan_42"})])
 
   def test_one_send_at_a_time_and_failures_are_reported(self):
     release = threading.Event()
@@ -156,9 +137,9 @@ class SenderJobTest(unittest.TestCase):
       raise SendRejected("Discord refused the logs (HTTP 500).")
 
     job = StarPortLogSender(lambda **_: ("logs.zip", b"zip"), sender=sender, summary=lambda: SUMMARY, url=lambda: URL, official=lambda: True)
-    job.start("first")
+    job.start("first", "starfan_42")
     with self.assertRaises(SendBusy):
-      job.start("again")
+      job.start("again", "starfan_42")
     release.set()
     self.assertEqual(self.wait(job), {"state": "failed", "message": "Discord refused the logs (HTTP 500).", "available": True,
                                       "fork": False, "messageLimit": 60})
@@ -216,26 +197,25 @@ class SendHTTPTest(unittest.TestCase):
     status, body, _ = self.request("/api/starport/logs/send", headers={"Cookie": cookie})
     self.assertEqual((status, json.loads(body)["state"]), (200, "idle"))
 
-    status, body, _ = self.post({"message": "Black screen after unlock"}, cookie)
+    status, body, _ = self.post({"message": "Black screen after unlock", "discord": "starfan_42"}, cookie)
     self.assertEqual((status, json.loads(body)["state"]), (202, "sending"))
-    self.job.start.assert_called_once_with("Black screen after unlock", "")
-    self.assertEqual(self.post({"message": "hi", "discord": "starfan_42"}, cookie)[0], 202)
-    self.job.start.assert_called_with("hi", "starfan_42")
+    self.job.start.assert_called_once_with("Black screen after unlock", "starfan_42")
 
-    self.assertEqual(self.post({"message": "hi", "extra": 1}, cookie)[0], 400)
+    self.assertEqual(self.post({"message": "hi"}, cookie)[0], 400)
+    self.assertEqual(self.post({"message": "hi", "discord": "starfan_42", "extra": 1}, cookie)[0], 400)
+    self.assertEqual(self.job.start.call_count, 1)
     self.job.start.side_effect = SendRejected("Keep the message to 60 characters.")
-    self.assertEqual(self.post({"message": "x" * 61}, cookie)[0], 400)
+    self.assertEqual(self.post({"message": "x" * 61, "discord": "starfan_42"}, cookie)[0], 400)
     self.job.start.side_effect = SendBusy("StarPort logs are already being sent.")
-    self.assertEqual(self.post({"message": "hi"}, cookie)[0], 409)
+    self.assertEqual(self.post({"message": "hi", "discord": "starfan_42"}, cookie)[0], 409)
 
 
 
 class DiscordFollowUpTest(unittest.TestCase):
-  def test_a_handle_is_optional_and_checked(self):
-    self.assertEqual(clean_discord(""), "")
+  def test_a_handle_is_required_and_checked(self):
     self.assertEqual(clean_discord("  @star.fan_42 "), "star.fan_42")
     self.assertEqual(clean_discord("OldName#1234"), "OldName#1234")
-    for bad in ("x", "has space", "<@123>", "a" * 33, 5):
+    for bad in ("", "  ", "@", "x", "has space", "<@123>", "a" * 33, 5):
       with self.assertRaises(SendRejected):
         clean_discord(bad)
 
@@ -246,14 +226,12 @@ class DiscordFollowUpTest(unittest.TestCase):
       payload = post.calls[0]["payload"]
       self.assertIn("Follow-up: Discord `star.fan_42`", payload["content"])
       self.assertEqual(payload["allowed_mentions"], {"parse": []})
-      post = Poster(Response())
-      send(b"zip", "logs.zip", "", SUMMARY, url=URL, post=post, thread_dir=Path(directory))
-      self.assertIn("Follow-up: not requested", post.calls[0]["payload"]["content"])
 
-  def test_a_bad_handle_is_refused_before_anything_is_sent(self):
+  def test_a_missing_or_bad_handle_is_refused_before_anything_is_sent(self):
     job = StarPortLogSender(lambda **_: ("logs.zip", b"zip"), sender=mock.Mock(), summary=lambda: SUMMARY, url=lambda: URL, official=lambda: True)
-    with self.assertRaises(SendRejected):
-      job.start("hi", "not a handle")
+    for handle in ("not a handle", ""):
+      with self.assertRaises(SendRejected):
+        job.start("hi", handle)
     self.assertIsNone(job._thread)
 
   def test_a_failed_fork_check_is_raised_and_retried(self):
@@ -278,7 +256,7 @@ class DiscordFollowUpTest(unittest.TestCase):
                             official=lambda: False)
     self.assertEqual(job.status()["fork"], True)
     self.assertEqual(job.status()["available"], True)
-    job.start("hi")
+    job.start("hi", "starfan_42")
     job._thread.join(2)
     self.assertEqual(job.status()["state"], "sent")
     sender.assert_called_once()

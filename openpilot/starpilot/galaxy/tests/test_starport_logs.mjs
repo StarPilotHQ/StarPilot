@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { StarPortLogsFeed, BUNDLE_URL, fileUrl, outcomeLabel } from "../web/js/starport-logs.js"
+import { StarPortLogsFeed, outcomeLabel } from "../web/js/starport-logs.js"
 
 const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve() }
 function fixture() {
@@ -14,9 +14,6 @@ function fixture() {
   return { feed, requests, states, reply, get unauthorized() { return unauthorized } }
 }
 
-assert.equal(BUNDLE_URL, "./api/starport/logs/bundle")
-assert.equal(fileUrl("session-000002-20261005-094551.jsonl"), "./api/starport/logs/file/session-000002-20261005-094551.jsonl")
-assert.equal(fileUrl("a b/c"), "./api/starport/logs/file/a%20b%2Fc")
 assert.equal(outcomeLabel("failed: RFCOMM: timed out"), "Failed: RFCOMM: timed out")
 assert.equal(outcomeLabel(""), "Unknown")
 

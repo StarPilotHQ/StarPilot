@@ -554,7 +554,7 @@ input[type="range"].gx-slider:active::-moz-range-thumb {
 .gx-layout__color-values input[type="text"] { min-width: 0; width: 100%; font-family: ui-monospace, monospace; }
 .gx-layout__color input[type="range"] { width: 100%; accent-color: var(--primary); min-height: 36px; }
 .gx-layout__color > label { color: var(--on-surface-variant); }
-.gx-layout__savebar.gx-layout__savebar--leave, .gx-card.gx-layout__leave-dialog { --leave-glow: 0 0 0 1px var(--primary-glow), 0 0 24px var(--primary-glow); border: 1px solid var(--primary); box-shadow: var(--leave-glow); }
+.gx-layout__savebar.gx-layout__savebar--leave, .gx-card.gx-layout__leave-dialog, .gx-field.gx-field--required { --leave-glow: 0 0 0 1px var(--primary-glow), 0 0 24px var(--primary-glow); border: 1px solid var(--primary); box-shadow: var(--leave-glow); }
 /* One workspace structure at every size; panels replace long stacked controls. */
 .gx-layout { max-width: 1440px; margin-inline: auto; gap: 12px; }
 .gx-layout__workspace { grid-template-columns: minmax(0, 1.4fr) minmax(320px, 1fr); gap: 16px; }

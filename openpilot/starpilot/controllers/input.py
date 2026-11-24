@@ -7,6 +7,7 @@ from itertools import islice
 import os
 from pathlib import Path
 import re
+import secrets
 import stat
 import struct
 import time
@@ -95,20 +96,58 @@ def _button_capable(sysfs: Path) -> bool:
     any(ABS_HAT0X <= axis <= ABS_HAT3Y for axis in axes)
 
 
-def _inspect(path: Path) -> _Identity | None:
-  if not EVENT_NAME.fullmatch(path.name):
+def _external(name: str) -> tuple[Path, re.Match[str]] | None:
+  """The sysfs device and modalias of a USB or Bluetooth event node."""
+  if not EVENT_NAME.fullmatch(name):
     return None
-  sysfs = SYS_ROOT / path.name / "device"
+  sysfs = SYS_ROOT / name / "device"
   match = MODALIAS.match(_text(sysfs / "modalias"))
-  if match is None:
+  if match is None or int(match[1], 16) not in EXTERNAL_BUSES:
     return None
+  return sysfs, match
+
+
+def _inspect(path: Path) -> _Identity | None:
+  external = _external(path.name)
+  if external is None or not _button_capable(external[0]):
+    return None
+  sysfs, match = external
   bus, vendor, product, _version = (int(token, 16) for token in match.groups())
-  if bus not in EXTERNAL_BUSES or not _button_capable(sysfs):
-    return None
   name = _text(sysfs / "name") or "External input"
   uniq = _text(sysfs / "uniq")
   identity = f"{bus:04x}:{vendor:04x}:{product:04x}:{name.casefold()}:{uniq.casefold()}"
   return _Identity(path, hashlib.sha256(identity.encode()).hexdigest()[:20], name[:80], bus)
+
+
+def controller_input_report() -> dict:
+  """Snapshot external input interfaces, including ones omitted from Attached Controllers; names are masked."""
+  devices = []
+  groups: dict[str, list[str]] = {}
+  salt = secrets.token_bytes(8)  # equal names match within one report only
+  truncated = False
+  for entry in sorted(SYS_ROOT.iterdir()):
+    if (external := _external(entry.name)) is None:
+      continue
+    if len(devices) == MAX_CANDIDATES:
+      truncated = True
+      break
+    device, match = external
+    identity = _inspect(DEV_ROOT / entry.name)
+    if identity is not None:
+      groups.setdefault(identity.device_id, []).append(entry.name)
+    name = _text(device / "name")
+    devices.append({
+      "event": entry.name, "name": f"masked-{hashlib.sha256(salt + name.encode()).hexdigest()[:8]}" if name else "", "inputId": match[0],
+      "properties": _text(device / "properties"),
+      "capabilities": {key: _text(device / "capabilities" / key) for key in ("ev", "key", "rel", "abs")},
+      "discovery": "eligible" if identity else "filtered",
+      "eventNodePresent": (DEV_ROOT / entry.name).exists(),
+    })
+  duplicates = {event: events for events in groups.values() if len(events) > 1 for event in events}
+  for row in devices:
+    if row["event"] in duplicates:
+      row.update(discovery="duplicate identity", matchingEvents=duplicates[row["event"]])
+  return {"externalInputInterfaces": devices, "truncated": truncated}
 
 
 def _fresh(seconds: int, microseconds: int, now_ns: int) -> int | None:

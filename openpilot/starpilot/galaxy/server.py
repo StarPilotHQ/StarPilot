@@ -99,7 +99,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
                 sounds=None, software_operations=None, drive_stats=None, layout_preview_socket=None, controllers_socket=None,
                 remote_pairing=None, parked=None, camera_snapshot=None, clock=time.monotonic, starport_setup=None,
                 starport_client=None, navigation=None, offline_maps=None, drive_state=None, cloud_provider=None, cloud_offroad=None, projection_layout=None,
-                local_access=None, tmux_live=None, starport_logs=None, starport_log_sender=None, hotspot=None, toyota_tools=None,
+                local_access=None, tmux_live=None, starport_logs=None, starport_log_sender=None, bluetooth_log_sender=None, hotspot=None, toyota_tools=None,
                 replay_client=None, replay_root=None,
                 spotify_setup=None, companion=None, phone_location=None, reverse_proxy=None, local_hostnames=None, sound_preview=None):
   from openpilot.starpilot.galaxy.local_hostnames import LocalHostnames
@@ -165,6 +165,16 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
         source = starport_logs()
         starport_log_sender_source = StarPortLogSender(source.bundle, summary=lambda: device_summary(source.directory))
     return starport_log_sender_source
+  bluetooth_log_sender_source = bluetooth_log_sender
+  bluetooth_log_sender_lock = threading.Lock()
+
+  def bluetooth_log_sender():
+    nonlocal bluetooth_log_sender_source
+    with bluetooth_log_sender_lock:
+      if bluetooth_log_sender_source is None:
+        from openpilot.starpilot.galaxy.bluetooth_send import sender
+        bluetooth_log_sender_source = sender()
+    return bluetooth_log_sender_source
   software_source = software
   software_operations_source = software_operations
   software_lock = threading.Lock()
@@ -1013,37 +1023,18 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
       elif path == '/api/starport/logs/send':
         if self.require_session():
           self.json(200, starport_log_sender().status())
-      elif path == '/api/starport/logs' or path.startswith('/api/starport/logs/'):
+      elif path == '/api/starport/logs':
         if not self.require_session():
           return
-        from openpilot.starpilot.galaxy.starport_logs import LogMissing, LogsUnavailable
-        name = unquote(path.removeprefix('/api/starport/logs/file/')) if path.startswith('/api/starport/logs/file/') else None
-        if name is not None and not re.fullmatch(r'[\w.-]{1,128}', name):
-          self.json(400, {'error': 'Invalid log name'})
-          return
-        if path not in ('/api/starport/logs', '/api/starport/logs/bundle') and name is None:
-          self.json(404, {'error': 'Not found'})
-          return
+        from openpilot.starpilot.galaxy.starport_logs import LogsUnavailable
         try:
-          if path == '/api/starport/logs':
-            result = starport_logs().list()
-          elif name is None:
-            result = starport_logs().bundle()
-          else:
-            result = starport_logs().file(name)
-        except LogMissing:
-          self.json(404, {'error': 'That log is no longer kept; refresh the list'})
+          result = starport_logs().list()
         except LogsUnavailable:
           self.json(503, {'error': 'Android Auto logs are unavailable'})
         else:
           # The session can be revoked while logs are read; check again right before sending them.
-          if not self.require_session():
-            return
-          if path == '/api/starport/logs':
+          if self.require_session():
             self.json(200, result)
-          else:
-            filename, body = result
-            self.attachment(filename, body, 'application/zip' if filename.endswith('.zip') else 'text/plain; charset=utf-8')
       elif path.startswith('/api/navigation/map/tiles/'):
         if not self.require_session():
           return
@@ -1233,6 +1224,9 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
           self.json(200, {'valid': True})
         else:
           self.json(410, {'valid': False})
+      elif path == '/api/controllers/log/send':
+        if self.require_session():
+          self.json(200, bluetooth_log_sender().status())
       elif path == '/api/controllers/status':
         if not self.require_session():
           return
@@ -1743,7 +1737,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
                       '/api/galaxy/pair', '/api/galaxy/unpair', '/api/galaxy/device-name', '/api/galaxy/hotspot', '/api/galaxy/networks',
                       '/api/cameras/snapshot', '/api/cameras/white-balance',
                       '/api/starport/layout', '/api/starport/enable', '/api/starport/control', '/api/starport/pairing',
-                      '/api/starport/logs/send',
+                      '/api/starport/logs/send', '/api/controllers/log/send',
                       '/api/starport/pairing/response', '/api/starport/pairing/cancel', '/api/starport/pairing/select',
                       '/api/spotify/enable', '/api/spotify/key', '/api/spotify/preferences', '/api/spotify/control', '/api/spotify/maintenance',
                       '/api/ui/layout', '/api/ui/layout/preview', '/api/favorites/slots',
@@ -2522,9 +2516,9 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
           else:
             self.json(401, {'error': 'Sign in to Galaxy'})
         return
-      if path == '/api/starport/logs/send':
-        if type(payload) is not dict or set(payload) not in ({'message'}, {'message', 'discord'}):
-          self.json(400, {'error': 'Invalid StarPort log send request'})
+      if path in ('/api/starport/logs/send', '/api/controllers/log/send'):
+        if type(payload) is not dict or set(payload) != {'message', 'discord'}:
+          self.json(400, {'error': 'Invalid log send request'})
           return
         identity = self.settings_session()
         if identity is None:
@@ -2532,7 +2526,8 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
           return
         from openpilot.starpilot.galaxy.starport_send import SendBusy, SendRejected
         try:
-          result = starport_log_sender().start(payload['message'], payload.get('discord', ''))
+          job = starport_log_sender() if path == '/api/starport/logs/send' else bluetooth_log_sender()
+          result = job.start(payload['message'], payload['discord'])
         except SendRejected as error:
           self.json(400, {'error': str(error)})
         except SendBusy as error:

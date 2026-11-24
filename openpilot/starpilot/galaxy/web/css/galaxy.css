@@ -939,14 +939,11 @@ background: var(--glass-bg-hover);
 .gx-crash-preview { margin-top: var(--sp-3); }
 .gx-crash-preview__head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); overflow-wrap: anywhere; }
 .gx-starport-logs { width: min(100%, 960px); margin-inline: auto; }
-.gx-starport-logs__format { padding: 2px 7px; border-radius: var(--radius-full); background: rgba(255, 255, 255, .16); font-size: var(--fs-xs); letter-spacing: .04em; }
 .gx-starport-log-list { display: grid; gap: var(--sp-3); }
 .gx-starport-log { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--sp-4); margin: 0; padding: var(--sp-4); cursor: default; }
 .gx-starport-log__body { display: grid; gap: var(--sp-1); min-width: 0; }
 .gx-starport-log__body strong { line-height: 1.35; overflow-wrap: anywhere; }
 .gx-starport-log__body span { color: var(--text-muted); font-size: var(--fs-sm); line-height: 1.45; overflow-wrap: anywhere; }
-.gx-starport-log__download { flex: none; width: var(--touch-target); height: var(--touch-target); border: 1px solid var(--glass-border); background: var(--primary-container); color: var(--on-primary-container); }
-.gx-starport-log__download:hover { background: var(--primary); color: var(--on-primary); }
 .gx-starport-logs__section-title { margin: var(--sp-6) 0 var(--sp-3); }
 .gx-starport-send__fork { justify-content: center; text-align: center; margin-block: var(--sp-4); }
 .gx-starport-send__fork .gx-alert__body { flex: 0 1 auto; }

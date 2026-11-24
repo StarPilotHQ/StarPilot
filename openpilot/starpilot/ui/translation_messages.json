@@ -4553,12 +4553,6 @@
       ]
     },
     {
-      "source": "Download all logs",
-      "refs": [
-        "openpilot/starpilot/galaxy/web/js/logs.js"
-      ]
-    },
-    {
       "source": "Download all logs (.tar)",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/route-workspace.js"
@@ -8509,12 +8503,6 @@
       "source": "Local vehicle selection is unavailable in preview.",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/vehicle-controls.js"
-      ]
-    },
-    {
-      "source": "Log summaries remain available.",
-      "refs": [
-        "openpilot/starpilot/galaxy/web/js/logs.js"
       ]
     },
     {
@@ -17439,12 +17427,6 @@
       "source": "The large UI road-camera color effect on StarPort (not shown in the preview).",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/onroad-layout-template.js"
-      ]
-    },
-    {
-      "source": "The last 20 connection sessions, newest first. The archive includes every session, a readable report for each, StarPort settings, the car view's renderer logs, and a snapshot of the device (Wi-Fi, Bluetooth and kernel logs, build, CPU load). Hardware addresses are masked.",
-      "refs": [
-        "openpilot/starpilot/galaxy/web/js/logs.js"
       ]
     },
     {

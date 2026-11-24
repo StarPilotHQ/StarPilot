@@ -26,6 +26,7 @@ _WEBHOOK_DATA = "".join(("GwAVAgNVXVtJBRwEHAEQTxEfAl0VXQVAEBYRHA4dGxxdRRhaWlJLRE
 DISCORD_FILE_LIMIT = 10 * 1024 * 1024 - 64 * 1024  # 10 MiB attachment limit, with room for the form fields
 THREAD_CACHE_WARNING = "The forum thread could not be remembered on this device. The next upload may create another post."
 CONTROL = re.compile(r"[\x00-\x1f\x7f]+")
+STARPORT_FIELDS = (("Head unit", "head_unit"), ("Setup", "setup"), ("Handshake", "handshake"))
 
 
 class SendRejected(Exception):
@@ -41,17 +42,17 @@ def official_install() -> bool:
   return is_official_repo(device_metadata().get("repo"))
 
 
-def webhook_url(override_path: Path = WEBHOOK_OVERRIDE_PATH) -> str:
+def webhook_url(override_path: Path = WEBHOOK_OVERRIDE_PATH, key: bytes = _WEBHOOK_KEY, encoded: str = _WEBHOOK_DATA) -> str:
   try:
     override = override_path.read_text().strip()
   except (OSError, UnicodeError):
     override = ""
   if override:
     return override
-  if not _WEBHOOK_DATA:
+  if not encoded:
     return ""
-  data = base64.b64decode(_WEBHOOK_DATA)
-  return bytes(byte ^ _WEBHOOK_KEY[index % len(_WEBHOOK_KEY)] for index, byte in enumerate(data)).decode()
+  data = base64.b64decode(encoded)
+  return bytes(byte ^ key[index % len(key)] for index, byte in enumerate(data)).decode()
 
 
 def clean_message(value) -> str:
@@ -66,16 +67,18 @@ def clean_message(value) -> str:
 
 
 def clean_discord(value) -> str:
-  """An optional Discord username for a follow-up, without the leading @; "" when none was given."""
+  """The required Discord username for a follow-up, without the leading @."""
   if not isinstance(value, str):
     raise SendRejected("The Discord username must be text.")
   handle = value.strip().removeprefix("@")
-  if handle and not DISCORD_HANDLE.fullmatch(handle):
+  if not handle:
+    raise SendRejected("Add your Discord username so we can follow up.")
+  if not DISCORD_HANDLE.fullmatch(handle):
     raise SendRejected("That doesn't look like a Discord username.")
   return handle
 
 
-def _car_fingerprint() -> str:
+def car_fingerprint() -> str:
   from openpilot.common.params import Params
   from openpilot.starpilot.saved_source import read_saved
   raw, readable = read_saved(Params(), "CarParamsPersistent", 1 << 20)
@@ -128,7 +131,7 @@ def _handshake(log_dir: Path | None, logs_to_check: int = 3) -> str:
 def device_summary(log_dir: Path | None = None) -> dict:
   from openpilot.starpilot.system.starport.bugsink_transport import device_metadata
   summary = device_metadata()
-  for key, read in (("car_fingerprint", _car_fingerprint), ("head_unit", lambda: _head_unit(log_dir)), ("setup", lambda: _setup(log_dir)),
+  for key, read in (("car_fingerprint", car_fingerprint), ("head_unit", lambda: _head_unit(log_dir)), ("setup", lambda: _setup(log_dir)),
                     ("handshake", lambda: _handshake(log_dir))):
     try:
       summary[key] = read()
@@ -163,25 +166,24 @@ def _save_thread_id(path: Path, key: str, thread_id: str) -> None:
 
 
 def send(data: bytes, name: str, note: str, summary: dict, url: str | None = None, post=None,
-         thread_dir: Path | None = None, discord: str = "") -> str | None:
+         thread_dir: Path | None = None, *, discord: str, heading: str = "StarPort logs", fields=STARPORT_FIELDS,
+         content_type: str = "application/zip", title: str | None = None) -> str | None:
   """Post the zip; return a cache warning after success, or raise SendRejected on an upload failure."""
   url = webhook_url() if url is None else url
   if not url:
-    raise SendRejected("Sending isn't set up on this build. Use Download all logs and send the file instead.")
+    raise SendRejected("Sending isn't set up on this build.")
   if len(data) > DISCORD_FILE_LIMIT:
-    raise SendRejected(f"The logs are {len(data) / 1e6:.1f} MB, over Discord's 10 MB limit. Use Download all logs instead.")
+    raise SendRejected(f"The logs are {len(data) / 1e6:.1f} MB, over Discord's 10 MB limit.")
   if post is None:
     import requests
     post = requests.post
   dongle_id = summary.get("device_id") or "device"
-  lines = [f"**StarPort logs from {device_tag(summary)}**",
+  lines = [f"**{heading} from {device_tag(summary)}**",
            f"Car: {summary.get('car_fingerprint') or 'unknown'}",
-           f"Head unit: {summary.get('head_unit') or 'unknown'}",
-           f"Setup: {summary.get('setup') or 'unknown'}",
-           f"Handshake: {summary.get('handshake') or 'unknown'}",
+           *(f"{label}: {summary.get(key) or 'unknown'}" for label, key in fields),
            f"Repo {summary.get('repo', '?')} · Branch {summary.get('branch', '?')} @ {str(summary.get('commit', '?'))[:10]}",
            f"Note: {note.strip() or '(none)'}",
-           f"Follow-up: Discord `{discord}`" if discord else "Follow-up: not requested"]
+           f"Follow-up: Discord `{discord}`"]
   payload = {"content": "\n".join(lines)[:1900], "username": "StarPilot diagnostics", "allowed_mentions": {"parse": []}}
 
   parts = urlsplit(url)
@@ -209,13 +211,13 @@ def send(data: bytes, name: str, note: str, summary: dict, url: str | None = Non
       query["thread_id"] = cached_id
     elif not explicit_thread:
       query.pop("thread_id", None)
-      payload["thread_name"] = thread_title(summary)
+      payload["thread_name"] = title or thread_title(summary)
     post_url = urlunsplit(parts._replace(query=urlencode(query)))
 
     try:
-      response = post(post_url, data={"payload_json": json.dumps(payload)}, files={"files[0]": (name, data, "application/zip")}, timeout=120)
+      response = post(post_url, data={"payload_json": json.dumps(payload)}, files={"files[0]": (name, data, content_type)}, timeout=120)
     except Exception as error:
-      raise SendRejected(f"Could not send the logs: {type(error).__name__}. Check the internet connection, or use Download all logs.") from error
+      raise SendRejected(f"Could not send the logs: {type(error).__name__}. Check the internet connection.") from error
 
     # Unknown Channel means the cached thread was deleted (Discord answers 400 for webhooks, 404 elsewhere).
     # Unknown Webhook does not.
@@ -231,7 +233,7 @@ def send(data: bytes, name: str, note: str, summary: dict, url: str | None = Non
   if response.status_code not in (200, 204):
     reason = str(_response_json(response).get("message") or "")[:120]
     detail = f"HTTP {response.status_code}{f': {reason}' if reason else ''}"
-    raise SendRejected(f"Discord refused the logs ({detail}). Use Download all logs instead.")
+    raise SendRejected(f"Discord refused the logs ({detail}).")
 
   if not explicit_thread and not cached_id:
     new_thread_id = _response_json(response).get("channel_id")
@@ -249,8 +251,9 @@ class StarPortLogSender:
 
   def __init__(self, bundle: Callable[..., tuple[str, bytes]], *, sender: Callable[..., str | None] = send,
                summary: Callable[[], dict] = device_summary, url: Callable[[], str] = webhook_url,
-               official: Callable[[], bool] = official_install):
+               official: Callable[[], bool] = official_install, busy: str = "StarPort logs are already being sent."):
     self._bundle, self._sender, self._summary, self._url, self._official = bundle, sender, summary, url, official
+    self._busy = busy
     self._lock = threading.Lock()
     self._thread: threading.Thread | None = None
     self._state = {"state": "idle", "message": ""}
@@ -262,11 +265,11 @@ class StarPortLogSender:
         self._fork = not self._official()
       return {**self._state, "available": bool(self._url()), "fork": self._fork, "messageLimit": MESSAGE_LIMIT}
 
-  def start(self, message, discord="") -> dict:
+  def start(self, message, discord) -> dict:
     note, handle = clean_message(message), clean_discord(discord)
     with self._lock:
       if self._thread is not None and self._thread.is_alive():
-        raise SendBusy("StarPort logs are already being sent.")
+        raise SendBusy(self._busy)
       self._state = {"state": "sending", "message": "Collecting logs"}
       self._thread = threading.Thread(target=self._run, args=(note, handle), name="starport_log_send", daemon=True)
       self._thread.start()
@@ -291,4 +294,4 @@ class StarPortLogSender:
     except SendRejected as error:
       self._set(state="failed", message=str(error)[:400])
     except Exception as error:
-      self._set(state="failed", message=f"Could not send the logs: {type(error).__name__}. Use Download all logs instead.")
+      self._set(state="failed", message=f"Could not send the logs: {type(error).__name__}.")

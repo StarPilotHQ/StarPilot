@@ -1,4 +1,4 @@
-"""Android Auto logs in Logs & Diagnostics: the read-only reader and its authenticated download routes."""
+"""Android Auto logs in Logs & Diagnostics: the read-only reader and its authenticated list route."""
 
 import http.client
 import io
@@ -11,9 +11,8 @@ from unittest import mock
 import zipfile
 
 from openpilot.starpilot.galaxy.access import GalaxyAccessOwner
-from openpilot.starpilot.galaxy.starport_logs import StarPortLogs, LogMissing
+from openpilot.starpilot.galaxy.starport_logs import StarPortLogs
 from openpilot.starpilot.galaxy.server import make_server
-from openpilot.starpilot.system.starport import system_snapshot
 
 SESSION = "\n".join(json.dumps(event) for event in (
   {"t": "2026-10-05T16:45:51.000+00:00", "event": "session_start", "receiver": "Honda CIVIC", "trigger": "auto"},
@@ -51,14 +50,8 @@ class StarPortLogsReaderTest(unittest.TestCase):
     self.assertEqual(session["trigger"], "auto")
     self.assertEqual([item["name"] for item in listing["others"]], ["car_ui.log"])
 
-  def test_serves_only_listed_logs(self):
-    self.assertEqual(self.reader.file("car_ui.log"), ("car_ui.log", b"car view pipeline: nv12, async readback\n"))
-    for name in ("notes.txt", "../config.json", "missing.jsonl", ""):
-      with self.assertRaises(LogMissing):
-        self.reader.file(name)
+  def test_symlinked_logs_are_not_listed(self):
     (self.logs / "render_profile.txt").symlink_to(self.config)
-    with self.assertRaises(LogMissing):
-      self.reader.file("render_profile.txt")
     self.assertNotIn("render_profile.txt", [item["name"] for item in self.reader.list()["others"]])
 
   def test_bundle_is_a_zip_without_bluetooth_addresses(self):
@@ -98,9 +91,7 @@ class StarPortLogsHTTPTest(unittest.TestCase):
     self.server.server_close()
 
   def request(self, path, *, method="GET", body=None, headers=None):
-    # Bundles include the real bounded system report; allow cleanup and ZIP/HTTP delivery.
-    timeout = system_snapshot.DEADLINE_SECONDS + 3 if path == "/api/starport/logs/bundle" else 2
-    connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=timeout)
+    connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=2)
     try:
       connection.request(method, path, body=body, headers={"Forwarded": "for=203.0.113.8", **(headers or {})})
       response = connection.getresponse()
@@ -116,14 +107,11 @@ class StarPortLogsHTTPTest(unittest.TestCase):
 
   def test_requires_a_session_before_reading_anything(self):
     self.assertTrue(self.owner.configure("password123", lambda: True))
-    with mock.patch.object(self.reader, "list", wraps=self.reader.list) as listing, \
-         mock.patch.object(self.reader, "bundle", wraps=self.reader.bundle) as bundle:
-      for path in ("/api/starport/logs", "/api/starport/logs/bundle", "/api/starport/logs/file/car_ui.log"):
-        self.assertEqual(self.request(path)[0], 401)
+    with mock.patch.object(self.reader, "list", wraps=self.reader.list) as listing:
+      self.assertEqual(self.request("/api/starport/logs")[0], 401)
       listing.assert_not_called()
-      bundle.assert_not_called()
 
-  def test_list_file_and_bundle_downloads(self):
+  def test_list(self):
     self.assertTrue(self.owner.configure("password123", lambda: True))
     cookie = {"Cookie": self.login()}
     status, body, headers = self.request("/api/starport/logs", headers=cookie)
@@ -131,24 +119,13 @@ class StarPortLogsHTTPTest(unittest.TestCase):
     self.assertEqual(headers["Cache-Control"], "no-store")
     self.assertEqual(len(json.loads(body)["sessions"]), 2)
 
-    status, body, headers = self.request("/api/starport/logs/file/session-000001-20261004-221339.jsonl", headers=cookie)
-    self.assertEqual(status, 200)
-    self.assertEqual(headers["Content-Disposition"], 'attachment; filename="session-000001-20261004-221339.jsonl"')
-    self.assertEqual(body.decode(), SESSION)
-
-    status, body, headers = self.request("/api/starport/logs/bundle", headers=cookie)
-    self.assertEqual(status, 200)
-    self.assertEqual(headers["Content-Type"], "application/zip")
-    self.assertRegex(headers["Content-Disposition"], r'^attachment; filename="starpilot-starport-logs-\d{8}-\d{6}\.zip"$')
-    with zipfile.ZipFile(io.BytesIO(body)) as archive:
-      self.assertIn("REPORT.txt", archive.namelist())
-
-  def test_unknown_and_invalid_names(self):
+  def test_logs_cannot_be_downloaded(self):
     self.assertTrue(self.owner.configure("password123", lambda: True))
     cookie = {"Cookie": self.login()}
-    self.assertEqual(self.request("/api/starport/logs/file/notes.txt", headers=cookie)[0], 404)
-    self.assertEqual(self.request("/api/starport/logs/file/..%2Fconfig.json", headers=cookie)[0], 400)
-    self.assertEqual(self.request("/api/starport/logs/other", headers=cookie)[0], 404)
+    with mock.patch.object(self.reader, "bundle") as bundle:
+      for path in ("/api/starport/logs/bundle", "/api/starport/logs/file/car_ui.log"):
+        self.assertEqual(self.request(path, headers=cookie)[0], 404)
+      bundle.assert_not_called()
 
 
 if __name__ == "__main__":

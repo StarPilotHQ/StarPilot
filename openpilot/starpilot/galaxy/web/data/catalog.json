@@ -68,6 +68,13 @@
           "availability": "local-only"
         },
         {
+          "name": "Bluetooth Log",
+          "path": "/logs/bluetooth",
+          "icon": "bi-controller",
+          "description": "Send a USB and Bluetooth controller report",
+          "availability": "local-only"
+        },
+        {
           "name": "StarPort Logs",
           "path": "/logs/starport",
           "icon": "bi-phone",

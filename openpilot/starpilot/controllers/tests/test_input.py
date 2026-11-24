@@ -260,3 +260,41 @@ def test_device_and_scan_candidate_caps(kernel):
   reader.poll(NOW + source.RESCAN_NS)
   assert reader.devices() == []
   reader.close()
+
+
+def test_report_includes_filtered_and_duplicate_external_interfaces(monkeypatch, tmp_path):
+  kernel = Kernel(monkeypatch, tmp_path)
+  kernel.device(1, bus=5)
+  kernel.device(2, bus=5)
+  kernel.device(3, bus=5, keys=(115,), rel=(0, 1))
+  kernel.device(4, bus=5, name="Media", keys=(115,))
+  kernel.device(5, bus=1)
+  report = source.controller_input_report()
+  rows = report["externalInputInterfaces"]
+  assert [row["discovery"] for row in rows] == ["duplicate identity", "duplicate identity", "filtered", "eligible"]
+  assert rows[0]["matchingEvents"] == ["event1", "event2"]
+  assert rows[2]["capabilities"]["rel"] == "3"
+  assert not report["truncated"]
+  assert not kernel.path_by_fd
+
+
+def test_report_masks_names(monkeypatch, tmp_path):
+  kernel = Kernel(monkeypatch, tmp_path)
+  kernel.device(1, bus=5, name="Danny's Pad")
+  kernel.device(2, bus=5, name="Danny's Pad", uniq="02")
+  kernel.device(3, bus=5, name="Media", keys=(115,))
+  report = source.controller_input_report()
+  names = [row["name"] for row in report["externalInputInterfaces"]]
+  assert all(name.startswith("masked-") for name in names)
+  assert names[0] == names[1] != names[2]
+  assert "Danny" not in str(report) and "Media" not in str(report)
+  assert source.controller_input_report()["externalInputInterfaces"][0]["name"] != names[0]
+
+
+def test_report_is_capped(monkeypatch, tmp_path):
+  kernel = Kernel(monkeypatch, tmp_path)
+  for index in range(source.MAX_CANDIDATES + 1):
+    kernel.device(index, bus=5, uniq=str(index))
+  report = source.controller_input_report()
+  assert len(report["externalInputInterfaces"]) == source.MAX_CANDIDATES
+  assert report["truncated"]
