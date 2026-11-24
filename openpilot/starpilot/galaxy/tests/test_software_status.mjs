@@ -561,6 +561,23 @@ const ready = { actionDisabled: false, draftBranch: "Dom", operations: { canInst
 assert.equal(SoftwarePage.computed.canUpdate.call(ready), true)
 SoftwarePage.methods.askUpdate.call(ready)
 assert.equal(ready.installed, true)
+// Browsing Stable does not retarget an already-downloaded Testing update.
+const returnToStable = page('stable', ['stable', 'testing'], 'testing')
+returnToStable.draftBranch = 'stable'
+returnToStable.data.updater = { ...updater, targetBranch: 'testing', targetChangeFound: false, finalizedUpdateReady: true }
+returnToStable.operations = { ...returnToStable.operations, canInstall: false, canFastUpdate: true }
+Object.defineProperty(returnToStable, 'branchChanging', { get: () => SoftwarePage.computed.branchChanging.call(returnToStable) })
+assert.equal(returnToStable.branchChanging, true)
+assert.equal(SoftwarePage.computed.canUpdate.call(returnToStable), true)
+SoftwarePage.methods.askUpdate.call(returnToStable)
+assert.equal(returnToStable.dialog.action, 'update')
+assert.equal(returnToStable.dialog.branch, 'stable')
+assert.equal(returnToStable.dialog.label, 'Switch & restart')
+returnToStable.data.updater.finalizedUpdateReady = false
+assert.equal(SoftwarePage.computed.updateAvailable.call(returnToStable), false)
+assert.equal(returnToStable.branchChanging, true, 'a different branch can be installed even if there are no updates on the current branch')
+assert.equal(SoftwarePage.computed.canUpdate.call(returnToStable), true)
+
 const automatic = fixture()
 automatic.feed.start()
 await automatic.reply(0, snapshot({ operations: { ...operations, canFastUpdate: true } }))

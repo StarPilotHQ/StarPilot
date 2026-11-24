@@ -422,11 +422,14 @@ export const SoftwarePage = {
       return null
     },
     updateAvailable() { return this.data?.updater.targetChangeFound === true || this.data?.updater?.finalizedUpdateReady === true },
+    branchChanging() {
+      return !!this.draftBranch && !!this.data?.installed.branch && this.draftBranch !== this.data.installed.branch
+    },
     osUpdateRequired() { return this.data?.updater.osUpdate?.required === true &&
       this.data.updater.osUpdate.branch === (this.draftBranch || this.operations?.selectedTarget) &&
       this.data.updater.osUpdate.branch === this.data.updater.targetBranch },
     canUpdate() {
-      if (this.data?.updater?.finalizedUpdateReady && this.draftBranch === this.operations?.selectedTarget) return this.operations.canInstall
+      if (this.operations?.canInstall && this.draftBranch === this.operations.selectedTarget) return true
       return this.operations?.canFastUpdate === true && this.branchOptions.some(branch => branch.name === this.draftBranch && branch.available)
     },
     updateBanner() {
@@ -628,10 +631,11 @@ export const SoftwarePage = {
     askUpdate() {
       const branch = this.draftBranch || this.operations?.selectedTarget || this.data?.installed?.branch
       if (this.actionDisabled || !branch) return
-      if (this.data?.updater?.finalizedUpdateReady && branch === this.operations?.selectedTarget) return this.askInstall()
+      if (this.operations?.canInstall && branch === this.operations.selectedTarget) return this.askInstall()
       if (this.operations?.canFastUpdate !== true) return
-      this.dialog = { action: "update", branch, title: "Update software",
-        message: `Install the latest version of ${branch} and restart?`, label: "Update & restart" }
+      const switching = this.branchChanging
+      this.dialog = { action: "update", branch, title: switching ? "Switch software branch" : "Update software",
+        message: `Install the latest version of ${branch} and restart?`, label: switching ? "Switch & restart" : "Update & restart" }
     },
     loadHistory(event) {
       if (!event.target.open || this.operations?.history || this.busy) return
@@ -702,7 +706,7 @@ export const SoftwarePage = {
           </div>
           <div v-if="!initialChecking && !updateProgress" class="gx-actions">
             <button type="button" class="gx-btn gx-btn--tonal" :disabled="metadataActionDisabled || !operations?.canCheck" @click="feed.action('check')">Check for updates</button>
-            <button v-if="updateAvailable || branchChanging" type="button" class="gx-btn" :disabled="actionDisabled || !canUpdate" @click="askUpdate">Update</button>
+            <button v-if="updateAvailable || branchChanging" type="button" class="gx-btn" :disabled="actionDisabled || !canUpdate" @click="askUpdate">{{ branchChanging ? 'Switch to ' + branchLabel(draftBranch) : 'Update' }}</button>
           </div>
           <div v-if="backgroundProgress" class="gx-update-progress" role="status" aria-live="polite">
             <div class="gx-update-progress__heading"><span>Background download · {{ backgroundProgress.label }}</span><span v-if="backgroundProgress.percent !== null">{{ Math.round(backgroundProgress.percent) }}%</span></div>
