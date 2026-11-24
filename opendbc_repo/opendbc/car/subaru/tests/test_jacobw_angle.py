@@ -145,9 +145,10 @@ def test_hackathon_filter_updates_at_control_rate(speed, tau):
   assert not any(frame[0] == 0x124 for frame in odd_sends)
   assert controller.angle_filter.x == pytest.approx(.1 * (1. - (1. - alpha) ** 2))
   command.latActive = False
+  state.out.steeringAngleDeg = .3
   command.actuators.steeringAngleDeg = -.2
   controller.update(command.as_reader(), state, 1_020_000_000)
-  assert controller.angle_filter.x == command.actuators.steeringAngleDeg
+  assert controller.angle_filter.x == state.out.steeringAngleDeg
 
 
 def test_hackathon_geometry_is_scoped_and_native_bound_remains_strict():

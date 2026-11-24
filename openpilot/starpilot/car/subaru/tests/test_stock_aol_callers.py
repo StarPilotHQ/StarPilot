@@ -164,8 +164,13 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
           if 225 <= tick < 260:
             values['Steering_Torque'].update(Steering_Angle=100, Steer_Torque_Sensor=94)
             values['Wheel_Speeds'] = dict.fromkeys(('FL', 'FR', 'RL', 'RR'), 8)
+        if vm_angle_handoff and tick >= 90:
+          values['Steering_2']['Steering_Angle'] = ci.CC.apply_angle_last
         if angle_continuation:
-          values['Steering_2']['Steering_Angle'] = ci.CC.apply_angle_last if tick < 90 else 0
+          angle = ci.CC.apply_angle_last
+          if reverse:
+            angle -= min(abs(angle), 3.) * (1 if angle > 0 else -1)
+          values['Steering_2']['Steering_Angle'] = angle
           values['Wheel_Speeds'] = dict.fromkeys(('FL', 'FR', 'RL', 'RR'), 17.28)
         if paused_eps:
           values['Dashlights'] = {'LEFT_BLINKER': int(90 <= tick < 115)}
@@ -397,7 +402,7 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
               if output != 0:
                 active_emissions.append(tick)
             if 165 <= tick < 180 or 240 <= tick < 255 or not aol and (125 <= tick < 145 or 205 <= tick < 220 or 280 <= tick < 300):
-              if angle_handoff:
+              if angle_handoff or angle_continuation:
                 assert not request and abs(output - cs.steeringAngleDeg) <= 0.011, (tick, decoded_steering)
               else:
                 assert not request and output == 0, (tick, decoded_steering)

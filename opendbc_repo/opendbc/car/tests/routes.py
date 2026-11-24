@@ -22,6 +22,7 @@ from opendbc.car.mg.values import CAR as MG
 
 # Configurations with source tests but no matching recorded route.
 unrecorded_route_gaps = {
+  SUBARU.SUBARU_CROSSTREK_2018: "subaru/tests/test_supported_firmware.py",
   GM.CHEVROLET_VOLT_CC: "gm/tests/test_volt_cc_gas.py",
   GM.CHEVROLET_MALIBU_HYBRID_CC: "gm/tests/test_ordinary_cc.py",
   TOYOTA.TOYOTA_PRIUS_RETROFIT: "toyota/tests/test_retrofit.py",

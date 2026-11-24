@@ -69,6 +69,19 @@ class TestSupportedSubaruFirmware(unittest.TestCase):
             self.assertTrue(cp.pcmCruise)
             self.assertEqual(cp.safetyConfigs[0].safetyParam, word)
 
+  def test_early_crosstrek_shares_firmware_but_has_distinct_vehicle_params(self):
+    platform = CAR.SUBARU_CROSSTREK_2018
+    self.assertNotIn(platform, FW_VERSIONS)
+    shared = FW_VERSIONS[CAR.SUBARU_IMPREZA]
+    live = {(address, sub): {versions[0]} for (_, address, sub), versions in shared.items()}
+    self.assertEqual(match_fw_to_car_exact(live, match_brand='subaru', log=False), {CAR.SUBARU_IMPREZA})
+    for release in (False, True):
+      cp = CarInterface.get_params(platform, {0: {}, 1: {}, 2: {}}, [], False, release, False)
+      self.assertEqual(cp.carFingerprint, platform)
+      self.assertFalse(cp.dashcamOnly)
+      self.assertTrue(cp.pcmCruise)
+      self.assertFalse(cp.openpilotLongitudinalControl or cp.alphaLongitudinalAvailable)
+
   def test_three_byte_diagnostic_response_is_not_a_camera_identity(self):
     for platform in (CAR.SUBARU_ASCENT_2023, CAR.SUBARU_LEGACY_2025):
       for versions in FW_VERSIONS[platform].values():

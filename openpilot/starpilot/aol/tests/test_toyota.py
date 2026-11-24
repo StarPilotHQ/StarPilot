@@ -2,7 +2,7 @@ import unittest
 
 from opendbc.car import Bus, gen_empty_fingerprint, structs
 from opendbc.can import CANPacker
-from opendbc.car.toyota.interface import CarInterface
+from opendbc.car.toyota.interface import CarInterface, prepare_camera_stock_acc
 from opendbc.car.toyota.values import CAR, DBC, ToyotaFlags
 from openpilot.starpilot.aol.intent import AolSettings
 from openpilot.starpilot.aol.vehicle import policy_for
@@ -81,9 +81,21 @@ class TestHighlanderAol(unittest.TestCase):
           preferences.finalize(cp)
           self.assertEqual(cp.alternativeExperience, 160 if hold else 32)
           self.assertTrue(qualified(cp, marked_only=True))
-          cp.safetyConfigs[0].safetyParam = 585
-          cp.openpilotLongitudinalControl = False
-          self.assertFalse(qualified(cp))
+          self._assert_camera_stock_handoff(cp, hold)
+
+  def _assert_camera_stock_handoff(self, cp, hold):
+    stock = cp.as_reader().as_builder()
+    if hold:
+      stock.safetyConfigs[0].safetyParam = 585
+      stock.openpilotLongitudinalControl = False
+      self.assertFalse(qualified(stock))
+    else:
+      prepare_camera_stock_acc(stock, requested=True)
+      self.assertEqual(stock.safetyConfigs[0].safetyParam, 585)
+      self.assertFalse(stock.openpilotLongitudinalControl)
+      self.assertTrue(qualified(stock, marked_only=True))
+      stock.pcmCruise = False
+      self.assertFalse(qualified(stock))
 
   def test_prius_filter_exact_profile_and_startup_transport(self):
     from opendbc.car.toyota.prius_longitudinal import prepare_stock
@@ -201,10 +213,7 @@ class TestHighlanderAol(unittest.TestCase):
               bad = cp.as_reader().as_builder()
               bad.flags |= int(flag)
               self.assertFalse(qualified(bad, marked_only=True))
-            bad = cp.as_reader().as_builder()
-            bad.safetyConfigs[0].safetyParam = 585
-            bad.openpilotLongitudinalControl = False
-            self.assertFalse(qualified(bad))
+            self._assert_camera_stock_handoff(cp, hold)
     # The separately paired DSU port supports legacy IS with stock LONG.
     cp = CarInterface.get_params(CAR.LEXUS_IS, gen_empty_fingerprint(), [], True, False, False)
     self.assertTrue(qualified(cp))

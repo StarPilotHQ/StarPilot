@@ -13,8 +13,11 @@ from openpilot.starpilot.car.subaru.tests.caller_helpers import actual_factory, 
 @pytest.mark.parametrize('manual', [False, True])
 @pytest.mark.parametrize('aol', [False, True])
 def test_actual_factory_frozen_default(candidate, manual, aol):
-  fw = firmware_records(candidate, FW_VERSIONS, 'subaru')
-  with actual_factory(candidate, gen_empty_fingerprint(), fw, '0' * 17, manual=manual, aol=aol) as (card, params, _):
+  shared_early_fw = candidate == CAR.SUBARU_CROSSTREK_2018
+  fw_candidate = CAR.SUBARU_IMPREZA if shared_early_fw else candidate
+  vin = 'JF2GTAAC0JH000001' if shared_early_fw else '0' * 17
+  fw = firmware_records(fw_candidate, FW_VERSIONS, 'subaru')
+  with actual_factory(candidate, gen_empty_fingerprint(), fw, vin, manual=manual, aol=aol, firmware_candidate=fw_candidate) as (card, params, _):
     assert card.CP.flags & MARKER
     expected = .4 if candidate == CAR.SUBARU_OUTBACK_2023 else 0.
     assert read_frozen(card.CP, params) == expected
