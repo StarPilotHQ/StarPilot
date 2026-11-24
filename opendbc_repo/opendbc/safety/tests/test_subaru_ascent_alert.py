@@ -18,7 +18,7 @@ class TestSubaruAscentAlert(unittest.TestCase):
     return libsafety_py.make_CANPacket(0x3C4, bus, data)
 
   def test_exact_parameter_bus_checksum_length_and_forwarding(self):
-    for flags in (0, 1, 0x11, 0xB1, 0x800, 0x811, 0x891, 0x8B3, 0x9B1):
+    for flags in (0, 1, 0x11, 0xB1, 0x800, 0x810, 0x815, 0x891, 0x8B3, 0x9B1):
       self.mode(flags)
       self.assertFalse(self.safety.safety_tx_hook(self.packet()), hex(flags))
       self.assertEqual(self.safety.safety_fwd_hook(2, 0x3C4), 0)
@@ -28,7 +28,7 @@ class TestSubaruAscentAlert(unittest.TestCase):
         self.mode(flags)
         self.assertFalse(self.safety.safety_tx_hook(self.packet()), hex(flags))
         self.assertEqual(self.safety.safety_fwd_hook(2, 0x3C4), 0)
-    for flags in (0x8B1, 0x91, 401) + ((1169, 1425) if debug else ()):
+    for flags in (0x811, 0x8B1, 0x91, 401) + ((1169, 1425) if debug else ()):
       self.mode(flags)
       self.assertTrue(self.safety.safety_tx_hook(self.packet()), hex(flags))
       self.assertEqual(self.safety.safety_fwd_hook(2, 0x3C4), -1)
