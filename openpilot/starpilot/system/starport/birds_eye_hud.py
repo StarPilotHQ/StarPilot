@@ -40,9 +40,8 @@ music card: a smoked tint under a bright rim.
   drawn ring with three spokes when the texture cannot be loaded.
 - Drive mode: EXPERIMENTAL (the comma's orange) or CHILL from selfdriveState.experimentalMode, dimmed while
   selfdriveState.enabled is false.
-- Follow distance: selfdriveState.personality as one to three gap bars (hudControl.leadDistanceBars) with its name,
-  TRAFFIC in its own colour while starpilotCarState.trafficModeEnabled, and the measured time gap to
-  radarState.leadOne (dRel / vEgo) while a lead is present and the car moves.
+- Follow distance: selfdriveState.personality as one to three gap bars (hudControl.leadDistanceBars) with its name.
+  The setting only: no measured gap, and traffic mode is not shown.
 A widget whose service has not been seen is not drawn.
 
 Per frame this is a handful of rectangles, a few cached-text draws and at most three texture quads; nothing allocates.
@@ -109,7 +108,6 @@ SHADOW = (0, 0, 0)
 DOT = (182, 182, 182)                                        # the arc's centre dot
 WHEEL_IDLE = (84, 90, 104)                                   # the badge while lateral is not active
 EXPERIMENTAL = (255, 155, 63)                                # the comma's experimental-mode orange
-TRAFFIC = (96, 190, 255)
 DIMMED = 110                                                 # alpha of the mode chip's text while not enabled
 
 
@@ -375,8 +373,7 @@ class DriveMode:
 @dataclass(frozen=True)
 class FollowReading:
   bars: int                # 1..3, hudControl.leadDistanceBars
-  label: str               # the personality's name, or TRAFFIC
-  traffic: bool
+  label: str               # the personality's name
 
 
 def _message(sm, name: str):
@@ -424,16 +421,15 @@ def personality_index(personality) -> int | None:
 
 
 def read_follow(sm) -> FollowReading | None:
-  """The driving personality as gap bars, traffic mode and the measured time gap; None before selfdriveState."""
+  """The driving personality as gap bars and its name; None before selfdriveState."""
   try:
     state = _message(sm, 'selfdriveState')
     index = personality_index(getattr(state, 'personality', None)) if state is not None else None
     if index is None:
       return None
-    traffic = bool(getattr(_message(sm, 'starpilotCarState'), 'trafficModeEnabled', False))
   except (AttributeError, KeyError, TypeError):
     return None
-  return FollowReading(index + 1, 'TRAFFIC' if traffic else PERSONALITIES[index], traffic)
+  return FollowReading(index + 1, PERSONALITIES[index])
 
 
 @dataclass(frozen=True)
@@ -856,7 +852,7 @@ class BirdsEyeHud:
   def _draw_follow(self, follow: FollowReading, rect, k: float) -> None:
     rl = self.rl
     x, y, w, h = rect
-    rgb = TRAFFIC if follow.traffic else ACTUAL
+    rgb = ACTUAL
     # The gap icon: bars widening toward the car, the nearest `bars` of them lit.
     icon_w = GAP_BARS[0][0] * k
     centre = x + icon_w / 2

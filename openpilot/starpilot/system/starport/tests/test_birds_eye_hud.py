@@ -557,9 +557,8 @@ def test_the_clock_sits_at_the_top_right_in_twelve_hour_time():
 
 
 # --- status cluster ---
-def status_sm(*, angle=12.4, lat_active=True, experimental=False, enabled=True, personality=1, traffic=None,
-              lead=None, v_ego=20.0):
-  """lead: dRel in metres of a present leadOne, or None for no lead. traffic=None: starpilotCarState unseen."""
+def status_sm(*, angle=12.4, lat_active=True, experimental=False, enabled=True, personality=1, lead=None, v_ego=20.0):
+  """lead: dRel in metres of a present leadOne, or None for no lead."""
   car_state = SimpleNamespace(aEgo=0.0, brakePressed=False, leftBlinker=False, rightBlinker=False, vCruise=255.0,
                               vCruiseCluster=255.0, cruiseState=SimpleNamespace(enabled=False), vEgo=v_ego,
                               steeringAngleDeg=angle)
@@ -568,8 +567,6 @@ def status_sm(*, angle=12.4, lat_active=True, experimental=False, enabled=True, 
               'selfdriveState': SimpleNamespace(experimentalMode=experimental, enabled=enabled,
                                                 personality=SimpleNamespace(raw=personality)),
               'radarState': SimpleNamespace(leadOne=SimpleNamespace(present=lead is not None, dRel=lead or 0.0))}
-  if traffic is not None:
-    messages['starpilotCarState'] = SimpleNamespace(trafficModeEnabled=traffic)
   return FakeSM(**messages)
 
 
@@ -598,12 +595,10 @@ def test_drive_mode_reader():
 def test_follow_reader():
   from openpilot.starpilot.system.starport.birds_eye_hud import FollowReading, personality_index, read_follow
   for raw, name in enumerate(('AGGRESSIVE', 'STANDARD', 'RELAXED')):
-    assert read_follow(status_sm(personality=raw)) == FollowReading(raw + 1, name, False), 'bars = raw + 1'
+    assert read_follow(status_sm(personality=raw)) == FollowReading(raw + 1, name), 'bars = raw + 1'
   assert personality_index(2) == 2 and personality_index('relaxed') == 2 and personality_index(SimpleNamespace(raw=0)) == 0
   assert personality_index(7) is None and personality_index(None) is None and personality_index('sport') is None
-  traffic = read_follow(status_sm(personality=0, traffic=True))
-  assert (traffic.bars, traffic.label, traffic.traffic) == (1, 'TRAFFIC', True)
-  assert read_follow(status_sm(traffic=False)).label == 'STANDARD'
+  assert read_follow(status_sm()).label == 'STANDARD'
   assert not hasattr(hud_module, 'time_gap') and read_follow(status_sm(lead=36.0)) == read_follow(status_sm()), 'the setting only, no measured gap'
   assert read_follow(sm()) is None, 'selfdriveState unseen'
   unreadable = status_sm()
@@ -813,9 +808,8 @@ def test_drive_mode_chip_is_orange_in_experimental_and_dims_while_not_enabled():
 def test_follow_row_draws_gap_bars_and_the_setting_name():
   from openpilot.starpilot.system.starport.birds_eye_hud import status_geometry
   g = status_geometry(*LOGICAL_720P)
-  state = {'personality': 0, 'traffic': False, 'lead': None}
-  view, rl, text = status_hud(lambda: (status_sm(personality=state['personality'], traffic=state['traffic'],
-                                                 lead=state['lead'], v_ego=20.0), None))
+  state = {'personality': 0, 'lead': None}
+  view, rl, text = status_hud(lambda: (status_sm(personality=state['personality'], lead=state['lead'], v_ego=20.0), None))
 
   def inside(x, y):
     return g.follow[0] <= x < g.follow[0] + g.follow[2] and g.follow[1] <= y < g.follow[1] + g.follow[3]
@@ -835,11 +829,7 @@ def test_follow_row_draws_gap_bars_and_the_setting_name():
     assert bars[0][1][1] > bars[1][1][1] > bars[2][1][1] and bars[0][1][2] > bars[2][1][2], 'nearest bar lowest and widest'
     assert [entry[0] for entry in texts] == [name] and texts[0][4] == (*hud_module.ACTUAL, 255)
     assert texts[0][2] > bars[0][1][0] + bars[0][1][2], 'the name sits right of the icon'
-  state.update(traffic=True)
-  bars, texts = frame()
-  assert texts[0][0] == 'TRAFFIC' and texts[0][4] == (*hud_module.TRAFFIC, 255) and bars[0][-1][:3] == hud_module.TRAFFIC
-  assert hud_module.TRAFFIC not in (hud_module.ACTUAL, hud_module.EXPERIMENTAL, hud_module.GREEN)
-  state.update(traffic=False, personality=0, lead=36.0)
+  state.update(personality=0, lead=36.0)
   bars, texts = frame()
   assert [entry[0] for entry in texts] == ['AGGRESSIVE'], 'a lead adds no time gap: the setting only'
   assert bars[0][1][0] == pytest.approx(g.follow[0]), 'the icon starts at the left edge, under the speed readout'
@@ -858,7 +848,7 @@ def test_status_widgets_wait_for_their_services():
 
 
 def test_cpu_cost_per_frame_with_the_status_cluster_is_small():
-  messages = status_sm(experimental=True, traffic=False, lead=36.0)
+  messages = status_sm(experimental=True, lead=36.0)
   view, _, _ = status_hud(lambda: (messages, None))
   view.render(*LOGICAL_720P)
   start = time.perf_counter()
