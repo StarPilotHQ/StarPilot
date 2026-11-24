@@ -399,6 +399,7 @@ export function recordedSteeringView(value) {
       value.points[0][0] !== value.source_start_ns || value.points.at(-1)[0] !== value.source_end_ns) return null
   return { errorRms: value.error_rms, samples: value.samples, windows: value.windows, route: value.route,
     segment: value.segment, units: value.domain === 'lateral_acceleration' ? 'm/s²' : 'degrees',
+    followedRepeatedRequest: value.domain === 'lateral_acceleration' && value.observation === 'followed_repeated_steering_request',
     points: value.points.map(([ns, desired, actual]) => ({ at: (ns - value.source_start_ns) / 1e6, desired, actual })) }
 }
 

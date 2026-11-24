@@ -1,15 +1,54 @@
 """Broader original observations remain separate from automatic qualification."""
 from dataclasses import replace
+from math import pi, sin
 from types import SimpleNamespace
 
 import pytest
 
 from openpilot.starpilot.flm.offroad_evidence import RouteWindow, window_identity
-from openpilot.starpilot.flm.offroad_processor import CompletedAssessment, _assess_inputs
+from openpilot.starpilot.flm.offroad_processor import CompletedAssessment, _assess_inputs, _recorded_tracking
 from openpilot.starpilot.flm.offroad_stable_bridge import StableRouteSelector
 from openpilot.starpilot.flm.offroad_stable_policy import FLMSample
 from openpilot.starpilot.flm.tests.test_offroad_backend import scope, values
 from openpilot.starpilot.flm.tests import test_offroad_coordinate_policy as fixtures
+
+
+@pytest.mark.parametrize('case', ('followed', 'steady_curve', 'lane_change', 'uncommanded', 'gap'))
+def test_report_displays_repeated_steering_request_only_with_matching_original_response(case):
+  # Keep a genuine 0.4 s delay between the request and measured response.
+  def requested(t):
+    if case in ('steady_curve', 'uncommanded'):
+      return .1
+    if case == 'lane_change':
+      return .08 * sin(pi * t / 12)
+    return .075 * sin(2 * pi * t / 4.5)
+
+  collected, _ = fixtures.TestCrossDriveEvidence.inputs(1)
+  base = next(iter(collected.windows.values()))[0].points[0]
+  windows = []
+  for w in range(6):
+    if case == 'gap' and w == 3:
+      continue
+    points = []
+    for i in range(200):
+      t = (200 * w + i) / 100
+      actual = .08 * sin(2 * pi * t / 4.5) if case == 'uncommanded' else requested(t - .4)
+      points.append(replace(base, speed_mps=26., mono_ns=base.mono_ns + (200 * w + i) * 10_000_000,
+                            desired=requested(t), actual=actual))
+    points = tuple(points)
+    windows.append(RouteWindow(window_identity(points), points))
+
+  inputs = {base.context_key: windows}
+  result = _recorded_tracking(inputs, inputs)
+  assert result is not None
+  assert result['windows'] == len(windows)
+  assert result['points'][0] == [base.mono_ns, windows[0].points[0].desired, windows[0].points[0].actual]
+  if case == 'followed':
+    assert result['observation'] == 'followed_repeated_steering_request'
+    assert result['source_end_ns'] == windows[-1].points[-1].mono_ns
+  else:
+    assert 'observation' not in result
+    assert result['source_end_ns'] == windows[0].points[-1].mono_ns
 
 
 def mixed_drive(number):

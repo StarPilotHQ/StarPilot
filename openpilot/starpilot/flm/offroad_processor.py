@@ -3,12 +3,13 @@
 from dataclasses import asdict, dataclass, field, replace
 from bisect import bisect_left
 import hashlib
+from statistics import fmean
 
 from openpilot.starpilot.flm.offroad_analysis import analyze, MAX_WINDOWS, cohort, _spread, MAX_COHORT_WINDOWS
 from openpilot.starpilot.flm.offroad_baseline_windows import baseline_windows
 from openpilot.starpilot.flm.canonical_surface_adapter import NAMES as AMPLITUDE_NAMES
 from openpilot.starpilot.flm.offroad_residual import analyze_stable_windows
-from openpilot.starpilot.flm.offroad_evidence import read_point, whole_windows, eligible_points, tracking_metrics, window_demand
+from openpilot.starpilot.flm.offroad_evidence import read_point, whole_windows, eligible_points, tracking_metrics, window_demand, MAX_GAP_NS
 from openpilot.starpilot.flm.offroad_route import (
   latest_route, walk_completed_route, RouteInputCancelled, RouteReceipt, SelectedSourceReceipt, PartialRouteReceipt, route_permission,
 )
@@ -119,8 +120,67 @@ def _separate_qualification(report, continuous, *, proposal_windows=None, route_
   ]
 
 
-def _recorded_tracking(windows):
-  """Measured route summary and one input-ordered window, never a trial result."""
+def _repeated_request_span(windows):
+  """Find near-center oscillation the car followed in contiguous original windows."""
+  section = []
+  best = ()
+  best_variance = 0.0
+  for window in windows:
+    points = window.points
+    first = points[0]
+    if window.domain != 'lateral_acceleration' or any(p.speed_mps < 15 for p in points):
+      section.clear()
+      continue
+    if section:
+      last = section[-1][-1]
+      if (first.route, first.segment, first.context_key) != (last.route, last.segment, last.context_key) or not (
+        0 < first.mono_ns - last.mono_ns <= MAX_GAP_NS
+      ):
+        section.clear()
+    section.append(points)
+    if len(section) < 6:
+      continue
+
+    span = tuple(p for part in section for p in part)
+    section.pop(0)
+    start = span[0].mono_ns
+    sample = _spread(span, 61)
+    if len(sample) != 61 or any(abs(p.mono_ns - start - i * 200_000_000) > MAX_GAP_NS for i, p in enumerate(sample)):
+      continue
+    desired = [p.desired for p in sample]
+    if fmean(map(abs, desired)) > .18 or max(map(abs, desired)) > .35:
+      continue
+
+    # Require four alternating excursions with at least 0.6 s between them.
+    mean = fmean(desired)
+    side = last_change = changes = 0
+    for i, value in enumerate(desired):
+      if abs(value - mean) >= .025:
+        current = 1 if value > mean else -1
+        if current != side and (not side or i - last_change >= 3):
+          changes += bool(side)
+          side, last_change = current, i
+    if changes < 3:
+      continue
+
+    # Compare to the original request at short, plausible response lags.
+    # Neither this observation nor its illustrative lag supplies tuning evidence.
+    actual = [p.actual for p in sample[3:]]
+    center = fmean(actual)
+    variance = fmean((a - center) ** 2 for a in actual)
+    if variance < .025 ** 2 or variance <= best_variance:
+      continue
+    for lag in range(4):
+      errors = [a - d for a, d in zip(actual, desired[3 - lag:len(desired) - lag], strict=True)]
+      bias = fmean(errors)
+      if fmean((e - bias) ** 2 for e in errors) <= .20 * variance:
+        best, best_variance = span, variance
+        break
+  return best
+
+
+def _recorded_tracking(windows, raw_windows):
+  """Measured route summary and one observed section, never a trial result."""
   import math
 
   ordered = sorted((w for rows in windows.values() for w in rows), key=lambda w: (w.points[0].segment, w.points[0].mono_ns))
@@ -128,19 +188,22 @@ def _recorded_tracking(windows):
     return None
   samples = sum(len(w.points) for w in ordered)
   squared_error = sum((p.desired - p.actual) ** 2 for w in ordered for p in w.points)
-  first = ordered[0]
+  raw = sorted((w for rows in raw_windows.values() for w in rows), key=lambda w: (w.points[0].route, w.points[0].segment, w.points[0].mono_ns))
+  repeated = _repeated_request_span(raw) if ordered[0].domain == 'lateral_acceleration' else ()
+  points = repeated or ordered[0].points
   return {
     'version': 1,
-    'domain': first.domain,
+    'domain': points[0].domain,
     'samples': samples,
     'windows': len(ordered),
     'error_rms': math.sqrt(squared_error / samples),
-    'route': first.points[0].route,
-    'segment': first.points[0].segment,
-    'source_start_ns': first.points[0].mono_ns,
-    'source_end_ns': first.points[-1].mono_ns,
-    'points': [[p.mono_ns, p.desired, p.actual] for p in _spread(first.points, 64)],
+    'route': points[0].route,
+    'segment': points[0].segment,
+    'source_start_ns': points[0].mono_ns,
+    'source_end_ns': points[-1].mono_ns,
+    'points': [[p.mono_ns, p.desired, p.actual] for p in _spread(points, 64)],
     'sampling': 'input_ordered_original_endpoints_no_interpolation',
+    **({'observation': 'followed_repeated_steering_request'} if repeated else {}),
   }
 
 
@@ -658,6 +721,6 @@ def _assess_inputs(route, collected, previous, *, permitted, sources=None, route
   counts['diagnostic_whole_windows'] = sum(map(len, raw_windows.values()))
   return CompletedAssessment(
     receipt, reports, counts, state['cp'], (), route, tuple(quality_stops), tuple(diagnostic), tuple(stable),
-    _recorded_tracking(proposal_windows) or _recorded_tracking(raw_windows), sources,
+    _recorded_tracking(proposal_windows, raw_windows) or _recorded_tracking(raw_windows, raw_windows), sources,
   )
 
