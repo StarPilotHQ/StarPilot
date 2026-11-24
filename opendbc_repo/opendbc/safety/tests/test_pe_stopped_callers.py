@@ -380,7 +380,9 @@ def test_recorded_pe_stock_wheel_cutoff_withdraws_native_output_without_new_butt
     assert case.safety.aol_get_permission_mask() == int(moving)
     assert bool(case.safety.safety_tx_hook(case.command(word, counter))) is moving
     if not moving:
-      assert case.safety.safety_tx_hook(case.command(word, counter, active=False))
+      inactive = case.command(word, counter, active=False)
+      assert not case.safety.safety_tx_hook(inactive)
+      assert case.safety.safety_fwd_hook(2, inactive[0].addr) == 0
 
 
 @pytest.mark.parametrize('identity', ['HYUNDAI_IONIQ_5_PE', 'KIA_EV9'])

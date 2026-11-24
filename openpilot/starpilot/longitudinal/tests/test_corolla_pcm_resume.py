@@ -67,7 +67,7 @@ def test_corolla_resume_evidence_requires_current_car_and_plan(monkeypatch):
   inputs.resume_freshness = ResumeFreshness()
   inputs.ev9_long_enabled = inputs.toyota_sienna_replay = inputs.toyota_sienna_production = False
   inputs.toyota_corolla_stop = True
-  inputs._toyota_leads = lambda: (MOVING_LEAD,)
+  monkeypatch.setattr(inputs, "_toyota_leads", lambda: (MOVING_LEAD,))
   publish()
   assert not inputs._vehicle_context(True).toyota_resume_fresh
   now[0] += 20_000_000

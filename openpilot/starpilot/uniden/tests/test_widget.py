@@ -308,8 +308,9 @@ def detector_shell(monkeypatch):
   clock = [100.]
   monkeypatch.setattr(runtime_app, 'ui_state', state)
   monkeypatch.setattr(runtime_app.time, 'monotonic', lambda: clock[0])
-  shell = NS(detector_feed=Mock(), _detector_checked_at=-runtime_app.DETECTOR_CHECK_S, _detector_configured=False)
-  return lambda: runtime_app.StarShellSession._poll_detector(shell), shell, state, saved, clock
+  shell = runtime_app.StarShellSession.__new__(runtime_app.StarShellSession)
+  shell.detector_feed = Mock()
+  return shell._poll_detector, shell, state, saved, clock
 
 
 def test_detector_polls_whenever_onroad_even_with_the_screen_off(detector_shell):

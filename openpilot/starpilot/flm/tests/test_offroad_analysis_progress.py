@@ -133,6 +133,7 @@ class TestAnalysisProgress(unittest.TestCase):
     from types import SimpleNamespace
     from openpilot.common.params import Params
     from openpilot.starpilot.flm import offroad_worker as module
+    from openpilot.starpilot.flm.offroad_history import EvidenceBank
     from openpilot.starpilot.flm.offroad_route import RouteReceipt
     from openpilot.starpilot.flm.tests.test_offroad_backend import scope
 
@@ -156,9 +157,10 @@ class TestAnalysisProgress(unittest.TestCase):
            patch.object(module, 'route_inventory', return_value={'scanIncomplete': False, 'routes': routes}):
         worker = module.OffroadWorker(Params(str(root / 'params')), root / 'logs', root / 'cache', permitted=lambda: True,
                                      assessor=assess, scope_for=lambda *_: scope())
-        worker.evidence_bank = SimpleNamespace(revision=lambda: revision[0])
-        for name in [*routes, routes[0], routes[0]]:
-          self.assertEqual(worker.run_once()['completed_route'], name['routeId'])
+        worker.evidence_bank = EvidenceBank(worker.cache.directory)
+        with patch.object(worker.evidence_bank, 'revision', side_effect=lambda: f'{revision[0]:064x}'):
+          for name in [*routes, routes[0], routes[0]]:
+            self.assertEqual(worker.run_once()['completed_route'], name['routeId'])
         self.assertEqual(reads, [*routes, routes[0]])
 
   def test_checking_callback_stays_active_and_retains_recording_queue(self):
