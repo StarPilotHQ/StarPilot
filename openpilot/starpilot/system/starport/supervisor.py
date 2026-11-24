@@ -1,27 +1,11 @@
-"""Android Auto session supervisor: owns every stage, deadline, retry and cleanup.
-
-One session, started by the user or by auto-connect (see auto_connect.py), runs
-in one worker thread:
-
-  idle -> connecting_bluetooth -> discovering -> rfcomm -> wifi_start -> wifi_info
-       -> joining_wifi -> connecting_tcp -> authenticating -> negotiating -> streaming
-  streaming <-> suspended (head unit showing its own screen)
-  failure -> cleanup -> backoff -> retry          stop -> cleanup -> idle
-
-Each attempt has a generation number; Stop cancels immediately (sockets are
-closed from the caller's thread to unblock I/O). Between retries the projection
-network is released without restoring the previous Wi-Fi, which happens once,
-on Stop. Nothing here runs as root or touches vehicle control.
-"""
+"""Own Android Auto connection attempts, deadlines, retries and cleanup."""
 
 from __future__ import annotations
 
 import errno
 import ipaddress
-import json
 import math
 import os
-import queue
 import socket
 import threading
 import time
@@ -34,12 +18,13 @@ from typing import Any
 
 from openpilot.common.hardware import COMMA_HARDWARE
 from openpilot.starpilot.system.starport import (car_profiles, device_health, head_unit_fixes, identity as identity_store, quirk_state,
-                                                 reachability, setup_ladder, system_slice)
+                                                 reachability, setup_ladder)
 from openpilot.starpilot.system.starport import reconnect_notice
 from openpilot.starpilot.system.starport.adapter_syslog import AdapterSyslog
 from openpilot.starpilot.system.starport.auto_connect import AutoConnectPolicy
 from openpilot.starpilot.system.starport.bootstrap import MODERN_MAJOR, NAMES, BootstrapError, BootstrapTimeout, WirelessBootstrap
 from openpilot.starpilot.system.starport.bugsink_report import PairingAttempt
+from openpilot.starpilot.system.starport.event_log import EventLog
 from openpilot.starpilot.system.starport.frame_source import (DEFAULT_PATH as DEFAULT_FRAME_PATH, FLAG_ASYNC_READBACK, FLAG_NV12,
                                                                   FORMAT_NV12, FrameRequest)
 from openpilot.starpilot.system.starport.projection_control import DEFAULT_CONTROL_SOCKET, NATIVE_FOCUS
@@ -62,8 +47,6 @@ TCP_ATTEMPTS = 6
 PATIENT_TCP_SECONDS = 60.0  # owner toggle: keep retrying a refused projection connection this long
 STANDARD_AA_PORT = 5288
 VERSION_WAIT_SECONDS = 90.0
-MAX_LOG_FILES = 20
-LOG_QUEUE_MAX = 1000          # session log records waiting for the writer; past this they are dropped and counted
 ENCODER_RECOVERIES = 3       # hardware encoder reopens allowed per window before the session is torn down
 ENCODER_RECOVERY_WINDOW = 10.0
 CAR_LINK_HOLD = 10.0         # a hands-free connection from the car counts as "car present" this long
@@ -82,7 +65,6 @@ USB_CONFIGURE_WAIT = 15.0    # slower receivers need time to enumerate after the
 LINK_CHECK_INTERVAL = 1.0    # how often the link watcher asks whether the car's Wi-Fi is still up
 LINK_CHECK_SLOW = 1.0        # a link check slower than this is logged (NetworkManager answers over D-Bus)
 STREAM_STALL_LOG = 1.0       # a streaming loop pass slower than this is logged
-STALL_CAPTURE_S = 20.0       # device logs kept from before a shared-radio stall is reported
 REPORTED_SETTINGS = ("connection", "usb_mode", "view", "encoder", "fps", "bitrate_kbps", "rate_control", "gpu_nv12",
                      "async_readback", "wifi_interface", "dedicated_wifi_interface", "verify_head_unit", "version_status",
                      "rfcomm_channel", "phone_class", "auto_connect", "allow_hevc", "keyframe_test", "tall_hevc",
@@ -301,103 +283,6 @@ class LinkWatch:
           self.log("link_lost", reason=self.lost, wifi_dbm=self.wifi_dbm)
           return
       self._stop.wait(self.interval)
-
-
-class EventLog:
-  """Sanitized JSONL session log under /data/starport/logs, plus the recent tail in memory.
-
-  The streaming loop logs too, so records are queued and a background thread writes them: a slow
-  or full disk never stalls projection. If the writer falls behind, records are dropped and the
-  next one that fits is preceded by a ``log_dropped`` count.
-  """
-
-  def __init__(self, directory: Path | None = None):
-    self.directory = directory or identity_store.LOG_DIR
-    self.recent: deque[dict] = deque(maxlen=40)
-    self.lock = threading.Lock()
-    self._queue: queue.Queue = queue.Queue(maxsize=LOG_QUEUE_MAX)
-    self._writer: threading.Thread | None = None
-    self._writer_stop: threading.Event | None = None
-    self._dropped = 0
-    self.path: Path | None = None
-    self.started = 0.0
-
-  def open(self) -> None:
-    try:
-      self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-      logs = sorted(self.directory.glob("session-*.jsonl"), key=identity_store.session_log_order)
-      for old in logs[:max(0, len(logs) - MAX_LOG_FILES + 1)]:
-        old.unlink(missing_ok=True)
-      system_slice.prune_sidecars(self.directory)
-      number = max([0, *(identity_store.session_log_order(log)[0] for log in logs)]) + 1
-      path = self.directory / f"session-{number:06d}-{identity_store.timestamp()}.jsonl"
-      fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-      handle = os.fdopen(fd, "a")
-    except OSError:
-      return
-    with self.lock:
-      self.path, self.started = path, datetime.now(UTC).timestamp()
-      self._queue = queue.Queue(maxsize=LOG_QUEUE_MAX)
-      self._dropped = 0
-      self._writer_stop = threading.Event()
-      self._writer = threading.Thread(target=self._write, args=(handle, self._queue, self._writer_stop),
-                                      name="aa_session_log", daemon=True)
-      self._writer.start()
-
-  @staticmethod
-  def _write(handle, records: queue.Queue, stopped: threading.Event) -> None:
-    with handle:
-      while not stopped.is_set() or not records.empty():
-        try:
-          line = records.get(timeout=0.1)
-        except queue.Empty:
-          continue
-        try:
-          handle.write(line)
-          if records.empty():
-            handle.flush()
-        except OSError:
-          pass
-
-  def close(self) -> None:
-    """Write what is queued, then stop the writer (bounded: a stuck disk is left to the daemon thread)."""
-    with self.lock:
-      writer, stopped = self._writer, self._writer_stop
-      self._writer = self._writer_stop = None
-    if writer is None:
-      return
-    assert stopped is not None
-    stopped.set()
-    writer.join(timeout=2.0)
-
-  def capture_system(self) -> None:
-    """Save what the device was doing during this session beside its log, off the session's thread."""
-    if self.path is not None:
-      system_slice.write_sidecar_async(self.path, self.started, datetime.now(UTC).timestamp())
-
-  def capture_stall(self) -> None:
-    """Save the last seconds of device logs now; the session's own capture keeps only its newest lines."""
-    if self.path is not None:
-      now = datetime.now(UTC).timestamp()
-      system_slice.write_sidecar_async(self.path, now - STALL_CAPTURE_S, now, tag=".stall",
-                                       on_firmware=lambda lines, reason: self("wifi_firmware_restart", lines=lines, reason=reason))
-
-  def _line(self, record: dict) -> str:
-    return json.dumps(record, default=str) + "\n"
-
-  def __call__(self, name: str, **values) -> None:
-    record = {"t": datetime.now(UTC).isoformat(timespec="milliseconds"), "event": name, "mono_s": time.monotonic(), **values}
-    with self.lock:
-      self.recent.append(record)
-      if self._writer is None:
-        return
-      try:
-        if self._dropped:
-          self._queue.put_nowait(self._line({"t": record["t"], "event": "log_dropped", "count": self._dropped}))
-          self._dropped = 0
-        self._queue.put_nowait(self._line(record))
-      except queue.Full:
-        self._dropped += 1
 
 
 class Supervisor:

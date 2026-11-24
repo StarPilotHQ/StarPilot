@@ -242,9 +242,7 @@ class Car:
       def pre_create_hook(cp, candidate, fingerprints, car_fw):
         initialize_aol_preference(cp)
         if candidate == HYUNDAI_CAR.HYUNDAI_IONIQ_6:
-          # This decision must precede CarInterface parser/controller construction
-          # and the first CarParams publication below. The exact opt-in is
-          # still subject to current source and restore verification.
+          # Verify the opt-in before constructing the interface and publishing CarParams.
           eligible = alpha_long_allowed and IONIQ6_LONG_PREARM_ENABLED and not is_release and openpilot_enabled_toggle and not self.params.get_bool("IsOffroad")
           if eligible:
             self.sm.update(0)
@@ -261,8 +259,7 @@ class Car:
             preflight = inspect_ioniq6_long_sources(self.can_callbacks[0], ecan_bus=HyundaiCanBus(cp).ECAN)
             cloudlog.event('ioniq6_long_preflight', reason=preflight.reason)
             if preflight.source_period is None or preflight.vehicle_ready is not False:
-              # Reboot in READY retains original stock CP before CI/parsers and
-              # publication. Unknown evidence cannot be treated as Ready=False.
+              # READY or unknown keeps stock CarParams.
               long_cp = None
           if long_cp is not None:
             initialize_aol_preference(long_cp)

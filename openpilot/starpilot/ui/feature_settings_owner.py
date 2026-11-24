@@ -27,7 +27,7 @@ from openpilot.starpilot.longitudinal.profile_runtime import TRAFFIC_CRUISE_BRAK
 from openpilot.starpilot.longitudinal.lead_approach_runtime import KEY as LEAD_APPROACH_KEY
 from openpilot.starpilot.longitudinal.lead_takeoff_preferences import KEY as LEAD_TAKEOFF_KEY
 from openpilot.starpilot.longitudinal.encouragement import KEY as NUDGE_KEY
-from openpilot.starpilot.longitudinal.downhill_coast import KEY as DOWNHILL_KEY, SURPLUS_KEY, MAX_SURPLUS_MPH
+from openpilot.starpilot.longitudinal.downhill_coast import KEY as DOWNHILL_KEY, SURPLUS_KEY
 from openpilot.selfdrive.car.cruise import LOW_SPEED_CRUISE_ON_SET
 from openpilot.starpilot.longitudinal.planner_selection import KEY as PLANNER_SELECTION_KEY, save_selection
 
@@ -37,6 +37,9 @@ from openpilot.starpilot.longitudinal.profile_document import (
   personality_reference_curves, serialize_personality_profiles,
   synchronise_profile_document_enabled,
 )
+from openpilot.starpilot.ui.feature_defaults import (AGGRESSIVE_COOLING_DESCRIPTION as AGGRESSIVE_COOLING_DESCRIPTION,
+                                                  AGGRESSIVE_COOLING_KEY as AGGRESSIVE_COOLING_KEY,
+                                                  BOOL_DEFAULTS as BOOL_DEFAULTS, FLOAT_SPECS as FLOAT_SPECS)
 from openpilot.starpilot.ui.feature_settings_state import (
   FeaturePage, FeatureRow, FeatureSettingsRequest, FeatureSettingsState, SLC_CONFIRM_ACTIONS, SLC_OFFSET_KEYS, TORQUE_CONFIRM_ACTIONS,
 )
@@ -87,9 +90,6 @@ from openpilot.starpilot.curve_speed.actions import ACTION_KEYS as CURVE_ACTION_
 from openpilot.starpilot.controllers.toyota_cruise import capability as toyota_cruise_capability
 
 
-AGGRESSIVE_COOLING_KEY = "AggressiveCoolingEnabled"
-AGGRESSIVE_COOLING_DESCRIPTION = ("Runs the fan sooner and harder to keep the comma 10-16 °C (18-29 °F) cooler on hot days, " +
-                                  "at the cost of more fan noise. Applies next drive.")
 GLOBAL_BOOL_PREFERENCES = frozenset((LEAD_APPROACH_KEY, LEAD_TAKEOFF_KEY, NUDGE_KEY, LOW_SPEED_CRUISE_ON_SET,
                                      "DisengageOnAccelerator", AGGRESSIVE_COOLING_KEY))
 
@@ -99,45 +99,6 @@ def cooling_available() -> bool:
 
 DRIVE_MODE_KEYS = ("DriveModeProfiles", "DriveModeAcceleration", "DriveModeDeceleration")
 
-BOOL_DEFAULTS = {
-  "GMPedalLongitudinal": False, "ForceStops": True, "AlwaysAllowUploads": False, "TurnAssist": True,
-  "DriveModeProfiles": False, "DriveModeAcceleration": True, "DriveModeDeceleration": True,
-  "SubaruAvhStartup": False,
-  "SubaruStopStartOff": False,
-  "SubaruSNG": False,
-  "SubaruRedneckCruise": False,
-  "RedneckCruise": False,
-  "ReverseCruise": False, "ToyotaAutoHold": False, "SNGHack": False, "JeepBrakeHold": False, "VoltSNG": False, "GMAutoHold": False, "VoltOnePedalMode": False,
-  "RemapCancelToDistance": False, "LongPitch": True, "DisableOpenpilotLongitudinal": False,
-  "SpeedLimitController": False, "ShowSpeedLimits": True,
-  "SLCOnEngage": False,
-  WHEEL_OVERRIDE_KEY: False,
-  "PauseLateralOnSignal": False,
-  "LaneCentering": True, "LaneCenteringPauseOnSignal": True,
-  "CustomPersonalities": False, PLANNER_SELECTION_KEY: True,
-  LEAD_APPROACH_KEY: False,
-  LEAD_TAKEOFF_KEY: False,
-  DOWNHILL_KEY: False,
-  NUDGE_KEY: True,
-  LOW_SPEED_CRUISE_ON_SET: False,
-  "DisengageOnAccelerator": False,
-  AGGRESSIVE_COOLING_KEY: False,
-  CURVE_MASTER_KEY: False, CURVE_NO_LEAD_KEY: False,
-  "ShowCSCStatus": False,
-  "ForceAutoTuneOff": False, "AlwaysOnLateral": True, "NostalgiaMode": False,
-}
-FLOAT_SPECS = {
-  SURPLUS_KEY: (0, MAX_SURPLUS_MPH, 1, "mph"),
-  "ForceStopDistanceOffset": (-20, 20, 1, "ft"),
-  "LaneCenterOffset": (-0.3, 0.3, 0.01, "m"),
-  "LaneCenteringE2EAuthority": (0.0, 1.0, 0.05, "fraction"),
-  "LaneCenteringStrength": (0.5, STRENGTH_MAX, 0.015, "fraction"),
-  **{f"{name}{suffix}": (0.5, 3.0, 0.05, "s")
-     for name in ("Aggressive", "Standard", "Relaxed") for suffix in ("Follow", "FollowHigh")},
-  **{f"{name}{suffix}": (25.0, 200.0, 5.0, "%")
-     for name in ("Aggressive", "Standard", "Relaxed")
-     for suffix in ("JerkAcceleration", "JerkDeceleration", "JerkDanger", "JerkSpeedDecrease", "JerkSpeed")},
-}
 SLC_PRIORITY, SLC_SECONDARY, SLC_TERTIARY = SOURCE_PRIORITY_KEYS
 LONG_PREFIX = "profile:"
 AOL_BUTTONS = ("LKASButtonControl", "MainCruiseButtonControl", "DistanceButtonControl",

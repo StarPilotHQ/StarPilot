@@ -352,7 +352,8 @@ def test_session_log_never_blocks_on_a_stalled_disk(tmp_path, monkeypatch):
   import threading
   import time
   from openpilot.starpilot.system.starport import supervisor
-  monkeypatch.setattr(supervisor, "LOG_QUEUE_MAX", 5)
+  from openpilot.starpilot.system.starport import event_log
+  monkeypatch.setattr(event_log, "LOG_QUEUE_MAX", 5)
   release = threading.Event()
   original = supervisor.EventLog._write
 
@@ -426,7 +427,8 @@ def test_log_and_bundle_reads_enforce_size_budgets(tmp_path, monkeypatch):
 def test_session_log_full_queue_close_then_reopen_retires_old_writer(tmp_path, monkeypatch):
   import threading
   from openpilot.starpilot.system.starport import supervisor
-  monkeypatch.setattr(supervisor, "LOG_QUEUE_MAX", 2)
+  from openpilot.starpilot.system.starport import event_log
+  monkeypatch.setattr(event_log, "LOG_QUEUE_MAX", 2)
   release = threading.Event()
   entered = threading.Event()
   original = supervisor.EventLog._write

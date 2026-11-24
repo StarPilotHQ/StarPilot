@@ -48,9 +48,9 @@ def test_real_passive_scene_survives_control_reset(aol, lead_present):
   snapshot = SettingsSnapshot('test', 1, stamp, stamp, DocumentState.ABSENT, SafeModeState.ABSENT_FALSE, None, None, None)
   event = StatusPublisher().attach(None, proposal, snapshot, now_ns=stamp+1_000_000, drive_id=MONO, model_ns=stamp, car_state_ns=stamp)
   received = messaging.log_from_bytes(event.to_bytes())
-  args = {'now_ns': stamp+20_000_000, 'event_ns': stamp+1_000_000, 'drive_id': MONO, 'choice': ModeChoice.CEM,
-          'lateral_active': True, 'selfdrive_enabled': not aol, 'car_valid': True, 'system_long': True}
-  value = ConditionalPerceptionProjector().project(received.slcState, **args)
+  value = ConditionalPerceptionProjector().project(received.slcState, now_ns=stamp+20_000_000, event_ns=stamp+1_000_000,
+                                                   drive_id=MONO, choice=ModeChoice.CEM, lateral_active=True,
+                                                   selfdrive_enabled=not aol, car_valid=True, system_long=True)
   assert value is not None and value.perceived_stop is (not lead_present)
   state = replace(aol_light(), conditional_perception=value, longitudinal_active=not aol)
   assert stop_observed(state) is (not lead_present)

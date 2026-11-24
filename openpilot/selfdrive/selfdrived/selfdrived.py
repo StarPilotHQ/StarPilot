@@ -6,6 +6,7 @@ import threading
 import uuid
 from copy import copy
 from dataclasses import replace
+from typing import cast
 
 import openpilot.cereal.messaging as messaging
 
@@ -1306,7 +1307,7 @@ class SelfdriveD:
       self.AM.alerts.pop('aolAvailability/warning', None)
     if self.aol_axis_decision.aol_speed_paused and ET.WARNING not in self.state_machine.current_alert_types:
       # Preserve the existing speed warning duration even when only AOL was on.
-      speed_alert = copy(self.events.event_rules[EventName.speedTooHigh][ET.WARNING])
+      speed_alert = copy(cast(Alert, self.events.event_rules[EventName.speedTooHigh][ET.WARNING]))
       speed_alert.alert_type = 'speedTooHigh/warning'
       speed_alert.event_type = 'aolSpeedPause'
       alerts.append(speed_alert)

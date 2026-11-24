@@ -43,7 +43,7 @@ class TestVehicleSelection(unittest.TestCase):
       self.assertEqual(catalog[platform], label)
       self.assertTrue(self.owner.choose(self.owner.snapshot().raw, str(platform)).verified)
       candidate = startup_candidate(self.params)
-      self.assertEqual(candidate, platform)
+      assert candidate == str(platform)
       cp = CarInterface.get_params(candidate, gen_empty_fingerprint(), [], False, False, False)
       self.assertEqual(cp.carFingerprint, platform)
       self.assertTrue(cp.pcmCruise)

@@ -109,10 +109,13 @@ def test_stopped_armed_aol_shows_only_observed_stop_scene(perceived_stop):
                                perceived_stop=perceived_stop),
                           Decision(True, False, True, True, Reason.CEM_STOP, 8), None, 'inactive_axis', settings.revision)
   event = StatusPublisher().attach(None, proposal, settings, now_ns=now, drive_id=drive_id, model_ns=now, car_state_ns=now)
-  args = {"now_ns": now, "event_ns": now, "drive_id": drive_id, "choice": ModeChoice.CEM, "lateral_active": False,
-              "selfdrive_enabled": False, "car_valid": True, "system_long": True}
-  assert ConditionalPerceptionProjector().project(event.slcState, **args) is None
-  result = ConditionalPerceptionProjector().project(event.slcState, **args, aol_armed_at_standstill=True)
+  def project(armed: bool):
+    return ConditionalPerceptionProjector().project(event.slcState, now_ns=now, event_ns=now, drive_id=drive_id,
+                                                    choice=ModeChoice.CEM, lateral_active=False, selfdrive_enabled=False,
+                                                    car_valid=True, system_long=True, aol_armed_at_standstill=armed)
+
+  assert project(False) is None
+  result = project(True)
   assert (result is not None) == perceived_stop
   assert not event.slcState.conditionalMode.hasOverride
   if result is not None:

@@ -1,5 +1,4 @@
 import os
-import time
 
 import pytest
 
@@ -56,7 +55,7 @@ def test_requests_expire_and_are_not_replayed_or_run_while_driving(tmp_path, mon
   assert not save_me.take_request(parked=False, started=True)
   assert not marker.exists()
   save_me.request()
-  old = time.time() - 60
+  old = marker.stat().st_mtime - 60
   os.utime(marker, (old, old))
   assert not save_me.take_request(parked=True, started=False)
   assert not marker.exists()

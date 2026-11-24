@@ -450,7 +450,7 @@ class RemotePairingTest(unittest.TestCase):
     self.assertIsNone(self.owner.current_generation())
     origin = f'http://127.0.0.1:{self.local.server_port}'
     cookie = self.request(self.local, '/api/auth/session')[2]['Set-Cookie'].split(';', 1)[0]
-    local = dict(method='POST', origin=origin, cookie=cookie)
+    local = {'method': 'POST', 'origin': origin, 'cookie': cookie}
     pair = '/api/galaxy/pair'
     new_password = {'password': 'different-password'}
     self.assertEqual(self.request(self.local, pair, payload=new_password, **local)[0], 409)

@@ -3,7 +3,7 @@
 import os
 import shutil
 import stat
-import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 from openpilot.common.hardware import COMMA_HARDWARE
@@ -57,7 +57,7 @@ def take_request(*, parked: bool, started: bool) -> bool:
     return False
   if not stat.S_ISDIR(marker.st_mode) or marker.st_uid != os.getuid() or stat.S_IMODE(marker.st_mode) != 0o700:
     return False
-  fresh = 0 <= time.time() - marker.st_mtime <= 15
+  fresh = 0 <= datetime.now(UTC).timestamp() - marker.st_mtime <= 15
   if started or not fresh or parked:
     clear_request()
   return fresh and parked and not started

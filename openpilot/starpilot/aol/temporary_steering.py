@@ -265,9 +265,12 @@ def retain_fit_eps_intent(feedback, sm, cp, cs, axis, now_ns, *, latched, produc
     if (not cs.steerFaultTemporary or grant is None or grant[:2] != (producer, epoch) or
         inventory != grant[3] or not 0 < grant[2] <= now_ns <= grant[2] + SAFETY_MAX_AGE_NS):
       return False
-  elif inventory != known[3]:
-    return False
-  feedback.fit_eps_intent = (producer, epoch, now_ns if cs.steerFaultTemporary else known[2], inventory)
+    source_ns = now_ns
+  else:
+    if inventory != known[3]:
+      return False
+    source_ns = now_ns if cs.steerFaultTemporary else known[2]
+  feedback.fit_eps_intent = (producer, epoch, source_ns, inventory)
   if native.requestedLateral and not native.lateralAllowed:
     feedback.honda_eps_retained_native_ns = native.observedMonoTime
   return True

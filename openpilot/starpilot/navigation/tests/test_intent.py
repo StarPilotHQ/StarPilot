@@ -192,7 +192,7 @@ def test_turn_stop_hold_reuses_planner_stop_until_standstill(sm, tmp_path):
 
 @pytest.mark.parametrize("one_per_signal", [True, False])
 @pytest.mark.parametrize("left", [True, False])
-def test_turn_lane_then_turn_on_one_signal(sm, left, one_per_signal):
+def test_turn_lane_then_turn_on_one_signal(sm, left, one_per_signal, monkeypatch):
   from openpilot.selfdrive.controls.lib.desire_helper import DesireHelper
   from openpilot.starpilot.navigation.intent import TurnIntent, matching_turn_signal
   from openpilot.starpilot.lateral.lane_change_preferences import LaneChangePolicy
@@ -205,7 +205,7 @@ def test_turn_lane_then_turn_on_one_signal(sm, left, one_per_signal):
   sm.logMonoTime['longitudinalPlan'] = NOW
   sm.valid['longitudinalPlan'] = sm.alive['longitudinalPlan'] = True
   owner = TurnIntent()
-  owner.guidance = NS(sample=lambda *args, **kwargs: True)
+  monkeypatch.setattr(owner, 'guidance', NS(sample=lambda *args, **kwargs: True))
   owner.steering_capable = True
   helper = DesireHelper(LaneChangePolicy(auto_lane_change=True, auto_delay_s=.1, one_per_signal=one_per_signal))
   def select():

@@ -254,7 +254,7 @@ class StarShellSession(TeslaSpeedActions):
     if slc_action_transport_enabled(os.environ, ui_state.params):
       try:
         self.slc_actions = SlcActionDispatcher(_slc_action_publisher(), self._live_slc_message)
-        # A car button (Tesla stalk or wheel) reads the car's messages with the scroll wheel's age limit.
+        # Car buttons share the scroll wheel age limit.
         self.slc_car_actions = SlcActionDispatcher(_slc_action_publisher(), lambda now_ns: self._live_slc_message(now_ns, car_input=True))
       except (OSError, RuntimeError):
         pass  # The shell stays readable and reports action unavailability.
@@ -290,7 +290,6 @@ class StarShellSession(TeslaSpeedActions):
         self._visual_preview_flags = parse_flags(raw_preview)
     self._visual_preview_start_ns = time.monotonic_ns()
     self._native_favorite_actions: Callable[[], dict] = dict
-    # Native publisher for taps on the projected car screen.
     self._publish_bookmark: Callable[[], None] | None = None
     self._wheel_sock = messaging.sub_sock("slcCruiseEvent", conflate=False)
     self._aol_save = None
@@ -690,7 +689,6 @@ class StarShellSession(TeslaSpeedActions):
     return bool(ui_state.is_offroad() and self.adapter.confirmed_offroad())
 
   def connectivity_allowed(self) -> bool:
-    # Connectivity setup also works on USB power without vehicle telemetry.
     return ui_state.is_offroad()
 
   def configuration_allowed(self) -> bool:
@@ -1393,7 +1391,7 @@ class StarShellSession(TeslaSpeedActions):
         not any(p.ignitionLine or p.ignitionCan for p in pandas)):
       return None
     after = ui.started_frame
-    # plannerd revalidates actions. A car button reads with the scroll wheel's age limit.
+    # plannerd revalidates actions.
     read = input_message if car_input else display_message
     car = read(ui.sm, "carState", now_ns, after_frame=after)
     control = read(ui.sm, "carControl", now_ns, after_frame=after)

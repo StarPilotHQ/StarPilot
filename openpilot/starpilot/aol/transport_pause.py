@@ -32,7 +32,6 @@ def _configured_transport_native(sm, cp, session, now_ns, native=None, *, requir
           (require_longitudinal and native.requestedLongitudinal and str(config.safetyModel) not in ('silent', 'noOutput') and not p.controlsAllowed)
           for p, config in zip(native.pandaInventory, cp.safetyConfigs, strict=True))):
       return None
-    # v2: producer-read 200ms lease; separate BOOTTIME veto.
     stamp = int(sm.logMonoTime['pandaStates'])
     if not (sm.seen['pandaStates'] and sm.valid['pandaStates'] and sm.alive['pandaStates'] and
             stamp > 0 and (coherent or stamp <= now_ns and now_ns - stamp <= SAFETY_MAX_AGE_NS)):
@@ -217,7 +216,6 @@ class TransportPauseFeedback:
        not axis.desiredLongitudinal and not axis.longitudinalActive) and not cs.regenBraking and
       cs.cruiseState.available and not cs.doorOpen and not cs.seatbeltUnlatched and
       not cs.vehicleSensorsInvalid and cs.gearShifter == structs.CarState.GearShifter.drive)
-    # Require fresh LAT and all health/fault checks.
     ford_long = bool(ford_qualified(cp, marked_only=True) and cp.openpilotLongitudinalControl)
     from opendbc.car.volkswagen.long_aol import qualified as volkswagen_long_qualified
     cancel_event_ns = int(sm.logMonoTime['onroadEvents'])
@@ -272,8 +270,6 @@ class TransportPauseFeedback:
               log.OnroadEvent.EventName.buttonCancel)) for event in sm['onroadEvents'])):
       return None
     native = independent_lateral_health(sm, cp, cs, self.session, now_ns)
-    # Brake health may precede axis status.
-    # Cancel needs acknowledged LAT, original deadlines and a fresh withdrawal event.
     ford_cancel_health = bool(ford_withdrawal and not cs.cruiseState.enabled and
       not axis.desiredLongitudinal and not axis.longitudinalActive and
       0 < event_ns <= now_ns and (now_ns - event_ns <= AXIS_MAX_AGE_NS or
@@ -807,7 +803,6 @@ class TransportPauseFeedback:
         native.observedMonoTime < self.lateral_native_ns or
         (native.pandaSerial, tuple(p.hardwareSerial for p in native.pandaInventory)) != self.lateral_inventory):
       return False
-    # Stock USER: LONG-off; source-zero requires LAT-only/native proof.
     previous = self.signature
     from openpilot.starpilot.car.toyota.aol import qualified as toyota_qualified
     toyota_pedal = bool(toyota_qualified(cp, marked_only=True) and cs.brakePressed != cs.gasPressed and
@@ -830,7 +825,6 @@ class TransportPauseFeedback:
        (previous[9] and previous[5] == 'none' or (self.retention_verified or self.retention_started_ns) and
         previous[5] == 'availabilityPause' and previous[8] == 0 and not previous[9] and
         previous[6] == axis.faultEventMonoTime) or
-       # Critical: matched lag only; otherwise keep pending_event.
        self.lateral_only_baseline and not self.failed and not self.pending_event and
        (previous[5] == 'critical' or previous[5] == 'availabilityPause' and self.ordinary_warning_retained) and
        previous[1] == self.sequence and not any(previous[9:14]) and
