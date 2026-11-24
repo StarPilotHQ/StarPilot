@@ -84,8 +84,14 @@ static int volvo_replaced_msg_index(uint32_t addr) {
   return index;
 }
 
+// Big-endian field whose high bits sit in data[byte] (under high_mask) and low byte in data[byte + 1].
+static int volvo_be_masked(const CANPacket_t *msg, uint8_t byte, uint32_t high_mask) {
+  const uint32_t raw = (((uint32_t)msg->data[byte] & high_mask) << 8U) | (uint32_t)msg->data[byte + 1U];
+  return (int)raw;
+}
+
 static int volvo_be_15(const CANPacket_t *msg, uint8_t byte) {
-  return (int)(((uint16_t)(msg->data[byte] & 0x7FU) << 8U) | msg->data[byte + 1U]);
+  return volvo_be_masked(msg, byte, 0x7FU);
 }
 
 static int volvo_pscm_angle(const CANPacket_t *msg) {
@@ -95,20 +101,6 @@ static int volvo_pscm_angle(const CANPacket_t *msg) {
 static int volvo_lca_5_angle(const CANPacket_t *msg) {
   return to_signed(volvo_be_15(msg, 6U), 15);
 }
-
-static const AngleSteeringLimits VOLVO_ANGLE_STEERING_LIMITS = {
-  .max_angle = VOLVO_MAX_ANGLE_CAN,
-  .angle_deg_to_can = VOLVO_ANGLE_DEG_TO_CAN,
-  .angle_rate_up_lookup = {
-    {0.0f, 5.0f, 25.0f},
-    {5.0f, 3.0f, 0.4f},
-  },
-  .angle_rate_down_lookup = {
-    {0.0f, 5.0f, 25.0f},
-    {10.0f, 4.0f, 0.6f},
-  },
-  .frequency = 50U,
-};
 
 static void volvo_cma_rx_hook(const CANPacket_t *msg) {
   // Main bus (bus 0) messages
@@ -172,6 +164,20 @@ static void volvo_cma_rx_hook(const CANPacket_t *msg) {
 }
 
 static bool volvo_cma_tx_hook(const CANPacket_t *msg) {
+  static const AngleSteeringLimits VOLVO_ANGLE_STEERING_LIMITS = {
+    .max_angle = VOLVO_MAX_ANGLE_CAN,
+    .angle_deg_to_can = VOLVO_ANGLE_DEG_TO_CAN,
+    .angle_rate_up_lookup = {
+      {0.0f, 5.0f, 25.0f},
+      {5.0f, 3.0f, 0.4f},
+    },
+    .angle_rate_down_lookup = {
+      {0.0f, 5.0f, 25.0f},
+      {10.0f, 4.0f, 0.6f},
+    },
+    .frequency = 50U,
+  };
+
   bool tx = true;
 
   // LCA_5 carries the actual angle command used by the controller. The stock
@@ -186,11 +192,11 @@ static bool volvo_cma_tx_hook(const CANPacket_t *msg) {
   // Keep the two torque-authority arms and the companion LCA angle bounded even
   // though these fields are not the primary steering command.
   if (msg->addr == VOLVO_LCA_STEER) {
-    const int authority_pos = to_signed((int)(((uint16_t)(msg->data[0] & 0x07U) << 8U) | msg->data[1]), 11);
-    const int authority_neg = to_signed((int)(((uint16_t)(msg->data[2] & 0x07U) << 8U) | msg->data[3]), 11);
-    const int lca_angle = to_signed((int)(((uint16_t)(msg->data[5] & 0x3FU) << 8U) | msg->data[6]), 14);
-    tx &= authority_pos >= 0 && authority_pos <= 614;
-    tx &= authority_neg >= -614 && authority_neg <= 0;
+    const int authority_pos = to_signed(volvo_be_masked(msg, 0U, 0x07U), 11);
+    const int authority_neg = to_signed(volvo_be_masked(msg, 2U, 0x07U), 11);
+    const int lca_angle = to_signed(volvo_be_masked(msg, 5U, 0x3FU), 14);
+    tx &= ((authority_pos >= 0) && (authority_pos <= 614));
+    tx &= ((authority_neg >= -614) && (authority_neg <= 0));
     tx &= SAFETY_ABS(lca_angle) <= VOLVO_MAX_ANGLE_CAN;
   }
 

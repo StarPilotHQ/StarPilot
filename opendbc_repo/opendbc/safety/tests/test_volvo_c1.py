@@ -9,6 +9,7 @@ through the generic ``CarSafetyTest`` harness.
 
 import unittest
 
+from opendbc.car.structs import CarParams
 from opendbc.car.volvo.interface import SAFETY_VOLVO
 from opendbc.car.volvo.values import VolvoSafetyFlags
 from opendbc.car.volvo.volvocan import create_c1_checksum, create_c1_steering_control
@@ -150,6 +151,50 @@ class TestVolvoC1(common.CarSafetyTest, common.AngleSteeringSafetyTest):
     self._set_prev_desired_angle(0)
     address, data, bus = create_c1_steering_control(self.packer, 0, True)
     self.assertTrue(self._tx(libsafety_py.make_CANPacket(address, bus, data)))
+
+  def test_angle_error_band_forces_convergence(self):
+    # The command may sit at most 455 CAN counts (~20 deg) from the measured angle.
+    # When the last command is already outside that band (above or below), the
+    # next one must step back toward the measurement: holding is rejected and only
+    # steps of at least the relaxed rate are accepted.
+    self.safety.set_controls_allowed(True)
+    self._reset_angle_measurement(0)
+    self._reset_speed_measurement(10)
+    step = 0.04395  # one CAN count in degrees
+    for prev in (30.0, -30.0):
+      toward_meas = -1 if prev > 0 else 1
+
+      self._set_prev_desired_angle(prev)
+      self.assertFalse(self._tx(self._angle_cmd_msg(prev, True)), prev)
+
+      allowed = []
+      for i in range(1, 100):
+        angle = prev + toward_meas * i * step
+        self._set_prev_desired_angle(prev)
+        if self._tx(self._angle_cmd_msg(angle, True)):
+          allowed.append(i)
+      self.assertTrue(allowed, f"no convergent step accepted from {prev}")
+      # Small steps that don't converge fast enough are rejected...
+      self.assertGreater(min(allowed), 1, prev)
+      # ...and so are steps beyond the normal rate limit.
+      self.assertLess(max(allowed), 99, prev)
+
+
+class TestVolvoSafetyParam(unittest.TestCase):
+  def setUp(self):
+    self.safety = libsafety_py.libsafety
+
+  def test_supported_params_select_volvo(self):
+    for param in (0, VolvoSafetyFlags.C1.value, VolvoSafetyFlags.EUCD.value):
+      self.assertEqual(self.safety.set_safety_hooks(SAFETY_VOLVO, param), 0, param)
+      self.assertEqual(self.safety.get_current_safety_mode(), SAFETY_VOLVO, param)
+      self.assertEqual(self.safety.get_current_safety_param(), param, param)
+
+  def test_unsupported_params_fall_back_to_no_output(self):
+    for param in (1, 3, 4, 5, 6, 7, 9, 10, 0xFFFF):
+      self.assertNotEqual(self.safety.set_safety_hooks(SAFETY_VOLVO, param), 0, param)
+      self.assertEqual(self.safety.get_current_safety_mode(), CarParams.SafetyModel.noOutput, param)
+      self.assertEqual(self.safety.get_current_safety_param(), 0, param)
 
 
 if __name__ == "__main__":

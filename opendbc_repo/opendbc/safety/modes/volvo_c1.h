@@ -20,11 +20,13 @@
 #define VOLVO_C1_RELAY_ANGLE_TOLERANCE 2
 
 static int volvo_c1_pscm_angle(const CANPacket_t *msg) {
-  return (int)(((uint16_t)msg->data[5] << 8U) | msg->data[6]) - 32768;
+  const uint32_t raw_angle = ((uint32_t)msg->data[5] << 8U) | (uint32_t)msg->data[6];
+  return (int)raw_angle - 32768;
 }
 
 static int volvo_c1_fsm_angle(const CANPacket_t *msg) {
-  return (int)(((uint16_t)(msg->data[4] & 0x3FU) << 8U) | msg->data[5]) - 8192;
+  const uint32_t raw_angle = (((uint32_t)msg->data[4] & 0x3FU) << 8U) | (uint32_t)msg->data[5];
+  return (int)raw_angle - 8192;
 }
 
 static uint8_t volvo_c1_fsm_checksum(const CANPacket_t *msg) {
@@ -33,20 +35,6 @@ static uint8_t volvo_c1_fsm_checksum(const CANPacket_t *msg) {
   const uint8_t checksum_sum = (msg->data[3] + direction + angle_raw + (angle_raw >> 8U)) & 0xFFU;
   return checksum_sum ^ 0xFFU;
 }
-
-static const AngleSteeringLimits VOLVO_C1_ANGLE_STEERING_LIMITS = {
-  .max_angle = VOLVO_C1_MAX_ANGLE_CAN,
-  .angle_deg_to_can = VOLVO_C1_ANGLE_DEG_TO_CAN,
-  .angle_rate_up_lookup = {
-    {7.0f, 17.0f, 36.0f},
-    {2.0f, 0.25f, 0.1f},
-  },
-  .angle_rate_down_lookup = {
-    {7.0f, 17.0f, 36.0f},
-    {2.0f, 0.25f, 0.1f},
-  },
-  .frequency = 50U,
-};
 
 // C1 retains its measured-angle EPS envelope; the shared angle API no longer supplies it.
 static bool volvo_c1_angle_cmd_checks(int desired_angle, bool steer_control_enabled, const AngleSteeringLimits limits) {
@@ -149,6 +137,20 @@ static void volvo_c1_rx_hook(const CANPacket_t *msg) {
 }
 
 static bool volvo_c1_tx_hook(const CANPacket_t *msg) {
+  static const AngleSteeringLimits VOLVO_C1_ANGLE_STEERING_LIMITS = {
+    .max_angle = VOLVO_C1_MAX_ANGLE_CAN,
+    .angle_deg_to_can = VOLVO_C1_ANGLE_DEG_TO_CAN,
+    .angle_rate_up_lookup = {
+      {7.0f, 17.0f, 36.0f},
+      {2.0f, 0.25f, 0.1f},
+    },
+    .angle_rate_down_lookup = {
+      {7.0f, 17.0f, 36.0f},
+      {2.0f, 0.25f, 0.1f},
+    },
+    .frequency = 50U,
+  };
+
   bool tx = true;
   if (msg->addr == VOLVO_C1_FSM_1) {
     const int desired_angle = volvo_c1_fsm_angle(msg);
