@@ -40,6 +40,7 @@ class LargeFilePolicyTest(unittest.TestCase):
       'openpilot/selfdrive/ui/translations/app_ja.po',
       'openpilot/selfdrive/ui/translations/app_ko.po',
       'openpilot/selfdrive/ui/translations/app_vi.po',
+      'openpilot/selfdrive/ui/translations/app_zh-CHS.po',
       'openpilot/starpilot/ui/translation_messages.json',
     ):
       self.assertEqual(self.check(name, 1000000), 0)

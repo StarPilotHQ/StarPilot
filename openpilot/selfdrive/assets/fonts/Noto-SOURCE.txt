@@ -1,6 +1,8 @@
-Japanese and Korean subsets expanded for the shared StarPilot UI catalogs.
-Generated with fontTools.subset, retaining the union of each original font cmap
-and all characters in app_ja.po/app_ko.po. Original subset: Dom 1f1b1d5db9.
+Japanese, Korean and Simplified Chinese subsets expanded for the shared StarPilot
+UI catalogs. Generated with fontTools.subset (default options), retaining the
+union of each original font cmap and all characters in app_ja.po/app_ko.po/
+app_zh-CHS.po. Original subset: Dom 1f1b1d5db9. Regenerate the Simplified Chinese
+subset whenever app_zh-CHS.po gains characters.
 The official upstream source fonts are licensed under Noto-OFL.txt.
 
 NotoSansCJKjp-Regular.otf
@@ -12,3 +14,8 @@ NotoSansCJKkr-Regular.otf
 Source: https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/Korean/NotoSansCJKkr-Regular.otf
 Source SHA-256: 6bcb2a0703aa137e874fc2dffa85f6c21ba9a67fa329e81b8c801663af7e992a
 Subset SHA-256: 846e22c2bf1afffc11718ee95e4acc258538cc528b20aab3aa122476e64533b8
+
+NotoSansCJKsc-Regular.otf
+Source: https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf
+Source SHA-256: 2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b
+Subset SHA-256: 159db5944e2e2d2fbeaea3dd6db56b95f57eff80036f93fb7ac612ef25f03e84
