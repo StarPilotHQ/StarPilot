@@ -509,6 +509,10 @@ class ProjectionOnroad:
     view.opacity = opacity
     view.parent_clip = parent_clip
     view.metric = bool(getattr(self.native.ui_state, 'is_metric', True))
+    # The camera's model renderer follows carParams as they arrive; the view follows it every frame.
+    model_renderer = getattr(getattr(self, 'camera', None), 'model_renderer', None)
+    if model_renderer is not None:
+      view.long_control = bool(getattr(model_renderer, '_longitudinal_control', True))
     customization = getattr(state, 'customization', None) or {}
     view.road_style = customization.get('roadColors', {}).get('large', {})
     view.render(rect)
@@ -923,11 +927,12 @@ class ProjectionOnroad:
         if self.favorites is not None:
           self.favorites.cancel()
         continue
-      if self._birds_eye_touch(event.kind, x, y):
+      if self._now_playing_touch(event.kind, x, y):
         if self.favorites is not None:
           self.favorites.cancel()
         continue
-      if self._now_playing_touch(event.kind, x, y):
+      # After the card: the view may lie under it (always in full display), and the card keeps its taps.
+      if self._birds_eye_touch(event.kind, x, y):
         if self.favorites is not None:
           self.favorites.cancel()
         continue

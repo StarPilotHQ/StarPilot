@@ -39,7 +39,20 @@ class DriveRenderLayer:
     return self.view is not None
 
   def render(self, content: rl.Rectangle, state) -> None:
-    """Draw the view and the HUD inside ``content``; the caller owns the scissor, the alerts and the border."""
+    """Draw the view and the HUD inside ``content``; the caller owns the scissor, the alerts and the border.
+
+    A frame that raises ends the render for this drive screen: the caller still draws its alerts and border over
+    what was drawn, and ready() is False from the next frame, so the camera composition returns.
+    """
+    try:
+      self._render(content, state)
+    except Exception:
+      self._failed = True
+      self.close()
+      from openpilot.common.swaglog import cloudlog
+      cloudlog.exception("3D drive render failed on the comma display; showing the camera")
+
+  def _render(self, content: rl.Rectangle, state) -> None:
     view, hud = self.view, self.hud
     view.panel = False
     view.opacity = 1.0
@@ -60,6 +73,6 @@ class DriveRenderLayer:
       rl.rl_pop_matrix()
 
   def close(self) -> None:
-    if self.hud is not None:
-      self.hud.close()
-    self.view = self.hud = None
+    hud, self.view, self.hud = self.hud, None, None
+    if hud is not None:
+      hud.close()

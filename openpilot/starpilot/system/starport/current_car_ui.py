@@ -148,8 +148,7 @@ def saved_stream_content(params) -> str:
   return drive_render.stream_content(drive_render.read(params))
 
 
-def run(frames_path: str, touch_path: str | None = None, control_path: str | None = None,
-        stream_content: str | None = None) -> int:
+def run(frames_path: str, touch_path: str | None = None, control_path: str | None = None) -> int:
   if os.geteuid() == 0:
     raise RuntimeError("Car display must run as the comma user")
   parent = os.getppid()
@@ -200,11 +199,9 @@ def run(frames_path: str, touch_path: str | None = None, control_path: str | Non
     from openpilot.starpilot.system.starport import reconnect_notice
     from openpilot.starpilot.system.starport.identity import certificate_days_left
     from openpilot.starpilot.system.starport.projection_layout_runtime import ProjectionLayoutWatcher, comma_display_seed
-    if stream_content is None:
-      # Galaxy's "3D drive render" choice decides for this connection: the render only when StarPort is chosen,
-      # the front camera when it is off or drawn on the comma's own screen. Only a caller that wants one
-      # content regardless of the saved choice passes it; starportd never does.
-      stream_content = saved_stream_content(ui_state.params)
+    # Galaxy's "3D drive render" choice decides for this connection: the render only when StarPort is chosen,
+    # the front camera when it is off or drawn on the comma's own screen.
+    stream_content = saved_stream_content(ui_state.params)
     viewport = (geometry.logical_width, geometry.logical_height)
     watcher = ProjectionLayoutWatcher(viewport, display_seed=comma_display_seed)
     layout = ProjectionOnroad(viewport=viewport, customization=watcher.load(),
@@ -450,9 +447,8 @@ def main() -> int:
   parser.add_argument("--frames", required=True)
   parser.add_argument("--touch")
   parser.add_argument("--control")
-  parser.add_argument("--stream-content", choices=("birds_eye", "full"), help="draw this content whatever the saved 3D drive render choice")
   args = parser.parse_args()
-  return run(args.frames, args.touch, args.control, args.stream_content)
+  return run(args.frames, args.touch, args.control)
 
 
 if __name__ == "__main__":

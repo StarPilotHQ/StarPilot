@@ -138,6 +138,27 @@ def test_projection_preview_reverse_camera_and_failed_build_keep_the_camera():
   assert not unset.drive_render_active(state('device'))
 
 
+def test_a_speed_limit_waiting_for_an_answer_keeps_the_camera_composition():
+  v = view()
+  with patch.object(onroad, 'manual_slc_confirmation', return_value=True):
+    assert not v.drive_render_active(state('device'))
+    v.render(state('device'))
+  v._large.assert_called_once()
+  v.drive_render.render.assert_not_called()
+
+
+def test_layer_that_raises_while_drawing_gives_the_camera_back():
+  render_view, hud = Mock(), Mock()
+  hud.render_rect.return_value = (60, 0, 1740, 1020)
+  render_view.render.side_effect = RuntimeError('bad frame')
+  layer = onroad_drive_render.DriveRenderLayer('fonts', NS(), factory=Mock(return_value=(render_view, hud)))
+  assert layer.ready()
+  with patch.object(onroad_drive_render, 'rl'), patch('openpilot.common.swaglog.cloudlog'):
+    layer.render(NS(x=30, y=30, width=1800, height=1020), state('device'))
+  hud.close.assert_called_once()
+  assert not layer.ready() and layer.view is None
+
+
 def test_layer_builds_once_places_the_view_and_hud_and_closes():
   render_view, hud = Mock(), Mock()
   hud.render_rect.return_value = (60, 0, 1740, 1020)

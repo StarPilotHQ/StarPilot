@@ -116,6 +116,15 @@ class TestProjectionBirdsEye(unittest.TestCase):
     view.apply_layout(copy.deepcopy(saved))
     self.assertEqual(view.birds_eye_display(), 'overlay', 'a newly saved layout wins over an earlier tap')
 
+  def test_now_playing_card_keeps_its_taps_over_the_view(self):
+    native, _ = self.native()
+    view = self.view(native, self.layout(display='full'))
+    native.ui_state.started = True
+    view.render()
+    view._now_playing_touch = lambda kind, x, y: True
+    self.tap(view, 500, 500)
+    self.assertEqual(view.birds_eye_display(), 'full', 'the card owns a tap that lands on it')
+
   def test_tap_is_ignored_offroad(self):
     native, _ = self.native()
     layout = self.layout()

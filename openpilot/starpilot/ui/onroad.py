@@ -189,6 +189,8 @@ class OnroadView:
       raise ValueError("Camera observation requires a camera renderer")
     if self.drive_render_active(state):
       self._drive_render(state)
+      if uniden := getattr(self, "uniden", None):
+        uniden.render_border(state, state.viewport_width, 1080)
     elif self.fonts.profile == Profile.LARGE:
       self._large(state)
       if uniden := getattr(self, "uniden", None):
@@ -200,18 +202,20 @@ class OnroadView:
     """The comma's own large screen draws the 3D drive render in place of the camera for this frame.
 
     Never the projection, a layout or replay preview, or the reverse driver camera; a render that cannot be built
-    leaves the camera composition in place.
+    leaves the camera composition in place. So does a speed limit waiting for the driver's answer: its prompt and
+    tap targets belong to the camera composition, which returns until it is answered.
     """
     layer = getattr(self, "drive_render", None)
     return bool(layer is not None and self.fonts.profile == Profile.LARGE and self.projection_viewport is None and
                 state.visual_preview is None and not state.reverse_driver_camera and
                 drive_render.effective(state.customization.get(drive_render.FIELD), True) == drive_render.DEVICE and
-                layer.ready())
+                not manual_slc_confirmation(self.fonts.profile, state) and layer.ready())
 
   def _drive_render(self, state: OnroadState) -> None:
     """The 3D drive render over the content area: no camera receive/upload, model overlay, widgets, map or PiP work.
 
-    Alerts, the developer sidebar, the blind-spot and signal borders and the engagement-colour border stay.
+    Alerts, the developer sidebar, the blind-spot and signal borders, the engagement-colour border and the Uniden
+    border stay. The driver-monitoring face, the corner hint and every layout widget are not drawn.
     """
     width, height = state.viewport_width, 1080
     frame = rl.Rectangle(0, 0, width, height)

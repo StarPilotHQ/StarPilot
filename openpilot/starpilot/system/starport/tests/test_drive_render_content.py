@@ -1,7 +1,5 @@
 """StarPort's car screen follows Galaxy's "3D drive render" choice: the render only for StarPort, else the camera."""
-import ast
 import json
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -41,21 +39,3 @@ def test_unreadable_setting_falls_back_to_the_default(tmp_path):
 def test_projection_params_expose_what_the_read_needs():
   from openpilot.selfdrive.ui.ui_state import ProjectionParams
   assert callable(ProjectionParams.get_param_path)
-
-
-@pytest.mark.parametrize('override', ['birds_eye', 'full'])
-@pytest.mark.parametrize('choice', ['off', 'starport', 'device'])
-def test_preview_override_wins_over_the_saved_choice(tmp_path, override, choice):
-  """Run the session's content decision as run() writes it, with the saved choice and the CLI override."""
-  save(tmp_path, choice)
-  source = Path(current_car_ui.__file__).read_text()
-  start = source.index('    content_override = stream_content\n')
-  end = source.index('    viewport = (geometry.logical_width, geometry.logical_height)\n')
-  block = '\n'.join(line[4:] for line in source[start:end].splitlines())
-  ast.parse(block)
-  ui_state = SimpleNamespace(params=read_only_params(tmp_path))
-  for given, expected in ((override, override), (None, drive_render.stream_content(choice))):
-    scope = {'stream_content': given, 'config': {'stream_content': 'birds_eye'}, 'ui_state': ui_state,
-             'saved_stream_content': current_car_ui.saved_stream_content}
-    exec(block, scope)
-    assert scope['stream_content'] == expected

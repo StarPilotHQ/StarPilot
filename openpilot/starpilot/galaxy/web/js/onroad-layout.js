@@ -1179,6 +1179,8 @@ export const OnroadLayoutPage = {
       if (!this.editable || this.state.drag || !this.stockChanged) return
       const before = clone(this.state.draft)
       this.state.draft = clone(this.state.data.defaults)
+      // The Developer page owns the 3D drive render choice; restoring colors and layouts leaves it alone.
+      if (Object.hasOwn(before, "driveRender")) this.state.draft.driveRender = before.driveRender
       this.recordChange(before)
       this.state.colorError = this.state.placementError = ""
       this.state.notice = "Stock StarPilot colors and both layouts are restored in your draft. Save to apply them."
