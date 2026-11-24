@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 
 from openpilot.common.params import Params
 from openpilot.starpilot.galaxy.access import GalaxyAccessOwner
@@ -15,6 +16,7 @@ from openpilot.starpilot.galaxy.server import make_remote_server, make_server
 from openpilot.starpilot.galaxy.software_operations import SoftwareOperations
 from openpilot.starpilot.galaxy.software_status import SoftwareStatus
 from openpilot.starpilot.galaxy.tests.test_software_operations import FakeProcess
+from openpilot.starpilot.software import save_me
 from openpilot.starpilot.software.auto_install import InstallSettings
 
 
@@ -132,4 +134,28 @@ class SoftwareHttpTest(unittest.TestCase):
     self.parked = False
     self.assertEqual(self.request('/api/software/action', payload=payload, remote=True, cookie=self.remote_cookie)[0], 409)
     self.assertFalse(Path(self.params.get_param_path('UpdaterAutomaticDownloads')).exists())
+    self.assertEqual(self.process.sent, [])
+
+  def test_save_me_queues_once_over_local_or_remote_when_parked(self):
+    path = '/api/software/action'
+    payload = {'action': 'save-me', 'confirmation': save_me.CONFIRMATION}
+    with tempfile.TemporaryDirectory() as root, patch.object(save_me, 'available', return_value=True), \
+         patch.object(save_me, 'REQUEST', Path(root) / 'request'):
+      for remote, cookie in ((True, self.remote_cookie), (False, self.local_cookie)):
+        self.assertEqual(self.request(path, payload=payload, remote=remote)[0], 401)
+        self.assertEqual(self.request(path, payload=payload, remote=remote, cookie=cookie, origin='https://wrong.example')[0], 403)
+        self.assertEqual(self.request(path, payload=payload | {'confirmation': 'yes'}, remote=remote, cookie=cookie)[0], 400)
+        self.parked = False
+        self.assertEqual(self.request(path, payload=payload, remote=remote, cookie=cookie)[0], 409)
+        self.parked = True
+        self.params.put('UpdaterState', 'updating...', block=True)
+        self.assertEqual(self.request(path, payload=payload, remote=remote, cookie=cookie)[0], 409)
+        self.params.put('UpdaterState', 'idle', block=True)
+        self.assertFalse(save_me.REQUEST.exists())
+        self.assertEqual(self.request(path, payload=payload, remote=remote, cookie=cookie)[:2], (200, {'resetRequested': True}))
+        self.assertTrue(save_me.REQUEST.is_dir())
+        self.assertEqual(self.request(path, payload=payload, remote=remote, cookie=cookie)[0], 409)
+        save_me.clear_request()
+    self.assertFalse(self.params.get_bool('DoUninstall'))
+    self.assertFalse(self.params.get_bool('DoReboot'))
     self.assertEqual(self.process.sent, [])

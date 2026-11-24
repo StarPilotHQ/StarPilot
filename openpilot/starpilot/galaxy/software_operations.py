@@ -20,6 +20,7 @@ from openpilot.common.params import Params
 from openpilot.common.vendor_manifest import validate_revision
 from openpilot.starpilot.galaxy.software_status import SoftwareStatus, SoftwareUnavailable
 from openpilot.starpilot.saved_source import read_saved
+from openpilot.starpilot.software import save_me
 from openpilot.starpilot.software.update_control import UpdaterControlError
 from openpilot.starpilot.software.preferences import AUTOMATIC_DOWNLOADS, automatic_downloads
 from openpilot.starpilot.software.auto_install import DEFAULT_CRON, InstallSettings, cron_fields, next_restart
@@ -506,15 +507,41 @@ class SoftwareOperations:
         raise SoftwareOperationError(str(error), 409) from error
       return self.snapshot()
 
+  def _save_me(self, payload: dict, authorized: Callable[[], bool]) -> dict:
+    if set(payload) != {"action", "confirmation"} or payload["confirmation"] != save_me.CONFIRMATION:
+      raise SoftwareOperationError(f"Type {save_me.CONFIRMATION} to run Save Me", 400)
+    with self.lock:
+      if not authorized():
+        raise SoftwareOperationError("Session expired", 403)
+      if not save_me.available():
+        raise SoftwareOperationError("Save Me is unavailable on this device", 503)
+      if self._param("UpdaterState") not in (None, "idle") or self.request is not None and self.request.get("state") == "pending":
+        raise SoftwareOperationError("Wait for the software operation to finish before running Save Me", 409)
+      if any(self._flag(key) is not False for key in ("DoUninstall", "DoShutdown", "DoReboot")):
+        raise SoftwareOperationError("A device restart, shutdown or reset is already pending", 409)
+      if (self.refresh is not None and self.refresh() is not True) or not self._parked():
+        raise SoftwareOperationError("Park the vehicle before running Save Me", 409)
+      if not authorized():
+        raise SoftwareOperationError("Session expired", 403)
+      try:
+        save_me.request()
+      except FileExistsError:
+        raise SoftwareOperationError("Save Me is already pending", 409) from None
+      except OSError:
+        raise SoftwareOperationError("Could not start Save Me", 503) from None
+      return {"resetRequested": True}
+
   def action(self, action: str, payload: object, *, authorized: Callable[[], bool]) -> dict:
     if (type(payload) is not dict or type(action) is not str or
         action not in ("check", "download", "select", "install", "preferences", "install-preferences", "update", "fast", "rollback",
-                       "versions", "version", "download-version")):
+                       "versions", "version", "download-version", "save-me")):
       raise SoftwareOperationError("Invalid software action", 400)
     assert isinstance(payload, dict)
     payload = dict(payload)
     if payload.get("action") != action or any(type(key) is not str for key in payload):
       raise SoftwareOperationError("Invalid software action", 400)
+    if action == 'save-me':
+      return self._save_me(payload, authorized)
     if action == 'preferences':
       return self._preferences(payload, authorized)
     if action == 'install-preferences':
