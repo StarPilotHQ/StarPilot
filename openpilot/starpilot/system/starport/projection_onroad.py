@@ -244,7 +244,7 @@ class ProjectionOnroad:
   """
 
   def __init__(self, *, dependencies=None, viewport=None, customization=None, certificate_days=None, native_focus=None,
-               layout_watcher=None, content='full', reconnect_notice=""):
+               layout_watcher=None, content='full', reconnect_notice="", streaming=None, stream_lease_path=None):
     if content not in CONTENTS:
       raise ValueError(f'unknown projection content {content!r}')
     self.content = content
@@ -277,9 +277,13 @@ class ProjectionOnroad:
     if native.ui_state.projection_read_only is not True:
       raise RuntimeError('Projection UIState must be read-only')
     self._resources = ExitStack()
-    # Kept fresh while this view draws a drive for the car screen; the comma's own screen may go black on it.
-    self._stream_lease = StreamLeaseWriter()
-    self._resources.callback(self._stream_lease.release)
+    # Kept fresh while the car screen is really being sent this view's drive; the comma's own screen may go black
+    # on it. Only the car display process passes `streaming`, so nothing else writes the lease.
+    self._streaming = streaming
+    self._stream_lease = None
+    if streaming is not None:
+      self._stream_lease = StreamLeaseWriter(stream_lease_path) if stream_lease_path else StreamLeaseWriter()
+      self._resources.callback(self._stream_lease.release)
     try:
       self.fonts = native.fonts(native.profile.LARGE, native.font_directory(), headless_context=True)
       self._resources.callback(self.fonts.close)
@@ -862,8 +866,8 @@ class ProjectionOnroad:
   def render(self):
     ui = self.native.ui_state
     self.camera_stream = None
-    # Frames are drawn only while the car asks for them, so a drawn drive frame is one the car screen is showing.
-    if ui.started and (lease := getattr(self, '_stream_lease', None)) is not None:
+    # A drawn frame is not yet a shown one: the lease follows frames the car's connection accepted in the last second.
+    if ui.started and (lease := getattr(self, '_stream_lease', None)) is not None and self._streaming():
       lease.touch()  # at most one utime a second
     if ui.started and self.content == 'birds_eye':
       self._state = None

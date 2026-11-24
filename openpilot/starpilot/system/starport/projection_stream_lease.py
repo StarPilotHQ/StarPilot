@@ -1,8 +1,9 @@
 """Tells the comma's own screen that StarPort's drive view is reaching the car screen right now.
 
-The supervisor touches the lease while frames go to a focused session; the comma's screen stats it at most once a
-second and, with "Black screen while StarPort streams" on, draws black with alerts only. A supervisor that stops or
-crashes stops touching it, so the normal screen returns on its own.
+The car display process touches the lease while it draws a drive and the car's connection accepted a frame within
+the last second; the comma's screen stats it at most once a second and, with "Black screen while StarPort streams"
+on, draws black with alerts only. A car display that stops, crashes or is no longer taken by the car stops touching
+it, so the normal screen returns on its own.
 """
 import os
 import time
@@ -10,7 +11,7 @@ import time
 from openpilot.starpilot.system.starport.projection_map_lease import MapLeaseWriter
 
 DEFAULT_PATH = '/tmp/starpilot-projection-stream.lease'
-MAX_AGE_S = 2.0  # touched every second; a stopped stream gives the screen back within about 3 s even without release()
+MAX_AGE_S = 3.0  # touched every second; a stopped stream gives the screen back within about 4 s even without release()
 CHECK_EVERY_S = 1.0
 
 

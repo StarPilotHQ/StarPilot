@@ -42,10 +42,11 @@ def test_reader_stats_at_most_once_a_second(tmp_path):
   assert reader() is True, 'a clock that went back reads again'
 
 
-def drawing_view(tmp_path, *, started, content):
+def drawing_view(tmp_path, *, started, content='birds_eye', streaming=True):
   view = object.__new__(projection_onroad.ProjectionOnroad)
   view.native = NS(ui_state=NS(started=started))
   view.content = content
+  view._streaming = lambda: streaming
   view._stream_lease = StreamLeaseWriter(str(tmp_path / 'lease'))
   view._render_birds_eye_only = lambda: None
   view._standby = lambda: None
@@ -56,22 +57,32 @@ def drawing_view(tmp_path, *, started, content):
   return view
 
 
-def test_view_keeps_the_lease_fresh_only_while_it_draws_a_drive(tmp_path):
-  driving = drawing_view(tmp_path, started=True, content='birds_eye')
+def test_view_keeps_the_lease_fresh_only_while_the_car_takes_its_drive(tmp_path):
+  driving = drawing_view(tmp_path, started=True)
   driving.render()
   assert projection_stream_active(driving._stream_lease.path)
   driving._stream_lease.release()
-  parked = drawing_view(tmp_path, started=False, content='birds_eye')
+  silent = drawing_view(tmp_path, started=True, streaming=False)
+  silent.render()
+  assert not projection_stream_active(silent._stream_lease.path), 'drawn, but the car has accepted no frame'
+  parked = drawing_view(tmp_path, started=False)
   parked.render()
   assert not projection_stream_active(parked._stream_lease.path), 'the standby screen is not a drive'
-  unset = drawing_view(tmp_path, started=True, content='birds_eye')
-  del unset._stream_lease
+  unset = drawing_view(tmp_path, started=True)
+  unset._stream_lease = None
   unset.render()
 
 
-def test_view_owns_the_lease_for_both_contents_and_releases_it_on_close():
+def test_only_the_car_display_process_writes_the_lease(tmp_path, monkeypatch):
+  """A view built without `streaming` (tests, previews) never creates, touches or removes a lease."""
+  from contextlib import ExitStack
   from pathlib import Path
+  from openpilot.starpilot.system.starport import current_car_ui
   source = Path(projection_onroad.__file__).read_text()
   build = source[source.index('self._resources = ExitStack()'):source.index("if content == 'birds_eye':")]
-  assert 'self._stream_lease = StreamLeaseWriter()' in build
-  assert 'self._resources.callback(self._stream_lease.release)' in build
+  assert 'if streaming is not None:' in build and 'self._resources.callback(self._stream_lease.release)' in build
+  assert 'streaming=producer.recently_sent' in Path(current_car_ui.__file__).read_text()
+  # The gate the car display passes: focused demand and a frame the connection accepted within a second.
+  from openpilot.starpilot.system.starport.frame_source import FrameProducer
+  assert 'sent' in FrameProducer.recently_sent.__doc__
+  assert ExitStack  # the lease's release rides the view's own resource stack
