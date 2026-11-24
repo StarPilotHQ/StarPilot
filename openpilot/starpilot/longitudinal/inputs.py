@@ -173,7 +173,10 @@ class LongitudinalInputs:
     if self.ev9_long_enabled:
       return self._ev9_context(active)
     if self.toyota_sienna_replay or self.toyota_sienna_production or self.toyota_corolla_stop:
-      return LongitudinalContext(leads=self._toyota_leads() if active else None)
+      leads = self._toyota_leads() if active else None
+      resume_fresh = (leads is not None and self.toyota_corolla_stop and self.sm.all_checks(['longitudinalPlan']) and
+                      self.sm['carState'].cruiseState.standstill and self.resume_sources_current())
+      return LongitudinalContext(leads=leads, toyota_resume_fresh=resume_fresh)
     cc_evidence = (self.gm_cc_evidence if self.gm_cc_enabled else self._gm_cc_evidence()
                    if self.gm_cc_stop_enabled and active else None)
     volt_observation = self._gm_volt_observation() if self.gm_volt_enabled and active else None

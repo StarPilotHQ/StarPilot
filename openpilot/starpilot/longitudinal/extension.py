@@ -1,5 +1,6 @@
 """Vehicle-owned longitudinal behavior at the shared control boundary."""
 from dataclasses import dataclass
+import math
 
 from openpilot.common.realtime import DT_CTRL
 from openpilot.starpilot.longitudinal.force_stop_braking import eligible as distance_braking_eligible
@@ -26,6 +27,7 @@ class LongitudinalContext:
   profile_max_accel: float | None = None
   faster_takeoffs: bool = False
   force_stop_braking: bool = False
+  toyota_resume_fresh: bool = False
 
 
 class LongitudinalExtension:
@@ -40,6 +42,7 @@ class LongitudinalExtension:
     self.vehicle_stop = self.vehicle_policy.stop_policy() if hasattr(self.vehicle_policy, "stop_policy") else None
     toyota_production = production_enabled(CP)
     self.toyota_stopped_lead = toyota_production and str(CP.carFingerprint) == COROLLA
+    self.toyota_pcm_resume = self.toyota_stopped_lead and CP.autoResumeSng
     self.toyota_output = ToyotaOutputPolicy(CP) if toyota_production or development_enabled(CP) else None
     self.ioniq6_start = Ioniq6StartPolicy() if ioniq6_start_eligible(CP) else None
     self.force_stop_distance_braking = distance_braking_eligible(CP)
@@ -95,6 +98,14 @@ class LongitudinalExtension:
     if self.stopping_policy is not None:
       state = self.stopping_policy.transition(state, previous_state, active, CS, a_target, should_stop,
                                               has_lead=context.has_lead)
+    if (self.toyota_pcm_resume and active and
+        CS.standstill and CS.cruiseState.standstill):
+      # The PCM clears its hold after the controller sends a positive request.
+      can_resume = (context.toyota_resume_fresh and CS.canValid and not CS.canTimeout and not CS.accFaulted and
+                    not CS.stockAeb and CS.cruiseState.enabled and not CS.brakePressed and not CS.gasPressed and
+                    not should_stop and not context.force_stop_braking and math.isfinite(a_target) and a_target >= 0.1 and
+                    self.toyota_output.moving_lead_for_resume(context.leads))
+      return LongCtrlState.pid if can_resume else LongCtrlState.stopping
     if (self.toyota_stopped_lead and active and previous_state == LongCtrlState.stopping and
         state != LongCtrlState.off and not should_stop and not CS.brakePressed and
         self.toyota_output.hold_stopped_lead(CS.vEgo, context.leads)):

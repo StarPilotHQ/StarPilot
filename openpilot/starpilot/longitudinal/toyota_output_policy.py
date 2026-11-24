@@ -196,6 +196,13 @@ class ToyotaOutputPolicy:
                   lead.present and 0 < lead.distance_m <= 8.0 and
                   abs(lead.lateral_m) <= 1.75 and abs(lead.speed_mps) <= 0.35 for lead in leads))
 
+  def moving_lead_for_resume(self, leads):
+    if not self._leads_valid(leads):
+      return False
+    nearest = min((lead for lead in leads if lead.present and lead.distance_m > 0 and abs(lead.lateral_m) <= 1.75),
+                  key=lambda lead: lead.distance_m, default=None)
+    return nearest is not None and nearest.speed_mps > 0.35
+
   def target(self, a_target: float, v_ego: float, should_stop: bool, last_output_accel: float,
              *, leads: tuple[Lead, ...] | None = None) -> float | None:
     """Return a shaped target, or None for invalid/missing required evidence."""
