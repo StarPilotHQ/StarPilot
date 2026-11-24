@@ -302,6 +302,8 @@ class NowPlayingWidget:
     self.ticks = ticks
     self.track = None
     self.artwork: tuple[str, tuple[int, int, bytes] | None] = ('', None)
+    # (fill RGBA, rim RGBA, rim px): draw the card as a glass panel instead of the wash or the cover art (birds-eye screen).
+    self.glass: tuple | None = None
     self._cover = None  # (url, texture or None)
     self._scroll = {}
     self._shown = None
@@ -397,6 +399,12 @@ class NowPlayingWidget:
                     x, top - 4, width, measured.height + 8)
 
   def _background(self, rect, radius, opacity, texture):
+    if self.glass is not None:
+      fill, rim, rim_px = self.glass
+      roundness = min(1.0, 2 * radius / min(rect.width, rect.height))
+      rl.draw_rectangle_rounded(rect, roundness, 24, rl.Color(*fill))
+      rl.draw_rectangle_rounded_lines_ex(rect, roundness, 24, rim_px, rl.Color(*rim))
+      return
     if texture is None:
       rl.draw_rectangle_rounded(rect, min(1.0, 2 * radius / min(rect.width, rect.height)), 24, rl.Color(*WASH, round(255 * opacity)))
       return
@@ -425,7 +433,7 @@ class NowPlayingWidget:
     kind = _kind(placed, track)
     if kind == 'collapsed':
       center = _center(rect)
-      rl.draw_circle_v(center, rect.width / 2, rl.Color(*WASH, round(255 * opacity)))
+      rl.draw_circle_v(center, rect.width / 2, rl.Color(*self.glass[0]) if self.glass is not None else rl.Color(*WASH, round(255 * opacity)))
       self._press_disc(center, PLAY_R, 'play_pause', now)
       _play_pause(center, PLAY_R, False, now if self._busy(track, now) else None)
     elif kind == 'elsewhere':

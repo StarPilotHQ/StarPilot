@@ -1382,4 +1382,12 @@ for (const invalidOffset of [true, null, "1", NaN, Infinity, -5.1, 5.1]) {
   const document = { ...speedAdjustment.document, speedDisplayOffset: invalidOffset }
   assert.equal(validDocument(document, speedAdjustment.metadata), false)
 }
+for (const driveRender of ["off", "starport", "device"]) {
+  const document = { ...snapshot().document, driveRender }
+  assert.ok(validDocument(document, speedAdjustment.metadata))
+  assert.equal(layoutDocument({ ...document, display: {} }).driveRender, driveRender)
+}
+for (const driveRender of [true, null, "", "Off", "camera"]) {
+  assert.equal(validDocument({ ...snapshot().document, driveRender }, speedAdjustment.metadata), false)
+}
 assert.ok(SETTINGS_SECTIONS.find(section => section.id === "developer").pages.includes("developer"))

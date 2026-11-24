@@ -8,6 +8,7 @@ import unittest
 from openpilot.starpilot.system.starport.display_profile import record_screen, read_screen
 from openpilot.starpilot.system.starport.projection_layout import (
   default_layout, default_layout_for_viewport, validate_layout, validate_layout_for_viewport, decode_layout, layout_metadata,
+  layout_metadata_for_viewport,
   projection_customization, ProjectionLayoutSource,
   PROJECTION_WIDGETS, NAV_CARD, NAV_MAP, FAVORITE_WIDGETS, BOOKMARK_WIDGET, CAR_EXIT, ACTION_WIDGETS, placement_size,
 )
@@ -583,6 +584,87 @@ class TestNowPlayingWidget(unittest.TestCase):
     order = layout_metadata(SCREEN)['widgetOrder']
     self.assertIn('now_playing', order)
     self.assertEqual(order[-1], CAR_EXIT)
+
+
+class TestProjectionBirdsEyeLayout(unittest.TestCase):
+  KEY = 'birds_eye'
+
+  def test_default_panel_on_the_right_clear_of_always_visible_widgets(self):
+    for viewport in ((1860, 1080), (1920, 1080), (2880, 1080), (1860, 1860)):
+      with self.subTest(viewport=viewport):
+        width, height = viewport
+        document = default_layout_for_viewport(viewport)
+        metadata = layout_metadata_for_viewport(viewport)
+        placed = document['widgets'][self.KEY]
+        self.assertEqual(placed, {'x': width - 30 - 520, 'y': 290, 'width': 520, 'height': 600, 'enabled': True,
+                                  'opacity': 90, 'display': 'overlay'})
+        self.assertEqual(validate_layout_for_viewport(copy.deepcopy(document), viewport), document)
+        self.assertEqual(placement_size(self.KEY, metadata['widgets'][self.KEY], placed), (520, 600))
+        self.assertLessEqual(placed['x'] + placed['width'], width - 30)
+        box = (placed['x'], placed['y'], placed['x'] + placed['width'], placed['y'] + placed['height'])
+        for key in (CAR_EXIT, 'steering_wheel', 'now_playing'):
+          other = document['widgets'][key]
+          ow, oh = placement_size(key, metadata['widgets'][key], other)
+          overlaps = not (box[2] <= other['x'] or other['x'] + ow <= box[0] or box[3] <= other['y'] or other['y'] + oh <= box[1])
+          self.assertFalse(overlaps, key)
+        self.assertEqual(metadata['widgetOrder'][0], self.KEY, 'drawn under every other widget')
+        widget = metadata['widgets'][self.KEY]
+        self.assertEqual((widget['label'], widget['kind'], widget['layer']), ('Birds-eye view', self.KEY, 'underlay'))
+        self.assertEqual(widget['displayModes'], ['overlay', 'full'])
+        self.assertEqual(widget['box'], {'minWidth': 240, 'maxWidth': width - 60, 'minHeight': 240, 'maxHeight': height - 60})
+
+  def test_existing_widget_defaults_are_unchanged(self):
+    document = default_layout_for_viewport((1860, 1080))
+    self.assertEqual(document['widgets'][CAR_EXIT], {'x': 30, 'y': 954, 'enabled': True, 'opacity': 75, 'background': False})
+    self.assertEqual((document['widgets']['now_playing']['x'], document['widgets']['now_playing']['y']), (1310, 954))
+    self.assertEqual((document['widgets'][NAV_MAP]['x'], document['widgets'][NAV_MAP]['y']), (1230, 625))
+
+  def test_display_size_and_opacity_are_validated(self):
+    viewport = (1860, 1080)
+    document = default_layout_for_viewport(viewport)
+    document['widgets'][self.KEY].update(display='full', x=30, y=30, width=1800, height=1020, opacity=20)
+    self.assertEqual(validate_layout_for_viewport(copy.deepcopy(document), viewport)['widgets'][self.KEY]['display'], 'full')
+    for field, bad in (('display', 'icons'), ('display', None), ('width', 239), ('height', 1021), ('width', 300.5),
+                       ('opacity', 19), ('opacity', 101), ('x', 31)):
+      broken = copy.deepcopy(document)
+      broken['widgets'][self.KEY][field] = bad
+      with self.subTest(field=field, value=bad), self.assertRaises(ValueError):
+        validate_layout_for_viewport(broken, viewport)
+    extra = copy.deepcopy(document)
+    extra['widgets'][self.KEY]['size'] = 3
+    with self.assertRaises(ValueError):
+      validate_layout_for_viewport(extra, viewport)
+
+  def test_older_layouts_gain_it_underneath_and_without_display_get_overlay(self):
+    viewport = (1860, 1080)
+    import openpilot.starpilot.system.starport.projection_layout as layout
+    metadata = layout.layout_metadata_for_viewport(viewport)
+    document = default_layout_for_viewport(viewport)
+    expected = document['widgets'].pop(self.KEY)
+    document['widgetOrder'] = [key for key in metadata['widgetOrder'] if key != self.KEY]
+    migrated = validate_layout_for_viewport(copy.deepcopy(document), viewport)
+    self.assertEqual(migrated['widgets'][self.KEY], expected)
+    self.assertEqual(migrated['widgetOrder'], [self.KEY, *document['widgetOrder']])
+    no_display = default_layout_for_viewport(viewport)
+    del no_display['widgets'][self.KEY]['display']
+    self.assertEqual(validate_layout_for_viewport(no_display, viewport)['widgets'][self.KEY]['display'], 'overlay')
+    self.assertIn(self.KEY, PROJECTION_WIDGETS)
+
+  def test_placement_reaches_the_projection_unshifted(self):
+    document = default_layout_for_viewport((2880, 1080))
+    converted = projection_customization(document, default_document())
+    self.assertEqual(converted['layouts']['large'][self.KEY], document['widgets'][self.KEY])
+
+  def test_galaxy_editor_fixture_mirrors_the_metadata(self):
+    """test_projection_birds_eye.mjs hard-codes this widget; keep the two in step."""
+    import openpilot.starpilot.system.starport.projection_layout as layout
+    widget = layout.layout_metadata_for_viewport((1860, 1080))['widgets'][self.KEY]
+    source = (Path(__file__).parents[3] / 'galaxy/tests/test_projection_birds_eye.mjs').read_text()
+    for fragment in ('box: { minWidth: 240, maxWidth: 1800, minHeight: 240, maxHeight: 1020 }',
+                     'opacity: { min: 20, max: 100, default: 90 }', 'displayModes: ["overlay", "full"]',
+                     'default: { x: 1310, y: 290, width: 520, height: 600, enabled: true, opacity: 90, display: "overlay" }'):
+      self.assertIn(fragment, source)
+    self.assertEqual(widget['default'], {'x': 1310, 'y': 290, 'width': 520, 'height': 600, 'enabled': True, 'opacity': 90, 'display': 'overlay'})
 
 
 def test_resize_migrates_and_roundtrips_without_touching_native_layout():

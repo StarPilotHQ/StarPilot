@@ -82,23 +82,49 @@ class RenderPipelineSummary:
 
 
 class RenderSummary:
-  """Frame rate and mean frame time of the renderer while it renders, for the profile header."""
+  """Frame rate and mean frame time of the renderer while it renders, for the profile header.
 
-  def __init__(self, now: float, interval: float = SUMMARY_INTERVAL):
+  Given a ``content`` mode, each window also reports where a frame's time went, as means per rendered frame in ms
+  (update_ms: ui_state.update, prepare_ms: layout.prepare, draw_ms: the content target pass, submit_ms: NV12/RGBA
+  conversion plus readback start, readback_wait_ms: time inside the readback's finish), ``dropped`` (frames whose
+  readback failed), ``content`` and ``paced`` ("camera" when most frames waited on a camera, else "interval").
+  The renderer only adds monotonic() pairs around each phase, so this costs nothing measurable.
+  """
+
+  PHASES = ("update", "prepare", "draw", "submit", "readback_wait")
+
+  def __init__(self, now: float, interval: float = SUMMARY_INTERVAL, content: str | None = None):
     self.interval = interval
+    self.content = content
     self.reset(now)
 
   def reset(self, now: float) -> None:
     self.started, self.frames, self.frame_seconds = now, 0, 0.0
+    self.phase_seconds = dict.fromkeys(self.PHASES, 0.0)
+    self.dropped = self.camera_paced = 0
 
-  def frame_done(self, began: float, done: float) -> dict | None:
+  def add(self, phase: str, seconds: float) -> None:
+    """Time spent in one phase of the current window (``phase`` is one of PHASES)."""
+    self.phase_seconds[phase] += max(0.0, seconds)
+
+  def drop(self) -> None:
+    self.dropped += 1
+
+  def frame_done(self, began: float, done: float, camera_paced: bool = False) -> dict | None:
     """Count one frame; every ``interval`` returns the window's render_stats and starts a new one."""
     self.frames += 1
     self.frame_seconds += done - began
+    self.camera_paced += bool(camera_paced)
     if done - self.started < self.interval:
       return None
     report = {"event": "render_stats", "fps": round(self.frames / (done - self.started), 1),
               "frame_ms": round(1000 * self.frame_seconds / self.frames, 1)}
+    if self.content is not None:
+      for phase in self.PHASES:
+        report[f"{phase}_ms"] = round(1000 * self.phase_seconds[phase] / self.frames, 2)
+      report["dropped"] = self.dropped
+      report["content"] = self.content
+      report["paced"] = "camera" if 2 * self.camera_paced > self.frames else "interval"
     self.reset(done)
     return report
 

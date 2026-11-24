@@ -16,6 +16,9 @@ BOOKMARK_NOTICE_NS = 2_000_000_000  # how long "Bookmark Saved" stays after the 
 MODE_NOTICE_NS = 2_000_000_000  # how long the driving-mode banner stays after the mode changes
 RECONNECT_NOTICE_NS = 8_000_000_000  # how long "why it reconnected" stays once the car screen is back
 DRIVER_MONITOR_HOLD_NS = 350_000_000
+BIRDS_EYE_SETTINGS_NS = 1_000_000_000  # birds-eye-only mode: how often road colors and longitudinal control are re-read
+BIRDS_EYE_CARD_MARGIN = (28, 20)  # birds-eye-only mode: the now-playing card's gap to the HUD's strip and torque bar, px at 1080 rows
+CONTENTS = ('birds_eye', 'full')  # what the car screen shows while driving (drive_render.stream_content)
 STANDBY_LOGO = Path(__file__).parents[3] / 'selfdrive/assets/images/starpilot_logo.png'
 BUBBLE_REDUNDANT_ALERTS = frozenset(('preLaneChangeLeft', 'preLaneChangeRight', 'laneChange',
                                      'laneChangeBlocked', 'laneChangeBlockedLoud'))
@@ -73,6 +76,7 @@ def native_dependencies():
   from openpilot.selfdrive.ui.onroad.augmented_road_view import AugmentedRoadView, BORDER_COLORS
   from openpilot.selfdrive.ui.onroad.cameraview import CameraView
   from openpilot.selfdrive.ui.onroad.model_renderer import ModelRenderer
+  from openpilot.selfdrive.ui.onroad.birds_eye_renderer import BirdsEyeRenderer, BitmapText
   from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
   from openpilot.starpilot.ui.onroad import OnroadView
   from openpilot.starpilot.ui.onroad_customization import CAMERA_WIDGETS, placement, widget_size
@@ -125,6 +129,93 @@ def native_dependencies():
         return super()._update_texture_color_filtering()
       apply_plain_camera_look(self, rl)
 
+  standby_logo = standby_logo_loader(rl)
+  return SimpleNamespace(rl=rl, ui_state=ui_state, camera=ProjectionRoadCamera,
+                         onroad=OnroadView, monitor=DriverMonitorLayer, fonts=BitmapFonts,
+                         font_role=FontRole, profile=Profile, font_directory=default_font_directory,
+                         adapter=RuntimeSnapshotAdapter, current_message=current_message, display_message=display_message,
+                         shell_mode=ShellMode, pip_renderer=PiPRenderer, read_pip=read_pip, pip_signals=Signals,
+                         pip_warning=PiPWarningSource, read_vasm=read_vasm_preferences, clock_pair_ns=clock_pair_ns,
+                         car_schema=car_schema,
+                         pip_rect=Rect, pip_widgets=CAMERA_WIDGETS, placement=placement, widget_size=widget_size,
+                         alert=OnroadAlert, alert_size=AlertSize, map_overlay=live_overlay, map_feed=MapFeed,
+                         favorites=ProjectionFavorites, standby_logo=standby_logo, now_playing_feed=ProjectionNowPlayingFeed,
+                         now_playing_control=music_control, jetlink_feed=JetlinkStatusFeed, gpu_inputs=gpu_inputs,
+                         birds_eye=BirdsEyeRenderer, birds_eye_text=BitmapText)
+
+
+def birds_eye_card_placement(placed, width, height, view):
+  """The now-playing placement for the birds-eye screen: the bottom left of `view` (x, y, width, height: the HUD's
+  view rect), right of the acceleration strip and above the torque bar, whatever the layout's own position (that
+  is for the camera composition). A copy; the layout's dict, and its size, opacity and enabled, are unchanged."""
+  from openpilot.starpilot.system.starport.projection_layout import now_playing_size
+  left, bottom = (round(value * height / 1080) for value in BIRDS_EYE_CARD_MARGIN)
+  _, card_h = now_playing_size(placed)
+  return {**placed, 'x': view[0] + left, 'y': view[1] + view[3] - bottom - card_h}
+
+
+def birds_eye_dependencies():
+  """What the birds-eye-only car screen draws: the birds-eye view with its HUD and now-playing card, the standby
+  screen and its exit button.
+
+  ANDROID AUTO VIDEO PERFORMANCE GUARDRAIL (operator-requested video optimization): no camera, VisionIPC,
+  model renderer, OnroadView, map, picture-in-picture, driver monitor or Jetlink feed is imported, so none is built.
+  The HUD and the now-playing card, feed and control are imported only when built.
+  """
+  from openpilot.starpilot.ui.raylib import rl
+  from openpilot.selfdrive.ui.onroad.birds_eye_renderer import BirdsEyeRenderer, BitmapText
+  from openpilot.selfdrive.ui.ui_state import ui_state
+  from openpilot.starpilot.ui.onroad_customization import read_customization
+  from openpilot.starpilot.ui.presentation import BitmapFonts, FontRole, Profile, default_font_directory
+
+  def road_style(ui):
+    """The comma's own road colors for the large layout, as the full composition draws them."""
+    return read_customization(ui.params).get('roadColors', {}).get('large', {})
+
+  def long_control(ui):
+    """openpilot longitudinal control from the live carParams, else the saved CarParams; None when unknown."""
+    sm = ui.sm
+    if sm.seen['carParams']:
+      return bool(sm['carParams'].openpilotLongitudinalControl)
+    raw = ui.params.get('CarParams')
+    if not raw:
+      return None
+    from openpilot.cereal import messaging
+    from opendbc.car.structs import car
+    return bool(messaging.log_from_bytes(raw, car.CarParams).openpilotLongitudinalControl)
+
+  def birds_eye_hud(text, source):
+    """The acceleration bar and torque arc over the birds-eye view (imported only when built)."""
+    from openpilot.starpilot.system.starport.birds_eye_hud import BirdsEyeHud
+    return BirdsEyeHud(rl, text, source)
+
+  def now_playing_widget(fonts):
+    """The camera composition's now-playing card, drawn by itself."""
+    from openpilot.starpilot.ui.onroad_now_playing import NowPlayingWidget
+    return NowPlayingWidget(fonts)
+
+  def now_playing_feed():
+    from openpilot.starpilot.system.starport.projection_now_playing import ProjectionNowPlayingFeed
+    return ProjectionNowPlayingFeed()
+
+  def now_playing_control(action, args=None):
+    from openpilot.starpilot.system.starport.media_audio import music_control
+    music_control(action, args)
+
+  def now_playing_touch(send, feedback):
+    from openpilot.starpilot.ui.onroad_now_playing import NowPlayingTouch
+    return NowPlayingTouch(send, feedback)
+
+  standby_logo = standby_logo_loader(rl)
+  return SimpleNamespace(rl=rl, ui_state=ui_state, fonts=BitmapFonts, font_role=FontRole, profile=Profile,
+                         font_directory=default_font_directory, standby_logo=standby_logo,
+                         birds_eye=BirdsEyeRenderer, birds_eye_text=BitmapText, road_style=road_style,
+                         long_control=long_control, birds_eye_hud=birds_eye_hud,
+                         now_playing_widget=now_playing_widget, now_playing_feed=now_playing_feed,
+                         now_playing_control=now_playing_control, now_playing_touch=now_playing_touch)
+
+
+def standby_logo_loader(rl):
   def standby_logo(height):
     """The StarPilot crescent, shrunk once on the CPU to its standby size; None if it cannot be loaded."""
     image = rl.load_image(str(STANDBY_LOGO))
@@ -141,25 +232,21 @@ def native_dependencies():
       return None
     rl.set_texture_filter(texture, rl.TextureFilter.TEXTURE_FILTER_BILINEAR)
     return texture
-
-  return SimpleNamespace(rl=rl, ui_state=ui_state, camera=ProjectionRoadCamera,
-                         onroad=OnroadView, monitor=DriverMonitorLayer, fonts=BitmapFonts,
-                         font_role=FontRole, profile=Profile, font_directory=default_font_directory,
-                         adapter=RuntimeSnapshotAdapter, current_message=current_message, display_message=display_message,
-                         shell_mode=ShellMode, pip_renderer=PiPRenderer, read_pip=read_pip, pip_signals=Signals,
-                         pip_warning=PiPWarningSource, read_vasm=read_vasm_preferences, clock_pair_ns=clock_pair_ns,
-                         car_schema=car_schema,
-                         pip_rect=Rect, pip_widgets=CAMERA_WIDGETS, placement=placement, widget_size=widget_size,
-                         alert=OnroadAlert, alert_size=AlertSize, map_overlay=live_overlay, map_feed=MapFeed,
-                         favorites=ProjectionFavorites, standby_logo=standby_logo, now_playing_feed=ProjectionNowPlayingFeed,
-                         now_playing_control=music_control, jetlink_feed=JetlinkStatusFeed, gpu_inputs=gpu_inputs)
+  return standby_logo
 
 
 class ProjectionOnroad:
-  """Separate renderer with projected actions; native UIState stays read-only."""
+  """Separate renderer with projected actions; native UIState stays read-only.
+
+  ``content='full'`` is the camera composition. ``content='birds_eye'`` (the default stream_content) draws only
+  the birds-eye view over the whole frame while driving and builds nothing else (see birds_eye_dependencies).
+  """
 
   def __init__(self, *, dependencies=None, viewport=None, customization=None, certificate_days=None, native_focus=None,
-               layout_watcher=None, reconnect_notice=""):
+               layout_watcher=None, content='full', reconnect_notice=""):
+    if content not in CONTENTS:
+      raise ValueError(f'unknown projection content {content!r}')
+    self.content = content
     viewport = FALLBACK_VIEWPORT if viewport is None else viewport
     self.width, self.height = viewport
     self.customization = customization
@@ -182,7 +269,7 @@ class ProjectionOnroad:
     self.slc_action = lambda request: False
     self._slc_input = None
     self.camera_stream = None  # the camera stream the last frame drew, or None
-    self.native = dependencies or native_dependencies()
+    self.native = dependencies or (birds_eye_dependencies() if content == 'birds_eye' else native_dependencies())
     native = self.native
     self._standby_logo = None
     self._standby_logo_tried = False
@@ -192,6 +279,9 @@ class ProjectionOnroad:
     try:
       self.fonts = native.fonts(native.profile.LARGE, native.font_directory(), headless_context=True)
       self._resources.callback(self.fonts.close)
+      if content == 'birds_eye':
+        self._init_birds_eye_only()
+        return
       self.camera = native.camera()
       self.camera.large_ui_gamma_trial = bool((customization or {}).get('largeUiGammaTrial', False))
       self._resources.callback(self._close_camera)
@@ -235,6 +325,12 @@ class ProjectionOnroad:
           self.pip_warning = native.pip_warning()
           self._resources.callback(self.pip_warning.close)
         self.onroad.pip_layer = self._pip_layer
+      self.birds_eye = None
+      # A tap on the car screen switches panel/full for this connection only; the saved layout is
+      # Galaxy-owned and only written while parked, so the projection never writes it.
+      self._birds_eye_display = None
+      self._birds_eye_press = None
+      self._ensure_birds_eye()
       self.map = None
       self.map_feed = None
       self._map_lease = MapLeaseWriter()
@@ -254,6 +350,101 @@ class ProjectionOnroad:
     except BaseException:
       self._resources.close()
       raise
+
+  def _init_birds_eye_only(self):
+    """Birds-eye-only mode: the view, its HUD and the now-playing card; everything else the full composition owns
+    stays None, so nothing else is drawn or polled."""
+    native = self.native
+    self.camera = self.onroad = self.monitor = self.pip = self.map = self.map_feed = self.adapter = None
+    self.now_playing_feed = self.now_playing_touch = self.jetlink_feed = self.favorites = None
+    self.pip_warning = self._vasm_saved = None
+    self._map_lease = None
+    self._monitor_pair = self._monitor_pair_ns = None
+    self._pip_saved = self._pip_read_ns = None
+    self._state = None
+    self._birds_eye_display = self._birds_eye_press = None
+    self._birds_eye_settings_ns: int | None = None
+    self._road_style: dict = {}
+    self.exit = ProjectionExit(native.rl, lambda: self.native_focus())
+    ui = native.ui_state
+    text = native.birds_eye_text(self.fonts) if getattr(native, 'birds_eye_text', None) is not None else None
+    self.birds_eye = native.birds_eye(text=text, source=lambda: (ui.sm, ui.started_frame))
+    self.hud = None
+    if getattr(native, 'birds_eye_hud', None) is not None:
+      self.hud = native.birds_eye_hud(text, lambda: (ui.sm, getattr(ui, 'CP', None)))
+      self._resources.callback(self.hud.close)
+    self.now_playing = None
+    self._birds_eye_card = None  # (the card's render/touch state, its placement inside the view) for this layout
+    widget, feed = getattr(native, 'now_playing_widget', None), getattr(native, 'now_playing_feed', None)
+    if widget is not None and feed is not None:
+      self.now_playing = widget(self.fonts)
+      self._resources.callback(self.now_playing.close)
+      from openpilot.selfdrive.ui.onroad import birds_eye_math
+      # The card is glass like the view's label and the HUD's bars, not the camera composition's tinted wash.
+      self.now_playing.glass = (birds_eye_math.GLASS_FILL, birds_eye_math.GLASS_RIM, birds_eye_math.GLASS_RIM_PX)
+      self.now_playing_feed = feed()
+      self._resources.callback(self.now_playing_feed.close)
+      control, touch = getattr(native, 'now_playing_control', None), getattr(native, 'now_playing_touch', None)
+      if control is not None and touch is not None:
+        self.now_playing_touch = touch(control, self.now_playing)
+
+  def _birds_eye_now_playing(self):
+    """(state, placed) the birds-eye card renders and hit-tests with, built once per layout; (None, None) when the
+    layout places no card. `placed` is the layout's placement moved clear of the HUD's strip and dock."""
+    if self._birds_eye_card is None:
+      placed = (self.customization or {}).get('widgets', {}).get('now_playing')
+      if not isinstance(placed, dict) or 'x' not in placed or 'y' not in placed:
+        self._birds_eye_card = (None, None)
+      else:
+        if self.hud is not None:
+          placed = birds_eye_card_placement(placed, self.width, self.height, self.hud.view_rect(self.width, self.height))
+        state = SimpleNamespace(customization={'layouts': {'large': {'now_playing': placed}}},
+                                alert=SimpleNamespace(size='none'), viewport_width=self.width)
+        self._birds_eye_card = (state, placed)
+    return self._birds_eye_card
+
+  def _refresh_birds_eye_settings(self, now_ns):
+    """Road colors and longitudinal control change rarely; re-read them once a second, never per frame."""
+    last = self._birds_eye_settings_ns
+    if last is not None and 0 <= now_ns - last < BIRDS_EYE_SETTINGS_NS:
+      return
+    self._birds_eye_settings_ns = now_ns
+    native, ui = self.native, self.native.ui_state
+    if getattr(native, 'road_style', None) is not None:
+      try:
+        style = native.road_style(ui)
+        self._road_style = style if isinstance(style, dict) else {}
+      except Exception:
+        self._road_style = {}
+    if getattr(native, 'long_control', None) is not None:
+      try:
+        long_control = native.long_control(ui)
+      except Exception:
+        long_control = None
+      if long_control is not None:
+        self.birds_eye.long_control = long_control
+
+  def _render_birds_eye_only(self):
+    """The birds-eye view over the logical frame, right of the HUD's acceleration strip and running on under its
+    torque bar; no border or brand text."""
+    view = self.birds_eye
+    view.panel = False
+    view.opacity = 1.0
+    view.parent_clip = None
+    view.metric = bool(getattr(self.native.ui_state, 'is_metric', True))
+    view.road_style = self._road_style
+    hud = getattr(self, 'hud', None)
+    rect = (0, 0, self.width, self.height)
+    if hud is not None:
+      rect = (getattr(hud, 'render_rect', None) or hud.view_rect)(self.width, self.height)
+    view.render(self.native.rl.Rectangle(*rect))
+    if hud is not None:
+      hud.metric = view.metric
+      hud.render(self.width, self.height)
+    if self.now_playing is not None:
+      state, _ = self._birds_eye_now_playing()
+      if state is not None:
+        self.now_playing.render(state)
 
   @staticmethod
   def create_view(view_factory, fonts, *, viewport, **layers):
@@ -280,7 +471,99 @@ class ProjectionOnroad:
       wheel._texture = None
     self.onroad.close()
 
+  def _birds_eye_placement(self):
+    """The enabled birds-eye placement from this connection's layout, or None."""
+    # getattr: callers that build the view without __init__ (camera policy tests) have neither attribute.
+    customization = getattr(self, 'customization', None)
+    if customization is None or getattr(self, 'birds_eye', None) is None:
+      return None
+    placed = customization['widgets'].get('birds_eye')
+    return placed if placed is not None and placed.get('enabled') is True else None
+
+  def birds_eye_display(self):
+    """'overlay', 'full', or None when the birds-eye view is off."""
+    if getattr(self, 'content', 'full') == 'birds_eye':
+      return 'full'  # birds-eye-only content: always the whole frame, whatever the layout says
+    placed = self._birds_eye_placement()
+    if placed is None:
+      return None
+    return getattr(self, '_birds_eye_display', None) or placed.get('display', 'overlay')
+
+  def _ensure_birds_eye(self):
+    """Build the birds-eye renderer the first time a layout turns it on; it stays for the connection."""
+    native = self.native
+    placed = (self.customization or {}).get('widgets', {}).get('birds_eye')
+    if (self.birds_eye is not None or placed is None or placed.get('enabled') is not True or
+        getattr(native, 'birds_eye', None) is None):
+      return
+    ui = native.ui_state
+    text = native.birds_eye_text(self.fonts) if getattr(native, 'birds_eye_text', None) is not None else None
+    self.birds_eye = native.birds_eye(text=text, source=lambda: (ui.sm, ui.started_frame))
+    model_renderer = getattr(self.camera, 'model_renderer', None)
+    self.birds_eye.long_control = bool(getattr(model_renderer, '_longitudinal_control', True))
+    self.onroad.birds_eye_layer = self._birds_eye_layer
+
+  def _draw_birds_eye(self, rect, state, *, panel, opacity=1.0, parent_clip=None):
+    view = self.birds_eye
+    view.panel = panel
+    view.opacity = opacity
+    view.parent_clip = parent_clip
+    view.metric = bool(getattr(self.native.ui_state, 'is_metric', True))
+    customization = getattr(state, 'customization', None) or {}
+    view.road_style = customization.get('roadColors', {}).get('large', {})
+    view.render(rect)
+
+  def _birds_eye_layer(self, rect, state):
+    """Overlay panel, above the camera and below the HUD widgets; full mode draws in the camera layer instead."""
+    placed = self._birds_eye_placement()
+    if placed is None or self.birds_eye_display() != 'overlay':
+      return
+    rl = self.native.rl
+    self._draw_birds_eye(rl.Rectangle(placed['x'], placed['y'], placed['width'], placed['height']), state,
+                         panel=True, opacity=placed['opacity'] / 100.0, parent_clip=rect)
+
+  def _birds_eye_rect(self):
+    display = self.birds_eye_display()
+    if display == 'full':
+      return 30, 30, self.width - 60, self.height - 60
+    if display == 'overlay':
+      placed = self._birds_eye_placement()
+      return placed['x'], placed['y'], placed['width'], placed['height']
+    return None
+
+  def _birds_eye_touch(self, kind, x, y) -> bool:
+    """A tap on the birds-eye view switches panel/full; True while it owns the touch."""
+    if kind == 'cancel' or self._state is None or not self.native.ui_state.started:
+      claimed = self._birds_eye_press is not None
+      self._birds_eye_press = None
+      return claimed
+    if kind == 'down':
+      self._birds_eye_press = None
+      area = self._birds_eye_rect()
+      if area is None or not (area[0] <= x <= area[0] + area[2] and area[1] <= y <= area[1] + area[3]):
+        return False
+      # Buttons drawn over the view keep their taps.
+      if self.favorites is not None and self.favorites.hit(x, y, self._state) is not None:
+        return False
+      self._birds_eye_press = (x, y)
+      return True
+    if self._birds_eye_press is None:
+      return False
+    px, py = self._birds_eye_press
+    if abs(x - px) > 30 or abs(y - py) > 30:
+      self._birds_eye_press = None
+      return True
+    if kind == 'up':
+      self._birds_eye_press = None
+      self._birds_eye_display = 'overlay' if self.birds_eye_display() == 'full' else 'full'
+    return True
+
   def _camera_layer(self, rect, state):
+    if self.birds_eye_display() == 'full':
+      # The birds-eye view replaces the camera; no camera frame is drawn, so none is paced.
+      self._draw_birds_eye(rect, state, panel=False, parent_clip=rect)
+      self.camera_stream = None
+      return
     # The car screen's own lead choices; without them the marker stays off rather than following the comma.
     appearance = getattr(state, 'appearance', None)
     lead_display = ((appearance.show_lead_indicator, int(appearance.lead_info_mode), appearance.lead_info_metric)
@@ -331,6 +614,9 @@ class ProjectionOnroad:
   def apply_layout(self, customization):
     """Switch to a newly saved Android Auto layout without reconnecting."""
     self.customization = customization
+    if self.content == 'birds_eye':
+      self._birds_eye_card = None  # the exit button and the now-playing card read the layout
+      return
     self._base_customization = self._projection_customization = None
     self._base_appearance = self._projection_appearance = None
     self.camera.large_ui_gamma_trial = bool((customization or {}).get('largeUiGammaTrial', False))
@@ -338,6 +624,8 @@ class ProjectionOnroad:
     if invalidate is not None:
       invalidate()
     self._ensure_map()
+    self._birds_eye_display = None  # a newly saved layout's display choice wins over an earlier tap
+    self._ensure_birds_eye()
 
   def _own_appearance(self, appearance):
     if self.customization is None:
@@ -361,6 +649,17 @@ class ProjectionOnroad:
   def prepare(self):
     """Before the frame's render target is bound: offscreen map work happens here."""
     self._check_layout()
+    if self.content == 'birds_eye':
+      started = self.native.ui_state.started
+      if started:
+        self._refresh_birds_eye_settings(time.monotonic_ns())
+      if self.now_playing_feed is not None:
+        # Polled only while the card can show: driving, with the card placed.
+        _, placed = self._birds_eye_now_playing()
+        self.now_playing_feed.set_enabled(bool(started and placed is not None and placed.get('enabled')))
+        self.now_playing.track = self.now_playing_feed.snapshot()
+        self.now_playing.artwork = self.now_playing_feed.artwork()
+      return
     if self.now_playing_feed is not None:
       placed = (self.customization or {}).get('widgets', {}).get('now_playing', {})
       self.now_playing_feed.set_enabled(bool(placed.get('enabled')))
@@ -548,7 +847,10 @@ class ProjectionOnroad:
   def render(self):
     ui = self.native.ui_state
     self.camera_stream = None
-    if ui.started:
+    if ui.started and self.content == 'birds_eye':
+      self._state = None
+      self._render_birds_eye_only()
+    elif ui.started:
       now_ns = time.monotonic_ns()
       timer_enabled = bool((self.customization or {}).get('widgets', {}).get('stopped_timer', {}).get('enabled', False))
       state = self.adapter.build(self.native.shell_mode.ONROAD, now_ns=now_ns, stopped_timer_enabled=timer_enabled).onroad
@@ -591,6 +893,22 @@ class ProjectionOnroad:
 
   def handle_touches(self, events):
     placed = self.exit.document_placement(self.customization)
+    if self.content == 'birds_eye':
+      # Driving, only the now-playing card takes taps (the exit button is not drawn); on standby only the exit button does.
+      started = self.native.ui_state.started
+      touch = self.now_playing_touch
+      for event in events:
+        x, y = event.x * self.width, event.y * self.height
+        if started:
+          self.exit.cancel()
+          if touch is not None:
+            state, card = self._birds_eye_now_playing()
+            touch.touch(event.kind, x, y, state, card, self.now_playing.showing())
+        else:
+          if touch is not None:
+            touch.cancel()
+          self.exit.touch(event.kind, x, y, placed)
+      return
     for event in events:
       x, y = event.x * self.width, event.y * self.height
       if self.exit.touch(event.kind, x, y, placed):
@@ -602,6 +920,10 @@ class ProjectionOnroad:
           self.favorites.cancel()
         continue
       if self._slc_touch(event.kind, x, y):
+        if self.favorites is not None:
+          self.favorites.cancel()
+        continue
+      if self._birds_eye_touch(event.kind, x, y):
         if self.favorites is not None:
           self.favorites.cancel()
         continue
@@ -674,6 +996,7 @@ class ProjectionOnroad:
     if getattr(self.onroad, 'uniden', None):
       self.onroad.uniden.touch('cancel', 0, 0, None)
     self.exit.cancel()
+    self._birds_eye_press = None
     if self.now_playing_touch is not None:
       self.now_playing_touch.cancel()
     if self._slc_input is not None:

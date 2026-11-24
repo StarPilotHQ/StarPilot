@@ -206,6 +206,9 @@ class StarShellSession(TeslaSpeedActions):
         self.view.onroad.extra_overlays = lambda rect, state: camera_owner.render_model_source_layer(rect, show_long_indicator=None)
       else:
         self.view.onroad.extra_overlays = lambda rect, state: camera_owner.render_model_source_layer(rect)
+        # Galaxy's "3D drive render" set to Comma display; nothing is built until a frame needs it.
+        from openpilot.starpilot.ui.onroad_drive_render import DriveRenderLayer
+        self.view.onroad.drive_render = DriveRenderLayer(self.fonts, ui_state)
     except Exception:
       self.fonts.close()
       raise
@@ -386,6 +389,11 @@ class StarShellSession(TeslaSpeedActions):
     self._driver_monitor_layer.render(state, monitor=monitor, driver=driver,
                                       fresh=monitor is not None and driver is not None,
                                       onroad=ui_state.is_onroad(), top_icons=top_icons)
+
+  def _drive_render_active(self, state) -> bool:
+    """The onroad view draws the 3D drive render instead of the camera this frame (comma 3 / 3X only)."""
+    active = getattr(getattr(self.view, "onroad", None), "drive_render_active", None)
+    return active is not None and active(state) is True
 
   def _favorite_actions(self):
     return self._resolve_favorite_actions()
@@ -1531,7 +1539,8 @@ class StarShellSession(TeslaSpeedActions):
         snapshot = replace(snapshot, onroad=self.favorites.present(snapshot.onroad))
     else:
       self.favorites.cancel()
-    if mode != ShellMode.ONROAD or not snapshot.onroad.camera_available:
+    # The 3D drive render replaces the camera composition, so the PiP cameras stay closed.
+    if mode != ShellMode.ONROAD or not snapshot.onroad.camera_available or self._drive_render_active(snapshot.onroad):
       self.pip_warning.close()
       self._pip_signals_cache = None
       self._pip_saved = None
@@ -1885,6 +1894,8 @@ class StarShellSession(TeslaSpeedActions):
       self.bluetooth_source.close()
     self.pip_warning.close()
     self.pip_renderer.close()
+    if (layer := getattr(getattr(self.view, "onroad", None), "drive_render", None)) is not None:
+      layer.close()
     if self.model_source is not None:
       self.model_source.close()
       self.model_source = None
