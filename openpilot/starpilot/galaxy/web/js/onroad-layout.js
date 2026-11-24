@@ -10,6 +10,7 @@ import { LEAD_INFO, PROJECTION_WORDMARK, editorSnapshot, projectionPayload } fro
 import { GalaxySelect } from "./galaxy-select.js"
 import { GxNotice } from "./notice.js"
 import { GxDialog } from "./dialog.js"
+import { signalColor } from "./uniden-preview.js"
 import { GalaxySettingRow, switchRow } from "./galaxy-setting-row.js"
 import { showDraftChange } from "./save-feedback.js"
 import { snapTargets, snapMove, snapResize, snapThreshold } from "./layout-snap.js"
@@ -175,6 +176,7 @@ export const LayoutWidgetPreview = {
     sprite() { return this.art?.url && this.art.sprites?.sprites?.[this.widget.id] },
   },
   methods: {
+    unidenSignal: signalColor,
     withAlpha,
     modeLines(scene, profile) {
       const { mode, experimental } = previewScene(scene), aol = scene === "aol"
@@ -345,6 +347,16 @@ export const LayoutWidgetPreview = {
             <text x="56" y="167" text-anchor="middle" font-size="15" font-weight="600" fill="#f5f2fc">iPhone 15</text>
             <text x="56" y="186" text-anchor="middle" font-size="15" font-weight="600" fill="#f5f2fc">AirPods</text>
           </g>
+        </g>
+      </g>
+      <g v-else-if="widget.kind === 'uniden_alerts'">
+        <g :transform="'scale(' + (widget.scale ?? 100) / 100 + ')'">
+        <rect x="1" y="1" width="458" height="74" rx="14" :stroke="palette.cardBorder || '#9d72ff'" stroke-width="2" :fill="palette.cardFill || '#10191f'" :fill-opacity="(100 - (widget.transparency ?? 8)) / 100" />
+        <text x="24" y="51" font-size="36" font-weight="600" fill="#ff5b65">KA</text>
+        <text x="97" y="48" font-size="28" font-weight="600" :fill="palette.text || '#ffffff'">35.500 GHz</text>
+        <rect v-for="i in 8" :key="i" :x="283 + (i - 1) * 11" :y="53 - (8 + (i - 1) * 3)" width="8" :height="8 + (i - 1) * 3"
+          :fill="i > 6 ? '#35434d' : unidenSignal(6, i - 1)" />
+        <path d="M411 25 L426 51 L396 51 Z" fill="#ff5b65" />
         </g>
       </g>
       <g v-else-if="widget.kind === 'jetlink_status'">
@@ -714,6 +726,7 @@ export const OnroadLayoutPage = {
           : { x: 0, y: -widget.visualInsetTop, width, height: height + widget.visualInsetTop + widget.visualInsetBottom }
         return {
           ...widget, width, height, outline, ...(widget.iconSize ? { display: this.layout[widget.id].display } : {}),
+          ...(widget.kind === "uniden_alerts" ? { transparency: this.layout[widget.id].transparency, scale: this.layout[widget.id].scale } : {}),
           ...(widget.opacity ? { opacity: this.layout[widget.id].opacity } : {}),
           ...(widget.backgroundToggle ? { background: this.layout[widget.id].background } : {}),
           ...(widget.collapseToggle ? { collapse: this.layout[widget.id].collapse } : {}),
@@ -1435,6 +1448,17 @@ export const OnroadLayoutPage = {
       Object.assign(this.selectedPosition, clampPlacement(this.limitProfile, this.state.selected,
         this.selectedPosition.x, this.selectedPosition.y, this.layout))
       this.recordChange(before, this.state.profile + ":" + this.state.selected + ":scale")
+      this.state.notice = ""
+    },
+    setUnidenDisplay(field, value) {
+      if (!this.editable || this.state.drag || this.state.layerDrag || this.selectedWidget?.kind !== 'uniden_alerts') return
+      const range = { transparency: [0, 100], scale: [50, 150] }[field]
+      if (range ? !Number.isInteger(value) || value < range[0] || value > range[1] :
+          field !== 'hide_when_no_alert' || typeof value !== 'boolean') return
+      this.finishColorEdit()
+      const before = clone(this.state.draft)
+      this.selectedPosition[field] = value
+      this.recordChange(before, this.state.profile + ":" + this.state.selected + ":" + field)
       this.state.notice = ""
     },
     opacityInput(event) {

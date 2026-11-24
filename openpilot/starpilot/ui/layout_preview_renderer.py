@@ -245,6 +245,9 @@ class _Canvas:
         cast(JetlinkStatusWidget, self.view.jetlink_status).status = JetlinkStatus('iPhone', 'active', 24.6, 'connected', model='Cinque v3')
         from openpilot.starpilot.ui.network_signal import Signal
         self.view.network_signal.preview = Signal(2, 4, 'wifi', 'LTE', 'connected', ('iPhone 15',), 'Home Wi-Fi')
+        self.view.uniden.preview_data = {'config': {'enabled': True}, 'connected': True, 'model': 'R8', 'can_mute': True,
+                                        'alerts': [{'band': 'KA', 'strength': 6, 'frequency': 35.5, 'direction': 'rear', 'muted': False},
+                                                   {'band': 'K', 'strength': 3, 'frequency': 24.15, 'direction': 'front', 'muted': False}]}
       self.monitor = _DriverMonitorArt(profile)
       self.view.driver_monitor_layer = self._render_driver_monitor
       self.view.preview_pip_layer = self._render_preview_pip

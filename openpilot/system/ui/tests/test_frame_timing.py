@@ -167,12 +167,13 @@ def test_ui_poll_precedes_every_frame_including_wake(frame, monkeypatch, awake):
   preview = SimpleNamespace(poll=lambda: events.append("preview"))
   star = SimpleNamespace(_poll_projection_bookmark=lambda now: events.append("bookmark"),
                          _poll_projection_slc=lambda now: events.append("slc"),
-                         _poll_wheel=lambda now: events.append("wheel"))
+                         _poll_wheel=lambda now: events.append("wheel"),
+                         _poll_detector=lambda: events.append("detector"))
   app._nav_stack_ticks = [lambda: events.append("transition")]
   app._nav_stack[0].render.side_effect = lambda _: events.append("draw")
   loop = app.render(before_frame=lambda: ui.update_frame(preview, controllers, star))
   assert next(loop)[0] is awake
-  assert events == ["messages", "bookmark", "slc"] + ([] if awake else ["wheel"]) + ["controls", "preview"] + (
+  assert events == ["messages", "bookmark", "slc"] + ([] if awake else ["wheel"]) + ["detector", "controls", "preview"] + (
     ["transition", "draw"] if awake else [])
   with pytest.raises(StopIteration):
     next(loop)
@@ -210,7 +211,8 @@ def test_projection_bookmark_is_saved_once_without_rendering_starpilot(frame, mo
     path = Path(directory) / 'bookmark.sock'
     receiver, sender = BookmarkReceiver(path), BookmarkSender(path)
     publish = Mock()
-    star = SimpleNamespace(_projection_bookmarks=receiver, _publish_bookmark=publish, _poll_projection_slc=Mock(), _poll_wheel=Mock())
+    star = SimpleNamespace(_projection_bookmarks=receiver, _publish_bookmark=publish, _poll_projection_slc=Mock(), _poll_wheel=Mock(),
+                           _poll_detector=Mock())
     star._poll_projection_bookmark = lambda now: namespace['_poll_projection_bookmark'](star, now)
     loop = app.render(before_frame=lambda: ui.update_frame(star=star))
     try:

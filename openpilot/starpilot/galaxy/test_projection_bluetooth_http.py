@@ -217,7 +217,7 @@ class ProjectionBluetoothHttpTest(unittest.TestCase):
     self.assertEqual(self.action('connect')[0], 503)
 
   def test_owner_busy_and_error_codes_never_fall_back(self):
-    for error, code in [('busy', 409), ('park_required', 409), ('changed', 409), ('service_unavailable', 503)]:
+    for error, code in [('busy', 409), ('park_required', 409), ('changed', 409), ('unreachable', 409), ('service_unavailable', 503)]:
       self.starport.result = {'handled': True, 'error_code': error}
       actual, result, _ = self.action()
       self.assertEqual(actual, code)

@@ -17,7 +17,7 @@ function harness(fetcher, unauthorized = () => {}) {
 
 test('first-load connection errors render without accessing missing adapter state', () => {
   const render = compile(BluetoothPage.template, {decodeEntities: value => value});
-  const vm = {...BluetoothPage.data(), mode:'local', error:'Connection interrupted', unauthorized() {}};
+  const vm = {...BluetoothPage.data(), mode:'local', unidenSettings: false, go() {}, error:'Connection interrupted', unauthorized() {}};
   for (const [key, getter] of Object.entries(BluetoothPage.computed)) {
     Object.defineProperty(vm, key, {get: () => getter.call(vm)});
   }

@@ -29,6 +29,7 @@ def update_frame(preview=None, controllers=None, star=None, game_mode=None, arab
     star._poll_projection_bookmark(time.monotonic_ns())
     star._poll_projection_slc(time.monotonic_ns())
     poll_screen_off_wheel(star, device.awake, time.monotonic_ns())
+    star._poll_detector()
   if game_mode is not None:
     game_mode()
   if controllers is not None:

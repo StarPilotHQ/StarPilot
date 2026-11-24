@@ -1632,6 +1632,8 @@ progress { max-width: 100%; accent-color: var(--primary); }
 .gx-driving .gx-row { flex-wrap: wrap; }
 .gx-driving .gx-row > strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .gx-bt-card > h3 { margin: 0 0 var(--sp-2); }
+.gx-bluetooth__radio { padding-block: var(--sp-3); }
+.gx-bluetooth__radio > .gx-row { min-height: var(--touch-target); padding-block: 0; }
 .gx-bt-adapter__actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-2); }
 .gx-bt-adapter__actions > .gx-btn { padding-inline: var(--sp-2); white-space: nowrap; }
 .gx-row__desc.gx-bt-device__state { display: flex; align-items: center; gap: 6px; margin-top: 2px; }

@@ -45,6 +45,9 @@ def set_device_class(major: int, minor: int) -> bool:
 BLUEZ = 'org.bluez'
 ADAPTER = 'org.bluez.Adapter1'
 DEVICE = 'org.bluez.Device1'
+# BlueZ Connect failures that mean the device never answered.
+UNREACHABLE_ERRORS = ('org.bluez.Error.Failed', 'org.bluez.Error.NotAvailable', 'org.bluez.Error.NotReady',
+                      'org.bluez.Error.ConnectionAttemptFailed', 'org.bluez.Error.BREDR.ProfileUnavailable')
 AGENT = 'org.bluez.Agent1'
 AGENT_PATH = '/org/starpilot/bluetooth/pairing'
 ADMISSION_LOCK = Path('/data/starpilot/bluetooth-owner.lock')
@@ -294,8 +297,18 @@ class BlueZ:
     path = self._device_path(address)
     if operation == 'forget':
       self._call(adapter_path, ADAPTER, 'RemoveDevice', 'o', (path,))
-    elif operation in ('connect', 'disconnect'):
-      self._call(path, DEVICE, operation.capitalize())
+    elif operation == 'connect':
+      try:
+        self._call(path, DEVICE, 'Connect')
+      except TimeoutError:
+        raise BluetoothRejected('Device did not respond', code='unreachable') from None
+      except BluetoothRejected as error:
+        # Off, out of range or held by another phone/app; not a changed device.
+        if str(error) in UNREACHABLE_ERRORS:
+          raise BluetoothRejected(f'Device did not respond ({error})', code='unreachable') from None
+        raise
+    elif operation == 'disconnect':
+      self._call(path, DEVICE, 'Disconnect')
     else:
       raise ValueError('Unsupported Bluetooth operation')
 
@@ -583,6 +596,7 @@ class BluetoothOwner:
     self.admission_lock = admission_lock
     self.admission_file = None
     self.power_change_active = False
+    self.uniden: Any = None
 
   def _admission_enter(self) -> None:
     if self.admission_file is not None:
@@ -951,6 +965,7 @@ class BluetoothOwner:
         self._client().operation(operation, address)
         if operation == 'forget':
           assert address is not None
+          self.uniden = None
           self._forget_starport_car(address)
       if operation == 'power' and not enabled:
         self.systemctl(['sudo', '-n', 'systemctl', 'stop', RADIO_UNIT], check=True, timeout=15)
