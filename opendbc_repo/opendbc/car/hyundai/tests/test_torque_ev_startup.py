@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 import pytest
 
-from opendbc.car import gen_empty_fingerprint, make_tester_present_msg
+from opendbc.car import gen_empty_fingerprint, make_tester_present_msg, structs
 from opendbc.car.hyundai.interface import CarInterface
 from opendbc.car.hyundai.values import CAR, HyundaiFlags
 from opendbc.car.hyundai.ecu_startup import Outcome
@@ -194,6 +194,28 @@ def test_unowned_topologies_preserve_factory_output(car, variant, alpha):
   assert actual.to_dict() == retained.to_dict()
   assert candidate(actual, requested=True, is_release=False) is None
   assert not required(actual)
+
+
+@pytest.mark.parametrize("alt", [False, True])
+def test_second_panda_hda2_starts_with_factory_cruise(alt):
+  from openpilot.starpilot.vehicle_startup import VehicleStartupOwner
+  from opendbc.car.hyundai.values import HyundaiSafetyFlags
+
+  fp = gen_empty_fingerprint()
+  fp[6].update({0x110: 32, 0x362: 32} if alt else {0x50: 16, 0x2A4: 24})
+  fp[5].update({0x1CF: 8, 0x35: 32, 0xA0: 24, 0xEA: 24, 0x1A0: 32})
+  fw = [structs.CarParams.CarFw.new_message(ecu=structs.CarParams.Ecu.adas)]
+  cp = CarInterface.get_params(CAR.HYUNDAI_IONIQ_5, fp, fw, True, False, False)
+  stock = CarInterface.get_params(CAR.HYUNDAI_IONIQ_5, fp, fw, False, False, False)
+  sent = []
+  startup = VehicleStartupOwner()
+  cp = startup.prepare(cp, CarInterface, (list, sent.extend), requested=True, admission=lambda: True)
+  startup.configure(CarInterface(cp))
+  assert cp.to_dict() == stock.to_dict()
+  assert len(cp.safetyConfigs) == 2
+  assert cp.pcmCruise and not cp.openpilotLongitudinalControl and not cp.alphaLongitudinalAvailable
+  assert not any(config.safetyParam & HyundaiSafetyFlags.LONG for config in cp.safetyConfigs)
+  assert sent == []
 
 
 @pytest.mark.parametrize("reply,accepted", [(None, True), (b"\x68\x03", True), (b"\x7f\x28\x22", False), (b"\x68\x01", False)])
