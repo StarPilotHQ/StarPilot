@@ -273,12 +273,8 @@ assert.equal(previewVolume.vm.previewLabel, "Test alert")
 
 {
   const engine = control({ label: "Engine Type", value: "LFA", choices: ["BMW M3", "BMW M3 Deep", "F1 Car","Ferrari F136", "Hellcat", "Ioniq 5N Ignition", "Jaguar F-Type", "LFA", "Nissan Super GT1", "Nissan Super GT2", "Supra Turbo"],
-    available: true, action: true, previewSound: "EngineSoundProfile" })
+    available: true, action: true })
   assert.equal(settingControl(engine.vm.row), "select")
-  assert.equal(engine.vm.previewLabel, "Rev engine")
-  engine.vm.testAlert = async () => { throw new Error("") }
-  await engine.vm.previewSound()
-  assert.equal(engine.vm.soundError, "The engine could not be played.")
-  assert.match(GalaxySettingRow.template, /<template v-else-if="control === 'select'">\s*<GalaxySelect[\s\S]*?v-if="testAlert && row\.previewSound"[\s\S]*?<\/template>\s*<button v-else-if="control === 'group'"/)
+  assert.match(GalaxySettingRow.template, /<template v-else-if="control === 'select'">\s*<GalaxySelect[\s\S]*?<\/GalaxySelect>\s*<\/template>/)
 }
-console.log("Settings controls: engine rows offer a rev preview")
+console.log("Settings controls: select rows have no preview button")

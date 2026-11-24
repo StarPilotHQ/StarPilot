@@ -150,7 +150,7 @@ class SoundsSettingsTests(unittest.TestCase):
     self.assertEqual([row.key for row in page.rows], list(ENGINE_KEYS))
     self.assertEqual((page.rows[1].value, page.rows[1].page), ("LFA", ENGINE_TYPE_PAGE))
     self.assertTrue(self.owner.apply(FeatureSettingsRequest("EngineSound", page.rows[0].source, "On")))
-    self.assertEqual(self.owner.snapshot(engine_menu=True).rows[-1].value, "On · LFA")
+    self.assertEqual(self.owner.snapshot(engine_menu=True).rows[-1].value, "On")
 
   def test_engine_type_picker_lists_each_engine_and_choosing_one_saves_and_previews(self):
     revs = []

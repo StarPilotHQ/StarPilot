@@ -97,8 +97,7 @@ class SoundsOwner:
                              reason=reason, default_value="Off"))
     engine_rows = self._engine_rows(parked)
     if engine_menu:
-      enabled, engine_type = engine_rows[0].value, engine_rows[1].value
-      rows.append(FeatureRow(ENGINE_MENU_KEY, "Engine Sounds", f"{enabled} · {engine_type}" if enabled == "On" else enabled,
+      rows.append(FeatureRow(ENGINE_MENU_KEY, "Engine Sounds", engine_rows[0].value,
                              page=ENGINE_PAGE, available=True,
                              reason="Plays a simulated engine on the car speakers that follows the accelerator pedal."))
     else:

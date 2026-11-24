@@ -129,40 +129,12 @@ def test_onroad_rev_plays_only_while_parked_and_yields_to_the_pedal():
   assert rev.step(0.0, 0.0, 0.0, False) == (0.0, 0.0, 0.0, False)
 
 
-def test_galaxy_rev_button_runs_the_engine_preview_and_reports_where_it_played(monkeypatch):
-  audio_preview = pytest.importorskip('openpilot.starpilot.audio.preview')
-  monkeypatch.setattr(preview, 'environment', lambda: {'ENV': '1'})
-  for code, output in ((0, 'car'), (3, 'comma'), (4, 'engine')):
-    runs = []
-    def runner(argv, runs=runs, code=code, **kwargs):
-      runs.append((argv, kwargs))
-      return SimpleNamespace(returncode=code)
-    result = audio_preview.AlertPreview(lambda: False, runner).play({'key': 'EngineSoundProfile'})
-    assert result == {'played': True, 'output': output}
-    assert runs[0][0][-2:] == ['-m', 'openpilot.starpilot.engine_sound.preview'] and runs[0][1]['env'] == {'ENV': '1'}
-  for outcome in (SimpleNamespace(returncode=2), SimpleNamespace(returncode=1), subprocess.TimeoutExpired('preview', 15)):
-    def runner(argv, outcome=outcome, **kwargs):
-      if isinstance(outcome, Exception):
-        raise outcome
-      return outcome
-    player = audio_preview.AlertPreview(lambda: True, runner)
-    with pytest.raises(audio_preview.AlertPreviewError):
-      player.play({'key': 'EngineSoundVolume'})
-    assert player.lock.acquire(blocking=False)
-
-
 def test_preview_while_driving_only_asks_the_running_engine_and_spawns_nothing(tmp_path, monkeypatch):
   trigger = tmp_path / 'trigger'
   monkeypatch.setattr(preview, 'trigger_path', lambda: trigger)
   spawned = []
   assert preview.start(lambda *args, **kwargs: spawned.append(args), is_offroad=lambda: False)
   assert trigger.exists() and spawned == []
-
-  audio_preview = pytest.importorskip('openpilot.starpilot.audio.preview')
-  trigger.unlink()
-  monkeypatch.setattr(preview, 'offroad', lambda: False)
-  result = audio_preview.AlertPreview(lambda: True, lambda *args, **kwargs: spawned.append(args)).play({'key': 'EngineSoundProfile'})
-  assert result == {'played': True, 'output': 'engine'} and trigger.exists() and spawned == []
 
 
 def test_spawned_preview_leaves_the_callers_cores_and_priority(monkeypatch):
