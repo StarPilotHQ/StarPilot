@@ -14,7 +14,7 @@ def build(fonts, ui_state):
   from openpilot.starpilot.system.starport.birds_eye_hud import BirdsEyeHud
   text = BitmapText(fonts)
   view = BirdsEyeRenderer(text=text, source=lambda: (ui_state.sm, ui_state.started_frame))
-  hud = BirdsEyeHud(rl, text, lambda: (ui_state.sm, getattr(ui_state, 'CP', None)))
+  hud = BirdsEyeHud(rl, text, lambda: (ui_state.sm, getattr(ui_state, 'CP', None), ui_state.started_frame))
   return view, hud
 
 

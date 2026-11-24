@@ -231,6 +231,37 @@ def torque_color(utilization: float, alpha: float) -> tuple[int, int, int, int]:
   return 255, round(255 * green), round(255 * (1 - warmth)), round(255 * 0.9 * alpha)
 
 
+class _LiveSeen:
+  def __init__(self, sm, started_frame):
+    self._sm, self._started = sm, started_frame
+
+  def __getitem__(self, name: str) -> bool:
+    sm = self._sm
+    if not sm.seen[name]:
+      return False
+    alive = getattr(sm, 'alive', None)
+    if isinstance(alive, dict) and alive.get(name) is False and name not in getattr(sm, 'ignore_alive', ()):
+      return False
+    frames = getattr(sm, 'recv_frame', None)
+    return not (self._started is not None and isinstance(frames, dict) and frames.get(name, self._started) < self._started)
+
+
+class LiveMessages:
+  """The SubMaster as the HUD reads it: a service counts as seen only while it is alive (unless the SubMaster
+  ignores its liveness) and, given the drive's first frame, once it has arrived in this drive. A stopped service or
+  the previous drive's last message is then drawn as nothing, not as a frozen value."""
+
+  def __init__(self, sm, started_frame=None):
+    self.sm = sm
+    self.seen = _LiveSeen(sm, started_frame)
+
+  def __getitem__(self, name: str):
+    return self.sm[name]
+
+  def __getattr__(self, name: str):
+    return getattr(self.sm, name)
+
+
 def _current(sm, name: str, now_ns: int | None, max_age_ns: int):
   """sm[name] when seen, alive and received within max_age_ns of now_ns (when recv_time is known); else None."""
   if not sm.seen[name]:
@@ -495,7 +526,8 @@ def torque_feedback(sm, car_params):
 class BirdsEyeHud:
   def __init__(self, rl, text, source, *, feedback=torque_feedback, clock=time.monotonic, icon_path=TURN_SIGNAL_ICON,
                wall_clock=time.time, wheel_path=WHEEL_ICON):
-    """source() -> (SubMaster, CarParams or None). clock() -> seconds, for the turn-signal pulse."""
+    """source() -> (SubMaster, CarParams or None[, the drive's first frame]). clock() -> seconds, for the
+    turn-signal pulse."""
     self.rl, self.text, self.source = rl, text, source
     self._feedback = feedback
     self._clock = clock
@@ -548,7 +580,8 @@ class BirdsEyeHud:
     return self._geometry
 
   def render(self, width: float, height: float) -> None:
-    sm, car_params = self.source()
+    sm, car_params, *drive = self.source()
+    sm = LiveMessages(sm, drive[0] if drive else None)
     geometry = self.geometry(height)
     now_ns = time.monotonic_ns()
     self._draw_accel(geometry, read_accel(sm, now_ns), read_limits(sm, now_ns), height)

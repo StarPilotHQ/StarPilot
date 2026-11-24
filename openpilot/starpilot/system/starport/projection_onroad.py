@@ -371,7 +371,7 @@ class ProjectionOnroad:
     self.birds_eye = native.birds_eye(text=text, source=lambda: (ui.sm, ui.started_frame))
     self.hud = None
     if getattr(native, 'birds_eye_hud', None) is not None:
-      self.hud = native.birds_eye_hud(text, lambda: (ui.sm, getattr(ui, 'CP', None)))
+      self.hud = native.birds_eye_hud(text, lambda: (ui.sm, getattr(ui, 'CP', None), ui.started_frame))
       self._resources.callback(self.hud.close)
     self.now_playing = None
     self._birds_eye_card = None  # (the card's render/touch state, its placement inside the view) for this layout

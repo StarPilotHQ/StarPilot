@@ -219,7 +219,7 @@ def model_lines(model, grid):
     path_accel = bem.resample_line(px[:n], accel_src[:n], grid, extend_back=False)
   lanes = [bem.resample_line(_floats(line.x), _floats(line.y), grid) for line in list(model.laneLines)[:4]]
   edges = [bem.resample_line(_floats(edge.x), _floats(edge.y), grid) for edge in list(model.roadEdges)[:2]]
-  probs = _floats(model.laneLineProbs)[:4]
+  probs = np.nan_to_num(_floats(model.laneLineProbs)[:4])
   stds = _floats(model.roadEdgeStds)[:2]
   return path, path_accel, lanes, np.pad(probs, (0, 4 - probs.size)), edges, np.pad(stds, (0, 2 - stds.size), constant_values=1.0)
 
@@ -666,9 +666,15 @@ class BirdsEyeRenderer(Widget):
     alive, received = getattr(sm, 'alive', None), sm.recv_frame
     model_frame = received.get('modelV2', started_frame) if hasattr(received, 'get') else received['modelV2']
     if model_frame < started_frame or (hasattr(alive, 'get') and alive.get('modelV2') is False):
-      # The model is from an earlier drive or has stopped: its road is not drawn as if it were live.
+      # The model is from an earlier drive or has stopped: its road and leads are not drawn as if they were live.
       self.scene.valid = False
+      self.scene.model_leads, self._lead_model = [], None
+      self.scene.leads = [lead for lead in self.scene.leads if lead.radar]
     radar = sm['radarState'] if fresh('radarState') else None
+    if radar is None:
+      # No current radarState: its leads go, and the zoom and the path's end stop following the last one.
+      self.scene.lead_one_d = None
+      self.scene.leads = [lead for lead in self.scene.leads if not lead.radar]
     car = sm['carState'] if fresh('carState') else None
     self._car_fresh = car is not None
     engaged = experimental = allow = None
