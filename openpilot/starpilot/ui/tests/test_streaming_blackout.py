@@ -1,5 +1,6 @@
 """With "Black screen while StarPort streams" on, the comma's own driving screen is black with alerts only while
 StarPort's drive view reaches the car screen."""
+from collections import namedtuple
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace as NS
@@ -14,6 +15,7 @@ from openpilot.starpilot.ui.onroad_state import AlertSize, OnroadAlert, OnroadSt
 from openpilot.starpilot.ui.presentation import Profile
 
 PROFILES = [Profile.COMPACT, Profile.LARGE]
+Rect = namedtuple('Rect', 'x y width height')
 
 
 def state(chosen=True, **changes):
@@ -113,7 +115,7 @@ def test_large_screen_keeps_quick_select_the_sidebar_and_the_uniden_border():
   v.quick_select_layer, v.uniden = Mock(), Mock()
   current = replace(current, appearance=replace(current.appearance, show_developer_sidebar=True))
   with patch.object(onroad, 'rl') as rl, patch.object(onroad, 'clip'), patch.object(onroad, 'render_live_sidebar') as sidebar:
-    rl.Rectangle = lambda *values: values
+    rl.Rectangle = Rect
     v.render(current)
   content = (30, 30, current.viewport_width - 60, 1020)
   v.quick_select_layer.assert_called_once_with(content, current)
