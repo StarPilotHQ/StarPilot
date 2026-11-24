@@ -4,6 +4,7 @@ import unittest
 
 from opendbc.can import CANPacker
 from opendbc.car import structs
+from opendbc.car.hyundai.interface import CarInterface
 from opendbc.safety.tests.libsafety import libsafety_py
 
 
@@ -98,12 +99,46 @@ class TestHyundaiStockAngleAol(unittest.TestCase):
       self.assertFalse(self.safety.safety_test_selected_fwd(2, address))
       self.assertTrue(self.safety.safety_tx_hook(self.command(word, 3)))
       self.assertTrue(self.safety.safety_tx_hook(self.command(word, 4, active=False)))
+      if topology.startswith('lka'):
+        self.assertFalse(self.safety.safety_tx_hook(self.command(word, 5, active=False)))
       self.assertFalse(self.safety.safety_test_selected_fwd(2, address))
       self.assertTrue(self.safety.safety_tx_hook(self.command(word, 5)))
       self.safety.set_timer(1_300_001)
       self.assertFalse(self.safety.safety_test_selected_fwd(2, address))
       self.assertEqual(self.safety.aol_get_permission_mask(), 0)
       self.assertFalse(self.safety.safety_tx_hook(self.command(word, 6)))
+
+  def test_hda2_controller_sends_only_one_inactive_release(self):
+    car = angle_profiles.CARS[0]
+    for topology, address, camera_name in (('lka', 0x50, 'CAM_0x2a4'), ('lka_alt', 0x110, 'CAM_0x362')):
+      cp = angle_profiles.params(car, topology, hybrid=True)
+      cp.alternativeExperience = 32
+      word = cp.safetyConfigs[-1].safetyParam
+      self.mode(word)
+      self.sources(word)
+      self.gesture(word)
+      interface = CarInterface(cp)
+      packer, frames = angle_profiles.source_frames(cp, topology)
+      frames.append(packer.make_can_msg(camera_name, 2, {}))
+      state = interface.update([(1_000_000_000, frames)])
+      self.assertTrue(state.canValid)
+      control = structs.CarControl()
+      camera_frame = packer.make_can_msg(camera_name, 0, {})
+      camera = self.packet(camera_frame)
+      self.assertFalse(self.safety.safety_tx_hook(camera))
+      for tick, (active, expected) in enumerate(((False, []), (True, [2]), (False, [1]), (False, []))):
+        control.latActive = active
+        _, sends = interface.apply(control.as_reader(), 1_000_000_000 + tick * 10_000_000)
+        steering = [frame for frame in sends if frame[0] == address]
+        self.assertEqual([(frame[1][9] >> 4) & 3 for frame in steering], expected)
+        for frame in steering:
+          self.assertTrue(self.safety.safety_tx_hook(self.packet(frame)))
+        self.assertEqual(self.safety.safety_fwd_hook(2, address), -1 if active else 0)
+        self.assertEqual(bool(self.safety.safety_tx_hook(camera)), active, (topology, tick))
+        if active:
+          bad_camera = self.packet(camera_frame)
+          bad_camera[0].data[0] ^= 1
+          self.assertFalse(self.safety.safety_tx_hook(bad_camera))
 
   def test_non_angle_profile_rejects_cb_at_public_and_selected_hooks(self):
     self.safety.set_alternative_experience(0)

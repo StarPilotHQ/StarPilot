@@ -1292,6 +1292,7 @@ static bool hyundai_canfd_tx_hook_checked(const CANPacket_t *msg) {
   bool tx = false;
   const bool ordinary_angle_frame = hyundai_ordinary_angle_stock && ((msg->addr == 0x110U) || (msg->addr == 0x362U));
   bool ordinary_angle_valid = true;
+  const bool stock_angle_hda2 = hyundai_angle_aol_enabled && hyundai_canfd_lka_steer_msg && !hyundai_canfd_ccnc_ev_long;
   const bool independent_command = hyundai_angle_aol_enabled &&
     ((msg->addr == 0x50U) || (msg->addr == 0x110U) ||
      ((msg->addr == 0x12AU) && !hyundai_canfd_angle_observed_adas) || (msg->addr == 0xCBU));
@@ -1308,8 +1309,17 @@ static bool hyundai_canfd_tx_hook_checked(const CANPacket_t *msg) {
         ordinary_angle_valid &= (delta > 0U) && (delta <= 127U);
       }
     } else {
+      if (stock_angle_hda2) {
+        const uint32_t xor_out = (GET_LEN(msg) == 16U) ? 0x041DU : 0U;
+        ordinary_angle_valid = hyundai_ordinary_angle_owner_current() &&
+          (hyundai_canfd_get_checksum(msg) == (hyundai_common_canfd_compute_checksum(msg) ^ xor_out));
+      }
       hyundai_ordinary_angle_release();
     }
+  }
+  if (stock_angle_hda2 && ((msg->addr == 0x2A4U) || (msg->addr == 0x362U))) {
+    ordinary_angle_valid = hyundai_ordinary_angle_owner_current() &&
+      (hyundai_canfd_get_checksum(msg) == hyundai_common_canfd_compute_checksum(msg));
   }
   if (hyundai_ordinary_angle_stock && !hyundai_angle_aol_enabled) {
     // Core whitelisting precedes this hook; relay is its only final denial.
@@ -1873,8 +1883,8 @@ static safety_config hyundai_canfd_init_validated(uint16_t supplied_param) {
       {0x1DA, 1, 32, .check_relay = false},
     };
     static const CanMsg ioniq6_long_lkas_alt_tx_msgs[] = {
-      {0x110, 0, 32, .check_relay = true, .disable_static_blocking = true},
-      {0x362, 0, 32, .check_relay = true, .disable_static_blocking = true},
+      {0x110, 0, 32, .check_relay = true},
+      {0x362, 0, 32, .check_relay = true},
       {0x12A, 1, 16, .check_relay = false},
       {0x1E0, 1, 16, .check_relay = false},
       {0x1A0, 1, 32, .check_relay = true, .check_relay_immediately = true},

@@ -68,6 +68,19 @@ class TestHyundaiIoniq6Long(unittest.TestCase):
     self.assertTrue(self.safety.safety_rx_hook(self.packet(lamp)))
     return corner, lamp
 
+  def test_replacement_steering_blocks_factory_copies_for_both_hda2_topologies(self):
+    if self.release:
+      self.skipTest("RELEASE denies all four exact Ioniq 6 LONG profiles")
+    for words in (RAW_LONG, RAW_AOL):
+      for topology, word in words.items():
+        with self.subTest(topology=topology, word=hex(word)):
+          self.mode(word)
+          addresses = (0x110, 0x362) if topology == "lkas_alt" else (0x50, 0x2A4)
+          for address in addresses:
+            self.assertEqual(self.safety.safety_fwd_hook(2, address), -1)
+            self.assertEqual(self.safety.safety_fwd_hook(0, address), 2)
+          self.assertEqual(self.safety.safety_fwd_hook(2, 0x123), 0)
+
   def test_bsm_all_sixteen_physical_states_and_exact_paired_frames(self):
     if self.release:
       self.skipTest("RELEASE denies all four exact Ioniq 6 LONG profiles")

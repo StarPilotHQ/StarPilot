@@ -124,6 +124,7 @@ class CarController(CarControllerBase):
     self.apply_angle_last = 0.0
     self.angle_gain_last = 0.0
     self.angle_fault_driver_override = False
+    self.stock_angle_lka_active = False
     self.angle_tx_recovery = (AngleTxRecovery(0xCB, self.CAN.ECAN)
       if pe_long_qualified(CP) or ev9_long_qualified(CP) else AngleTxRecovery(0x110, self.CAN.ACAN)
       if CP.carFingerprint in (CAR.HYUNDAI_IONIQ_5_PE, CAR.KIA_EV9) and
@@ -544,7 +545,9 @@ class CarController(CarControllerBase):
         angle_active, self.params, self.angle_vm)
       self.angle_gain_last = angle_torque_reduction_gain(CS.out.steeringTorque, CS.out.vEgoRaw,
                                                          angle_active, self.angle_gain_last)
-      if not ccnc_ev_stock or ccnc_ev_replacement:
+      stock_angle_handoff = angle_aol and lka_steering and not ccnc_ev_stock
+      if ((not ccnc_ev_stock or ccnc_ev_replacement) and
+          (not stock_angle_handoff or angle_active or self.stock_angle_lka_active)):
         can_sends.extend(
           hyundaicanfd.create_angle_steering_messages(
             self.packer,
@@ -558,6 +561,7 @@ class CarController(CarControllerBase):
             CS.out.steeringAngleDeg,
           )
         )
+      self.stock_angle_lka_active = stock_angle_handoff and angle_active
     else:
       steering_status_active = CC.enabled
       if ((self.CP.carFingerprint == CAR.KIA_CARNIVAL_2025 and self.CP.safetyConfigs[-1].safetyParam == 0x28B4) or

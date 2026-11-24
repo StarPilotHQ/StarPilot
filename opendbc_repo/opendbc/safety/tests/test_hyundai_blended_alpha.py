@@ -249,6 +249,26 @@ class TestHyundaiBlendedAlphaAol(unittest.TestCase):
     for _ in range(8):
       self.feed()
 
+  def test_hda2_idle_steering_has_one_forwarding_owner(self):
+    if self.release:
+      self.skipTest("Mixed Alpha Long requires the debug safety build")
+    self.reset(0x2014)
+    self.warm()
+    self.assertEqual(self.safety.safety_fwd_hook(2, 0x50), 0)
+    self.assertEqual(self.safety.safety_fwd_hook(2, 0x2A4), 0)
+    steering = self.packer.make_can_msg_safety('LKAS', 0, {'COUNTER': 1, 'TORQUE_REQUEST': 0})
+    self.assertTrue(self.safety.safety_tx_hook(steering))
+    self.assertEqual(self.safety.safety_fwd_hook(2, 0x50), -1)
+    self.assertEqual(self.safety.safety_fwd_hook(2, 0x2A4), 0)
+    camera = self.packer.make_can_msg_safety('CAM_0x2a4', 0, {'COUNTER': self.counter - 1})
+    self.assertTrue(self.safety.safety_tx_hook(camera))
+    self.assertEqual(self.safety.safety_fwd_hook(2, 0x2A4), -1)
+    self.assertEqual(self.request(3), 0)
+    self.now += 500_000
+    self.warm()
+    self.assertEqual(self.safety.safety_fwd_hook(2, 0x50), 0)
+    self.assertEqual(self.safety.safety_fwd_hook(2, 0x2A4), 0)
+
   def test_hdai_withdrawal_consumes_valid_counter_without_output_credit(self):
     from opendbc.car.hyundai.hyundaican import hyundai_checksum
 

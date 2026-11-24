@@ -339,7 +339,7 @@ static void blended_aol_tx(const CANPacket_t *msg, bool accepted) {
         }
       }
       accepted_current &= active;
-      if (blended_aol_hda2 && !blended_aol_long) {
+      if (blended_aol_hda2) {
         const bool zero_torque = (((msg->data[6] & 0xFU) << 7U) | (msg->data[5] >> 1U)) == 1024U;
         blended_aol_idle_owned[0] = accepted && !active && zero_torque && aol_rx_healthy() &&
                                     !safety_rx_checks_invalid && !relay_malfunction;
@@ -348,7 +348,7 @@ static void blended_aol_tx(const CANPacket_t *msg, bool accepted) {
         }
       }
     }
-    if (blended_aol_hda2 && !blended_aol_long && (msg->addr == 0x2A4U) && (msg->bus == 0U) && !retain_camera_ownership) {
+    if (blended_aol_hda2 && (msg->addr == 0x2A4U) && (msg->bus == 0U) && !retain_camera_ownership) {
       blended_aol_idle_owned[1] = accepted && blended_aol_idle_owned[0] && aol_rx_healthy() &&
                                   !safety_rx_checks_invalid && !relay_malfunction &&
                                   (safety_get_ts_elapsed(microsecond_timer_get(), blended_aol_tx_ts[0]) <= AOL_HOST_REQUEST_TIMEOUT_US);
@@ -368,7 +368,7 @@ static bool blended_aol_fwd(int bus, int addr) {
   bool blocked = blended_aol_long && !blended_aol_enabled && (bus == 2) &&
     ((addr == (blended_aol_hda2 ? 0x50 : 0x340)) ||
      (addr == (blended_aol_hda2 ? 0x2A4 : 0x364)) || (!blended_aol_hda2 && (addr == 0x485)));
-  if (blended_aol_enabled && blended_aol_hda2 && !blended_aol_long && (bus == 2) &&
+  if (blended_aol_enabled && blended_aol_hda2 && (bus == 2) &&
       aol_rx_healthy() && !safety_rx_checks_invalid && !relay_malfunction) {
     const uint32_t now = microsecond_timer_get();
     const bool primary_current = blended_aol_idle_owned[0] &&
