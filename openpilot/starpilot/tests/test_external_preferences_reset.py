@@ -1,46 +1,11 @@
-import ast
-import copy
-import hashlib
-import importlib.util
 import json
-import math
-import os
-import re
 from pathlib import Path
-import sys
 import tempfile
-from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def load(name, path):
-  spec = importlib.util.spec_from_file_location(name, path)
-  assert spec is not None
-  module = importlib.util.module_from_spec(spec)
-  spec.loader.exec_module(module)
-  return module
-
-
-migration = load('external_reset_state_helpers', ROOT / 'state_migration.py')
-owner_ast = ast.parse((ROOT / 'navigation' / 'owner.py').read_text())
-selected: list[ast.stmt] = [node for node in owner_ast.body if isinstance(node, (ast.FunctionDef, ast.ClassDef))
-                 and node.name in ('ValidationError', 'destination', 'favorite_place', 'valid_google_key')]
-selected.extend(node for node in owner_ast.body if isinstance(node, ast.Assign)
-                and any(isinstance(target, ast.Name) and target.id in ('ROUTE_AVOIDANCES', 'MAP_PROVIDERS', 'GOOGLE_KEY_CHARS', 'SAFE_ID')
-                        for target in node.targets))
-owner_class = next(node for node in owner_ast.body if isinstance(node, ast.ClassDef) and node.name == 'NavigationOwner')
-selected.append(next(node for node in owner_class.body if isinstance(node, ast.FunctionDef) and node.name == 'read'))
-namespace: dict = {'json': json, 'math': math, 're': re, 'hashlib': hashlib, 'os': os, 'copy': copy, 'MAX_DOCUMENT': 256 * 1024,
-                   'MAX_FAVORITES': 100, 'MAX_RECENTS': 10, 'FAVORITE_LABELS': ('home', 'work'),
-                   'GPS_MODES': next(ast.literal_eval(node.value) for node in ast.parse((ROOT / 'gps' / 'source.py').read_text()).body
-                                     if isinstance(node, ast.Assign) and any(getattr(t, 'id', '') == 'GPS_MODES' for t in node.targets))}
-exec(compile(ast.Module(body=selected, type_ignores=[]), str(ROOT / 'navigation' / 'owner.py'), 'exec'), namespace)
-NavigationOwner = type('NavigationOwner', (), {'read': namespace['read']})
-with patch.dict(sys.modules, {'openpilot.starpilot.state_migration': migration}):
-  reset = load('external_reset_subject', ROOT / 'external_preferences_reset.py')
+from openpilot.starpilot import external_preferences_reset as reset
+from openpilot.starpilot import state_migration as migration
 
 
 class TestExternalPreferencesReset(unittest.TestCase):
@@ -63,9 +28,6 @@ class TestExternalPreferencesReset(unittest.TestCase):
     self.nav_file.write_bytes(self.original['navigation_settings'])
     self.payload = self.models / 'model.thneed'
     self.payload.write_bytes(b'model-payload')
-    patcher = patch.dict(sys.modules, {'openpilot.starpilot.navigation.owner': SimpleNamespace(NavigationOwner=NavigationOwner)})
-    patcher.start()
-    self.addCleanup(patcher.stop)
 
   def run_reset(self):
     return reset.reset_external_preferences(self.storage, self.models)
