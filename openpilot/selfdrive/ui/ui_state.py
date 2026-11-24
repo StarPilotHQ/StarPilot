@@ -148,7 +148,7 @@ class UIState:
       ignore_valid=["slcVisionObservation", "starpilotSelfdriveState", "starpilotLateralState", "aolAxisState", "starpilotCarState",
                     "starpilotLongitudinalPlan"],
       ignore_avg_freq=["slcVisionObservation", "starpilotSelfdriveState", "starpilotLateralState", "aolAxisState", "starpilotCarState",
-                    "starpilotLongitudinalPlan"],
+                       "starpilotLongitudinalPlan"],
     )
 
     self.prime_state = ProjectionPrimeState(self.params) if self.replay_clock is not None or isinstance(self.params, ProjectionParams) else PrimeState()

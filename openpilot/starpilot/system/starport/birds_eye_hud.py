@@ -9,8 +9,8 @@ unseen or older than PLAN_MAX_AGE_NS), green accelerating, neutral below zero, r
 BRAKE_ACCEL, or the brake pedal). The scale is fixed: +/-ACCEL_RANGE at the bar's ends, engaged or not, with a line
 at zero and no other graduations. While
 longActive a tick marks each of the planner's published cruise limits (starpilotLongitudinalPlan.accelLimitMin/Max,
-the floor and ceiling the StarPilot profile toggles and overrides leave in force; no planner publishes these two
-fields yet, and until one does read_limits returns None: no ticks, and the bar grows against the fixed range) and
+the floor and ceiling the StarPilot profile toggles and overrides leave in force; a planner that publishes neither
+leaves both zero, read_limits returns None, there are no ticks and the bar grows against the fixed range) and
 moves along the bar as they change; a ceiling of zero (throttle withheld, lateral budget spent) sits on the zero line, and the last limits read
 are held through a missing or stale message, so the ticks never blink. As the command reaches a limit the bar grows
 thicker; it may pass the tick. Disengaged, the track is neutral grey, the setpoint stays at zero (the plan's accel is
@@ -40,8 +40,9 @@ music card: a smoked tint under a bright rim.
   drawn ring with three spokes when the texture cannot be loaded.
 - Drive mode: EXPERIMENTAL (the comma's orange) or CHILL from selfdriveState.experimentalMode, dimmed while
   selfdriveState.enabled is false.
-- Follow distance: selfdriveState.personality as one to three gap bars (hudControl.leadDistanceBars) with its name.
-  The setting only: no measured gap, and traffic mode is not shown.
+- Follow distance: selfdriveState.personality as one to three gap bars (hudControl.leadDistanceBars) with its name,
+  or TRAFFIC in its own colour while the planner reports Traffic Mode in force (read_traffic). The setting only: no
+  measured gap.
 A widget whose service has not been seen is not drawn.
 
 Per frame this is a handful of rectangles, a few cached-text draws and at most three texture quads; nothing allocates.
@@ -61,6 +62,7 @@ AEGO_RC = 0.15             # seconds; the measured-accel tick's light filter
 TORQUE_RC = 0.1            # the full composition's torque filter time constant
 LIMITS_MAX_AGE_NS = 1_000_000_000  # starpilotLongitudinalPlan older than this is not read; the last limits are held
 PLAN_MAX_AGE_NS = 1_000_000_000    # longitudinalPlan older than this falls back to carControl.actuators.accel
+TRAFFIC_MAX_AGE_NS = 500_000_000   # slcState older than this is not read: the follow row shows the personality
 
 ACCEL_WIDTH, ACCEL_GROWN = 28, 56              # logical px at 1080 rows: 2x the former bar, doubling at the limit
 TORQUE_MIN, TORQUE_MAX = 2 * 14, 2 * 56        # 2x the arc's MIN_HEIGHT / MAX_HEIGHT (onroad_torque_geometry)
@@ -108,6 +110,7 @@ SHADOW = (0, 0, 0)
 DOT = (182, 182, 182)                                        # the arc's centre dot
 WHEEL_IDLE = (84, 90, 104)                                   # the badge while lateral is not active
 EXPERIMENTAL = (255, 155, 63)                                # the comma's experimental-mode orange
+TRAFFIC = (96, 190, 255)                                     # the follow row while Traffic Mode is in force
 DIMMED = 110                                                 # alpha of the mode chip's text while not enabled
 
 
@@ -373,7 +376,8 @@ class DriveMode:
 @dataclass(frozen=True)
 class FollowReading:
   bars: int                # 1..3, hudControl.leadDistanceBars
-  label: str               # the personality's name
+  label: str               # the personality's name, or TRAFFIC
+  traffic: bool = False
 
 
 def _message(sm, name: str):
@@ -420,8 +424,32 @@ def personality_index(personality) -> int | None:
   return raw if 0 <= raw < len(PERSONALITIES) else None
 
 
-def read_follow(sm) -> FollowReading | None:
-  """The driving personality as gap bars and its name; None before selfdriveState."""
+def read_traffic(sm, now_ns: int | None = None) -> bool:
+  """Traffic Mode is shaping the plan now, by the planner's own receipt in a current slcState.
+
+  True only for a receipt that is accepted, effective and applied (reason active, the profile target ready and
+  qualified) while openpilot is enabled and commanding longitudinal: the case the comma's own screen labels TRAFFIC.
+  A request that is off, paused or without a usable profile, a stopped planner and a car without Traffic Mode all
+  read False. The receipt's settings and button-map fingerprints are not compared against the saved ones here; the
+  message's age is what bounds it.
+  """
+  try:
+    state = _current(sm, 'slcState', now_ns, TRAFFIC_MAX_AGE_NS)
+    if state is None:
+      return False
+    wire = state.trafficMode
+    if not (wire.version == 1 and wire.accepted is True and wire.effective is True and str(wire.reason) == 'active' and
+            wire.profileTargetReady is True and str(wire.profileReason) == 'qualified'):
+      return False
+    control, selfdrive = _message(sm, 'carControl'), _message(sm, 'selfdriveState')
+    return getattr(control, 'longActive', False) is True and getattr(selfdrive, 'enabled', False) is True
+  except (AttributeError, KeyError, TypeError, ValueError):
+    return False
+
+
+def read_follow(sm, now_ns: int | None = None) -> FollowReading | None:
+  """The driving personality as gap bars with its name, or TRAFFIC while Traffic Mode is in force; None before
+  selfdriveState."""
   try:
     state = _message(sm, 'selfdriveState')
     index = personality_index(getattr(state, 'personality', None)) if state is not None else None
@@ -429,7 +457,8 @@ def read_follow(sm) -> FollowReading | None:
       return None
   except (AttributeError, KeyError, TypeError):
     return None
-  return FollowReading(index + 1, PERSONALITIES[index])
+  traffic = read_traffic(sm, now_ns)
+  return FollowReading(index + 1, 'TRAFFIC' if traffic else PERSONALITIES[index], traffic)
 
 
 @dataclass(frozen=True)
@@ -584,7 +613,7 @@ class BirdsEyeHud:
     self._draw_torque(sm, car_params, width, height)
     self._draw_signals(sm, width, height, geometry.strip)
     self._draw_readout(sm, width, height, geometry.strip)
-    self._draw_status(sm, width, height)
+    self._draw_status(sm, width, height, now_ns)
     self._draw_clock(width, height)
 
   def _glass_rim(self, rect, roundness, segments=8) -> None:
@@ -773,7 +802,7 @@ class BirdsEyeHud:
       self.text.draw(unit, caption, cx, cy, rl.Color(*TICK, 230))
 
   # --- status cluster ---
-  def _draw_status(self, sm, width, height) -> None:
+  def _draw_status(self, sm, width, height, now_ns: int | None = None) -> None:
     key = (width, height)
     if key != self._status_key:
       self._status, self._status_key = status_geometry(width, height), key
@@ -784,7 +813,7 @@ class BirdsEyeHud:
     mode = read_drive_mode(sm)
     if mode is not None:
       self._draw_mode(mode, g.mode, k)
-    follow = read_follow(sm)
+    follow = read_follow(sm, now_ns)
     if follow is not None:
       self._draw_follow(follow, g.follow, k)
 
@@ -852,7 +881,7 @@ class BirdsEyeHud:
   def _draw_follow(self, follow: FollowReading, rect, k: float) -> None:
     rl = self.rl
     x, y, w, h = rect
-    rgb = ACTUAL
+    rgb = TRAFFIC if follow.traffic else ACTUAL
     # The gap icon: bars widening toward the car, the nearest `bars` of them lit.
     icon_w = GAP_BARS[0][0] * k
     centre = x + icon_w / 2

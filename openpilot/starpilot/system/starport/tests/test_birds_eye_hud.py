@@ -51,7 +51,7 @@ class FakeText:
 
 
 SERVICES = ('carState', 'carControl', 'longitudinalPlan', 'starpilotLongitudinalPlan', 'controlsState', 'carOutput',
-            'vehicleParameters', 'selfdriveState', 'starpilotCarState', 'radarState')
+            'vehicleParameters', 'selfdriveState', 'starpilotCarState', 'radarState', 'slcState')
 
 
 class FakeSM:
@@ -557,16 +557,27 @@ def test_the_clock_sits_at_the_top_right_in_twelve_hour_time():
 
 
 # --- status cluster ---
-def status_sm(*, angle=12.4, lat_active=True, experimental=False, enabled=True, personality=1, lead=None, v_ego=20.0):
-  """lead: dRel in metres of a present leadOne, or None for no lead."""
+def traffic_receipt(**changes):
+  """slcState carrying the planner's receipt for Traffic Mode in force; `changes` edit the receipt."""
+  receipt = {'version': 1, 'accepted': True, 'effective': True, 'reason': 'active', 'profileTargetReady': True,
+             'profileReason': 'qualified', **changes}
+  return SimpleNamespace(trafficMode=SimpleNamespace(**receipt))
+
+
+def status_sm(*, angle=12.4, lat_active=True, experimental=False, enabled=True, personality=1, lead=None, v_ego=20.0,
+              long_active=False, traffic=None):
+  """lead: dRel in metres of a present leadOne, or None for no lead. traffic: an slcState message, or None."""
   car_state = SimpleNamespace(aEgo=0.0, brakePressed=False, leftBlinker=False, rightBlinker=False, vCruise=255.0,
                               vCruiseCluster=255.0, cruiseState=SimpleNamespace(enabled=False), vEgo=v_ego,
                               steeringAngleDeg=angle)
   messages = {'carState': car_state,
-              'carControl': SimpleNamespace(longActive=False, latActive=lat_active, actuators=SimpleNamespace(accel=0.0)),
+              'carControl': SimpleNamespace(longActive=long_active, latActive=lat_active,
+                                            actuators=SimpleNamespace(accel=0.0)),
               'selfdriveState': SimpleNamespace(experimentalMode=experimental, enabled=enabled,
                                                 personality=SimpleNamespace(raw=personality)),
               'radarState': SimpleNamespace(leadOne=SimpleNamespace(present=lead is not None, dRel=lead or 0.0))}
+  if traffic is not None:
+    messages['slcState'] = traffic
   return FakeSM(**messages)
 
 
@@ -604,6 +615,28 @@ def test_follow_reader():
   unreadable = status_sm()
   unreadable.messages['selfdriveState'].personality = SimpleNamespace(raw=9)
   assert read_follow(unreadable) is None
+
+
+def test_traffic_mode_in_force_names_the_follow_row():
+  from openpilot.starpilot.system.starport.birds_eye_hud import FollowReading, read_follow, read_traffic
+  active = status_sm(personality=2, long_active=True, traffic=traffic_receipt())
+  assert read_traffic(active) is True
+  assert read_follow(active) == FollowReading(3, 'TRAFFIC', True), 'the bars stay the personality\'s'
+  assert read_traffic(status_sm(long_active=True)) is False, 'no slcState'
+  assert read_follow(status_sm(long_active=True)) == FollowReading(2, 'STANDARD', False)
+  for change in ({'version': 0}, {'accepted': False}, {'effective': False}, {'reason': 'off'},
+                 {'reason': 'authority_unavailable', 'effective': False}, {'profileTargetReady': False},
+                 {'profileReason': 'target_unapplied'}):
+    assert read_traffic(status_sm(long_active=True, traffic=traffic_receipt(**change))) is False, change
+  assert read_traffic(status_sm(long_active=False, traffic=traffic_receipt())) is False, 'not commanding longitudinal'
+  assert read_traffic(status_sm(long_active=True, enabled=False, traffic=traffic_receipt())) is False, 'not enabled'
+  assert read_traffic(status_sm(long_active=True, traffic=SimpleNamespace())) is False, 'a planner without the receipt'
+  stopped = status_sm(long_active=True, traffic=traffic_receipt())
+  stopped.alive = {'slcState': False}
+  assert read_traffic(stopped) is False, 'a stopped planner'
+  old = status_sm(long_active=True, traffic=traffic_receipt())
+  old.recv_time = {'slcState': 1.0}
+  assert read_traffic(old, now_ns=1_400_000_000) is True and read_traffic(old, now_ns=1_600_000_000) is False
 
 
 def overlap(a, b):
@@ -809,7 +842,8 @@ def test_follow_row_draws_gap_bars_and_the_setting_name():
   from openpilot.starpilot.system.starport.birds_eye_hud import status_geometry
   g = status_geometry(*LOGICAL_720P)
   state = {'personality': 0, 'lead': None}
-  view, rl, text = status_hud(lambda: (status_sm(personality=state['personality'], lead=state['lead'], v_ego=20.0), None))
+  view, rl, text = status_hud(lambda: (status_sm(personality=state['personality'], lead=state['lead'], v_ego=20.0,
+                                                     long_active=True, traffic=state.get('traffic')), None))
 
   def inside(x, y):
     return g.follow[0] <= x < g.follow[0] + g.follow[2] and g.follow[1] <= y < g.follow[1] + g.follow[3]
@@ -829,7 +863,11 @@ def test_follow_row_draws_gap_bars_and_the_setting_name():
     assert bars[0][1][1] > bars[1][1][1] > bars[2][1][1] and bars[0][1][2] > bars[2][1][2], 'nearest bar lowest and widest'
     assert [entry[0] for entry in texts] == [name] and texts[0][4] == (*hud_module.ACTUAL, 255)
     assert texts[0][2] > bars[0][1][0] + bars[0][1][2], 'the name sits right of the icon'
-  state.update(personality=0, lead=36.0)
+  state['traffic'] = traffic_receipt()
+  bars, texts = frame()
+  assert [entry[0] for entry in texts] == ['TRAFFIC'] and texts[0][4] == (*hud_module.TRAFFIC, 255)
+  assert [bar[-1] for bar in bars] == [(*hud_module.TRAFFIC, 255)] * 3, 'the lit bars take the traffic colour'
+  state.update(personality=0, lead=36.0, traffic=None)
   bars, texts = frame()
   assert [entry[0] for entry in texts] == ['AGGRESSIVE'], 'a lead adds no time gap: the setting only'
   assert bars[0][1][0] == pytest.approx(g.follow[0]), 'the icon starts at the left edge, under the speed readout'
