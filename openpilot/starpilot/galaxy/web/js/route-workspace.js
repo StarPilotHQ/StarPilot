@@ -1,3 +1,4 @@
+import { DrivingHelp } from "./driving-help.js"
 import { GxState } from "./state.js"
 import { GxNotice } from "./notice.js"
 import { GxIconButton } from "./icon-button.js"
@@ -11,7 +12,7 @@ import { LOCAL, VIDEOS, hasVideo, availableFiles, validRouteDetail, routeDate, c
   logUrl, logArchiveUrl, connectRouteUrl, formatBytes, detailMetric, segmentSummaryUrl, validSegmentSummary } from "./recording-data.js"
 
 export const RouteWorkspace = {
-  components: { GxState, GxNotice, GxIconButton, GxDialog, GalaxySelect, RecordingActions, CameraViewer, ReplayViewer },
+  components: { GxState, GxNotice, GxIconButton, GxDialog, GalaxySelect, RecordingActions, CameraViewer, ReplayViewer, DrivingHelp },
   props: { routeId: { type: String, required: true }, summary: { type: Object, default: null },
     initialMode: { type: String, default: "footage" }, exports: { type: Object, required: true }, unauthorized: { type: Function, required: true } },
   emits: ["back", "changed"],
@@ -198,6 +199,10 @@ export const RouteWorkspace = {
     <GxState v-if="status === 'loading'" loading>Reading saved route…</GxState>
     <GxNotice v-if="error" tone="danger">{{ error }}<template #actions v-if="status === 'unavailable'"><button class="gx-btn gx-btn--tonal" @click="load">Retry route</button></template></GxNotice>
     <template v-if="status === 'ready' && route">
+      <details class="gx-card gx-panel">
+        <summary>Get help with this drive</summary>
+        <DrivingHelp :route-id="routeId" :segment="segment?.number ?? null" :connect="connect || ''" />
+      </details>
       <GxNotice v-if="!route.inventoryComplete" tone="warn">{{ route.reason || 'Some route files could not be inspected.' }} Route downloads require a complete inventory.</GxNotice>
       <div class="gx-route-workspace__body">
       <section class="gx-card gx-route-workspace__viewer" aria-label="Route viewer">

@@ -137,7 +137,7 @@ const layout = JSON.parse(execFileSync(process.env.PYTHON || 'python3', ['-c',
   await page.evaluate(()=>location.hash='/tools')
   await page.getByRole('heading',{name:'Tools',exact:true}).waitFor()
   const sidebar=page.locator('.gx-nav-section').filter({has:page.locator('.gx-nav-section__title',{hasText:/^Tools$/})})
-  assert.deepEqual(await sidebar.locator('.gx-nav-item span').allTextContents(), (await page.locator('.gx-menu-tile > span').allTextContents()).filter(name => name !== 'Galaxy Access & Install'))
+  assert.deepEqual(await sidebar.locator('.gx-nav-item span').allTextContents(), (await page.locator('.gx-menu-tile > span').allTextContents()).filter(name => name !== 'Galaxy Access & Connections'))
   assert.deepEqual(errors,[])
   console.log('Browser checks passed: VASM frame/default/reactive updates, PiP crop frame, widget registry, recordings and phone layout. Captures:',draws)
   await browser.close()

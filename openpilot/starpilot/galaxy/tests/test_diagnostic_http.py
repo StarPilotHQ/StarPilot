@@ -1,4 +1,4 @@
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 """Authenticated diagnostics over the same local and remote HTTP handler."""
 
 import http.client
@@ -57,18 +57,37 @@ class DiagnosticHTTPTest(unittest.TestCase):
       connection.close()
 
   def test_real_http_routes_authentication_and_no_mutations(self):
-    for path in ('/api/local-access', '/api/tmux/live', '/api/troubleshoot'):
+    for path in ('/api/local-access', '/api/local-access/capture', '/api/tmux/live', '/api/troubleshoot'):
       self.assertEqual(self.request(path, remote=True)[0], 401)
     self.assertEqual(self.calls, [])
     status, _, self.cookie = self.request('/api/auth/session')
     self.assertEqual(status, 200)
     self.assertEqual(self.request('/api/local-access')[1]['addresses'][0]['url'], 'http://192.168.4.2:8082/')
+    status, capture, _ = self.request('/api/local-access/capture')
+    self.assertEqual(status, 200)
+    self.assertIn('http://192.168.4.2:8082/', capture['text'])
     self.assertEqual(self.request('/api/tmux/live')[1]['text'], 'actual console')
     self.assertEqual(self.request('/api/troubleshoot')[1]['sections'], [])
     before = len(self.calls)
     self.assertEqual(self.request('/api/tmux/live', origin='https://example.org')[0], 403)
     self.assertNotEqual(self.request('/api/tmux/live', method='POST', payload={})[0], 200)
     self.assertEqual(len(self.calls), before)
+
+  def test_support_code_captures_on_device_and_confirms_delivery(self):
+    _, _, self.cookie = self.request('/api/auth/session')
+    code = 'ab12' * 3
+    path = '/api/companion/support-ticket'
+    def post(action):
+      return self.request(path, method='POST', payload={'code': code, 'action': action})
+    ticket = Mock(status_code=200)
+    ticket.json.return_value = {'title': 'Lost network', 'kind': 'connection'}
+    receipt = Mock(status_code=200)
+    receipt.json.return_value = {'sent': True}
+    with patch('requests.post', side_effect=[ticket, ticket, receipt]) as relay:
+      self.assertEqual(post('check')[1]['title'], 'Lost network')
+      self.assertEqual(post('send')[:2], (200, {'sent': True}))
+      self.assertTrue(relay.call_args.kwargs['json']['archive'].startswith('UEsD'))
+      self.assertFalse(relay.call_args.kwargs['allow_redirects'])
 
   def test_authenticated_forwarded_transport_uses_same_tools(self):
     status, _, self.cookie = self.request('/api/auth/login', method='POST', payload={'password': 'test-password-123'}, remote=True)

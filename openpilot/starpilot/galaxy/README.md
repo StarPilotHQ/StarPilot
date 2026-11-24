@@ -63,7 +63,7 @@ No docs build, sync, or network lookup is required; update this file when a wiki
 | Maps | Local map status and a parked catalog-region download, progress, or cancellation. A completed selection takes effect at the next map service start. |
 | Cameras and Sentry | Saved PiP and V-ASM settings and bounded Sentry event metadata. The crop editor uses a browser-local still image; it does not upload that image. |
 | Sound packs | Catalog status, verified download and cancellation through the local sound owner. |
-| Galaxy Access & Install | Remote link pairing, Galaxy installation, and an opt-in Wi-Fi hotspot. Local addresses are on Home. |
+| Galaxy Access & Connections | Remote link pairing, Galaxy installation, Networks, Bluetooth, and support. Local addresses are on Home. |
 
 `Refresh` and branch changes request filtered
 history metadata in a separate Git cache and worker. They remain available during

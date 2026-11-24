@@ -1,3 +1,4 @@
+import { MenuTile } from './menu-tile.js'
 import { WikiHelp } from './wiki-help.js'
 import { AppStoreLinks } from './app-downloads.js'
 import { InstallApp } from './install-app.js'
@@ -6,12 +7,25 @@ import { CompanionUpdates } from './companion-updates.js'
 
 export const GalaxyPage = {
   name: 'GalaxyPage',
-  components: { WikiHelp, AppStoreLinks, InstallApp, RemoteAccess, CompanionUpdates },
-  props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true } },
+  components: { WikiHelp, AppStoreLinks, InstallApp, RemoteAccess, CompanionUpdates, MenuTile },
+  props: {
+    mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
+    tools: { type: Array, default: () => [] }, go: { type: Function, default: path => { location.hash = path } },
+  },
   data: () => ({ url: '' }),
   template: `<div class="gx-settings gx-tunnel">
-    <header class="gx-settings__header gx-page-header"><div><h2>Galaxy Access & Install</h2>
-      <p>Set up your link, then choose how to open Galaxy.</p></div><WikiHelp /></header>
+    <header class="gx-settings__header gx-page-header">
+      <div><h2>Galaxy Access &amp; Connections</h2></div>
+      <div class="gx-actions">
+        <button type="button" class="gx-btn gx-btn--tonal" @click="go('/logs/help')">Get help</button>
+        <WikiHelp />
+      </div>
+    </header>
+    <div v-if="tools.length" class="gx-grid">
+      <MenuTile v-for="tool in tools" :key="tool.path" :icon="tool.icon" :title="tool.name"
+        :description="tool.description" :disabled="mode !== 'local'" :availability="mode !== 'local' ? 'Connect to your comma' : ''"
+        @select="go(tool.path)" />
+    </div>
     <ol class="gx-steps">
       <RemoteAccess title="Set up remote access" :mode="mode" :unauthorized="unauthorized" @link="url = $event" />
       <li class="gx-card gx-step" aria-label="Get the app">
@@ -24,8 +38,5 @@ export const GalaxyPage = {
         </div>
       </li>
     </ol>
-    <section class="gx-card gx-panel gx-stack"><div class="gx-section__header"><i class="bi bi-wifi" aria-hidden="true"></i><span class="gx-section__title">Galaxy Wi-Fi Hotspot</span></div>
-      <p>The hotspot, preferred Wi-Fi networks and cellular data are on the Networks page.</p>
-      <div class="gx-actions"><a class="gx-btn gx-btn--tonal" href="#/networks">Open Networks</a></div></section>
   </div>`,
 }

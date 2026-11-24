@@ -1,3 +1,4 @@
+import { ConnectionLogs } from "../web/js/local-access.js"
 import assert from 'node:assert/strict'
 import { compile } from '../web/vendor/vue/vue.esm-browser.js'
 import { NetworksPage, validNetworks } from '../web/js/networks.js'
@@ -66,3 +67,6 @@ const before = sent.length
 assert.equal(await vm.send({ action: 'cellular', value: false }), false)
 assert.equal(sent.length, before)
 vm.stop()
+
+assert.equal(NetworksPage.components.ConnectionLogs, ConnectionLogs)
+assert.ok(NetworksPage.template.includes("<ConnectionLogs v-if=\"mode === 'local'\" panel"))

@@ -6,6 +6,7 @@ const start = () => {
   const hash = location.hash.slice(1) || "/"
   let path
   try { path = decodeURIComponent(hash) } catch { path = hash }
+  if (path === "/connections") return "/galaxy"
   return path === "/vehicle" ? "/settings/vehicle" : path
 }
 route.path = start()

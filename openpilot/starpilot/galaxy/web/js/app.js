@@ -154,7 +154,11 @@ createApp({
       state.drawerOpen = state.navPinned
       save(PIN_KEY, String(state.navPinned))
     },
-    isActive(path) { return route.path === path || route.path.startsWith(path + "/") || (path === "/manage_models" && route.path === "/model_laboratory") },
+    isActive(path) {
+      if (path === "/galaxy" && ["/networks", "/bluetooth"].some(child =>
+        route.path === child || route.path.startsWith(child + "/"))) return true
+      return route.path === path || route.path.startsWith(path + "/") || (path === "/manage_models" && route.path === "/model_laboratory")
+    },
     async signIn() {
       const password = authForm.password
       authForm.password = ""
@@ -224,7 +228,7 @@ createApp({
 
         </div>
         <div class="gx-nav-footer"><DevicePicker />
-          <button type="button" class="gx-nav-item" :class="{active:isActive('/galaxy')}" @click="goFromMenu('/galaxy')"><i class="bi bi-globe"></i><span>Galaxy Access & Install</span></button>
+          <button type="button" class="gx-nav-item" :class="{active:isActive('/galaxy')}" @click="goFromMenu('/galaxy')"><i class="bi bi-globe"></i><span>Galaxy Access &amp; Connections</span></button>
         </div>
       </aside>
       <main class="gx-content" :style="{'--route-direction': routeDirection}"><div class="gx-route-stage">
@@ -254,11 +258,11 @@ createApp({
         <VasmPage v-else-if="route.path === '/cameras/vasm'" :mode="state.monitorMode" :unauthorized="sessionExpired" :go="go" />
         <Tools v-else-if="route.path === '/tools'" :tools="visibleTools" :mode="state.monitorMode" />
         <SettingsPage @nested="ensureBackEntry" ref="activeSettings" v-else-if="route.path === '/developer/connect'" :mode="state.monitorMode" :unauthorized="sessionExpired" initial-section="developer" />
-        <GalaxyPage v-else-if="route.path === '/galaxy'" :mode="state.monitorMode" :unauthorized="sessionExpired" />
-        <NetworksPage v-else-if="route.path === '/networks'" :mode="state.monitorMode" :unauthorized="sessionExpired" />
+        <GalaxyPage v-else-if="route.path === '/galaxy'" :mode="state.monitorMode" :tools="currentTool?.children || []" :unauthorized="sessionExpired" :go="go" />
+        <NetworksPage v-else-if="route.path === '/networks'" :go="go" :mode="state.monitorMode" :unauthorized="sessionExpired" />
         <OnroadLayoutPage ref="activeLayout" v-else-if="['/theme_maker', '/theme_maker/starport', '/appearance'].includes(route.path)" :key="route.path" :projection="route.path === '/theme_maker/starport'" :initial-panel="route.path === '/appearance' ? 'display' : 'widgets'" :mode="state.monitorMode" :unauthorized="sessionExpired" @target="go($event === 'projection' ? '/theme_maker/starport' : '/theme_maker')" @close="routeBack" />
         <SettingsRecoveryPage v-else-if="route.path === '/settings/recovery'" :mode="state.monitorMode" :unauthorized="sessionExpired" />
-        <Logs v-else-if="route.path === '/logs' || route.path.startsWith('/logs/') || ['/troubleshoot', '/manage_tmux'].includes(route.path)" :path="route.path === '/troubleshoot' ? '/logs/troubleshoot' : route.path === '/manage_tmux' ? '/logs/tmux' : route.path" :mode="state.monitorMode" :unauthorized="sessionExpired" :tools="currentTool?.children || []" />
+        <Logs v-else-if="route.path === '/logs' || route.path.startsWith('/logs/') || ['/troubleshoot', '/manage_tmux'].includes(route.path)" :path="route.path === '/troubleshoot' ? '/logs/troubleshoot' : route.path === '/manage_tmux' ? '/logs/tmux' : route.path" :mode="state.monitorMode" :unauthorized="sessionExpired" :local-routes="state.monitorMode === 'local' && authState.localAccess" :tools="currentTool?.children || []" />
         <SoftwarePage v-else-if="route.path === '/system'" :mode="state.monitorMode" :unauthorized="sessionExpired" :restarting="baseline => updateRestart.start({ ...baseline, instance: deviceRestart.instance })"
           :preparing="baseline => updateRestart.prepare({ ...baseline, instance: deviceRestart.instance })" :cancel-preparation="() => updateRestart.cancelPreparation()" />
         <NavigationPage v-else-if="['/navigation', '/navigation/maps', '/navigation/setup'].includes(route.path)" :mode="state.monitorMode" :unauthorized="sessionExpired" :go="go" :tabs="currentTool?.children || []"

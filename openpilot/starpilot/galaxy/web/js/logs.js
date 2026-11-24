@@ -1,3 +1,5 @@
+import { DrivingHelp } from "./driving-help.js"
+import { ConnectionLogs } from "./local-access.js"
 import { WikiHelp } from './wiki-help.js'
 import { GxState } from "./state.js"
 import { GxNotice } from "./notice.js"
@@ -12,10 +14,10 @@ import { BluetoothNotice, bluetoothConnection } from "./bluetooth-notice.js"
 
 export const Logs = {
   name: "Logs",
-  components: { WikiHelp, GxState, GxNotice, BluetoothNotice, SystemMonitor, TroubleshootPage, TmuxPage, MenuTile },
+  components: { WikiHelp, GxState, GxNotice, BluetoothNotice, SystemMonitor, TroubleshootPage, TmuxPage, MenuTile, DrivingHelp, ConnectionLogs },
   props: {
     path: { type: String, required: true }, mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
-    tools: { type: Array, required: true }
+    tools: { type: Array, required: true }, localRoutes: Boolean
   },
   data: () => ({
     crashes: { reports: [], scanIncomplete: false, listLimited: false, status: "idle", error: "", selected: null, preview: null, previewStatus: "idle", deleting: false, storageBytes: 0, reportCount: 0 }, search: "",
@@ -23,6 +25,10 @@ export const Logs = {
     logSend: { state: "idle", message: "", available: true, fork: false, error: "" }, sendNote: "", sendDiscord: "", messageLimit: MESSAGE_LIMIT
   }),
   computed: {
+    freshRequest() {
+      const match = /^\/logs\/help\/fresh\/(connection|controller)\/([a-f0-9]{64})$/.exec(this.path)
+      return match && { controller: match[1] === "controller", token: match[2] }
+    },
     visibleReports() { return this.crashes.reports.filter((item) => item.name.toLowerCase().includes(this.search.toLowerCase())) },
   },
   created() {
@@ -70,11 +76,40 @@ export const Logs = {
           :availability="mode !== 'local' && tool.availability === 'local-only' ? 'Unavailable in preview' : ''"
           :disabled="mode !== 'local' && tool.availability === 'local-only'" @select="go(tool.path)" />
       </div>
+      <section v-else-if="freshRequest" class="gx-settings">
+        <header class="gx-settings__header"><h2>Requested {{ freshRequest.controller ? 'controller' : 'connection' }} logs</h2></header>
+        <p class="gx-note">Capture fresh diagnostics for your support report. Only support staff receive the log file.</p>
+        <ConnectionLogs v-if="mode === 'local'" :key="freshRequest.token" :ticket="freshRequest.token" :controller="freshRequest.controller" :on-unauthorized="unauthorized" />
+        <p v-else class="gx-note">Connect to your comma to capture these logs.</p>
+      </section>
       <section v-else-if="path === '/logs/help'" class="gx-settings">
-        <header class="gx-settings__header gx-page-header"><div><h2>Help & Community</h2><p>Guides and help from the community.</p></div><WikiHelp path="/logs/help" /></header>
-        <section class="gx-card"><div class="gx-section__header"><i class="bi bi-discord" aria-hidden="true"></i><span class="gx-section__title">Discord</span></div>
-          <div class="gx-panel"><p class="gx-note">Ask the community for help, share what you have tried, and follow StarPilot announcements.</p>
-            <a class="gx-btn gx-btn--tonal" href="https://firestar.link/discord" target="_blank" rel="noopener noreferrer">Join Discord</a></div></section>
+        <header class="gx-settings__header gx-page-header"><div><h2>Get help</h2><p>Choose what went wrong.</p></div><WikiHelp path="/logs/help" /></header>
+        <section class="gx-card gx-panel gx-stack" aria-label="Driving behavior or a specific drive">
+          <div class="gx-section__header"><i class="bi bi-car-front" aria-hidden="true"></i><h3 class="gx-section__title">Driving behavior or a specific drive</h3></div>
+          <DrivingHelp :routes-available="localRoutes" @routes="go('/recordings')" />
+        </section>
+        <section class="gx-card gx-panel gx-stack" aria-label="Mobile App Support">
+          <div class="gx-section__header"><i class="bi bi-phone" aria-hidden="true"></i><h3 class="gx-section__title">Mobile App Support</h3></div>
+          <p class="gx-note">For Wi-Fi, Bluetooth pairing, or Galaxy Tunnel issues. Send connection logs privately with your Discord account. If you use StarPilot on iPhone, you can also report from Logs &amp; support.</p>
+          <ConnectionLogs v-if="mode === 'local'" :on-unauthorized="unauthorized" />
+          <p v-else class="gx-note">Connect to your comma to capture its connection logs.</p>
+
+        </section>
+        <section class="gx-card gx-panel gx-stack" aria-label="Bluetooth Controller Support">
+          <div class="gx-section__header"><i class="bi bi-controller" aria-hidden="true"></i><h3 class="gx-section__title">Bluetooth Controller Support</h3></div>
+          <p class="gx-note">Connect and wake your USB or Bluetooth controller before capturing its input report. Include the controller model and what went wrong when you send it.</p>
+          <ConnectionLogs v-if="mode === 'local'" controller :on-unauthorized="unauthorized" />
+          <p v-else class="gx-note">Connect to your comma to capture a controller log.</p>
+          <div class="gx-actions">
+            <button v-if="mode === 'local'" type="button" class="gx-btn gx-btn--tonal" @click="go('/bluetooth/controllers')">Open Controllers</button>
+
+          </div>
+        </section>
+        <section class="gx-card gx-panel gx-stack" aria-label="StarPort / Android Auto Support">
+          <div class="gx-section__header"><i class="bi bi-phone" aria-hidden="true"></i><h3 class="gx-section__title">StarPort / Android Auto Support</h3></div>
+          <p class="gx-note">Open StarPort Logs to download your session bundle or send it to the developer.</p>
+          <button v-if="mode === 'local'" type="button" class="gx-btn gx-btn--tonal" @click="go('/logs/starport')">Open StarPort Logs</button>
+        </section>
       </section>
       <TroubleshootPage v-else-if="path === '/logs/troubleshoot'" :mode="mode" :unauthorized="unauthorized" @navigate="go" />
       <TmuxPage v-else-if="path === '/logs/tmux'" :mode="mode" :unauthorized="unauthorized" @navigate="go" />

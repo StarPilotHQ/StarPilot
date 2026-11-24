@@ -1,7 +1,8 @@
 import assert from "node:assert/strict"
 import { compile } from "../web/vendor/vue/vue.esm-browser.js"
-import { LocalAccess, LocalAccessFeed, validLocalAccess } from "../web/js/local-access.js"
+import { ConnectionLogs, LocalAccess, LocalAccessFeed, validLocalAccess } from "../web/js/local-access.js"
 import { Home } from "../web/js/home.js"
+import { RemoteQR } from "../web/js/remote-access.js"
 import { GalaxyPage } from "../web/js/galaxy.js"
 const snapshot = { available: true, addresses: [{ interface: 'wlan0', label: 'Wi-Fi', url: 'http://192.168.20.5:8082/' }], reason: '' }
 assert.equal(validLocalAccess(snapshot), true)
@@ -67,3 +68,57 @@ assert.equal(GalaxyPage.components.LocalAccess, undefined)
 assert.ok(!GalaxyPage.template.includes('<LocalAccess'))
 compile(GalaxyPage.template, { decodeEntities: value => value.replaceAll('&amp;', '&') })
 console.log('Galaxy local access remains independent of app installation')
+
+const capture = { onUnauthorized() { assert.fail('unexpected sign-in request') },
+  ...ConnectionLogs.data(), ...ConnectionLogs.methods }
+const originalFetch = globalThis.fetch
+try {
+  globalThis.fetch = async (url, options) => {
+    assert.equal(url, './api/local-access/capture')
+    assert.equal(options.credentials, 'same-origin')
+    return { ok: true, json: async () => ({ schemaVersion: 1, zipBase64: 'UEsDBAAAAAAAAAAAAAAAAAAAAAAAAAAA' }) }
+  }
+  await capture.captureConnectionLogs()
+  assert.equal(capture.capture.type, 'application/zip')
+  assert.equal(capture.captureRequest, null)
+  capture.resetCapture()
+  assert.equal(capture.capture, null)
+} finally { globalThis.fetch = originalFetch }
+const thread = { ...ConnectionLogs.data(), ...ConnectionLogs.methods, supportCode: 'AB12 CD34-EF56' }
+try {
+  globalThis.fetch = async (url, options) => {
+    assert.equal(url, './api/companion/support-ticket')
+    const { action, code } = JSON.parse(options.body)
+    assert.equal(code, 'ab12cd34ef56')
+    const body = action === 'check' ? { title: 'Lost network', kind: 'connection' } : { sent: true }
+    return { ok: true, json: async () => body }
+  }
+  await thread.threadAction('check')
+  assert.equal(thread.supportTicket.title, 'Lost network')
+  assert.equal(thread.supportSent, false)
+  await thread.threadAction('send')
+  assert.equal(thread.supportSent, true)
+} finally { globalThis.fetch = originalFetch }
+assert.equal(LocalAccess.components.ConnectionLogs, ConnectionLogs)
+assert.ok(LocalAccess.template.includes("mode === 'local'"))
+compile(ConnectionLogs.template, { decodeEntities: value => value })
+assert.ok(ConnectionLogs.template.includes('Send to existing Discord thread'))
+assert.ok(ConnectionLogs.components.ReportingGuide.template.includes('#submit-logs-through-discord'))
+assert.ok(ConnectionLogs.components.ReportingGuide.template.includes('#report-a-problem-through-discord'))
+assert.match(ConnectionLogs.template, /<details[^>]*><summary><small>Manual ZIP download<\/small><\/summary>[\s\S]*Download ZIP<\/button>\s*<\/details>/)
+for (const endpoint of ['./api/galaxy/qr.svg', './api/galaxy/session/qr.svg']) {
+  const qr = {endpoint, ...RemoteQR.data(), ...RemoteQR.methods}
+  try {
+    globalThis.fetch = async (path, options) => {
+      assert.equal(path, endpoint)
+      assert.equal(options.credentials, 'same-origin')
+      return new Response('<svg xmlns="http://www.w3.org/2000/svg"/>',{headers:{'Content-Type':'image/svg+xml'}})
+    }
+    await qr.load()
+    assert.match(qr.image, /^blob:/)
+    assert.equal(qr.failed, false)
+    assert.equal((await originalFetch(qr.image)).headers.get('content-type'), 'image/svg+xml')
+    RemoteQR.beforeUnmount.call(qr)
+    await assert.rejects(originalFetch(qr.image))
+  } finally { globalThis.fetch = originalFetch }
+}

@@ -148,9 +148,10 @@ def test_simulated_events_expire_without_removing_real_events(tmp_path, monkeypa
   store = EventStore(tmp_path / 'events')
   clock = [1000000000000]
   monkeypatch.setattr(time, 'time_ns', lambda: clock[0])
-  fake = store.record('warning', 1, permitted=lambda: True, simulated=True)
+  fake = store.record('warning', 1, permitted=lambda: True, simulated=True, images={'wide': b'\xff\xd8\xff\xd9'})
   real = store.record('warning', 2, permitted=lambda: True)
   assert len(store.snapshot()['events']) == 2
   clock[0] += 601000000000
   assert [event['eventId'] for event in store.snapshot()['events']] == [real.event_id]
   assert not (store.root / (fake.event_id + '.json')).exists()
+  assert not (store.root / fake.event_id).exists()

@@ -202,7 +202,7 @@ export const Home = {
   template: `
     <div class="gx-view gx-home">
       <div class="gx-home__hero gx-page-header">
-        <div><h1>Dashboard</h1><p class="gx-note">Your saved drives and current device</p></div><WikiHelp />
+        <div><h1>Dashboard</h1><p class="gx-note">Your saved drives and current device</p></div><div class="gx-actions"><button type="button" class="gx-btn gx-btn--tonal" @click="go('/logs/help')">Get help</button><WikiHelp /></div>
       </div>
       <GxState v-if="mode !== 'local'">Dashboard information is available on your device.</GxState>
       <template v-else>

@@ -1590,6 +1590,14 @@ border-top: 1px solid var(--outline-variant);
 @media (prefers-reduced-motion: reduce) { .gx-update-progress__fill--indeterminate { width: 100%; animation: none; opacity: .6; } }
 .gx-panel { padding: var(--panel-padding); min-width: 0; }
 .gx-card.gx-panel > .gx-section__header { margin: calc(-1 * var(--panel-padding)) calc(-1 * var(--panel-padding)) var(--sp-4); }
+.gx-connection-logs.gx-panel > .gx-section__header { margin-bottom: 0; }
+.gx-connection-logs .gx-log-form { display: grid; gap: var(--sp-3); margin-top: var(--sp-3); }
+.gx-log-form .gx-field { width: 100%; box-sizing: border-box; }
+.gx-log-form p { margin: 0; }
+.gx-log-form .gx-btn { justify-self: start; }
+@media (max-width: 600px) {
+  .gx-connection-logs .gx-log-form .gx-btn, .gx-connection-logs details > summary.gx-btn { width: 100%; box-sizing: border-box; }
+}
 .gx-panel > :first-child { margin-top: 0; }
 .gx-panel > :last-child { margin-bottom: 0; }
 .gx-panel-footer { padding: 0 var(--panel-padding) var(--panel-padding); }

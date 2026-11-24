@@ -1,3 +1,4 @@
+import { ConnectionLogs } from "../web/js/local-access.js"
 import assert from "node:assert/strict"
 import { BluetoothFeed, BluetoothPage, validBluetoothStatus, validPairInput } from "../web/js/bluetooth.js"
 
@@ -111,3 +112,6 @@ assert.equal(validBluetoothStatus({ ...status, pairing: { address: "not-an-addre
 assert.equal(validBluetoothStatus({ ...status, adapterName: 5 }), false)
 assert.match(BluetoothPage.template, /Pair phone/)
 assert.match(BluetoothPage.template, /action\('accept_pair'\)/)
+
+assert.equal(BluetoothPage.components.ConnectionLogs, ConnectionLogs)
+assert.ok(BluetoothPage.template.includes("<ConnectionLogs v-if=\"mode === 'local' && !unidenSettings\" panel"))

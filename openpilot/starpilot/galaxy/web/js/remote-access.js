@@ -3,9 +3,33 @@ import { GxNotice } from './notice.js'
 import { requestJson } from './startup.js'
 import { BluetoothNotice, bluetoothConnection } from './bluetooth-notice.js'
 
+export const RemoteQR = {
+  props: { endpoint: {type: String, required: true}, alt: {type: String, required: true} },
+  data: () => ({image: '', failed: false, request: null}),
+  mounted() { this.load() },
+  beforeUnmount() { this.request?.abort(); if (this.image) URL.revokeObjectURL(this.image) },
+  methods: {
+    async load() {
+      this.request?.abort()
+      const request = new AbortController()
+      this.request = request
+      this.failed = false
+      try {
+        const response = await fetch(this.endpoint, {credentials: 'same-origin', cache: 'no-store', signal: request.signal})
+        if (!response.ok || response.headers.get('content-type')?.split(';')[0] !== 'image/svg+xml') throw Error()
+        const blob = await response.blob()
+        if (request.signal.aborted) return
+        if (this.image) URL.revokeObjectURL(this.image)
+        this.image = URL.createObjectURL(blob)
+      } catch { if (!request.signal.aborted) this.failed = true }
+    },
+  },
+  template: '<div><button v-if="failed" class="gx-btn" @click="load">Retry QR code</button><img v-else-if="image" :src="image" :alt="alt" class="gx-tunnel__qr" @error="failed = true" /></div>',
+}
+
 export const RemoteAccess = {
   name: 'RemoteAccess',
-  components: { GxState, GxNotice, BluetoothNotice },
+  components: { GxState, GxNotice, BluetoothNotice, RemoteQR },
   props: { title: { type: String, default: 'Remote access' }, step: { type: Number, default: 1 }, mode: { type: String, required: true }, unauthorized: { type: Function, required: true } },
   emits: ['link'],
   data: () => ({ loading: true, paired: false, url: '', tunnelClientAvailable: false, legacyPassword: false,
@@ -98,12 +122,12 @@ export const RemoteAccess = {
         <template v-if="paired">
           <GxNotice v-if="!tunnelClientAvailable" tone="warn">Remote access is not ready on this comma yet.</GxNotice>
           <BluetoothNotice v-if="bluetooth" feature="Galaxy QR code">Your Galaxy link remains available below.</BluetoothNotice>
-          <img v-else src="./api/galaxy/qr.svg" alt="QR code for your Galaxy link" class="gx-tunnel__qr" />
+          <RemoteQR v-else :key="url" endpoint="./api/galaxy/qr.svg" alt="QR code for your Galaxy link" />
           <p><a :href="url" target="_blank" rel="noopener" class="gx-btn gx-btn--tonal gx-wrap">Open your Galaxy link</a></p>
           <section class="gx-card gx-panel gx-stack"><h3>App key</h3><p>Use this key to add remote access in the phone app. Keep it private.</p>
             <div v-if="!keyVisible" class="gx-actions"><button class="gx-btn" @click="showAppKey">Show</button></div>
             <template v-else><code class="gx-wrap">{{ appKey }}</code><div class="gx-actions"><button class="gx-btn" @click="copyAppKey">Copy</button></div>
-              <img src="./api/galaxy/session/qr.svg" class="gx-tunnel__qr" alt="Add remote access to Galaxy" /></template>
+              <RemoteQR endpoint="./api/galaxy/session/qr.svg" alt="Add remote access to Galaxy" /></template>
           </section>
           <div class="gx-actions"><button type="button" class="gx-btn gx-btn--danger" @click="unpair">{{ busy ? 'Disconnecting…' : 'Turn off remote access' }}</button></div>
         </template>
