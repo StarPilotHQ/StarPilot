@@ -305,7 +305,8 @@ def read_limits(sm, now_ns: int | None = None) -> AccelLimits | None:
   """The planner's cruise floor and ceiling from starpilotLongitudinalPlan; None when absent, stale or implausible.
 
   The ceiling may be zero (the lateral budget is spent) or below it (the model withholds throttle and the car may
-  only coast); a ceiling below zero is marked on the zero line, the bar's lowest place for it.
+  only coast, on a climb even below the floor); a ceiling below zero is marked on the zero line, the bar's lowest
+  place for it.
   """
   try:
     plan = _current(sm, 'starpilotLongitudinalPlan', now_ns, LIMITS_MAX_AGE_NS)
@@ -314,8 +315,8 @@ def read_limits(sm, now_ns: int | None = None) -> AccelLimits | None:
     lower, upper = _finite(plan.accelLimitMin), _finite(plan.accelLimitMax)
   except (AttributeError, KeyError, TypeError, ValueError):
     return None
-  if lower is None or upper is None or lower > 0 or lower >= upper:
-    return None
+  if lower is None or upper is None or lower > 0 or lower == upper == 0:
+    return None  # both zero is a planner that publishes neither
   return AccelLimits(lower, max(upper, 0.0))
 
 

@@ -301,7 +301,9 @@ def test_limits_are_unread_when_absent_stale_or_implausible():
   assert read_limits(sm(limits=(0.0, 1.5))) == AccelLimits(0.0, 1.5)
   assert read_limits(sm(limits=(0.0, 0.0))) is None, 'an unset message'
   assert read_limits(sm(limits=(-1.2, -0.3))) == AccelLimits(-1.2, 0.0), 'coast only: the ceiling sits on the zero line'
-  assert read_limits(sm(limits=(0.5, 1.5))) is None and read_limits(sm(limits=(-0.5, -1.0))) is None
+  assert read_limits(sm(limits=(0.5, 1.5))) is None
+  assert read_limits(sm(limits=(-0.5, -0.6))) == AccelLimits(-0.5, 0.0), 'coasting up a climb: the ceiling is under the floor'
+  assert read_limits(sm(limits=(0.0, -0.3))) == AccelLimits(0.0, 0.0)
   assert read_limits(sm(limits=(-1.0, float('nan')))) is None
   stale = sm(limits=(-1.0, 1.5))
   stale.alive = {'starpilotLongitudinalPlan': False}
