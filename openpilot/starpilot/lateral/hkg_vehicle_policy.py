@@ -86,7 +86,13 @@ class HKGVehicleTorquePolicy(HKGShapedTorquePolicy):
 
   def feedforward_context(self, value, setpoint, jerk, measurement, speed):
     if self.profile == 'ioniq_5':
-      return value * shaping.get_ioniq_5_ff_scale(setpoint, jerk, speed) * shaping.get_ioniq_5_center_taper_scale(setpoint, speed)
+      ff_scale = shaping.get_ioniq_5_ff_scale(setpoint, jerk, speed)
+      if (self.ioniq_5_hda2 and 17.0 < speed < 23.0 and 1.25 < abs(setpoint) < 2.65
+          and jerk != 0.0 and not (self.steering_pressed or self.previous_pressed)):
+        ramp_speed = float(np.interp(speed, [17.0, 18.5, 21.0, 23.0], [0.0, 1.0, 1.0, 0.0]))
+        tight_arc = float(np.interp(abs(setpoint), [1.25, 1.6, 2.25, 2.65], [0.0, 1.0, 1.0, 0.0]))
+        ff_scale += 0.25 * ramp_speed * tight_arc * (shaping.get_ioniq_5_ff_scale(setpoint, 0.0, speed) - ff_scale)
+      return value * ff_scale * shaping.get_ioniq_5_center_taper_scale(setpoint, speed)
     if self.profile == 'ioniq_ev_old':
       return value * shaping.get_ioniq_ev_old_ff_scale(setpoint, jerk, speed) * shaping.get_ioniq_ev_old_center_taper_scale(setpoint, speed)
     if self.profile == 'sonata':
