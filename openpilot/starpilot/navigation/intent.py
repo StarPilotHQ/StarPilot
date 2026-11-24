@@ -39,6 +39,10 @@ def current_instruction(sm, now_ns: int):
     return None
 
 
+def within_turn_window(speed, distance):
+  return math.isfinite(speed) and speed >= 0 and math.isfinite(distance) and 0 <= distance <= min(90., max(35., speed * 6.))
+
+
 def turn_desire(sm, now_ns: int, current_desire, *, supported: bool):
   if not supported or current_desire != log.Desire.none:
     return current_desire
@@ -46,9 +50,8 @@ def turn_desire(sm, now_ns: int, current_desire, *, supported: bool):
   if nav is None:
     return current_desire
   cs, cc, instruction = sm['carState'], sm['carControl'], nav.instruction
-  if (not cc.latActive or cs.standstill or not math.isfinite(cs.vEgo) or not 0 <= cs.vEgo < 14 or
-      instruction.maneuverType != 'turn' or not math.isfinite(instruction.distanceMeters) or
-      not 0 <= instruction.distanceMeters <= min(90., max(35., cs.vEgo * 6.))):
+  if (not cc.latActive or cs.standstill or cs.vEgo >= 14 or not within_turn_window(cs.vEgo, instruction.distanceMeters) or
+      instruction.maneuverType != 'turn'):
     return current_desire
   if instruction.maneuverModifier in ('left', 'sharpLeft') and cs.leftBlinker and not cs.rightBlinker and not cs.leftBlindspot:
     return log.Desire.turnLeft
@@ -104,9 +107,7 @@ def matching_turn_signal(sm, now_ns: int, *, supported: bool) -> bool:
   cs, instruction = sm['carState'], nav.instruction
   matching = ((instruction.maneuverModifier in ('left', 'sharpLeft') and cs.leftBlinker and not cs.rightBlinker) or
               (instruction.maneuverModifier in ('right', 'sharpRight') and cs.rightBlinker and not cs.leftBlinker))
-  return bool(instruction.maneuverType == 'turn' and matching and math.isfinite(cs.vEgo) and
-              math.isfinite(instruction.distanceMeters) and
-              0 <= instruction.distanceMeters <= min(250., max(30., 15. + max(0., cs.vEgo) * 12.)))
+  return bool(instruction.maneuverType == 'turn' and matching and within_turn_window(cs.vEgo, instruction.distanceMeters))
 
 
 class TurnIntent:
@@ -122,7 +123,7 @@ class TurnIntent:
     self.key = None
     self.stop_hold = False
 
-  def select(self, sm, now_ns: int, current_desire, *, supported: bool, model_stop: bool):
+  def select(self, sm, now_ns: int, current_desire, *, supported: bool, model_stop: bool, waiting_for_lane: bool = False):
     try:
       cs = sm['carState']
       signaling = bool(cs.leftBlinker or cs.rightBlinker)
@@ -154,6 +155,8 @@ class TurnIntent:
     elif model_stop or (plan_valid and plan.shouldStop):
       self.stop_hold = True
     if self.stop_hold or not plan_valid:
+      return current_desire
+    if waiting_for_lane and matching_turn_signal(sm, now_ns, supported=supported):
       return current_desire
     selected = turn_desire(sm, now_ns, current_desire, supported=supported)
     if selected != log.Desire.none:

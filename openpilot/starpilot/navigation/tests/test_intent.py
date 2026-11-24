@@ -81,6 +81,20 @@ def test_turn_distance_advances_between_fixes(sm, percent):
   assert cruise_ceiling(sm, cp, NOW, 30., slowdown_percent=percent) is None
 
 
+def test_far_signal_is_available_for_lane_selection(sm):
+  from openpilot.starpilot.navigation.intent import matching_turn_signal
+  cs = sm['carState']
+  cs.vEgo = 58 / 3.6
+  nav = sm['starpilotNavigation'].navigation
+  nav.instruction.distanceMeters = 181.
+  assert not matching_turn_signal(sm, NOW, supported=True)
+  nav.instruction.distanceMeters = 20.
+  assert matching_turn_signal(sm, NOW, supported=True)
+  assert turn_desire(sm, NOW, log.Desire.none, supported=True) == log.Desire.none
+  cs.vEgo, nav.instruction.distanceMeters = 42 / 3.6, 63.
+  assert matching_turn_signal(sm, NOW, supported=True)
+
+
 def test_turn_ceiling_and_override(sm):
   cp = NS(openpilotLongitudinalControl=True, passive=False, dashcamOnly=False, minSteerSpeed=0.)
   expected = ((14 * CV.MPH_TO_MS) ** 2 + 2 * .75 * (30 - 20)) ** .5
@@ -176,26 +190,48 @@ def test_turn_stop_hold_reuses_planner_stop_until_standstill(sm, tmp_path):
   assert sample() == log.Desire.none
 
 
-def test_approaching_turn_does_not_start_or_replace_lane_change(sm):
+@pytest.mark.parametrize("one_per_signal", [True, False])
+@pytest.mark.parametrize("left", [True, False])
+def test_turn_lane_then_turn_on_one_signal(sm, left, one_per_signal):
   from openpilot.selfdrive.controls.lib.desire_helper import DesireHelper
-  from openpilot.starpilot.navigation.intent import matching_turn_signal
+  from openpilot.starpilot.navigation.intent import TurnIntent, matching_turn_signal
   from openpilot.starpilot.lateral.lane_change_preferences import LaneChangePolicy
   cs = sm['carState']
-  cs.steeringPressed, cs.steeringTorque = True, -1.
-  cs.vEgo = 21. * CV.MPH_TO_MS  # Above the current turn-guidance lane-change floor.
-  helper = DesireHelper(LaneChangePolicy(minimum_speed_mps=0.))
-  turn = matching_turn_signal(sm, NOW, supported=True)
-  assert turn
-  helper.update(cs, True, 1., navigation_turn=turn)
+  cs.leftBlinker, cs.rightBlinker = left, not left
+  cs.steeringPressed, cs.steeringTorque = False, 0.
+  cs.vEgo = 21 * CV.MPH_TO_MS
+  sm['starpilotNavigation'].navigation.instruction.maneuverModifier = 'left' if left else 'right'
+  sm['longitudinalPlan'] = NS(modelMonoTime=NOW, shouldStop=False)
+  sm.logMonoTime['longitudinalPlan'] = NOW
+  sm.valid['longitudinalPlan'] = sm.alive['longitudinalPlan'] = True
+  owner = TurnIntent()
+  owner.guidance = NS(sample=lambda *args, **kwargs: True)
+  owner.steering_capable = True
+  helper = DesireHelper(LaneChangePolicy(auto_lane_change=True, auto_delay_s=.1, one_per_signal=one_per_signal))
+  def select():
+    return owner.select(sm, NOW, helper.desire, supported=True, model_stop=False,
+                        waiting_for_lane=helper.waiting_for_lane(cs))
+  def update(clear):
+    helper.update(cs, True, 0., auto_evidence=clear, engaged=True, navigation_turn=True,
+                  route_turn=matching_turn_signal(sm, NOW, supported=True))
+  assert select() == log.Desire.none
+  update(False)
+  update(False)
+  assert helper.lane_change_state == log.LaneChangeState.preLaneChange
+  cs.leftBlindspot, cs.rightBlindspot = left, not left
+  for _ in range(4):
+    update(True)
+  assert helper.auto_status == 'blindspotBlocked'
+  assert select() == log.Desire.none
+  cs.leftBlindspot = cs.rightBlindspot = False
+  update(True)
+  assert helper.auto_status == 'waitingForDelay'
+  update(True)
+  assert select() == (log.Desire.laneChangeLeft if left else log.Desire.laneChangeRight)
+  for _ in range(15):
+    update(True)
   assert helper.lane_change_state == log.LaneChangeState.off
-  helper.lane_change_state = log.LaneChangeState.preLaneChange
-  helper.update(cs, True, 1., navigation_turn=turn)
-  assert helper.lane_change_state == log.LaneChangeState.off
-  helper.lane_change_state = log.LaneChangeState.laneChangeStarting
-  helper.lane_change_direction = log.LaneChangeDirection.right
-  helper.update(cs, True, 1., navigation_turn=turn)
-  assert helper.lane_change_state == log.LaneChangeState.laneChangeStarting
-  assert helper.desire == log.Desire.laneChangeRight
+  assert select() == (log.Desire.turnLeft if left else log.Desire.turnRight)
 
 
 @pytest.mark.parametrize('modifier', ['left', 'right'])
