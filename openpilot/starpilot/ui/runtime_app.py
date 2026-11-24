@@ -53,7 +53,9 @@ from openpilot.starpilot.ui.layout_preview_sidebar import SIDEBAR_WIDTH
 from openpilot.starpilot.ui.pip_warning import PiPWarningSource
 from openpilot.starpilot.spot_monitor.preferences import read_preferences as read_vasm_preferences
 from openpilot.starpilot.speed_limits.vision.observation import clock_pair_ns
-from openpilot.starpilot.ui.sounds_owner import AUTO_PREFIX as SOUND_AUTO_PREFIX, SoundsOwner
+from openpilot.starpilot.ui.sounds_owner import (AUTO_PREFIX as SOUND_AUTO_PREFIX, ENGINE_MENU_KEY, ENGINE_PAGE, ENGINE_TYPE_PAGE,
+                                                  SoundsOwner)
+from openpilot.starpilot.engine_sound.preview import start as start_engine_preview
 from openpilot.starpilot.ui.feature_settings_state import (
   FeatureInput, FeaturePage, FeatureRow, FeatureSettingsRequest, FeatureUiAction, row_change,
   feature_scroll, feature_page_rows, feature_parent_page, feature_parent_title, value_request, value_editor_state,
@@ -81,7 +83,7 @@ from openpilot.starpilot.ui.onroad_favorites import OnroadFavorites
 from openpilot.starpilot.ui.onroad_dm import DriverMonitorLayer
 from openpilot.starpilot.favorites.owner import FavoritesOwner
 from openpilot.starpilot.controllers.cruise_action import CruiseActionPublisher, ui_authority as cruise_action_authority
-from openpilot.starpilot.controllers.wheel_actions import SCREEN_OFF_ACTION, WheelConsumer
+from openpilot.starpilot.controllers.wheel_actions import ENGINE_SOUND_ACTIONS, SCREEN_OFF_ACTION, WheelConsumer
 from openpilot.starpilot.ui.wheel_input import onroad_action_context
 from openpilot.starpilot.system.starport.projection_bookmark import BookmarkReceiver
 from openpilot.starpilot.system.starport.projection_slc_action import SlcActionReceiver
@@ -218,7 +220,7 @@ class StarShellSession(TeslaSpeedActions):
                                                vehicle_fingerprint=lambda: getattr(ui_state.CP, "carFingerprint", None),
                                                vehicle_params=lambda: ui_state.CP,
                                                vision_development=lambda: diagnostic_choice_enabled(os.environ, ui_state.CP))
-    self.sounds_owner = SoundsOwner(ui_state.params, self._settings_preference_authority)
+    self.sounds_owner = SoundsOwner(ui_state.params, self._settings_preference_authority, engine_preview=start_engine_preview)
     self.appearance_owner = AppearanceOwner(ui_state.params, lambda: self._settings_preference_authority() or self._favorite_authority())
     self.pip_owner = PiPOwner(ui_state.params, self._settings_preference_authority,
                              self.pip_renderer.frame_availability.available)
@@ -244,6 +246,8 @@ class StarShellSession(TeslaSpeedActions):
     self.feature_edit_key: str | None = None
     self.sounds_scroll = 0
     self.sounds_edit_key: str | None = None
+    self.sounds_menu = "sounds"
+    self.sounds_return_scroll = 0
     self.appearance_scroll = 0
     self.appearance_edit_key: str | None = None
     self.display_scroll = 0
@@ -585,11 +589,14 @@ class StarShellSession(TeslaSpeedActions):
                                             consume=int(wire.actionCode) != 10)
       if command is None or command.action == 0:
         continue
-      authorized = (self._bookmark_authority() if command.action == 8 else
+      authorized = (self._bookmark_authority() if command.action in (8, *ENGINE_SOUND_ACTIONS) else
                     self._favorite_authority(allow_personality_notice=command.action == 1))
       if not authorized:
         continue
       try:
+        if command.action in ENGINE_SOUND_ACTIONS:
+          self._engine_sound_action(command.action == ENGINE_SOUND_ACTIONS[0], now_ns)
+          continue
         if command.action == 1:
           self._native_favorite_actions()
           if self._wheel_personality is not None:
@@ -620,6 +627,18 @@ class StarShellSession(TeslaSpeedActions):
           native_device.toggle_screen_off()
       except (OSError, RuntimeError, ValueError, TypeError):
         pass
+
+  def _engine_sound_action(self, toggle: bool, now_ns: int) -> None:
+    from openpilot.starpilot.engine_sound import settings as engine_sound
+    params = ui_state.params
+    if toggle:
+      enabled = engine_sound.toggle(params)
+      profile = engine_sound.profile_name(params)
+    else:
+      profile = engine_sound.next_profile(params)
+      enabled = engine_sound.enabled(params)
+    if enabled is not None and profile is not None:
+      self.adapter.engine_sound_notice.show(toggle, enabled, profile, now_ns)
 
   def _conditional_action_owner(self):
     if self.conditional_actions is None:
@@ -820,11 +839,16 @@ class StarShellSession(TeslaSpeedActions):
     return ok
 
   def sounds_snapshot(self):
-    state = self.sounds_owner.snapshot()
-    if self.profile == Profile.LARGE:
-      rows = tuple(row for row in state.rows if not row.key.startswith(SOUND_AUTO_PREFIX))
-      return sound_editor_state(replace(state, rows=rows), self.sounds_edit_key)
-    return state
+    if self.profile != Profile.LARGE:
+      return self.sounds_owner.snapshot()
+    page = getattr(self, "sounds_menu", "sounds")
+    if page == ENGINE_TYPE_PAGE:
+      return self.sounds_owner.engine_type_snapshot()
+    if page == ENGINE_PAGE:
+      return value_editor_state(self.sounds_owner.engine_snapshot(), self.sounds_edit_key)
+    state = self.sounds_owner.snapshot(engine_menu=True)
+    rows = tuple(row for row in state.rows if not row.key.startswith(SOUND_AUTO_PREFIX))
+    return sound_editor_state(replace(state, rows=rows), self.sounds_edit_key)
 
   def sounds_request(self, request: FeatureSettingsRequest) -> bool:
     ok = self.sounds_owner.apply(request)
@@ -1246,19 +1270,34 @@ class StarShellSession(TeslaSpeedActions):
     if self._mode != ShellMode.SETTINGS or self.selected != Destination.SOUNDS:
       return
     state = self.sounds_snapshot()
+    page = getattr(self, "sounds_menu", "sounds")
     if action.kind == "back":
       if self.sounds_edit_key is not None:
         self.sounds_edit_key = None
+      elif page == ENGINE_TYPE_PAGE:
+        self.sounds_menu, self.sounds_scroll = ENGINE_PAGE, 0
+      elif page == ENGINE_PAGE:
+        self.sounds_menu, self.sounds_scroll = "sounds", self.sounds_return_scroll
       else:
         self.selected = Destination.STAR
         self.sounds_scroll = 0
       self.input.cancel()
-    elif action.kind == "open" and state.page == "sounds:overview" and action.row in state.rows and action.row.available:
-      self.sounds_edit_key = action.row.key
+    elif action.kind == "open" and action.row in state.rows and action.row.available:
+      if state.page == "sounds:overview" and action.row.key == ENGINE_MENU_KEY:
+        self.sounds_return_scroll = self.sounds_scroll
+        self.sounds_menu, self.sounds_scroll = ENGINE_PAGE, 0
+      elif state.page == "sounds:overview" or (state.page == ENGINE_PAGE and action.row.presets):
+        self.sounds_edit_key = action.row.key
+      elif state.page == ENGINE_PAGE and action.row.page == ENGINE_TYPE_PAGE:
+        self.sounds_menu, self.sounds_scroll = ENGINE_TYPE_PAGE, 0
       self.input.cancel()
     elif action.kind == "scroll" and self.sounds_edit_key is None:
       self.sounds_scroll = feature_scroll(self.sounds_scroll, action.direction, len(state.rows))
-    elif action.kind in ("change", "action") and state.page == "sounds" and action.row is not None and action.row in state.rows:
+    elif action.kind == "action" and state.page == ENGINE_TYPE_PAGE and action.row in state.rows:
+      request = self.sounds_owner.engine_choice_request(action.row)
+      if request is not None:
+        self.sounds_request(request)
+    elif action.kind in ("change", "action") and state.page in ("sounds", ENGINE_PAGE) and action.row is not None and action.row in state.rows:
       request = value_request(state, action)
       if request is not None:
         self.sounds_request(request)
@@ -1627,6 +1666,7 @@ class StarShellSession(TeslaSpeedActions):
           elif destination == Destination.SOUNDS:
             self.sounds_scroll = 0
             self.sounds_edit_key = None
+            self.sounds_menu = "sounds"
           elif destination == Destination.APPEARANCE:
             self.appearance_scroll = 0
             self.appearance_page = "appearance"

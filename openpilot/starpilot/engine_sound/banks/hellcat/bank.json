@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "source": "recording hellcat.wav",
+  "layers": {
+    "off": [
+      {
+        "rpm": 704,
+        "file": "off_704.wav"
+      },
+      {
+        "rpm": 750,
+        "file": "off_750.wav"
+      },
+      {
+        "rpm": 1250,
+        "file": "off_1250.wav"
+      },
+      {
+        "rpm": 1500,
+        "file": "off_1500.wav"
+      },
+      {
+        "rpm": 1750,
+        "file": "off_1750.wav"
+      },
+      {
+        "rpm": 2000,
+        "file": "off_2000.wav"
+      },
+      {
+        "rpm": 2250,
+        "file": "off_2250.wav"
+      },
+      {
+        "rpm": 2500,
+        "file": "off_2500.wav"
+      },
+      {
+        "rpm": 2750,
+        "file": "off_2750.wav"
+      },
+      {
+        "rpm": 3000,
+        "file": "off_3000.wav"
+      }
+    ],
+    "on": [
+      {
+        "rpm": 704,
+        "file": "on_704.wav"
+      },
+      {
+        "rpm": 750,
+        "file": "on_750.wav"
+      },
+      {
+        "rpm": 1000,
+        "file": "on_1000.wav"
+      },
+      {
+        "rpm": 1500,
+        "file": "on_1500.wav"
+      },
+      {
+        "rpm": 2000,
+        "file": "on_2000.wav"
+      },
+      {
+        "rpm": 2250,
+        "file": "on_2250.wav"
+      },
+      {
+        "rpm": 2500,
+        "file": "on_2500.wav"
+      },
+      {
+        "rpm": 2750,
+        "file": "on_2750.wav"
+      },
+      {
+        "rpm": 3000,
+        "file": "on_3000.wav"
+      }
+    ]
+  }
+}

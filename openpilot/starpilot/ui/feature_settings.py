@@ -8,7 +8,8 @@ from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui import clip
 from openpilot.starpilot.ui.feature_settings_state import (
-  FeatureRow, FeatureSettingsState, FeatureUiAction, FEATURE_CONFIRM_ACTIONS, is_long_confirm_action, boolean_value as _boolean_value,
+  FeatureRow, FeatureSettingsState, FeatureUiAction, FEATURE_CONFIRM_ACTIONS, PICKER_PREFIXES, is_long_confirm_action,
+  boolean_value as _boolean_value,
   FEATURE_ROW_HEIGHT, FEATURE_CONTROL_LEFT, FEATURE_CONTROL_RIGHT,
   FEATURE_BUTTON_TOP, FEATURE_BUTTON_HEIGHT, FEATURE_ACTION_MARGIN, FEATURE_HEADER_HEIGHT,
   FEATURE_TAP_SLOP, FEATURE_FLICK_DISTANCE, FEATURE_PAGE_COUNTER_WIDTH, TOOLBAR_LABEL_WIDTH,
@@ -200,7 +201,7 @@ class FeatureSettingsView:
             for index, ((text, enabled), rect) in enumerate(zip(row.actions, feature_action_rects(row, y), strict=True)):
               button = rl.Rectangle(*rect)
               active = row.available and enabled and pressed == FeatureUiAction("action", row, index)
-              selected = row.key == "drive_state" or row.key.startswith("model:")
+              selected = row.key == "drive_state" or row.key.startswith(PICKER_PREFIXES)
               selected = selected and row.available and (row.value == text or row.key.startswith("model:") and text in ("Favorited", "Skipped"))
               draw_rounded_fill(button, CONTROL_PRESSED_BG if active else rl.color_lerp(PANEL_BG, ACCENT, 0.22) if selected else CONTROL_BG)
               draw_rounded_stroke(button, ACCENT if active or selected else DRIVE_MODE_BORDER if row.key == "drive_state" else CONTROL_BORDER)

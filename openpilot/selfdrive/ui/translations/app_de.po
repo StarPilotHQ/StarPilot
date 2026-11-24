@@ -23517,3 +23517,82 @@ msgstr "Lenkung und Tasten"
 msgid "Storage & Account"
 msgstr "Speicher und Konto"
 
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Plays a simulated engine on the car speakers that follows the accelerator pedal."
+msgstr "Spielt über die Fahrzeuglautsprecher einen simulierten Motor ab, der dem Gaspedal folgt."
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Engine Type"
+msgstr "Motortyp"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Chooses which engine is simulated."
+msgstr "Wählt den simulierten Motor."
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Engine Sound Volume"
+msgstr "Lautstärke des Motorsounds"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Sets how loud the engine is before the car's own volume control."
+msgstr "Legt die Lautstärke des Motors vor der Lautstärkeregelung des Fahrzeugs fest."
+
+#: openpilot/starpilot/galaxy/setting_descriptions.py
+msgid "Plays a simulated engine on the car speakers that follows the accelerator pedal, including revving in Park or Neutral. Uses the audio output chosen under Spotify and Phone Audio, and goes quiet while an alert sounds."
+msgstr "Spielt über die Fahrzeuglautsprecher einen simulierten Motor ab, der dem Gaspedal folgt, auch beim Hochdrehen in Parkstellung oder Neutral. Nutzt die unter Spotify und Telefon-Audio gewählte Audioausgabe und verstummt, solange ein Warnton ertönt."
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "BMW M3"
+msgstr "BMW M3"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "BMW M3 Deep"
+msgstr "BMW M3 Deep"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "F1 Car"
+msgstr "F1 Car"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Ferrari F136"
+msgstr "Ferrari F136"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Hellcat"
+msgstr "Hellcat"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Ioniq 5N Ignition"
+msgstr "Ioniq 5N Ignition"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Jaguar F-Type"
+msgstr "Jaguar F-Type"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Nissan Super GT1"
+msgstr "Nissan Super GT1"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Nissan Super GT2"
+msgstr "Nissan Super GT2"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "Supra Turbo"
+msgstr "Supra Turbo"
+
+#: openpilot/starpilot/engine_sound/profiles.py
+msgid "LFA"
+msgstr "LFA"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Engine Sounds"
+msgstr "Motorsounds"
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Plays on the car speakers through the Spotify and Phone Audio output."
+msgstr "Spielt über die Fahrzeuglautsprecher mit der unter Spotify und Telefon-Audio gewählten Ausgabe."
+
+#: openpilot/starpilot/ui/sounds_owner.py
+msgid "Choose an engine; it revs once so you can hear it."
+msgstr "Wähle einen Motor; er dreht einmal hoch, damit du ihn hörst."

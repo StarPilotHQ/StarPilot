@@ -4,7 +4,8 @@ from openpilot.starpilot.aol.vehicle import policy_for
 from openpilot.starpilot.conditional_mode.manual import ioniq6_media_eligible
 from openpilot.starpilot.feature_capabilities import lateral_supported
 from openpilot.starpilot.controllers.wheel_actions import (
-  ACTIONS, ACTION_VALUES, DEFAULTS, KEYS, PADDLE_KEY, SCREEN_OFF_ACTION, button_reported, eligible, paddle_bookmark_available,
+  ACTIONS, ACTION_VALUES, DEFAULTS, ENGINE_SOUND_ACTIONS, KEYS, PADDLE_KEY, SCREEN_OFF_ACTION, button_reported, eligible,
+  paddle_bookmark_available,
 )
 from openpilot.starpilot.saved_document import commit_exact
 from openpilot.starpilot.saved_source import read_saved
@@ -81,7 +82,7 @@ class WheelFeature:
         return ()
     if key in KEYS[8:] and not media:
       return ()
-    codes = {0, 8, 11, 12, 13, SCREEN_OFF_ACTION}
+    codes = {0, 8, 11, 12, 13, SCREEN_OFF_ACTION, *ENGINE_SOUND_ACTIONS}
     if self.owner.longitudinal_available():
       codes.update((1, 2, 5, 10, 14))
       codes.add(6)

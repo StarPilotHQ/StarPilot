@@ -22,6 +22,7 @@ from openpilot.starpilot.ui.conditional_feature import confirmation_question as 
 from openpilot.starpilot.ui.appearance_owner import AppearanceOwner, LABELS as APPEARANCE_LABELS
 from openpilot.starpilot.ui.display_owner import AUTO_PREFIX as DISPLAY_AUTO_PREFIX, DisplayOwner, LABELS as DISPLAY_LABELS
 from openpilot.starpilot.ui.sounds_owner import SoundsOwner
+from openpilot.starpilot.engine_sound.preview import start as start_engine_preview
 from openpilot.starpilot.ui.power_owner import PowerOwner, HOURS, VOLTS, POWER_KEYS, confirm_question as power_question
 from openpilot.starpilot.audio.alert_volume import SPECS as SOUND_SPECS
 from openpilot.starpilot.ui.presentation import Profile
@@ -596,7 +597,7 @@ class SettingsGateway:
         return False
       fresh = self.context.sample() if live else ctx
       return fresh.cp_raw == ctx.cp_raw
-    return SoundsOwner(self.params, authorized)
+    return SoundsOwner(self.params, authorized, engine_preview=start_engine_preview)
 
   def _power_owner(self, ctx: AuthorityContext, *, live: bool = False,
                    session_valid: Callable[[], bool] = lambda: True) -> PowerOwner:

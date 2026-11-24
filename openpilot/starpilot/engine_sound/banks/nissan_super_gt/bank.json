@@ -1,0 +1,134 @@
+{
+  "version": 1,
+  "source": "recording NissanSuperGT.wav",
+  "layers": {
+    "off": [
+      {
+        "rpm": 1556,
+        "file": "off_1556.wav"
+      },
+      {
+        "rpm": 4000,
+        "file": "off_4000.wav"
+      },
+      {
+        "rpm": 4250,
+        "file": "off_4250.wav"
+      },
+      {
+        "rpm": 4500,
+        "file": "off_4500.wav"
+      },
+      {
+        "rpm": 4750,
+        "file": "off_4750.wav"
+      },
+      {
+        "rpm": 5000,
+        "file": "off_5000.wav"
+      },
+      {
+        "rpm": 5250,
+        "file": "off_5250.wav"
+      },
+      {
+        "rpm": 5500,
+        "file": "off_5500.wav"
+      },
+      {
+        "rpm": 5750,
+        "file": "off_5750.wav"
+      },
+      {
+        "rpm": 6000,
+        "file": "off_6000.wav"
+      },
+      {
+        "rpm": 6250,
+        "file": "off_6250.wav"
+      },
+      {
+        "rpm": 6500,
+        "file": "off_6500.wav"
+      },
+      {
+        "rpm": 6750,
+        "file": "off_6750.wav"
+      },
+      {
+        "rpm": 7000,
+        "file": "off_7000.wav"
+      }
+    ],
+    "on": [
+      {
+        "rpm": 1556,
+        "file": "on_1556.wav"
+      },
+      {
+        "rpm": 3250,
+        "file": "on_3250.wav"
+      },
+      {
+        "rpm": 3500,
+        "file": "on_3500.wav"
+      },
+      {
+        "rpm": 3750,
+        "file": "on_3750.wav"
+      },
+      {
+        "rpm": 4000,
+        "file": "on_4000.wav"
+      },
+      {
+        "rpm": 4250,
+        "file": "on_4250.wav"
+      },
+      {
+        "rpm": 4500,
+        "file": "on_4500.wav"
+      },
+      {
+        "rpm": 4750,
+        "file": "on_4750.wav"
+      },
+      {
+        "rpm": 5000,
+        "file": "on_5000.wav"
+      },
+      {
+        "rpm": 5250,
+        "file": "on_5250.wav"
+      },
+      {
+        "rpm": 5500,
+        "file": "on_5500.wav"
+      },
+      {
+        "rpm": 5750,
+        "file": "on_5750.wav"
+      },
+      {
+        "rpm": 6000,
+        "file": "on_6000.wav"
+      },
+      {
+        "rpm": 6250,
+        "file": "on_6250.wav"
+      },
+      {
+        "rpm": 6500,
+        "file": "on_6500.wav"
+      },
+      {
+        "rpm": 6750,
+        "file": "on_6750.wav"
+      },
+      {
+        "rpm": 7000,
+        "file": "on_7000.wav"
+      }
+    ]
+  }
+}

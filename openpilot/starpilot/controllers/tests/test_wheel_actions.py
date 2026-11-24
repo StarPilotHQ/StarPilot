@@ -9,7 +9,8 @@ from openpilot.selfdrive.car.card import Car
 from openpilot.selfdrive.car.tests.publication_fixture import initialize_publication_sources
 from openpilot.selfdrive.car.cruise import CRUISE_LONG_PRESS, VCruiseHelper
 from openpilot.selfdrive.car.tests.test_hyundai_aol import candidate
-from openpilot.starpilot.controllers.wheel_actions import ACTIONS, KEYS, SCREEN_OFF_ACTION, WheelConsumer, WheelPublisher, capture
+from openpilot.starpilot.controllers.wheel_actions import (ACTIONS, ENGINE_SOUND_ACTIONS, KEYS, SCREEN_OFF_ACTION, WheelConsumer,
+                                                           WheelPublisher, capture)
 
 
 TYPE = car.CarState.ButtonEvent.Type
@@ -53,7 +54,7 @@ def context(tmp_path):
 
 def test_exact_catalog_and_missing_vs_saved_off(context):
   params, _ = context
-  assert sorted(ACTIONS.values()) == list(range(16))
+  assert sorted(ACTIONS.values()) == list(range(18))
   assert ACTIONS["Toggle Screen Off"] == SCREEN_OFF_ACTION
   assert len(KEYS) == 15
   assert capture(params)['DistanceButtonControl'] == 1
@@ -79,7 +80,8 @@ def test_screen_off_is_directly_assignable_without_longitudinal_control(context)
   assert capture(params)[key] == SCREEN_OFF_ACTION
 
 
-@pytest.mark.parametrize('key,code', [('DistanceButtonControl', code) for code in (1, 2, 5, 6, 7, 8, 11, 12, 13, 14, SCREEN_OFF_ACTION)])
+@pytest.mark.parametrize('key,code', [('DistanceButtonControl', code) for code in (1, 2, 5, 6, 7, 8, 11, 12, 13, 14, SCREEN_OFF_ACTION,
+                                                                                *ENGINE_SOUND_ACTIONS)])
 def test_real_distance_short_delivers_once_and_claims_serialized_release(context, key, code):
   params, cp = context
   params.put(key, code, block=True)

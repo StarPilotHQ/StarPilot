@@ -83,6 +83,8 @@ FEATURE_CONFIRM_ACTIONS = (TORQUE_CONFIRM_ACTIONS | SLC_CONFIRM_ACTIONS | LANE_C
 
 
 HEADING_PREFIX = "heading:"
+# Rows of a one-of-many picker: each choice is its own row and the chosen one's button reads "Active".
+PICKER_PREFIXES = ("model:", "engine_type:")
 
 
 def is_heading(key: str) -> bool:
@@ -271,7 +273,7 @@ def value_editor_state(state: FeatureSettingsState, key: str | None) -> FeatureS
 def sound_editor_state(state: FeatureSettingsState, key: str | None) -> FeatureSettingsState:
   rows = tuple(replace(row, presets=tuple(
     (value, "Mute" if value == "0" else value if value == "Auto" else value + "%")
-    for value in SOUND_PRESETS if value == "Auto" or row.minimum <= int(value) <= row.maximum))
+    for value in SOUND_PRESETS if (value == "Auto" and "Auto" in row.choices) or (value != "Auto" and row.minimum <= int(value) <= row.maximum)))
     if row.unit == "%" else row for row in state.rows)
   rows = value_editor_state(replace(state, rows=rows), None).rows
   if key is not None:
@@ -341,7 +343,7 @@ def feature_action_left(row: FeatureRow) -> float:
 
 
 def feature_action_rects(row: FeatureRow, y: float) -> tuple[tuple[float, float, float, float], ...]:
-  width = (300 if row.key == "drive_state" else 240 if row.key.startswith("model:") or row.key == "models:active" else
+  width = (300 if row.key == "drive_state" else 240 if row.key.startswith(PICKER_PREFIXES) or row.key == "models:active" else
            FEATURE_CONTROL_RIGHT - FEATURE_CONTROL_LEFT)
   margin = 14 if row.key == "drive_state" else FEATURE_ACTION_MARGIN
   left = FEATURE_CONTROL_RIGHT - len(row.actions) * width - max(0, len(row.actions) - 1) * 16

@@ -23,7 +23,7 @@ from pathlib import Path
 from openpilot.starpilot.soloist import backend, bluealsa_runtime, bugsink_report, credentials, package, preferences, phone_audio
 from openpilot.starpilot.soloist import now_playing as now_playing_module
 from openpilot.starpilot.soloist.client import PlayerClient
-from openpilot.starpilot.soloist.paths import CONTROL_SOCKET, Layout, private_dir
+from openpilot.starpilot.soloist.paths import CONTROL_SOCKET, Layout, enabled as music_enabled, private_dir
 from openpilot.starpilot.system import netwatch
 
 A2DP_SINK = '0000110b-0000-1000-8000-00805f9b34fb'
@@ -31,6 +31,10 @@ EXIT_EXPIRED = 10
 STOP_SECONDS = 5.0
 OUTPUT_RETRY_SECONDS = 20.0
 PULL_RETRY_SECONDS = 15.0
+SINK_CHECK_SECONDS = 4.0
+# The car can open the link without encrypting it, and the comma then refuses its audio channel until the link is redone.
+LINK_RESET_FAILURES = 5
+LINK_RESET_SECONDS = 60.0
 PAIRING_PROFILE_SECONDS = 180.0  # the pairing window plus time for the phone to save the comma's services
 MAX_FAST_FAILURES = 5
 UNRESPONSIVE_SECONDS = 120.0
@@ -60,6 +64,14 @@ def network_ready() -> bool:
     except (OSError, ValueError):
       continue
   return False
+
+
+def engine_sound_requested() -> bool:
+  try:
+    from openpilot.common.params import Params
+    return Params().get_bool('EngineSound')
+  except Exception:
+    return False
 
 
 EXPIRES_IN = re.compile(r'client expires in (\d+) days?')
@@ -138,6 +150,22 @@ class BluetoothOutput:
       self._reset()
     return False
 
+  def reconnect(self, address: str, sleep: Callable[[float], None] = time.sleep) -> None:
+    """Drop the link and connect from this side, which secures the link before the audio channel opens."""
+    try:
+      from openpilot.starpilot.bluetooth.owner import BlueZ, DEVICE
+      if self.client is None:
+        self.client = BlueZ()
+      for path, interfaces in self.client._objects().items():
+        props = interfaces.get(DEVICE)
+        if props and str(props.get('Address', '')).upper() == address:
+          self.client._call(path, DEVICE, 'Disconnect', timeout=10.0)
+          sleep(2.0)
+          self.client._call(path, DEVICE, 'ConnectProfile', 's', (A2DP_SINK,), timeout=15.0)
+          return
+    except Exception:
+      self._reset()
+
   def _reset(self) -> None:
     client, self.client = self.client, None
     if client is not None:
@@ -147,16 +175,60 @@ class BluetoothOutput:
         pass
 
 
+class SinkWatch:
+  """Follows the audio server's sink events, so a car output that drops is reloaded at once instead of at the next check."""
+
+  def __init__(self, process: subprocess.Popen, wake: threading.Event):
+    self.process = process
+    self.removed = threading.Event()
+    threading.Thread(target=self._read, args=(wake,), name='spotify_sink_watch', daemon=True).start()
+
+  @classmethod
+  def start(cls, layout: Layout, wake: threading.Event) -> SinkWatch | None:
+    if not backend.can_switch():
+      return None
+    launch = backend.subscribe_launch(layout)
+    try:
+      process = subprocess.Popen(launch.argv, env=launch.env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                 stderr=subprocess.DEVNULL, text=True, start_new_session=True)
+    except OSError:
+      return None
+    return cls(process, wake)
+
+  def _read(self, wake: threading.Event) -> None:
+    for line in self.process.stdout:
+      if "'remove' on sink" in line:
+        self.removed.set()
+        wake.set()
+
+  def alive(self) -> bool:
+    return self.process.poll() is None
+
+  def stop(self) -> None:
+    _kill_group(self.process)
+
+
 class Supervisor:
   def __init__(self, layout: Layout | None = None, *, output: BluetoothOutput | None = None,
                spawn: Callable[..., subprocess.Popen] = subprocess.Popen, clock: Callable[[], float] = time.monotonic,
                make_client: Callable[[Path], PlayerClient] | None = None,
                network: Callable[[], bool] = network_ready,
                network_change: Callable[[], float] = network_change,
-               cloud: Callable[[int], bool] = cloud_connected):
+               cloud: Callable[[int], bool] = cloud_connected, engine: Callable[[], bool] = engine_sound_requested,
+               watch_sinks: Callable[[Layout, threading.Event], SinkWatch | None] = SinkWatch.start):
     self.layout = layout or Layout.default()
     self.output = output or BluetoothOutput()
-    self.spawn, self.clock, self.network = spawn, clock, network
+    self.spawn, self.clock, self.network, self.engine = spawn, clock, network, engine
+    self.watch_sinks = watch_sinks
+    self.sink_watch: SinkWatch | None = None
+    self.wake = threading.Event()
+    # Engine sound plays through the same server, so it outlives the music player while that is on.
+    self.hold_output = False
+    self.hold_check_at = 0.0
+    self.sink_check_at = 0.0
+    self.car_failures = 0
+    self.link_reset_at = 0.0
+    self.server_key: tuple | None = None
     self.make_client = make_client or (lambda data: PlayerClient(data))
     self.server: subprocess.Popen | None = None
     self.player: subprocess.Popen | None = None
@@ -258,14 +330,106 @@ class Supervisor:
       self.client.stop()
       self.client = None
     _kill_group(self.player)
-    _kill_group(self.server)
-    self.player = self.server = None
+    self.player = None
+    if not self.hold_output or self.server is None or self.server.poll() is not None:
+      self._stop_server()
     self.launched = None
     if release_phone:
       self.phone.close()
       self.phone_prefs = None
       if self.clock() >= self.pairing_profile_until:
         self._release_profile()
+
+  def _stop_server(self) -> None:
+    if self.sink_watch is not None:
+      self.sink_watch.stop()
+      self.sink_watch = None
+    _kill_group(self.server)
+    self.server = self.server_key = None
+
+  def _ensure_server(self, prefs: preferences.Preferences, *, silent: bool = False, clock: Callable[[], float] = time.monotonic,
+                     failure: str = 'Audio output could not open') -> None:
+    key = (prefs.output, prefs.output_address, silent)
+    socket_path = backend.runtime_paths(self.layout)['socket']
+    if self.server is not None and self.server.poll() is None and self.server_key == key and socket_path.exists():
+      return
+    self._stop_server()
+    # Engine sound follows the driver's foot, so it gets the short buffer; a speaker that refuses it is picked up by _heal_sink.
+    self.server = self._start(backend.server_launch(self.layout, prefs, silent=silent, low_latency=self.hold_output), 'audio')
+    deadline = clock() + 5
+    while not socket_path.exists() and self.server.poll() is None and clock() < deadline:
+      time.sleep(0.1)
+    if not socket_path.exists():
+      raise RuntimeError(failure)
+    self.server_key = key
+    self.sink_check_at = self.clock() + SINK_CHECK_SECONDS
+    if prefs.output == 'bluetooth':
+      self.sink_watch = self.watch_sinks(self.layout, self.wake)
+
+  def _hold_output(self, prefs: preferences.Preferences) -> None:
+    """Keep the output open with no music player, following the speaker as it connects and disconnects."""
+    alive = self.server is not None and self.server.poll() is None
+    if self.player is not None and alive:
+      return
+    now = self.clock()
+    if now < self.hold_check_at:
+      return
+    self.hold_check_at = now + OUTPUT_RETRY_SECONDS
+    if (prefs.output == 'bluetooth' and not prefs.output_address) or not backend.bundle_ready():
+      return
+    speaker = False
+    try:
+      if prefs.output == 'bluetooth':
+        if not self.phone_profile:
+          phone_audio.profile('acquire')
+          self.phone_profile = True
+        speaker = self._output_ready(prefs.output_address)
+      else:
+        speaker = True
+      self._ensure_server(prefs, silent=not speaker)
+      self.output_available = speaker
+    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+      with self.log_lock:
+        self.log.append(f'audio: could not open the output for engine sound: {error}')
+      if prefs.output == 'bluetooth' and speaker:
+        self._car_refused(prefs.output_address)
+
+  def _heal_sink(self, prefs: preferences.Preferences) -> None:
+    """The server can start while BlueALSA is still being swapped for the bundled one, so the car's sink fails to load
+    and the server keeps running with nowhere to play. Load it again once the car is there."""
+    if prefs.output != 'bluetooth' or not self.output_available or self.server is None or self.server.poll() is not None:
+      return
+    if self.sink_watch is None or not self.sink_watch.alive():
+      self.sink_watch = self.watch_sinks(self.layout, self.wake)
+    now = self.clock()
+    removed = self.sink_watch is not None and self.sink_watch.removed.is_set()
+    if removed:
+      self.sink_watch.removed.clear()
+    if (now < self.sink_check_at and not removed) or not backend.can_switch():
+      return
+    self.sink_check_at = now + SINK_CHECK_SECONDS
+    try:
+      if not backend.has_sink(self.layout):
+        backend.switch_output(self.layout, True, low_latency=self.hold_output)
+        with self.log_lock:
+          self.log.append('audio: the car output had not loaded; loaded it')
+      self.car_failures = 0
+    except (OSError, subprocess.SubprocessError) as error:
+      with self.log_lock:
+        self.log.append(f'audio: could not load the car output yet: {error}')
+      self._car_refused(prefs.output_address)
+
+  def _car_refused(self, address: str) -> None:
+    self.car_failures += 1
+    now = self.clock()
+    if self.car_failures < LINK_RESET_FAILURES or now < self.link_reset_at or not self._output_ready(address):
+      return
+    self.car_failures, self.link_reset_at = 0, now + LINK_RESET_SECONDS
+    with self.log_lock:
+      self.log.append('audio: the car is connected but refuses audio; reconnecting from the comma')
+    with self.output_lock:
+      self.output.reconnect(address)
+    self.sink_check_at = self.clock() + SINK_CHECK_SECONDS
 
   def _output_ready(self, address: str) -> bool:
     with self.output_lock:
@@ -296,17 +460,20 @@ class Supervisor:
     if not backend.can_switch():
       return False
     try:
-      backend.switch_output(self.layout, speaker)
+      backend.switch_output(self.layout, speaker, low_latency=self.hold_output)
     except (OSError, subprocess.SubprocessError) as error:
       with self.log_lock:
         self.log.append(f'audio: could not switch output: {error}')
       return False
     self.output_available, self.output_flips = speaker, 0
+    self.server_key = (prefs.output, prefs.output_address, not speaker)
     self.waiting_for = '' if speaker else prefs.output_name or 'your Bluetooth speaker'
     self.publish()
     return True
 
   def _release_profile(self) -> None:
+    if self.hold_output and self.server_key is not None and self.server_key[0] == 'bluetooth':
+      return
     if self.phone_profile:
       phone_audio.profile('release')
       self.phone_profile = False
@@ -351,13 +518,8 @@ class Supervisor:
           self.phone_track = self.phone.track(prefs.phone_address)
           return
         raise RuntimeError('Phone audio disconnected. Reconnecting…')
-      self.server = self._start(backend.server_launch(self.layout, prefs), 'audio')
+      self._ensure_server(prefs)
       socket_path = backend.runtime_paths(self.layout)['socket']
-      deadline = time.monotonic() + 5
-      while not socket_path.exists() and self.server.poll() is None and time.monotonic() < deadline:
-        time.sleep(0.1)
-      if not socket_path.exists():
-        raise RuntimeError('Audio output could not open')
       env = {**os.environ, 'PULSE_SERVER': f'unix:{socket_path}', 'STARPILOT_AUDIO_PARENT_PID': str(os.getpid()),
              'STARPILOT_SOLOIST_CONFIG': str(self.layout.config),
              'LD_LIBRARY_PATH': backend.library_path(inherited=os.environ.get('LD_LIBRARY_PATH', ''))}
@@ -394,6 +556,20 @@ class Supervisor:
 
   def tick(self) -> None:
     prefs = preferences.load(self.layout)
+    self.hold_output = self.engine()
+    if self.hold_output and not music_enabled(self.layout):
+      if self.player is not None or self.phone_prefs is not None:
+        self.stop_children()
+      self._set('engine_only', 'Music is off. The output stays open for engine sound.')
+    else:
+      self._tick_music(prefs)
+    if self.hold_output:
+      self._hold_output(prefs)
+    elif self.player is None and self.server is not None:
+      self._stop_server()
+    self._heal_sink(prefs)
+
+  def _tick_music(self, prefs: preferences.Preferences) -> None:
     if prefs.source == 'phone':
       self.tick_phone(prefs)
       return
@@ -443,13 +619,7 @@ class Supervisor:
     self.secret = key
     self._set('starting', 'Starting Spotify…')
     try:
-      self.server = self._start(backend.server_launch(self.layout, prefs, silent=not self.output_available), 'audio')
-      deadline = now + 5.0
-      socket_path = backend.runtime_paths(self.layout)['socket']
-      while not socket_path.exists() and self.server.poll() is None and self.clock() < deadline:
-        time.sleep(0.1)
-      if not socket_path.exists():
-        raise RuntimeError('audio output could not open')
+      self._ensure_server(prefs, silent=not self.output_available, clock=self.clock, failure='audio output could not open')
       self.player = self._start(backend.player_launch(self.layout, prefs, key), 'soloist')
     except (OSError, RuntimeError, backend.BackendUnavailable) as error:
       self.stop_children()
@@ -666,6 +836,7 @@ def main() -> None:
 
   def shutdown(*_):
     stop.set()
+    supervisor.wake.set()
   signal.signal(signal.SIGTERM, shutdown)
   signal.signal(signal.SIGINT, shutdown)
   threading.Thread(target=serve, args=(supervisor, CONTROL_SOCKET, stop), name='spotify_control', daemon=True).start()
@@ -678,11 +849,13 @@ def main() -> None:
         except (OSError, RuntimeError, subprocess.SubprocessError) as error:
           supervisor._set('failed', str(error))
       supervisor.publish()
-      stop.wait(1.0)
+      supervisor.wake.wait(1.0)
+      supervisor.wake.clear()
   finally:
     reporter.close()
     try:
       supervisor.pairing_profile_until = 0.0
+      supervisor.hold_output = False
       supervisor.stop_children()
     finally:
       try:

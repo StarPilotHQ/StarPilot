@@ -1,0 +1,146 @@
+{
+  "version": 1,
+  "source": "engine-sim engines/atg-video-2/08_ferrari_f136_v8.mr",
+  "layers": {
+    "on": [
+      {
+        "rpm": 1500,
+        "file": "on_1500.wav"
+      },
+      {
+        "rpm": 2250,
+        "file": "on_2250.wav"
+      },
+      {
+        "rpm": 3000,
+        "file": "on_3000.wav"
+      },
+      {
+        "rpm": 3750,
+        "file": "on_3750.wav"
+      },
+      {
+        "rpm": 4500,
+        "file": "on_4500.wav"
+      },
+      {
+        "rpm": 5250,
+        "file": "on_5250.wav"
+      },
+      {
+        "rpm": 6000,
+        "file": "on_6000.wav"
+      },
+      {
+        "rpm": 6750,
+        "file": "on_6750.wav"
+      },
+      {
+        "rpm": 7500,
+        "file": "on_7500.wav"
+      },
+      {
+        "rpm": 8250,
+        "file": "on_8250.wav"
+      },
+      {
+        "rpm": 9000,
+        "file": "on_9000.wav"
+      },
+      {
+        "rpm": 9750,
+        "file": "on_9750.wav"
+      },
+      {
+        "rpm": 10500,
+        "file": "on_10500.wav"
+      },
+      {
+        "rpm": 11250,
+        "file": "on_11250.wav"
+      },
+      {
+        "rpm": 12000,
+        "file": "on_12000.wav"
+      },
+      {
+        "rpm": 12750,
+        "file": "on_12750.wav"
+      },
+      {
+        "rpm": 13500,
+        "file": "on_13500.wav"
+      }
+    ],
+    "off": [
+      {
+        "rpm": 1500,
+        "file": "off_1500.wav"
+      },
+      {
+        "rpm": 2250,
+        "file": "off_2250.wav"
+      },
+      {
+        "rpm": 3000,
+        "file": "off_3000.wav"
+      },
+      {
+        "rpm": 3750,
+        "file": "off_3750.wav"
+      },
+      {
+        "rpm": 4500,
+        "file": "off_4500.wav"
+      },
+      {
+        "rpm": 5250,
+        "file": "off_5250.wav"
+      },
+      {
+        "rpm": 6000,
+        "file": "off_6000.wav"
+      },
+      {
+        "rpm": 6750,
+        "file": "off_6750.wav"
+      },
+      {
+        "rpm": 7500,
+        "file": "off_7500.wav"
+      },
+      {
+        "rpm": 8250,
+        "file": "off_8250.wav"
+      },
+      {
+        "rpm": 9000,
+        "file": "off_9000.wav"
+      },
+      {
+        "rpm": 9750,
+        "file": "off_9750.wav"
+      },
+      {
+        "rpm": 10500,
+        "file": "off_10500.wav"
+      },
+      {
+        "rpm": 11250,
+        "file": "off_11250.wav"
+      },
+      {
+        "rpm": 12000,
+        "file": "off_12000.wav"
+      },
+      {
+        "rpm": 12750,
+        "file": "off_12750.wav"
+      },
+      {
+        "rpm": 13500,
+        "file": "off_13500.wav"
+      }
+    ]
+  }
+}

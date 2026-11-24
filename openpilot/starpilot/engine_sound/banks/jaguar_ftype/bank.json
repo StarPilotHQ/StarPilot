@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "source": "recording Jaguar2.wav",
+  "layers": {
+    "on": [
+      {
+        "rpm": 721,
+        "file": "on_721.wav"
+      },
+      {
+        "rpm": 1500,
+        "file": "on_1500.wav"
+      },
+      {
+        "rpm": 1750,
+        "file": "on_1750.wav"
+      },
+      {
+        "rpm": 2000,
+        "file": "on_2000.wav"
+      },
+      {
+        "rpm": 2250,
+        "file": "on_2250.wav"
+      },
+      {
+        "rpm": 2500,
+        "file": "on_2500.wav"
+      },
+      {
+        "rpm": 2750,
+        "file": "on_2750.wav"
+      },
+      {
+        "rpm": 3000,
+        "file": "on_3000.wav"
+      },
+      {
+        "rpm": 3250,
+        "file": "on_3250.wav"
+      },
+      {
+        "rpm": 3750,
+        "file": "on_3750.wav"
+      },
+      {
+        "rpm": 4000,
+        "file": "on_4000.wav"
+      },
+      {
+        "rpm": 4250,
+        "file": "on_4250.wav"
+      },
+      {
+        "rpm": 4500,
+        "file": "on_4500.wav"
+      },
+      {
+        "rpm": 4750,
+        "file": "on_4750.wav"
+      },
+      {
+        "rpm": 5000,
+        "file": "on_5000.wav"
+      },
+      {
+        "rpm": 5250,
+        "file": "on_5250.wav"
+      }
+    ]
+  }
+}

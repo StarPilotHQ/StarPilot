@@ -19,7 +19,9 @@ def select(bundle: Path, legacy: Path, override: Path, reload):
     if not binary.is_file():
       raise RuntimeError('Incomplete BlueALSA 5 bundle')
     # Keep the existing scheduling policy; no new real-time priority over driving.
-    return [str(binary), '-p', 'a2dp-source', '-p', 'a2dp-sink', '-c', 'SBC', '-c', 'LDAC']
+    # Keep-alive: an output that briefly closes and reopens (underrun recovery, sink reload) keeps the car's stream
+    # instead of tearing it down and renegotiating, which the car hears as a disconnect.
+    return [str(binary), '-p', 'a2dp-source', '-p', 'a2dp-sink', '-c', 'SBC', '-c', 'LDAC', '--keep-alive=5']
   override.unlink(missing_ok=True)
   (legacy.parent.parent / 'starpilot-bluealsa-launch.py').unlink(missing_ok=True)
   reload()

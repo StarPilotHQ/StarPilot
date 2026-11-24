@@ -262,7 +262,8 @@
       "source": "Active",
       "refs": [
         "openpilot/starpilot/ui/models_state.py",
-        "openpilot/starpilot/ui/runtime_app.py"
+        "openpilot/starpilot/ui/runtime_app.py",
+        "openpilot/starpilot/ui/sounds_owner.py"
       ]
     },
     {
@@ -32073,6 +32074,126 @@
       "source": "Warns when signaling toward a detected blind-spot vehicle with steering assistance off or paused. Independent of Loud Blindspot Alert. Hazards do not trigger it.",
       "refs": [
         "openpilot/starpilot/ui/sounds_owner.py"
+      ]
+    },
+    {
+      "source": "Plays a simulated engine on the car speakers that follows the accelerator pedal.",
+      "refs": [
+        "openpilot/starpilot/ui/sounds_owner.py"
+      ]
+    },
+    {
+      "source": "Engine Sounds",
+      "refs": [
+        "openpilot/starpilot/ui/sounds_owner.py"
+      ]
+    },
+    {
+      "source": "Plays on the car speakers through the Spotify and Phone Audio output.",
+      "refs": [
+        "openpilot/starpilot/ui/sounds_owner.py"
+      ]
+    },
+    {
+      "source": "Choose an engine; it revs once so you can hear it.",
+      "refs": [
+        "openpilot/starpilot/ui/sounds_owner.py"
+      ]
+    },
+    {
+      "source": "Engine Type",
+      "refs": [
+        "openpilot/starpilot/ui/sounds_owner.py"
+      ]
+    },
+    {
+      "source": "Chooses which engine is simulated.",
+      "refs": [
+        "openpilot/starpilot/ui/sounds_owner.py"
+      ]
+    },
+    {
+      "source": "Engine Sound Volume",
+      "refs": [
+        "openpilot/starpilot/ui/sounds_owner.py"
+      ]
+    },
+    {
+      "source": "Sets how loud the engine is before the car's own volume control.",
+      "refs": [
+        "openpilot/starpilot/ui/sounds_owner.py"
+      ]
+    },
+    {
+      "source": "Plays a simulated engine on the car speakers that follows the accelerator pedal, including revving in Park or Neutral. Uses the audio output chosen under Spotify and Phone Audio, and goes quiet while an alert sounds.",
+      "refs": [
+        "openpilot/starpilot/galaxy/setting_descriptions.py"
+      ]
+    },
+    {
+      "source": "BMW M3",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
+      "source": "BMW M3 Deep",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
+      "source": "F1 Car",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
+      "source": "Ferrari F136",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
+      "source": "Hellcat",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
+      "source": "Ioniq 5N Ignition",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
+      "source": "Jaguar F-Type",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
+      "source": "Nissan Super GT1",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
+      "source": "Nissan Super GT2",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
+      "source": "Supra Turbo",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
+      ]
+    },
+    {
+      "source": "LFA",
+      "refs": [
+        "openpilot/starpilot/engine_sound/profiles.py"
       ]
     }
   ]

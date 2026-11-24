@@ -63,7 +63,7 @@ def test_launch_commands_isolate_the_server_and_player(layout):
   assert '-n' in server.argv and '--system=no' in server.argv
   assert '--realtime=no' in server.argv and '--high-priority=yes' in server.argv
   assert '--resample-method=speex-float-3' in server.argv
-  assert (layout.runtime / 'daemon.conf').read_text() == 'nice-level = -5\n'
+  assert (layout.runtime / 'daemon.conf').read_text() == 'nice-level = -5\ndefault-sample-rate = 48000\n'
   assert server.env['PULSE_CONFIG'] == str(layout.runtime / 'daemon.conf')
   assert any(arg.startswith('module-alsa-sink device=starpilot_spotify') for arg in server.argv)
   assert server.env['ALSA_CONFIG_PATH'].startswith(str(layout.runtime))
@@ -194,7 +194,8 @@ def make_supervisor(layout, spawned, logged_in=True):
     return process
   now = [100.0]
   make_client = type('Client', (FakeClient,), {'logged_in': logged_in})
-  sup = supervisor.Supervisor(layout, spawn=spawn, clock=lambda: now[0], make_client=make_client, network=lambda: True)  # ty: ignore[invalid-argument-type]
+  sup = supervisor.Supervisor(layout, spawn=spawn, clock=lambda: now[0], make_client=make_client, network=lambda: True,  # ty: ignore[invalid-argument-type]
+                              watch_sinks=lambda _layout, _wake: None)
   sup.run_async = lambda fn: fn()
   return sup, now
 
@@ -273,7 +274,7 @@ def _speaker_supervisor(layout, monkeypatch, *, can_switch):
       return self.connected
   switched = []
   monkeypatch.setattr(supervisor.backend, 'can_switch', lambda: can_switch)
-  monkeypatch.setattr(supervisor.backend, 'switch_output', lambda _layout, speaker: switched.append(speaker))
+  monkeypatch.setattr(supervisor.backend, 'switch_output', lambda _layout, speaker, **kw: switched.append(speaker))
   monkeypatch.setattr(supervisor, '_kill_group', lambda _p: None)
   spawned = []
   sup, now = make_supervisor(layout, spawned)
