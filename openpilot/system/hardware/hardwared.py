@@ -22,7 +22,7 @@ from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.params import Params, UnknownKeyName
 from openpilot.common.realtime import DT_HW
 from openpilot.selfdrive.selfdrived.alertmanager import set_offroad_alert
-from openpilot.common.hardware import HARDWARE, COMMA_HARDWARE, PC
+from openpilot.common.hardware import HARDWARE, COMMA_HARDWARE
 from openpilot.common.basedir import BASEDIR
 from openpilot.common.git import get_short_branch
 from openpilot.common.hardware.usb import CHESTNUT_FW_VERSION, CHESTNUT_USB_PRODUCT, get_usb_state, get_usb_topology, is_chestnut_usb_id, set_usb_state
@@ -36,7 +36,6 @@ from openpilot.system.hardware.fan_controller import FanController
 from openpilot.system.hardware.chestnut.monitoring import chestnut_state_thread
 from openpilot.system.hardware.chestnut.status import ChestnutStatus
 from openpilot.common.version import terms_version, training_version
-from openpilot.system.athena.registration import UNREGISTERED_DONGLE_ID
 from openpilot.starpilot.models import jetlink_adapter
 
 ThermalStatus = log.DeviceState.ThermalStatus
@@ -441,12 +440,6 @@ def hardware_thread(end_event, hw_queue, power_telemetry: PowerTelemetry) -> Non
 
     if show_alert:
       msg.deviceState.fanSpeedPercentDesired = 100
-
-    # *** registration check ***
-    if not PC:
-      # we enforce this for our software, but you are welcome
-      # to make a different decision in your software
-      startup_conditions["registered_device"] = params.get("DongleId") != UNREGISTERED_DONGLE_ID
 
     # Handle offroad/onroad transition
     timing.mark("engagement")
