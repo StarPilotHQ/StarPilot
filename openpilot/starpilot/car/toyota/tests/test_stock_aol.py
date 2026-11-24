@@ -6,6 +6,7 @@ import pytest
 from opendbc.car import CanData, gen_empty_fingerprint, structs
 from opendbc.car.toyota.interface import CarInterface
 from opendbc.car.toyota import stock_aol
+from opendbc.car.toyota.values import CAR
 from opendbc.safety.tests.libsafety import libsafety_py
 from openpilot.starpilot.aol.tests.test_toyota_secoc import parsed_state
 from openpilot.starpilot.aol.tests.test_toyota_secoc_joined import run_joined
@@ -51,27 +52,25 @@ def test_stock_hardware_is_not_a_fallback_for_an_adapter(vehicle):
     assert cp.safetyConfigs[0].safetyParam != stock_aol.PROFILES[vehicle]
 
 
+@pytest.mark.parametrize('vehicle', sorted(stock_aol.CLUSTER_RADAR_CARS))
 @pytest.mark.parametrize('mirror', (False, True))
-def test_camry_stock_radar_and_startup_mirror(mirror):
-  from opendbc.car.toyota.values import CAR
-
+def test_cluster_radar_stock_radar_and_startup_mirror(vehicle, mirror):
   fp = gen_empty_fingerprint()
   fp[0].update({0xAA: 8, 0x262: 8, 0x343: 8})
   fp[1].update({0x2FF: 8, **dict.fromkeys(range(0x680, 0x686), 8)})
   if mirror:
     fp[2].update(fp[0])
   for alpha in (False, True):
-    cp = CarInterface.get_params(CAR.TOYOTA_CAMRY, fp, [], alpha, False, False)
+    cp = CarInterface.get_params(vehicle, fp, [], alpha, False, False)
     assert cp.safetyConfigs[0].safetyParam == 0x6249
     assert not cp.openpilotLongitudinalControl and not cp.alphaLongitudinalAvailable
     assert stock_aol.configured(cp) and qualified(cp)
 
 
+@pytest.mark.parametrize('vehicle', sorted(stock_aol.CLUSTER_RADAR_CARS))
 @pytest.mark.parametrize('change', ('pedal', 'filter', 'status', 'unknown_radar', 'radar_dlc',
                                     'camera_only_acc', 'independent_camera', 'camera_4cb', 'acc_dlc'))
-def test_camry_stock_mirror_rejects_adapter_or_ambiguous_topology(change):
-  from opendbc.car.toyota.values import CAR
-
+def test_cluster_radar_stock_mirror_rejects_adapter_or_ambiguous_topology(vehicle, change):
   fp = gen_empty_fingerprint()
   fp[0].update({0xAA: 8, 0x262: 8, 0x343: 8})
   fp[1].update({0x2FF: 8, **dict.fromkeys(range(0x680, 0x686), 8)})
@@ -94,7 +93,45 @@ def test_camry_stock_mirror_rejects_adapter_or_ambiguous_topology(change):
     fp[0][0x4CB] = fp[2][0x4CB] = 8
   else:
     fp[0][0x343] = fp[2][0x343] = 7
-  assert not stock_aol.hardware_supported(CAR.TOYOTA_CAMRY, fp)
+  assert not stock_aol.hardware_supported(vehicle, fp)
+
+
+def _recorded_chr_hybrid_fingerprint():
+  # Startup fingerprint of a 2017-20 C-HR Hybrid with factory radar and camera, recorded on a comma 4.
+  pt = dict.fromkeys((0x24, 0x25, 0xA6, 0xAA, 0xB4, 0x127, 0x128, 0x1C4, 0x1D2, 0x1D3, 0x226, 0x260, 0x262, 0x266, 0x292,
+                      0x2C9, 0x320, 0x32C, 0x32E, 0x343, 0x344, 0x382, 0x389, 0x391, 0x396, 0x399, 0x3A5, 0x3B0, 0x3B1,
+                      0x3B6, 0x3B7, 0x3B9, 0x3BB, 0x3BC, 0x3E1, 0x3E8, 0x3E9, 0x3F6, 0x3F9, 0x3FC, 0x411, 0x412, 0x414,
+                      0x420, 0x421, 0x42F, 0x434, 0x435, 0x43A, 0x43B, 0x45A, 0x489, 0x48A, 0x48B, 0x497, 0x4CC, 0x4D3,
+                      0x4D5, 0x4FF, 0x610, 0x611, 0x614, 0x620, 0x622, 0x623, 0x624, 0x63B, 0x6D1, 0x6F3, 0x770, 0x778), 8)
+  pt.update(dict.fromkeys((0x1AA, 0x232, 0x384, 0x386), 6))
+  pt.update(dict.fromkeys((0x230, 0x283, 0x33E, 0x365, 0x366, 0x3CB, 0x3E7), 7))
+  pt.update(dict.fromkeys((0x245, 0x2E4, 0x34D, 0x3CF, 0x3E6), 5))
+  pt.update(dict.fromkeys((0x32A, 0x33D, 0x367), 2))
+  pt.update({0x228: 4, 0x423: 1})
+  radar = dict.fromkeys((0x2FF, 0x300, 0x301, 0x303, 0x305, 0x307, 0x309, 0x30B, 0x30D, 0x30F, 0x311, 0x313, 0x315,
+                         0x317, 0x351, 0x360, 0x361, 0x362, *range(0x680, 0x686)), 8)
+  radar[0x123] = 7
+  fp = gen_empty_fingerprint()
+  fp[0].update(pt)
+  fp[1].update(radar)
+  fp[2].update(pt)
+  return fp
+
+
+def test_recorded_chr_hybrid_startup_qualifies_for_stock_aol():
+  fw = [structs.CarParams.CarFw(ecu=structs.CarParams.Ecu.hybrid)]
+  cp = CarInterface.get_params(CAR.TOYOTA_CHR, _recorded_chr_hybrid_fingerprint(), fw, False, False, False)
+  assert cp.safetyConfigs[0].safetyParam == 0x6249
+  assert not cp.openpilotLongitudinalControl and not cp.autoResumeSng
+  assert stock_aol.configured(cp) and qualified(cp)
+  cp.alternativeExperience = 32
+  assert qualified(cp, marked_only=True)
+
+
+def test_recorded_chr_hybrid_rejects_independent_camera_acc():
+  fp = _recorded_chr_hybrid_fingerprint()
+  fp[2][0x2E4] = 8
+  assert not stock_aol.hardware_supported(CAR.TOYOTA_CHR, fp)
 
 
 @pytest.mark.parametrize('word', sorted(stock_aol.WORDS))
