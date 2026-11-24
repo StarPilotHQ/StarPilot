@@ -57,7 +57,7 @@ def turn_desire(sm, now_ns: int, current_desire, *, supported: bool):
   return current_desire
 
 
-def turn_speed(maneuver, min_steer_speed: float, slowdown_percent: int = DEFAULT_SLOWDOWN_PERCENT) -> float | None:
+def turn_speed(maneuver, min_steer_speed: float, slowdown_percent: int = DEFAULT_SLOWDOWN_PERCENT, *, traveled: float = 0.) -> float | None:
   kind, modifier = maneuver.maneuverType, maneuver.maneuverModifier
   target = TARGET_MPH.get(modifier) if kind == 'turn' else None
   if modifier == 'uturn' or 'uturn' in kind or 'u-turn' in kind:
@@ -74,7 +74,7 @@ def turn_speed(maneuver, min_steer_speed: float, slowdown_percent: int = DEFAULT
     # existing braking envelope and preserve the turn-speed settling buffer.
     scale = 1.0 + (slowdown_percent - DEFAULT_SLOWDOWN_PERCENT) * (.015 if slowdown_percent < DEFAULT_SLOWDOWN_PERCENT else .02)
     approach_decel = min(approach_decel / scale, NAVIGATION_BRAKE_MAGNITUDE)
-  return math.sqrt(target * target + 2 * approach_decel * max(0., maneuver.distanceMeters - settling_distance))
+  return math.sqrt(target * target + 2 * approach_decel * max(0., maneuver.distanceMeters - traveled - settling_distance))
 
 
 def cruise_ceiling(sm, CP, now_ns: int, cruise_mps: float, *, slowdown_percent: int = DEFAULT_SLOWDOWN_PERCENT) -> float | None:
@@ -86,10 +86,12 @@ def cruise_ceiling(sm, CP, now_ns: int, cruise_mps: float, *, slowdown_percent: 
       cs.gasPressed or cs.brakePressed or not math.isfinite(cruise_mps) or cruise_mps <= 0):
     return None
   minimum = float(CP.minSteerSpeed)
-  if not math.isfinite(minimum):
+  if not math.isfinite(minimum) or not math.isfinite(cs.vEgo) or cs.vEgo < 0:
     return None
+  # Route distance is measured at the last location fix.
+  traveled = cs.vEgo * ((now_ns - nav.locationMonoTime) / 1e9)
   for instruction in (nav.instruction, nav.nextManeuver):
-    target = turn_speed(instruction, max(minimum, 0.), slowdown_percent)
+    target = turn_speed(instruction, max(minimum, 0.), slowdown_percent, traveled=traveled)
     if target is not None and target + .25 < cruise_mps:
       return target
   return None

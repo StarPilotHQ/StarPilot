@@ -67,6 +67,20 @@ def test_stale_previous_drive_and_disabled_nav_are_inert(sm, field, value):
   assert current_instruction(sm, NOW) is None
 
 
+@pytest.mark.parametrize("percent", [0, 33, 50, 75, 100])
+def test_turn_distance_advances_between_fixes(sm, percent):
+  cp = NS(openpilotLongitudinalControl=True, passive=False, dashcamOnly=False, minSteerSpeed=0.)
+  nav = sm['starpilotNavigation'].navigation
+  nav.instruction.distanceMeters = 130.
+  sm['carState'].vEgo = 12.
+  nav.locationMonoTime = NOW - 500_000_000
+  target = cruise_ceiling(sm, cp, NOW, 30., slowdown_percent=percent)
+  nav.instruction.distanceMeters = 124.
+  assert target == pytest.approx(turn_speed(nav.instruction, 0., percent))
+  nav.locationMonoTime = NOW - 3_000_000_000
+  assert cruise_ceiling(sm, cp, NOW, 30., slowdown_percent=percent) is None
+
+
 def test_turn_ceiling_and_override(sm):
   cp = NS(openpilotLongitudinalControl=True, passive=False, dashcamOnly=False, minSteerSpeed=0.)
   expected = ((14 * CV.MPH_TO_MS) ** 2 + 2 * .75 * (30 - 20)) ** .5
