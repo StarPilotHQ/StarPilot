@@ -197,6 +197,9 @@ class ProjectionOnroad:
       self._resources.callback(self._close_camera)
       self.onroad = self.create_view(native.onroad, self.fonts, camera_layer=self._camera_layer, viewport=viewport)
       self._resources.callback(self._close_onroad)
+      if getattr(self.onroad, 'uniden', None):
+        self.onroad.uniden.runtime_active = True
+        self._resources.callback(self.onroad.uniden.close)
       self.now_playing_feed = None
       if getattr(native, 'now_playing_feed', None) is not None:
         self.now_playing_feed = native.now_playing_feed()
@@ -581,6 +584,8 @@ class ProjectionOnroad:
       if self.pip is not None:
         self.pip.deactivate()
         self._set_pip_showing(False)
+      if getattr(self.onroad, "uniden", None):
+        self.onroad.uniden.feed.set_enabled(False)
       self._standby()
       self.exit.draw(self.exit.document_placement(self.customization))
 
@@ -589,6 +594,10 @@ class ProjectionOnroad:
     for event in events:
       x, y = event.x * self.width, event.y * self.height
       if self.exit.touch(event.kind, x, y, placed):
+        if self.favorites is not None:
+          self.favorites.cancel()
+        continue
+      if getattr(self.onroad, 'uniden', None) and self.onroad.uniden.touch(event.kind, x, y, self._state):
         if self.favorites is not None:
           self.favorites.cancel()
         continue
@@ -662,6 +671,8 @@ class ProjectionOnroad:
     self.fonts.draw(text, role, size, text_x, y - size / 2)
 
   def cancel_touch(self):
+    if getattr(self.onroad, 'uniden', None):
+      self.onroad.uniden.touch('cancel', 0, 0, None)
     self.exit.cancel()
     if self.now_playing_touch is not None:
       self.now_playing_touch.cancel()

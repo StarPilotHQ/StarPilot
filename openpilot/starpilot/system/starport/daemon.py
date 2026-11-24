@@ -30,7 +30,7 @@ from openpilot.starpilot.system.starport.supervisor import Supervisor
 PAIRING_COMMANDS = {"prepare_pairing", "pairing_status", "pairing_response", "cancel_pairing", "pair_device"}
 AUTHENTICATED_COMMANDS = {"start", "set_auto_connect", "select_receiver", "set_view", "set_connection", "set_car_type", "set_car_profile",
                           "prepare_pairing", "pairing_status", "pairing_response", "cancel_pairing", "pair_device", "devices", "bluetooth_action",
-                          "phone_window", "bluetooth_power", "reset_handshake", "continue_ladder"}
+                          "phone_window", "bluetooth_power", "reset_handshake", "continue_ladder", "uniden"}
 
 
 def _offroad() -> bool:
@@ -61,10 +61,22 @@ def handle(supervisor: Supervisor, request: dict[str, Any], verifier: StarPortSo
     source = request.get('source')
     if not isinstance(source, str) or verifier is None or not verifier.valid(source):
       raise RuntimeError('Authenticated Galaxy StarPort source required')
-    if command not in ('bluetooth_action', 'phone_window', 'bluetooth_power'):
+    if command not in ('bluetooth_action', 'phone_window', 'bluetooth_power', 'uniden'):
       supervisor.bind_source_session(('galaxy', source))
   if command in PAIRING_COMMANDS and not (parked or _offroad)():
     raise RuntimeError("Disengage and shift into Park before pairing")
+  if command == 'uniden':
+    from openpilot.starpilot.bluetooth.owner import BluetoothRejected, BluetoothUnavailable
+    allowed = {'command', 'source', 'address', 'model', 'mute', 'auto_mute', 'frequency_rules', 'situation'}
+    if set(request) - allowed or not {'command', 'source', 'address', 'model', 'mute'} <= set(request):
+      raise ValueError('Invalid detector request')
+    try:
+      result = supervisor.uniden_exchange(request['address'], request['model'], ('galaxy', request['source']), mute=request['mute'],
+                                          auto_mute=request.get('auto_mute', False), frequency_rules=request.get('frequency_rules', []),
+                                          situation=request.get('situation'))
+    except (BluetoothRejected, BluetoothUnavailable) as error:
+      return {'handled': True, 'error_code': error.code, 'message': str(error)[:160]}
+    return {'handled': result is not None, 'detector': result}
   if command == 'bluetooth_action':
     from openpilot.starpilot.bluetooth.owner import BluetoothRejected, BluetoothUnavailable
     if set(request) != {'command', 'source', 'operation', 'address'}:

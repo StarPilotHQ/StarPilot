@@ -105,6 +105,7 @@ from openpilot.system.ui.widgets import Widget
 from openpilot.system.ui.widgets.list_view import button_item, text_item, toggle_item
 from openpilot.starpilot.ui.compact_settings_page import StarCompactSettings as StarCompactSettings
 
+DETECTOR_CHECK_S = 5.
 NATIVE_SETTINGS_PANELS = (Destination.DEVICE, Destination.SOFTWARE, Destination.BLUETOOTH, Destination.TOGGLES, Destination.DEVELOPER)
 _FEATURE_SETTINGS_PANES = {
   Destination.DRIVING_CONTROLS: ("features", "feature", "features"),
@@ -159,6 +160,10 @@ def visual_border_state(state: OnroadState, signals: Signals) -> OnroadState:
 
 class StarShellSession(TeslaSpeedActions):
   """Own native shell resources and one request/router boundary per app."""
+  uniden = None
+  detector_feed = None
+  _detector_checked_at = -DETECTOR_CHECK_S
+  _detector_configured = False
 
   def __init__(self, profile: Profile, camera_owner: Any, *, network_layer: Any = None, settings_layer: Any = None):
     font_dir = os.environ.get("STARPILOT_UI_FONT_DIR")
@@ -323,12 +328,29 @@ class StarShellSession(TeslaSpeedActions):
         pass  # Car-screen speed-limit taps stay unavailable without affecting the native UI.
     self.onroad_map = self.onroad_jetlink = None
     if profile == Profile.LARGE:
+      self.uniden = self.view.onroad.uniden.activate(self)
       from openpilot.starpilot.ui.onroad_map_layer import NativeMapLayer
       self.onroad_map = NativeMapLayer(self.fonts, ui_state)
       self.view.onroad.map_layer = self.onroad_map.render
       from openpilot.starpilot.ui.onroad_jetlink_layer import NativeJetlinkLayer
       self.onroad_jetlink = NativeJetlinkLayer(self.view.onroad.jetlink_status, ui_state)
       self.view.onroad.jetlink_status = self.onroad_jetlink
+    from openpilot.starpilot.uniden.feed import DetectorFeed
+    # Poll the detector whenever onroad, with or without a widget.
+    self.detector_feed = self.uniden.feed if self.uniden else DetectorFeed()
+
+  def _poll_detector(self) -> None:
+    if not self.detector_feed:
+      return
+    now = time.monotonic()
+    if now - self._detector_checked_at >= DETECTOR_CHECK_S:
+      self._detector_checked_at = now
+      try:
+        config = ui_state.params.get('UnidenConfig')
+      except (TypeError, ValueError):
+        config = None
+      self._detector_configured = isinstance(config, dict) and config.get('enabled') is True and bool(config.get('address'))
+    self.detector_feed.set_enabled(self._detector_configured and bool(ui_state.started) and getattr(ui_state, 'replay_clock', None) is None)
 
   def _favorite_authority(self, *, allow_personality_notice: bool = False) -> bool:
     if getattr(ui_state, "replay_clock", None) is not None:
@@ -1744,6 +1766,8 @@ class StarShellSession(TeslaSpeedActions):
   def press(self, mode: ShellMode, x: float, y: float) -> None:
     self._request_emitted = False
     self._mode = mode
+    if self.uniden and self.uniden.press(mode, x, y):
+      return
     if mode == ShellMode.SETTINGS:
       snapshot = self._settings_press_snapshot()
       self.input.press(x, y, time.monotonic(), snapshot)
@@ -1775,6 +1799,8 @@ class StarShellSession(TeslaSpeedActions):
 
   def move(self, mode: ShellMode, x: float, y: float, *, timestamp: float | None = None) -> None:
     self._mode = mode
+    if self.uniden and self.uniden.move(mode, x, y):
+      return
     if mode == ShellMode.SETTINGS:
       if snapshot := self._settings_gesture_snapshot():
         self.input.move(x, y, timestamp, snapshot)
@@ -1790,6 +1816,8 @@ class StarShellSession(TeslaSpeedActions):
 
   def release(self, mode: ShellMode, x: float, y: float, *, timestamp: float | None = None) -> bool:
     self._mode = mode
+    if self.uniden and self.uniden.release(mode, x, y):
+      return True
     if mode == ShellMode.SETTINGS:
       snapshot = self._settings_gesture_snapshot()
       self._settings_touch = None
@@ -1810,6 +1838,8 @@ class StarShellSession(TeslaSpeedActions):
     return self._request_emitted or getattr(self, '_onroad_claimed', False)
 
   def cancel(self) -> None:
+    if self.uniden:
+      self.uniden.cancel()
     if pending := getattr(self, "_aol_save", None):
       pending.cancel.set()
     self._settings_touch = None
@@ -1827,6 +1857,8 @@ class StarShellSession(TeslaSpeedActions):
   def close(self) -> None:
     if receiver := getattr(self, "rear_fog", None):
       receiver.close()
+    if self.detector_feed:
+      self.detector_feed.close()
     if layer := getattr(self, 'onroad_jetlink', None):
       layer.close()
       self.onroad_jetlink = None

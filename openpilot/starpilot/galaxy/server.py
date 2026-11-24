@@ -254,6 +254,8 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
   plots_lock = threading.Lock()
   bluetooth_lock = threading.Lock()
   bluetooth_source = bluetooth
+  uniden_source = None
+  uniden_lock = threading.Lock()
   starport_setup_source = starport_setup
   spotify_setup_source = spotify_setup
   starport_client_source = starport_client
@@ -389,6 +391,15 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
   def bluetooth_paired(address, name, uuids):
     link_music_phone(address)
     spotify_owner().adopt_phone(address, name, uuids)
+
+  def uniden_owner():
+    nonlocal uniden_source
+    with uniden_lock:
+      if uniden_source is None:
+        from openpilot.common.params import Params
+        from openpilot.starpilot.uniden.service import DetectorService
+        uniden_source = DetectorService(Params(), configuration_allowed)
+      return uniden_source
 
   def bluetooth_owner():
     nonlocal bluetooth_source
@@ -1737,7 +1748,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
                       '/api/spotify/enable', '/api/spotify/key', '/api/spotify/preferences', '/api/spotify/control', '/api/spotify/maintenance',
                       '/api/ui/layout', '/api/ui/layout/preview', '/api/favorites/slots',
                       '/api/maps/start', '/api/maps/cancel',
-                        '/api/bluetooth/action', '/api/controllers/action',
+                        '/api/bluetooth/action', '/api/bluetooth/uniden', '/api/controllers/action',
                       '/api/models/active', '/api/models/preferences', '/api/models/download', '/api/models/download_all',
                       '/api/models/cancel', '/api/models/delete', '/api/models/refresh_manifest', '/api/models/jetlink',
                       '/api/models/laboratory', '/api/models/laboratory/download', '/api/models/laboratory/delete',
@@ -2811,6 +2822,45 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
           else:
             self.json(401, {'error': 'Sign in to Galaxy'})
         return
+      if path == '/api/bluetooth/uniden':
+        identity = self.settings_session()
+        if identity is None:
+          self.json(401, {'error': 'Sign in to Galaxy'})
+          return
+        def detector_exchange(config, mute, situation=None):
+          from openpilot.starpilot.uniden.transport import exchange
+          if self.settings_session() != identity:
+            raise BluetoothRejected('Session expired', code='session_expired')
+          if starport_setup_owner().enabled():
+            try:
+              delegated = self.starport_command(identity, 'uniden', address=config['address'], model=config['model'], mute=mute,
+                                                auto_mute=config['auto_mute'], frequency_rules=config['frequency_rules'],
+                                                situation=situation)
+            except (OSError, RuntimeError):
+              if mute is not None:
+                raise BluetoothUnavailable('Mute delivery was not confirmed; check the detector') from None
+              delegated = {'handled': False}  # Local admission still fails if AA owns the lock.
+            if delegated.get('handled'):
+              if 'error_code' in delegated:
+                message, code = delegated.get('message'), delegated['error_code']
+                raise BluetoothRejected(message if isinstance(message, str) else 'Bluetooth is busy', code=code if isinstance(code, str) else 'busy')
+              return delegated['detector']
+          return exchange(bluetooth_owner(), config['address'], config['model'], identity, mute=mute,
+                          auto_mute=config['auto_mute'], frequency_rules=config['frequency_rules'], situation=situation)
+        try:
+          result = uniden_owner().request(payload, detector_exchange, valid=lambda: self.settings_session() == identity)
+        except ValueError as error:
+          self.json(400, {'error': str(error)})
+        except BluetoothRejected as error:
+          self.json(409, {'error': str(error), 'code': error.code})
+        except (BluetoothUnavailable, OSError, RuntimeError):
+          self.json(503, {'error': 'Detector connection unavailable'})
+        else:
+          if self.settings_session() == identity:
+            self.json(200, result)
+          else:
+            self.json(401, {'error': 'Sign in to Galaxy'})
+        return
       if path == '/api/bluetooth/action':
         identity = self.settings_session()
         if identity is None:
@@ -2858,8 +2908,10 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
                 raise BluetoothUnavailable('service_unavailable')
               if 'error_code' in delegated:
                 code = delegated['error_code']
-                if type(code) is str and code in ('busy', 'park_required', 'changed', 'session_expired', 'projection_active'):
-                  raise BluetoothRejected('Android Auto could not complete the Bluetooth change', code=code)
+                if type(code) is str and code in ('busy', 'park_required', 'changed', 'session_expired', 'projection_active', 'unreachable'):
+                  why = delegated.get('message')
+                  raise BluetoothRejected(f'Android Auto: {why}' if type(why) is str and why else
+                                          'Android Auto could not complete the Bluetooth change', code=code)
                 unavailable = ('service_unavailable', 'adapter_unavailable', 'radio_unavailable', 'radio_preference_unavailable')
                 raise BluetoothUnavailable('Android Auto Bluetooth service is unavailable',
                                            code=code if type(code) is str and code in unavailable else 'service_unavailable')

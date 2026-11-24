@@ -1,3 +1,4 @@
+import { BluetoothTabs } from "./bluetooth-tabs.js"
 import { guardUnload } from "./unload-guard.js"
 import { GxNotice } from "./notice.js"
 import { reportSave } from "./save-feedback.js"
@@ -120,8 +121,8 @@ export class ControllersFeed {
 }
 
 export const ControllersPage = {
-  components: { GxNotice },
-  props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true } },
+  components: { GxNotice, BluetoothTabs },
+  props: { go: { type: Function, default: path => { location.hash = path } }, mode: { type: String, required: true }, unauthorized: { type: Function, required: true } },
   setup(props) {
     const state = reactive({ status: null, busy: false, error: "", draft: null })
     const feed = new ControllersFeed({ unauthorized: props.unauthorized, publish(update) {
@@ -173,6 +174,9 @@ export const ControllersPage = {
     },
   },
   template: `
+    <section class="gx-driving" aria-label="Controllers">
+      <header class="gx-settings__header gx-page-header"><div><h2>Controllers</h2><p>Assign buttons and test your connected controllers.</p></div></header>
+      <BluetoothTabs active="controllers" :go="go" />
     <section class="gx-card gx-controllers" aria-label="Controller Buttons" :inert="state.busy" :aria-busy="state.busy || undefined">
       <div class="gx-section__header"><i class="bi bi-controller" aria-hidden="true"></i><span class="gx-section__title">Controller Buttons</span></div>
       <div class="gx-panel gx-stack">
@@ -190,7 +194,7 @@ export const ControllersPage = {
           <div class="gx-row gx-row--borderless"><div class="gx-row__info"><span class="gx-row__label">Enable assigned controller buttons</span></div>
             <label class="gx-switch"><input type="checkbox" role="switch" aria-label="Enable assigned controller buttons" v-model="state.draft.enabled" :disabled="!canEdit" @change="save"><span class="gx-switch__track"></span><span class="gx-switch__thumb"></span></label></div>
           <h4>Attached Controllers</h4>
-          <p v-if="!state.status.devices.length" class="gx-note">No controller is attached.</p>
+          <p v-if="!state.status.devices.length" class="gx-note">No controller is attached. Plug in a USB controller or <a class="gx-link" href="#/bluetooth">pair in Bluetooth</a>.</p>
           <div v-for="device in state.status.devices" :key="device.id" class="gx-row gx-controllers__row"><div class="gx-row__info"><span class="gx-row__label">{{ device.name }}</span><span class="gx-row__desc">{{ device.bus === 3 ? 'USB' : 'Bluetooth' }}</span></div></div>
           <h4>Favorite Buttons</h4>
           <div v-for="slot in favorites" :key="slot.index" class="gx-row gx-controllers__row"><div class="gx-row__info"><span class="gx-row__label">{{ slot.label }}</span>
@@ -213,5 +217,5 @@ export const ControllersPage = {
             <button class="gx-btn gx-btn--tonal" type="button" :disabled="!editable || dirty" @click="remove(binding)">Remove</button></div>
         </template>
       </template></div>
-    </section>`,
+    </section></section>`,
 }

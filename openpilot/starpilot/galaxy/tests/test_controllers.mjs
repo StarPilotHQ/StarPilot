@@ -14,7 +14,9 @@ assert.equal(validControllersStatus({ ...status(), slots: status().slots.slice(1
 assert.equal(validControllersStatus({ ...status(), options: [{ key: "x\n", label: "Bad", section: "Display" }] }), false)
 assert.equal(validControllersStatus({ ...status(), lastPress: { deviceId: "hardware-1", code: 65551,
   slot: null, executed: false, message: "Test press detected" } }), true)
-assert.match(BluetoothPage.template, /<ControllersPage :mode="mode" :unauthorized="unauthorized"/)
+assert.doesNotMatch(BluetoothPage.template, /<ControllersPage/)
+assert.match(BluetoothPage.template, /<BluetoothTabs/)
+assert.match(ControllersPage.template, /href="#\/bluetooth"/)
 assert.match(ControllersPage.template, /Test buttons \(20s\)/)
 assert.match(ControllersPage.template, /Press a button for/)
 assert.match(ControllersPage.template, /class="gx-switch"/)

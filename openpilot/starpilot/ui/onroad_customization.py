@@ -41,6 +41,8 @@ class WidgetPlacement(TypedDict):
   size: NotRequired[int | str]
   width: NotRequired[int]
   height: NotRequired[int]
+  transparency: NotRequired[int]
+  hide_when_no_alert: NotRequired[bool]
   opacity: NotRequired[int]
   bluetooth: NotRequired[bool]
   wifiName: NotRequired[bool]
@@ -204,6 +206,31 @@ _nav_map["note"] = ("Road lines and your route over the camera. Drag the corner 
                     + "Turning it on here turns it off in the other screen's layout.")
 PROFILES["large"]["widgets"][NAV_MAP_WIDGET] = _nav_map
 
+UNIDEN_WIDGET = "uniden_alerts"
+UNIDEN_DISPLAY_DEFAULTS = {"transparency": 8, "hide_when_no_alert": True, "scale": 100}
+UNIDEN_DISPLAY_FIELDS = set(UNIDEN_DISPLAY_DEFAULTS)
+UNIDEN_RETIRED_FIELDS = ("hide_quiet_ride", "hide_mute_memory")
+UNIDEN_SCALE_RANGE = (50, 150)  # percent
+
+
+def valid_uniden_display(placement: dict) -> bool:
+  return (type(placement.get("transparency")) is int and 0 <= placement["transparency"] <= 100 and
+          type(placement.get("hide_when_no_alert")) is bool and
+          type(placement.get("scale")) is int and UNIDEN_SCALE_RANGE[0] <= placement["scale"] <= UNIDEN_SCALE_RANGE[1])
+
+
+def uniden_display(placement: dict) -> dict:
+  return {**UNIDEN_DISPLAY_DEFAULTS, **{key: value for key, value in placement.items() if key not in UNIDEN_RETIRED_FIELDS}}
+
+
+def scaled_size(width: float, height: float, scale: int) -> tuple[int, int]:
+  """Rounds half up, like the editor's Math.round."""
+  return math.floor(width * scale / 100 + .5), math.floor(height * scale / 100 + .5)
+_uniden = _widget("Uniden alerts", UNIDEN_WIDGET, 460, 260, 700, 780)
+_uniden["default"].update(cast(WidgetPlacement, UNIDEN_DISPLAY_DEFAULTS))
+_uniden["note"] = "R4/R8 detector alerts. Pair and select the detector in Galaxy Bluetooth. Tap an alert to mute."
+PROFILES["large"]["widgets"][UNIDEN_WIDGET] = _uniden
+
 JETLINK_WIDGET = "jetlink_status"
 JETLINK_SIZE = (420, 100)
 JETLINK_OPACITY = (0, 100, 85)  # percent: min, max, default
@@ -277,7 +304,7 @@ for _key, _widget_data in PROFILES["large"]["widgets"].items():
   _widget_data["expandable"] = True
 # Older documents retain every saved placement and gain this independent widget.
 OPTIONAL_WIDGETS = frozenset({WEATHER_WIDGET, MODE_WIDGET, CLOCK_WIDGET, STOPPED_TIMER_WIDGET, CEM_GAUGE_WIDGET,
-                              NAV_CARD_WIDGET, NAV_MAP_WIDGET, JETLINK_WIDGET, SIGNAL_WIDGET, "rear_fog"})
+                              NAV_CARD_WIDGET, NAV_MAP_WIDGET, JETLINK_WIDGET, SIGNAL_WIDGET, UNIDEN_WIDGET, "rear_fog"})
 
 # The torque arc grows when the developer sidebar closes; protect both road widths.
 _torque = PROFILES['large']['widgets']['torque_bar']
@@ -304,6 +331,7 @@ WIDGET_COLORS = {
     CLOCK_WIDGET: {"text": "#FFFFFFFF"},
     WEATHER_WIDGET: {"cardFill": "#0F0D17CC", "cardBorder": "#C7AEF744", "text": "#F5F2FCFF"},
     CEM_GAUGE_WIDGET: {},
+    UNIDEN_WIDGET: {"cardFill": "#10191FFF", "cardBorder": "#9D72FFFF", "text": None},
     "current_speed": {"text": None},
     "cruise_limits": {"cardFill": "#10191FFF", "cardBorder": "#35434DFF", "text": None},
     "steering_wheel": {"cardFill": None, "cardBorder": "#00000000"},
@@ -341,7 +369,7 @@ def _fit_legacy_signal(placement: dict, bounds: Bounds) -> None:
 DEFAULT_WIDGET_ORDER = {
   "large": (NAV_MAP_WIDGET, "cruise_limits", CEM_GAUGE_WIDGET, "current_speed",
             "steering_wheel", "torque_bar", "following_distance", "driver_monitor", MODE_WIDGET, CLOCK_WIDGET, WEATHER_WIDGET,
-            STOPPED_TIMER_WIDGET, NAV_CARD_WIDGET, JETLINK_WIDGET, SIGNAL_WIDGET, "rear_fog", "pip_left", "pip_right"),
+            STOPPED_TIMER_WIDGET, NAV_CARD_WIDGET, JETLINK_WIDGET, SIGNAL_WIDGET, UNIDEN_WIDGET, "rear_fog", "pip_left", "pip_right"),
   "compact": ("speed_limit", "max_speed", "steering_wheel", "torque_bar",
               "driver_monitor", *RAIL_WIDGETS, MODE_WIDGET, CLOCK_WIDGET, WEATHER_WIDGET,
               STOPPED_TIMER_WIDGET, NAV_CARD_WIDGET, "rear_fog", "pip_left", "pip_right"),
@@ -635,6 +663,8 @@ def validate_document(value):
         placement.setdefault('bluetooth', True)
         placement.setdefault('wifiName', False)
         layout[key] = placement
+      if key == UNIDEN_WIDGET and type(placement) is dict:
+        placement = layout[key] = uniden_display(placement)
       bounds = widget_bounds(profile, key)
       if value['version'] < 8 and key in SPEED_LAYOUT_V7[profile]:
         bounds = data['bounds']
@@ -657,6 +687,10 @@ def validate_document(value):
         expected.add("size")
       if key == SIGNAL_WIDGET:
         expected |= {"scale", "bluetooth", "wifiName"}
+      if key == UNIDEN_WIDGET:
+        expected |= UNIDEN_DISPLAY_FIELDS
+        if type(placement) is not dict or not valid_uniden_display(placement):
+          raise ValueError("Invalid Uniden display settings")
       if type(placement) is not dict or set(placement) != expected or type(placement["enabled"]) is not bool:
         raise ValueError("Invalid widget placement")
       if has_rotation and type(placement['rotate']) is not bool:
@@ -831,6 +865,8 @@ def widget_size(document, profile, widget):
   position = placement(document, profile, widget)
   if widget == "cruise_limits":
     return default["width"], default["height"] + sources_extent(document)
+  if widget == UNIDEN_WIDGET and type(position.get("scale")) is int:
+    return scaled_size(default["width"], default["height"], position["scale"])
   if default.get("box"):
     return position["width"], position["height"]
   if widget == SIGNAL_WIDGET:

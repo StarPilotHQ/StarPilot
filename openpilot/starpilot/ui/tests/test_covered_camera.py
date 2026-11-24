@@ -185,7 +185,8 @@ def make_session(monkeypatch, request, profile, camera):
   monkeypatch.setattr(runtime_app, 'ui_state', NS(params=object(), CP=None, sm={}))
   monkeypatch.delenv('SP_ONROAD_VISUAL_PREVIEW', raising=False)
   def view(*_, camera_layer, **__):
-    return NS(camera_layer=camera_layer, onroad=NS(unified_speed=NS(source_bounds=Mock()), compact_sidebar=NS(), jetlink_status=Mock()))
+    return NS(camera_layer=camera_layer, onroad=NS(unified_speed=NS(source_bounds=Mock()), compact_sidebar=NS(), jetlink_status=Mock(),
+                                                   uniden=NS(activate=lambda session: None)))
   monkeypatch.setattr(runtime_app, 'ShellView', view)
   session = runtime_app.StarShellSession(profile, camera)
   for owner in (session._projection_bookmarks, session._projection_slc, session.onroad_map, session.onroad_jetlink):

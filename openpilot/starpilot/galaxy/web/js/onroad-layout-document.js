@@ -50,6 +50,7 @@ export function widgetSize(widget, position) {
     const [width, height] = widget.sizes[position.size]
     return [width, height + (widget.wifiNameHeight && position.wifiName === true ? widget.wifiNameHeight : 0)].map(side => Math.round(side * scale))
   }
+  if (widget.kind === "uniden_alerts" && Number.isInteger(position?.scale)) return [Math.round(widget.width * position.scale / 100), Math.round(widget.height * position.scale / 100)]
   if (widget.box) return [position?.width ?? widget.width, position?.height ?? widget.height]
   if (widget.resizable) return [position?.size ?? widget.width, position?.size ?? widget.height]
   return [widget.width, widget.height]
@@ -179,8 +180,11 @@ export function validDocument(document, metadata) {
       const resizable = widget.resizable, box = widget.box, opacity = widget.opacity
       const rotate = wheelRotationAvailable(widget, name, metadata?.projection === true) && object(position) && Object.hasOwn(position, "rotate")
       return keysEqual(position, ["x", "y", "enabled", ...(resizable ? ["size"] : []), ...(box ? ["width", "height"] : []),
-        ...(opacity ? ["opacity"] : []), ...(widget.iconSize ? ["display"] : []), ...(widget.backgroundToggle ? ["background"] : []), ...(widget.collapseToggle ? ["collapse"] : []), ...(widget.bluetoothToggle ? ["bluetooth"] : []), ...(widget.wifiNameHeight ? ["wifiName"] : []), ...(widget.sizes ? ["size"] : []), ...(widget.scale ? ["scale"] : []), ...(rotate ? ["rotate"] : [])]) &&
+        ...(widget.kind === "uniden_alerts" ? ["transparency", "hide_when_no_alert", "scale"] : []), ...(opacity ? ["opacity"] : []), ...(widget.iconSize ? ["display"] : []), ...(widget.backgroundToggle ? ["background"] : []), ...(widget.collapseToggle ? ["collapse"] : []), ...(widget.bluetoothToggle ? ["bluetooth"] : []), ...(widget.wifiNameHeight ? ["wifiName"] : []), ...(widget.sizes ? ["size"] : []), ...(widget.scale ? ["scale"] : []), ...(rotate ? ["rotate"] : [])]) &&
         (!rotate || typeof position.rotate === "boolean") &&
+        (widget.kind !== "uniden_alerts" || (Number.isInteger(position.transparency) && position.transparency >= 0 &&
+          position.transparency <= 100 && typeof position.hide_when_no_alert === "boolean" &&
+          Number.isInteger(position.scale) && position.scale >= 50 && position.scale <= 150)) &&
         (!widget.iconSize || ["words", "icons"].includes(position.display)) &&
         (!widget.backgroundToggle || typeof position.background === "boolean") &&
         (!widget.collapseToggle || typeof position.collapse === "boolean") &&

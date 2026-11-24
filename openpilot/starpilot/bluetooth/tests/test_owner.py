@@ -838,6 +838,32 @@ class BluetoothOwnerTest(unittest.TestCase):
       bluez.snapshot()
     self.assertIn('Set', calls)
 
+
+  def test_connect_to_silent_device_reports_unreachable_not_changed(self):
+    bluez = BlueZ.__new__(BlueZ)
+    objects = {
+      '/org/bluez/hci0': {'org.bluez.Adapter1': {'Powered': ('b', True)}},
+      '/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF': {'org.bluez.Device1': {'Address': ('s', 'AA:BB:CC:DD:EE:FF'), 'Paired': ('b', True)}},
+    }
+    failure = []
+
+    def call(path, interface, member, signature=None, body=()):
+      if member == 'GetManagedObjects':
+        return (objects,)
+      raise failure[0]
+
+    self.enterContext(patch.object(bluez, '_call', call))
+    for error, code in [(BluetoothRejected('org.bluez.Error.Failed'), 'unreachable'), (TimeoutError(), 'unreachable'),
+                        (BluetoothRejected('org.bluez.Error.NotAuthorized'), 'changed')]:
+      failure[:] = [error]
+      with self.assertRaises(BluetoothRejected) as raised:
+        bluez.operation('connect', 'AA:BB:CC:DD:EE:FF')
+      self.assertEqual(raised.exception.code, code)
+    failure[:] = [BluetoothRejected('org.bluez.Error.Failed')]
+    with self.assertRaises(BluetoothRejected) as raised:
+      bluez.operation('disconnect', 'AA:BB:CC:DD:EE:FF')
+    self.assertEqual(raised.exception.code, 'changed')
+
   def test_each_bluez_close_releases_router_and_underlying_connection(self):
     closed = []
 

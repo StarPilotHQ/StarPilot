@@ -37,6 +37,7 @@ const PipPage = page(() => import("./pip.js").then((module) => module.PipPage))
 import { DrivingPage, drivingPage } from "./driving.js"
 const LongitudinalCurvesPage = page(() => import("./longitudinal-curves.js").then((module) => module.LongitudinalCurvesPage))
 import { DevicePreferencesPage, devicePage } from "./device-preferences.js"
+const ControllersPage = page(() => import("./controllers.js").then((module) => module.ControllersPage))
 const BluetoothPage = page(() => import("./bluetooth.js").then((module) => module.BluetoothPage))
 const StarPortPage = page(() => import("./starport.js").then((module) => module.StarPortPage))
 const SpotifyPage = page(() => import("./spotify.js").then((module) => module.SpotifyPage))
@@ -91,7 +92,7 @@ const auth = new LocalAuth({ publish: (update) => {
 
 
 createApp({
-  components: { AppDownloadReminder, BottomNav, Home, LocalAccess, Tools, Logs, SoftwarePage, NavigationPage, ModelsPage, SettingsPage, SettingsRecoveryPage, ToggleSearch, SaveFeedback, FlmPage, LocalRecordingsPage, CamerasPage, SentryEventsPage, VasmPage, PipPage, DrivingPage, DevicePreferencesPage, BluetoothPage, StarPortPage, SpotifyPage, LongitudinalCurvesPage, OnroadLayoutPage, GalaxyPage, NetworksPage, DevicePicker, DeviceState, MenuTile },
+  components: { AppDownloadReminder, BottomNav, Home, LocalAccess, Tools, Logs, SoftwarePage, NavigationPage, ModelsPage, SettingsPage, SettingsRecoveryPage, ToggleSearch, SaveFeedback, FlmPage, LocalRecordingsPage, CamerasPage, SentryEventsPage, VasmPage, PipPage, DrivingPage, DevicePreferencesPage, BluetoothPage, ControllersPage, StarPortPage, SpotifyPage, LongitudinalCurvesPage, OnroadLayoutPage, GalaxyPage, NetworksPage, DevicePicker, DeviceState, MenuTile },
   data: () => ({ state, authState, authForm, route, NAV, routeDirection: 1, updateRestart, deviceRestart, nextLayoutLeavePresentation: "inline" }),
   computed: {
     visibleTools() { return state.tools.filter(tool => tool.visibility !== "authenticated" ||
@@ -101,6 +102,8 @@ createApp({
     drivingSettingsPage() { return drivingPage(route.path) },
     deviceSettingsPage() { return devicePage(route.path) },
     pageName() {
+      if (route.path === "/bluetooth/controllers") return "Controllers"
+      if (route.path === "/bluetooth/uniden") return "Uniden"
       if (this.currentTool) return this.currentTool.name
       if (route.path === "/device-preferences") return "Force Drive State"
       return NAV.find((item) => item.path === route.path)?.name || "This page"
@@ -179,6 +182,7 @@ createApp({
       this.nextLayoutLeavePresentation = "inline"
       if (this.$refs.activeLayout) this.$refs.activeLayout.requestLeave(proceed, presentation)
       else if (this.$refs.activeSettings) this.$refs.activeSettings.requestRouteLeave(proceed)
+      else if (this.$refs.activeBluetooth) this.$refs.activeBluetooth.requestLeave(proceed, presentation)
       else proceed()
     })
   },
@@ -260,7 +264,8 @@ createApp({
         <NavigationPage v-else-if="['/navigation', '/navigation/maps', '/navigation/setup'].includes(route.path)" :mode="state.monitorMode" :unauthorized="sessionExpired" :go="go" :tabs="currentTool?.children || []"
           :initial-tab="route.path === '/navigation/maps' ? 'maps' : route.path === '/navigation/setup' ? 'setup' : 'route'" />
         <ModelsPage v-else-if="['/manage_models', '/model_laboratory'].includes(route.path)" :mode="state.monitorMode" :unauthorized="sessionExpired" :focus="route.path === '/model_laboratory' ? 'laboratory' : ''" />
-        <BluetoothPage v-else-if="route.path === '/bluetooth'" :mode="state.monitorMode" :unauthorized="sessionExpired" />
+        <BluetoothPage ref="activeBluetooth" v-else-if="['/bluetooth', '/bluetooth/uniden'].includes(route.path)" :uniden-settings="route.path === '/bluetooth/uniden'" :key="route.path" :mode="state.monitorMode" :unauthorized="sessionExpired" :go="go" />
+        <ControllersPage v-else-if="route.path === '/bluetooth/controllers'" :mode="state.monitorMode" :unauthorized="sessionExpired" :go="go" />
         <StarPortPage v-else-if="route.path === '/starport'" :mode="state.monitorMode" :local-access="authState.localAccess" :unauthorized="sessionExpired" />
         <SpotifyPage v-else-if="['/starport/audio', '/spotify'].includes(route.path)" :mode="state.monitorMode" :unauthorized="sessionExpired" />
         <SettingsPage @nested="ensureBackEntry" ref="activeSettings" v-else-if="route.path === '/settings/vehicle'" :mode="state.monitorMode" :unauthorized="sessionExpired" initial-section="vehicle" />
