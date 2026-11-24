@@ -455,6 +455,9 @@ def awaiting_initial_request(cp, cs, sm, native, feedback, intent, *, now_ns, pr
     reverse_event_pending = bool(axis is not None and 0 < event_ns < arm <= axis.sourceCarStateMonoTime and
       event_ns < axis.faultEventMonoTime <= axis.observedMonoTime and
       any(event.name == log.OnroadEvent.EventName.reverseGear and event.userDisable for event in sm['onroadEvents']))
+    # Stock cruise may already be off when independent MAIN startup arms.
+    stock_cruise_already_off = bool(stock_qualified(cp, marked_only=True) and not cs.cruiseState.enabled and
+      axis is not None and 0 < event_ns < arm and axis.faultEventMonoTime == event_ns)
     drive_identity = getattr(intent, 'startup_drive_identity', None)
     identity = None if drive_identity is None or axis is None or native is None else (
       cp_identity(cp), str(axis.sessionId), producer, int(axis.intentIntegrityEpoch), native.pandaSerial,
@@ -494,7 +497,8 @@ def awaiting_initial_request(cp, cs, sm, native, feedback, intent, *, now_ns, pr
       0 < event_ns <= now_ns and now_ns - event_ns <= 1_500_000_000 and
       not any(event.immediateDisable or
         event.softDisable and not (reverse_event_pending and event.name == log.OnroadEvent.EventName.wrongGear) or
-        event.userDisable and not (reverse_event_pending and event.name == log.OnroadEvent.EventName.reverseGear)
+        event.userDisable and not (reverse_event_pending and event.name == log.OnroadEvent.EventName.reverseGear or
+          stock_cruise_already_off and event.name == log.OnroadEvent.EventName.pcmDisable)
         for event in sm['onroadEvents']))
   except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
     return False

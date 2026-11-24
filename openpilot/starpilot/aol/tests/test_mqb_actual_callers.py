@@ -40,7 +40,8 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
                                                                startup_delivery_delay=0, startup_delivery_services=(), receipt_sink=None,
                                                                route2c_start=False, startup_block_until=0, startup_expect_expiry=False,
                                                                startup_probe_denials=False, startup_stall=None, startup_stall_mode='frozen',
-                                                               startup_floor_dip=False, cancel_delivery_delay=0, brake_delivery_delay=0, rushed_start=False):
+                                                               startup_floor_dip=False, cancel_delivery_delay=0, brake_delivery_delay=0, rushed_start=False,
+                                                               heartbeat_after_can=False):
   pq = candidate == CAR.VOLKSWAGEN_SHARAN_MK2
   with ExitStack() as cleanup:
     cleanup.enter_context(OpenpilotPrefix())
@@ -172,7 +173,8 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
     for tick in range(120):
       now = 10_000_000_000 + tick * 10_000_000
       native.set_timer(1_000_000 + tick * 10_000)
-      if (parked_boot or main_cycle or creep_start and tick >= 12) and (not delayed_heartbeat or tick % 10 == 1):
+      update_heartbeat = (parked_boot or main_cycle or creep_start and tick >= 12) and (not delayed_heartbeat or tick % 10 == 1)
+      if update_heartbeat and not heartbeat_after_can:
         native.set_aol_test_heartbeat(bool((card.aol_card_intent.allowed_latch or request) and tick >= startup_block_until))
       if quiet is not None:
         quiet.set_timer(1_000_000 + tick * 10_000)
@@ -236,6 +238,8 @@ def test_mqb_full_engagement_brake_reverse_drive_actual_callers(gearbox, alpha, 
       for addr, data, bus in incoming:
         native.safety_rx_hook(make_msg(bus - offset, addr, dat=data))
       native.safety_tick()
+      if update_heartbeat and heartbeat_after_can:
+        native.set_aol_test_heartbeat(bool((card.aol_card_intent.allowed_latch or request) and tick >= startup_block_until))
       native.aol_set_host_request(request)
       permission = native.aol_get_permission_mask()
       if early_brake and tick == 60:
@@ -752,6 +756,18 @@ def test_manual_speed_event_never_masks_other_disarming_faults(veto):
 def test_mqb_cancel_with_accelerator_and_driver_steering(gearbox, alpha, phase):
   test_mqb_full_engagement_brake_reverse_drive_actual_callers(
     gearbox, alpha, 0, False, True, cruise_cancel=True, cancel_override=True, native_phase=phase)
+
+
+def test_mqb_atlas_stock_cruise_off_waits_for_initial_native_lateral():
+  receipt = []
+  test_mqb_full_engagement_brake_reverse_drive_actual_callers(
+    'automatic', False, 0, False, False, candidate=CAR.VOLKSWAGEN_ATLAS_MK1,
+    parked_boot=True, delayed_heartbeat=True, native_phase=1, receipt_sink=receipt, heartbeat_after_can=True)
+  first_active = next(row for row in receipt if row['control'].get('latActive'))
+  assert not first_active['control'].get('enabled') and first_active['permission_mask'] == 1
+  assert any(row['host_request'] == 1 and row['permission_mask'] == 0
+             for row in receipt[:first_active['tick']])
+  assert all(not row['control'].get('longActive') for row in receipt)
 
 
 @pytest.mark.parametrize('gearbox', ('automatic', 'manual', 'direct'))
