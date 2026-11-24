@@ -1,6 +1,7 @@
 import numpy as np
 
 from opendbc.car.hyundai.values import CAR, HyundaiFlags
+from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.starpilot.lateral import palisade_shaping as shaping
 from openpilot.starpilot.lateral.hkg_torque_policy import HKGShapedTorquePolicy, supported_torque_cp
 
@@ -20,8 +21,23 @@ class PalisadeTorquePolicy(HKGShapedTorquePolicy):
     super().__init__(parent, cp)
     self.hda2 = cp.carFingerprint == CAR.HYUNDAI_PALISADE_2023 and bool(cp.flags & HyundaiFlags.CANFD_LKA_STEER_MSG)
     self.center_output_taper = 0.27 if self.hda2 else shaping.PALISADE_CENTER_OUTPUT_TAPER_MAX
+    self.feedforward_demand = 0.0
+    self.feedforward_filter = FirstOrderFilter(0.0, 0.20, self.dt, initialized=False) if self.hda2 else None
+
+  def update(self, active, cs, vm, params, safety_limited, curvature, curvature_limited, delay):
+    if self.feedforward_filter is not None:
+      if not active or cs.steeringPressed or self.previous_pressed or cs.vEgo <= 15.0:
+        self.feedforward_filter.initialized = False
+      self.feedforward_demand = curvature * cs.vEgo**2
+      if active:
+        self.feedforward_filter.update(self.feedforward_demand)
+    return super().update(active, cs, vm, params, safety_limited, curvature, curvature_limited, delay)
 
   def feedforward(self, value, setpoint, jerk, speed):
+    if self.feedforward_filter is not None and speed > 15.0:
+      weight = min((speed - 15.0) / 7.0, 1.0)
+      correction = max(-0.28, min(self.feedforward_filter.x - self.feedforward_demand, 0.28))
+      value += weight * correction
     return value * shaping.get_palisade_ff_scale(setpoint, jerk, speed) * shaping.get_palisade_center_taper_scale(setpoint, speed)
 
   def friction(self, setpoint, jerk, speed):

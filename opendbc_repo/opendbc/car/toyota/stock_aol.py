@@ -29,6 +29,9 @@ def hardware_supported(candidate, fingerprint):
       return False
     if 0x2FF in frames and not (candidate == CAR.TOYOTA_CAMRY and _cluster_radar_bus(candidate, bus, frames)):
       return False
+  from opendbc.car.toyota.dsu_bypass import corolla_startup_mirror
+  if corolla_startup_mirror(candidate, fingerprint):
+    return True
   camera = fingerprint.get(2, {})
   if 0x4CB in camera:
     return False

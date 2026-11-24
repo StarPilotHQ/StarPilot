@@ -53,8 +53,9 @@ A_CRUISE_MAX_BP = [0., 10.0, 25., 40.]
 J_CRUISE_VALS = [1.6, 1.2, 0.8, 0.6]
 A_CRUISE_MIN = -0.5
 CRUISE_ACCEL_RESPONSE_TIME = 2.0
-MODEL_Y_SPEED_STEP_JERK = 0.45
-MODEL_Y_SPEED_STEP_DURATION_NS = 2_000_000_000
+MODEL_Y_SPEED_STEP_JERK = 0.25
+MODEL_Y_SPEED_STEP_LIFT_ACCEL = 0.15
+MODEL_Y_SPEED_STEP_DURATION_NS = 4_000_000_000
 SLC_BRAKE_ONSET_JERK = 0.15  # m/s^3: how fast braking may build after an SLC overshoot
 SLC_BRAKE_ONSET_ACCEL = -0.3  # m/s^2: past this the brakes are engaged and normal jerk resumes
 CONTROL_N_T_IDX = ModelConstants.T_IDXS[:CONTROL_N]
@@ -112,7 +113,7 @@ def get_cruise_accel(e2e, v_cruise, v_ego, a_cruise_prev, angle_steers, CP, dt, 
     speed_error /= CRUISE_ACCEL_RESPONSE_TIME  # correct an SLC overshoot as gradually as an approach
   target_accel = np.clip(speed_error, cruise_min, max_accel)
   j_cruise = np.interp(v_ego, A_CRUISE_MAX_BP, J_CRUISE_VALS)
-  if speed_step and (v_cruise > v_ego or a_cruise_prev <= 0.0):
+  if speed_step and (v_cruise > v_ego or a_cruise_prev <= MODEL_Y_SPEED_STEP_LIFT_ACCEL):
     j_cruise = min(j_cruise, MODEL_Y_SPEED_STEP_JERK)
   decel_start = a_cruise_prev if a_target_prev is None else min(a_cruise_prev, a_target_prev)
   lower = decel_start - j_cruise * dt
@@ -461,16 +462,31 @@ class LongitudinalPlanner:
         if downhill_error is not None and navigation_ceiling(
             sm, self.CP, sample_now_ns, limit + .25, slowdown_percent=self.navigation_slowdown_percent) is not None:
           downhill_error = None
+    cruise_seed = self.a_cruise
     speed_step = False
     if self.CP.carFingerprint == 'TESLA_MODEL_Y':
       cs = sm['carState']
+      leads = (sm['radarState'].leadOne, sm['radarState'].leadTwo)
+      if (reset_state and self.CP.openpilotLongitudinalControl and sm['selfdriveState'].enabled and
+          not sm['carControl'].longActive and cs.cruiseState.enabled and cs.gasPressed and not cs.brakePressed and
+          cs.canValid and not cs.canTimeout and not cs.standstill and v_ego > MIN_ALLOW_THROTTLE_SPEED and
+          0.0 < cruise_seed <= 0.5 and v_cruise_initialized and v_cruise - v_ego > 1.0 and
+          output_a_target_mpc > cruise_seed and self.mpc.solution_status == 0 and
+          self.allow_throttle and not self.fcw and not sm['controlsState'].forceDecel and
+          not self.force_stop_plan.should_stop and not self.force_stop_plan.forcing and
+          not output_should_stop_mpc and not sm['modelV2'].action.shouldStop and downhill_error is None and
+          ceiling.effective_mps is None and curve.effective_mps is None and navigation_target is None and
+          not (coast_plan is not None and (coast_plan.force_decel or coast_plan.pulse_coasting or coast_plan.brake_floor is not None)) and
+          all(not lead.present or (lead.vLead > v_ego and lead.dRel > max(15., 2. * v_ego)) for lead in leads)):
+        # Preview one actuator delay while the pedal still owns acceleration. Lead and stop arbitration follow below.
+        cruise_seed += min(0.25, action_t * np.interp(v_ego, A_CRUISE_MAX_BP, J_CRUISE_VALS))
       manual_cruise = (
         profile_eligible and not reset_state and v_ego > MIN_ALLOW_THROTTLE_SPEED and
         cs.canValid and not cs.canTimeout and not cs.gasPressed and not cs.brakePressed and not cs.standstill and
         not sm['controlsState'].forceDecel and self.allow_throttle and not self.fcw and
         not self.force_stop_plan.forcing and not self.force_stop_plan.should_stop and
         not output_should_stop_mpc and not sm['modelV2'].action.shouldStop and
-        not any(lead.present for lead in (sm['radarState'].leadOne, sm['radarState'].leadTwo)) and
+        not any(lead.present for lead in leads) and
         ceiling.effective_mps is None and curve.effective_mps is None and navigation_target is None and
         (coast_plan is None or not (coast_plan.force_decel or coast_plan.pulse_coasting or
                                     coast_plan.brake_floor is not None)) and self.mpc.solution_status == 0 and
@@ -487,7 +503,7 @@ class LongitudinalPlanner:
         self.previous_manual_cruise_kph = None
         self.manual_cruise_step_until_ns = 0
     self.a_cruise = get_cruise_accel(sm['selfdriveState'].experimentalMode, v_cruise, v_ego,
-                                     self.a_cruise, steer_angle_without_offset, self.CP, self.dt,
+                                     cruise_seed, steer_angle_without_offset, self.CP, self.dt,
                                      accel_coast, self.allow_throttle, cruise_profile,
                                      base_brake_floor=global_floor, selected_acceleration_max=selected_acceleration, faster_takeoffs=faster_takeoffs,
                                      a_target_prev=self.output_a_target,

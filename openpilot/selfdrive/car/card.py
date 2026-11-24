@@ -4,6 +4,7 @@ import os
 import time
 import threading
 import uuid
+from importlib import import_module
 from typing import cast
 
 import openpilot.cereal.messaging as messaging
@@ -16,15 +17,13 @@ from openpilot.common.realtime import config_realtime_process, Priority, Ratekee
 from openpilot.common.swaglog import cloudlog, ForwardingHandler
 
 from opendbc.car import DT_CTRL, structs
-from opendbc.car.can_definitions import CanData, CanRecvCallable, CanSendCallable
 from opendbc.car.carlog import carlog
-from opendbc.car.fw_versions import ObdCallback
 from opendbc.car.car_helpers import get_car, interfaces
 from opendbc.car.gm.distance_button import GMDistanceButtons
 from opendbc.car.gm.interface import CarInterface as GMInterface
 from opendbc.car.gm.profiles import profiles_supported as gm_profiles_supported
 from opendbc.car.hyundai.ioniq6_handoff import (IONIQ6_LONG_PREARM_ENABLED, HandoffOutcome,
-                                                TimestampedCanPacket, build_ioniq6_hda2_long_candidate,
+                                                build_ioniq6_hda2_long_candidate,
                                                 confirm_ioniq6_prepared_takeover, restore_ioniq6_adas,
                                                 finalize_ioniq6_prepublication, Ioniq6StartupKeepalive,
                                                 inspect_ioniq6_long_sources)
@@ -33,6 +32,7 @@ from opendbc.car.hyundai.ioniq6_media import Ioniq6MediaButtons
 from opendbc.car.hyundai.values import CAR as HYUNDAI_CAR
 from opendbc.car.interfaces import CarInterfaceBase, RadarInterfaceBase
 from openpilot.selfdrive.pandad import can_capnp_to_list, can_list_to_can_capnp
+from openpilot.selfdrive.car.can_callbacks import can_comm_callbacks, obd_callback
 from openpilot.selfdrive.car.cruise import LOW_SPEED_CRUISE_ON_SET, SlcWheelContext, VCruiseHelper, slc_target_kph
 from openpilot.starpilot.speed_limits import physical_actions as slc_physical, tesla_set_speed_card
 from openpilot.starpilot.aol.intent import AolProcessFaultContext, independent_axis_requested, read_settings
@@ -93,35 +93,6 @@ DISTANCE_GESTURE_KEYS = {Press.SHORT: ('DistanceButtonControl', 0),
 
 # forward
 carlog.addHandler(ForwardingHandler(cloudlog))
-
-
-def obd_callback(params: Params) -> ObdCallback:
-  def set_obd_multiplexing(obd_multiplexing: bool):
-    if params.get_bool("ObdMultiplexingEnabled") != obd_multiplexing:
-      cloudlog.warning(f"Setting OBD multiplexing to {obd_multiplexing}")
-      params.remove("ObdMultiplexingChanged")
-      params.put_bool("ObdMultiplexingEnabled", obd_multiplexing, block=True)
-      params.get_bool("ObdMultiplexingChanged", block=True)
-      cloudlog.warning("OBD multiplexing set successfully")
-  return set_obd_multiplexing
-
-
-def can_comm_callbacks(logcan: messaging.SubSocket, sendcan: messaging.PubSocket) -> tuple[CanRecvCallable, CanSendCallable]:
-  def can_recv(wait_for_one: bool = False) -> list[list[CanData]]:
-    """
-    wait_for_one: wait the normal logcan socket timeout for a CAN packet, may return empty list if nothing comes
-
-    Returns: CAN packets comprised of CanData objects for easy access
-    """
-    ret = []
-    for can in messaging.drain_sock(logcan, wait_for_one=wait_for_one):
-      ret.append(TimestampedCanPacket([CanData(msg.address, msg.dat, msg.src) for msg in can.can], int(can.logMonoTime)))
-    return ret
-
-  def can_send(msgs: list[CanData]) -> None:
-    sendcan.send(can_list_to_can_capnp(msgs, msgtype='sendcan'))
-
-  return can_recv, can_send
 
 
 curve_press_receipt = slc_physical.curve_press_receipt
@@ -401,12 +372,14 @@ class Car:
     self.learning_send_mono_ns = self.learning_send_committed_mono_ns = 0
     self.learning_car_state_source_ns = 0
     self.learning_applied_evidence = self.learning_previous_applied_evidence = None
+    self.learning_feedback_factory = None
     try:
       from openpilot.starpilot.lateral.learning_preferences import read_preference
       preference = read_preference(self.params, self.CP)
       if preference.valid and preference.enabled:
         from opendbc.car.steering_projection import install_observer
         self.learning_stamp_observer = self.record_learning_send_stamp if install_observer(self.CI) else None
+        self._prepare_feedback_capture()
     except Exception:
       pass  # Optional learning setup cannot stop native startup.
     self.aol_transport_feedback = TransportPauseFeedback(self.CP) if self.aol_replay else None
@@ -1162,10 +1135,9 @@ class Car:
     publication = getattr(self, 'learning_feedback_publication', None)
     if publication is not None:
       try:
-        from openpilot.starpilot.flm.feedback_wire import write_publication
         feedback_companion = (companion.as_reader().as_builder() if companion is not None else
           messaging.new_message('starpilotCarState', valid=bool(cs_send.valid), logMonoTime=int(cs_send.logMonoTime)))
-        write_publication(feedback_companion.starpilotCarState, publication)
+        self.learning_feedback_writer(feedback_companion.starpilotCarState, publication)
         companion = feedback_companion
       except Exception:
         self.learning_feedback_publication = None
@@ -1485,15 +1457,26 @@ class Car:
                     (not ps.safetyRxChecksInvalid or inactive_keepalive and self.gm_startup_keepalive())
                     for ps, cfg in zip(pandas, self.CP.safetyConfigs, strict=True)))
 
+  def _prepare_feedback_capture(self):
+    from openpilot.starpilot.flm.feedback_observation import card_capture_for
+    from openpilot.starpilot.flm.feedback_wire import write_publication
+    from openpilot.starpilot.flm.runtime_adapter_registry import car_params_digest
+
+    # The first calibrated receipt can arrive after lateral is active.
+    import_module('openpilot.starpilot.flm.learning_wire')
+    import_module('openpilot.starpilot.flm.physical_input_observation')
+    self._feedback_cp_sha256 = car_params_digest(self.CP)
+    self.learning_feedback_writer = write_publication
+    self.learning_feedback_factory = card_capture_for
+
   def _feedback_capture(self, now_ns):
-    # Default OFF performs no feedback-module import, digest or witness allocation.
     try:
       source = self.sm['autoSteeringLearning'].learning.sourceReceipt
-      if not source.enabled or source.manual:
+      factory = self.learning_feedback_factory
+      if factory is None or not source.enabled or source.manual:
         self.learning_feedback_capture = None
         return None
-      from openpilot.starpilot.flm.feedback_observation import card_capture_for
-      return card_capture_for(self, now_ns)
+      return factory(self, now_ns)
     except Exception:
       self.learning_feedback_capture = None
       return None
