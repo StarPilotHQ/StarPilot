@@ -31,6 +31,11 @@ TEMP_STEER_FAULTS = (0, 9, 11, 21, 25)
 PERM_STEER_FAULTS = (3, 17)
 
 
+def has_optional_prius_gap_button(CP):
+  return (CP.carFingerprint == CAR.TOYOTA_PRIUS and not CP.openpilotLongitudinalControl and
+          not CP.flags & (ToyotaFlags.LONG_FILTER | ToyotaFlags.FILTER_BUTTONS))
+
+
 class CarState(CarStateBase):
   def __init__(self, CP):
     super().__init__(CP)
@@ -266,6 +271,10 @@ class CarState(CarStateBase):
       if self.CP.flags & ToyotaFlags.FILTER_BUTTONS or advert_filter.configured(self.CP) or prius_advert_filter.configured(self.CP):
         fresh = cp.advert_button_ns > 0 and 0 <= cp._last_update_nanos - cp.advert_button_ns <= 200_000_000
         self.distance_button = cp.advert_distance_button if fresh else 0
+      elif not bypass and has_optional_prius_gap_button(self.CP):
+        self.distance_button = cp_acc.vl["ACC_CONTROL"]["DISTANCE"]
+        # A live gesture needs its source until the physical release arrives.
+        cp_acc.message_states[0x343].ignore_alive = not self.distance_button
       else:
         self.distance_button = (cp.vl["SDSU"]["FD_BUTTON"] if self.CP.flags & ToyotaFlags.LONG_FILTER
                                 else cp_acc.vl["ACC_CONTROL"]["DISTANCE"])
@@ -360,6 +369,10 @@ class CarState(CarStateBase):
     pt_messages = [
       ("BLINKERS_STATE", float('nan')),
     ]
+
+    if has_optional_prius_gap_button(CP):
+      # Factory cruise state and AEB are received on separate messages.
+      pt_messages.append(("ACC_CONTROL", math.nan))
 
     if CP.carFingerprint == CAR.TOYOTA_SIENNA_4TH_GEN:
       pt_messages.append(("PCM_CRUISE_4", 1))
