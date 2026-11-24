@@ -256,7 +256,7 @@ def test_ae0_physical_tracker_is_inactive_until_final_ae32(hda2):
 
 @pytest.mark.parametrize('hda2', (False, True))
 @pytest.mark.parametrize('corruption', ('crc', 'replay', 'wrong_bus', 'inactive'))
-def test_real_controller_invalid_replacement_does_not_acquire_forwarding(hda2, corruption):
+def test_real_controller_forwarding_requires_valid_replacement(hda2, corruption):
   cp = params(hda2)
   cp.alternativeExperience = 32
   ci = CarInterface(cp)
@@ -295,7 +295,14 @@ def test_real_controller_invalid_replacement_does_not_acquire_forwarding(hda2, c
   elif corruption == 'wrong_bus':
     assert not safety.safety_tx_hook(libsafety_py.make_CANPacket(addr, 1, data))
   else:
+    assert safety.safety_fwd_hook(2, addr) == 0
+    if hda2:
+      assert ((data[6] & 0x1F) << 7 | data[5] >> 1) == 1024
     assert safety.safety_tx_hook(libsafety_py.make_CANPacket(addr, bus, data))
+    if hda2:
+      assert safety.safety_fwd_hook(2, addr) == -1
+      assert safety.safety_fwd_hook(2, 0x2A4) == 0
+      safety.set_timer(((now // 1000) + 200_001) & 0xFFFFFFFF)
   assert safety.safety_fwd_hook(2, addr) == 0
 
 
@@ -347,7 +354,11 @@ def test_real_controller_crc_fault_revokes_token_then_fresh_gesture_recovers(hda
         assert permission == 0 and not accepted
         assert safety.safety_fwd_hook(2, addr) == 0
       if 80 <= tick < 100:
-        assert permission == 0 and safety.safety_fwd_hook(2, addr) == 0
+        assert permission == 0
+        if hda2:
+          assert accepted and ((data[6] & 0x1F) << 7 | data[5] >> 1) == 1024
+          assert safety.safety_fwd_hook(2, 0x2A4) == 0
+        assert safety.safety_fwd_hook(2, addr) == (-1 if hda2 else 0)
       if tick >= 115:
         assert permission == 1 and accepted
         assert safety.safety_fwd_hook(2, addr) == -1
