@@ -73,8 +73,8 @@ class TestJetlinkSettings(unittest.TestCase):
       self.owner.configure({"mode": "usb"})
     self.owner.configure({"mode": "off"})
     self.chestnut = False
-    self.device = "tici"
-    with self.assertRaisesRegex(ValueError, "3X"):
+    self.device = "pc"
+    with self.assertRaisesRegex(ValueError, "requires a comma"):
       self.owner.configure({"mode": "ios"})
     self.owner.configure({"mode": "off"})
     self.device = "mici"

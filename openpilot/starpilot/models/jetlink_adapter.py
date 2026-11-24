@@ -10,7 +10,7 @@ import os
 import time
 
 API = 4  # the jetlink.openpilot API this adapter is written to
-UNSUPPORTED = "Jetlink requires a comma 3X or comma 4"
+UNSUPPORTED = "Jetlink requires a comma 3, comma 3X or comma 4"
 # AOL steers on its own axes, and a paused AOL is still armed: only its intent says so
 AOL_SERVICES = ("aolIntentWire", "aolAxisState")
 AOL_AXES = ("desiredLateral", "desiredLongitudinal", "lateralActive", "longitudinalActive")
@@ -25,7 +25,7 @@ def supported_device(device_type=None) -> bool:
   if device_type is None:
     from openpilot.common.hardware import HARDWARE
     device_type = HARDWARE.get_device_type()
-  return device_type in ("tizi", "mici")
+  return device_type in ("tici", "tizi", "mici")
 
 
 def aol_in_control(intent, alive, axes, waiting=False) -> bool:

@@ -108,7 +108,7 @@ class JetlinkSettings:
       raise ValueError("Invalid phone charging setting")
     view = self.snapshot()
     if payload.get("mode", "off") != "off" and not view["supported"]:
-      raise ValueError("Jetlink requires a comma 3X or comma 4")
+      raise ValueError(UNSUPPORTED)
     if payload.get("mode", "off") != "off" and view["chestnut"]:
       raise ValueError("Chestnut is connected; Jetlink cannot run alongside it")
     if payload.get("mode", "off") != "off" and self._wired_session_running():

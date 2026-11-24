@@ -100,13 +100,13 @@ def test_small_reset_only_for_the_catalog_runner():
 
 
 def test_unsupported_device():
-  assert adapter.supported_device("tizi")
-  assert adapter.supported_device("mici")
-  for device in ("tici", "pc", "unknown", "neo"):
+  for device in ("tici", "tizi", "mici"):
+    assert adapter.supported_device(device)
+  for device in ("pc", "unknown", "neo"):
     assert not adapter.supported_device(device)
 
 
-@pytest.mark.parametrize("device,camera", [("tizi", (1928, 1208)), ("mici", (1344, 760))])
+@pytest.mark.parametrize("device,camera", [("tici", (1928, 1208)), ("tizi", (1928, 1208)), ("mici", (1344, 760))])
 def test_jetlink_runs_the_driving_warp_modeld_ships(device, camera):
   op = adapter.adapter()
   with patch("openpilot.common.hardware.HARDWARE.get_device_type", return_value=device):
