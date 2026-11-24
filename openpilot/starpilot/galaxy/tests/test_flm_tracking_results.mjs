@@ -275,7 +275,7 @@ assert(measuredText.includes('Recorded baseline') && measuredText.includes(measu
 assert.match(measuredText, /0\s+saved/)
 assert(measuredText.includes('No pending trial reported'))
 assert(!measuredText.includes('Awaiting next-drive measurement'), 'Recorded analysis without a saved trial must not invent a pending trial')
-assert(measuredText.includes('No interpolation or delay alignment'))
+assert(measuredText.includes('without interpolation or delay alignment'))
 assert(measuredText.includes('22 / 24 original controller and encoder windows passed'))
 assert(measuredText.includes('candidate triggered an encoder limiter'))
 ctx.report.current.details['Controller and encoder check windows']=[35,35]
