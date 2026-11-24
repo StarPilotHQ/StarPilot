@@ -128,3 +128,33 @@ def test_hda2_softens_shallow_highway_friction_in_both_longitudinal_modes(alpha)
   hda1_cp = topology_params('hdai')
   hda1 = LatControlTorque(hda1_cp.as_reader(), interfaces[hda1_cp.carFingerprint](hda1_cp), .01).starpilot_extension.policy
   assert hda1.friction(.4, 1.1, 30.)[0] == baseline
+
+
+@pytest.mark.parametrize('topology,alpha,expected', [('hdai', False, 1.0), ('hdaii', False, .72), ('hdaii', True, .72)])
+def test_exit_feedforward_damps_hda2_and_reseeds_after_driver_override(topology, alpha, expected):
+  cp = topology_params(topology)
+  cp.openpilotLongitudinalControl, cp.pcmCruise = alpha, not alpha
+  controller = LatControlTorque(cp.as_reader(), interfaces[cp.carFingerprint](cp), .01)
+  policy = controller.starpilot_extension.policy
+  vm = VehicleModel(cp)
+  parameters = SimpleNamespace(angleOffsetDeg=0., roll=0.)
+  state = SimpleNamespace(vEgo=29., steeringAngleDeg=0., steeringPressed=False)
+
+  def tick(target, active=True):
+    controller.update(active, state, vm, parameters, False, target / state.vEgo**2, False, .22)
+    original = shaping.get_palisade_ff_scale(.5, 0., state.vEgo) * shaping.get_palisade_center_taper_scale(.5, state.vEgo)
+    return policy.feedforward(1.0, .5, 0., state.vEgo) / original
+
+  assert tick(0.) == pytest.approx(1.)
+  assert tick(.8) == pytest.approx(expected)
+  for _ in range(200):
+    steady = tick(.8)
+  assert steady == pytest.approx(1., abs=.0001)
+  state.steeringPressed = True
+  assert tick(-.8) == pytest.approx(1.)
+  state.steeringPressed = False
+  assert tick(.8) == pytest.approx(1.)
+  tick(.8, active=False)
+  assert tick(-.8) == pytest.approx(1.)
+  state.vEgo = 14.0
+  assert tick(.8) == pytest.approx(1.)
