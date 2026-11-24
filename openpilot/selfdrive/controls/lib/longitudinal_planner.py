@@ -462,16 +462,31 @@ class LongitudinalPlanner:
         if downhill_error is not None and navigation_ceiling(
             sm, self.CP, sample_now_ns, limit + .25, slowdown_percent=self.navigation_slowdown_percent) is not None:
           downhill_error = None
+    cruise_seed = self.a_cruise
     speed_step = False
     if self.CP.carFingerprint == 'TESLA_MODEL_Y':
       cs = sm['carState']
+      leads = (sm['radarState'].leadOne, sm['radarState'].leadTwo)
+      if (reset_state and self.CP.openpilotLongitudinalControl and sm['selfdriveState'].enabled and
+          not sm['carControl'].longActive and cs.cruiseState.enabled and cs.gasPressed and not cs.brakePressed and
+          cs.canValid and not cs.canTimeout and not cs.standstill and v_ego > MIN_ALLOW_THROTTLE_SPEED and
+          0.0 < cruise_seed <= 0.5 and v_cruise_initialized and v_cruise - v_ego > 1.0 and
+          output_a_target_mpc > cruise_seed and self.mpc.solution_status == 0 and
+          self.allow_throttle and not self.fcw and not sm['controlsState'].forceDecel and
+          not self.force_stop_plan.should_stop and not self.force_stop_plan.forcing and
+          not output_should_stop_mpc and not sm['modelV2'].action.shouldStop and downhill_error is None and
+          ceiling.effective_mps is None and curve.effective_mps is None and navigation_target is None and
+          not (coast_plan is not None and (coast_plan.force_decel or coast_plan.pulse_coasting or coast_plan.brake_floor is not None)) and
+          all(not lead.present or (lead.vLead > v_ego and lead.dRel > max(15., 2. * v_ego)) for lead in leads)):
+        # Preview one actuator delay while the pedal still owns acceleration. Lead and stop arbitration follow below.
+        cruise_seed += min(0.25, action_t * np.interp(v_ego, A_CRUISE_MAX_BP, J_CRUISE_VALS))
       manual_cruise = (
         profile_eligible and not reset_state and v_ego > MIN_ALLOW_THROTTLE_SPEED and
         cs.canValid and not cs.canTimeout and not cs.gasPressed and not cs.brakePressed and not cs.standstill and
         not sm['controlsState'].forceDecel and self.allow_throttle and not self.fcw and
         not self.force_stop_plan.forcing and not self.force_stop_plan.should_stop and
         not output_should_stop_mpc and not sm['modelV2'].action.shouldStop and
-        not any(lead.present for lead in (sm['radarState'].leadOne, sm['radarState'].leadTwo)) and
+        not any(lead.present for lead in leads) and
         ceiling.effective_mps is None and curve.effective_mps is None and navigation_target is None and
         (coast_plan is None or not (coast_plan.force_decel or coast_plan.pulse_coasting or
                                     coast_plan.brake_floor is not None)) and self.mpc.solution_status == 0 and
@@ -488,7 +503,7 @@ class LongitudinalPlanner:
         self.previous_manual_cruise_kph = None
         self.manual_cruise_step_until_ns = 0
     self.a_cruise = get_cruise_accel(sm['selfdriveState'].experimentalMode, v_cruise, v_ego,
-                                     self.a_cruise, steer_angle_without_offset, self.CP, self.dt,
+                                     cruise_seed, steer_angle_without_offset, self.CP, self.dt,
                                      accel_coast, self.allow_throttle, cruise_profile,
                                      base_brake_floor=global_floor, selected_acceleration_max=selected_acceleration, faster_takeoffs=faster_takeoffs,
                                      a_target_prev=self.output_a_target,
