@@ -1,4 +1,4 @@
-"""Normal-bus discovery for explicitly selected Ford CAN-FD vehicles."""
+"""Normal-bus discovery for Ford vehicles."""
 import time
 
 from opendbc.car.ford.values import CAR, FordFlags
@@ -42,7 +42,8 @@ def normal_bus0_selection(candidate):
 # diagnostic query family; live VIN, ECU responses and fingerprinting still
 # determine the vehicle and its control configuration.
 NORMAL_BUS0_LAYOUT = {(0, 0x82): 8, (0, 0x165): 8, (0, 0x204): 8,
-                      (0, 0x217): 8, (2, 0x3CA): 8, (2, 0x3D6): 8}
+                      (0, 0x217): 8, (2, 0x3CA): 8}
+CAMERA_STEERING_LAYOUT = {(2, 0x3D3): 8, (2, 0x3D6): 8}
 
 
 def normal_bus_query_brand(can_recv, hyundai_probe, *, gm_probe=None, volvo_probe=None, tesla_probe=None, clock=time.monotonic):
@@ -54,6 +55,10 @@ def normal_bus_query_brand(can_recv, hyundai_probe, *, gm_probe=None, volvo_prob
   malformed = False
   reads = 0
   deadline = clock() + .12
+
+  def complete():
+    return (not malformed and NORMAL_BUS0_LAYOUT.items() <= received.items() and
+            any(key in received for key in CAMERA_STEERING_LAYOUT))
 
   def observe(**kwargs):
     nonlocal malformed, gm_malformed, reads
@@ -67,9 +72,9 @@ def normal_bus_query_brand(can_recv, hyundai_probe, *, gm_probe=None, volvo_prob
           length = len(frame.dat)
           gm_malformed |= frame.address in bus and bus[frame.address] != length
           bus[frame.address] = length
-        if key in NORMAL_BUS0_LAYOUT:
+        if (expected := NORMAL_BUS0_LAYOUT.get(key) or CAMERA_STEERING_LAYOUT.get(key)) is not None:
           length = len(frame.dat)
-          malformed |= length != NORMAL_BUS0_LAYOUT[key]
+          malformed |= length != expected
           received[key] = length
     return packets
 
@@ -77,11 +82,11 @@ def normal_bus_query_brand(can_recv, hyundai_probe, *, gm_probe=None, volvo_prob
     return 'hyundai'
   # Rejecting HKG or Ford does not reject GM. Finish the shared passive window
   # within its original budget even when an early frame excludes Ford.
-  while not (not malformed and received == NORMAL_BUS0_LAYOUT) and reads < 24 and clock() < deadline:
+  while not complete() and reads < 24 and clock() < deadline:
     if malformed and ((gm_probe is None and volvo_probe is None and tesla_probe is None) or gm_malformed):
       break
     observe(wait_for_one=True)
-  if not malformed and received == NORMAL_BUS0_LAYOUT and normal_bus0_queries():
+  if complete() and normal_bus0_queries():
     return 'ford'
   if gm_probe is not None and not gm_malformed and gm_probe(gm_received):
     return 'gm'
