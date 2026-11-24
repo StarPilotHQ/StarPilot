@@ -19,6 +19,8 @@ static bool blended_aol_token = false;
 static bool blended_aol_claimed = false;
 static bool blended_aol_session = false;
 static bool blended_aol_request_seen = false;
+static bool blended_aol_brake_continuation = false;
+static bool blended_aol_idle_owned[2] = {false, false};
 static bool blended_aol_neutral[3] = {false, false, false};
 static bool blended_aol_pressed[3] = {false, false, false};
 static uint32_t blended_aol_source_ts[3] = {0U, 0U, 0U};
@@ -44,6 +46,9 @@ static void blended_aol_clear(void) {
   blended_aol_claimed = false;
   blended_aol_session = false;
   blended_aol_request_seen = false;
+  blended_aol_brake_continuation = false;
+  blended_aol_idle_owned[0] = false;
+  blended_aol_idle_owned[1] = false;
   blended_aol_token_ts = 0U;
   blended_aol_token_source = 3U;
   aol_host_axis_mask = 0U;
@@ -71,6 +76,9 @@ static void blended_aol_reset(void) {
 
 static void blended_aol_host_request(uint8_t mask) {
   blended_aol_request_seen |= mask != 0U;
+  if ((mask & 1U) == 0U) {
+    blended_aol_brake_continuation = false;
+  }
 }
 
 static uint8_t blended_aol_request_mask(void) {
@@ -107,7 +115,7 @@ static uint8_t blended_aol_permission_mask(void) {
     (safety_get_ts_elapsed(microsecond_timer_get(), blended_aol_source_ts[blended_aol_token_source]) <= 300000U);
   if (!aol_rx_healthy() || (blended_aol_token && !source_current)) {
     blended_aol_clear();
-  } else if (((blended_aol_request_mask() & 1U) != 0U) && (controls_allowed || blended_aol_token)) {
+  } else if (((blended_aol_request_mask() & 1U) != 0U) && (controls_allowed || blended_aol_token || blended_aol_brake_continuation)) {
     result = 1U;
   } else {
   }
@@ -145,6 +153,14 @@ static void blended_aol_rx(const CANPacket_t *msg) {
   if (blended_aol_enabled) {
     const unsigned int pt = blended_aol_hda2 ? 1U : 0U;
     const uint32_t now = microsecond_timer_get();
+    if (blended_aol_hda2 && !blended_aol_long && msg_matches(msg, 0x394U, pt, 8U)) {
+      const bool brake = ((msg->data[5] >> 5U) & 3U) == 2U;
+      if (brake && !brake_pressed && controls_allowed && blended_aol_owned[0] &&
+          (safety_get_ts_elapsed(now, blended_aol_tx_ts[0]) <= AOL_HOST_REQUEST_TIMEOUT_US) &&
+          ((blended_aol_request_mask() & 1U) != 0U) && aol_rx_healthy()) {
+        blended_aol_brake_continuation = true;
+      }
+    }
     if (blended_aol_long && msg_matches(msg, 0x394U, pt, 8U)) {
       blended_aol_main_seen = true;
       blended_aol_main = ((msg->data[5] >> 3U) & 3U) == 0U;
@@ -323,6 +339,19 @@ static void blended_aol_tx(const CANPacket_t *msg, bool accepted) {
         }
       }
       accepted_current &= active;
+      if (blended_aol_hda2 && !blended_aol_long) {
+        const bool zero_torque = (((msg->data[6] & 0xFU) << 7U) | (msg->data[5] >> 1U)) == 1024U;
+        blended_aol_idle_owned[0] = accepted && !active && zero_torque && aol_rx_healthy() &&
+                                    !safety_rx_checks_invalid && !relay_malfunction;
+        if (!blended_aol_idle_owned[0]) {
+          blended_aol_idle_owned[1] = false;
+        }
+      }
+    }
+    if (blended_aol_hda2 && !blended_aol_long && (msg->addr == 0x2A4U) && (msg->bus == 0U) && !retain_camera_ownership) {
+      blended_aol_idle_owned[1] = accepted && blended_aol_idle_owned[0] && aol_rx_healthy() &&
+                                  !safety_rx_checks_invalid && !relay_malfunction &&
+                                  (safety_get_ts_elapsed(microsecond_timer_get(), blended_aol_tx_ts[0]) <= AOL_HOST_REQUEST_TIMEOUT_US);
     }
     for (unsigned int i = 0U; i < count; i++) {
       const unsigned int bus = blended_aol_hda2 && (i >= 2U) ? 1U : 0U;
@@ -339,6 +368,16 @@ static bool blended_aol_fwd(int bus, int addr) {
   bool blocked = blended_aol_long && !blended_aol_enabled && (bus == 2) &&
     ((addr == (blended_aol_hda2 ? 0x50 : 0x340)) ||
      (addr == (blended_aol_hda2 ? 0x2A4 : 0x364)) || (!blended_aol_hda2 && (addr == 0x485)));
+  if (blended_aol_enabled && blended_aol_hda2 && !blended_aol_long && (bus == 2) &&
+      aol_rx_healthy() && !safety_rx_checks_invalid && !relay_malfunction) {
+    const uint32_t now = microsecond_timer_get();
+    const bool primary_current = blended_aol_idle_owned[0] &&
+      (safety_get_ts_elapsed(now, blended_aol_tx_ts[0]) <= AOL_HOST_REQUEST_TIMEOUT_US);
+    if (primary_current) {
+      blocked |= (addr == 0x50) || ((addr == 0x2A4) && blended_aol_idle_owned[1] &&
+        (safety_get_ts_elapsed(now, blended_aol_tx_ts[1]) <= AOL_HOST_REQUEST_TIMEOUT_US));
+    }
+  }
   if (blended_aol_enabled && (bus == 2) && aol_rx_healthy() && (controls_allowed || (blended_aol_permission_mask() != 0U))) {
     const uint32_t addresses[4] = {blended_aol_hda2 ? 0x50U : 0x340U, blended_aol_hda2 ? 0x2A4U : 0x364U, 0x485U, 0x340U};
     const unsigned int count = blended_aol_hda2 ? 2U : 3U;

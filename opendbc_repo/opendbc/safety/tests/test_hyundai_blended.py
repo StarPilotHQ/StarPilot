@@ -221,3 +221,47 @@ class TestHyundaiBlendedStock(unittest.TestCase):
       self.safety.safety_rx_hook(common.make_msg(0, 0x50, 16))
       self.assertTrue(self.safety.get_relay_malfunction())
     self.safety.set_alternative_experience(0)
+
+  def _start_hda2_aol(self):
+    self.safety.init_tests()
+    self.safety.set_alternative_experience(32)
+    self.assertEqual(self.safety.set_safety_hooks(CarParams.SafetyModel.hyundai, 0x2010), 0)
+    self.safety.set_aol_test_heartbeat(True)
+    self.steer_counter = 0
+    self.bus = 1
+    self._refresh_hda2_aol_rx(1_000_000)
+    self.safety.aol_set_host_request(1)
+
+  def _refresh_hda2_aol_rx(self, now):
+    self.safety.set_timer(now)
+    for status in self.safety.rx_status:
+      status.msg_seen = status.valid_checksum = status.valid_quality_flag = True
+      status.last_timestamp = now
+
+  def test_hda2_brake_retains_aol_only_after_accepted_steering(self):
+    for steering_before_brake in (False, True):
+      self._start_hda2_aol()
+      self.assertTrue(self.safety.safety_rx_hook(common.make_msg(1, 0x4F1, dat=bytes([1, 0, 0, 0]))))
+      self.assertTrue(self.safety.safety_rx_hook(self.scc(0, True)))
+      self.assertTrue(self.safety.get_controls_allowed())
+      if steering_before_brake:
+        self.assertTrue(self.safety.safety_tx_hook(self.steer(3)))
+      self._refresh_hda2_aol_rx(1_010_000)
+      brake = common.make_msg(1, 0x394, dat=bytes.fromhex('036c000003449798'))
+      self.assertTrue(self.safety.safety_rx_hook(brake))
+      self.assertFalse(self.safety.get_controls_allowed())
+      self.assertEqual(bool(self.safety.safety_tx_hook(self.steer(3))), steering_before_brake)
+      self.safety.aol_set_host_request(0)
+      self.safety.aol_set_host_request(1)
+      self.assertFalse(self.safety.safety_tx_hook(self.steer(3)))
+
+  def test_hda2_idle_blocks_duplicate_only_while_host_steering_is_fresh(self):
+    self._start_hda2_aol()
+    self.assertEqual(self.safety.safety_fwd_hook(2, 0x50), 0)
+    self.assertTrue(self.safety.safety_tx_hook(self.steer(0, False)))
+    self.assertEqual(self.safety.safety_fwd_hook(2, 0x50), -1)
+    self.assertEqual(self.safety.safety_fwd_hook(2, 0x421), 0)
+    self._refresh_hda2_aol_rx(1_500_000)
+    self.assertEqual(self.safety.safety_fwd_hook(2, 0x50), 0)
+    self.safety.set_relay_malfunction(True)
+    self.assertEqual(self.safety.safety_fwd_hook(2, 0x50), -1)

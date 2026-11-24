@@ -26,8 +26,12 @@ class PalisadeTorquePolicy(HKGShapedTorquePolicy):
 
   def friction(self, setpoint, jerk, speed):
     taper = shaping.get_palisade_center_taper_scale(setpoint, speed)
-    return (shaping.get_palisade_friction_threshold(speed, setpoint, jerk),
-            1.0 + (shaping.get_palisade_friction_scale(speed, setpoint, jerk) - 1.0) * taper)
+    threshold = shaping.get_palisade_friction_threshold(speed, setpoint, jerk)
+    if self.hda2 and speed > 24. and abs(setpoint) < 1.0 and not self.previous_pressed:
+      highway = float(np.interp(speed, (24., 29.), (0., 1.)))
+      shallow = float(np.interp(abs(setpoint), (.25, 1.0), (1., 0.)))
+      threshold += .20 * highway * shallow
+    return threshold, 1.0 + (shaping.get_palisade_friction_scale(speed, setpoint, jerk) - 1.0) * taper
 
   def output(self, value, setpoint, speed):
     return value * shaping.get_palisade_center_output_scale(setpoint, speed, taper_max=self.center_output_taper)

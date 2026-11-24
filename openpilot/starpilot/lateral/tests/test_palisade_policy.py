@@ -111,3 +111,20 @@ def test_hda2_softens_rapid_highway_corrections_across_longitudinal_modes(alpha,
   assert policy.output_context(value, demand, .2, 0., 31.) == baseline
   assert policy.output_context(value, direction, jerk, 0., 31.) == policy.output(value, direction, 31.)
   assert policy.output_context(value, demand, jerk, 0., 20.) == policy.output(value, demand, 20.)
+
+
+@pytest.mark.parametrize('alpha', (False, True))
+def test_hda2_softens_shallow_highway_friction_in_both_longitudinal_modes(alpha):
+  cp = topology_params('hdaii')
+  cp.openpilotLongitudinalControl, cp.pcmCruise = alpha, not alpha
+  policy = LatControlTorque(cp.as_reader(), interfaces[cp.carFingerprint](cp), .01).starpilot_extension.policy
+  baseline = shaping.get_palisade_friction_threshold(30., .4, 1.1)
+  assert policy.friction(.4, 1.1, 30.)[0] == pytest.approx(baseline + .16)
+  for speed, setpoint in ((4., .4), (30., 1.0), (24., -.4)):
+    assert policy.friction(setpoint, 1.1, speed)[0] == shaping.get_palisade_friction_threshold(speed, setpoint, 1.1)
+
+  policy.previous_pressed = True
+  assert policy.friction(.4, 1.1, 30.)[0] == baseline
+  hda1_cp = topology_params('hdai')
+  hda1 = LatControlTorque(hda1_cp.as_reader(), interfaces[hda1_cp.carFingerprint](hda1_cp), .01).starpilot_extension.policy
+  assert hda1.friction(.4, 1.1, 30.)[0] == baseline
