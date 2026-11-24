@@ -7,7 +7,7 @@ commit 85f7c3b959a908ed5232ede4f1a4ac7eafe6b630), recorded with tools/esrec:
   f1_car       assets/engines/atg-video-2/12_ferrari_412_t2.mr
   ferrari_f136 assets/engines/atg-video-2/08_ferrari_f136_v8.mr
   lfa          assets/engines/atg-video-2/10_lfa_v10.mr
-  supra_turbo  assets/engines/atg-video-2/03_2jz.mr
+  supra_turbo  assets/engines/atg-video-2/03_2jz.mr, its off_3450 loop then lowered 6.1 dB to the level of its neighbours
 
   bmw_m3       assets/engines/bmw/M52B28.mr, lowered again with tools/lower_bank.py --pitch 1.15 --bass 3 --treble -3
                --off-mix 0 --off-mid 0

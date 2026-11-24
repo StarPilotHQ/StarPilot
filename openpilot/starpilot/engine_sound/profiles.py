@@ -99,7 +99,8 @@ PROFILES: dict[str, Profile] = {profile.name: profile for profile in (
             gearing=1.2, trim_db=2.8),
   _recorded('nissan_super_gt2', 'Nissan Super GT2', cylinders=4, idle=1556.0, redline=7500.0, upshift=0.62, downshift=0.45,
             gearing=1.2, trim_db=4.8),
-  _recorded('supra_turbo', 'Supra Turbo', cylinders=6, idle=800.0, redline=6000.0, turbo=1.0, trim_db=-1.0),
+  # Fitted to the demo drive alone: it is quieter pulling and coasting than the others, so the cruise average undersold it.
+  _recorded('supra_turbo', 'Supra Turbo', cylinders=6, idle=800.0, redline=6000.0, turbo=1.0, trim_db=0.6),
 )}
 
 
