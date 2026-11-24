@@ -32,8 +32,16 @@ class TestTeslaManualSpeedStep(unittest.TestCase):
         previous = planner.a_cruise
         self.update(planner, 20, speed)
         self.assertGreater(abs(planner.a_cruise - previous), 0.0)
-        self.assertLessEqual(abs(planner.a_cruise - previous), 0.023)
-        self.assertLessEqual(abs(planner.output_a_target - previous), 0.023)
+        self.assertLessEqual(abs(planner.a_cruise - previous), 0.013)
+        self.assertLessEqual(abs(planner.output_a_target - previous), 0.013)
+
+  def test_small_positive_accel_eases_into_manual_slowdown(self):
+    planner = self.setup_planner()
+    self.update(planner, 0, 72)
+    planner.a_cruise = planner.output_a_target = 0.08
+    self.update(planner, 1, 65)
+    self.assertAlmostEqual(planner.output_a_target, 0.0675)
+    self.assertGreater(planner.manual_cruise_step_until_ns, 4_000_000_000)
 
   def test_pedal_lead_and_forced_decel_cancel_ramp(self):
     for blocker in ('gas', 'lead', 'force'):
