@@ -2,7 +2,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright')
 const assert = require('node:assert/strict')
 
 ;(async () => {
-  const browser = await chromium.launch({ headless: true, executablePath: process.env.CHROMIUM_EXECUTABLE })
+  const browser = await chromium.launch({ headless: true })
   try {
     const page = await browser.newPage({viewport:{width:1280,height:1000}})
     const errors = [], mutations = []
@@ -20,7 +20,6 @@ const assert = require('node:assert/strict')
       else if (path.endsWith('/recovery/preview')) data = {intent:'defaults',question:'Reset one saved setting to default?'}
       else if (path.endsWith('/recovery/confirm')) data = {saved:true,applied:['setting']}
       else if (path.endsWith('/recordings/action')) data = {deleted:2}
-      else if (path.endsWith('/software/action')) data = {resetRequested:true}
       else return route.fulfill({status:404,json:{error:'Unexpected endpoint'}})
       return route.fulfill({json:data})
     })
@@ -40,7 +39,7 @@ const assert = require('node:assert/strict')
     await summary.click()
     assert.equal(await card.evaluate(element=>element.open),false)
     await summary.click()
-    assert.equal(await card.locator('.gx-maintenance__content').count(),3)
+    assert.equal(await card.locator('.gx-maintenance__content').count(),2)
     assert.equal(await card.locator('.gx-card').count(),0)
     assert.equal(await card.getByText(/Vehicle not identified|Ready/).count(),0)
     assert.equal(await card.getByRole('button',{name:/Search/}).count(),0)
@@ -49,7 +48,7 @@ const assert = require('node:assert/strict')
       await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme)
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false)
       const actions = card.locator('.gx-maintenance__content .gx-actions > button')
-      assert.equal(await actions.count(),5)
+      assert.equal(await actions.count(),4)
       assert(await actions.evaluateAll(buttons=>buttons.every(button=>{
         const rect=button.getBoundingClientRect()
         return rect.left>=0 && rect.right<=innerWidth
@@ -75,27 +74,6 @@ const assert = require('node:assert/strict')
     await page.getByText('2 driving routes deleted.',{exact:true}).waitFor()
     const deletion = mutations.find(item=>item.path.endsWith('/recordings/action'))
     assert.deepEqual(deletion.body,{action:'delete-all',confirmed:true,includePreserved:true})
-    await page.setViewportSize({width:320,height:850})
-    const reset = card.getByRole('button',{name:'Factory Reset (Save Me)',exact:true})
-    assert(await reset.evaluate(button=>button.classList.contains('gx-btn--danger')))
-    await reset.click()
-    const dialog = page.getByRole('alertdialog',{name:'Factory reset this comma?'})
-    const submit = dialog.getByRole('button',{name:'Restart to factory reset'})
-    const input = dialog.getByLabel('Type ERASE DEVICE to continue')
-    assert(await submit.isDisabled())
-    await input.fill('erase device')
-    assert(await submit.isDisabled())
-    await input.fill('ERASE DEVICE')
-    assert(await submit.isEnabled())
-    assert(!mutations.some(item=>item.path.endsWith('/software/action')))
-    await dialog.getByRole('button',{name:'Cancel'}).click()
-    await reset.click()
-    assert.equal(await input.inputValue(),'')
-    await input.fill('ERASE DEVICE')
-    await submit.click()
-    await page.getByText(/Confirm the erase on the device screen/).waitFor()
-    assert.deepEqual(mutations.filter(item=>item.path.endsWith('/software/action')).map(item=>item.body),
-                     [{action:'factory-reset',confirmation:'ERASE DEVICE'}])
     assert.deepEqual(errors,[])
     console.log('Unified maintenance layout, download/restore, toggle resets and deletion confirmation passed.')
   } finally { await browser.close() }

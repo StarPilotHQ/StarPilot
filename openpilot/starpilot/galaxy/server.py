@@ -2321,15 +2321,13 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
         try:
           if type(payload) is not dict or type(payload.get('action')) is not str:
             raise ValueError('Invalid software request')
-          factory_reset = payload['action'] == 'factory-reset'
           with effect_lock:
             if self.settings_session() != identity:
               self.json(401, {'error': 'Sign in to Galaxy'})
               return
             result = software_owner().action(payload['action'], payload,
                                               authorized=lambda: self.settings_session() == identity)
-          if not factory_reset:
-            result = {**(software_source if software_source is not None else SoftwareStatus()).snapshot(), 'operations': result}
+          result = {**(software_source if software_source is not None else SoftwareStatus()).snapshot(), 'operations': result}
         except SoftwareOperationError as error:
           if self.settings_session() == identity:
             self.json(error.status, {'error': str(error)})
