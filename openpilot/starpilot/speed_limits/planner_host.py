@@ -5,6 +5,8 @@ import secrets
 import time
 from dataclasses import replace
 
+from opendbc.car.tesla.speed_sync import selected as tesla_set_speed_selected
+from openpilot.starpilot.car.tesla import set_speed as tesla_set_speed
 from openpilot.cereal import messaging
 from openpilot.cereal.services import SERVICE_LIST
 from openpilot.starpilot.feature_runtime import enabled as feature_enabled, slc_runtime_settings, vision_control_enabled
@@ -15,7 +17,9 @@ from openpilot.starpilot.speed_limits.runtime_settings import read_params as rea
 
 ACTION_MAX_AGE_NS = int(2e9 / SERVICE_LIST['modelV2'].frequency)
 SLC_ACTIONS = ('accept', 'reject', 'adopt')
-SLC_CRUISE_EVENTS = ('driverChange', 'confirmationAccept', 'confirmationReject', 'engagementAdopt')
+# commandApplied/commandRejected: card's answers to the Tesla set-speed rule's commands; no other car sends them.
+SLC_CRUISE_EVENTS = ('driverChange', 'confirmationAccept', 'confirmationReject', 'engagementAdopt',
+                     'commandApplied', 'commandRejected')
 
 
 class SavedSlcLifecycle:
@@ -26,6 +30,8 @@ class SavedSlcLifecycle:
     self.runtime = None
     self.configuration = None
     self.last_refresh_ns = None
+    # Tesla set-speed rule: SLC's set-speed commands for card, from whichever planner hosts this lifecycle.
+    self.command_sock = messaging.pub_sock('slcCruiseCommand') if tesla_set_speed_selected(cp) else None
 
   def source_services(self):
     services = ['slcDashboardObservation', 'slcVisionObservation', 'mapdOut']
@@ -42,6 +48,10 @@ class SavedSlcLifecycle:
     saved_slc = read_slc_settings(self.params)
     admitted = feature_enabled(self.params, self.cp, 'slc', self.environment, saved_slc=saved_slc)
     settings = slc_runtime_settings(self.params, self.cp, self.environment, saved_slc=saved_slc)
+    if self.command_sock is not None and tesla_set_speed.active(self.params, self.cp):
+      # Tesla set-speed rule: SLC writes SET through card. Early adoption writes SET early (runtime._command), and the
+      # accelerator-override choice is applied by card, which owns SET (tesla_set_speed_card.pedal_hold).
+      settings = replace(settings, set_speed_rule=True)
     vision = admitted and feature_enabled(self.params, self.cp, 'vision', self.environment, saved_slc=saved_slc)
     configuration = (admitted and not settings.errors, settings, vision,
                      vision_control_enabled(self.params, self.cp, saved_slc=saved_slc),
@@ -50,7 +60,9 @@ class SavedSlcLifecycle:
     if configuration == self.configuration:
       return self.runtime, False
     previous_runtime = self.runtime
-    continuing_control = bool(self.runtime is not None and self.runtime.settings.enabled and settings.enabled and configuration[0])
+    # Who owns SET changed (the Tesla switch): start a new session rather than carry cap or command state across.
+    continuing_control = bool(self.runtime is not None and self.runtime.settings.enabled and settings.enabled and configuration[0] and
+                              self.runtime.settings.set_speed_rule == settings.set_speed_rule)
     timing_only = False
     preserve_runtime = continuing_control
     if self.runtime is not None and self.configuration is not None:
@@ -111,6 +123,8 @@ class SavedSlcLifecycle:
     accepted = runtime.history_limit
     if accepted != previous_accepted:
       self.params.put("SLCQualifiedHistory", json.loads(history.encode(accepted, time.time_ns())) if accepted is not None else {})
+    if output.command is not None and self.command_sock is not None:
+      self.command_sock.send(output.command.to_bytes())
     return output
 
 

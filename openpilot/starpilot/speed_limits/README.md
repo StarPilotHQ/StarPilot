@@ -2,12 +2,46 @@
 
 SLC supplies a speed-limit cap beneath the driver's cruise SET. The planner uses
 the lower of SET and the accepted limit plus its configured offset, converted into
-physical-speed coordinates once. Accepting a limit never rewrites SET. Native PCM
+physical-speed coordinates once. Accepting a limit never rewrites SET (one exception:
+the [Tesla set-speed rule](#tesla-set-speed-rule)). Native PCM
 cruise owns its setpoint; non-PCM software cruise and the dedicated Subaru software
 cruise mode retain their existing owners. Automatic SLC requires system longitudinal
 control. Lead, curve, stop and actuator safety constraints retain their existing owners.
 SLC works with either the StarPilot or upstream longitudinal planner. The StarPilot planner
 eases braking after an overshoot past the cap; the upstream planner keeps its native response.
+
+## Tesla set-speed rule
+
+One car is different. On a Tesla Model 3 or Model Y where **Comma can set speed on Tesla dashboard**
+is on (`openpilot/starpilot/car/tesla/set_speed.py`, followed within a second of a change), StarPilot
+owns a software SET that is mirrored to the car, and SLC writes that SET instead of capping beneath it:
+
+- Engaging starts SET at the current limit plus offset. Each newly accepted limit is written to SET.
+  The runtime issues one `slcCruiseCommand`; card applies it only while the planner state, the source
+  and SET are still what the planner saw (`physical_actions.command_applicable`), and answers with a
+  `commandApplied` or `commandRejected` cruise event. An unanswered or refused command is issued
+  again while SET has not moved.
+- No planner cap is published (`hasCeiling` stays false). The sign's green outline means SET equals
+  the accepted limit plus offset.
+- A SET change by the driver holds until the accepted limit changes (`overrides.py`) and shows as
+  OVERRIDE. A higher limit that is still below the driver's SET leaves it alone. A source gap leaves
+  SET where it is.
+- **After an accelerator override** is applied by card, which owns SET here
+  (`tesla_set_speed_card.pedal_hold`). With **Hold the speed you reached**, lifting off above both SET
+  and the accepted limit plus offset makes the highest speed reached the new SET, as the driver's own
+  change, so it holds until the limit changes like a scroll. The other two choices return to SET.
+- The adopt action puts SET back to the current limit plus offset. Accepting a pending limit writes it.
+- A written SET is felt at once, so automatic adoption waits 3 seconds and a different limit from
+  another source must hold for 2 seconds first (`acceptance.AUTOMATIC_ADOPTION_NS`, `SOURCE_SWITCH_NS`).
+  An explicit adopt skips both waits.
+- **Adopt limits early** writes SET early. An early Maps preview is offered the chosen number of
+  seconds ahead, so it is adopted when offered, without the 3 second wait, and written like any
+  accepted limit. Card binds that command to Maps and the upcoming boundary instead of the road's
+  current limit. If the preview is withdrawn before the car reaches it, acceptance returns to the
+  road's limit and that is written back.
+
+With the switch off, and on every other car, none of this applies: SLC caps beneath SET as the
+rest of this document describes.
 
 ## New limits and adoption
 
@@ -269,8 +303,8 @@ and the numeric cap before applying the lower speed.
 `SlcState.hasCeiling` and `effectiveCap` report the active physical-speed constraint;
 `isLimitingMaxSet` identifies when it is below the driver's ceiling. Observations,
 accepted limits and the effective constraint remain separate. The existing custom
-wire layout and historical command fields remain reserved for compatibility; live
-SLC no longer publishes or consumes `slcCruiseCommand`. Official vehicle schemas
+wire layout and historical command fields remain reserved for compatibility; outside the
+Tesla set-speed rule, live SLC no longer publishes or consumes `slcCruiseCommand`. Official vehicle schemas
 are unchanged. Shared curve, conditional-mode and controller messages remain intact.
 
 ## Numeric comparison investigation

@@ -227,3 +227,14 @@ def to_planner_coordinate(context: DomainContext, *, override_mps: float = 0.) -
   if not acc.number(cap, positive=True):
     return PlannerCoordinate(None, "nonpositive", cluster_target, context.ego_delta_mps)
   return PlannerCoordinate(cap, 'none', cluster_target, context.ego_delta_mps)
+
+
+def override_planner_coordinate(context: DomainContext, held_raw_mps: float | None) -> PlannerCoordinate:
+  """Where SLC writes SET, cruise targets SET itself: the limit plus offset, or the SET the driver holds instead."""
+  if not context_is_valid(context) or (held_raw_mps is not None and not acc.number(held_raw_mps, positive=True)):
+    return PlannerCoordinate(None, "invalid")
+  cluster_target = context.effective_cluster_mps if held_raw_mps is None else held_raw_mps + context.selected_delta_mps
+  cap = cluster_target - context.ego_delta_mps
+  if not acc.number(cap, positive=True):
+    return PlannerCoordinate(None, "nonpositive", cluster_target, context.ego_delta_mps)
+  return PlannerCoordinate(cap, 'none' if held_raw_mps is None else 'persistent', cluster_target, context.ego_delta_mps)

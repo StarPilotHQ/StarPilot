@@ -295,30 +295,46 @@ int main() {
   }
   constexpr uint16_t tesla_screen_words[] = {512U, 513U, 768U, 769U, 1536U, 1537U, 1792U, 1793U,
                                              2048U, 2049U, 2304U, 2305U, 3072U, 3073U, 3328U, 3329U};
+  // Scroll speed sync (4096) rides on any of those words that carries longitudinal control (bit 1), and on no other.
+  constexpr uint16_t tesla_speed_sync = 4096U;
+  unsigned tesla_capable_words = 0U;
   for (uint32_t word = 0U; word <= 65535U; ++word) {
     bool expected = false;
-    for (const auto exact : tesla_screen_words) expected |= word == exact;
+    for (const auto exact : tesla_screen_words) {
+      expected |= word == exact;
+      expected |= ((exact & 1U) != 0U) && (word == (exact | tesla_speed_sync));
+    }
+    assert(tesla_screen_aol_param(static_cast<uint16_t>(word)) == expected);
     auto tesla = status();
     tesla.safety_mode = 10U;
     tesla.safety_param = static_cast<uint16_t>(word);
     assert(aol_capable(tesla, 10U, VEHICLE_REGISTRY) == expected);
+    tesla_capable_words += expected ? 1U : 0U;
   }
-  for (const auto word : tesla_screen_words) {
-    AolAxisNegotiator negotiator(VEHICLE_REGISTRY);
-    FakeTransport transport;
-    auto tesla = status();
-    tesla.safety_mode = 10U;
-    tesla.safety_param = word;
-    queue(transport, tesla, tesla);
-    auto neutral = run(negotiator, transport, axis("tesla-screen", false, false), NOW, 10U);
-    assert(neutral.plan.capable && neutral.plan.request_mask == 0U && neutral.outcome.compatible);
-    auto active = tesla;
-    active.request_mask = 1U;
-    active.permission_mask = 1U;
-    queue(transport, tesla, active);
-    auto engaged = run(negotiator, transport, axis("tesla-screen", true, false), NOW, 10U);
-    assert(engaged.plan.request_mask == 1U && engaged.outcome.compatible);
-    assert(engaged.outcome.status && engaged.outcome.status->safety_param == word && engaged.outcome.status->permission_mask == 1U);
+  assert(tesla_capable_words == 24U);
+  for (const uint16_t rejected : {uint16_t{4096U}, uint16_t{4097U}, uint16_t{4353U}, uint16_t{4608U}, uint16_t{6144U}, uint16_t{8192U | 513U}}) {
+    assert(!tesla_screen_aol_param(rejected));
+  }
+  for (const auto screen_word : tesla_screen_words) {
+    for (const bool speed_sync : {false, true}) {
+      if (speed_sync && (screen_word & 1U) == 0U) continue;
+      const uint16_t word = speed_sync ? static_cast<uint16_t>(screen_word | tesla_speed_sync) : screen_word;
+      AolAxisNegotiator negotiator(VEHICLE_REGISTRY);
+      FakeTransport transport;
+      auto tesla = status();
+      tesla.safety_mode = 10U;
+      tesla.safety_param = word;
+      queue(transport, tesla, tesla);
+      auto neutral = run(negotiator, transport, axis("tesla-screen", false, false), NOW, 10U);
+      assert(neutral.plan.capable && neutral.plan.request_mask == 0U && neutral.outcome.compatible);
+      auto active = tesla;
+      active.request_mask = 1U;
+      active.permission_mask = 1U;
+      queue(transport, tesla, active);
+      auto engaged = run(negotiator, transport, axis("tesla-screen", true, false), NOW, 10U);
+      assert(engaged.plan.request_mask == 1U && engaged.outcome.compatible);
+      assert(engaged.outcome.status && engaged.outcome.status->safety_param == word && engaged.outcome.status->permission_mask == 1U);
+    }
   }
   AolAxisNegotiator ford_pause(VEHICLE_REGISTRY);
   FakeTransport ford_transport;

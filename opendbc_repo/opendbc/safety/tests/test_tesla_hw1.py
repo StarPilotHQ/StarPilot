@@ -38,7 +38,10 @@ class TestModelSHW1Safety(unittest.TestCase):
 
   def test_all_16bit_profile_words_are_isolated(self):
     debug = lib.set_safety_hooks(CarParams.SafetyModel.allOutput, 0) == 0
-    supported = {0, 1, 16, 17, 256, 257, 512, 768, 1536, 1792, 2048, 2304, 3072, 3328} | ({513, 769, 1537, 1793, 2049, 2305, 3073, 3329} if debug else set())
+    long_aol = {513, 769, 1537, 1793, 2049, 2305, 3073, 3329}
+    # Scroll speed sync (4096) rides only on the ten modern LONG_CONTROL words, never on an HW1 or stock word.
+    speed_sync = {4096 | word for word in {1, 257} | long_aol}
+    supported = {0, 1, 16, 17, 256, 257, 512, 768, 1536, 1792, 2048, 2304, 3072, 3328} | (long_aol | speed_sync if debug else set())
     for param in range(65536):
       result = lib.set_safety_hooks(10, param)
       expected = 0 if param in supported else -1

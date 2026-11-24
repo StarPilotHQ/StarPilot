@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from openpilot.starpilot.longitudinal.cruise_ceiling import CruiseCeiling
 from openpilot.starpilot.speed_limits import acceptance as acc
 from openpilot.starpilot.speed_limits import action_arbitration as arb
+from openpilot.starpilot.speed_limits import overrides as ov
 from openpilot.starpilot.speed_limits import selection as sel
 from openpilot.starpilot.speed_limits import speed_domain as sd
 from openpilot.starpilot.speed_limits.runtime_settings import PedalOverride
@@ -46,6 +47,10 @@ class Frame:
   wheel_override_blocked: bool = False
   wheel_override_since_ns: int = 0
   filtered_ego_delta_mps: float | None = None
+  # Tesla set-speed rule: SLC writes SET through card, a driver's SET change holds through the override module, and
+  # no planner ceiling is supplied. set_speed_ready: card's last SLC command receipt has reached carState.
+  set_speed_rule: bool = False
+  set_speed_ready: bool = True
 
 
 @dataclass(frozen=True)
@@ -58,6 +63,7 @@ class State:
   pedal_blocked_until_release: bool = False
   wheel_override_metric: bool | None = None
   wheel_override_since_ns: int = 0
+  override: ov.State | None = None  # Tesla set-speed rule only
 
 
 @dataclass(frozen=True)
@@ -70,6 +76,7 @@ class Result:
   ceiling: CruiseCeiling | None = None
   status: str = "none"
   errors: tuple[str, ...] = ()
+  override: ov.Decision | None = None  # Tesla set-speed rule only
 
 
 def _state_valid(state: object) -> bool:
@@ -79,7 +86,8 @@ def _state_valid(state: object) -> bool:
           acc.number(state.pedal_target_mps) and (state.last_now_ns is None or acc.integer(state.last_now_ns)) and
           type(state.reset_required) is bool and type(state.pedal_blocked_until_release) is bool and
           (state.wheel_override_metric is None or type(state.wheel_override_metric) is bool) and
-          acc.integer(state.wheel_override_since_ns))
+          acc.integer(state.wheel_override_since_ns) and
+          (state.override is None or isinstance(state.override, ov.State) and state.override.session_id == state.session_id))
 
 
 def _host_valid(host: object) -> bool:
@@ -119,7 +127,8 @@ def step(state: State, frame: Frame) -> Result:
                                                 frame.wheel_override_enabled, frame.wheel_override_blocked)) or
       not isinstance(frame.selected_kind, sd.DomainStatus) or not isinstance(frame.ego_pair, sd.SpeedPair) or
       (frame.filtered_ego_delta_mps is not None and not acc.number(frame.filtered_ego_delta_mps)) or
-      (frame.is_metric is not None and type(frame.is_metric) is not bool)):
+      (frame.is_metric is not None and type(frame.is_metric) is not bool) or
+      type(frame.set_speed_rule) is not bool or type(frame.set_speed_ready) is not bool):
     return Result(replace(state, reset_required=True), status="invalid_frame", errors=("invalid frame or clock",))
   host = frame.host
   selected_initialized = host.driver_v_cruise_kph > 0 and host.driver_v_cruise_kph != 255.0
@@ -154,7 +163,7 @@ def step(state: State, frame: Frame) -> Result:
   ego = frame.ego_pair
   candidate = selected.observation.candidate
   matches_set = False
-  if (active_path and candidate is not None and frame.selected_kind is sd.DomainStatus.VALID and
+  if (active_path and frame.set_speed_ready and candidate is not None and frame.selected_kind is sd.DomainStatus.VALID and
       ego.status is sd.DomainStatus.VALID and ego.session_id == state.session_id and ego.timestamp_ns == frame.now_ns and
       acc.number(ego.raw_mps) and acc.number(ego.cluster_mps)):
     assert ego.raw_mps is not None and ego.cluster_mps is not None
@@ -177,6 +186,8 @@ def step(state: State, frame: Frame) -> Result:
     pair = sd.SpeedPair(frame.selected_kind)
   else:
     pair = sd.SpeedPair(sd.DomainStatus.ABSENT)
+  if frame.set_speed_rule:
+    return _set_speed_rule(base, frame, selected, acceptance, pair, active_path)
   domain = sd.resolve(acceptance, frame.offset_schedule, pair, frame.ego_pair)
   if domain.status is sd.DomainStatus.INVALID:
     return Result(replace(base, reset_required=True), selected, acceptance, domain,
@@ -243,3 +254,45 @@ def step(state: State, frame: Frame) -> Result:
   return Result(base, selected, acceptance, domain, coordinate,
                 ceiling=CruiseCeiling(coordinate.cap_mps, frame.authority),
                 status=acceptance.basis)
+
+
+def _override_evidence(kind: sd.DomainStatus) -> ov.EvidenceKind:
+  return {sd.DomainStatus.VALID: ov.EvidenceKind.VALID, sd.DomainStatus.ABSENT: ov.EvidenceKind.ABSENT,
+          sd.DomainStatus.STALE: ov.EvidenceKind.STALE}.get(kind, ov.EvidenceKind.UNKNOWN)
+
+
+def _set_speed_rule(base: State, frame: Frame, selected: sel.Selection, acceptance: acc.Decision,
+                    pair: sd.SpeedPair, active_path: bool) -> Result:
+  """Tesla set-speed rule: the accepted limit plus offset becomes SET through card, and a driver's own SET change
+  holds until the limit changes. A cap beneath SET would hold the car under a SET the driver raised, so none is supplied."""
+  if acceptance.control_target_mps is not None and acceptance.state.observation.kind is not acc.ObservationKind.VALID:
+    # A source gap carries no target: SET stays where it is until a current reading returns.
+    acceptance = replace(acceptance, control_target_mps=None)
+  domain = sd.resolve(acceptance, frame.offset_schedule, pair, frame.ego_pair)
+  ego = frame.ego_pair
+  ego_valid = ego.status is sd.DomainStatus.VALID
+  change = frame.classified_cruise.change if frame.classified_cruise is not None else None
+  override = ov.step(base.override if base.override is not None else ov.new_session(base.session_id),
+                     acceptance, frame.authority, frame.acceptance_policy,
+                     ov.SelectedEvidence(_override_evidence(pair.status), pair.raw_mps if pair.status is sd.DomainStatus.VALID else None),
+                     ov.PedalEvidence(_override_evidence(ego.status), frame.pedal_pressed if ego_valid else None,
+                                      ego.raw_mps if ego_valid else None),
+                     now_ns=frame.now_ns, change=change, domain=domain)
+  base = replace(base, override=override.state)
+  if override.errors or domain.status is sd.DomainStatus.INVALID:
+    return Result(replace(base, reset_required=True), selected, acceptance, domain, override=override,
+                  status="invalid_domain_or_override", errors=override.errors or (domain.reason,))
+  if not active_path or domain.status is not sd.DomainStatus.VALID:
+    return Result(base, selected, acceptance, domain, override=override,
+                  status=acceptance.basis if acceptance.basis == 'source_switch_pending' else 'inactive_or_unavailable')
+  context = domain.context
+  if (context is None or override.state.last_timestamp_ns != frame.now_ns or
+      override.state.accepted_mps != context.accepted_raw_mps or
+      override.state.effective_target_mps != context.effective_cluster_mps):
+    return Result(replace(base, reset_required=True), selected, acceptance, domain, override=override,
+                  status="invalid_join", errors=("override and speed domain mismatch",))
+  coordinate = sd.override_planner_coordinate(context, override.contribution_mps)
+  if coordinate.cap_mps is None:
+    return Result(replace(base, reset_required=True), selected, acceptance, domain, coordinate, override=override,
+                  status="invalid_coordinate", errors=("planner coordinate unavailable",))
+  return Result(base, selected, acceptance, domain, coordinate, override=override, status=acceptance.basis)

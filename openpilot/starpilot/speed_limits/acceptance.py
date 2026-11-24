@@ -8,6 +8,10 @@ from dataclasses import dataclass, replace
 from enum import Enum
 
 CONFIRMATION_NS = 30_000_000_000
+# Where SLC writes SET (Tesla set-speed rule): automatic adoption waits this long, and a limit from a different
+# source must hold this long before it counts. Every other car keeps the Policy defaults of 0.
+AUTOMATIC_ADOPTION_NS = 3_000_000_000
+SOURCE_SWITCH_NS = 2_000_000_000
 
 
 class ObservationKind(Enum):
@@ -81,6 +85,8 @@ class Policy:
   confirm_lower: bool = True
   confirm_higher: bool = True
   display_only: bool = False
+  automatic_adoption_ns: int = 0  # wait before an automatic adoption; 0 adopts at once
+  source_switch_ns: int = 0  # how long another source's different limit must hold; 0 switches at once
 
 
 class ActionKind(Enum):
@@ -149,6 +155,10 @@ class State:
   presentation: Presentation | None = None
   next_presentation_id: int = 1
   received_speed_mps: float | None = None
+  # Only tracked with Policy.source_switch_ns: the last received limit's source and a switch still settling.
+  received_source: str | None = None
+  switch_candidate: Candidate | None = None
+  switch_started_ns: int | None = None
 
 
 @dataclass(frozen=True)
@@ -272,6 +282,14 @@ def _state_errors(state: State) -> list[str]:
     errors.append("invalid state clock")
   if state.received_speed_mps is not None and not number(state.received_speed_mps, positive=True):
     errors.append("invalid received speed")
+  if state.received_source is not None and not token(state.received_source):
+    errors.append("invalid received source")
+  if state.switch_candidate is not None:
+    if (not _candidate_valid(state.switch_candidate, state.session_id) or not integer(state.switch_started_ns) or
+        state.last_timestamp_ns is None or state.switch_started_ns > state.last_timestamp_ns):
+      errors.append("invalid source switch")
+  elif state.switch_started_ns is not None:
+    errors.append("source switch lacks candidate")
   if not integer(state.last_action_sequence, -1) or not integer(state.next_decision_id, 1) or not integer(state.next_presentation_id, 1):
     errors.append("invalid state sequence")
   if type(state.timer_running) is not bool:
@@ -366,7 +384,8 @@ def step(state: State, observation: Observation, authority: Authority, policy: P
   if not observation_is_valid(observation, session_id=state.session_id):
     errors.append("invalid observation")
   if not isinstance(policy, Policy) or any(type(v) is not bool for v in (
-      policy.confirm_lower, policy.confirm_higher, policy.display_only)):
+      policy.confirm_lower, policy.confirm_higher, policy.display_only)) or any(
+      not integer(v) or v > CONFIRMATION_NS for v in (policy.automatic_adoption_ns, policy.source_switch_ns)):
     errors.append("invalid policy")
   if not integer(now_ns) or (state.last_timestamp_ns is not None and now_ns < state.last_timestamp_ns):
     errors.append("invalid or reversed monotonic clock")
@@ -454,6 +473,16 @@ def step(state: State, observation: Observation, authority: Authority, policy: P
   explicit_adopt = (adopt is not None and adopt_receipt is not None and adopt_receipt.status == 'seen' and
                     old.presentation is not None and old.presentation.presentation_id == adopt.presentation_id and
                     old.presentation.candidate == candidate == adopt.candidate)
+  if policy.source_switch_ns:
+    if (new_limit and state.received_source is not None and candidate.source != state.received_source and
+        authority.can_control and not explicit_adopt and confirmation_started_ns is None):
+      switching = state.switch_candidate
+      if switching is None or (switching.source, switching.speed_mps) != (candidate.source, candidate.speed_mps):
+        state = replace(state, switch_candidate=candidate, switch_started_ns=now_ns)
+      assert state.switch_started_ns is not None
+      if now_ns - state.switch_started_ns < policy.source_switch_ns:
+        return unavailable('source_switch_pending')
+    state = replace(state, received_source=candidate.source, switch_candidate=None, switch_started_ns=None)
   if new_limit:
     state = replace(state, received_speed_mps=candidate.speed_mps, pending=None, timer_running=False)
   if adopt_receipt is not None and adopt_receipt.status == "seen":
@@ -494,7 +523,7 @@ def step(state: State, observation: Observation, authority: Authority, policy: P
   state = replace(state, pending=pending, timer_running=True)
 
   if pending.automatic:
-    if authority.can_control or authority.fully_disengaged:
+    if pending.active_elapsed_ns >= policy.automatic_adoption_ns and (authority.can_control or authority.fully_disengaged):
       state, history = _accept(state, candidate, now_ns)
       return finish("accepted" if authority.can_control else "disengaged_accept",
                     target=candidate.speed_mps if authority.can_control else None, history=history)

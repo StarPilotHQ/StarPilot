@@ -33,7 +33,10 @@ class TestTeslaScreenSettings(unittest.TestCase):
   def page(self, page='vehicle'):
     return self.gateway.page(page, 'session', b'generation')
 
-  def intent(self, *, key='Three-Finger AOL Tap', value='On', reset=False):
+  def tap(self):
+    return next(row for row in self.page('wheel')['rows'] if row['label'] == 'Tesla screen / Three-finger tap')
+
+  def intent(self, *, key='Disengage AOL on Brake', value='On', reset=False):
     page = self.page()
     index = next(i for i, row in enumerate(page['rows']) if row['label'] == key)
     return self.gateway.preview(page['view'], index, 0, 'session', b'generation',
@@ -44,22 +47,29 @@ class TestTeslaScreenSettings(unittest.TestCase):
 
   def test_detected_harness_exposes_preferences_without_granting_native_permission(self):
     page = self.page()
-    self.assertEqual({row['label'] for row in page['rows']}, {'Three-Finger AOL Tap', 'Disengage AOL on Brake', 'Alpha Longitudinal', 'Tesla Co-op Steering'})
-    self.assertTrue(all(row['available'] and row['value'] == 'Off' and row['defaultValue'] == 'Off' for row in page['rows']))
+    set_speed = {'Tesla CAN add-on cable', 'Comma can set speed on Tesla dashboard'}
+    self.assertEqual({row['label'] for row in page['rows']},
+                     {'Disengage AOL on Brake', 'Alpha Longitudinal', 'Tesla Co-op Steering'} | set_speed)
+    self.assertTrue(all(row['available'] and row['value'] == 'Off' and row['defaultValue'] == 'Off'
+                        for row in page['rows'] if row['label'] not in set_speed))
+    cable, sync = (next(row for row in page['rows'] if row['label'] == label) for label in sorted(set_speed, reverse=True))
+    self.assertEqual((cable['value'], cable['status'], [link['label'] for link in cable['links']]),
+                     ('Detected', True, ['Buy the cable', 'Install guide']))
+    # Alpha Longitudinal is off on this car, so the switch shows grayed with the reason.
+    self.assertEqual((sync['value'], sync['available'], sync['defaultValue']), ('Off', False, 'Off'))
     self.assertIn('Vehicle Settings', {row['label'] for row in self.page('hub')['rows']})
     master = next(row for row in self.page('aol')['rows'] if row['label'] == 'Enable Always On Lateral')
     self.assertTrue(master['available'], 'The user must be able to enable AOL before requesting screen gestures')
-    for key in ('Three-Finger AOL Tap', 'Disengage AOL on Brake'):
-      intent = self.intent(key=key)
-      self.assertIn('next startup', intent['question'])
-      self.assertTrue(self.confirm(intent))
-    self.assertTrue(self.params.get_bool('TeslaAOLScreenTap'))
+    self.assertIn('Always On Lateral on/off', self.tap()['choices'], 'the three-finger tap is chosen in Wheel Controls')
+    intent = self.intent()
+    self.assertIn('next startup', intent['question'])
+    self.assertTrue(self.confirm(intent))
     self.assertTrue(self.params.get_bool('TeslaAOLDisengageOnBrake'))
+    self.assertIsNone(self.params.get('TeslaAOLScreenTap'), 'the brake preference does not touch the tap')
     self.assertEqual(self.context.cp.safetyConfigs[0].safetyParam, 0, 'Saving preferences does not mutate live native authority')
     self.gateway = SettingsGateway(self.params, self, clock=lambda: 100.0)
     self.assertTrue(self.confirm(self.intent(reset=True)))
-    self.assertFalse(self.params.get_bool('TeslaAOLScreenTap'))
-    self.assertTrue(self.params.get_bool('TeslaAOLDisengageOnBrake'))
+    self.assertFalse(self.params.get_bool('TeslaAOLDisengageOnBrake'))
 
   def test_absent_wrong_bus_or_unqualified_car_hides_screen_controls(self):
     for options in ({'harness': False}, {'marker': False}, {'bus': 0}, {'length': 7}):
@@ -69,13 +79,14 @@ class TestTeslaScreenSettings(unittest.TestCase):
         labels = {row['label'] for row in self.page()['rows']}
         self.assertNotIn('Three-Finger AOL Tap', labels)
         self.assertEqual('Disengage AOL on Brake' in labels, options != {'marker': False})
+        self.assertNotIn('Always On Lateral on/off', self.tap()['choices'])
 
   def test_stale_vehicle_or_onroad_change_rejects_saved_intent(self):
     intent = self.intent()
-    before = self.params.get('TeslaAOLScreenTap')
+    before = self.params.get('TeslaAOLDisengageOnBrake')
     self.context = replace(self.context, parked=False)
     self.assertFalse(self.confirm(intent))
-    self.assertEqual(self.params.get('TeslaAOLScreenTap'), before)
+    self.assertEqual(self.params.get('TeslaAOLDisengageOnBrake'), before)
     self.assertFalse(any(row['available'] for row in self.page()['rows']))
     self.context = replace(self.context, parked=True)
     intent = self.intent()
@@ -83,4 +94,4 @@ class TestTeslaScreenSettings(unittest.TestCase):
     self.context = AuthorityContext(True, cp, cp.to_bytes())
     with self.assertRaises(SettingsChanged):
       self.confirm(intent)
-    self.assertFalse(self.params.get_bool('TeslaAOLScreenTap'))
+    self.assertFalse(self.params.get_bool('TeslaAOLDisengageOnBrake'))

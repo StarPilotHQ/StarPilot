@@ -1096,6 +1096,82 @@
           }
         }
       ]
+    },
+    "0xb539e7c0aa8c1e69": {
+      "kind": "struct",
+      "before_name": "SlcAction.ControllerCruiseAction",
+      "after_name": "SlcAction.ControllerCruiseAction",
+      "old_field_count": 13,
+      "old_storage": {
+        "dataWordCount": 7,
+        "pointerCount": 4,
+        "preferredListEncoding": "inlineComposite",
+        "isGroup": false,
+        "discriminantCount": 0,
+        "discriminantOffset": 0
+      },
+      "new_storage": {
+        "dataWordCount": 7,
+        "pointerCount": 5,
+        "preferredListEncoding": "inlineComposite",
+        "isGroup": false,
+        "discriminantCount": 0,
+        "discriminantOffset": 0
+      },
+      "added_fields": [
+        {
+          "slot": {
+            "offset": 3,
+            "type": {
+              "int8": null
+            },
+            "defaultValue": {
+              "int8": 0
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "stepUnits",
+          "codeOrder": 13,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 13
+          }
+        },
+        {
+          "slot": {
+            "offset": 4,
+            "type": {
+              "struct": {
+                "typeId": 18362708538740964012
+              }
+            },
+            "defaultValue": {
+              "schemaValueHex": "00000000040000000000000002000100100000000000000000000000000000000000000000000000"
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "sourceTeslaGesture",
+          "codeOrder": 14,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 14
+          }
+        }
+      ]
+    },
+    "0xb8cbd9e666181b95": {
+      "kind": "enum",
+      "before_name": "SlcAction.Kind",
+      "after_name": "SlcAction.Kind",
+      "old_field_count": 13,
+      "old_storage": {},
+      "new_storage": {},
+      "added_enumerants": [
+        {
+          "name": "cruiseStep",
+          "codeOrder": 13
+        }
+      ]
     }
   },
   "published_addition_commits": {

@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 from pathlib import Path
+from typing import Any
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
@@ -12,9 +13,13 @@ from opendbc.car.toyota import toyotacan
 from openpilot.selfdrive.car.cruise import VCruiseHelper, V_CRUISE_MAX, V_CRUISE_MIN
 from openpilot.starpilot.controllers.cruise_action import CruiseActionPublisher, CruiseActionConsumer
 from openpilot.starpilot.controllers.toyota_cruise import capability, ToyotaCruisePreference
+from openpilot.starpilot.tests.tesla_set_speed_fixture import tesla
 from openpilot.starpilot.longitudinal.cruise_intervals import CruiseIntervals, read_cruise_intervals
 from openpilot.starpilot.ui.feature_settings_owner import FeatureSettingsOwner
 from openpilot.starpilot.ui.feature_settings_state import FeaturePage, FeatureSettingsRequest, row_change
+
+
+OTHER_STEPS: tuple[Any, ...] = (0, 2, 10, -10, 1.0, True)  # anything but one unit or one fast step
 
 
 class State(dict):
@@ -83,6 +88,47 @@ class TestControllerCruise(unittest.TestCase):
     self.sm['carControl'].enabled=True
     self.sm['deviceState'].startedMonoTime+=1
     self.assertFalse(self.apply(msg))
+
+  def test_tesla_scroll_step_is_refused_for_every_car_that_is_not_a_selected_tesla(self):
+    for vehicle in (self.cp, cp(True), cp(True, 'tesla'), tesla(), tesla(cable=False, selected=True)):
+      for step in (-5, -1, 1, 5):
+        self.assertFalse(self.sender.dispatch(step > 0, self.sm, vehicle, self.publisher, now_ns=self.now, step_units=step))
+    self.assertFalse(hasattr(self.publisher, 'message'))
+    forged = self.request().as_builder()
+    forged.slcAction.kind = 'cruiseStep'
+    forged.slcAction.controllerCruise.stepUnits = 5
+    self.assertFalse(self.apply(forged.as_reader()))
+    self.assertEqual(self.helper.v_cruise_kph, 80)
+    self.assertFalse(self.helper.tesla_set_speed)
+    self.assertTrue(self.apply(self.request()))
+    self.assertEqual(self.helper.v_cruise_kph, 81)
+    self.assertEqual(self.consumer.tesla_receipts, [], 'other cars never leave a scroll receipt')
+
+  def test_tesla_scroll_step_moves_one_unit_or_to_the_next_multiple_of_five_on_a_selected_tesla(self):
+    vehicle = tesla(selected=True)
+    for metric, start, step, expected in ((True, 83, 1, 84), (True, 83, -1, 82), (True, 83, 5, 85), (True, 83, -5, 80),
+                                          (False, 53, 1, 54), (False, 53, -1, 52), (False, 53, 5, 55), (False, 53, -5, 50),
+                                          (False, 55, 5, 60), (False, 55, -5, 50)):
+      with self.subTest(metric=metric, start=start, step=step):
+        self.now += 200_000_000
+        self.sm = State(self.now)
+        unit = 1 if metric else 1.609344
+        helper = VCruiseHelper(vehicle)
+        helper.v_cruise_kph = start * unit
+        self.assertTrue(self.sender.dispatch(step > 0, self.sm, vehicle, self.publisher, now_ns=self.now, step_units=step))
+        self.assertEqual(self.publisher.message.slcAction.kind, 'cruiseStep')
+        self.assertFalse(self.consumer.apply(self.publisher.message, vehicle, self.cs, self.sm, helper,
+                                             now_ns=self.now, is_metric=metric, enabled=True), 'the switch is off')
+        self.assertEqual(helper.v_cruise_kph, start * unit)
+        helper.tesla_set_speed = True  # card keeps this current from the saved switch
+        self.assertTrue(self.consumer.apply(self.publisher.message, vehicle, self.cs, self.sm, helper,
+                                            now_ns=self.now, is_metric=metric, enabled=True))
+        self.assertEqual(round(helper.v_cruise_kph / unit), expected)
+        self.assertEqual(list(self.cs.buttonEvents), [])
+        assert helper.slc_cruise_change is not None
+        self.assertEqual(helper.slc_cruise_change[2], 'accel' if step > 0 else 'decel')
+        for bad in OTHER_STEPS:
+          self.assertFalse(self.sender.dispatch(True, self.sm, vehicle, self.publisher, now_ns=self.now, step_units=bad))
 
   def test_normal_steps_units_bounds_override_and_standstill(self):
     up,down=car.CarState.ButtonEvent.Type.accelCruise,car.CarState.ButtonEvent.Type.decelCruise

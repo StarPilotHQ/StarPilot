@@ -115,6 +115,8 @@ class FeatureRow:
   actions: tuple[tuple[str, bool], ...] = ()
   presets: tuple[tuple[str, str], ...] = ()
   default_reset_available: bool = False
+  status: bool = False  # a read-only status: Galaxy shows it normally instead of grayed
+  links: tuple[tuple[str, str], ...] = ()  # (label, https URL) buttons shown in Galaxy
   collapsed: bool = False  # a heading whose rows are hidden until it is opened
   learned_value: str = field(default='', compare=False, repr=False)
   accepted_finding_value: float | None = None

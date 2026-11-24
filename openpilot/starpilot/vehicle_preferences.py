@@ -51,6 +51,7 @@ class VehicleStartupPreferences:
   gm_auto_hold: bool = False
   volt_one_pedal: bool = False
   tesla_cooperative: bool = field(default=False, kw_only=True)
+  tesla_speed_sync: bool = field(default=False, kw_only=True)
   tesla_aol: bool = field(default=False, kw_only=True)
   tesla_screen: bool = False
   tesla_screen_brake: bool = False
@@ -123,6 +124,10 @@ class VehicleStartupPreferences:
     cooperative = bool(enabled and readable and safe in (None, b"0") and
                        read_saved(params, "TeslaCoopSteering", 8) == (b"1", True))
     screen_brake = read_saved(params, 'TeslaAOLDisengageOnBrake', 8) == (b'1', True)
+    # Comma can set speed on Tesla dashboard: admit its scroll frame, so the switch works without a restart
+    # (experimental, so not on release branches).
+    speed_sync = bool(enabled and readable and safe in (None, b"0") and
+                      read_saved(params, "IsReleaseBranch", 8) in ((None, True), (b"0", True)))
     return cls(controller_selection=controller_selection, vw_stock_long=vw_stock_long,
                subaru_smoothing=smoothing, subaru_avh_startup=bool(enabled and readable and safe in (None, b"0") and
                     read_saved(params, "IsReleaseBranch", 8) in ((None, True), (b"0", True)) and
@@ -135,7 +140,7 @@ class VehicleStartupPreferences:
                subaru_software_cruise=bool(enabled and readable and safe in (None, b"0") and
                    read_saved(params, "SubaruRedneckCruise", 8) == (b"1", True)),
                ford_bluepilot=tuple(ford_bluepilot(params, enabled=enabled).items()), tesla_aol=tesla_aol, tesla_screen=screen,
-               tesla_screen_brake=screen_brake, tesla_cooperative=cooperative, toyota_auto_hold=toyota,
+               tesla_screen_brake=screen_brake, tesla_cooperative=cooperative, tesla_speed_sync=speed_sync, toyota_auto_hold=toyota,
                toyota_sng=bool(enabled and readable and safe in (None, b"0") and
                                read_saved(params, "SNGHack", 8) == (b"1", True)), jeep_brake_hold=jeep_hold,
                gm_longitudinal_tune=selected_tune(params, enabled=enabled),
@@ -218,6 +223,8 @@ class VehicleStartupPreferences:
     apply_modern_aol(cp, self.tesla_aol, self.tesla_screen, self.tesla_screen_brake)
     from openpilot.starpilot.car.tesla.coop_preferences import prepare
     prepare(cp, self.tesla_cooperative)
+    from opendbc.car.tesla.speed_sync import prepare as prepare_speed_sync
+    prepare_speed_sync(cp, self.tesla_speed_sync)
     self._prepare_honda_radar(cp)
     from opendbc.car.chrysler.brake_hold import apply_brake_hold
     apply_brake_hold(cp, self.jeep_brake_hold)
@@ -265,6 +272,8 @@ class VehicleStartupPreferences:
     apply_modern_aol(cp, self.tesla_aol, self.tesla_screen, self.tesla_screen_brake)
     from openpilot.starpilot.car.tesla.coop_preferences import prepare
     prepare(cp, self.tesla_cooperative)
+    from opendbc.car.tesla.speed_sync import prepare as prepare_speed_sync
+    prepare_speed_sync(cp, self.tesla_speed_sync)
     self._prepare_honda_radar(cp)
     from opendbc.car.chrysler.brake_hold import apply_brake_hold
     apply_brake_hold(cp, self.jeep_brake_hold)

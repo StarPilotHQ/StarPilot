@@ -10,11 +10,15 @@ LOGGER = logging.getLogger(__name__)
 
 
 class ControllerRuntime:
-  def __init__(self, params, *, actions, favorites, invoke_favorite, authority=None, reader=None, socket_path=None, input_capture=lambda: None):
+  def __init__(self, params, *, actions, favorites, invoke_favorite, authority=None, reader=None, socket_path=None,
+               vehicle=lambda: None, messages=lambda: None, input_capture=lambda: None, speed_actions=None, keyed_actions=None):
     self.authority = authority if authority is not None else LiveContextSource(params)
     self.reader = reader if reader is not None else InputReader()
     self.owner = ControllerOwner(params, parked=self.authority.parked, actions=actions, favorites=favorites,
                                  invoke_favorite=invoke_favorite)
+    from openpilot.starpilot.controllers.tesla_receiver import TeslaReceiver
+    self.tesla = TeslaReceiver(params, actions, vehicle, messages=messages, speed_actions=speed_actions,
+                               keyed_actions=keyed_actions)
     self.service = ControllerService(self.owner, socket_path)
     self.input_capture = input_capture
     self._closed = False
@@ -29,6 +33,11 @@ class ControllerRuntime:
   def poll(self):
     if self._closed:
       return
+    try:
+      self.tesla.poll()
+    except Exception:
+      LOGGER.exception('Tesla input stopped')
+      self.tesla.fail()
     try:
       now = time.monotonic()
       if now >= self._next_warm:
@@ -53,6 +62,7 @@ class ControllerRuntime:
     if self._closed:
       return
     self._closed = True
+    self.tesla.close()
     try:
       self.service.close()
     finally:

@@ -95,6 +95,7 @@ enum class Choice_9a4b2a0189fe1224: uint16_t {
 CAPNP_DECLARE_ENUM(Choice, 9a4b2a0189fe1224);
 CAPNP_DECLARE_SCHEMA(9ccdc8676701b412);
 CAPNP_DECLARE_SCHEMA(b539e7c0aa8c1e69);
+CAPNP_DECLARE_SCHEMA(fed572204daffaac);
 CAPNP_DECLARE_SCHEMA(8ba1f54de0ffaea9);
 CAPNP_DECLARE_SCHEMA(b8cbd9e666181b95);
 enum class Kind_b8cbd9e666181b95: uint16_t {
@@ -111,6 +112,7 @@ enum class Kind_b8cbd9e666181b95: uint16_t {
   FORCE_COAST_TOGGLE,
   PULSE_GLIDE_TOGGLE,
   DISENGAGE_REQUEST,
+  CRUISE_STEP,
 };
 CAPNP_DECLARE_ENUM(Kind, b8cbd9e666181b95);
 CAPNP_DECLARE_SCHEMA(cd96dafb67a082d0);
@@ -841,6 +843,7 @@ struct SlcAction {
   class Builder;
   class Pipeline;
   struct ControllerCruiseAction;
+  struct TeslaGesture;
   struct ConditionalManualAction;
   typedef ::capnp::schemas::Kind_b8cbd9e666181b95 Kind;
 
@@ -861,7 +864,22 @@ struct SlcAction::ControllerCruiseAction {
   class Pipeline;
 
   struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(b539e7c0aa8c1e69, 7, 4)
+    CAPNP_DECLARE_STRUCT_HEADER(b539e7c0aa8c1e69, 7, 5)
+    #if !CAPNP_LITE
+    static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
+    #endif  // !CAPNP_LITE
+  };
+};
+
+struct SlcAction::TeslaGesture {
+  TeslaGesture() = delete;
+
+  class Reader;
+  class Builder;
+  class Pipeline;
+
+  struct _capnpPrivate {
+    CAPNP_DECLARE_STRUCT_HEADER(fed572204daffaac, 4, 4)
     #if !CAPNP_LITE
     static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
     #endif  // !CAPNP_LITE
@@ -5885,6 +5903,11 @@ public:
 
   inline float getTargetSpeedMps() const;
 
+  inline  ::int8_t getStepUnits() const;
+
+  inline bool hasSourceTeslaGesture() const;
+  inline  ::cereal::SlcAction::TeslaGesture::Reader getSourceTeslaGesture() const;
+
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -5968,6 +5991,16 @@ public:
   inline float getTargetSpeedMps();
   inline void setTargetSpeedMps(float value);
 
+  inline  ::int8_t getStepUnits();
+  inline void setStepUnits( ::int8_t value);
+
+  inline bool hasSourceTeslaGesture();
+  inline  ::cereal::SlcAction::TeslaGesture::Builder getSourceTeslaGesture();
+  inline void setSourceTeslaGesture( ::cereal::SlcAction::TeslaGesture::Reader value);
+  inline  ::cereal::SlcAction::TeslaGesture::Builder initSourceTeslaGesture();
+  inline void adoptSourceTeslaGesture(::capnp::Orphan< ::cereal::SlcAction::TeslaGesture>&& value);
+  inline ::capnp::Orphan< ::cereal::SlcAction::TeslaGesture> disownSourceTeslaGesture();
+
 private:
   ::capnp::_::StructBuilder _builder;
   template <typename, ::capnp::Kind>
@@ -5981,6 +6014,148 @@ private:
 class SlcAction::ControllerCruiseAction::Pipeline {
 public:
   typedef ControllerCruiseAction Pipelines;
+
+  inline Pipeline(decltype(nullptr)): _typeless(nullptr) {}
+  inline explicit Pipeline(::capnp::AnyPointer::Pipeline&& typeless)
+      : _typeless(kj::mv(typeless)) {}
+
+  inline  ::cereal::SlcAction::TeslaGesture::Pipeline getSourceTeslaGesture();
+private:
+  ::capnp::AnyPointer::Pipeline _typeless;
+  friend class ::capnp::PipelineHook;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+};
+#endif  // !CAPNP_LITE
+
+class SlcAction::TeslaGesture::Reader {
+public:
+  typedef TeslaGesture Reads;
+
+  Reader() = default;
+  inline explicit Reader(::capnp::_::StructReader base): _reader(base) {}
+
+  inline ::capnp::MessageSize totalSize() const {
+    return _reader.totalSize().asPublic();
+  }
+
+#if !CAPNP_LITE
+  inline ::kj::StringTree toString() const {
+    return ::capnp::_::structString(_reader, *_capnpPrivate::brand());
+  }
+#endif  // !CAPNP_LITE
+
+  inline  ::uint16_t getVersion() const;
+
+  inline bool hasWorkerSession() const;
+  inline  ::capnp::Text::Reader getWorkerSession() const;
+
+  inline  ::uint64_t getSequence() const;
+
+  inline  ::uint64_t getSourceCanBootTime() const;
+
+  inline  ::uint16_t getSourceCanFrameIndex() const;
+
+  inline bool hasName() const;
+  inline  ::capnp::Text::Reader getName() const;
+
+  inline bool getFast() const;
+
+  inline bool hasAssignmentsHash() const;
+  inline  ::capnp::Text::Reader getAssignmentsHash() const;
+
+  inline bool hasVehicleHash() const;
+  inline  ::capnp::Text::Reader getVehicleHash() const;
+
+  inline  ::uint64_t getDriveStartMonoTime() const;
+
+private:
+  ::capnp::_::StructReader _reader;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::_::PointerHelpers;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::List;
+  friend class ::capnp::MessageBuilder;
+  friend class ::capnp::Orphanage;
+};
+
+class SlcAction::TeslaGesture::Builder {
+public:
+  typedef TeslaGesture Builds;
+
+  Builder() = delete;  // Deleted to discourage incorrect usage.
+                       // You can explicitly initialize to nullptr instead.
+  inline Builder(decltype(nullptr)) {}
+  inline explicit Builder(::capnp::_::StructBuilder base): _builder(base) {}
+  inline operator Reader() const { return Reader(_builder.asReader()); }
+  inline Reader asReader() const { return *this; }
+
+  inline ::capnp::MessageSize totalSize() const { return asReader().totalSize(); }
+#if !CAPNP_LITE
+  inline ::kj::StringTree toString() const { return asReader().toString(); }
+#endif  // !CAPNP_LITE
+
+  inline  ::uint16_t getVersion();
+  inline void setVersion( ::uint16_t value);
+
+  inline bool hasWorkerSession();
+  inline  ::capnp::Text::Builder getWorkerSession();
+  inline void setWorkerSession( ::capnp::Text::Reader value);
+  inline  ::capnp::Text::Builder initWorkerSession(unsigned int size);
+  inline void adoptWorkerSession(::capnp::Orphan< ::capnp::Text>&& value);
+  inline ::capnp::Orphan< ::capnp::Text> disownWorkerSession();
+
+  inline  ::uint64_t getSequence();
+  inline void setSequence( ::uint64_t value);
+
+  inline  ::uint64_t getSourceCanBootTime();
+  inline void setSourceCanBootTime( ::uint64_t value);
+
+  inline  ::uint16_t getSourceCanFrameIndex();
+  inline void setSourceCanFrameIndex( ::uint16_t value);
+
+  inline bool hasName();
+  inline  ::capnp::Text::Builder getName();
+  inline void setName( ::capnp::Text::Reader value);
+  inline  ::capnp::Text::Builder initName(unsigned int size);
+  inline void adoptName(::capnp::Orphan< ::capnp::Text>&& value);
+  inline ::capnp::Orphan< ::capnp::Text> disownName();
+
+  inline bool getFast();
+  inline void setFast(bool value);
+
+  inline bool hasAssignmentsHash();
+  inline  ::capnp::Text::Builder getAssignmentsHash();
+  inline void setAssignmentsHash( ::capnp::Text::Reader value);
+  inline  ::capnp::Text::Builder initAssignmentsHash(unsigned int size);
+  inline void adoptAssignmentsHash(::capnp::Orphan< ::capnp::Text>&& value);
+  inline ::capnp::Orphan< ::capnp::Text> disownAssignmentsHash();
+
+  inline bool hasVehicleHash();
+  inline  ::capnp::Text::Builder getVehicleHash();
+  inline void setVehicleHash( ::capnp::Text::Reader value);
+  inline  ::capnp::Text::Builder initVehicleHash(unsigned int size);
+  inline void adoptVehicleHash(::capnp::Orphan< ::capnp::Text>&& value);
+  inline ::capnp::Orphan< ::capnp::Text> disownVehicleHash();
+
+  inline  ::uint64_t getDriveStartMonoTime();
+  inline void setDriveStartMonoTime( ::uint64_t value);
+
+private:
+  ::capnp::_::StructBuilder _builder;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+  friend class ::capnp::Orphanage;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::_::PointerHelpers;
+};
+
+#if !CAPNP_LITE
+class SlcAction::TeslaGesture::Pipeline {
+public:
+  typedef TeslaGesture Pipelines;
 
   inline Pipeline(decltype(nullptr)): _typeless(nullptr) {}
   inline explicit Pipeline(::capnp::AnyPointer::Pipeline&& typeless)
@@ -22324,6 +22499,279 @@ inline float SlcAction::ControllerCruiseAction::Builder::getTargetSpeedMps() {
 inline void SlcAction::ControllerCruiseAction::Builder::setTargetSpeedMps(float value) {
   _builder.setDataField<float>(
       ::capnp::bounded<1>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::int8_t SlcAction::ControllerCruiseAction::Reader::getStepUnits() const {
+  return _reader.getDataField< ::int8_t>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
+}
+
+inline  ::int8_t SlcAction::ControllerCruiseAction::Builder::getStepUnits() {
+  return _builder.getDataField< ::int8_t>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
+}
+inline void SlcAction::ControllerCruiseAction::Builder::setStepUnits( ::int8_t value) {
+  _builder.setDataField< ::int8_t>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool SlcAction::ControllerCruiseAction::Reader::hasSourceTeslaGesture() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS).isNull();
+}
+inline bool SlcAction::ControllerCruiseAction::Builder::hasSourceTeslaGesture() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS).isNull();
+}
+inline  ::cereal::SlcAction::TeslaGesture::Reader SlcAction::ControllerCruiseAction::Reader::getSourceTeslaGesture() const {
+  return ::capnp::_::PointerHelpers< ::cereal::SlcAction::TeslaGesture>::get(_reader.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS));
+}
+inline  ::cereal::SlcAction::TeslaGesture::Builder SlcAction::ControllerCruiseAction::Builder::getSourceTeslaGesture() {
+  return ::capnp::_::PointerHelpers< ::cereal::SlcAction::TeslaGesture>::get(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS));
+}
+#if !CAPNP_LITE
+inline  ::cereal::SlcAction::TeslaGesture::Pipeline SlcAction::ControllerCruiseAction::Pipeline::getSourceTeslaGesture() {
+  return  ::cereal::SlcAction::TeslaGesture::Pipeline(_typeless.getPointerField(4));
+}
+#endif  // !CAPNP_LITE
+inline void SlcAction::ControllerCruiseAction::Builder::setSourceTeslaGesture( ::cereal::SlcAction::TeslaGesture::Reader value) {
+  ::capnp::_::PointerHelpers< ::cereal::SlcAction::TeslaGesture>::set(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS), value);
+}
+inline  ::cereal::SlcAction::TeslaGesture::Builder SlcAction::ControllerCruiseAction::Builder::initSourceTeslaGesture() {
+  return ::capnp::_::PointerHelpers< ::cereal::SlcAction::TeslaGesture>::init(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS));
+}
+inline void SlcAction::ControllerCruiseAction::Builder::adoptSourceTeslaGesture(
+    ::capnp::Orphan< ::cereal::SlcAction::TeslaGesture>&& value) {
+  ::capnp::_::PointerHelpers< ::cereal::SlcAction::TeslaGesture>::adopt(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::cereal::SlcAction::TeslaGesture> SlcAction::ControllerCruiseAction::Builder::disownSourceTeslaGesture() {
+  return ::capnp::_::PointerHelpers< ::cereal::SlcAction::TeslaGesture>::disown(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS));
+}
+
+inline  ::uint16_t SlcAction::TeslaGesture::Reader::getVersion() const {
+  return _reader.getDataField< ::uint16_t>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint16_t SlcAction::TeslaGesture::Builder::getVersion() {
+  return _builder.getDataField< ::uint16_t>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
+}
+inline void SlcAction::TeslaGesture::Builder::setVersion( ::uint16_t value) {
+  _builder.setDataField< ::uint16_t>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool SlcAction::TeslaGesture::Reader::hasWorkerSession() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
+}
+inline bool SlcAction::TeslaGesture::Builder::hasWorkerSession() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::Text::Reader SlcAction::TeslaGesture::Reader::getWorkerSession() const {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_reader.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline  ::capnp::Text::Builder SlcAction::TeslaGesture::Builder::getWorkerSession() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline void SlcAction::TeslaGesture::Builder::setWorkerSession( ::capnp::Text::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::set(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::Text::Builder SlcAction::TeslaGesture::Builder::initWorkerSession(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::init(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), size);
+}
+inline void SlcAction::TeslaGesture::Builder::adoptWorkerSession(
+    ::capnp::Orphan< ::capnp::Text>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::adopt(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::Text> SlcAction::TeslaGesture::Builder::disownWorkerSession() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::disown(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+
+inline  ::uint64_t SlcAction::TeslaGesture::Reader::getSequence() const {
+  return _reader.getDataField< ::uint64_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint64_t SlcAction::TeslaGesture::Builder::getSequence() {
+  return _builder.getDataField< ::uint64_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
+}
+inline void SlcAction::TeslaGesture::Builder::setSequence( ::uint64_t value) {
+  _builder.setDataField< ::uint64_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint64_t SlcAction::TeslaGesture::Reader::getSourceCanBootTime() const {
+  return _reader.getDataField< ::uint64_t>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint64_t SlcAction::TeslaGesture::Builder::getSourceCanBootTime() {
+  return _builder.getDataField< ::uint64_t>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
+}
+inline void SlcAction::TeslaGesture::Builder::setSourceCanBootTime( ::uint64_t value) {
+  _builder.setDataField< ::uint64_t>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint16_t SlcAction::TeslaGesture::Reader::getSourceCanFrameIndex() const {
+  return _reader.getDataField< ::uint16_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint16_t SlcAction::TeslaGesture::Builder::getSourceCanFrameIndex() {
+  return _builder.getDataField< ::uint16_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
+}
+inline void SlcAction::TeslaGesture::Builder::setSourceCanFrameIndex( ::uint16_t value) {
+  _builder.setDataField< ::uint16_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool SlcAction::TeslaGesture::Reader::hasName() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<1>() * ::capnp::POINTERS).isNull();
+}
+inline bool SlcAction::TeslaGesture::Builder::hasName() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<1>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::Text::Reader SlcAction::TeslaGesture::Reader::getName() const {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_reader.getPointerField(
+      ::capnp::bounded<1>() * ::capnp::POINTERS));
+}
+inline  ::capnp::Text::Builder SlcAction::TeslaGesture::Builder::getName() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_builder.getPointerField(
+      ::capnp::bounded<1>() * ::capnp::POINTERS));
+}
+inline void SlcAction::TeslaGesture::Builder::setName( ::capnp::Text::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::set(_builder.getPointerField(
+      ::capnp::bounded<1>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::Text::Builder SlcAction::TeslaGesture::Builder::initName(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::init(_builder.getPointerField(
+      ::capnp::bounded<1>() * ::capnp::POINTERS), size);
+}
+inline void SlcAction::TeslaGesture::Builder::adoptName(
+    ::capnp::Orphan< ::capnp::Text>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::adopt(_builder.getPointerField(
+      ::capnp::bounded<1>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::Text> SlcAction::TeslaGesture::Builder::disownName() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::disown(_builder.getPointerField(
+      ::capnp::bounded<1>() * ::capnp::POINTERS));
+}
+
+inline bool SlcAction::TeslaGesture::Reader::getFast() const {
+  return _reader.getDataField<bool>(
+      ::capnp::bounded<32>() * ::capnp::ELEMENTS);
+}
+
+inline bool SlcAction::TeslaGesture::Builder::getFast() {
+  return _builder.getDataField<bool>(
+      ::capnp::bounded<32>() * ::capnp::ELEMENTS);
+}
+inline void SlcAction::TeslaGesture::Builder::setFast(bool value) {
+  _builder.setDataField<bool>(
+      ::capnp::bounded<32>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool SlcAction::TeslaGesture::Reader::hasAssignmentsHash() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS).isNull();
+}
+inline bool SlcAction::TeslaGesture::Builder::hasAssignmentsHash() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::Text::Reader SlcAction::TeslaGesture::Reader::getAssignmentsHash() const {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_reader.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS));
+}
+inline  ::capnp::Text::Builder SlcAction::TeslaGesture::Builder::getAssignmentsHash() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_builder.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS));
+}
+inline void SlcAction::TeslaGesture::Builder::setAssignmentsHash( ::capnp::Text::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::set(_builder.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::Text::Builder SlcAction::TeslaGesture::Builder::initAssignmentsHash(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::init(_builder.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS), size);
+}
+inline void SlcAction::TeslaGesture::Builder::adoptAssignmentsHash(
+    ::capnp::Orphan< ::capnp::Text>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::adopt(_builder.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::Text> SlcAction::TeslaGesture::Builder::disownAssignmentsHash() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::disown(_builder.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS));
+}
+
+inline bool SlcAction::TeslaGesture::Reader::hasVehicleHash() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS).isNull();
+}
+inline bool SlcAction::TeslaGesture::Builder::hasVehicleHash() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::Text::Reader SlcAction::TeslaGesture::Reader::getVehicleHash() const {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_reader.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS));
+}
+inline  ::capnp::Text::Builder SlcAction::TeslaGesture::Builder::getVehicleHash() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_builder.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS));
+}
+inline void SlcAction::TeslaGesture::Builder::setVehicleHash( ::capnp::Text::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::set(_builder.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::Text::Builder SlcAction::TeslaGesture::Builder::initVehicleHash(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::init(_builder.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS), size);
+}
+inline void SlcAction::TeslaGesture::Builder::adoptVehicleHash(
+    ::capnp::Orphan< ::capnp::Text>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::adopt(_builder.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::Text> SlcAction::TeslaGesture::Builder::disownVehicleHash() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::disown(_builder.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS));
+}
+
+inline  ::uint64_t SlcAction::TeslaGesture::Reader::getDriveStartMonoTime() const {
+  return _reader.getDataField< ::uint64_t>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint64_t SlcAction::TeslaGesture::Builder::getDriveStartMonoTime() {
+  return _builder.getDataField< ::uint64_t>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
+}
+inline void SlcAction::TeslaGesture::Builder::setDriveStartMonoTime( ::uint64_t value) {
+  _builder.setDataField< ::uint64_t>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS, value);
 }
 
 inline  ::uint16_t SlcAction::ConditionalManualAction::Reader::getVersion() const {

@@ -2,6 +2,7 @@
 
 #include "opendbc/safety/declarations.h"
 #include "opendbc/safety/modes/tesla_screen_aol.h"
+#include "opendbc/safety/modes/tesla_speed_sync.h"
 
 static bool tesla_longitudinal = false;
 static bool tesla_coop_steering = false;
@@ -167,6 +168,7 @@ static void tesla_rx_hook(const CANPacket_t *msg) {
   }
 
   tesla_screen_rx(msg, tesla_autopark);
+  tesla_sync_rx(msg);
 
   if (msg_matches(msg, 0x155U, 0U)) {
     vehicle_moving = !GET_BIT(msg, 41U);  // ESP_vehicleStandstillSts
@@ -193,6 +195,11 @@ static void tesla_rx_hook(const CANPacket_t *msg) {
     }
     tesla_stock_lkas_prev = tesla_stock_lkas_now;
   }
+}
+
+static void tesla_optional_rx(const CANPacket_t *msg) {
+  tesla_screen_optional_rx(msg);
+  tesla_sync_optional_rx(msg);
 }
 
 static bool tesla_tx_hook(const CANPacket_t *msg) {
@@ -290,6 +297,11 @@ static bool tesla_tx_hook(const CANPacket_t *msg) {
     tx = false;
   }
 
+  // Speed sync: the wheel frame is decided by its own gate alone (Autopark included); nothing above has a side effect for it
+  if (msg->addr == 0x3C2U) {
+    tx = tesla_sync_tx(msg, tesla_stock_aeb, tesla_autopark, tesla_stock_lkas);
+  }
+
   return tx;
 }
 
@@ -326,6 +338,7 @@ static safety_config tesla_init(uint16_t param) {
   };
 
   static const CanMsg TESLA_M3_Y_LONG_TX_MSGS[] = {
+    {0x3C2, 1, 8, .check_relay = false}, // speed sync: gated single-wheel-step capability
     {0x488, 0, 4, .check_relay = true, .disable_static_blocking = true},  // DAS_steeringControl
     {0x2b9, 0, 8, .check_relay = true, .disable_static_blocking = true},  // DAS_control
     {0x27D, 0, 3, .check_relay = true, .disable_static_blocking = true},  // APS_eacMonitor
@@ -336,7 +349,8 @@ static safety_config tesla_init(uint16_t param) {
 #ifdef ALLOW_DEBUG
   tesla_longitudinal = GET_FLAG(param, 1U);
 #endif
-  tesla_screen_configure(param);
+  tesla_screen_configure(tesla_sync_base_param(param));
+  tesla_sync_configure(param, tesla_longitudinal);
   tesla_stock_aeb = false;
   tesla_stock_lkas = false;
   tesla_stock_lkas_prev = false;
@@ -369,7 +383,7 @@ static safety_config tesla_init(uint16_t param) {
 const safety_hooks tesla_hooks = {
   .init = tesla_init,
   .rx = tesla_rx_hook,
-  .optional_rx = tesla_screen_optional_rx,
+  .optional_rx = tesla_optional_rx,
   .tx = tesla_tx_hook,
   .fwd = tesla_fwd_hook,
   .get_counter = tesla_get_counter,
