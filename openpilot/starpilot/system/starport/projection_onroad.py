@@ -196,7 +196,7 @@ def birds_eye_dependencies():
 
   def now_playing_feed():
     from openpilot.starpilot.system.starport.projection_now_playing import ProjectionNowPlayingFeed
-    return ProjectionNowPlayingFeed()
+    return ProjectionNowPlayingFeed(fetch=lambda url: None)  # the glass card shows no cover, so none is downloaded
 
   def now_playing_control(action, args=None):
     from openpilot.starpilot.system.starport.media_audio import music_control
@@ -513,6 +513,13 @@ class ProjectionOnroad:
     model_renderer = getattr(getattr(self, 'camera', None), 'model_renderer', None)
     if model_renderer is not None:
       view.long_control = bool(getattr(model_renderer, '_longitudinal_control', True))
+    try:
+      # In full display the camera does not draw, so its model renderer never sees a new carParams.
+      sm = self.native.ui_state.sm
+      if sm.seen['carParams']:
+        view.long_control = bool(sm['carParams'].openpilotLongitudinalControl)
+    except (AttributeError, KeyError, TypeError):
+      pass
     customization = getattr(state, 'customization', None) or {}
     view.road_style = customization.get('roadColors', {}).get('large', {})
     view.render(rect)

@@ -466,6 +466,8 @@ class OnroadInput:
       if not in_control:
         self.cancel()
       return
+    if self._press and self._widgets_hidden(state):
+      self._press = None  # the wheel went out of sight under the finger
     if self._press:
       px, py, previous, token = self._press
       if (abs(x - px) > self.slop or abs(y - py) > self.slop or not (_inside_widget(x, y, state, "steering_wheel", (1588, 75, 1780, 267)))

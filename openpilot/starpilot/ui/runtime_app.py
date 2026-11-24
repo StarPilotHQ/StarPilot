@@ -1803,7 +1803,8 @@ class StarShellSession(TeslaSpeedActions):
     self.input.press(x, y, now, self._input_snapshot(mode))
     self._onroad_claimed = mode == ShellMode.ONROAD and self.input.onroad.claimed
     if mode == ShellMode.ONROAD and not self.input.onroad.claimed:
-      if self.view.onroad.navigation.press(x, y, snapshot.onroad):
+      # The 3D drive render draws no navigation card, so its place takes no taps.
+      if not self._drive_render_active(snapshot.onroad) and self.view.onroad.navigation.press(x, y, snapshot.onroad):
         self._navigation_claimed = True
         self.input.cancel()
         return
