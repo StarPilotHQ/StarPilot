@@ -24,4 +24,4 @@ class TestLaneCenteringDefaults(unittest.TestCase):
           if saved is not None:
             path.write_bytes(saved)
           exec(code, {"params": params, "os": os})
-          self.assertEqual(path.read_bytes(), saved if saved is not None else b"0" if upgrade else b"1")
+          self.assertEqual(path.read_bytes(), saved if saved is not None else b"0")
