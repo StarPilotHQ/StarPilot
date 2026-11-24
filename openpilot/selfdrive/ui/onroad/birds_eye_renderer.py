@@ -663,8 +663,9 @@ class BirdsEyeRenderer(Widget):
     if fresh('modelV2') and sm.updated['modelV2'] and sm.recv_frame['modelV2'] != self._last_model_frame:
       model = sm['modelV2']
       self._last_model_frame = sm.recv_frame['modelV2']
-    alive = getattr(sm, 'alive', None)
-    if sm.recv_frame['modelV2'] < started_frame or (hasattr(alive, 'get') and alive.get('modelV2') is False):
+    alive, received = getattr(sm, 'alive', None), sm.recv_frame
+    model_frame = received.get('modelV2', started_frame) if hasattr(received, 'get') else received['modelV2']
+    if model_frame < started_frame or (hasattr(alive, 'get') and alive.get('modelV2') is False):
       # The model is from an earlier drive or has stopped: its road is not drawn as if it were live.
       self.scene.valid = False
     radar = sm['radarState'] if fresh('radarState') else None

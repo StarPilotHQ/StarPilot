@@ -329,3 +329,22 @@ def test_radar_lead_without_a_finite_lateral_position_is_not_drawn():
   radar = SimpleNamespace(leadOne=lead(yRel=math.nan), leadTwo=lead(dRel=50.0, vRel=math.nan))
   leads = scene_leads(radar, None, [])
   assert [(found.d_rel, found.y, found.v_rel) for found in leads] == [(50.0, -0.5, 0.0)]
+
+
+def test_road_of_a_stopped_or_earlier_model_is_dropped():
+  renderer = _renderer_with_scene()
+  assert renderer.scene.valid
+  names = ('modelV2', 'radarState', 'carState', 'selfdriveState', 'longitudinalPlan', 'carControl')
+  def messages(frame, alive):
+    return SimpleNamespace(valid=dict.fromkeys(names, False), updated=dict.fromkeys(names, False),
+                           recv_frame=dict.fromkeys(names, frame), alive={**dict.fromkeys(names, True), 'modelV2': alive},
+                           seen=dict.fromkeys(names, False))
+  renderer._lane_centering_direction = lambda *args: 0
+  renderer._read_speed_limit = lambda *args: None
+  renderer.poll(messages(10, True), 5)
+  assert renderer.scene.valid, 'between model messages the road stays'
+  renderer.poll(messages(10, False), 5)
+  assert not renderer.scene.valid, 'the model stopped'
+  renderer.scene.valid = True
+  renderer.poll(messages(10, True), 20)
+  assert not renderer.scene.valid, 'the model is from before this drive'
