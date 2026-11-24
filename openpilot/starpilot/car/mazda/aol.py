@@ -61,3 +61,14 @@ def physical_cancel_lateral_allowed(cp, cs, intent, native, *, settings, previou
       native.validUntilMonoTime - native.observedMonoTime <= SAFETY_MAX_AGE_NS)
   except (AttributeError, KeyError, IndexError, TypeError, ValueError, OverflowError):
     return False
+
+
+def expected_stopped_lateral_denial(cp, state, native, *, sm, axis_session_id, now_ns):
+  from openpilot.starpilot.aol.transport_pause import _configured_transport_native
+
+  return bool(qualified(cp, marked_only=True) and state.canValid and not state.canTimeout and
+    state.standstill and state.gearShifter == structs.CarState.GearShifter.drive and
+    state.cruiseState.available and not state.steerFaultPermanent and not state.accFaulted and
+    native is not None and native.pandaInventory and native.requestedLateral and not native.lateralAllowed and
+    not native.requestedLongitudinal and not native.longitudinalAllowed and
+    _configured_transport_native(sm, cp, axis_session_id, now_ns, native, allow_restricted_lateral=True) == native)
