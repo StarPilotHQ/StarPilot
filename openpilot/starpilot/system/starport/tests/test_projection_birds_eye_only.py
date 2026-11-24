@@ -1,7 +1,6 @@
 """stream_content 'birds_eye': the car screen draws only the birds-eye view, its HUD and the now-playing card while
 driving and builds nothing else."""
 import ast
-import json
 from pathlib import Path
 from types import SimpleNamespace
 import unittest

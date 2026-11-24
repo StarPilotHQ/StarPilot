@@ -216,9 +216,11 @@ def test_hidden_widgets_take_no_taps():
     personality = target == 'personality'
     drawn, hidden = onroad_state.OnroadInput(Mock()), onroad_state.OnroadInput(Mock())
     hidden.widgets_hidden = lambda _state: True
-    with patch.object(onroad_state, 'personality_bounds', return_value=(0, 0, 100, 100) if personality else None),          patch.object(onroad_state, '_inside_widget', return_value=not personality):
-      drawn.press(50, 50, current)
-      hidden.press(50, 50, current)
+    bounds = (0, 0, 100, 100) if personality else None
+    with patch.object(onroad_state, 'personality_bounds', return_value=bounds):
+      with patch.object(onroad_state, '_inside_widget', return_value=not personality):
+        drawn.press(50, 50, current)
+        hidden.press(50, 50, current)
     assert (drawn._personality_press is not None) is personality and (drawn._press is not None) is not personality
     assert not hidden.claimed, f'the {target} takes no tap while the render hides it'
 
@@ -229,10 +231,11 @@ def test_wheel_press_ends_when_the_render_hides_the_wheel_under_it():
   emit, shown = Mock(), [False]
   touch = onroad_state.OnroadInput(emit)
   touch.widgets_hidden = lambda _state: shown[0]
-  with patch.object(onroad_state, 'personality_bounds', return_value=None), patch.object(onroad_state, '_inside_widget', return_value=True):
-    touch.press(50, 50, current)
-    assert touch._press is not None
-    shown[0] = True
-    touch.move(50, 50, current)
+  with patch.object(onroad_state, 'personality_bounds', return_value=None):
+    with patch.object(onroad_state, '_inside_widget', return_value=True):
+      touch.press(50, 50, current)
+      assert touch._press is not None
+      shown[0] = True
+      touch.move(50, 50, current)
   assert touch._press is None and not touch.claimed
   emit.assert_not_called()

@@ -33,7 +33,8 @@ def choices(large_profile: bool) -> tuple[str, ...]:
 def description(large_profile: bool) -> str:
   device = " Comma display shows it on the comma 3 or 3X screen and the camera in the car." if large_profile else ""
   return ("Draws a rendered 3D view of the road, lanes and traffic in place of the front camera. " +
-          "StarPort shows it on the car screen." + device + " Off shows the front camera on both; StarPort's layout can still place a birds-eye panel over it. " +
+          "StarPort shows it on the car screen." + device + " Off shows the front camera on both; " +
+          "StarPort's layout can still place a birds-eye panel over it. " +
           "StarPort uses the choice from its next connection.")
 
 
