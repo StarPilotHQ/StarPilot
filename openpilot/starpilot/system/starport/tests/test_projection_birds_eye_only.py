@@ -74,6 +74,31 @@ class TestBirdsEyeOnly(unittest.TestCase):
     view.close()
     self.assertEqual(events, ['fonts', 'fonts_closed'])
 
+  def test_only_a_view_given_the_stream_gate_writes_the_lease(self):
+    import os
+    import tempfile
+    from openpilot.starpilot.system.starport.projection_stream_lease import DEFAULT_PATH, projection_stream_active
+    native, _ = self.native()
+    native.ui_state.started = True
+    before = os.path.exists(DEFAULT_PATH)
+    plain = self.view(native)
+    self.assertIsNone(plain._stream_lease)
+    plain.prepare()
+    plain.render()
+    plain.close()
+    self.assertEqual(os.path.exists(DEFAULT_PATH), before, 'tests and previews leave the real lease alone')
+    with tempfile.TemporaryDirectory() as directory:
+      path, sent = os.path.join(directory, 'lease'), [False]
+      view = self.view(native, streaming=lambda: sent[0], stream_lease_path=path)
+      view.prepare()
+      view.render()
+      self.assertFalse(projection_stream_active(path), 'drawn, but the car accepted no frame')
+      sent[0] = True
+      view.render()
+      self.assertTrue(projection_stream_active(path))
+      view.close()
+      self.assertFalse(os.path.exists(path), 'closing the view gives the comma screen back at once')
+
   def test_unknown_content_is_refused(self):
     native, _ = self.native()
     with self.assertRaises(ValueError):

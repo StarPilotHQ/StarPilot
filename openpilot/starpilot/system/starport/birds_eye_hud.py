@@ -11,7 +11,8 @@ at zero and no other graduations. While
 longActive a tick marks each of the planner's published cruise limits (starpilotLongitudinalPlan.accelLimitMin/Max,
 the floor and ceiling the StarPilot profile toggles and overrides leave in force; a planner that publishes neither
 leaves both zero, read_limits returns None, there are no ticks and the bar grows against the fixed range) and
-moves along the bar as they change; a ceiling of zero (throttle withheld, lateral budget spent) sits on the zero line, and the last limits read
+moves along the bar as they change; a ceiling of zero (lateral budget spent) sits on the zero line and a coast-only
+ceiling (throttle withheld) below it, and the last limits read
 are held through a missing or stale message, so the ticks never blink. As the command reaches a limit the bar grows
 thicker; it may pass the tick. Disengaged, the track is neutral grey, the setpoint stays at zero (the plan's accel is
 not shown) and no limit ticks are drawn. A white tick is always the measured carState.aEgo, lightly filtered (AEGO_RC).
@@ -62,7 +63,7 @@ AEGO_RC = 0.15             # seconds; the measured-accel tick's light filter
 TORQUE_RC = 0.1            # the full composition's torque filter time constant
 LIMITS_MAX_AGE_NS = 1_000_000_000  # starpilotLongitudinalPlan older than this is not read; the last limits are held
 PLAN_MAX_AGE_NS = 1_000_000_000    # longitudinalPlan older than this falls back to carControl.actuators.accel
-TRAFFIC_MAX_AGE_NS = 500_000_000   # slcState older than this is not read: the follow row shows the personality
+TRAFFIC_MAX_AGE_NS = 200_000_000   # slcState (20 Hz) older than this is not read: the row shows the personality
 
 ACCEL_WIDTH, ACCEL_GROWN = 28, 56              # logical px at 1080 rows: 2x the former bar, doubling at the limit
 TORQUE_MIN, TORQUE_MAX = 2 * 14, 2 * 56        # 2x the arc's MIN_HEIGHT / MAX_HEIGHT (onroad_torque_geometry)
@@ -160,7 +161,8 @@ def accel_y(g: AccelGeometry, accel: float) -> float:
 
 @dataclass(frozen=True)
 class AccelLimits:
-  """The planner's cruise floor (`lower` <= 0) and ceiling (`upper` >= 0), m/s^2."""
+  """The planner's cruise floor (`lower` <= 0) and ceiling, m/s^2. The ceiling is below zero while the car may only
+  coast, and on a climb it can then be under the floor."""
   lower: float
   upper: float
 
@@ -305,8 +307,7 @@ def read_limits(sm, now_ns: int | None = None) -> AccelLimits | None:
   """The planner's cruise floor and ceiling from starpilotLongitudinalPlan; None when absent, stale or implausible.
 
   The ceiling may be zero (the lateral budget is spent) or below it (the model withholds throttle and the car may
-  only coast, on a climb even below the floor); a ceiling below zero is marked on the zero line, the bar's lowest
-  place for it.
+  only coast, on a climb even below the floor); both are marked where the planner put them.
   """
   try:
     plan = _current(sm, 'starpilotLongitudinalPlan', now_ns, LIMITS_MAX_AGE_NS)
@@ -317,7 +318,7 @@ def read_limits(sm, now_ns: int | None = None) -> AccelLimits | None:
     return None
   if lower is None or upper is None or lower > 0 or lower == upper == 0:
     return None  # both zero is a planner that publishes neither
-  return AccelLimits(lower, max(upper, 0.0))
+  return AccelLimits(lower, upper)
 
 
 def read_blinkers(sm) -> tuple[bool, bool]:
@@ -432,8 +433,9 @@ def read_traffic(sm, now_ns: int | None = None) -> bool:
   True only for a receipt that is accepted, effective and applied (reason active, the profile target ready and
   qualified) while openpilot is enabled and commanding longitudinal: the case the comma's own screen labels TRAFFIC.
   A request that is off, paused or without a usable profile, a stopped planner and a car without Traffic Mode all
-  read False. The receipt's settings and button-map fingerprints are not compared against the saved ones here; the
-  message's age is what bounds it.
+  read False. This is looser than the comma's own label (TrafficDisplayProjector): the receipt's validity window,
+  session barrier and settings and button-map fingerprints are not checked, so after a planner restart or a
+  settings change this can read True for up to the message age the comma's screen would not.
   """
   try:
     state = _current(sm, 'slcState', now_ns, TRAFFIC_MAX_AGE_NS)

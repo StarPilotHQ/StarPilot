@@ -1,12 +1,11 @@
 """The cruise floor and ceiling the planner publishes are the ones get_cruise_accel clips to."""
-from types import SimpleNamespace
-
 import pytest
 
 from opendbc.car.interfaces import ACCEL_MAX, ACCEL_MIN
 from opendbc.car.toyota.interface import CarInterface
 from opendbc.car.toyota.values import CAR
 from openpilot.selfdrive.controls.lib.longitudinal_planner import A_CRUISE_MIN, cruise_accel_limits, get_cruise_accel
+from openpilot.starpilot.longitudinal.profile_runtime import AppliedProfile
 
 
 def camry():
@@ -21,7 +20,8 @@ def test_defaults_are_the_cruise_floor_and_the_speed_ceiling():
 
 def test_profiles_a_withheld_throttle_and_a_downhill_correction_move_the_limits():
   cp = camry()
-  profile = SimpleNamespace(acceleration_max=0.7, cruise_brake_magnitude=2.4)
+  profile = AppliedProfile(follow_seconds=1.45, acceleration_max=0.7, cruise_brake_magnitude=2.4, acceleration_jerk=1.,
+                           deceleration_jerk=1., speed_jerk=1., speed_decrease_jerk=1., danger_jerk=1.)
   assert cruise_accel_limits(False, 20., 0., cp, 0., True, profile) == (-2.4, 0.7)
   assert cruise_accel_limits(False, 20., 0., cp, 0., True, None, -1.2, 0.9) == (-1.2, 0.9)
   assert cruise_accel_limits(False, 20., 0., cp, 0., True, None, -9.)[0] == ACCEL_MIN

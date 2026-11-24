@@ -300,10 +300,11 @@ def test_limits_are_unread_when_absent_stale_or_implausible():
   assert read_limits(sm(limits=(-1.0, 0.0))) == AccelLimits(-1.0, 0.0), 'throttle withheld'
   assert read_limits(sm(limits=(0.0, 1.5))) == AccelLimits(0.0, 1.5)
   assert read_limits(sm(limits=(0.0, 0.0))) is None, 'an unset message'
-  assert read_limits(sm(limits=(-1.2, -0.3))) == AccelLimits(-1.2, 0.0), 'coast only: the ceiling sits on the zero line'
+  assert read_limits(sm(limits=(-1.2, -0.3))) == AccelLimits(-1.2, -0.3), 'coast only: the ceiling is below zero'
   assert read_limits(sm(limits=(0.5, 1.5))) is None
-  assert read_limits(sm(limits=(-0.5, -0.6))) == AccelLimits(-0.5, 0.0), 'coasting up a climb: the ceiling is under the floor'
-  assert read_limits(sm(limits=(0.0, -0.3))) == AccelLimits(0.0, 0.0)
+  assert read_limits(sm(limits=(-0.5, -0.6))) == AccelLimits(-0.5, -0.6), 'coasting up a climb: the ceiling is under the floor'
+  assert read_limits(sm(limits=(0.0, -0.3))) == AccelLimits(0.0, -0.3)
+  assert AccelLimits(-0.5, -0.6).utilization(0.05) == pytest.approx(0.5), 'no divide by a negative ceiling'
   assert read_limits(sm(limits=(-1.0, float('nan')))) is None
   stale = sm(limits=(-1.0, 1.5))
   stale.alive = {'starpilotLongitudinalPlan': False}
@@ -639,7 +640,7 @@ def test_traffic_mode_in_force_names_the_follow_row():
   assert read_traffic(stopped) is False, 'a stopped planner'
   old = status_sm(long_active=True, traffic=traffic_receipt())
   old.recv_time = {'slcState': 1.0}
-  assert read_traffic(old, now_ns=1_400_000_000) is True and read_traffic(old, now_ns=1_600_000_000) is False
+  assert read_traffic(old, now_ns=1_150_000_000) is True and read_traffic(old, now_ns=1_250_000_000) is False
 
 
 def overlap(a, b):

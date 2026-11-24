@@ -1,5 +1,6 @@
 """Large onroad projection with navigation and drive-bookmark actions."""
 
+from collections.abc import Callable
 from contextlib import ExitStack
 from dataclasses import replace
 from pathlib import Path
@@ -244,7 +245,8 @@ class ProjectionOnroad:
   """
 
   def __init__(self, *, dependencies=None, viewport=None, customization=None, certificate_days=None, native_focus=None,
-               layout_watcher=None, content='full', reconnect_notice="", streaming=None, stream_lease_path=None):
+               layout_watcher=None, content='full', reconnect_notice="", streaming: Callable[[], bool] | None = None,
+               stream_lease_path: str | None = None):
     if content not in CONTENTS:
       raise ValueError(f'unknown projection content {content!r}')
     self.content = content
@@ -279,8 +281,8 @@ class ProjectionOnroad:
     self._resources = ExitStack()
     # Kept fresh while the car screen is really being sent this view's drive; the comma's own screen may go black
     # on it. Only the car display process passes `streaming`, so nothing else writes the lease.
-    self._streaming = streaming
-    self._stream_lease = None
+    self._streaming: Callable[[], bool] | None = streaming
+    self._stream_lease: StreamLeaseWriter | None = None
     if streaming is not None:
       self._stream_lease = StreamLeaseWriter(stream_lease_path) if stream_lease_path else StreamLeaseWriter()
       self._resources.callback(self._stream_lease.release)
@@ -867,7 +869,8 @@ class ProjectionOnroad:
     ui = self.native.ui_state
     self.camera_stream = None
     # A drawn frame is not yet a shown one: the lease follows frames the car's connection accepted in the last second.
-    if ui.started and (lease := getattr(self, '_stream_lease', None)) is not None and self._streaming():
+    lease, streaming = getattr(self, '_stream_lease', None), getattr(self, '_streaming', None)
+    if ui.started and lease is not None and streaming is not None and streaming():
       lease.touch()  # at most one utime a second
     if ui.started and self.content == 'birds_eye':
       self._state = None

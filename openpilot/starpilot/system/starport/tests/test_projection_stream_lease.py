@@ -71,18 +71,3 @@ def test_view_keeps_the_lease_fresh_only_while_the_car_takes_its_drive(tmp_path)
   unset = drawing_view(tmp_path, started=True)
   unset._stream_lease = None
   unset.render()
-
-
-def test_only_the_car_display_process_writes_the_lease(tmp_path, monkeypatch):
-  """A view built without `streaming` (tests, previews) never creates, touches or removes a lease."""
-  from contextlib import ExitStack
-  from pathlib import Path
-  from openpilot.starpilot.system.starport import current_car_ui
-  source = Path(projection_onroad.__file__).read_text()
-  build = source[source.index('self._resources = ExitStack()'):source.index("if content == 'birds_eye':")]
-  assert 'if streaming is not None:' in build and 'self._resources.callback(self._stream_lease.release)' in build
-  assert 'streaming=producer.recently_sent' in Path(current_car_ui.__file__).read_text()
-  # The gate the car display passes: focused demand and a frame the connection accepted within a second.
-  from openpilot.starpilot.system.starport.frame_source import FrameProducer
-  assert 'sent' in FrameProducer.recently_sent.__doc__
-  assert ExitStack  # the lease's release rides the view's own resource stack
