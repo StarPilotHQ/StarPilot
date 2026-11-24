@@ -1,6 +1,6 @@
 """HUD over the birds-eye-only car screen: an acceleration bar on the left edge, a flat torque bar at the bottom, large
-blinking turn-signal arrows at the side edges, a speed / set-speed readout at the top left and a status cluster
-(steering wheel, drive mode, follow distance) at the bottom left.
+blinking turn-signal arrows at the side edges, a speed / set-speed readout at the top left with the drive mode and
+the follow distance under it, and a clock at the top right with the steering wheel and its angle under it.
 
 Acceleration bar: a vertical track hugging the left edge, zero at its middle, accelerating up, braking down. Only while
 carControl.longActive is it coloured: the fill is the planner's target (longitudinalPlan.aTarget; the 100 Hz
@@ -26,7 +26,7 @@ Turn signals: carState.leftBlinker/rightBlinker pulse the comma's turn_signal_le
 edge of the view, centred vertically on the frame, with the comma screen's period; a filled arrow when the texture
 cannot be loaded.
 
-Speed readout: top left of the view, carState.vEgo and right of it the cruise set speed (the onroad HUD's rule:
+Speed readout: top left of the view, carState.vEgoCluster (vEgo when the car reports none) and right of it the cruise set speed (the onroad HUD's rule:
 vCruiseCluster, else vCruise, valid in (0, SET_SPEED_NA); "--" otherwise and whenever carState.cruiseState.enabled is
 false, i.e. disengaged or lateral-only), mph or km/h by `metric`. The numbers are
 twice the birds-eye lead label's size (birds_eye_math.label_font_size over the view rect), with small unit captions.

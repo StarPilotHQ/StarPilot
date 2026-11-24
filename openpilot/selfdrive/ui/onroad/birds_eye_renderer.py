@@ -12,9 +12,9 @@ The look is flat: a solid black background, no gradients, and panels (the lead l
 glass: a smoked tint under a bright hairline rim (bem.GLASS_FILL / GLASS_RIM).
 
 Drawing cost: a frame issues O(ribbons) C calls, not O(vertices). Each road edge, lane line and the road fill is
-one single-coloured DrawTriangleStrip per valid run plus a few constant-alpha strips for its soft end (each line
-ends at its own distance, bem.line_rows). The path is a handful of constant-alpha strips that step through its
-soft end; only the per-row colour modes (experimental accel tint, rainbow, colour gradient) replay per-vertex
+one single-coloured DrawTriangleStrip per valid run (each line ends at its own distance, bem.line_rows) and the
+path is one strip, both ending in a hard cut; with SOFT_ENDS on (it is off) a few constant-alpha strips step
+through a soft end instead. Only the per-row colour modes (experimental accel tint, rainbow, colour gradient) replay per-vertex
 quads, for the path alone. A car is one DrawTriangleFan per face that looks toward the camera (about ten).
 """
 from collections.abc import Callable
