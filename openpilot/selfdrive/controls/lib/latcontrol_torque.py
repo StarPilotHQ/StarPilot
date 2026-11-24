@@ -7,6 +7,8 @@ from openpilot.cereal import log
 from opendbc.car import structs
 from opendbc.car.hyundai.values import CAR, HyundaiFlags
 from opendbc.car.lateral import FRICTION_THRESHOLD, get_friction
+from opendbc.car.toyota import legacy_advert_filter
+from opendbc.car.toyota.values import CAR as TOYOTA_CAR
 from openpilot.common.constants import ACCELERATION_DUE_TO_GRAVITY, CV
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.selfdrive.controls.lib.latcontrol import LatControl
@@ -52,6 +54,8 @@ class LatControlTorque(LatControl):
       and not (CP.notCar or CP.passive or CP.dashcamOnly)
     )
     self.controller_mode = default_selection(CP).mode if controller_mode is None else ControllerMode(controller_mode)
+    self.sienna_center_friction = (self.controller_mode == ControllerMode.STANDARD and
+                                  CP.carFingerprint == TOYOTA_CAR.TOYOTA_SIENNA and legacy_advert_filter.enabled(CP))
     self.controller_policy = policy_for(CP)
     if self.controller_mode == ControllerMode.STARPILOT and self.controller_policy is None:
       raise ValueError('No StarPilot torque policy for CarParams')
@@ -98,7 +102,12 @@ class LatControlTorque(LatControl):
       weight *= np.interp(abs(setpoint), [0.25, 0.65], [1.0, 0.0])
       threshold += max(np.interp(CS.vEgo, [65 * CV.MPH_TO_MS, 75 * CV.MPH_TO_MS], [0.65, 0.78]) - threshold, 0.0) * weight
       error = math.copysign(max(abs(error) - 0.04 * weight, 0.0), error)
-    return get_friction(error, deadzone, threshold, self.torque_params)
+    friction = get_friction(error, deadzone, threshold, self.torque_params)
+    if self.sienna_center_friction and not CS.steeringPressed:
+      speed_weight = np.interp(CS.vEgo * CV.MS_TO_MPH, [34., 39., 50., 56.], [0., 1., 1., 0.])
+      center_weight = np.interp(abs(setpoint), [0.22, 0.58], [1., 0.])
+      friction *= 1.0 - 0.5 * speed_weight * center_weight
+    return friction
 
   def update(self, active, CS, VM, params, steer_limited_by_safety, desired_curvature, curvature_limited, lat_delay):
     self.flm_surface = self.flm_source.sample(active=active, speed=CS.vEgo)
