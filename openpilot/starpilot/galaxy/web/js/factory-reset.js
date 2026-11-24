@@ -36,7 +36,7 @@ export const FactoryReset = {
   },
   template: `
     <div class="gx-maintenance__group gx-factory-reset">
-      <MaintenanceGroup title="Danger zone" description="Factory reset the comma and return to initial setup. Requires a direct local connection and a parked vehicle.">
+      <MaintenanceGroup title="Danger zone" description="Factory reset the comma and return to initial setup. The vehicle must be parked.">
         <button type="button" class="gx-btn gx-btn--danger" :disabled="requested" @click="review">
           <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> Factory Reset (Save Me)
         </button>

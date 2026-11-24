@@ -2322,9 +2322,6 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
           if type(payload) is not dict or type(payload.get('action')) is not str:
             raise ValueError('Invalid software request')
           factory_reset = payload['action'] == 'factory-reset'
-          if factory_reset and not self.direct_local():
-            self.json(403, {'error': 'Factory reset requires a direct local connection to this comma'})
-            return
           with effect_lock:
             if self.settings_session() != identity:
               self.json(401, {'error': 'Sign in to Galaxy'})

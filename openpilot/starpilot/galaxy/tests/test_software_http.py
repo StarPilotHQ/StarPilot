@@ -135,24 +135,27 @@ class SoftwareHttpTest(unittest.TestCase):
     self.assertFalse(Path(self.params.get_param_path('UpdaterAutomaticDownloads')).exists())
     self.assertEqual(self.process.sent, [])
 
-  def test_factory_reset_only_queues_native_confirmation_from_local_parked_session(self):
+  def test_factory_reset_queues_native_confirmation_from_parked_local_and_remote_sessions(self):
     path = '/api/software/action'
     payload = {'action': 'factory-reset', 'confirmation': 'ERASE DEVICE'}
     with patch('openpilot.starpilot.galaxy.software_operations.factory_reset_available', return_value=True):
       self.assertEqual(self.request(path, payload=payload)[0], 401)
-      self.assertEqual(self.request(path, payload=payload, remote=True, cookie=self.remote_cookie)[0], 403)
+      self.assertEqual(self.request(path, payload=payload, remote=True)[0], 401)
       self.assertEqual(self.request(path, payload=payload, cookie=self.local_cookie, origin='https://wrong.example')[0], 403)
       self.assertEqual(self.request(path, payload=payload | {'confirmation': 'yes'}, cookie=self.local_cookie)[0], 400)
       self.parked = False
       self.assertEqual(self.request(path, payload=payload, cookie=self.local_cookie)[0], 409)
+      self.assertEqual(self.request(path, payload=payload, remote=True, cookie=self.remote_cookie)[0], 409)
       self.parked = True
       self.params.put('UpdaterState', 'updating...', block=True)
       self.assertEqual(self.request(path, payload=payload, cookie=self.local_cookie)[0], 409)
       self.params.put('UpdaterState', 'idle', block=True)
       self.assertFalse(self.params.get_bool('DoUninstall'))
-      status, result, _ = self.request(path, payload=payload, cookie=self.local_cookie)
-      self.assertEqual((status, result), (200, {'resetRequested': True}))
-      self.assertEqual(self.request(path, payload=payload, cookie=self.local_cookie)[0], 409)
+      for remote, cookie in ((False, self.local_cookie), (True, self.remote_cookie)):
+        self.params.put_bool('DoUninstall', False, block=True)
+        status, result, _ = self.request(path, payload=payload, remote=remote, cookie=cookie)
+        self.assertEqual((status, result), (200, {'resetRequested': True}))
+        self.assertEqual(self.request(path, payload=payload, remote=remote, cookie=cookie)[0], 409)
     self.assertTrue(self.params.get_bool('DoUninstall'))
     self.assertFalse(self.params.get_bool('DoReboot'))
     self.assertEqual(self.process.sent, [])
