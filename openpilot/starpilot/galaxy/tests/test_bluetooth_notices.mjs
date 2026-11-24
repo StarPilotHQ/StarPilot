@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { createRenderer, nextTick } from '../web/vendor/vue/vue.esm-browser.js'
 import { BluetoothNotice, bluetoothConnection } from '../web/js/bluetooth-notice.js'
+import { BluetoothPage } from '../web/js/bluetooth.js'
 import { LocalHistoryFeed, LocalRecordingsPage } from '../web/js/record-history.js'
 import { CamerasPage, CameraSnapshotFeed, LiveCameraPreview } from '../web/js/cameras.js'
 import { PipPage } from '../web/js/pip.js'
@@ -108,11 +109,19 @@ assert.equal(requests, 0)
 
 window.StarPilotApp.bluetooth = () => false
 assert.equal(bluetoothConnection(), false)
-{
-  const { readFileSync } = await import('node:fs')
-  const lines = readFileSync(new URL('../web/js/bluetooth.js', import.meta.url), 'utf8').split('\n')
-  const chained = lines.findIndex((line) => line.trim() === '<template v-else-if="status">')
-  assert.ok(chained > 0)
-  assert.doesNotMatch(lines[chained - 1], /v-if="status"/, 'a notice before the device cards would swallow their v-else-if')
+const detector = { address: 'AA:BB:CC:DD:EE:FF', name: 'Uniden R8', paired: true, connected: true, trusted: true }
+for (const [mode, unidenSettings] of [['local', false], ['local', true], ['preview', false], ['preview', true]]) {
+  const view = mount(BluetoothPage, { mode, unidenSettings }, {
+    ...presentation,
+    data: () => ({ ...BluetoothPage.data(), status: { powered: true, available: true, parked: true, devices: [detector] } }),
+    components: { ...BluetoothPage.components, UnidenPanel: { props: ['devices'], template: '<p>Detector controls for {{ devices[0].name }}</p>' } },
+  })
+  try {
+    const rendered = text(view.host)
+    assert.equal(rendered.includes('Saved devices'), mode === 'local' && !unidenSettings)
+    assert.equal(rendered.includes('Detector controls for Uniden R8'), mode === 'local' && unidenSettings)
+    assert.equal(rendered.includes('No radio was checked in preview.'), mode !== 'local')
+  } finally { view.unmount() }
 }
+assert.equal(requests, 0)
 console.log('Bluetooth limits: blue notices, connection action, no blocked requests, supported settings and real errors verified')
