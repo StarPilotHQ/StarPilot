@@ -134,6 +134,57 @@ def retain_stopped_source_feedback(feedback, sm, cp, state, axis, stamp, now_ns,
     feedback.healthy_inventory == (native.pandaSerial, tuple(slot.hardwareSerial for slot in native.pandaInventory)))
 
 
+def retain_paddle_denial(feedback, sm, cp, state, axis, stamp, now_ns, *, latched, producer):
+  """Join the gear pause with an early Panda denial of the outgoing LAT request."""
+  from openpilot.starpilot.aol.transport_pause import _configured_transport_native
+  from openpilot.starpilot.car.subaru.aol import known_paddle_pause
+
+  if cp.carFingerprint != CAR.SUBARU_IMPREZA_2020:
+    return False
+  pending = feedback.subaru_paddle_denial
+  feedback.subaru_paddle_denial = None
+  previous = feedback.signature
+  paddle = known_paddle_pause(cp, state)
+  drive = state.gearShifter == structs.CarState.GearShifter.drive
+  epoch = int(axis.intentIntegrityEpoch)
+  if (not (paddle or pending is not None and drive) or not latched or feedback.failed or feedback.paused or
+      feedback.pending_event or feedback.retention_started_ns or feedback.source_retention_started_ns or
+      not feedback.ever_lateral_active or previous is None or not feedback.session or not producer or
+      previous[0] != feedback.session or previous[7] != feedback.session or previous[5] != 'none' or
+      previous[10] or previous[12] or previous[14:16] != (producer, epoch) or
+      axis.intentProducerSessionId != producer or str(axis.sessionId) != feedback.session or
+      str(axis.faultReason) != 'none' or axis.desiredLongitudinal or axis.longitudinalActive or
+      not 0 < previous[8] <= axis.sourceCarStateMonoTime <= stamp <= now_ns or
+      now_ns - axis.sourceCarStateMonoTime > AXIS_MAX_AGE_NS or
+      not state.canValid or state.canTimeout or state.steerFaultTemporary or state.steerFaultPermanent or
+      state.accFaulted or state.vehicleSensorsInvalid or state.doorOpen or state.seatbeltUnlatched or
+      state.steeringDisengage or state.buttonEvents or not state.cruiseState.available or state.cruiseState.enabled):
+    return False
+  names = log.OnroadEvent.EventName
+  event_ns = int(sm.logMonoTime['onroadEvents'])
+  if (not sm.seen['onroadEvents'] or not sm.valid['onroadEvents'] or not sm.alive['onroadEvents'] or
+      not 0 < event_ns <= now_ns or now_ns - event_ns > 1_500_000_000 or
+      any(e.immediateDisable or e.softDisable and e.name != names.wrongGear or
+          e.userDisable and e.name != names.pcmDisable and not (e.name == names.pedalPressed and state.brakePressed)
+          for e in sm['onroadEvents'])):
+    return False
+  native = _configured_transport_native(sm, cp, feedback.session, now_ns, allow_restricted_lateral=True)
+  if (native is None or not native.pandaInventory or not native.requestedLateral or native.lateralAllowed or
+      native.requestedLongitudinal or native.longitudinalAllowed or
+      feedback.healthy_inventory != (native.pandaSerial, tuple(slot.hardwareSerial for slot in native.pandaInventory))):
+    return False
+  denied_ns = int(native.observedMonoTime)
+  if pending is None:
+    if (not paddle or not previous[9] or not previous[11] or not previous[13] or
+        not 0 < previous[8] <= previous[2] <= now_ns <= previous[4] or
+        not 0 < feedback.healthy_native_ns < denied_ns <= now_ns):
+      return False
+  elif pending != (denied_ns, producer, epoch):
+    return False
+  feedback.subaru_paddle_denial = denied_ns, producer, epoch
+  return True
+
+
 def retain_paused_restriction(feedback, sm, cp, state, axis, stamp, now_ns, *, latched, producer):
   """Accepted intent survives coherent OFF, waiting, and active LAT phases."""
   if retain_pending_restriction_recovery(feedback, sm, cp, state, axis, stamp, now_ns, latched=latched, producer=producer):

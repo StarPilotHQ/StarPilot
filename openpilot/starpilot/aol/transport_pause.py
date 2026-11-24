@@ -101,6 +101,7 @@ class TransportPauseFeedback:
     self.cp = cp_identity(cp)
     self.session = ''
     self.sequence = 0
+    self.subaru_paddle_denial = None
     self.signature = None
     self.paused = False
     self.qualified = False
@@ -1245,6 +1246,7 @@ class TransportPauseFeedback:
         self.cold_park_waiting = False
         self.cold_main_sparse_waiting = False
         self.subaru_braked_main = None
+        self.subaru_paddle_denial = None
         self.subaru_eps_brake_event_ns = 0
       stamp = int(sm.logMonoTime['aolAxisState'])
       reason = str(axis.faultReason)
@@ -1427,8 +1429,9 @@ class TransportPauseFeedback:
         if retain_physical_pause_intent(self, sm, cp, cs, axis, now_ns, latched=latched, producer=intent_producer_session):
           return False
       if cp.brand == 'subaru' and current and continuity:
-        from openpilot.starpilot.car.subaru.paused_intent import retain_paused_restriction
-        if retain_paused_restriction(self, sm, cp, cs, axis, stamp, now_ns, latched=latched, producer=intent_producer_session):
+        from openpilot.starpilot.car.subaru.paused_intent import retain_paddle_denial, retain_paused_restriction
+        if (retain_paddle_denial(self, sm, cp, cs, axis, stamp, now_ns, latched=latched, producer=intent_producer_session) or
+            retain_paused_restriction(self, sm, cp, cs, axis, stamp, now_ns, latched=latched, producer=intent_producer_session)):
           self.sequence, self.signature = int(axis.sequence), signature
           return False
       fit_eps_retained = False

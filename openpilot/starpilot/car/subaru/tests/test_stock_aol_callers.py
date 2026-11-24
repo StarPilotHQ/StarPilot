@@ -25,7 +25,7 @@ from openpilot.starpilot.car.subaru.tests.native_fixture import subaru_native_pa
                                        CAR.SUBARU_FORESTER, CAR.SUBARU_OUTBACK])
 def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, subaru_native_pair, tmp_path, aol=True, manual=False, stop_resume=False,
                                                                       hard_stop_native_first=False, main_only=False, preferences=None, firmware=None,
-                                                                      manual_ratio=None, camera_hud=False,
+                                                                      manual_ratio=None, camera_hud=False, manual_phase=0,
                                                                       deadline_gap=False, fixed_angle_handoff=False, host_first_stop=False,
                                                                       source_outage=False, vm_angle_handoff=0, crawl=False, eps_brake_join=False,
                                                                       high_angle_guard=False, main_on_brake=False, guard_brake_release=False,
@@ -82,8 +82,9 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
       ticks = (list(range(30)) + list(range(30, 50)) * 16 + list(range(50, 460))
                if main_during_eps else list(range(125)) + list(range(125, 135)) * 30 + list(range(135, 460))
                if hard_stop_native_first or stop_creep_eps else list(range(70)) + list(range(70, 90)) * 16 + list(range(90, 460))
-               if angle_continuation else list(range(150)) + list(range(150, 185)) * 16 + list(range(185, 460))
-               if manual_ratio == 137 else range(460))
+               if angle_continuation else list(range(151)) + list(range(151, 185)) * 54 + list(range(185, 460))
+               if manual_phase == 1 else list(range(150)) + list(range(150, 185)) * 16 + list(range(185, 460))
+               if manual_ratio == 137 and not manual_phase else range(460))
       gap_tick = 75 if main_only else 210
       last_card_published = {}
       pending_host_can = []
@@ -103,7 +104,7 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
         brake = bool(brake or angle_continuation and 70 <= tick < 90)
         if eps_clear_join and 90 <= tick < 145:
           brake = eps_clear_join in (5, 6) and 95 <= tick < 102
-        reverse = 150 <= tick < 185
+        reverse = 150 + manual_phase <= tick < 185
         gear = manual_ratio if reverse and manual_ratio is not None else 3 if reverse else 121
         temporary = not guard_brake_release and 225 <= tick < 260
         main = not 310 <= tick < 350 and (tick >= 30 or not main_only)
@@ -206,7 +207,8 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
           safety.safety_rx_hook(libsafety_py.make_CANPacket(addr, bus, data))
         safety.safety_tick()
         hard_stop_receipt = (hard_stop_native_first or host_first_stop) and elapsed == 125
-        if hard_stop_receipt:
+        paddle_native_receipt = bool(manual_phase and elapsed == 150 + manual_phase)
+        if hard_stop_receipt or paddle_native_receipt:
           # Native zero wheels and its USB poll precede the host's stopped CarState.
           receipt, hard_order = pandad.step(driven, published, now)
           assert hard_order['before'][:2] == (1, 0), hard_order
@@ -243,7 +245,8 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
             pending_eps_event = driven_new[service]
           else:
             peers.append(driven_new[service])
-        if receipt is not None and (tick % 10 == 1 or hard_stop_receipt and not host_first_stop or host_first_stop and elapsed == 127):
+        if receipt is not None and (tick % 10 == 1 or paddle_native_receipt or
+                                    hard_stop_receipt and not host_first_stop or host_first_stop and elapsed == 127):
           peers.append(receipt.as_reader())
         if paused_eps in (5, 6):
           # SubMaster delivers the latest publication per service after conflation.
@@ -289,7 +292,7 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
         if hard_stop_receipt and not host_first_stop:
           _assert_hard_stop_fault_guards(card, cs, now + 2000)
         # Deliver each genuine10Hz native receipt once; do not refresh receive time/frequency from a cached snapshot.
-        new_native = receipt if receipt is not None and (tick % 10 == 1 or hard_stop_receipt) else None
+        new_native = receipt if receipt is not None and (tick % 10 == 1 or hard_stop_receipt or paddle_native_receipt) else None
         if deadline_gap and elapsed == gap_tick:
           prior = driven['aolAxisState'].aolAxisState
           assert prior.lateralActive and now + 2000 > prior.validUntilMonoTime
@@ -474,9 +477,10 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
           assert command.latActive and bool(intent and intent.allowedLatch) == aol and row['permission'] == int(aol), row
         if not stopped and (first_resume or 205 <= tick < 220 or 280 <= tick < 300):
           assert command.latActive == aol and bool(intent and intent.allowedLatch) == aol and row['permission'] == int(aol) and not row['controls'], row
-        if manual_ratio is not None and 150 <= tick < 185:
+        if manual_ratio is not None and 150 + manual_phase <= tick < 185:
           assert not command.latActive and row['permission'] == 0 and row['cardLatch'] and row['armed'], row
-          assert all(not steering['request'] for steering in row['steering']), row
+          assert all(not steering['request'] or tick == 150 + manual_phase and not steering['nativeAccepted']
+                     for steering in row['steering']), row
         if 165 <= tick < 180:
           assert (not command.latActive and not bool(intent and intent.allowedLatch) and
                 bool(intent and intent.lateralArmed) == aol and row['cardLatch'] == aol and row['permission'] == 0), row
@@ -812,3 +816,10 @@ def test_actual_stopped_brake_release_source_gap_keeps_armed_intent(subaru_nativ
 def test_actual_crosstrek_manual_ratio_pauses_and_recovers(subaru_native_pair, tmp_path, ratio):
   test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(
     CAR.SUBARU_IMPREZA_2020, subaru_native_pair, tmp_path, main_only=True, manual_ratio=ratio)
+
+
+@pytest.mark.parametrize("phase", (1, 4, 7))
+def test_actual_crosstrek_native_first_paddle_pause(subaru_native_pair, tmp_path, phase):
+  test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(
+    CAR.SUBARU_IMPREZA_2020, subaru_native_pair, tmp_path, main_only=True, manual_ratio=145, manual_phase=phase,
+    preferences={'SubaruSNG': True})
