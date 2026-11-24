@@ -93,7 +93,7 @@ def ui_fake():
   sm.put("deviceState", NS(started=True, networkType=NS(raw=1), networkStrength=NS(raw=2), lastAthenaPingTime=NOW,
                            maxTempC=65.6, thermalStatus=log.DeviceState.ThermalStatus.ok))
   sm.put("pandaStates", [NS(pandaType=log.PandaState.PandaType.tres, ignitionLine=True, ignitionCan=False)])
-  sm.put("carState", NS(vEgoCluster=15.0, vEgo=16.0, vCruiseCluster=80.0))
+  sm.put("carState", NS(vEgoCluster=15.0, vEgo=16.0, vCruiseCluster=80.0, standstill=False))
   sm.put("carControl", NS(latActive=True, longActive=False, actuators=NS(torque=0.3)))
   sm.put("selfdriveState", NS(experimentalMode=False, alertSize=NS(raw=0), alertStatus=NS(raw=0),
                                alertText1="", alertText2=""))
@@ -276,7 +276,7 @@ class TestRuntimeSnapshot(unittest.TestCase):
             ui.is_metric = metric
             home = adapter.build(ShellMode.HOME, now_ns=NOW).home
             self.assertEqual(home.temperature_c, temperature)
-            self.assertEqual(home.metric, metric)
+            self.assertEqual(home.temperature_metric, metric)
             text.reset_mock()
             edge.reset_mock()
             view._sidebar(home)

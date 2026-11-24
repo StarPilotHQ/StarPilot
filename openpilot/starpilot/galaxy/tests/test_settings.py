@@ -920,7 +920,7 @@ class SettingsGatewayTest(unittest.TestCase):
     cp.openpilotLongitudinalControl = True
     cp.pcmCruise = False
     self.context.value = replace(self.context.value, cp=cp)
-    from openpilot.starpilot.lateral.lane_change_preferences import read_saved as read_lane_change
+    from openpilot.starpilot.lateral.lane_change_preferences import DOCUMENT_VERSION, read_saved as read_lane_change
 
     page = self.page("lane_change")
     close = next(i for i, row in enumerate(page["rows"]) if row["label"] == "Close lane-change gap")
@@ -940,7 +940,7 @@ class SettingsGatewayTest(unittest.TestCase):
     self.assertTrue(self.gateway.confirm(intent["intent"], self.session, self.generation))
     self.assertEqual(read_lane_change(self.params).policy.close_gap_seconds, 0.8)
     self.assertEqual(self.page("lane_change")["rows"][gap]["value"], "0.8")
-    self.assertEqual(self.params.get("LaneChangePreferences")["version"], 6)
+    self.assertEqual(self.params.get("LaneChangePreferences")["version"], DOCUMENT_VERSION)
 
     saved = self.page("lane_change")
     revoke = self.gateway.preview(saved["view"], close, -1, self.session, self.generation)

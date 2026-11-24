@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 from opendbc.car import structs
 from openpilot.starpilot.aol.intent import AolSettings
+from openpilot.starpilot.aol.runtime import AxisDecision
 from openpilot.starpilot.car.subaru.aol import SubaruStockCardIntent
 
 
@@ -254,7 +255,7 @@ def test_legacy_2025_line_visibility_and_passive_dashcam_chimes():
   drive.switchback_setting_ns = now
   drive.switchback_cooldown_ns = 0
   drive.switchback_cooldown = SwitchbackCooldown()
-  drive.aol_axis_decision = None
+  drive.aol_axis_decision = AxisDecision()
   drive.aol_fault_reason = 'none'
   drive.radar_recovery_enabled = False
   drive.legacy_2025_green_wheel_active = True

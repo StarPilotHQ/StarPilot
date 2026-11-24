@@ -28,7 +28,7 @@ class Messages:
                  'pandaStates': [NS(pandaType='uno', ignitionLine=ignition, ignitionCan=False, controlsAllowed=False, safetyModel='noOutput')],
                  'carState': NS(canValid=True, canTimeout=False, standstill=True, gearShifter='park'),
                  'selfdriveState': NS(enabled=False, active=False), 'carParams': NS(notCar=True), 'peripheralState': NS(pandaType=1, voltage=12640)}
-    self.data.update({service: NS() for service in ('lateralDelay', 'lateralTorqueParameters', 'vehicleParameters')})
+    self.data.update({service: NS() for service in ('lateralDelay', 'lateralTorqueParameters', 'vehicleParameters', 'chestnutGpuState')})
     self.seen = self.alive = self.valid = dict.fromkeys(EvidenceSource.SERVICES, True)
     self.updated = dict(self.seen)
     self.logMonoTime = {name: boot if name == 'pandaStates' else mono for name in EvidenceSource.SERVICES}

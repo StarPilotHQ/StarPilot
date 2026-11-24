@@ -8,6 +8,7 @@ from openpilot.common.params import Params
 from opendbc.car import structs
 from openpilot.selfdrive.selfdrived.alertmanager import AlertManager
 from openpilot.selfdrive.selfdrived.events import Events, ET, Alert, Priority
+from openpilot.starpilot.aol.runtime import AxisDecision
 from openpilot.starpilot.controllers.mode_actions import SwitchbackCooldown
 from openpilot.selfdrive.selfdrived.selfdrived import SelfdriveD
 from openpilot.starpilot.longitudinal.force_stop_alert import HoldAlertState
@@ -42,6 +43,7 @@ class Sources:
 
 def fixture():
   drive = SelfdriveD.__new__(SelfdriveD)
+  drive.aol_axis_decision = AxisDecision()
   drive.CP = structs.CarParams(openpilotLongitudinalControl=True)
   drive.enabled, drive.personality, drive.is_metric = True, log.LongitudinalPersonality.standard, False
   vars(drive)['state_machine'] = NS(current_alert_types=[ET.WARNING], soft_disable_timer=0)

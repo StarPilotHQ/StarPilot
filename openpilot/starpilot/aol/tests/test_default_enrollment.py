@@ -120,7 +120,7 @@ class TestActualFreshCardStartup(TestCase):
          patch.object(manager, 'save_bootlog'), \
          patch.object(manager.HARDWARE, 'get_serial', return_value='fixture'), \
          patch.object(manager.HARDWARE, 'get_device_type', return_value='pc'), \
-         patch.object(manager, 'register', return_value='fixture'), \
+         patch.object(manager, 'register_at_startup', return_value='fixture'), \
          patch.object(manager.cloudlog, 'bind_global'):
       manager.manager_init()
     target = Path(params.get_param_path('AlwaysOnLateral'))

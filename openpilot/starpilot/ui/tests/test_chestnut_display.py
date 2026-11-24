@@ -11,8 +11,9 @@ from openpilot.selfdrive.ui.ui_state import ChestnutState, UIState
 
 @pytest.mark.parametrize('raw, expected', [(True, True), (False, False), (b'1', True), (b'0', False),
                                           ('1', True), ('0', False), (None, None), (b'invalid', None)])
-def test_native_chestnut_status_accepts_typed_params(raw, expected):
+def test_native_chestnut_status_accepts_typed_params(raw, expected, tmp_path):
   params = Mock()
+  params.get_param_path.side_effect = lambda key: str(tmp_path / key)
   params.get.return_value = raw
   params.get_bool.return_value = False
   state = Mock(spec=UIState, params=params, started=True, chestnut_compiled=True, usb_connected=False)
@@ -84,8 +85,9 @@ def test_offroad_status_uses_selected_download(detected, installed, checking, ex
   assert state.chestnut_state == expected
 
 
-def test_offroad_selection_rechecks_without_a_ui_restart():
+def test_offroad_selection_rechecks_without_a_ui_restart(tmp_path):
   params = Mock()
+  params.get_param_path.side_effect = lambda key: str(tmp_path / key)
   params.get.return_value = None
   params.get_bool.return_value = False
   artifacts = Mock()

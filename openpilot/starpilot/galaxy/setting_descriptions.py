@@ -114,6 +114,8 @@ DESCRIPTIONS = {
   'GMAutoHold': 'Holds the brakes at a stop with cruise main on. Press the accelerator or the supported regen paddle to release.',
   'VoltOnePedalMode': 'Slows and holds a Volt when you lift off the accelerator in Low or single-pedal mode, with cruise main on and cruise disengaged.',
   'LongPitch': 'Compensates acceleration and braking for road grade.',
+  'CoastDownhills': 'Lets the car coast above set speed on descents within the configured allowance.',
+  'DownhillSpeedSurplus': 'Sets how far above set speed downhill coasting can go.',
   'GMLongitudinalTune': 'Selects the supported vehicle speed-control response tune.',
   'TruckTuning': 'Softens small acceleration requests, reduces grade correction and smooths light braking on supported GM trucks.',
   'EVTuning': 'Selects EV acceleration curves for inherited acceleration presets.',

@@ -159,7 +159,9 @@ def test_bound_custom_receipt_reaches_selfdrived_alert_manager_without_core_even
   internal = SimpleNamespace(di_cruise_state='ENABLED' if current else 'OFF',
                              cruiseEnabled=not_armed, enableLongControl=not_armed)
   alerts = receive(cp, internal, state, previous=previous)
+  from openpilot.starpilot.aol.runtime import AxisDecision
   drive = SelfdriveD.__new__(SelfdriveD)
+  drive.aol_axis_decision = AxisDecision()
   drive.CP, drive.enabled, drive.is_metric = cp, False, False
   drive.personality = log.LongitudinalPersonality.standard
   vars(drive)['state_machine'] = SimpleNamespace(current_alert_types=[category], soft_disable_timer=0)

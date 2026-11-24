@@ -244,7 +244,9 @@ def test_actual_selfdrived_alert_path_works_disengaged_and_resets_offroad(monkey
   from openpilot.selfdrive.selfdrived.state import StateMachine
   from openpilot.starpilot.controllers.mode_actions import SwitchbackCooldown
   from openpilot.starpilot.longitudinal.force_stop_alert import HoldAlertState
+  from openpilot.starpilot.aol.runtime import AxisDecision
   daemon = SelfdriveD.__new__(SelfdriveD)
+  daemon.aol_axis_decision = AxisDecision()
   daemon.CP, daemon.AM = vehicle(), AlertManager()
   daemon.sm = messaging.SubMaster(['deviceState', 'radarTracks'])
   daemon.events, daemon.enabled, daemon.personality, daemon.is_metric = Events(), False, 1, True
