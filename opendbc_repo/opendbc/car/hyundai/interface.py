@@ -304,13 +304,11 @@ class CarInterface(CarInterfaceBase):
       ret.radarUnavailable = not stinger_2022_radar_available(fingerprint)
     else:
       ret.radarUnavailable = radar_start not in fingerprint[1] or Bus.radar not in DBC[ret.carFingerprint]
-    from opendbc.car.hyundai.torque_ev_startup import CARS as torque_ev_cars, topology_owned as torque_ev_topology
+    from opendbc.car.hyundai.torque_ev_startup import topology_owned as torque_ev_topology
     if torque_ev_topology(ret):
       # The prepared owner alone promotes the saved developer choice before CI construction.
       ret.alphaLongitudinalAvailable = not is_release
       alpha_long = False
-    elif candidate in torque_ev_cars and ret.flags & HyundaiFlags.CANFD_LKA_STEER_MSG and CAN.offset != 0:
-      ret.alphaLongitudinalAvailable = False
     from opendbc.car.hyundai.legacy_long_aol import CARS as legacy_long_cars
     ret.openpilotLongitudinalControl = alpha_long and ret.alphaLongitudinalAvailable and candidate not in legacy_long_cars
     if (candidate in (CAR.KIA_CARNIVAL_2025, CAR.KIA_CARNIVAL_HEV_4TH_GEN) and
