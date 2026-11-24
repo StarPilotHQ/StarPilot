@@ -246,7 +246,7 @@ class _LocalHTTPHandler(BaseHTTPRequestHandler):
     if cookie is not None:
       self.send_header('Set-Cookie', cookie)
     self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; " +
-                     "img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+                     "img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action https://starpilot-log-relay.nathan-g-hubbard.workers.dev/report/galaxy/fresh/")
     self.end_headers()
     if self.command != 'HEAD':
       self.wfile.write(body)

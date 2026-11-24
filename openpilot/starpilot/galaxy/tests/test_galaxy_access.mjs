@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { createRenderer, nextTick } from '../web/vendor/vue/vue.esm-browser.js'
 import { GalaxyPage } from '../web/js/galaxy.js'
 import { RemoteAccess } from '../web/js/remote-access.js'
@@ -36,10 +37,12 @@ const all = item => [item, ...item.children.flatMap(all)]
 const text = item => [item.text, ...item.children.map(text)].join(' ')
 const flush = async () => { await new Promise(resolve => setImmediate(resolve)); await nextTick() }
 const host = node('host')
+const { tools } = JSON.parse(readFileSync(new URL('../web/data/catalog.json', import.meta.url)))
+const galaxy = tools.find(tool => tool.path === '/galaxy')
+const visits = []
 const app = renderer.createApp({ ...GalaxyPage, components: { ...GalaxyPage.components,
-  GalaxyHotspot: { template: '<div>Hotspot settings</div>' },
   InstallApp: { props: ['url'], template: '<div class="web-link">{{ url }}</div>' },
-} }, { mode: 'local', unauthorized() { unauthorized++ } })
+} }, { mode: 'local', tools: galaxy.children, go: path => visits.push(path), unauthorized() { unauthorized++ } })
 app.config.compilerOptions.decodeEntities = value => value.replaceAll('&amp;', '&')
 const vm = app.mount(host)
 await flush()
@@ -53,7 +56,14 @@ try {
   const stepList = nodes.find(item => item.type === 'ol' && item.props.class === 'gx-steps')
   assert.equal(stepList.children.filter(item => item.type === 'li' && item.props.class?.includes('gx-step')).length, 2)
   assert.equal(nodes.filter(item => item.props.class === 'gx-step__head').length, 2)
-  assert.doesNotMatch(text(host), /MB today|Status:|Connections|offline app version/)
+  assert.match(text(host), /Galaxy Access & Connections/)
+  assert.doesNotMatch(text(host), /MB today|Status:|offline app version/)
+  assert.ok(tools.some(tool => tool.path === '/starport'), 'StarPort remains a standalone tool')
+  const tiles = nodes.filter(item => item.props.class === 'gx-menu-tile')
+  assert.deepEqual(tiles.map(item => item.children.find(child => child.type === 'span').text), ['Networks', 'Bluetooth'])
+  for (const tile of tiles) tile.props.onClick()
+  nodes.find(item => item.type === 'button' && item.text === 'Get help').props.onClick()
+  assert.deepEqual(visits, ['/networks', '/bluetooth', '/logs/help'])
   assert.equal(requests.length, 1, 'A browser reads remote pairing status without polling Android internet-sharing status')
   assert.equal(requests[0][0], './api/galaxy/status')
   assert.equal(vm.url, link, 'Remote link reaches the web installer')

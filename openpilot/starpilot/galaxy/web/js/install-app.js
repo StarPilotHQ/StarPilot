@@ -13,7 +13,7 @@ export function isAndroidDevice(agent = typeof navigator === 'undefined' ? '' : 
 }
 
 export function installHelp({ secure = window.isSecureContext, agent = navigator.userAgent } = {}) {
-  if (!secure) return 'Bookmark this local address for hotspot or Wi-Fi access without Internet. To install Galaxy as a web app (PWA), open your device-specific https://galaxy.firestar.link link from Galaxy Access & Install; this remote link needs Internet.'
+  if (!secure) return 'Bookmark this local address for hotspot or Wi-Fi access without Internet. To install Galaxy as a web app (PWA), open your device-specific https://galaxy.firestar.link link from Galaxy Access & Connections; this remote link needs Internet.'
   if (/iPhone|iPad|iPod/.test(agent)) return 'Open Galaxy in Safari, tap Share, then Add to Home Screen. Turn on Open as Web App if shown.'
   return 'This browser cannot install Galaxy automatically. Open the browser menu and choose Install app or Add to Home Screen. On a Mac in Safari, choose File → Add to Dock.'
 }

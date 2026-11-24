@@ -51,7 +51,7 @@ from openpilot.starpilot.ui.layout_preview_transport import (request_profile)
 from openpilot.starpilot.favorites.owner import FavoritesChanged
 from openpilot.starpilot.galaxy.favorites import FavoritesGateway
 from openpilot.starpilot.galaxy.system_monitor import SystemMonitor
-from openpilot.starpilot.galaxy.local_access import LocalAccess
+from openpilot.starpilot.galaxy.local_access import LocalAccess, connection_capture
 from openpilot.starpilot.galaxy.tmux_live import TmuxLive
 from openpilot.starpilot.galaxy.vehicle_selection import VehicleSelectionChanged, VehicleSelectionGateway, VehicleSelectionUnverified
 from openpilot.starpilot.bluetooth.owner import BluetoothOwner, BluetoothRejected, BluetoothUnavailable, normalized_address
@@ -186,6 +186,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
   summary_lock = threading.Lock()
   motion_events = sentry_events if sentry_events is not None else SentryEvents()
   sentry_events_lock = threading.Lock()
+  simulation_busy = threading.Event()
   last_simulation = [float("-inf")]
   notification_owner = notifications
   snapshots = camera_snapshot if camera_snapshot is not None else CameraSnapshot()
@@ -693,9 +694,11 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
       return False
 
     def settings_session(self):
-      token = self.session_token()
+      return self.current_settings_session(self.session_token(), self.direct_local())
+
+    def current_settings_session(self, token, direct_local):
       with session_lock:
-        if self.direct_local() and sessions.valid(token, local_generation):
+        if direct_local and sessions.valid(token, local_generation):
           return token, local_generation
         generation = access.current_generation()
         if getattr(self.server, 'remote_transport', False):
@@ -954,7 +957,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
           return
         from openpilot.starpilot.galaxy.pairing_ready import bridge_state, pairing_readiness
         self.json(200, pairing_readiness(parked=configuration_allowed, snapshot=lambda: bluetooth_owner().snapshot(), bridge=bridge_state))
-      elif path in ('/api/local-access', '/api/tmux/live', '/api/troubleshoot'):
+      elif path in ('/api/local-access', '/api/local-access/capture', '/api/controllers/log/capture', '/api/tmux/live', '/api/troubleshoot'):
         if not self.require_session():
           return
         identity = self.settings_session()
@@ -964,6 +967,11 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
         try:
           if path == '/api/local-access':
             result = address_source.snapshot()
+          elif path == '/api/local-access/capture':
+            result = connection_capture(address_source.snapshot(), configuration_allowed=configuration_allowed)
+          elif path == '/api/controllers/log/capture':
+            from openpilot.starpilot.galaxy.controller_diagnostics import controller_capture
+            result = controller_capture()
           elif path == '/api/tmux/live':
             result = console_source.snapshot()
           else:
@@ -1090,7 +1098,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
         except ValueError:
           route_key = ''
         try:
-          result = navigation_owner().snapshot(route_key if re.fullmatch(r'[0-9a-f]{16}', route_key) else None)
+          result = navigation_owner().snapshot(route_key if re.fullmatch(r'[0-9a-hjkmnp-tv-z]{12}', route_key) else None)
         except (OSError, ValueError, RuntimeError):
           self.json(503, {'error': 'Navigation status is unavailable'})
         else:
@@ -1457,7 +1465,9 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
           self.json(400, {'error': 'Choose an event image'})
           return
         try:
-          body = motion_events.image(parts[0], parts[1])
+          body = notification_owner.test_image(parts[0]) if parts[1] == 'test' else motion_events.image(parts[0], parts[1])
+          if body is None:
+            raise SentryEventsUnavailable
         except SentryEventsUnavailable:
           self.json(404, {'error': 'Event image unavailable'})
         else:
@@ -1743,7 +1753,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
                       '/api/galaxy/pair', '/api/galaxy/unpair', '/api/galaxy/device-name', '/api/galaxy/hotspot', '/api/galaxy/networks',
                       '/api/cameras/snapshot', '/api/cameras/white-balance',
                       '/api/starport/layout', '/api/starport/enable', '/api/starport/control', '/api/starport/pairing',
-                      '/api/starport/logs/send',
+                      '/api/starport/logs/send', '/api/companion/support-ticket',
                       '/api/starport/pairing/response', '/api/starport/pairing/cancel', '/api/starport/pairing/select',
                       '/api/spotify/enable', '/api/spotify/key', '/api/spotify/preferences', '/api/spotify/control', '/api/spotify/maintenance',
                       '/api/ui/layout', '/api/ui/layout/preview', '/api/favorites/slots',
@@ -1753,7 +1763,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
                       '/api/models/cancel', '/api/models/delete', '/api/models/refresh_manifest', '/api/models/jetlink',
                       '/api/models/laboratory', '/api/models/laboratory/download', '/api/models/laboratory/delete',
                       '/api/sounds/preview', '/api/sounds/download', '/api/sounds/cancel', '/api/software/action', '/api/drives/ignore',
-                      '/api/recordings/delete-videos', '/api/sentry/notifications', '/api/sentry/events/delete', '/api/crash-reports/delete',
+                      '/api/recordings/delete-videos', '/api/sentry/notifications', '/api/sentry/notifications/photo-test', '/api/sentry/events/delete', '/api/crash-reports/delete',
                       '/api/navigation/search', '/api/navigation/action', '/api/navigation/offline', '/api/drive-state/action',
                       '/api/toyota-tools/action', '/api/vehicle-selection/preview', '/api/vehicle-selection/confirm'):
         self.json(405, {'error': 'Method unavailable'})
@@ -1816,6 +1826,51 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
           self.json(503, {'error': 'Tune restore is unavailable. Refresh the saved tune before retrying.'})
         else:
           self.json(200 if authorized() else 401, result if authorized() else {'error': 'Sign in to Galaxy'})
+        return
+      if path == '/api/companion/support-ticket':
+        import requests
+        identity = self.settings_session()
+        if identity is None:
+          self.json(401, {'error': 'Sign in to Galaxy'})
+          return
+        if (not isinstance(payload, dict) or not isinstance(payload.get('code'), str) or
+            not re.fullmatch(r'[0-9a-f]{16}', payload['code']) or payload.get('action') not in ('check', 'send')):
+          self.json(400, {'error': 'Enter the code from the Discord request.'})
+          return
+        relay = 'https://starpilot-log-relay.nathan-g-hubbard.workers.dev/report/galaxy/device'
+        def relay_post(body):
+          response = requests.post(relay, json=body, allow_redirects=False, timeout=(5, 30))
+          if response.status_code == 410:
+            raise LookupError()
+          response.raise_for_status()
+          if response.status_code != 200:
+            raise ValueError()
+          return response.json()
+        try:
+          code = payload['code']
+          ticket = relay_post({'action': 'check', 'code': code})
+          kind = ticket['kind']
+          if kind not in ('controller', 'connection'):
+            raise ValueError()
+          if payload['action'] == 'check':
+            self.json(200, {'kind': kind, 'title': ticket['title']})
+            return
+          if kind == 'controller':
+            from openpilot.starpilot.galaxy.controller_diagnostics import controller_capture
+            capture = controller_capture()
+          else:
+            capture = connection_capture(address_source.snapshot(), configuration_allowed=configuration_allowed)
+          if self.settings_session() != identity:
+            self.json(401, {'error': 'Sign in to Galaxy'})
+            return
+          result = relay_post({'action': 'send', 'code': code, 'archive': capture['zipBase64']})
+          if result.get('sent') is not True:
+            raise ValueError()
+          self.json(200, {'sent': True})
+        except LookupError:
+          self.json(410, {'error': 'Code expired or incorrect. Reopen the request in Discord.'})
+        except (requests.RequestException, OSError, RuntimeError, TypeError, ValueError):
+          self.json(503, {'error': 'Could not confirm delivery. Check the comma internet connection and your Discord thread.'})
         return
       if path == '/api/settings/flm-finding/accept':
         identity = self.settings_session()
@@ -1929,6 +1984,43 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
           if self.require_session():
             self.json(200, result)
         return
+      if path == '/api/sentry/notifications/photo-test':
+        if (type(payload) is not dict or set(payload) != {'camera', 'id'} or payload['camera'] not in ('wide', 'cabin') or
+            not isinstance(payload['id'], str) or not re.fullmatch(r'[0-9a-f]{12}', payload['id'])):
+          self.json(400, {'error': 'Choose a phone and camera'})
+          return
+        identity = self.settings_session()
+        if identity is None:
+          self.json(401, {'error': 'Sign in to Galaxy'})
+          return
+
+        def permitted():
+          readable, _, _ = select.select([self.connection], [], [], 0)
+          if readable and not self.connection.recv(1, socket.MSG_PEEK | socket.MSG_DONTWAIT):
+            return False
+          return self.settings_session() == identity and parked()
+
+        try:
+          photo = snapshots.capture(payload['camera'], permitted=permitted, parked=True)
+          notification_owner.photo_test(payload['id'], payload['camera'], photo, permitted=permitted)
+        except (SnapshotDenied, PermissionError):
+          if self.require_session():
+            self.json(409, {'error': 'Park the car before sending a photo test'})
+        except SnapshotUnavailable:
+          if self.require_session():
+            self.json(503, {'error': 'No fresh camera frame. Try again shortly.'})
+        except LookupError:
+          self.json(404, {'error': 'Phone subscription not found'})
+        except ValueError as error:
+          self.json(400, {'error': str(error)})
+        except (NotificationUnavailable, OSError):
+          self.json(503, {'error': 'Sentry phone push is unavailable. Check Galaxy Sentry settings.'})
+        else:
+          if self.settings_session() == identity:
+            self.json(200, {'queued': True})
+          else:
+            self.json(401, {'error': 'Sign in to Galaxy'})
+        return
       if path == '/api/sentry/notifications':
         identity = self.settings_session()
         if identity is None:
@@ -1942,11 +2034,32 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
               if not parked():
                 self.json(403, {'error': 'Park the car before simulating an event'})
                 return
-              if clock() - last_simulation[0] < 10:
+              if simulation_busy.is_set() or clock() - last_simulation[0] < 10:
                 self.json(429, {'error': 'Wait ten seconds before simulating another event'})
                 return
-              notification_owner.store.record('warning', time.monotonic_ns(), simulated=True,
-                                               permitted=lambda: self.settings_session() == identity and parked())
+              from openpilot.starpilot.sentry_mode.capture import record_motion_event
+              direct_local = self.direct_local()
+
+              def permitted():
+                return self.current_settings_session(identity[0], direct_local) == identity and parked()
+
+              def capture_simulation():
+                try:
+                  record_motion_event(notification_owner.store, snapshots, 'warning', time.monotonic_ns(),
+                                      permitted, simulated=True)
+                except SnapshotDenied:
+                  pass
+                except Exception:
+                  cloudlog.exception("Sentry simulation could not record the event")
+                finally:
+                  simulation_busy.clear()
+
+              simulation_busy.set()
+              try:
+                threading.Thread(target=capture_simulation, name='sentry-simulation', daemon=True).start()
+              except RuntimeError:
+                simulation_busy.clear()
+                raise NotificationUnavailable("Could not start Sentry simulation")
               last_simulation[0] = clock()
               result = notification_owner.snapshot()
           else:

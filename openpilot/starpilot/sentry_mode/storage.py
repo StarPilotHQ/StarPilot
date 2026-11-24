@@ -279,6 +279,7 @@ class EventStore:
               if not _valid(value, event_id):
                 raise ValueError("Invalid event metadata")
               if value.get('simulated') and time.time_ns() - value['wallTimeNs'] > 600_000_000_000:
+                remove_entry(directory, event_id, [16])
                 os.unlink(entry.name, dir_fd=directory)
                 continue
               result["events"].append(value)

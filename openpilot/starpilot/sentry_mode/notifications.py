@@ -31,6 +31,8 @@ APP_IDS = ('com.starpilot.galaxy', 'link.firestar.companion', 'link.galaxy.bluet
 MAX_STATE_BYTES = 1024 * 1024
 MAX_JOBS = 512
 MAX_AGE = 86400
+TEST_PHOTO_AGE = 900
+MAX_TEST_PHOTOS = 4
 MAX_ATTEMPTS = 4
 RETRY_SECONDS = (30, 120, 600, 600)
 ID = re.compile(r'[0-9a-f]{32}\Z')
@@ -83,6 +85,7 @@ class NotificationOwner:
     self.stop = threading.Event()
     self.thread = None
     self.state = fresh_state()
+    self.test_photos: dict[str, tuple[float, bytes]] = {}
     self.available = True
     self.lock_fd = None
     self.saved_bytes = None
@@ -430,6 +433,47 @@ class NotificationOwner:
       self._save()
       return self.snapshot()
 
+  def photo_test(self, target_id: str, camera: str, jpeg: bytes, *, permitted) -> None:
+    if not isinstance(target_id, str) or re.fullmatch(r'[0-9a-f]{12}', target_id) is None or camera not in ('wide', 'cabin'):
+      raise ValueError('Choose a phone and camera')
+    if not isinstance(jpeg, bytes) or not 4 <= len(jpeg) <= 1_000_000 or not jpeg.startswith(b'\xff\xd8\xff'):
+      raise NotificationUnavailable('No fresh camera image')
+    with self.lock:
+      if not self.available:
+        raise NotificationUnavailable('Notification storage is unavailable')
+      if not permitted():
+        raise PermissionError('A current parked Galaxy session is required')
+      if not any(sub['id'] == target_id for sub in self.state['appSubscriptions']):
+        raise LookupError('Phone subscription not found')
+      if not self.state['channels']['appPush']['enabled'] or len(self.state['jobs']) >= MAX_JOBS:
+        raise NotificationUnavailable('Phone push is unavailable or its queue is full')
+      now = self.clock()
+      if sum(job['kind'] == 'test' and job['created'] > now - 60 for job in self.state['jobs'].values()) >= 4:
+        raise ValueError('Wait a minute before sending more tests')
+      event_id = uuid.uuid4().hex
+      self._enqueue({'eventId': event_id, 'kind': 'test', 'wallTimeNs': int(now * 1e9)},
+                    only='appPush', target_id=target_id)
+      try:
+        if not permitted():
+          raise PermissionError('Galaxy session or parked state changed')
+        self._save()
+      except (PermissionError, NotificationUnavailable, OSError):
+        self.state['jobs'] = {key: job for key, job in self.state['jobs'].items() if job['eventId'] != event_id}
+        raise
+      self._expire_test_photos(now)
+      if len(self.test_photos) >= MAX_TEST_PHOTOS:
+        del self.test_photos[next(iter(self.test_photos))]
+      self.test_photos[event_id] = (now + TEST_PHOTO_AGE, jpeg)
+
+  def _expire_test_photos(self, now):
+    self.test_photos = {event: photo for event, photo in self.test_photos.items() if photo[0] > now}
+
+  def test_image(self, event_id: str) -> bytes | None:
+    with self.lock:
+      self._expire_test_photos(self.clock())
+      photo = self.test_photos.get(event_id)
+      return photo[1] if photo else None
+
   def _enqueue(self, event: dict, *, only: str | None = None, target_id: str | None = None) -> None:
     if event['kind'] == 'selfie':
       return
@@ -473,6 +517,9 @@ class NotificationOwner:
       return remove()
 
   def tick(self) -> None:
+    with self.lock:
+      if self.test_photos:
+        self._expire_test_photos(self.clock())
     with self.lock:
       if not self.available:
         return
