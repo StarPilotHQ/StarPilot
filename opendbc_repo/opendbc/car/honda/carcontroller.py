@@ -146,10 +146,6 @@ class CarController(CarControllerBase):
                                 self.params.STEER_DELTA_UP * DT_CTRL)
     _projection_previous = self.last_torque if _projection is not None else 0.
     self.last_torque = limited_torque
-    if self.CP.carFingerprint == CAR.HONDA_FIT and CS.out.canValid and not CS.out.canTimeout:
-      observed, expires = CS.eps_inactive_window
-      if 0 < observed <= now_nanos < expires:
-        self.last_torque = 0.0
 
     # *** apply brake hysteresis ***
     pre_limit_brake, self.braking, self.brake_steady = actuator_hysteresis(brake, self.braking, self.brake_steady)
@@ -288,7 +284,7 @@ class CarController(CarControllerBase):
     new_actuators.accel = self.accel
     new_actuators.gas = self.gas
     new_actuators.brake = self.brake
-    new_actuators.torque = limited_torque
+    new_actuators.torque = self.last_torque
     new_actuators.torqueOutputCan = apply_torque
 
     self.frame += 1
