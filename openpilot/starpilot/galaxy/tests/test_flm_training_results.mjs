@@ -251,6 +251,15 @@ for (const [phase, percent, detail] of [
   assert.equal(parkedAnalysisProgress(scan).percent, percent)
   assert.equal(parkedAnalysisProgress(scan).detail, detail)
 }
+scan.current.details['Parked analysis progress'] = ['reading', 6, 43]
+scan.current.details['Parked recording queue'] = [2, 4]
+assert(validTrainingResults(scan))
+assert.equal(parkedAnalysisProgress(scan).detail, 'Recording 2 of 4. 6 of 43 sections read in this recording')
+scan.current.details['Parked recording queue'] = [0, 4]
+assert.match(parkedAnalysisProgress(scan).detail, /^Rechecking with evidence from other drives/)
+scan.current.details['Parked recording queue'] = [8, 4]
+assert.equal(parkedAnalysisProgress(scan).detail, '6 of 43 sections read in this recording')
+delete scan.current.details['Parked recording queue']
 scan.current.details['Parked analysis progress'] = ['reading', 3, 3]
 assert.equal(parkedAnalysisProgress(scan).percent, null)
 scan.current.reason = 'verifying_recorded_drive'

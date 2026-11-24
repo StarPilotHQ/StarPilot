@@ -417,9 +417,14 @@ export function parkedAnalysisProgress(report) {
   const counted = Array.isArray(value) && value.length === 3 && Object.hasOwn(labels, value[0]) && Number.isSafeInteger(done) && Number.isSafeInteger(total) && done >= 0 && total > 0 && done <= total && total <= 180
   const steps = { preparing: 'Starting the parked analyzer.', reading: 'Reading the recording sections.',
     verifying: 'Checking that the recording is unchanged.', checking: 'Checking the suggested changes.' }
+  const detail = counted && phase === 'reading' ? `${done} of ${total} sections read in this recording` : steps[phase]
+  const queue = current.details?.['Parked recording queue']
+  const [position, recordings] = Array.isArray(queue) && queue.length === 2 ? queue : []
+  const queued = Number.isSafeInteger(position) && Number.isSafeInteger(recordings) && position >= 0 && position <= recordings && recordings > 0 && recordings <= 8
+  const recording = queued && position === 0 ? 'Rechecking with evidence from other drives. ' :
+    queued && recordings > 1 ? `Recording ${position} of ${recordings}. ` : ''
   return { phase, label: labels[phase], completed: counted ? done : null, total: counted ? total : null,
-    percent: counted && phase === 'reading' && done < total ? done / total * 100 : null,
-    detail: counted && phase === 'reading' ? `${done} of ${total} sections read in this recording` : steps[phase] }
+    percent: counted && phase === 'reading' && done < total ? done / total * 100 : null, detail: recording + detail }
 }
 
 export function tunerStatus(report, live = false, choiceLive = false, error = "", reportFresh = live) {

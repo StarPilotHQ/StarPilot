@@ -3,6 +3,7 @@ import bz2
 import json
 from pathlib import Path
 import tempfile
+from unittest.mock import patch
 import unittest
 
 from openpilot.cereal import log
@@ -101,6 +102,81 @@ class TestAnalysisProgress(unittest.TestCase):
       report.set({'status': 'collecting', 'reason': 'more_independent_eligible_tracking_required'})
       report.publish()
       self.assertNotIn('Parked analysis progress', json.loads(report.path.read_text())['current']['details'])
+
+  def test_real_backlog_reads_each_inactive_recording_once(self):
+    from openpilot.common.params import Params
+    from openpilot.starpilot.flm import offroad_processor as processor
+    from openpilot.starpilot.flm.offroad_worker import OffroadWorker
+    from openpilot.starpilot.flm.tests.test_offroad_backend import scope
+
+    with tempfile.TemporaryDirectory() as directory:
+      root = Path(directory)
+      routes = [recording(root / 'logs', counter)[0] for counter in (18, 17, 16)]
+      params = Params(str(root / 'params'))
+      params.put('CurrentRoute', routes[0], block=True)
+      params.put('RouteCount', 19, block=True)
+      progress = []
+      worker = OffroadWorker(params, root / 'logs', root / 'cache', permitted=lambda: True,
+                             scope_for=lambda *_: scope(), on_progress=progress.append)
+      with patch.object(processor, 'collect_route_inputs', wraps=processor.collect_route_inputs) as read:
+        for name in routes:
+          self.assertEqual(worker.run_once()['completed_route'], name)
+        finished = worker.run_once()
+        self.assertEqual(finished['completed_route'], routes[0])
+        self.assertEqual([call.args[1]['routeId'] for call in read.call_args_list], routes)
+      starts = [row for row in progress if row['phase'] == 'reading' and row['completed'] == 0]
+      self.assertEqual([(row['recording_position'], row['recording_total']) for row in starts], [(1, 3), (2, 3), (3, 3)])
+      self.assertEqual(finished['recommendations'], [])
+      self.assertFalse(finished['configuration_changed'])
+
+  def test_pending_recordings_finish_before_one_cross_drive_refresh(self):
+    from types import SimpleNamespace
+    from openpilot.common.params import Params
+    from openpilot.starpilot.flm import offroad_worker as module
+    from openpilot.starpilot.flm.offroad_route import RouteReceipt
+    from openpilot.starpilot.flm.tests.test_offroad_backend import scope
+
+    with tempfile.TemporaryDirectory() as directory:
+      root = Path(directory)
+      routes = [{'routeId': f'{counter:08x}--aaaaaaaaaa'} for counter in (18, 17, 16)]
+      reads = []
+      revision = [0]
+
+      def assess(_, __, previous, *, permitted, selected_route=None, **kwargs):
+        route = routes[0] if selected_route is None else selected_route
+        reads.append(route)
+        if route != routes[0]:
+          revision[0] += 1
+        cp = SimpleNamespace(carFingerprint='declared-queue-car')
+        previous(cp)
+        receipt = RouteReceipt(route['routeId'], 'd' * 64, (), 'a' * 64, 1, 2, 3, ())
+        return module.CompletedAssessment(receipt, (), {'active_lateral_request_rows': 500}, cp, (), route)
+
+      with patch.object(module, 'latest_route', return_value=routes[0]), patch.object(module, 'pending_routes', return_value=routes), \
+           patch.object(module, 'route_inventory', return_value={'scanIncomplete': False, 'routes': routes}):
+        worker = module.OffroadWorker(Params(str(root / 'params')), root / 'logs', root / 'cache', permitted=lambda: True,
+                                     assessor=assess, scope_for=lambda *_: scope())
+        worker.evidence_bank = SimpleNamespace(revision=lambda: revision[0])
+        for name in [*routes, routes[0], routes[0]]:
+          self.assertEqual(worker.run_once()['completed_route'], name['routeId'])
+        self.assertEqual(reads, [*routes, routes[0]])
+
+  def test_checking_callback_stays_active_and_retains_recording_queue(self):
+    from types import SimpleNamespace
+    from openpilot.starpilot.flm.diagnostic_state import _stage
+
+    report = StatusReport(clock_ns=lambda: 10_000_000_000)
+    observed = []
+    report.diagnostics = SimpleNamespace(observe=observed.append)
+    report.analyzing({'reason': 'analyzing_last_completed_drive', 'analysis_progress': {
+      'phase': 'reading', 'completed': 6, 'total': 43, 'recording_position': 2, 'recording_total': 4}})
+    report.analyzing({'reason': 'checking_recorded_steering_recommendations', 'completed_route': 'declared'})
+    self.assertEqual(_stage(observed[-1]), 'checking_recommendations')
+    self.assertEqual(report.current['analysis_progress']['recording_position'], 2)
+    self.assertEqual(report.current['analysis_progress']['recording_total'], 4)
+    report.set({'status': 'collecting', 'reason': 'no_consistent_adjustment_in_completed_drive', 'completed_route': 'declared'})
+    self.assertEqual(_stage(observed[-1]), 'analysis_result')
+    self.assertNotIn('analysis_progress', report.current)
 
   def test_running_read_waits_for_fresh_device_state_but_never_through_an_onroad_transition(self):
     from types import SimpleNamespace as NS

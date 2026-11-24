@@ -65,8 +65,12 @@ class StatusReport:
              'verifying_recorded_drive': 'verifying'}.get(value['reason'], 'checking')
     progress = value.get('analysis_progress', {'phase': phase,
       'completed': counts.get('original_segments_reviewed'), 'total': counts.get('original_segments_available')})
+    # Later checking callbacks may omit progress, but belong to the same active recording.
+    if phase == 'checking' and 'analysis_progress' not in value:
+      prior_progress = self.current.get('analysis_progress', {})
+      progress.update({key: prior_progress[key] for key in ('recording_position', 'recording_total') if key in prior_progress})
     self.set({**(previous or value), 'status': 'fitting', 'reason': value['reason'], 'retained_analysis': bool(previous),
-              'analysis_progress': progress}, diagnostic_value=value)
+              'analysis_progress': progress}, diagnostic_value={**value, 'status': 'fitting'})
 
   def restore(self, cache):
     """Recover historical display data, never a current tune or permission."""
@@ -134,6 +138,9 @@ class StatusReport:
       if not (type(completed) is int and type(total) is int and 0 <= completed <= total <= 180 and total > 0):
         completed = total = None
       details['Parked analysis progress'] = [progress['phase'], completed, total]
+      position, recordings = progress.get('recording_position'), progress.get('recording_total')
+      if type(position) is int and type(recordings) is int and 0 <= position <= recordings <= 8 and recordings > 0:
+        details['Parked recording queue'] = [position, recordings]
     if value.get('vehicle_identity') == 'unavailable':
       details['Recorded vehicle identity'] = 'unavailable'
     if self.diagnostics is not None and self.diagnostics.error:
