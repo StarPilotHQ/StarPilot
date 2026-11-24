@@ -2327,7 +2327,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
               return
             result = software_owner().action(payload['action'], payload,
                                               authorized=lambda: self.settings_session() == identity)
-          if payload['action'] == 'save-me':
+          if payload['action'] in ('save-me', 'restart'):
             self.json(200, result)
             return
           result = {**(software_source if software_source is not None else SoftwareStatus()).snapshot(), 'operations': result}

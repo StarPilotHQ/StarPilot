@@ -531,10 +531,29 @@ class SoftwareOperations:
         raise SoftwareOperationError("Could not start Save Me", 503) from None
       return {"resetRequested": True}
 
+  def _restart(self, payload: dict, authorized: Callable[[], bool]) -> dict:
+    if payload != {"action": "restart", "confirmed": True} or payload["confirmed"] is not True:
+      raise SoftwareOperationError("Confirm the device restart first", 400)
+    with self.lock:
+      if not authorized():
+        raise SoftwareOperationError("Session expired", 403)
+      if not COMMA_HARDWARE:
+        raise SoftwareOperationError("Restart is unavailable on this device", 503)
+      if self._param("UpdaterState") not in (None, "idle") or self.request is not None and self.request.get("state") == "pending":
+        raise SoftwareOperationError("Wait for the software operation to finish before restarting", 409)
+      if any(self._flag(key) is not False for key in ("DoUninstall", "DoShutdown", "DoReboot")) or save_me.REQUEST.exists():
+        raise SoftwareOperationError("A device restart, shutdown or reset is already pending", 409)
+      if (self.refresh is not None and self.refresh() is not True) or not self._parked():
+        raise SoftwareOperationError("Park the vehicle before restarting", 409)
+      if not authorized():
+        raise SoftwareOperationError("Session expired", 403)
+      self.params.put_bool("DoReboot", True, block=True)
+      return {"restartRequested": True}
+
   def action(self, action: str, payload: object, *, authorized: Callable[[], bool]) -> dict:
     if (type(payload) is not dict or type(action) is not str or
         action not in ("check", "download", "select", "install", "preferences", "install-preferences", "update", "fast", "rollback",
-                       "versions", "version", "download-version", "save-me")):
+                       "versions", "version", "download-version", "save-me", "restart")):
       raise SoftwareOperationError("Invalid software action", 400)
     assert isinstance(payload, dict)
     payload = dict(payload)
@@ -542,6 +561,8 @@ class SoftwareOperations:
       raise SoftwareOperationError("Invalid software action", 400)
     if action == 'save-me':
       return self._save_me(payload, authorized)
+    if action == 'restart':
+      return self._restart(payload, authorized)
     if action == 'preferences':
       return self._preferences(payload, authorized)
     if action == 'install-preferences':

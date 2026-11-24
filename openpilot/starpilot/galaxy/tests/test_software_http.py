@@ -159,3 +159,31 @@ class SoftwareHttpTest(unittest.TestCase):
     self.assertFalse(self.params.get_bool('DoUninstall'))
     self.assertFalse(self.params.get_bool('DoReboot'))
     self.assertEqual(self.process.sent, [])
+
+  def test_restart_requires_local_or_remote_session_confirmation_and_parked_state(self):
+    path = '/api/software/action'
+    payload = {'action': 'restart', 'confirmed': True}
+    with tempfile.TemporaryDirectory() as root, patch('openpilot.starpilot.galaxy.software_operations.COMMA_HARDWARE', True), \
+         patch.object(save_me, 'REQUEST', Path(root) / 'request'):
+      for remote, cookie in ((True, self.remote_cookie), (False, self.local_cookie)):
+        self.assertEqual(self.request(path, payload=payload, remote=remote)[0], 401)
+        self.assertEqual(self.request(path, payload=payload, remote=remote, cookie=cookie, origin='https://wrong.example')[0], 403)
+        self.assertEqual(self.request(path, payload=payload | {'confirmed': 1}, remote=remote, cookie=cookie)[0], 400)
+        self.parked = False
+        self.assertEqual(self.request(path, payload=payload, remote=remote, cookie=cookie)[0], 409)
+        self.parked = True
+        self.params.put('UpdaterState', 'updating...', block=True)
+        self.assertEqual(self.request(path, payload=payload, remote=remote, cookie=cookie)[0], 409)
+        self.params.put('UpdaterState', 'idle', block=True)
+        save_me.request()
+        self.assertEqual(self.request(path, payload=payload, remote=remote, cookie=cookie)[0], 409)
+        save_me.clear_request()
+        self.assertFalse(self.params.get_bool('DoReboot'))
+        self.params.put_bool('DisableUpdates', True, block=True)
+        self.assertEqual(self.request(path, payload=payload, remote=remote, cookie=cookie)[:2], (200, {'restartRequested': True}))
+        self.assertTrue(self.params.get_bool('DoReboot'))
+        self.assertEqual(self.request(path, payload=payload, remote=remote, cookie=cookie)[0], 409)
+        self.params.put_bool('DoReboot', False, block=True)
+    self.assertFalse(self.params.get_bool('DoUninstall'))
+    self.assertFalse(self.params.get_bool('DoShutdown'))
+    self.assertEqual(self.process.sent, [])

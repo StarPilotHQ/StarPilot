@@ -578,6 +578,27 @@ assert.equal(SoftwarePage.computed.updateAvailable.call(returnToStable), false)
 assert.equal(returnToStable.branchChanging, true, 'a different branch can be installed even if there are no updates on the current branch')
 assert.equal(SoftwarePage.computed.canUpdate.call(returnToStable), true)
 
+const manualRestart = { dialog: null, actionDisabled: false, restartState: "", restartError: "",
+  restartDevice: SoftwarePage.methods.restartDevice }
+const originalFetch = globalThis.fetch
+const restartRequests = []
+try {
+  globalThis.fetch = async (url, options) => {
+    restartRequests.push([url, JSON.parse(options.body)])
+    return response({ restartRequested: true })
+  }
+  SoftwarePage.methods.askRestart.call(manualRestart)
+  assert.match(manualRestart.dialog.message, /update.*may install/)
+  SoftwarePage.methods.closeDialog.call(manualRestart)
+  assert.deepEqual(restartRequests, [])
+  SoftwarePage.methods.askRestart.call(manualRestart)
+  await SoftwarePage.methods.confirmDialog.call(manualRestart)
+  assert.deepEqual(restartRequests, [["./api/software/action", { action: "restart", confirmed: true }]])
+  assert.equal(manualRestart.restartState, "requested")
+} finally {
+  globalThis.fetch = originalFetch
+}
+
 const automatic = fixture()
 automatic.feed.start()
 await automatic.reply(0, snapshot({ operations: { ...operations, canFastUpdate: true } }))
