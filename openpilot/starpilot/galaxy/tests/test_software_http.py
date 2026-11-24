@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 
 from openpilot.common.params import Params
 from openpilot.starpilot.galaxy.access import GalaxyAccessOwner
@@ -133,3 +134,32 @@ class SoftwareHttpTest(unittest.TestCase):
     self.assertEqual(self.request('/api/software/action', payload=payload, remote=True, cookie=self.remote_cookie)[0], 409)
     self.assertFalse(Path(self.params.get_param_path('UpdaterAutomaticDownloads')).exists())
     self.assertEqual(self.process.sent, [])
+
+  def test_factory_reset_only_queues_native_confirmation_from_local_parked_session(self):
+    path = '/api/software/action'
+    payload = {'action': 'factory-reset', 'confirmation': 'ERASE DEVICE'}
+    with patch('openpilot.starpilot.galaxy.software_operations.factory_reset_available', return_value=True):
+      self.assertEqual(self.request(path, payload=payload)[0], 401)
+      self.assertEqual(self.request(path, payload=payload, remote=True, cookie=self.remote_cookie)[0], 403)
+      self.assertEqual(self.request(path, payload=payload, cookie=self.local_cookie, origin='https://wrong.example')[0], 403)
+      self.assertEqual(self.request(path, payload=payload | {'confirmation': 'yes'}, cookie=self.local_cookie)[0], 400)
+      self.parked = False
+      self.assertEqual(self.request(path, payload=payload, cookie=self.local_cookie)[0], 409)
+      self.parked = True
+      self.params.put('UpdaterState', 'updating...', block=True)
+      self.assertEqual(self.request(path, payload=payload, cookie=self.local_cookie)[0], 409)
+      self.params.put('UpdaterState', 'idle', block=True)
+      self.assertFalse(self.params.get_bool('DoUninstall'))
+      status, result, _ = self.request(path, payload=payload, cookie=self.local_cookie)
+      self.assertEqual((status, result), (200, {'resetRequested': True}))
+      self.assertEqual(self.request(path, payload=payload, cookie=self.local_cookie)[0], 409)
+    self.assertTrue(self.params.get_bool('DoUninstall'))
+    self.assertFalse(self.params.get_bool('DoReboot'))
+    self.assertEqual(self.process.sent, [])
+
+  def test_factory_reset_refuses_missing_native_reset_program(self):
+    with patch('openpilot.starpilot.galaxy.software_operations.factory_reset_available', return_value=False):
+      status, _, _ = self.request('/api/software/action', payload={'action': 'factory-reset', 'confirmation': 'ERASE DEVICE'},
+                                  cookie=self.local_cookie)
+    self.assertEqual(status, 503)
+    self.assertFalse(self.params.get_bool('DoUninstall'))

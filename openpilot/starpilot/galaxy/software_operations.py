@@ -33,6 +33,12 @@ MAX_BRANCH_LIST = 32768
 MAX_BRANCHES = 256
 SOURCE_ACTIONS = frozenset(("update", "fast", "rollback", "versions", "version", "download-version"))
 PROCESS_TITLE = b"openpilot.system.updated.updated"
+FACTORY_RESET_CONFIRMATION = "ERASE DEVICE"
+
+
+def factory_reset_available() -> bool:
+  reset = Path("/usr/comma/reset")
+  return COMMA_HARDWARE and reset.is_file() and os.access(reset, os.X_OK)
 
 
 class SoftwareOperationError(Exception):
@@ -506,15 +512,37 @@ class SoftwareOperations:
         raise SoftwareOperationError(str(error), 409) from error
       return self.snapshot()
 
+  def _factory_reset(self, payload: dict, authorized: Callable[[], bool]) -> dict:
+    if set(payload) != {"action", "confirmation"} or payload["confirmation"] != FACTORY_RESET_CONFIRMATION:
+      raise SoftwareOperationError("Type ERASE DEVICE to request a factory reset", 400)
+    with self.lock:
+      if not authorized():
+        raise SoftwareOperationError("Session expired", 403)
+      if not factory_reset_available():
+        raise SoftwareOperationError("The built-in factory reset is unavailable on this device", 503)
+      if self._param("UpdaterState") not in (None, "idle") or self.request is not None and self.request.get("state") == "pending":
+        raise SoftwareOperationError("Wait for the software operation to finish before resetting", 409)
+      if any(self._flag(key) is not False for key in ("DoUninstall", "DoShutdown", "DoReboot")):
+        raise SoftwareOperationError("A device restart, shutdown or reset is already pending", 409)
+      if (self.refresh is not None and self.refresh() is not True) or not self._parked():
+        raise SoftwareOperationError("Park the vehicle before requesting a factory reset", 409)
+      if not authorized():
+        raise SoftwareOperationError("Session expired", 403)
+      # The manager stops its children; AGNOS asks for confirmation on the device before erasing.
+      self.params.put_bool("DoUninstall", True, block=True)
+      return {"resetRequested": True}
+
   def action(self, action: str, payload: object, *, authorized: Callable[[], bool]) -> dict:
     if (type(payload) is not dict or type(action) is not str or
         action not in ("check", "download", "select", "install", "preferences", "install-preferences", "update", "fast", "rollback",
-                       "versions", "version", "download-version")):
+                       "versions", "version", "download-version", "factory-reset")):
       raise SoftwareOperationError("Invalid software action", 400)
     assert isinstance(payload, dict)
     payload = dict(payload)
     if payload.get("action") != action or any(type(key) is not str for key in payload):
       raise SoftwareOperationError("Invalid software action", 400)
+    if action == 'factory-reset':
+      return self._factory_reset(payload, authorized)
     if action == 'preferences':
       return self._preferences(payload, authorized)
     if action == 'install-preferences':
