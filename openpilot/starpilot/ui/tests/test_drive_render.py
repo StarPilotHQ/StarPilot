@@ -210,11 +210,13 @@ def test_native_large_session_wires_the_layer_and_closes_pip_for_it():
 
 
 def test_hidden_widgets_take_no_taps():
-  from openpilot.starpilot.ui.onroad_state import OnroadInput
+  from openpilot.starpilot.ui import onroad_state
   current = replace(state('device'), experimental_available=True)
-  drawn, hidden = OnroadInput(Mock()), OnroadInput(Mock())
-  hidden.widgets_hidden = lambda _state: True
-  drawn.press(1684, 171, current)
-  hidden.press(1684, 171, current)
-  assert drawn.claimed, 'the steering wheel is a tap target while it is drawn'
-  assert not hidden.claimed and hidden._personality_target(current) is None
+  for target in ('personality', 'wheel'):
+    drawn, hidden = onroad_state.OnroadInput(Mock()), onroad_state.OnroadInput(Mock())
+    hidden.widgets_hidden = lambda _state: True
+    with patch.object(onroad_state, 'personality_bounds', return_value=(0, 0, 100, 100) if target == 'personality' else None),          patch.object(onroad_state, '_inside_widget', return_value=True):
+      drawn.press(50, 50, current)
+      hidden.press(50, 50, current)
+    assert drawn.claimed, f'the {target} is a tap target while it is drawn'
+    assert not hidden.claimed, f'the {target} takes no tap while the render hides it'
