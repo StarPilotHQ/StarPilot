@@ -633,6 +633,13 @@ class Controls:
           new_desired_curvature = limit_curvature_to_plan(model_v2, new_desired_curvature, CS.vEgo, min_reach=4.0)
       else:
         self.subaru_twitch_guard_armed = update_twitch_guard(False, CS.vEgo, CS.standstill)
+    kona_tau = getattr(self, "kona_smoothing", 0.)
+    from openpilot.starpilot.car.subaru.smoothing import seconds as subaru_smooth_seconds, control_maximum
+
+    lat_delay = self.sm["lateralDelay"].lateralDelay + LAT_SMOOTH_SECONDS + subaru_smooth_seconds(CS.vEgo, control_maximum(self)) + kona_tau
+    if getattr(self, "volkswagen_smoothing", None) is not None:
+      lat_delay += self.volkswagen_smoothing.seconds(int(self.sm.logMonoTime["modelV2"]), time.monotonic_ns())
+
     if self.highway_smoothing_supported:
       preferences = getattr(self, "live_steering_preferences", None)
       if preferences is not None:
@@ -656,12 +663,13 @@ class Controls:
           or self.sm.valid['lateralManeuverPlan']
         ),
         predicted=predicted,
+        steering_limited=self.steer_limited_by_safety,
+        actuator_delay_s=lat_delay,
       )
     lane_base_curvature = new_desired_curvature
     self.lane_centering_applied = 0.0
     self.lane_centering_inactive_reason = 'inactive'
     self.last_lane_centering_result = None
-    kona_tau = getattr(self, "kona_smoothing", 0.)
     lane_delay = None
     if lane_centering is None and self.lane_centering_host is not None:
       now_ns = int(self.sm.logMonoTime['carState']) if os.getenv('REPLAY') == '1' else time.monotonic_ns()
@@ -723,12 +731,6 @@ class Controls:
         self.desired_curvature = guarded
         curvature_limited = True
       self.lane_centering_applied = self.desired_curvature - baseline_curvature
-    from openpilot.starpilot.car.subaru.smoothing import seconds as subaru_smooth_seconds, control_maximum
-
-    lat_delay = self.sm["lateralDelay"].lateralDelay + LAT_SMOOTH_SECONDS + subaru_smooth_seconds(CS.vEgo, control_maximum(self)) + kona_tau
-    if getattr(self, "volkswagen_smoothing", None) is not None:
-      lat_delay += self.volkswagen_smoothing.seconds(int(self.sm.logMonoTime["modelV2"]), time.monotonic_ns())
-
     actuators.curvature = self.desired_curvature
     if cycle_timing is not None:
       cycle_timing.mark()

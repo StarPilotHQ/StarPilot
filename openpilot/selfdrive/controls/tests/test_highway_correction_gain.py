@@ -119,6 +119,28 @@ def test_bypass_fades_without_steps():
   assert np.max(np.abs(np.diff(out))) < 1.5 * max_raw_step
 
 
+def test_limit_pauses_smoothing_until_the_actuator_delay_clears():
+  hcg = HighwayCorrectionGain()
+  _run(hcg, _weave(seconds=5.0), gain=0.5)
+  assert hcg.weight == 1.0
+  raw = 0.04 / _V_HWY ** 2
+  delay = 0.3
+  assert hcg.update(raw, _V_HWY, True, 0.5, False, steering_limited=True, actuator_delay_s=delay) == raw
+  for _ in range(round(delay / DT_CTRL)):
+    assert hcg.update(raw, _V_HWY, True, 0.5, False, actuator_delay_s=delay) == raw
+  weights = []
+  for _ in range(41):
+    hcg.update(raw, _V_HWY, True, 0.5, False, actuator_delay_s=delay)
+    weights.append(hcg.weight)
+  assert 0.4 < weights[20] < 0.6
+  assert weights[-1] == 1.0
+  assert np.max(np.diff(weights)) < 0.026
+
+  assert hcg.update(raw, _V_HWY, True, 0.5, False, steering_limited=True, actuator_delay_s=delay) == raw
+  for _ in range(100):
+    assert hcg.update(raw, _V_HWY, True, 0.5, False, actuator_delay_s=math.nan) == raw
+
+
 def test_active_from_40_mph():
   v = 40.0 * 0.44704
   raw = _weave(v_ego=v)

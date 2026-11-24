@@ -25,6 +25,7 @@ TIGHT_CURVE_OFF = 2.0                     # m/s^2
 ENVELOPE_HOLD = 2.0                       # s
 ENVELOPE_RELEASE_RATE = 0.3               # m/s^2 per second
 BYPASS_FADE_RATE = 2.0                    # per second
+LIMIT_RECOVERY_RAMP = 0.4                # s
 MIN_SETTING = 1.0
 MAX_SETTING = 10.0
 KEY = "HighwaySmoothingLevel"
@@ -83,9 +84,11 @@ class HighwayCorrectionGain:
     self.prediction_envelope = _Envelope()
     self.bypass_weight = 0.0
     self.weight = 0.0
+    self.time_clear_of_limit: float | None = None
+    self.limit_recovery = 1.0
 
   def update(self, curvature: float, v_ego: float, lat_active: bool, gain: float, bypass: bool,
-             predicted: tuple[float, ...] | None = None) -> float:
+             predicted: tuple[float, ...] | None = None, *, steering_limited: bool = False, actuator_delay_s: float = 0.0) -> float:
     if not lat_active:
       self.reset(curvature)
       return curvature
@@ -117,8 +120,19 @@ class HighwayCorrectionGain:
     step = BYPASS_FADE_RATE * DT_CTRL
     self.bypass_weight += min(max((0.0 if bypass else 1.0) - self.bypass_weight, -step), step)
 
+    # Leave the original request intact while limited and let the delayed commands clear before blending back in.
+    if steering_limited:
+      self.time_clear_of_limit = self.limit_recovery = 0.0
+    elif self.time_clear_of_limit is not None:
+      if math.isfinite(actuator_delay_s) and actuator_delay_s >= 0.0:
+        target = max((self.time_clear_of_limit - actuator_delay_s) / LIMIT_RECOVERY_RAMP, 0.0)
+        self.limit_recovery = min(target, self.limit_recovery + DT_CTRL / LIMIT_RECOVERY_RAMP, 1.0)
+        self.time_clear_of_limit = None if self.limit_recovery == 1.0 else self.time_clear_of_limit + DT_CTRL
+      else:
+        self.time_clear_of_limit = self.limit_recovery = 0.0
+
     gain = min(max(gain, MIN_SETTING / MAX_SETTING), 1.0)
-    self.weight = self.bypass_weight * _smoothstep(v_ego, SPEED_OFF, SPEED_ON) * gate
+    self.weight = self.bypass_weight * _smoothstep(v_ego, SPEED_OFF, SPEED_ON) * gate * self.limit_recovery
     k = 1.0 - self.weight * (1.0 - gain)
     if k >= 1.0:
       return curvature
