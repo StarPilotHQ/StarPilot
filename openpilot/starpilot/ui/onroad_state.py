@@ -387,6 +387,12 @@ class OnroadInput:
     self._sign_press: tuple[tuple, tuple] | None = None
     self._personality_press: tuple[float, float, int | None, tuple] | None = None
     self._prompt: tuple | None = None
+    # Set by the screen that can draw the 3D drive render: True for a state whose layout widgets are not drawn,
+    # so their places take no taps.
+    self.widgets_hidden: Callable[[OnroadState], bool] | None = None
+
+  def _widgets_hidden(self, state: OnroadState) -> bool:
+    return self.widgets_hidden is not None and self.widgets_hidden(state) is True
 
   def _pending_context(self, state: OnroadState) -> tuple | None:
     obs = state.speed_limit
@@ -395,7 +401,7 @@ class OnroadInput:
     return None
 
   def _personality_target(self, state: OnroadState) -> tuple | None:
-    if (not state.camera_available or state.quick_select_open or
+    if (self._widgets_hidden(state) or not state.camera_available or state.quick_select_open or
         state.alert.size != AlertSize.NONE and not is_personality_notice(state.alert) or
         self.profile == Profile.COMPACT and state.reversing and state.appearance.camera_view != CameraViewChoice.NONE):
       return None
@@ -432,7 +438,7 @@ class OnroadInput:
       self._personality_press = x, y, state.drive_frame, bounds
       return
     # Only the large-profile wheel is an experimental-mode touch target.
-    if self.profile != Profile.LARGE:
+    if self.profile != Profile.LARGE or self._widgets_hidden(state):
       self.cancel()
       return
     inside = _inside_widget(x, y, state, "steering_wheel", (1588, 75, 1780, 267))

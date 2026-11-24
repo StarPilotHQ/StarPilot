@@ -206,7 +206,8 @@ def run(frames_path: str, touch_path: str | None = None, control_path: str | Non
     watcher = ProjectionLayoutWatcher(viewport, display_seed=comma_display_seed)
     layout = ProjectionOnroad(viewport=viewport, customization=watcher.load(),
                               certificate_days=certificate_days_left(), layout_watcher=watcher, content=stream_content,
-                              reconnect_notice=reconnect_notice.take())
+                              # Only the camera composition shows the notice; the render leaves it for a screen that can.
+                              reconnect_notice=reconnect_notice.take() if stream_content == "full" else "")
     resources.callback(layout.close)
     watcher.start()
     resources.callback(watcher.close)

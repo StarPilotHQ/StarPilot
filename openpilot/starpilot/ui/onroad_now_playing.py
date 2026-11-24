@@ -456,7 +456,7 @@ class NowPlayingWidget:
     self.text.draw(label, FontRole.SEMI_BOLD, 18, x + 42, cy - measured.height / 2, TEXT, 'chip')
 
   def _big(self, rect, buttons, track, opacity, now):
-    texture = self._cover_texture() if track.get('source') == 'spotify' else None
+    texture = self._cover_texture() if track.get('source') == 'spotify' and self.glass is None else None  # glass shows no cover
     self._background(rect, BIG_RADIUS, opacity, texture)
     self._chip(rect.x + PAD, rect.y + 38, track)
     service = 'Spotify' if track.get('source') == 'spotify' else nfc(track.get('device') or 'Bluetooth')
@@ -509,7 +509,7 @@ class NowPlayingWidget:
     self.fonts.draw(total, FontRole.NORMAL, 16, right - self.fonts.measure(total, FontRole.NORMAL, 16).width, y + 16, TIMES)
 
   def _small(self, rect, track, opacity, now):
-    texture = self._cover_texture() if track.get('source') == 'spotify' else None
+    texture = self._cover_texture() if track.get('source') == 'spotify' and self.glass is None else None  # glass shows no cover
     h = rect.height
     self._background(rect, h / 2, opacity, texture)
     disc = rl.Vector2(rect.x + h / 2, rect.y + h / 2)

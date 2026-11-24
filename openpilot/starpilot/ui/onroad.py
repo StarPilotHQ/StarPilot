@@ -203,7 +203,8 @@ class OnroadView:
 
     Never the projection, a layout or replay preview, or the reverse driver camera; a render that cannot be built
     leaves the camera composition in place. So does a speed limit waiting for the driver's answer: its prompt and
-    tap targets belong to the camera composition, which returns until it is answered.
+    tap targets belong to the camera composition, which returns while the prompt can show (an alert hides the
+    prompt there too, so the render is back under the alert).
     """
     layer = getattr(self, "drive_render", None)
     return bool(layer is not None and self.fonts.profile == Profile.LARGE and self.projection_viewport is None and
@@ -215,7 +216,8 @@ class OnroadView:
     """The 3D drive render over the content area: no camera receive/upload, model overlay, widgets, map or PiP work.
 
     Alerts, the developer sidebar, the blind-spot and signal borders, the engagement-colour border and the Uniden
-    border stay. The driver-monitoring face, the corner hint and every layout widget are not drawn.
+    border stay. The driver-monitoring face, the corner hint, the curve glow, the traffic badge, the status label,
+    the rear-fog indicator and every layout widget are not drawn, and the widgets' places take no taps.
     """
     width, height = state.viewport_width, 1080
     frame = rl.Rectangle(0, 0, width, height)

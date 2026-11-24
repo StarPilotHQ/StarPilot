@@ -201,8 +201,20 @@ def test_native_large_session_wires_the_layer_and_closes_pip_for_it():
   source = Path(onroad.__file__).with_name('runtime_app.py').read_text()
   assert 'self.view.onroad.drive_render = DriveRenderLayer(self.fonts, ui_state)' in source
   assert 'self._drive_render_active(snapshot.onroad)' in source
+  assert 'self.input.onroad.widgets_hidden = self._drive_render_active' in source
   session = NS(view=NS(onroad=view()))
   from openpilot.starpilot.ui.runtime_app import StarShellSession
   assert StarShellSession._drive_render_active(session, state('device')) is True
   assert StarShellSession._drive_render_active(session, replace(state('device'), reverse_driver_camera=True)) is False
   assert StarShellSession._drive_render_active(NS(view=NS()), state('device')) is False
+
+
+def test_hidden_widgets_take_no_taps():
+  from openpilot.starpilot.ui.onroad_state import OnroadInput
+  current = replace(state('device'), experimental_available=True)
+  drawn, hidden = OnroadInput(Mock()), OnroadInput(Mock())
+  hidden.widgets_hidden = lambda _state: True
+  drawn.press(1684, 171, current)
+  hidden.press(1684, 171, current)
+  assert drawn.claimed, 'the steering wheel is a tap target while it is drawn'
+  assert not hidden.claimed and hidden._personality_target(current) is None

@@ -269,6 +269,8 @@ class StarShellSession(TeslaSpeedActions):
                             native_panels=NATIVE_SETTINGS_PANELS if profile == Profile.LARGE and settings_layer is not None else ())
     if profile == Profile.LARGE:
       self.view.onroad.pressed_action = lambda: self.input.onroad.pressed_action
+      # The 3D drive render draws no layout widgets, so the wheel's and the follow distance's places take no taps.
+      self.input.onroad.widgets_hidden = self._drive_render_active
     self.selected = Destination.STAR
     self.sidebar_expanded = True
     self._onroad_page_width = 2160.0
@@ -1539,8 +1541,7 @@ class StarShellSession(TeslaSpeedActions):
         snapshot = replace(snapshot, onroad=self.favorites.present(snapshot.onroad))
     else:
       self.favorites.cancel()
-    # The 3D drive render replaces the camera composition, so the PiP cameras stay closed.
-    if mode != ShellMode.ONROAD or not snapshot.onroad.camera_available or self._drive_render_active(snapshot.onroad):
+    if mode != ShellMode.ONROAD or not snapshot.onroad.camera_available:
       self.pip_warning.close()
       self._pip_signals_cache = None
       self._pip_saved = None
@@ -1549,8 +1550,13 @@ class StarShellSession(TeslaSpeedActions):
       if renderer := getattr(self, "pip_renderer", None):
         renderer.deactivate()
     else:
+      # The 3D drive render replaces the camera composition, so the PiP cameras are released; the side-camera
+      # warnings still colour its borders.
+      render_active = self._drive_render_active(snapshot.onroad)
       self._pip_signals_cache = self._pip_signals()
       snapshot = replace(snapshot, onroad=visual_border_state(snapshot.onroad, self._pip_signals_cache))
+      if render_active and (renderer := getattr(self, "pip_renderer", None)):
+        renderer.deactivate()
     # Scroller and NavWidget place compact pages at changing screen positions.
     with placed_at(rect, parent_clip):
       external = (self.profile == Profile.LARGE and mode == ShellMode.SETTINGS and

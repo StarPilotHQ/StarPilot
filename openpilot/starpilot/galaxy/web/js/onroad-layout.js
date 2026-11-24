@@ -591,7 +591,12 @@ export const OnroadLayoutPage = {
     editAvailable() { return !!this.state.data?.editable && !this.state.error && !this.state.needsReload && !this.state.discard },
     editable() { return this.editAvailable && !this.busy },
     dirty() { return !!this.state.draft && JSON.stringify(this.state.draft) !== JSON.stringify(this.state.data.document) },
-    stockChanged() { return !!this.state.draft && JSON.stringify(this.state.draft) !== JSON.stringify(this.state.data.defaults) },
+    // The 3D drive render choice is not part of the stock colors and layouts; reset to stock leaves it alone.
+    stockChanged() {
+      if (!this.state.draft) return false
+      const { driveRender: _kept, ...draft } = this.state.draft
+      return JSON.stringify(draft) !== JSON.stringify(this.state.data.defaults)
+    },
     canUndo() { return this.state.history.undo.length > 0 },
     canRedo() { return this.state.history.redo.length > 0 },
     pendingLeave() { return typeof this.state.discard === "function" || ["back", "device", "projection"].includes(this.state.discard) },

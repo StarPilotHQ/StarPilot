@@ -332,7 +332,7 @@ def test_radar_lead_without_a_finite_lateral_position_is_not_drawn():
 
 
 def test_road_of_a_stopped_or_earlier_model_is_dropped():
-  renderer = _renderer_with_scene()
+  renderer, _ = _renderer_with_scene()
   assert renderer.scene.valid
   names = ('modelV2', 'radarState', 'carState', 'selfdriveState', 'longitudinalPlan', 'carControl')
   def messages(frame, alive):
