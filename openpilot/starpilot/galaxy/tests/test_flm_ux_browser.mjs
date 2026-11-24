@@ -12,6 +12,7 @@ import { SURFACE_NAMES, FRICTION_NAMES, validTrainingResults } from '../web/js/f
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../web')
 const output = resolve('ci-results/flm-offroad.json')
+const capturePassingScreens = !process.argv.includes('--failure-screenshot-only')
 const screenshots = [], checks = [], requests = [], errors = [], contrastResults = [], fullPageReflow = []
 const targetIndex = SURFACE_NAMES.indexOf('highway_center_taper_max')
 const running = child => child.exitCode === null && child.signalCode === null
@@ -277,6 +278,7 @@ async function layout(label) {
 }
 async function show(selector) { await execute('document.querySelector(arguments[0]).scrollIntoView({block:"center",behavior:"instant"})', selector) }
 async function capture(name) {
+  if (!capturePassingScreens && name !== 'failure') return
   const { data: base64 } = await command(`/session/${session}/goog/cdp/execute`, { cmd: 'Page.captureScreenshot',
     params: { format: 'png', captureBeyondViewport: false, optimizeForSpeed: true } })
   screenshots.push({ name, png_base64: base64 })

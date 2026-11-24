@@ -67,7 +67,10 @@ class TestBlendedSender(unittest.TestCase):
         command.actuators.longControlState = structs.CarControl.Actuators.LongControlState.pid
         command.hudControl.setSpeed = 25.0
         for frame in range(32):
-          actuators, messages = ci.apply(command.as_reader(), 2_000_000_000 + frame * 10_000_000)
+          tick = 16 + frame
+          camera = 16 + frame // 5 if frame % 5 == 0 else False
+          feed(ci, tick, camera=camera)
+          actuators, messages = ci.apply(command.as_reader(), 1_000_000_000 + tick * 10_000_000)
           wanted = []
           if frame % 100 == 0:
             wanted.append((0x730 if hdaii else 0x7D0, int(hdaii)))
@@ -90,6 +93,8 @@ class TestBlendedSender(unittest.TestCase):
             wanted.append((0x485, 1))
           self.assertEqual([(address, bus) for address, _, bus in messages], wanted)
           packets = {address: data for address, data, _ in messages}
+          if hdaii and frame % 5 == 0:
+            self.assertEqual(decode(ci, 0x2A4, packets[0x2A4], 'COUNTER'), camera)
           for address, data, _ in messages:
             if address not in (0x730, 0x7D0, 0x50, 0x51, 0x2A4):
               self.assertEqual(data[0], hyundai_checksum(data[1:8]), hex(address))

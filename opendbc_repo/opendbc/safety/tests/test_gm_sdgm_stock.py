@@ -20,6 +20,7 @@ class TestGmSdgmStock(unittest.TestCase):
     return libsafety_py.make_CANPacket(msg[0], msg[2], msg[1])
 
   def mode(self, cp):
+    self.safety.set_alternative_experience(0)
     self.assertEqual(self.safety.set_safety_hooks(CarParams.SafetyModel.gm, cp.safetyConfigs[0].safetyParam), 0)
     self.safety.init_tests()
     self.safety.set_timer(1_000_000)
