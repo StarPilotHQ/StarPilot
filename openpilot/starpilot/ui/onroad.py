@@ -16,7 +16,7 @@ from typing import Protocol
 from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.onroad_rear_fog import render_rear_fog
-from openpilot.starpilot.ui import clip, drive_render
+from openpilot.starpilot.ui import clip, drive_render, streaming_blackout
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.starpilot.ui.onroad_customization import (CLOCK_WIDGET, MODE_WIDGET, RAIL_WIDGETS, STOPPED_TIMER_WIDGET, placement, rgba,
                                                          widget_order, widget_size)
@@ -145,6 +145,9 @@ class OnroadView:
     # The native comma 3 / 3X screen sets this (an onroad_drive_render.DriveRenderLayer): the 3D drive render
     # replaces the camera composition while Galaxy's "3D drive render" is set to Comma display.
     self.drive_render = None
+    # The comma's own screen sets this (a projection_stream_lease.StreamLeaseReader): True while StarPort's drive
+    # view is reaching the car screen. With "Black screen while StarPort streams" on, this screen then draws black.
+    self.streaming_blackout: Callable[[], bool] | None = None
     self.pip_layer = pip_layer
     self.stock_confidence_layer: OverlayLayer | None = None
     self.stock_confidence_reset: Callable[[], None] | None = None
@@ -187,7 +190,11 @@ class OnroadView:
       uniden.feed.set_enabled(uniden.runtime_active)
     if state.camera_available and self.camera_layer is None:
       raise ValueError("Camera observation requires a camera renderer")
-    if self.drive_render_active(state):
+    if self.streaming_blackout_active(state):
+      self._alerts_only(state)
+      if uniden := getattr(self, "uniden", None):
+        uniden.render_border(state, state.viewport_width, 1080)
+    elif self.drive_render_active(state):
       self._drive_render(state)
       if uniden := getattr(self, "uniden", None):
         uniden.render_border(state, state.viewport_width, 1080)
@@ -197,6 +204,48 @@ class OnroadView:
         uniden.render_border(state, *(self.projection_viewport or (state.viewport_width, 1080)))
     else:
       self._compact(state)
+
+  def streaming_blackout_active(self, state: OnroadState) -> bool:
+    """The comma's own screen is black with alerts only for this frame: the owner turned on "Black screen while
+    StarPort streams" and StarPort's drive view is reaching the car screen.
+
+    Never the projection, a layout or replay preview, or the reverse driver camera. A speed limit waiting for the
+    driver's answer brings the normal screen back while its prompt can show, since the prompt and its tap targets
+    belong to it. The lease is only read once the saved choice is on.
+    """
+    reader = getattr(self, "streaming_blackout", None)
+    return bool(reader is not None and self.projection_viewport is None and state.visual_preview is None and
+                not state.reverse_driver_camera and streaming_blackout.enabled(state.customization) and
+                not manual_slc_confirmation(self.fonts.profile, state) and reader())
+
+  def _alerts_only(self, state: OnroadState) -> None:
+    """A black screen with the alert layer: no camera receive or upload, model, HUD, widgets, borders, map or PiP.
+
+    The large screen also keeps an open Quick Select and its developer sidebar; render() adds the Uniden border.
+    The widgets' places take no taps.
+    """
+    if self.fonts.profile == Profile.LARGE:
+      width, height = state.viewport_width, 1080
+      rl.draw_rectangle_rec(rl.Rectangle(0, 0, width, height), rl.BLACK)
+      content = rl.Rectangle(30, 30, width - 60, height - 60)
+      clip.begin_scissor_mode(30, 30, int(content.width), int(content.height))
+      try:
+        if (quick_select := getattr(self, 'quick_select_layer', None)) is not None:
+          quick_select(content, state)
+        self.alert.render(content, state.alert)
+      finally:
+        clip.end_scissor_mode()
+      if state.appearance.show_developer_sidebar:
+        render_live_sidebar(self.fonts, rl.Rectangle(width, 0, SIDEBAR_WIDTH, height), state.developer_metrics)
+      return
+    rl.draw_rectangle(0, 0, 536, 240, rl.BLACK)
+    clip.begin_scissor_mode(0, 0, 476, 240)
+    try:
+      signals = state.border_signals
+      direction = (-1 if signals.left_blinker else 1 if signals.right_blinker else 0) if signals else 0
+      self.alert.render(rl.Rectangle(0, 0, 476, 240), state.alert, signal_direction=direction)
+    finally:
+      clip.end_scissor_mode()
 
   def drive_render_active(self, state: OnroadState) -> bool:
     """The comma's own large screen draws the 3D drive render in place of the camera for this frame.
@@ -210,7 +259,8 @@ class OnroadView:
     return bool(layer is not None and self.fonts.profile == Profile.LARGE and self.projection_viewport is None and
                 state.visual_preview is None and not state.reverse_driver_camera and
                 drive_render.effective(state.customization.get(drive_render.FIELD), True) == drive_render.DEVICE and
-                not manual_slc_confirmation(self.fonts.profile, state) and layer.ready())
+                not manual_slc_confirmation(self.fonts.profile, state) and layer.ready() and
+                not self.streaming_blackout_active(state))
 
   def _drive_render(self, state: OnroadState) -> None:
     """The 3D drive render over the content area: no camera receive/upload, model overlay, widgets, map or PiP work.

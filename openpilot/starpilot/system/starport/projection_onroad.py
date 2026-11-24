@@ -10,6 +10,7 @@ from openpilot.starpilot.system.starport.identity import EXPIRY_WARNING_DAYS
 from openpilot.starpilot.system.starport.projection_exit import ProjectionExit
 from openpilot.starpilot.system.starport.projection_geometry import FALLBACK_VIEWPORT
 from openpilot.starpilot.system.starport.projection_map_lease import MapLeaseWriter
+from openpilot.starpilot.system.starport.projection_stream_lease import StreamLeaseWriter
 
 CERTIFICATE_NOTICE_NS = 10_000_000_000  # how long the expiry heads-up stays at the start of a drive
 BOOKMARK_NOTICE_NS = 2_000_000_000  # how long "Bookmark Saved" stays after the drive is bookmarked
@@ -276,6 +277,9 @@ class ProjectionOnroad:
     if native.ui_state.projection_read_only is not True:
       raise RuntimeError('Projection UIState must be read-only')
     self._resources = ExitStack()
+    # Kept fresh while this view draws a drive for the car screen; the comma's own screen may go black on it.
+    self._stream_lease = StreamLeaseWriter()
+    self._resources.callback(self._stream_lease.release)
     try:
       self.fonts = native.fonts(native.profile.LARGE, native.font_directory(), headless_context=True)
       self._resources.callback(self.fonts.close)
@@ -858,6 +862,9 @@ class ProjectionOnroad:
   def render(self):
     ui = self.native.ui_state
     self.camera_stream = None
+    # Frames are drawn only while the car asks for them, so a drawn drive frame is one the car screen is showing.
+    if ui.started and (lease := getattr(self, '_stream_lease', None)) is not None:
+      lease.touch()  # at most one utime a second
     if ui.started and self.content == 'birds_eye':
       self._state = None
       self._render_birds_eye_only()

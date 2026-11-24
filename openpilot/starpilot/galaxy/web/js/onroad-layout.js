@@ -15,7 +15,7 @@ import { GalaxySettingRow, switchRow } from "./galaxy-setting-row.js"
 import { showDraftChange } from "./save-feedback.js"
 import { snapTargets, snapMove, snapResize, snapThreshold } from "./layout-snap.js"
 
-import { PROFILES, ROAD_COLORS, PATH_MODES, HEX, PROJECTION_DISPLAY_SWITCHES, layoutDocument, previewDocument, withDisplay, orderedWidgetIds, widgetPalette, withAlpha, widgetSize, placementLimits, clampBox, clampPlacement, overlapsReserved, previewPoint, validDocument, validSnapshot, wheelRotationAvailable } from "./onroad-layout-document.js"
+import { PROFILES, ROAD_COLORS, PATH_MODES, HEX, PROJECTION_DISPLAY_SWITCHES, DEVELOPER_FIELDS, layoutDocument, previewDocument, withDisplay, orderedWidgetIds, widgetPalette, withAlpha, widgetSize, placementLimits, clampBox, clampPlacement, overlapsReserved, previewPoint, validDocument, validSnapshot, wheelRotationAvailable } from "./onroad-layout-document.js"
 export { layoutDocument, previewDocument, withDisplay, orderedWidgetIds, widgetPalette, withAlpha, widgetSize, placementLimits, clampBox, clampPlacement, overlapsReserved, previewPoint, validDocument, validSnapshot } from "./onroad-layout-document.js"
 
 const previewVisibilityKey = projection => "gx-layout-preview-visibility-v2:" + (projection ? "starport" : "comma")
@@ -591,10 +591,10 @@ export const OnroadLayoutPage = {
     editAvailable() { return !!this.state.data?.editable && !this.state.error && !this.state.needsReload && !this.state.discard },
     editable() { return this.editAvailable && !this.busy },
     dirty() { return !!this.state.draft && JSON.stringify(this.state.draft) !== JSON.stringify(this.state.data.document) },
-    // The 3D drive render choice is not part of the stock colors and layouts; reset to stock leaves it alone.
+    // The Developer page's choices are not part of the stock colors and layouts; reset to stock leaves them alone.
     stockChanged() {
       if (!this.state.draft) return false
-      const { driveRender: _kept, ...draft } = this.state.draft
+      const draft = Object.fromEntries(Object.entries(this.state.draft).filter(([key]) => !DEVELOPER_FIELDS.includes(key)))
       return JSON.stringify(draft) !== JSON.stringify(this.state.data.defaults)
     },
     canUndo() { return this.state.history.undo.length > 0 },
@@ -1184,8 +1184,8 @@ export const OnroadLayoutPage = {
       if (!this.editable || this.state.drag || !this.stockChanged) return
       const before = clone(this.state.draft)
       this.state.draft = clone(this.state.data.defaults)
-      // The Developer page owns the 3D drive render choice; restoring colors and layouts leaves it alone.
-      if (Object.hasOwn(before, "driveRender")) this.state.draft.driveRender = before.driveRender
+      // The Developer page owns these choices; restoring colors and layouts leaves them alone.
+      for (const key of DEVELOPER_FIELDS) if (Object.hasOwn(before, key)) this.state.draft[key] = before[key]
       this.recordChange(before)
       this.state.colorError = this.state.placementError = ""
       this.state.notice = "Stock StarPilot colors and both layouts are restored in your draft. Save to apply them."

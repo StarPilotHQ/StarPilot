@@ -9,7 +9,7 @@ from functools import lru_cache
 from typing import Any, NotRequired, TypedDict, cast
 
 from openpilot.starpilot.saved_source import read_saved
-from openpilot.starpilot.ui import drive_render
+from openpilot.starpilot.ui import drive_render, streaming_blackout
 from openpilot.starpilot.ui.onroad_torque_geometry import maximum_footprint
 from openpilot.starpilot.ui.large_speed_geometry import LIMIT_RECTS, confirmation_footprint
 from openpilot.starpilot.ui.onroad_stopped_timer import timer_size
@@ -560,6 +560,10 @@ def validate_document(value):
     fields.add(drive_render.FIELD)
     if type(value[drive_render.FIELD]) is not str or value[drive_render.FIELD] not in drive_render.VALUES:
       raise ValueError('Invalid 3D drive render choice')
+  if streaming_blackout.FIELD in value:
+    fields.add(streaming_blackout.FIELD)
+    if type(value[streaming_blackout.FIELD]) is not bool:
+      raise ValueError('Invalid black screen while streaming choice')
   if set(value) != fields:
     raise ValueError("Invalid customization fields")
   palette, layouts = value["palette"], value["layouts"]
@@ -780,6 +784,8 @@ def validate_document(value):
     result['speedDisplayOffset'] = value['speedDisplayOffset']
   if drive_render.FIELD in value:
     result[drive_render.FIELD] = value[drive_render.FIELD]
+  if streaming_blackout.FIELD in value:
+    result[streaming_blackout.FIELD] = value[streaming_blackout.FIELD]
   if value['version'] < 10:
     migrate_large_sign_layout(result['layouts']['large'], PROFILES['large']['bounds'], extra_height=sources_extent(result))
   if value['version'] < 8:

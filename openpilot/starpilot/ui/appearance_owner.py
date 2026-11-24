@@ -7,7 +7,7 @@ import math
 
 from openpilot.starpilot.saved_document import commit_exact
 from openpilot.starpilot.saved_source import read_saved
-from openpilot.starpilot.ui import drive_render
+from openpilot.starpilot.ui import drive_render, streaming_blackout
 from openpilot.starpilot.ui.onroad_customization import MAX_BYTES, PARAM_KEY, decode_document, default_document
 from openpilot.starpilot.ui.appearance_preferences import (CAMERA_LABELS, DEFAULTS, LEAD_INFO_LABELS, MAX_RAW_BYTES,
                                                           RETIRED_DISPLAY_KEYS, read_camera_view, read_lead_info, read_visibility)
@@ -126,8 +126,13 @@ class AppearanceOwner:
                         default_value=drive_render.LABELS[drive_render.DEFAULT], available=self.parked() and valid,
                         reason=drive_render.description(self.large_display) if valid else
                                "Repair the saved driving-screen layout first.")
+    blackout = FeatureRow(streaming_blackout.KEY, streaming_blackout.LABEL,
+                          ("On" if streaming_blackout.enabled(document) else "Off") if document is not None else "Unavailable",
+                          source=raw, choices=("Off", "On") if valid else (), default_value="Off",
+                          available=self.parked() and valid,
+                          reason=streaming_blackout.DESCRIPTION if valid else "Repair the saved driving-screen layout first.")
     return FeatureSettingsState("developer", "Developer", "Advanced display calibration for every vehicle.",
-                                (row, render), self.parked())
+                                (row, render, blackout), self.parked())
 
   def apply(self, request: FeatureSettingsRequest) -> bool:
     if request.key == drive_render.KEY:
@@ -140,6 +145,18 @@ class AppearanceOwner:
         document.pop(drive_render.FIELD, None)
       else:
         document[drive_render.FIELD] = choice
+      result = commit_exact(self.params, key=PARAM_KEY, max_bytes=MAX_BYTES,
+                            raw=json.dumps(document, separators=(',', ':')).encode(), expected=raw,
+                            authorized=self.parked, temp_prefix='.appearance-')
+      return result.committed and result.verified
+    if request.key == streaming_blackout.KEY:
+      raw, document = self._motion_source()
+      if document is None or request.expected != raw or request.value not in ("Off", "On"):
+        return False
+      if request.value == "On":
+        document[streaming_blackout.FIELD] = True
+      else:
+        document.pop(streaming_blackout.FIELD, None)
       result = commit_exact(self.params, key=PARAM_KEY, max_bytes=MAX_BYTES,
                             raw=json.dumps(document, separators=(',', ':')).encode(), expected=raw,
                             authorized=self.parked, temp_prefix='.appearance-')
