@@ -44,6 +44,37 @@ class TestStateMigration(unittest.TestCase):
       prepare_manager_start(self.params, self.storage, dry_run=True)
     self.assertEqual(self.tree_bytes(), before)
 
+  def test_lane_width_default_migrates_once(self):
+    from openpilot.starpilot.lateral.lane_change_preferences import KEY, LaneChangePolicy, read_saved, to_value
+
+    default_width = 9.0 * 0.3048
+    prepare_manager_start(self.params, self.storage, auto_migrate=True)
+    self.assertEqual(read_saved(self.params).policy.minimum_lane_width_m, default_width)
+    self.assertFalse((self.namespace / KEY).exists())
+
+    for old_width, new_width in ((0.0, default_width), (3.2, 3.2)):
+      with self.subTest(old_width=old_width):
+        old = to_value(LaneChangePolicy(auto_lane_change=True, auto_delay_s=2.0, auto_requires_cruise=True))
+        old.update(version=6, minimumLaneWidthM=old_width)
+        self.raw(KEY, canonical_json(old))
+        prepare_manager_start(self.params, self.storage, auto_migrate=True, dry_run=True)
+        self.assertEqual((self.namespace / KEY).read_bytes(), canonical_json(old))
+        prepare_manager_start(self.params, self.storage, auto_migrate=True)
+        expected = dict(old, version=7, minimumLaneWidthM=new_width)
+        self.assertEqual((self.namespace / KEY).read_bytes(), canonical_json(expected))
+        self.raw(KEY, canonical_json(dict(expected, minimumLaneWidthM=0.0)))
+        inode = (self.namespace / KEY).stat().st_ino
+        prepare_manager_start(self.params, self.storage, auto_migrate=True)
+        self.assertEqual((self.namespace / KEY).stat().st_ino, inode)
+        self.assertEqual(read_saved(self.params).policy.minimum_lane_width_m, 0.0)
+
+    legacy = dict(old, version=4, durationS=10**310)
+    del legacy['turnSignalGuidance'], legacy['autoRequiresCruise']
+    for invalid in (b'{"version":6}', canonical_json(legacy)):
+      self.raw(KEY, invalid)
+      prepare_manager_start(self.params, self.storage, auto_migrate=True)
+      self.assertEqual((self.namespace / KEY).read_bytes(), invalid)
+
   def test_fresh_dry_run_is_read_only_and_does_not_qualify(self):
     before = self.tree_bytes()
     prepare_manager_start(self.params, self.storage, dry_run=True)
@@ -382,7 +413,7 @@ class TestStateMigration(unittest.TestCase):
     with patch.object(manager, 'Params', return_value=self.params), \
          patch.object(manager, 'starpilot_storage_root', return_value=self.storage), \
          patch.object(manager, 'save_bootlog') as bootlog, \
-         patch.object(manager, 'register') as register, \
+         patch.object(manager, 'register_at_startup') as register, \
          patch.object(manager, 'prepare_manager_start', side_effect=MigrationRequired('fixture incompatible state')), \
          patch.object(self.params, 'clear_all') as clear:
       with self.assertRaises(MigrationRequired):
@@ -410,7 +441,7 @@ class TestStateMigration(unittest.TestCase):
          patch.object(manager, 'save_bootlog'), \
          patch.object(manager.HARDWARE, 'get_serial', return_value='fixture'), \
          patch.object(manager.HARDWARE, 'get_device_type', return_value='pc'), \
-         patch.object(manager, 'register', return_value='fixture'), \
+         patch.object(manager, 'register_at_startup', return_value='fixture'), \
          patch.object(manager.cloudlog, 'bind_global'):
       manager.manager_init()
       self.assertTrue(self.params.get_bool('AlwaysOnLateral'))

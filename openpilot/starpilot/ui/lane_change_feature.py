@@ -153,7 +153,7 @@ class LaneChangeFeature:
                AUTO: "On" if defaults.auto_lane_change else "Off", REQUIRE_CRUISE: "On" if defaults.auto_requires_cruise else "Off",
                CLOSE: "On" if defaults.close_gap else "Off",
                SPEED: str(round(defaults.minimum_speed_mps * multiplier, 3)), DELAY: str(defaults.auto_delay_s),
-               WIDTH: str(defaults.minimum_lane_width_m), GAP: str(defaults.close_gap_seconds),
+               WIDTH: str(round(defaults.minimum_lane_width_m / 0.3048, 1)), GAP: str(defaults.close_gap_seconds),
                PACE: str(round(1.0 + (8.0 - defaults.duration_s) * 9.0 / 5.0, 2))}
     return [replace(row, default_value=targets.get(row.key)) for row in rows]
 

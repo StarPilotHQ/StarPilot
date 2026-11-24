@@ -198,12 +198,16 @@ class LaneChangeFeatureTests(unittest.TestCase):
     self.parked = True
     self.assertTrue(self.owner.apply(auto))
     self.assertTrue(read_saved(self.params).policy.auto_lane_change)
-    self.assertEqual(to_value(read_saved(self.params).policy)["version"], 6)
+    self.assertEqual(to_value(read_saved(self.params).policy)["version"], 7)
     self.assertTrue(self.owner.apply(self.request(self.row(DELAY))))
     self.assertEqual(read_saved(self.params).policy.auto_delay_s, 1.1)
+    self.assertEqual(self.row(WIDTH).value, "9.0")
     self.assertTrue(self.owner.apply(self.request(self.row(WIDTH))))
-    self.assertAlmostEqual(read_saved(self.params).policy.minimum_lane_width_m,
-                           0.1 * 0.3048)
+    self.assertAlmostEqual(read_saved(self.params).policy.minimum_lane_width_m, 9.1 * 0.3048)
+    reset = row_default(self.row(WIDTH))
+    assert reset is not None
+    self.assertTrue(self.owner.apply(reset))
+    self.assertEqual(read_saved(self.params).policy.minimum_lane_width_m, 9.0 * 0.3048)
 
   def test_staged_save_rejects_concurrent_source_change(self):
     request = self.request(self.row(ONE))
@@ -324,7 +328,7 @@ class LaneChangeFeatureTests(unittest.TestCase):
         self.assertIsNone(decode(raw))
         if len(raw) > 512:
           self.assertFalse(self.row(RESET).available)
-    self.assertEqual(to_value(LaneChangePolicy())["version"], 6)
+    self.assertEqual(to_value(LaneChangePolicy())["version"], 7)
     self.assertFalse(decode(b'{"version":1,"enabled":true,"minimumSpeedMps":8.9408,"onePerSignal":false}').auto_lane_change)
     with self.assertRaises(ValueError):
       to_value(LaneChangePolicy(minimum_speed_mps=int("9" * 350)))

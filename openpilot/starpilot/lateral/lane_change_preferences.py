@@ -15,6 +15,8 @@ MAX_BYTES = 512
 MAX_SPEED_MPS = 100 * CV.MPH_TO_MS
 MINIMUM_SPEED_MPS = 5 * CV.MPH_TO_MS
 DEFAULT_SPEED_MPS = MINIMUM_SPEED_MPS
+DEFAULT_LANE_WIDTH_M = 9.0 * 0.3048
+DOCUMENT_VERSION = 7
 
 
 @dataclass(frozen=True)
@@ -24,7 +26,7 @@ class LaneChangePolicy:
   one_per_signal: bool = True
   auto_lane_change: bool = False
   auto_delay_s: float = 1.0
-  minimum_lane_width_m: float = 0.0
+  minimum_lane_width_m: float = DEFAULT_LANE_WIDTH_M
   close_gap: bool = False
   close_gap_seconds: float = 0.75
   duration_s: float = 3.0 + 25.0 / 9.0
@@ -49,7 +51,7 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
   return value
 
 
-def decode(raw: bytes) -> LaneChangePolicy | None:
+def decode(raw: bytes, *, upgrade_only: bool = False) -> LaneChangePolicy | None:
   if len(raw) > MAX_BYTES:
     return None
   try:
@@ -61,21 +63,21 @@ def decode(raw: bytes) -> LaneChangePolicy | None:
     return None
   version = data.get("version")
   fields = {"version", "enabled", "minimumSpeedMps", "onePerSignal"}
-  if version in (2, 3, 4, 5, 6):
+  if version in (2, 3, 4, 5, 6, DOCUMENT_VERSION):
     fields |= {"autoLaneChange", "autoDelayS", "minimumLaneWidthM"}
-  if version in (3, 4, 5, 6):
+  if version in (3, 4, 5, 6, DOCUMENT_VERSION):
     fields |= {"closeGap", "closeGapSeconds"}
-  if version in (4, 5, 6):
+  if version in (4, 5, 6, DOCUMENT_VERSION):
     fields |= {"durationS"}
-  if version in (5, 6):
+  if version in (5, 6, DOCUMENT_VERSION):
     fields |= {"turnSignalGuidance"}
-  if version == 6:
+  if version in (6, DOCUMENT_VERSION):
     fields |= {"autoRequiresCruise"}
-  if set(data) != fields:
+  if set(data) != fields or (upgrade_only and version == DOCUMENT_VERSION):
     return None
   enabled = data["enabled"]
   speed, once = data["minimumSpeedMps"], data["onePerSignal"]
-  if (type(version) is not int or version not in (1, 2, 3, 4, 5, 6) or type(enabled) is not bool or type(once) is not bool or
+  if (type(version) is not int or version not in (1, 2, 3, 4, 5, 6, DOCUMENT_VERSION) or type(enabled) is not bool or type(once) is not bool or
       type(speed) not in (int, float)):
     return None
   try:
@@ -95,6 +97,8 @@ def decode(raw: bytes) -> LaneChangePolicy | None:
     return None
   if not (math.isfinite(delay) and math.isfinite(width) and 0 <= delay <= 5 and 0 <= width <= 15 * 0.3048):
     return None
+  if version < DOCUMENT_VERSION and width == 0.0:
+    width = DEFAULT_LANE_WIDTH_M
   if version == 2:
     return LaneChangePolicy(enabled, finite_speed, once, auto, delay, width)
   close_gap, seconds = data["closeGap"], data["closeGapSeconds"]
@@ -107,7 +111,7 @@ def decode(raw: bytes) -> LaneChangePolicy | None:
   if not math.isfinite(seconds) or not 0.75 <= seconds <= 1.0:
     return None
   duration = data.get("durationS", LaneChangePolicy().duration_s)
-  if type(duration) not in (int, float) or not math.isfinite(duration) or not 3.0 <= duration <= 8.0:
+  if type(duration) not in (int, float) or not 3.0 <= duration <= 8.0:
     return None
   guidance = data.get("turnSignalGuidance", True)
   requires_cruise = data.get("autoRequiresCruise", False)
@@ -146,7 +150,7 @@ def to_value(policy: LaneChangePolicy) -> dict[str, int | bool | float]:
     raise ValueError("invalid lane-change duration")
   if type(policy.turn_signal_guidance) is not bool or type(policy.auto_requires_cruise) is not bool:
     raise ValueError("invalid turn signal guidance")
-  return {"version": 6, "enabled": policy.enabled, "minimumSpeedMps": finite_speed,
+  return {"version": DOCUMENT_VERSION, "enabled": policy.enabled, "minimumSpeedMps": finite_speed,
           "onePerSignal": policy.one_per_signal, "autoLaneChange": policy.auto_lane_change,
           "autoDelayS": delay, "minimumLaneWidthM": width,
           "closeGap": policy.close_gap, "closeGapSeconds": seconds, "durationS": policy.duration_s, "turnSignalGuidance": policy.turn_signal_guidance,

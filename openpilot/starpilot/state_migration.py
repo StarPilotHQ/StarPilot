@@ -605,6 +605,12 @@ def prepare_manager_start(params, storage, *, dry_run=False, auto_migrate=False)
       snapshot = _save_snapshot(values, storage / 'snapshots')
       raise MigrationRequired(f"Settings require migration before startup; raw recovery snapshot: {snapshot}")
     if auto_migrate and not dry_run:
+      from openpilot.starpilot.lateral.lane_change_preferences import KEY as LANE_CHANGE_KEY, decode, to_value
+
+      if LANE_CHANGE_KEY in values:
+        lane_change = decode(values[LANE_CHANGE_KEY], upgrade_only=True)
+        if lane_change is not None:
+          _atomic_write(namespace / LANE_CHANGE_KEY, canonical_json(to_value(lane_change)))
       _backfill_dashboard_history(namespace, storage)
     if (not initialized or foreign_handoff) and not dry_run:
       _atomic_write(marker, canonical_json(identity))
