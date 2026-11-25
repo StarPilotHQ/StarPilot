@@ -26,5 +26,5 @@ def capture(interface, packets):
         and data[0] == ((address & 255) + (address >> 8) + sum(data[1:])) & 255
         and (previous is None or source_ns > previous[0] and data[1] & 15 != previous[1][1] & 15)
       ):
-        state.sng_source_valid[address] = previous is not None and data[1] & 15 == ((previous[1][1] + 1) & 15)
+        state.sng_source_valid[address] = previous is not None and data[1] & 15 != previous[1][1] & 15
         state.sng_sources[address] = (source_ns, bytes(data))
