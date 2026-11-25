@@ -2,11 +2,14 @@ import test from 'node:test';import assert from 'node:assert/strict';
 import {supportTags,supportForum,nextReportTags,filterReportThreads,galaxyReportTags} from './thread-tags.mjs';
 test('galaxy reports are tagged from the Get help selection',()=>{
  const env={STARPORT_FORUM_TAG_ID:'11111111111111111',CONTROLLER_FORUM_TAG_ID:'22222222222222222'};
- assert.deepEqual(galaxyReportTags(env,'starport','android'),[supportTags.Open,env.STARPORT_FORUM_TAG_ID,supportTags.Android]);
+ assert.deepEqual(galaxyReportTags(env,'starport','android'),[supportTags.Open,env.STARPORT_FORUM_TAG_ID]);
  assert.deepEqual(galaxyReportTags(env,'connection','ios'),[supportTags.Open,supportTags.iOS,supportTags.Galaxy]);
  assert.deepEqual(galaxyReportTags(env,'controller','ios'),[supportTags.Open,env.CONTROLLER_FORUM_TAG_ID]);
- assert.deepEqual(galaxyReportTags({},'starport','android'),[supportTags.Open,supportTags.Android]);
- assert.deepEqual(galaxyReportTags({},'controller','ios'),[supportTags.Open,supportTags.iOS]);
+ assert.deepEqual(galaxyReportTags({},'starport','android'),[supportTags.Open]);
+ assert.deepEqual(galaxyReportTags({},'controller','ios'),[supportTags.Open]);
+ assert.deepEqual(galaxyReportTags(env,'connection','android'),[supportTags.Open,supportTags.Android,supportTags.Galaxy]);
+ assert.deepEqual(galaxyReportTags(env,'controller','android'),[supportTags.Open,env.CONTROLLER_FORUM_TAG_ID]);
+ assert.deepEqual(nextReportTags([supportTags.Android,env.STARPORT_FORUM_TAG_ID],null,'Open',[]),[env.STARPORT_FORUM_TAG_ID,supportTags.Open]);
  assert.throws(()=>galaxyReportTags({},'crash','ios'),/Unknown/);
 });
 test('tag edits preserve custom tags, enforce platform, mutually exclusive status and five-tag limit',()=>{

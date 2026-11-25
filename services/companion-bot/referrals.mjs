@@ -1,7 +1,7 @@
 import {issueSummary} from './issue-summary.mjs';
 import {botPost,ticketTitle,ticketStates,messageText,privateCard,supportCard} from './bot-delivery.mjs';
 import {caseButtons} from './case-actions.mjs';
-import {discordTags,supportForum,supportTags} from './thread-tags.mjs';
+import {discordTags,galaxyReportTags,supportForum,supportTags} from './thread-tags.mjs';
 
 const guild='1387432184121393333';
 const command='Refer to Companion Support';
@@ -248,9 +248,9 @@ export async function referralStore(path,request,store,env){
   });
   if(!record)return Response.json({message:'Another staff action is already in progress.'});
   if(action==='leave')return Response.json({message:'Left in driving feedback.'});
-  const tags=[supportTags.Open];
-  if(reportKind==='controller'&&id(env.CONTROLLER_FORUM_TAG_ID))tags.push(env.CONTROLLER_FORUM_TAG_ID);
-  else tags.push(supportTags[platform==='ios'?'iOS':'Android']);
+  const tags=reportKind==='connection'
+    ? [supportTags.Open,supportTags[platform==='ios'?'iOS':'Android']]
+    : galaxyReportTags(env,reportKind,platform);
   const recipients=[...new Set([record.reporter,env.REPORT_MAINTAINER_ID,env.ANDROID_REPORT_MAINTAINER_ID].filter(id))];
   const mentions=recipients.map(user=>'<@'+user+'>').join(' ');
   const original=record.reportText||record.summary||record.observed;

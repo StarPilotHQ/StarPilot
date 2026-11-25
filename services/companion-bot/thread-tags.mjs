@@ -14,7 +14,7 @@ export async function getReportThread(env,id){
 export function nextReportTags(current,platform,status,topics){
  if(!['Open','In Progress','Closed'].includes(status)||!Array.isArray(topics)||topics.some(t=>!['Navigation','CarPlay','Galaxy'].includes(t)))throw Error('Invalid status or topic.');
  const known=new Set(Object.values(supportTags));
- const tags=[...new Set([...current.filter(t=>!known.has(t)),supportTags[platform==='ios'?'iOS':'Android'],supportTags[status],...topics.map(t=>supportTags[t])])];
+ const tags=[...new Set([...current.filter(t=>!known.has(t)),...(platform?[supportTags[platform==='ios'?'iOS':'Android']]:[]),supportTags[status],...topics.map(t=>supportTags[t])])];
  if(tags.length>5)throw Error('Discord allows five tags. Remove a topic or custom tag first.');
  return tags;
 }
@@ -22,7 +22,7 @@ export function nextReportTags(current,platform,status,topics){
 export function galaxyReportTags(env,kind,platform){
  const id=value=>/^\d{17,20}$/.test(value||'')?value:null;
  const os=supportTags[platform==='ios'?'iOS':'Android'];
- const topic={starport:[id(env.STARPORT_FORUM_TAG_ID),os],connection:[os,supportTags.Galaxy],controller:[id(env.CONTROLLER_FORUM_TAG_ID)||os]}[kind];
+ const topic={starport:[id(env.STARPORT_FORUM_TAG_ID)],connection:[os,supportTags.Galaxy],controller:[id(env.CONTROLLER_FORUM_TAG_ID)]}[kind];
  if(!topic)throw Error('Unknown Galaxy report kind.');
  return [...new Set([supportTags.Open,...topic.filter(Boolean)])];
 }
