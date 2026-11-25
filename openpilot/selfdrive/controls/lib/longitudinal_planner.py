@@ -53,6 +53,7 @@ A_CRUISE_MAX_BP = [0., 10.0, 25., 40.]
 J_CRUISE_VALS = [1.6, 1.2, 0.8, 0.6]
 A_CRUISE_MIN = -0.5
 CRUISE_ACCEL_RESPONSE_TIME = 2.0
+MODEL_Y_HANDOFF_COAST_TOLERANCE = 0.2
 MODEL_Y_SPEED_STEP_JERK = 0.25
 MODEL_Y_SPEED_STEP_LIFT_ACCEL = 0.15
 MODEL_Y_SPEED_STEP_DURATION_NS = 4_000_000_000
@@ -153,6 +154,7 @@ class LongitudinalPlanner:
 
     self.v_desired_filter = FirstOrderFilter(init_v, 2.0, self.dt)
     self.a_cruise = init_a
+    self.model_y_handoff_preview_until_ns = 0
     self.previous_manual_cruise_kph: float | None = None
     self.manual_cruise_step_until_ns = 0
     self.output_a_target = init_a
@@ -467,10 +469,12 @@ class LongitudinalPlanner:
     if self.CP.carFingerprint == 'TESLA_MODEL_Y':
       cs = sm['carState']
       leads = (sm['radarState'].leadOne, sm['radarState'].leadTwo)
+      recent_pedal_preview = 0 < self.model_y_handoff_preview_until_ns and sample_now_ns < self.model_y_handoff_preview_until_ns
+      self.model_y_handoff_preview_until_ns = 0
       if (reset_state and self.CP.openpilotLongitudinalControl and sm['selfdriveState'].enabled and
-          not sm['carControl'].longActive and cs.cruiseState.enabled and cs.gasPressed and not cs.brakePressed and
+          not sm['carControl'].longActive and cs.cruiseState.enabled and (cs.gasPressed or recent_pedal_preview) and not cs.brakePressed and
           cs.canValid and not cs.canTimeout and not cs.standstill and v_ego > MIN_ALLOW_THROTTLE_SPEED and
-          0.0 < cruise_seed <= 0.5 and v_cruise_initialized and v_cruise - v_ego > 1.0 and
+          -MODEL_Y_HANDOFF_COAST_TOLERANCE < cruise_seed <= 0.5 and v_cruise_initialized and v_cruise - v_ego > 1.0 and
           output_a_target_mpc > cruise_seed and self.mpc.solution_status == 0 and
           self.allow_throttle and not self.fcw and not sm['controlsState'].forceDecel and
           not self.force_stop_plan.should_stop and not self.force_stop_plan.forcing and
@@ -479,7 +483,12 @@ class LongitudinalPlanner:
           not (coast_plan is not None and (coast_plan.force_decel or coast_plan.pulse_coasting or coast_plan.brake_floor is not None)) and
           all(not lead.present or (lead.vLead > v_ego and lead.dRel > max(15., 2. * v_ego)) for lead in leads)):
         # Preview one actuator delay while the pedal still owns acceleration. Lead and stop arbitration follow below.
-        cruise_seed += min(0.25, action_t * np.interp(v_ego, A_CRUISE_MAX_BP, J_CRUISE_VALS))
+        preview = min(0.25, action_t * np.interp(v_ego, A_CRUISE_MAX_BP, J_CRUISE_VALS))
+        # Taper through coast-down so a near-zero reading does not drop the entire preview.
+        cruise_seed += preview * min(1.0, 1.0 + cruise_seed / MODEL_Y_HANDOFF_COAST_TOLERANCE)
+        if cs.gasPressed:
+          # The pedal state can clear a planner frame before longitudinal control resumes.
+          self.model_y_handoff_preview_until_ns = sample_now_ns + 100_000_000
       manual_cruise = (
         profile_eligible and not reset_state and v_ego > MIN_ALLOW_THROTTLE_SPEED and
         cs.canValid and not cs.canTimeout and not cs.gasPressed and not cs.brakePressed and not cs.standstill and

@@ -14,7 +14,7 @@ class TestTeslaManualSpeedStep(unittest.TestCase):
     cp.openpilotLongitudinalControl = True
     return LongitudinalPlanner(cp, init_v=V_EGO)
 
-  def update(self, planner, frame, cruise_kph, *, gas=False, lead=False, force=False, accel=0.0, brake=False):
+  def update(self, planner, frame, cruise_kph, *, gas=False, lead=False, force=False, accel=0.0, brake=False, off=False):
     sm, _ = messages(lead=lead, force=force)
     sm['carState'].vCruise = cruise_kph
     sm['carState'].canValid = True
@@ -22,9 +22,9 @@ class TestTeslaManualSpeedStep(unittest.TestCase):
     sm['carState'].brakePressed = brake
     sm['carState'].aEgo = accel
     sm['carState'].cruiseState.enabled = True
-    if gas:
+    if gas or off:
       sm['controlsState'].longControlState = 'off'
-    sm['carControl'].longActive = not gas
+    sm['carControl'].longActive = not (gas or off)
     idle_coast = Mock(sample=Mock(return_value=CoastPlan()))
     planner.update(sm, now_ns=1_000_000_000 + frame * 50_000_000, wheel_coast=(idle_coast, None))
 
@@ -42,6 +42,30 @@ class TestTeslaManualSpeedStep(unittest.TestCase):
         planner = self.setup_planner()
         self.update(planner, 0, 95, gas=True, accel=0.10, **context)
         self.assertLess(planner.output_a_target, 0.20)
+
+  def test_pedal_handoff_preserves_preview_through_near_zero_coast(self):
+    for measured_accel, preview_min, preview_max in ((-0.02, 0.17, 0.26), (-0.09, 0.04, 0.12), (-0.30, -0.30, -0.20)):
+      with self.subTest(measured_accel=measured_accel):
+        planner = self.setup_planner()
+        self.update(planner, 0, 95, gas=True, accel=measured_accel)
+        preview = float(planner.output_a_target)
+        self.assertGreater(preview, preview_min)
+        self.assertLess(preview, preview_max)
+
+  def test_pedal_handoff_bridges_one_inactive_frame(self):
+    planner = self.setup_planner()
+    self.update(planner, 0, 95, gas=True, accel=-0.02)
+    self.update(planner, 1, 95, off=True, accel=-0.02)
+    self.assertGreater(planner.output_a_target, 0.17)
+    self.update(planner, 2, 95, off=True, accel=-0.02)
+    self.assertLess(planner.output_a_target, 0.05)
+
+    for frame, blocker in ((1, {'lead': True}), (1, {'brake': True}), (3, {})):
+      with self.subTest(frame=frame, blocker=blocker):
+        planner = self.setup_planner()
+        self.update(planner, 0, 95, gas=True, accel=-0.02)
+        self.update(planner, frame, 95, off=True, accel=-0.02, **blocker)
+        self.assertLess(planner.output_a_target, 0.05)
 
   def test_manual_up_and_down(self):
     for speed in (65, 79):
