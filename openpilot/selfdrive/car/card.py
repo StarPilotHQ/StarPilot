@@ -42,7 +42,7 @@ from opendbc.car.volkswagen.stock_aol import safety_config as volkswagen_aol_saf
 from openpilot.starpilot.car.volkswagen.aol import qualified as qualified_volkswagen_aol
 from openpilot.starpilot.car.rivian.aol import retained_brake_lateral_intent as rivian_brake_intent_retained
 from opendbc.car.rivian.stock_aol import qualified as qualified_rivian_aol
-from opendbc.car.mazda.stock_aol import qualified as qualified_mazda_aol
+from opendbc.car.mazda.stock_aol import admitted as admitted_mazda_aol
 from opendbc.car.tesla.preap.aol import qualified as qualified_tesla_preap
 from opendbc.car.ford.aol import qualified as qualified_ford_aol
 from opendbc.car.hyundai.canfd_angle_aol import qualified as qualified_angle_aol
@@ -120,9 +120,11 @@ class Car:
     self.curve_replay = os.getenv('CURVE_REPLAY_RUNTIME') == '1' or feature_requested(self.params, 'curve')
     self.aol_replay = os.getenv('AOL_REPLAY_RUNTIME') == '1' or feature_requested(self.params, 'aol')
     self.conditional_replay = os.getenv('CONDITIONAL_MODE_REPLAY_RUNTIME') == '1' or feature_requested(self.params, 'conditional')
-    subscribed_services = ['pandaStates', 'carControl', 'onroadEvents', 'deviceState', 'autoSteeringLearning']
-    if self.params.get_bool('SubaruRedneckCruise') or self.params.get_bool('SubaruSNG'):
-      subscribed_services.extend(('longitudinalPlan', 'selfdriveState'))
+    # selfdriveState/longitudinalPlan are needed for Mazda BlendedACC regardless of
+    # Subaru/AOL toggles. Production startup can construct Car with CI=None, so a
+    # brand-conditional subscription would never happen; subscribe unconditionally.
+    subscribed_services = ['pandaStates', 'carControl', 'onroadEvents', 'deviceState', 'autoSteeringLearning',
+                           'longitudinalPlan', 'selfdriveState']
     if self.aol_replay:
       subscribed_services.extend(service for service in ('aolSafetyWire', 'managerState', 'aolAxisState', 'selfdriveState')
                                  if service not in subscribed_services)
@@ -191,7 +193,8 @@ class Car:
       enroll_missing_preference(self.params, cp)
       if not self.aol_replay and feature_requested(self.params, 'aol'):
         self.aol_replay = True
-        subscribed_services.extend(('aolSafetyWire', 'managerState', 'aolAxisState', 'selfdriveState'))
+        subscribed_services.extend(service for service in ('aolSafetyWire', 'managerState', 'aolAxisState', 'selfdriveState')
+                                   if service not in subscribed_services)
         self.sm = messaging.SubMaster(subscribed_services)
         self.pm.sock['aolIntentWire'] = messaging.pub_sock('aolIntentWire')
 
@@ -340,7 +343,8 @@ class Car:
     aol_policy = aol_policy_for(self.CP)
     if aol_policy.full_axis_runtime_required and not self.aol_replay:
       self.aol_replay = True
-      subscribed_services.extend(('aolSafetyWire', 'managerState', 'aolAxisState', 'selfdriveState'))
+      subscribed_services.extend(service for service in ('aolSafetyWire', 'managerState', 'aolAxisState', 'selfdriveState')
+                                 if service not in subscribed_services)
       self.sm = messaging.SubMaster(subscribed_services)
       self.pm.sock['aolIntentWire'] = messaging.pub_sock('aolIntentWire')
     initialize_aol_preference(self.CP)
@@ -969,7 +973,7 @@ class Car:
     cached = getattr(self, '_aol_owner_cache', None)
     if cached is None or cached[0] is not self.CP:
       owners = (bool(qualified_angle_aol(self.CP, marked_only=True)), bool(qualified_ford_aol(self.CP, marked_only=True)),
-                bool(qualified_honda_stock_aol(self.CP, marked_only=True)), bool(qualified_mazda_aol(self.CP, marked_only=True)),
+                bool(qualified_honda_stock_aol(self.CP, marked_only=True)), bool(admitted_mazda_aol(self.CP, marked_only=True)),
                 bool(qualified_tesla_preap(self.CP, marked_only=True)), bool(qualified_volkswagen_aol(self.CP, marked_only=True)))
       cached = self._aol_owner_cache = (self.CP, owners)
     return cached[1]
@@ -1905,6 +1909,12 @@ class Car:
         subaru_aol.sync_legacy_card_lateral(self, CS, CC)
       if getattr(self, "redneck_cruise", None):
         self.redneck_cruise.update(self, CS, CC, now_nanos)
+      if self.CP.brand == "mazda":
+        # BlendedACC needs the live CEM state; CarControl has no such field on
+        # this base, so inject it as a controller attribute (same pattern as
+        # learning_projection_observer).
+        self.CI.CC.experimental_mode = bool(self.sm.valid.get('selfdriveState', False) and self.sm.alive.get('selfdriveState', False) and
+                                          self.sm['selfdriveState'].experimentalMode)
       self.last_actuators_output, can_sends = self.CI.apply(CC, now_nanos)
       self.publish_sendcan(can_sends, valid=CS.canValid)
       if learning_snapshot is not None and self.learning_send_committed_mono_ns:

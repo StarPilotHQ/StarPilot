@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import fcntl
 import os
+import re
 import shutil
 import stat
 import threading
@@ -20,6 +21,8 @@ DELETE_LAST = ['boot', 'crash']
 PRESERVE_ATTR_NAME = 'user.preserve'
 PRESERVE_ATTR_VALUE = b'1'
 PRESERVE_COUNT = 5
+
+_COUNTED_ROUTE = re.compile(r'(?P<prefix>(?:[a-f0-9]{16}[|_])?)(?P<count>[a-f0-9]{8})--[a-f0-9]{10}\Z')
 
 
 @dataclass(frozen=True)
@@ -104,8 +107,31 @@ def _directories_by_age(roots: tuple[RecordingRoot, ...]) -> list[_Directory]:
     finally:
       if fd >= 0:
         os.close(fd)
+  route_times = _chain_route_counts(route_times)
   return sorted(candidates, key=lambda item: (route_times[item.root, item.name.rpartition('--')[0] or item.name],
                                              get_directory_sort(item.name), item.root.path))
+
+
+def _chain_route_counts(route_times):
+  # A drive recorded before the clock syncs can carry a date weeks in the past, which would make
+  # it the first one deleted. Route N was recorded after route N-1 in the same folder, so it is
+  # never treated as older than N-1. Only consecutive counts are chained: a RouteCount reset
+  # leaves a gap, so routes on either side of a reset keep their own times.
+  # Two routes with the same count (a reset while older recordings remain) make the order
+  # ambiguous, so a duplicated count breaks the chain on both sides instead of picking one.
+  chains = {}
+  for key in route_times:
+    root, route = key
+    match = _COUNTED_ROUTE.fullmatch(route)
+    if match:
+      chains.setdefault((root, match['prefix']), {}).setdefault(int(match['count'], 16), []).append(key)
+  chained = dict(route_times)
+  for routes in chains.values():
+    for count in sorted(routes):
+      current, previous = routes[count], routes.get(count - 1)
+      if len(current) == 1 and previous is not None and len(previous) == 1:
+        chained[current[0]] = max(chained[current[0]], chained[previous[0]])
+  return chained
 
 
 def _candidate_marked(candidate):

@@ -81,6 +81,45 @@ class TestDeleter(UploaderTestCase):
     os.utime(old.parent, (1_900_000_000, 1_900_000_000))
     self.assertDeleteOrder([old, unsynced, synced])
 
+  def test_route_recorded_before_clock_sync_is_not_deleted_first(self):
+    # Route 55 on the car: booted without network, every segment dated a month early, and the
+    # deleter removed it before the routes it followed.
+    older = self.make_file_with_data("00000053--8d3f0c2a11--0", "qlog.zst")
+    previous = self.make_file_with_data("00000054--3a90b7e2c4--0", "qlog.zst")
+    unsynced = [self.make_file_with_data(f"00000055--69f7e28da6--{i}", "qlog.zst") for i in range(2)]
+    for f, t in ((older, 1_800_000_000), (previous, 1_800_100_000), *((f, 1_797_000_000 + i) for i, f in enumerate(unsynced))):
+      os.utime(f, (t, t))
+    self.assertDeleteOrder([older, previous, *unsynced])
+
+  def test_consecutive_unsynced_routes_follow_their_predecessor(self):
+    synced = self.make_file_with_data("00000010--aaaaaaaaaa--0", "qlog.zst")
+    first = self.make_file_with_data("00000011--bbbbbbbbbb--0", "qlog.zst")
+    second = self.make_file_with_data("00000012--cccccccccc--0", "qlog.zst")
+    for f, t in ((synced, 1_800_000_000), (first, 1_600_000_000), (second, 1_600_000_100)):
+      os.utime(f, (t, t))
+    self.assertDeleteOrder([synced, first, second])
+
+  def test_non_consecutive_routes_keep_their_own_times(self):
+    # A gap in the count (a reset, or a deleted route) is not chained across.
+    early = self.make_file_with_data("00000013--aaaaaaaaaa--0", "qlog.zst")
+    late = self.make_file_with_data("00000011--bbbbbbbbbb--0", "qlog.zst")
+    for f, t in ((early, 1_600_000_000), (late, 1_800_000_000)):
+      os.utime(f, (t, t))
+    self.assertDeleteOrder([early, late])
+
+  def test_duplicate_route_counts_are_not_chained(self):
+    # Two routes share count 0x11 after a reset. Which one chained used to depend on directory order;
+    # a duplicated count is ambiguous, so neither it nor the route after it is chained, in any order.
+    times = {"00000010--aaaaaaaaaa": 1_900_000_000., "00000011--bbbbbbbbbb": 1_500_000_000.,
+             "00000011--cccccccccc": 1_700_000_000., "00000012--dddddddddd": 1_600_000_000.}
+    for names in (list(times), list(reversed(times))):
+      chained = deleter._chain_route_counts({("root", n): times[n] for n in names})
+      assert chained == {("root", n): t for n, t in times.items()}
+    # Once one duplicate is gone the count is unique again and chains as usual.
+    del times["00000011--bbbbbbbbbb"]
+    chained = deleter._chain_route_counts({("root", n): t for n, t in times.items()})
+    assert chained[("root", "00000011--cccccccccc")] == chained[("root", "00000012--dddddddddd")] == 1_900_000_000.
+
   def test_no_delete_when_available_space(self):
     f_path = self.make_file_with_data(self.seg_dir, self.f_type)
 
