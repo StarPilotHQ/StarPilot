@@ -45,7 +45,7 @@ function staffMenu(base,channel){
 export function privateStaffCommand(i,env,ctx){
   if(i.guild_id!=='1387432184121393333'||!idPattern.test(i.channel_id))return ephemeral('Open a Companion report thread.');
   ctx.waitUntil((async()=>{
-    let card=privateCard('Open this command in a Companion report thread with bot controls.');
+    let card=privateCard('Could not find a saved Companion report for this thread.');
     try{
       const settings=env.REPORTS.get(env.REPORTS.idFromName('companion-bot-setup'));
       const role=await settings.fetch('https://reports/sage-role');
@@ -82,7 +82,36 @@ async function ticketStaffMenu(i,env){
       if(match&&(!match[3]||match[3]===thread.id))return staffMenu('case:'+match[1]+':'+match[2]+':',thread.id);
     }
   }
-  return controls(opener)||(await discordTags(env,path+'?limit=100')).map(controls).find(Boolean);
+  const menu=controls(opener);
+  if(menu)return menu;
+  const platforms=thread.applied_tags.includes(supportTags.Android)?['android','ios']:['ios','android'];
+  const sameThread=url=>typeof url==='string'&&new RegExp('^https://discord\\.com/channels/'+i.guild_id+'/'+thread.id+'/\\d+$').test(url);
+  // Old webhooks posted the reporter and reference as text, before buttons existed.
+  const reporter=/^Report from <@!?(\d{1,20})>/.exec(opener?.content||'')?.[1];
+  const reference=/^Reference: ([a-f0-9-]{36})\s*$/im.exec(opener?.content||'')?.[1];
+  if(reporter&&reference){
+    const owner=env.REPORTS.get(env.REPORTS.idFromName(reporter));
+    for(const platform of platforms){
+      const result=await owner.fetch('https://reports/dashboard-record',{method:'POST',body:JSON.stringify({platform,userID:reporter,reference})});
+      if(result.ok&&sameThread((await result.json()).threadURL))return staffMenu('case:'+reporter+':'+platform+':',thread.id);
+    }
+  }
+  const recent=await discordTags(env,path+'?limit=100').catch(()=>[]);
+  const recentMenu=recent.map(controls).find(Boolean);
+  if(recentMenu)return recentMenu;
+  // Discord can omit an old webhook's text. Match the saved public thread URL instead.
+  for(const platform of platforms){
+    const index=env.REPORTS.get(env.REPORTS.idFromName('dashboard:'+platform));
+    let cursor;
+    do{
+      const result=await index.fetch('https://reports/dashboard-list',{method:'POST',body:JSON.stringify({platform,cursor})});
+      if(!result.ok)throw Error('Report index unavailable');
+      const page=await result.json();
+      const record=page.reports.find(r=>r.platform===platform&&idPattern.test(r.userID)&&sameThread(r.threadURL));
+      if(record)return staffMenu('case:'+record.userID+':'+platform+':',thread.id);
+      cursor=page.cursor;
+    }while(cursor);
+  }
 }
 
 export async function caseInteraction(i,env,origin,ctx) {
@@ -160,7 +189,7 @@ export async function caseAction(storage,env,b){
   const {channel,platform,user,action,actor,value}=b;
   const key='thread:'+channel;
   const record=await storage.get(key);
-  if(!record||record.platform!==platform)return result('This ticket could not be verified.');
+  if(!record||(record.platform===undefined?'ios':record.platform)!==platform)return result('This ticket could not be verified.');
   if(['feedback','fulfilled'].includes(action)&&actor!==user)return result('Only the reporter can respond.');
   const thread=await getReportThread(env,channel);
   if(action==='overview'){

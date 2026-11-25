@@ -212,3 +212,44 @@ test('a renamed, previously moved ticket opens its private menu even without Dis
   }
   assert.equal(lists,1);
 });
+
+test('old webhook tickets use their verified report reference or exact saved thread URL',async t=>{
+  const {privateStaffCommand}=await import('./case-actions.mjs');
+  const guild='1387432184121393333', channel='1574999999999999999', user='1574000000000000000';
+  const ref='C80EA1A0-6ED0-4F9C-880C-E91C83F04049';
+  const threadURL='https://discord.com/channels/'+guild+'/'+channel+'/'+channel;
+  let readable=true, edits=0;
+  const runtime={DISCORD_BOT_TOKEN:'test',REPORTS:{idFromName:k=>k,get:k=>({fetch:async(url,init)=>{
+    if(k==='companion-bot-setup')return Response.json({id:'sage'});
+    if(k==='driving-referral-review')return new Response(null,{status:404});
+    const body=JSON.parse(init.body);
+    if(k===user){
+      assert.equal(body.reference,ref);
+      return Response.json({threadURL});
+    }
+    assert.equal(k,'dashboard:ios');
+    return Response.json(body.cursor?{reports:[{userID:user,platform:'ios',threadURL}],cursor:null}:
+      {reports:[{userID:'3',platform:'ios',threadURL:threadURL.replace(channel,'123')}],cursor:'page2'});
+  }})}};
+  t.mock.method(globalThis,'fetch',async(url,opts)=>{
+    if(opts.method==='PATCH'){
+      assert.ok(url.endsWith('/messages/@original'));
+      const card=JSON.parse(opts.body);
+      assert.ok(card.flags & 64);
+      assert.ok(JSON.stringify(card).includes('case:'+user+':ios:pick:'+channel));
+      edits++;
+      return Response.json({});
+    }
+    assert.equal(opts.method,'GET');
+    if(url.endsWith('/channels/'+channel))return Response.json({id:channel,parent_id:supportForum,type:11,applied_tags:[]});
+    if(!readable)return new Response(null,{status:403});
+    return Response.json({channel_id:channel,author:{id:'2'},content:'Report from <@'+user+'> (Nate)\nReference: '+ref+'\n\nTesting'});
+  });
+  for(readable of [true,false]){
+    let job;
+    const ack=await privateStaffCommand({guild_id:guild,channel_id:channel,application_id:'9',member:{roles:['sage']}},runtime,{waitUntil:p=>{job=p;}}).json();
+    assert.equal(ack.data.flags,64);
+    await job;
+  }
+  assert.equal(edits,2);
+});
