@@ -32,15 +32,17 @@ def test_opt_in_and_stale_lease(tmp_path):
 
 @pytest.mark.parametrize('peer', ['127.0.0.1', '192.168.1.2', '172.31.254.1', '172.31.254.0', '172.31.254.255', '::ffff:172.31.254.10'])
 def test_only_hotspot_peers(tmp_path, peer):
+  owner = registry(tmp_path)
   with pytest.raises(ValueError):
-    registry(tmp_path).heartbeat(PAYLOAD, peer)
+    owner.heartbeat(PAYLOAD, peer)
+  assert not owner.enabled()
 
 
 def test_remote_and_conflict_and_disable(tmp_path):
   owner = registry(tmp_path)
-  owner.save({'enabled': True})
   with pytest.raises(PermissionError):
     owner.heartbeat(PAYLOAD, PEER, remote=True)
+  assert not owner.enabled()
   owner.heartbeat(PAYLOAD, PEER)
   with pytest.raises(FileExistsError):
     owner.heartbeat(PAYLOAD, '172.31.254.11')

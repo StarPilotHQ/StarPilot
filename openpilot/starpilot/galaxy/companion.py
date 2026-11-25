@@ -105,9 +105,8 @@ class CompanionRegistry:
       # The phone's own opt-in (with its disclosure) is consent: a hotspot heartbeat turns sharing on.
       if not self.enabled():
         atomic_json(self.path, {'enabled': True})
-      enabled = True
       atomic_json(self.lease_path, {**lease, 'updated': self.clock()})
-    return {'ok': True, 'enabled': enabled, 'active': phone_uplink_active(self.status_path, self.clock),
+    return {'ok': True, 'enabled': True, 'active': phone_uplink_active(self.status_path, self.clock),
             'protocol': COMPANION_PROTOCOL, 'uploadDenyHosts': UPLOAD_DENY_HOSTS}
 
   def lease(self):

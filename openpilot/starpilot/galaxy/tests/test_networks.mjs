@@ -66,7 +66,23 @@ vm.adopt({ ...value, editable: false })
 const before = sent.length
 assert.equal(await vm.send({ action: 'cellular', value: false }), false)
 assert.equal(sent.length, before)
+const companion = { protocol: 1, enabled: true, connected: true, active: true, bytes: 13212672 }
+globalThis.fetch = async url => ({ ok: true, json: async () => String(url).includes('companion') ? companion : value })
+await vm.refresh()
+const phoneDetail = () => NetworksPage.computed.phoneDetail.call(vm)
+assert.equal(phoneDetail(), "Active · 12.6 MB of the phone's mobile data today")
+vm.phone = { ...companion, active: false }
+assert.match(phoneDetail(), /^Ready\./)
+vm.phone = { ...companion, connected: false }
+assert.equal(phoneDetail(), '')
+vm.busy = false
+globalThis.fetch = async url => String(url).includes('companion') ? { ok: false, status: 500, json: async () => ({ error: 'down' }) } : { ok: true, json: async () => value }
+await vm.refresh()
+assert.equal(vm.phone, null)
+assert.equal(vm.error, '')
+assert.ok(NetworksPage.template.includes('Internet from Android app'))
 vm.stop()
+assert.equal(vm.phone, null)
 
 assert.equal(NetworksPage.components.ConnectionLogs, ConnectionLogs)
 assert.ok(NetworksPage.template.includes("<ConnectionLogs v-if=\"mode === 'local'\" panel"))
