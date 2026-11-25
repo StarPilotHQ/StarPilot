@@ -295,7 +295,7 @@ export async function driveInteraction(request,env,origin,ctx) {
   const interaction=JSON.parse(raw);
   if(interaction.type===1)return reply({type:1});
   const answer=content=>reply({type:4,data:privateCard(content)});
-  if(interaction.type===2&&interaction.data?.type===1&&interaction.data.name==='companion-staff-action')return privateStaffCommand(interaction,env,ctx);
+  if(interaction.type===2&&interaction.data?.type===1&&['companion-staff-action','test-app'].includes(interaction.data.name))return privateStaffCommand(interaction,env,ctx);
   if(isReferral(interaction))return referralInteraction(interaction,env,ctx);
   if([3,5].includes(interaction.type))return caseInteraction(interaction,env,origin,ctx);
   if(interaction.type!==2||interaction.data?.name!=='request-logs')return answer('Unknown command.');

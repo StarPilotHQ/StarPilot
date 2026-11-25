@@ -5,10 +5,11 @@ import {issueDriveLink, sendDriveInvite} from './drive-logs.mjs';
 
 const titles = {
   note:'Additional Report', tags:'Apply tags', working:'Mark in progress', assign:'Assign someone', unassign:'Clear assignment', priority:'Set Priority', status:'Change Status',
-  awaiting:'Awaiting deploy', investigate:'Further investigation', overview:'Report overview', question:'Ask the reporter', testing:'Request User Testing', commaTesting:'Request Comma Testing', rename:'Rename Thread', duplicate:'Link Duplicate',
+  awaiting:'Awaiting deploy', investigate:'Further investigation', overview:'Report overview', question:'Ask the reporter', testing:'Request User Testing', commaTesting:'Request Comma Testing', appTesting:'Test latest iOS app', rename:'Rename Thread', duplicate:'Link Duplicate',
   appLogs:'Request Phone App Logs', connection:'Request Comma Connection Logs', controller:'Request Controller Logs', starport:'Request StarPort Logs', removeTags:'Remove topic tags'
 };
 const descriptions={
+  appTesting:'Ask the reporter to install the latest public TestFlight build and retry.',
   investigate:'Send this report back for investigation.',
   commaTesting:'Ask the reporter to update the comma and test the fix. Include a phone build if needed.',
   awaiting:'Record a fix that is waiting for deployment without pinging the reporter.',
@@ -40,7 +41,7 @@ export function caseButtons(user, platform) {
 }
 
 function staffMenu(base,channel){
-  const options=Object.entries(titles).filter(([key])=>key!=='note').map(([value,label])=>({label,value,description:descriptions[value]}));
+  const options=Object.entries(titles).filter(([key])=>key!=='note' && (key!=='appTesting'||base.endsWith(':ios:'))).map(([value,label])=>({label,value,description:descriptions[value]}));
   return privateCard('**Staff Actions**',[row({type:3,custom_id:base+'pick:'+channel,placeholder:'Choose a staff action',options})]);
 }
 
@@ -67,12 +68,17 @@ export function privateStaffCommand(i,env,ctx){
 }
 
 async function ticketStaffMenu(i,env){
+  function commandCard(base,channel){
+    if(i.data?.name!=='test-app')return staffMenu(base,channel);
+    if(!base.endsWith(':ios:'))return privateCard('Use /test-app in an iPhone app report.');
+    return privateCard('**Request external iOS testing**',[row({type:2,style:1,label:'Prepare testing request',custom_id:base+'appTesting:'+channel})]);
+  }
   if(i.channel?.parent_id&&i.channel.parent_id!==supportForum)return;
   const referrals=env.REPORTS.get(env.REPORTS.idFromName('driving-referral-review'));
   const response=await referrals.fetch('https://reports/referrals/ticket',{method:'POST',body:JSON.stringify({channel:i.channel_id})});
   const linked=response.ok?await response.json():null;
   if(linked&&idPattern.test(linked.reporter)&&['ios','android'].includes(linked.platform))
-    return staffMenu('case:'+linked.reporter+':'+linked.platform+':',i.channel_id);
+    return commandCard('case:'+linked.reporter+':'+linked.platform+':',i.channel_id);
   const thread=await getReportThread(env,i.channel_id);
   const path='/channels/'+thread.id+'/messages';
   const opener=await discordTags(env,path+'/'+thread.id).catch(()=>null);
@@ -81,7 +87,7 @@ async function ticketStaffMenu(i,env){
     const items=(message.components||[]).flatMap(row=>row.components||[]);
     for(const item of items){
       const match=/^case:(\d{1,20}):(ios|android):menu(?::(\d{1,20}))?$/.exec(item.custom_id||'');
-      if(match&&(!match[3]||match[3]===thread.id))return staffMenu('case:'+match[1]+':'+match[2]+':',thread.id);
+      if(match&&(!match[3]||match[3]===thread.id))return commandCard('case:'+match[1]+':'+match[2]+':',thread.id);
     }
   }
   const menu=controls(opener);
@@ -95,7 +101,7 @@ async function ticketStaffMenu(i,env){
     const owner=env.REPORTS.get(env.REPORTS.idFromName(reporter));
     for(const platform of platforms){
       const result=await owner.fetch('https://reports/dashboard-record',{method:'POST',body:JSON.stringify({platform,userID:reporter,reference})});
-      if(result.ok&&sameThread((await result.json()).threadURL))return staffMenu('case:'+reporter+':'+platform+':',thread.id);
+      if(result.ok&&sameThread((await result.json()).threadURL))return commandCard('case:'+reporter+':'+platform+':',thread.id);
     }
   }
   const recent=await discordTags(env,path+'?limit=100').catch(()=>[]);
@@ -110,7 +116,7 @@ async function ticketStaffMenu(i,env){
       if(!result.ok)throw Error('Report index unavailable');
       const page=await result.json();
       const record=page.reports.find(r=>r.platform===platform&&idPattern.test(r.userID)&&sameThread(r.threadURL));
-      if(record)return staffMenu('case:'+record.userID+':'+platform+':',thread.id);
+      if(record)return commandCard('case:'+record.userID+':'+platform+':',thread.id);
       cursor=page.cursor;
     }while(cursor);
   }
@@ -131,7 +137,9 @@ export async function caseInteraction(i,env,origin,ctx) {
   const base=['case',user,platform].join(':')+':';
   const selected=command==='pick'?i.data.values?.[0]:command;
   const commaTesting=selected==='commaTesting';
-  const action=commaTesting?'testing':selected;
+  const appTesting=selected==='appTesting';
+  if(appTesting && platform!=='ios')return ephemeral('Use this action in an iPhone app report.');
+  const action=commaTesting||appTesting?'testing':selected;
   const reporterAction=['feedback','fulfilled'].includes(action);
   if(reporterAction && (actor!==user || bound!==channel))return ephemeral('Only the original reporter can respond to this request.');
   if(!reporterAction && (action==='note' ? actor!==user&&!sage : !sage)) return ephemeral(action==='note'?'Only the reporter or StarPilot Sage can add details.':'Staff Actions requires the StarPilot Sage role.');
@@ -155,15 +163,15 @@ export async function caseInteraction(i,env,origin,ctx) {
   }
   const prompts={question:'What do you need from the reporter?',feedback:'What did you find or what do you need?',note:'What happened?',testing:'Steps to test',awaiting:'Update for the reporter (optional)',rename:'New thread title',duplicate:'Original Discord thread link or ID'};
   if(i.type===3 && prompts[action]){
-    const fields=[row({type:4,custom_id:'value',label:prompts[action],style:['note','testing','awaiting','feedback','question'].includes(action)?2:1,required:action!=='awaiting',max_length:action==='rename'?100:action==='duplicate'?200:1500})];
-    if(['awaiting','testing'].includes(action)){
+    const fields=[row({type:4,custom_id:'value',label:prompts[action],style:['note','testing','awaiting','feedback','question'].includes(action)?2:1,required:action!=='awaiting'&&!appTesting,max_length:action==='rename'?100:action==='duplicate'?200:1500})];
+    if(!appTesting&&['awaiting','testing'].includes(action)){
       fields.push(row({type:4,custom_id:'build',label:'App build (optional)',placeholder:'e.g. iOS 2.0 (332)',style:1,required:false,max_length:120}),
         row({type:4,custom_id:'commit',label:'GitHub commit URL (optional)',placeholder:'https://github.com/owner/repo/commit/...',style:1,required:false,max_length:300}));
     }
     return Response.json({type:9,data:{title:titles[selected]||'Give feedback',custom_id:base+selected+':'+channel,components:fields}});
   }
   const value=['tags','removeTags'].includes(action)?i.data.values:i.type===5?i.data.components?.[0]?.components?.[0]?.value?.trim():i.data.values?.[0];
-  if(prompts[action] && ((!value&&action!=='awaiting')||i.type!==5) || choices[action]&&!choices[action].includes(value))return ephemeral('Choose a valid value.');
+  if(prompts[action] && ((!value&&action!=='awaiting'&&!appTesting)||i.type!==5) || choices[action]&&!choices[action].includes(value))return ephemeral('Choose a valid value.');
   if(action==='assign'&&(!idPattern.test(value)||!i.data.resolved?.members?.[value]))return ephemeral('Choose a server member.');
   const fields=(i.data.components||[]).flatMap(r=>r.components||[]);
   const build=fields.find(field=>field.custom_id==='build')?.value?.trim();
@@ -174,7 +182,7 @@ export async function caseInteraction(i,env,origin,ctx) {
   ctx.waitUntil((async()=>{
     let content='Could not confirm the action. Check the thread before retrying.';
     try{
-      const response=await owner.fetch('https://reports/case-action',{method:'POST',body:JSON.stringify({user,platform,channel,action,actor,value,build,commit,commaTesting,interaction:i.id,origin})});
+      const response=await owner.fetch('https://reports/case-action',{method:'POST',body:JSON.stringify({user,platform,channel,action,actor,value,build,commit,commaTesting,appTesting,interaction:i.id,origin})});
       content=(await response.json()).message||content;
     }finally{
       await fetch('https://discord.com/api/v10/webhooks/'+i.application_id+'/'+i.token+'/messages/@original',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({...privateCard(content),content:null,embeds:[]}),redirect:'manual'});
@@ -212,6 +220,7 @@ export async function caseAction(storage,env,b){
   if(thread.thread_metadata?.locked)return result('A moderator locked this thread. Unlock it in Discord first.');
   if((thread.applied_tags.includes(supportTags.Closed)||thread.thread_metadata?.archived)&&!reopening&&!(action==='status'&&value==='Closed'))
     return result('This report is closed or archived. Staff can use Change Status → Open to resume it.');
+  if(b.appTesting && (platform!=='ios'||['controller','starport'].includes(record.reportKind)))return result('Use this action in an iPhone app report.');
   const fresh=await storage.transaction(async tx=>{
     const recent=await tx.get('case-interactions')||[];
     if(recent.includes(b.interaction))return false;
@@ -293,7 +302,7 @@ export async function caseAction(storage,env,b){
     allowed_mentions:{parse:[],users:['testing','question'].includes(action)?[user]:action==='assign'?[value]:[]}};
   if(action==='awaiting'||action==='testing'||action==='question'){
     const fix=[];
-    if(action!=='question'){
+    if(action!=='question'&&!b.appTesting){
       const build=patch.build||record.build, commit=patch.commit||record.commit;
       if(build)fix.push('**App build:** '+build);
       if(commit)fix.push('[View commit]('+commit+')');
@@ -302,7 +311,11 @@ export async function caseAction(storage,env,b){
       delete payload.content;
       Object.assign(payload,supportCard('',['**Awaiting deploy**','A fix is waiting for release. Staff will ask you to test when it is available.',value,...fix].filter(Boolean).join('\n'),caseButtons(user,platform),[],state.color));
     }else{
-      const text=[action==='testing'?'**Waiting for user testing**':'**Staff need more information**',...(action==='testing'&&b.commaTesting?[updateComma]:[]),value,...fix,'','Choose **Give feedback** to share your results, or **My request is fulfilled** to close the report.'].join('\n');
+      const text=[action==='testing'?'**Waiting for user testing**':'**Staff need more information**',...(action==='testing'&&b.commaTesting?[updateComma]:[]),...(action==='testing'&&b.appTesting?[
+        '1. On your iPhone, open the [public StarPilot TestFlight link](https://testflight.apple.com/join/nfUDuEm4). Install TestFlight if prompted, then join the beta.',
+        '2. In TestFlight, open StarPilot and tap **Update** or **Install**. If it says **Open**, you already have the offered build.',
+        '3. Open StarPilot and retry the issue. In your feedback, include the version and build shown in TestFlight and what happened.'
+      ]:[]),value,...fix,'','Choose **Give feedback** to share your results, or **My request is fulfilled** to close the report.'].join('\n');
       delete payload.content;
       Object.assign(payload,supportCard(message,text,[reporterButtons(user,platform,channel)],[],state?.color));
     }

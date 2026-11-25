@@ -216,10 +216,11 @@ test('a renamed, previously moved ticket opens its private menu even without Dis
     assert.ok(url.endsWith('/messages/@original'));
     const card=JSON.parse(o.body);
     assert.ok(card.flags & 64);
-    assert.ok(JSON.stringify(card).includes('case:'+reporter+':ios:pick:'+channel));
+    assert.ok(JSON.stringify(card).includes('case:'+reporter+':ios:'+(i.data?'appTesting':'pick')+':'+channel));
     return Response.json({});
   });
   for(let n=0;n<2;n++){
+    if(n===1)i.data={name:'test-app'};
     let done;
     assert.equal((await privateStaffCommand(i,runtime,{waitUntil:p=>{done=p;}}).json()).data.flags,64);
     await done;
@@ -282,14 +283,15 @@ test('comma testing adds the official branch instruction only to the comma testi
   });
   const records=new Map([['thread:4',{platform:'ios'}]]);
   const store={get:k=>records.get(k),put:(k,v)=>records.set(k,v),transaction:fn=>fn(store)};
-  for(const selected of ['testing','commaTesting']){
+  for(const selected of ['testing','commaTesting','appTesting']){
     const pick=interaction('pick:4','3');
     pick.data.values=[selected];
     const modal=(await (await caseInteraction(pick,env)).json()).data;
     assert.equal(modal.custom_id,'case:1:ios:'+selected+':4');
-    await caseAction(store,env,{action:'testing',commaTesting:selected==='commaTesting',platform:'ios',channel:'4',user:'1',actor:'3',value:'Verify the fix.',build:'2.0 (332)',interaction:selected});
+    await caseAction(store,env,{action:'testing',commaTesting:selected==='commaTesting',appTesting:selected==='appTesting',platform:'ios',channel:'4',user:'1',actor:'3',value:'Verify the fix.',build:'2.0 (332)',interaction:selected});
     const card=JSON.stringify(posts.at(-1));
+    assert.equal(card.includes('https://testflight.apple.com/join/nfUDuEm4'),selected==='appTesting');
     assert.equal(card.includes(updateComma),selected==='commaTesting');
-    assert.ok(card.includes('2.0 (332)'));
+    assert.equal(card.includes('2.0 (332)'),selected!=='appTesting');
   }
 });
