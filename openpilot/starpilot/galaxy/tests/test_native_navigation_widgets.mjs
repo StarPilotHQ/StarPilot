@@ -27,8 +27,8 @@ print(json.dumps(documents))
 `], { encoding: "utf8" }))
 for (const document of signalEdges) assert.equal(validDocument(document, data.metadata), true)
 assert.equal(validSnapshot(data), true)
-assert.equal(data.document.version, 16)
-for (const version of [9, 10, 15, 17]) {
+assert.equal(data.document.version, 17)
+for (const version of [9, 10, 15, 16, 18]) {
   assert.equal(validSnapshot({ ...data, document: { ...data.document, version } }), false)
   assert.equal(validSnapshot({ ...data, defaults: { ...data.defaults, version } }), false)
 }
