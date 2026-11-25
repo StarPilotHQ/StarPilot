@@ -33,9 +33,14 @@ export const NetworksPage = {
   components: { WikiHelp, GxNotice, GxState, GalaxySettingRow, GalaxyHotspot, GxDialog, ConnectionLogs, BluetoothTabs },
   props: { go: { type: Function, required: true }, mode: { type: String, required: true }, unauthorized: { type: Function, required: true } },
   data: () => ({ snapshot: null, busy: false, error: '', openUuid: null, adding: false, joiningSsid: '', joinPassword: '',
-    hiddenOpen: false, hiddenSsid: '', showJoinPassword: false, forgetUuid: null, timer: null, controller: null, generation: 0, active: false }),
+    hiddenOpen: false, hiddenSsid: '', showJoinPassword: false, forgetUuid: null, timer: null, controller: null, generation: 0, active: false, phone: null }),
   computed: {
     linkName() { return LINKS[this.snapshot?.link.link] || 'Unknown' },
+    phoneDetail() {
+      if (!this.phone?.connected) return ''
+      return this.phone.active ? `Active · ${(this.phone.bytes / 1048576).toFixed(1)} MB of the phone's mobile data today`
+        : 'Ready. The comma uses it only when it has no Wi-Fi or cellular internet of its own.'
+    },
     availableNetworks() { return this.snapshot?.available || [] },
     joining() { return this.snapshot?.lastJoin?.state === 'joining' },
     joinOpen() { return this.hiddenOpen || !!this.joiningSsid },
@@ -64,7 +69,7 @@ export const NetworksPage = {
     start() { if (this.mode === 'local') { this.active = true; this.refresh() } },
     stop() {
       this.active = false; this.generation++; clearTimeout(this.timer); this.controller?.abort()
-      this.snapshot = null; this.openUuid = null; this.forgetUuid = null; this.adding = false; this.cancelJoin(); this.busy = false
+      this.snapshot = null; this.phone = null; this.openUuid = null; this.forgetUuid = null; this.adding = false; this.cancelJoin(); this.busy = false
     },
     adopt(value) {
       if (!validNetworks(value)) throw new Error('Invalid network status')
@@ -133,9 +138,12 @@ export const NetworksPage = {
       const generation = ++this.generation
       this.controller = new AbortController()
       try {
-        const value = await requestJson('./api/galaxy/networks', { request: { signal: this.controller.signal } })
+        const signal = this.controller.signal
+        const [value, phone] = await Promise.all([requestJson('./api/galaxy/networks', { request: { signal } }),
+          requestJson('./api/companion/status', { request: { signal } }).catch(() => null)])
         if (!this.active || generation !== this.generation) return
         this.adopt(value); this.error = ''
+        this.phone = phone?.protocol === 1 && Number.isSafeInteger(phone.bytes) ? phone : null
       } catch (error) {
         if (!this.active || generation !== this.generation) return
         if (error.status === 401) { this.stop(); this.unauthorized(); return }
@@ -186,7 +194,8 @@ export const NetworksPage = {
       <GxNotice v-if="snapshot.lastJoin?.state === 'joining'" tone="info" busy>Joining {{ snapshot.lastJoin.ssid }}. The Galaxy hotspot pauses for up to 30 seconds; your phone should reconnect on its own and this page will update.</GxNotice>
       <GxNotice v-else-if="snapshot.lastJoin?.state === 'joined'" tone="success">Joined {{ snapshot.lastJoin.ssid }}.</GxNotice>
       <GxNotice v-else-if="snapshot.lastJoin?.state === 'failed'" tone="danger">Couldn't join {{ snapshot.lastJoin.ssid }}. {{ snapshot.lastJoin.error }}</GxNotice>
-      <section class="gx-card gx-settings__section"><div class="gx-section__header"><i class="bi bi-arrow-left-right" aria-hidden="true"></i><span class="gx-section__title">Connection</span><span class="gx-chip">{{ linkName }}<template v-if="changed"> · {{ changed }}</template></span></div>
+      <section class="gx-card gx-settings__section"><div class="gx-section__header"><i class="bi bi-arrow-left-right" aria-hidden="true"></i><span class="gx-section__title">Connection</span><span v-if="phone?.active" class="gx-chip gx-chip--phone" role="status"><i class="bi bi-phone" aria-hidden="true"></i> Internet from Android app</span><span v-else class="gx-chip">{{ linkName }}<template v-if="changed"> · {{ changed }}</template></span></div>
+        <div v-if="phoneDetail" class="gx-row gx-networks__phone"><div class="gx-row__info"><span class="gx-row__label">Android phone internet</span><span class="gx-row__desc">{{ phoneDetail }}</span></div></div>
         <GalaxySettingRow :row="choiceRow('Prefer', snapshot.prefer === 'cellular' ? 'Cellular' : 'Wi-Fi', ['Wi-Fi', 'Cellular'], 'Used when both are available; apps reconnect automatically.')" :index="0"
           :busy="busy" :disabled="!snapshot.editable" :save-value="(index, value) => send({ action: 'prefer', value: value === 'Cellular' ? 'cellular' : 'wifi' })" />
         <GalaxySettingRow :row="switchRow('Cellular data', snapshot.cellular.enabled, cellularDetail)" :index="1"
