@@ -176,9 +176,10 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
       if log_relay_stager_source is None:
         from openpilot.starpilot.galaxy.controller_diagnostics import controller_capture
         from openpilot.starpilot.galaxy.log_relay_stage import LogRelayStager
+        from openpilot.starpilot.galaxy.starport_send import device_summary, with_summary
         source = starport_logs()
         log_relay_stager_source = LogRelayStager(
-          source.bundle,
+          with_summary(source.bundle, lambda: device_summary(source.directory)),
           lambda: base64.b64decode(connection_capture(address_source.snapshot(), configuration_allowed=configuration_allowed)['zipBase64']),
           lambda: base64.b64decode(controller_capture()['zipBase64']),
         )

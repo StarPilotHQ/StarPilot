@@ -18,6 +18,14 @@ export function nextReportTags(current,platform,status,topics){
  if(tags.length>5)throw Error('Discord allows five tags. Remove a topic or custom tag first.');
  return tags;
 }
+// Tags for a new Galaxy log report thread, from the Get help selection the comma sends.
+export function galaxyReportTags(env,kind,platform){
+ const id=value=>/^\d{17,20}$/.test(value||'')?value:null;
+ const os=supportTags[platform==='ios'?'iOS':'Android'];
+ const topic={starport:[id(env.STARPORT_FORUM_TAG_ID),os],connection:[os,supportTags.Galaxy],controller:[id(env.CONTROLLER_FORUM_TAG_ID)||os]}[kind];
+ if(!topic)throw Error('Unknown Galaxy report kind.');
+ return [...new Set([supportTags.Open,...topic.filter(Boolean)])];
+}
 export async function filterReportThreads(env,items){
  if(!env.DISCORD_BOT_TOKEN)return items;
  const forum=await discordTags(env,'/channels/'+supportForum);

@@ -1,11 +1,13 @@
 """Send StarPort Logs: the Discord upload, its per-device thread cache, the background job and its routes."""
 
 import http.client
+import io
 import json
 import tempfile
 import threading
 import time
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 from urllib.parse import parse_qs, urlsplit
@@ -19,6 +21,25 @@ from openpilot.starpilot.galaxy.starport_send import (DISCORD_FILE_LIMIT, MESSAG
 URL = "https://discord.example/api/webhooks/1/token"
 SUMMARY = {"device_id": "0123456789abcdef", "car_fingerprint": "HONDA_CIVIC_2022", "head_unit": "Honda Display Audio",
            "branch": "Dom", "commit": "abcdef1234567890"}
+
+
+class WithSummaryTest(unittest.TestCase):
+  def test_adds_summary_to_bundle(self):
+    source = io.BytesIO()
+    with zipfile.ZipFile(source, "w") as archive:
+      archive.writestr("REPORT.txt", "report")
+    seen = []
+
+    def bundle(**kwargs):
+      seen.append(kwargs)
+      return "logs.zip", source.getvalue()
+    name, data = starport_send.with_summary(bundle, lambda: {**SUMMARY, "setup": "adapter", "repo": "starpilothq/openpilot"})(system_snapshot=False)
+    self.assertEqual((name, seen), ("logs.zip", [{"system_snapshot": False}]))
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+      self.assertEqual(archive.read("REPORT.txt"), b"report")
+      text = archive.read("SUMMARY.txt").decode()
+    for line in ("Car: HONDA_CIVIC_2022", "Head unit: Honda Display Audio", "Setup: adapter", "Branch Dom @ abcdef1234"):
+      self.assertIn(line, text)
 
 
 class Response:
@@ -271,6 +292,7 @@ class DiscordFollowUpTest(unittest.TestCase):
                          ("https://evil.com/github.com/StarPilotHQ/StarPilot", "other"), ("", "unknown"), (None, "unknown")):
       self.assertEqual(repo_name(origin), repo, origin)
     self.assertTrue(is_official_repo("StarPilotHQ/StarPilot"))
+    self.assertTrue(is_official_repo("starpilothq/openpilot"))
     self.assertFalse(is_official_repo("dirwin31/openpilot"))
 
     sender = mock.Mock(return_value=None)

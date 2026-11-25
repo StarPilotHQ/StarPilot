@@ -1,5 +1,14 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {supportTags,supportForum,nextReportTags,filterReportThreads} from './thread-tags.mjs';
+import {supportTags,supportForum,nextReportTags,filterReportThreads,galaxyReportTags} from './thread-tags.mjs';
+test('galaxy reports are tagged from the Get help selection',()=>{
+ const env={STARPORT_FORUM_TAG_ID:'11111111111111111',CONTROLLER_FORUM_TAG_ID:'22222222222222222'};
+ assert.deepEqual(galaxyReportTags(env,'starport','android'),[supportTags.Open,env.STARPORT_FORUM_TAG_ID,supportTags.Android]);
+ assert.deepEqual(galaxyReportTags(env,'connection','ios'),[supportTags.Open,supportTags.iOS,supportTags.Galaxy]);
+ assert.deepEqual(galaxyReportTags(env,'controller','ios'),[supportTags.Open,env.CONTROLLER_FORUM_TAG_ID]);
+ assert.deepEqual(galaxyReportTags({},'starport','android'),[supportTags.Open,supportTags.Android]);
+ assert.deepEqual(galaxyReportTags({},'controller','ios'),[supportTags.Open,supportTags.iOS]);
+ assert.throws(()=>galaxyReportTags({},'crash','ios'),/Unknown/);
+});
 test('tag edits preserve custom tags, enforce platform, mutually exclusive status and five-tag limit',()=>{
  const changed=nextReportTags([supportTags.iOS,supportTags.Open,supportTags.Closed,'custom'],'android','In Progress',['Galaxy']);
  assert.deepEqual(new Set(changed),new Set(['custom',supportTags.Android,supportTags['In Progress'],supportTags.Galaxy]));

@@ -70,7 +70,7 @@ class Sender:
 
 
 GITHUB_REPO = re.compile(r"(?:(?:https?|ssh|git)://)?(?:[^@/\s]+@)?github\.com[:/]([^/\s]+/[^/\s]+?)(?:\.git)?/?", re.IGNORECASE)
-OFFICIAL_REPO = "starpilothq/starpilot"
+OFFICIAL_REPOS = ("starpilothq/starpilot", "starpilothq/openpilot")  # GitHub redirects the old name
 
 
 def repo_name(origin) -> str:
@@ -82,7 +82,7 @@ def repo_name(origin) -> str:
 
 
 def is_official_repo(repo) -> bool:
-  return isinstance(repo, str) and repo.lower() == OFFICIAL_REPO
+  return isinstance(repo, str) and repo.lower() in OFFICIAL_REPOS
 
 
 def device_metadata():

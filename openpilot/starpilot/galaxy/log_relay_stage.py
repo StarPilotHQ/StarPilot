@@ -192,7 +192,7 @@ class LogRelayStager:
       claim_url = body.get("claimUrl") if isinstance(body, dict) else None
       if not isinstance(claim_url, str) or not CLAIM_RE.fullmatch(claim_url):
         raise StageRejected("Invalid relay claim link. Use Download ZIP instead.")
-      self._set(state="ready", claimUrl=claim_url, message="Logs uploaded. Continue to post your report on Discord.")
+      self._set(state="ready", claimUrl=claim_url, message="Logs uploaded. Your report is not posted until you finish on Discord.")
     except StageRejected as error:
       self._set(state="failed", claimUrl="", message=str(error)[:400])
     except Exception:

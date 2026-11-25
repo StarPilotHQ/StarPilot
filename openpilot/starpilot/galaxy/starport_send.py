@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import json
 import re
 import threading
 import time
+import zipfile
 from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -137,6 +139,27 @@ def device_summary(log_dir: Path | None = None) -> dict:
   return summary
 
 
+def device_lines(summary: dict) -> list[str]:
+  return [f"Car: {summary.get('car_fingerprint') or 'unknown'}",
+          f"Head unit: {summary.get('head_unit') or 'unknown'}",
+          f"Setup: {summary.get('setup') or 'unknown'}",
+          f"Handshake: {summary.get('handshake') or 'unknown'}",
+          f"Repo {summary.get('repo', '?')} · Branch {summary.get('branch', '?')} @ {str(summary.get('commit', '?'))[:10]}"]
+
+
+def with_summary(bundle: Callable[..., tuple[str, bytes]], summary: Callable[[], dict]) -> Callable[..., tuple[str, bytes]]:
+  """The bundle with SUMMARY.txt at the root, so relay reports keep the car, head unit, setup and branch."""
+  def build(**kwargs) -> tuple[str, bytes]:
+    name, data = bundle(**kwargs)
+    info = summary()
+    text = "\n".join([f"Device {device_tag(info)}", *device_lines(info)]) + "\n"
+    output = io.BytesIO(data)
+    with zipfile.ZipFile(output, "a", zipfile.ZIP_DEFLATED) as archive:
+      archive.writestr("SUMMARY.txt", text)
+    return name, output.getvalue()
+  return build
+
+
 def device_tag(summary: dict) -> str:
   """8 characters of a hash of the dongle ID: tells devices apart without showing the ID."""
   dongle_id = summary.get("device_id") or ""
@@ -175,11 +198,7 @@ def send(data: bytes, name: str, note: str, summary: dict, url: str | None = Non
     post = requests.post
   dongle_id = summary.get("device_id") or "device"
   lines = [f"**StarPort logs from {device_tag(summary)}**",
-           f"Car: {summary.get('car_fingerprint') or 'unknown'}",
-           f"Head unit: {summary.get('head_unit') or 'unknown'}",
-           f"Setup: {summary.get('setup') or 'unknown'}",
-           f"Handshake: {summary.get('handshake') or 'unknown'}",
-           f"Repo {summary.get('repo', '?')} · Branch {summary.get('branch', '?')} @ {str(summary.get('commit', '?'))[:10]}",
+           *device_lines(summary),
            f"Note: {note.strip() or '(none)'}",
            f"Follow-up: Discord `{discord}`" if discord else "Follow-up: not requested"]
   payload = {"content": "\n".join(lines)[:1900], "username": "StarPilot diagnostics", "allowed_mentions": {"parse": []}}
