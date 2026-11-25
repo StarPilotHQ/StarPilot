@@ -114,6 +114,7 @@ export class LogStageClient {
       kind,
       available: body.available !== false,
       fork: body.fork === true,
+      repo: typeof body.repo === "string" ? body.repo : "",
       noteLimit: body.noteLimit || NOTE_LIMIT,
       modelLimit: body.modelLimit || MODEL_LIMIT,
       error: "",
@@ -254,7 +255,7 @@ export const LogHelp = {
   data() {
     return {
       selected: KINDS.includes(this.topic) ? this.topic : "starport",
-      stage: { state: "idle", message: "", claimUrl: "", kind: "", available: true, fork: false, noteLimit: NOTE_LIMIT, modelLimit: MODEL_LIMIT, error: "" },
+      stage: { state: "idle", message: "", claimUrl: "", kind: "", available: true, fork: false, repo: "", noteLimit: NOTE_LIMIT, modelLimit: MODEL_LIMIT, error: "" },
       starportLogs: { sessions: [], others: [], status: "idle", error: "" },
       sessionsOpen: false,
       bluetooth: bluetoothConnection(),
@@ -278,6 +279,10 @@ export const LogHelp = {
     },
     claimReady() {
       return this.stage.state === "ready" && !!this.stage.claimUrl && this.stage.kind === this.selected
+    },
+    forkTitle() {
+      const repo = this.stage.repo.includes("/") ? this.stage.repo : ""
+      return "This device is running a StarPilot fork" + (repo ? " (" + repo + ")" : "")
     },
     missingHint() {
       if (this.selected === "controller") return "Enter your controller model and a short note above to send."
@@ -406,7 +411,7 @@ export const LogHelp = {
 
         <p v-if="mode !== 'local'" class="gx-note">Connect to your comma to send or download diagnostic logs.</p>
         <template v-else>
-          <GxNotice v-if="selected === 'starport' && stage.fork" class="gx-starport-send__fork" tone="warn" title="This device is running a StarPilot fork">
+          <GxNotice v-if="selected === 'starport' && stage.fork" class="gx-starport-send__fork" tone="warn" :title="forkTitle">
             Custom forks may have changed StarPort or be out of date. Make sure your branch is up to date with StarPilotHQ before sending, or share the logs with your branch's maintainer or in the StarPilot Discord.
           </GxNotice>
           <BluetoothNotice v-if="bluetooth" feature="ZIP downloads">Direct log sending from the comma remains available.</BluetoothNotice>

@@ -98,11 +98,13 @@ class LogRelayStagerTest(unittest.TestCase):
       lambda: b"controller-zip",
       post=fake_post,
       official=lambda: False,
+      repo=lambda: "dirwin31/openpilot",
     )
     initial = stager.status()
     self.assertEqual(initial["state"], "idle")
     self.assertTrue(initial["available"])
     self.assertTrue(initial["fork"])
+    self.assertEqual(initial["repo"], "dirwin31/openpilot")
     self.assertEqual(initial["noteLimit"], NOTE_LIMIT)
     self.assertEqual(initial["modelLimit"], MODEL_LIMIT)
 

@@ -10,7 +10,7 @@ from io import BytesIO
 from urllib.parse import quote
 from zipfile import BadZipFile, ZipFile
 
-from openpilot.starpilot.galaxy.starport_send import DISCORD_FILE_LIMIT, official_install
+from openpilot.starpilot.galaxy.starport_send import DISCORD_FILE_LIMIT, install_repo, official_install
 
 STAGE_URL = "https://starpilot-log-relay.nathan-g-hubbard.workers.dev/report/galaxy/stage"
 CLAIM_RE = re.compile(r"^https://starpilot-log-relay\.nathan-g-hubbard\.workers\.dev/report/galaxy/claim/[a-f0-9]{64}$")
@@ -123,18 +123,20 @@ class LogRelayStager:
     post=None,
     stage_url: Callable[[], str] | str = STAGE_URL,
     official: Callable[[], bool] = official_install,
+    repo: Callable[[], str] = install_repo,
   ):
     self._starport_bundle = starport_bundle
     self._connection_zip = connection_zip
     self._controller_zip = controller_zip
     self._post = post
     self._stage_url: Callable[[], str] | str = stage_url
-    self._official = official
+    self._official, self._repo_source = official, repo
     self._lock = threading.Lock()
     self._thread: threading.Thread | None = None
     self._state = {"state": "idle", "message": "", "claimUrl": "", "kind": ""}
     self._session = None
     self._fork: bool | None = None
+    self._repo = ""
 
   def _url(self) -> str:
     stage_url = self._stage_url
@@ -144,10 +146,12 @@ class LogRelayStager:
     with self._lock:
       if self._fork is None:
         self._fork = not self._official()
+        self._repo = self._repo_source() if self._fork else ""
       return {
         **(self._state if session == self._session else {"state": "idle", "message": "", "claimUrl": "", "kind": ""}),
         "available": bool(self._url()),
         "fork": self._fork,
+        "repo": self._repo,
         "noteLimit": NOTE_LIMIT,
         "modelLimit": MODEL_LIMIT,
       }

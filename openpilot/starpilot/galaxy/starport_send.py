@@ -38,9 +38,14 @@ class SendBusy(Exception):
   pass
 
 
+def install_repo() -> str:
+  from openpilot.starpilot.system.starport.bugsink_transport import device_metadata
+  return device_metadata().get("repo", "")
+
+
 def official_install() -> bool:
-  from openpilot.starpilot.system.starport.bugsink_transport import device_metadata, is_official_repo
-  return is_official_repo(device_metadata().get("repo"))
+  from openpilot.starpilot.system.starport.bugsink_transport import is_official_repo
+  return is_official_repo(install_repo())
 
 
 def webhook_url(override_path: Path = WEBHOOK_OVERRIDE_PATH) -> str:
