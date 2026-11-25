@@ -160,3 +160,29 @@ test('deployment keeps the commit, testing adds the build, and the forum title f
   await run('fulfilled',{actor:'1'});
   assert.equal(thread.name,'🟢 Sentry preview');
 });
+
+test('slash command opens only an ephemeral staff menu without posting to the ticket',async t=>{
+  const {privateStaffCommand}=await import('./case-actions.mjs');
+  const i={guild_id:'1387432184121393333',channel_id:'4',application_id:'9',token:'fixture',member:{roles:['6']}};
+  const edits=[];
+  t.mock.method(globalThis,'fetch',async(url,options)=>{
+    if(options.method==='PATCH'){
+      assert.ok(url.endsWith('/messages/@original'));
+      edits.push(JSON.parse(options.body));
+      return Response.json({});
+    }
+    assert.equal(options.method,'GET');
+    if(url.endsWith('/channels/4'))return Response.json({id:'4',type:11,parent_id:supportForum,applied_tags:[]});
+    assert.ok(url.endsWith('/channels/4/messages/4'));
+    return Response.json({channel_id:'4',author:{id:'9'},components:caseButtons('1','ios')});
+  });
+  for(const roles of [['6'],[]]){
+    i.member.roles=roles;
+    let job;
+    const deferred=await privateStaffCommand(i,env,{waitUntil:p=>{job=p;}}).json();
+    assert.equal(deferred.data.flags,64);
+    await job;
+    assert.ok(edits.at(-1).flags & 64);
+    assert.match(JSON.stringify(edits.at(-1)),roles.length?/case:1:ios:pick:4/:/requires the StarPilot Sage role/);
+  }
+});

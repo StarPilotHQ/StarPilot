@@ -139,8 +139,7 @@ async function recoverReview(store,env,key,record){
   });
   if(reserved)await deliverReview(store,env,key,record);
 }
-async function ensureReferralCommand(store,env){
-  const key='refer-command-v1';
+async function ensureGuildCommand(store,env,key,definition){
   const saved=await store.get(key);
   if(saved?.id||saved?.retryAfter>Date.now())return;
   await store.put(key,{retryAfter:Date.now()+300000});
@@ -149,11 +148,11 @@ async function ensureReferralCommand(store,env){
     const response=await fetch('https://discord.com/api/v10/applications/'+app+'/guilds/'+guild+'/commands',{
       method:'POST',redirect:'manual',signal:AbortSignal.timeout(10000),
       headers:{Authorization:'Bot '+env.DISCORD_BOT_TOKEN,'Content-Type':'application/json'},
-      body:JSON.stringify({name:command,type:3})
+      body:JSON.stringify(definition)
     });
     if(!response.ok)throw Error('HTTP '+response.status);
     const registered=await response.json();
-    if(!id(registered.id)||registered.name!==command||registered.type!==3||registered.guild_id!==guild||registered.application_id!==app)
+    if(!id(registered.id)||registered.name!==definition.name||registered.type!==definition.type||registered.guild_id!==guild||registered.application_id!==app)
       throw Error('Invalid command receipt');
     await store.put(key,{id:registered.id});
   }catch(error){console.warn('Discord referral command registration pending',error.message);}
@@ -168,7 +167,8 @@ export async function referralStore(path,request,store,env){
   env=await resolveSource(store,env);
   await staffDestination(env);
   if(path.endsWith('/scan')){
-    await ensureReferralCommand(store,env);
+    await ensureGuildCommand(store,env,'refer-command-v1',{name:command,type:3});
+    await ensureGuildCommand(store,env,'staff-action-command-v1',{name:'companion-staff-action',type:1,description:'Open Staff Actions privately for this Companion ticket'});
     const start=await store.get('start');
     if(!start){await store.put('start',Date.now());return Response.json({ready:true});}
     const {threads}=await discordTags(env,'/guilds/'+guild+'/threads/active');

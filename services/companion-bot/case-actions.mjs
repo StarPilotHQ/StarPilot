@@ -37,6 +37,41 @@ export function caseButtons(user, platform) {
   return [{type:1,components:[button('note',titles.note,2),button('menu','Staff Actions',1)]}];
 }
 
+function staffMenu(base,channel){
+  const options=Object.entries(titles).filter(([key])=>key!=='note').map(([value,label])=>({label,value,description:descriptions[value]}));
+  return privateCard('**Staff Actions**',[row({type:3,custom_id:base+'pick:'+channel,placeholder:'Choose a staff action',options})]);
+}
+
+export function privateStaffCommand(i,env,ctx){
+  if(i.guild_id!=='1387432184121393333'||!idPattern.test(i.channel_id))return ephemeral('Open a Companion report thread.');
+  ctx.waitUntil((async()=>{
+    let card=privateCard('Open this command in a Companion report thread with bot controls.');
+    try{
+      const settings=env.REPORTS.get(env.REPORTS.idFromName('companion-bot-setup'));
+      const role=await settings.fetch('https://reports/sage-role');
+      if(!role.ok||!i.member?.roles?.includes((await role.json()).id)){
+        card=privateCard('Staff Actions requires the StarPilot Sage role.');
+      }else{
+        const thread=await getReportThread(env,i.channel_id);
+        const path='/channels/'+thread.id+'/messages';
+        const opener=await discordTags(env,path+'/'+thread.id);
+        function controls(message){
+          if(message.author?.id!==i.application_id||message.channel_id!==thread.id)return;
+          const items=(message.components||[]).flatMap(row=>row.components||[]);
+          for(const item of items){
+            const match=/^case:(\d{1,20}):(ios|android):menu(?::(\d{1,20}))?$/.exec(item.custom_id||'');
+            if(match&&(!match[3]||match[3]===thread.id))return staffMenu('case:'+match[1]+':'+match[2]+':',thread.id);
+          }
+        }
+        card=controls(opener)||(await discordTags(env,path+'?limit=100')).map(controls).find(Boolean)||card;
+      }
+    }catch{card=privateCard('Could not open Staff Actions. Check that this is a Companion ticket and the bot can read its message history.');}
+    await fetch('https://discord.com/api/v10/webhooks/'+i.application_id+'/'+i.token+'/messages/@original',{
+      method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({...card,content:null,embeds:[]}),redirect:'manual'});
+  })());
+  return Response.json({type:5,data:{flags:64}});
+}
+
 export async function caseInteraction(i,env,origin,ctx) {
   const [prefix,user,platform,command,bound] = (i.data?.custom_id||'').split(':');
   const channel=i.channel_id, actor=i.member?.user?.id;
@@ -55,8 +90,7 @@ export async function caseInteraction(i,env,origin,ctx) {
   if(reporterAction && (actor!==user || bound!==channel))return ephemeral('Only the original reporter can respond to this request.');
   if(!reporterAction && (action==='note' ? actor!==user&&!sage : !sage)) return ephemeral(action==='note'?'Only the reporter or StarPilot Sage can add details.':'Staff Actions requires the StarPilot Sage role.');
   if(i.type===3 && command==='menu'){
-    const options=Object.entries(titles).filter(([k])=>k!=='note').map(([value,label])=>({label,value,description:descriptions[value]}));
-    return ephemeral('**Staff Actions**', [row({type:3,custom_id:base+'pick:'+channel,placeholder:'Choose a staff action',options})]);
+    return Response.json({type:4,data:staffMenu(base,channel)});
   }
   if(!reporterAction&&!Object.hasOwn(titles,action))return ephemeral('Unknown support action.');
   if(i.type===3 && command==='pick' && action==='assign'){
