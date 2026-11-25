@@ -152,3 +152,53 @@ test('new linked ticket mentions the original reporter and both maintainers once
     assert.ok(text.includes('Audio should continue.'));
   }
 });
+
+test('ambiguous referrals wait for Sage to pick the phone platform before creating a thread',async t=>{
+  const {referralStore}=await import('./referrals.mjs');
+  const source='1574085782967292086',review='1575000066366644244',guild='1387432184121393333';
+  const record={source,reporter:source,state:'pending',category:'Phone app',observed:'App disconnected'};
+  const rows=new Map([['source:'+source,{}],['report:'+source,record]]);
+  const store={get:k=>rows.get(k),put:(k,v)=>rows.set(k,v),transaction:fn=>fn(store)};
+  const env={DRIVING_SAMPLE_THREAD_ID:source,COMPANION_REVIEW_THREAD_ID:review,DISCORD_BOT_TOKEN:'test'};
+  const posts=[];
+  t.mock.method(globalThis,'fetch',async(url,options)=>{
+    if(url.endsWith('/channels/'+review))return Response.json({type:12,guild_id:guild});
+    posts.push(JSON.parse(options.body));
+    throw Error('lost acknowledgement');
+  });
+  const click=action=>referralStore('/referrals/action',{json:()=>({action,source,actor:source})},store,env);
+  assert.equal((await (await click('move')).json()).choosePlatform,true);
+  assert.equal(posts.length,0);
+  await click('android');
+  assert.equal(rows.get('report:'+source).platform,'android');
+  assert.equal(rows.get('report:'+source).state,'creating');
+  await click('move');
+  assert.equal(posts.length,1);
+});
+
+test('lost acknowledgements recover the existing review card and Companion ticket',async t=>{
+  const {referralStore}=await import('./referrals.mjs');
+  const source='1574085782967292086',review='1575000066366644244',guild='1387432184121393333',forum='1574085782967292000',bot='1574857862872703088',dest='1574999999999999999',support='1565235002734809168';
+  const key='report:'+source,title='A Companion report';
+  const record={state:'offering',category:'Phone app',source,reporter:source,observed:'Android app'};
+  const rows=new Map([['start',1],['source:'+source,{DRIVING_FORUM_ID:forum}],[key,record]]);
+  const store={get:k=>rows.get(k),put:(k,v)=>rows.set(k,v),transaction:fn=>fn(store)};
+  const env={COMPANION_REVIEW_THREAD_ID:review,DRIVING_SAMPLE_THREAD_ID:source,DISCORD_BOT_TOKEN:'test',REPORTS:{idFromName:k=>k,get:()=>({fetch:()=>new Response('',{status:503})})}};
+  t.mock.method(globalThis,'fetch',async(url,o)=>{
+    assert.equal(o.method,'GET');
+    const path=new URL(url).pathname.replace('/api/v10','');
+    if(path==='/users/@me')return Response.json({id:bot});
+    if(path==='/channels/'+review)return Response.json({type:12,guild_id:guild});
+    if(path.endsWith('/threads/active'))return Response.json({threads:[{parent_id:forum,id:source},{parent_id:support,id:dest,name:title,owner_id:bot}]});
+    const link='(https://discord.com/channels/'+guild+'/'+source+')';
+    if(path==='/channels/'+review+'/messages')return Response.json([{author:{id:bot},id:dest,content:'[Open driving report]'+link}]);
+    if(path==='/channels/'+dest+'/messages/'+dest)return Response.json({author:{id:bot},content:'[Original driving report]'+link});
+    throw Error(path);
+  });
+  await referralStore('/referrals/scan',{},store,env);
+  assert.equal(rows.get(key).reviewMessage,dest);
+  rows.set(key,{...record,title,state:'creating',platform:'android',reportKind:'connection',created:1});
+  await assert.rejects(referralStore('/referrals/action',{json:()=>({action:'move',source,actor:source})},store,env),/register/);
+  assert.equal(rows.get(key).destination,dest);
+  assert.equal(rows.get(key).platform,'android');
+});
