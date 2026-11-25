@@ -305,6 +305,10 @@ def test_limits_are_unread_when_absent_stale_or_implausible():
   assert read_limits(sm(limits=(-0.5, -0.6))) == AccelLimits(-0.5, -0.6), 'coasting up a climb: the ceiling is under the floor'
   assert read_limits(sm(limits=(0.0, -0.3))) == AccelLimits(0.0, -0.3)
   assert AccelLimits(-0.5, -0.6).utilization(0.05) == pytest.approx(0.5), 'no divide by a negative ceiling'
+  coast = AccelLimits(-1.2, -0.3)
+  assert coast.utilization(-0.3) == pytest.approx(1.0), 'held at the coast-only ceiling'
+  assert coast.utilization(-1.2) == pytest.approx(1.0) and coast.utilization(-0.6) == pytest.approx(0.5)
+  assert AccelLimits(-1.2, 1.5).utilization(-0.3) == pytest.approx(0.25) and AccelLimits(-1.2, 1.5).utilization(0.75) == pytest.approx(0.5)
   assert read_limits(sm(limits=(-1.0, float('nan')))) is None
   stale = sm(limits=(-1.0, 1.5))
   stale.alive = {'starpilotLongitudinalPlan': False}

@@ -167,8 +167,14 @@ class AccelLimits:
   upper: float
 
   def utilization(self, accel: float) -> float:
-    """Fraction of the limit on the accel's side; 1.0 at the limit."""
-    return abs(accel) / max(self.upper if accel >= 0 else -self.lower, MIN_LIMIT)
+    """Fraction of the limit on the accel's side; 1.0 at the limit.
+
+    Below zero the limit is the floor, and also a coast-only ceiling (below zero): a command held up at that
+    ceiling is at a limit too."""
+    if accel >= 0:
+      return accel / max(self.upper, MIN_LIMIT)
+    floor = -accel / max(-self.lower, MIN_LIMIT)
+    return max(floor, self.upper / accel) if self.upper < 0 else floor
 
 
 FULL_RANGE = AccelLimits(-ACCEL_RANGE, ACCEL_RANGE)  # what the bar grows against while no limits have been read
