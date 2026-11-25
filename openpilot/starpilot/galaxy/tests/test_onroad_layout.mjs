@@ -1382,4 +1382,34 @@ for (const invalidOffset of [true, null, "1", NaN, Infinity, -5.1, 5.1]) {
   const document = { ...speedAdjustment.document, speedDisplayOffset: invalidOffset }
   assert.equal(validDocument(document, speedAdjustment.metadata), false)
 }
+for (const driveRender of ["off", "starport", "device"]) {
+  const document = { ...snapshot().document, driveRender }
+  assert.ok(validDocument(document, speedAdjustment.metadata))
+  assert.equal(layoutDocument({ ...document, display: {} }).driveRender, driveRender)
+}
+for (const driveRender of [true, null, "", "Off", "camera"]) {
+  assert.equal(validDocument({ ...snapshot().document, driveRender }, speedAdjustment.metadata), false)
+}
+for (const blackWhileStreaming of [true, false]) {
+  const document = { ...snapshot().document, blackWhileStreaming }
+  assert.ok(validDocument(document, speedAdjustment.metadata))
+  assert.equal(layoutDocument({ ...document, display: {} }).blackWhileStreaming, blackWhileStreaming)
+}
+for (const blackWhileStreaming of [null, "", "On", 1]) {
+  assert.equal(validDocument({ ...snapshot().document, blackWhileStreaming }, speedAdjustment.metadata), false)
+}
+{
+  // "Reset to stock" restores colors and layouts and leaves the Developer page's choices alone.
+  const owned = { driveRender: "device", blackWhileStreaming: true }
+  const fixture = editor()
+  fixture.publish({ status: "ready", data: { ...snapshot(), document: { ...snapshot().document, ...owned } },
+    draft: { ...copy(snapshot().document), ...owned } })
+  const vm = fixture.vm
+  assert.equal(vm.stockChanged, false)
+  vm.changePosition("current_speed", 700, 200)
+  assert.equal(vm.stockChanged, true)
+  vm.resetToStock()
+  assert.deepEqual(copy(vm.state.draft), { ...vm.state.data.defaults, ...owned })
+  assert.equal(vm.stockChanged, false)
+}
 assert.ok(SETTINGS_SECTIONS.find(section => section.id === "developer").pages.includes("developer"))

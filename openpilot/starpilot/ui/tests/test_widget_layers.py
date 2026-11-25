@@ -61,7 +61,8 @@ def test_legacy_projection_order_adds_upstream_mode_widget():
   projection['widgetOrder'] = [key for key in DEFAULT_WIDGET_ORDER['large'] if key not in (MODE_WIDGET, 'jetlink_status')]
   migrated = validate_layout_for_viewport(projection, (2880, 1080))
   assert migrated['widgets'][MODE_WIDGET]['enabled'] is False
-  assert migrated['widgetOrder'] == [*projection['widgetOrder'], MODE_WIDGET, 'nav_home', 'nav_work',
+  # The birds-eye backdrop joins an older order underneath; the other projection widgets join on top.
+  assert migrated['widgetOrder'] == ['birds_eye', *projection['widgetOrder'], MODE_WIDGET, 'nav_home', 'nav_work',
                                      'bookmark', 'now_playing', 'jetlink_status', CAR_EXIT]
 
 
@@ -145,6 +146,7 @@ def test_renderer_dispatches_each_widget_in_saved_order(profile, viewport):
   view.navigation = NS(render=lambda *args: seen.append('nav_card'))
   if profile == 'large':
     view.map_layer = lambda *args: seen.append('nav_map')
+    view.birds_eye_layer = lambda *args: seen.append('birds_eye')
     view.navigation_favorites = NS(render=lambda key, state: seen.append(key))
     view.projection_exit_layer = lambda state: seen.append(CAR_EXIT)
     view.now_playing = NS(render=lambda state: seen.append('now_playing'))

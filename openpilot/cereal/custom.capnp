@@ -282,6 +282,9 @@ struct StarPilotLongitudinalPlan @0xda96579883444c35 {
   forceStopEpisodeMonoTime @6 :UInt64;
   departureAlertKind @7 :UInt8; # 0: none, 1: green-light advisory, 2: lead departing
   departureAlertMonoTime @8 :UInt64; # Original advisory model-source timestamp, ns
+  # Display only: the floor and ceiling the cruise target was clipped to this cycle. Both zero means not published.
+  accelLimitMin @9 :Float32;  # m/s^2
+  accelLimitMax @10 :Float32;  # m/s^2
 }
 
 struct SlcState @0xa1680744031fdb2d {

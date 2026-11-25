@@ -139,13 +139,17 @@ export function previewPoint(event, rect, profile) {
 
 // Legacy saved layouts retain this field even though the paired speed widget uses fixed alignment.
 export const SPEED_ALIGNMENTS = ["left", "center", "right"]
+// The Developer page's "3D drive render" choice; the layout editor only carries it through a save.
+export const DRIVE_RENDERS = ["off", "starport", "device"]
+// Fields the Developer page owns: the layout editor carries them through a save and "Reset to stock" keeps them.
+export const DEVELOPER_FIELDS = ["driveRender", "blackWhileStreaming"]
 // Android Auto display switches, independent of the comma screen's preferences.
 export const PROJECTION_DISPLAY_SWITCHES = ["blindSpotBorder", "signalBorder", "blindSpotCamera", "hidePersonalityAlerts", "wheelPedalFeedback", "leadIndicator"]
 
 export function validDocument(document, metadata) {
   if (!object(document)) return false
   const profiles = metadata?.projection === true ? ["large"] : PROFILES
-  if (!keysEqual(document, ["version", "palette", "layouts", "widgetColors", "roadColors", ...(Object.hasOwn(document, "widgetOrder") ? ["widgetOrder"] : []), ...(Object.hasOwn(document, "speedSources") ? ["speedSources"] : []), ...(Object.hasOwn(document, "speedSourcesCard") ? ["speedSourcesCard"] : []), ...(Object.hasOwn(document, "speedAlign") ? ["speedAlign"] : []), ...(Object.hasOwn(document, "clock24Hour") ? ["clock24Hour"] : []), ...(metadata?.projection !== true && Object.hasOwn(document, "reduceMotion") ? ["reduceMotion"] : []), ...(Object.hasOwn(document, "showMaxSpeed") ? ["showMaxSpeed"] : []), ...(metadata?.projection !== true && Object.hasOwn(document, "speedDisplayOffset") ? ["speedDisplayOffset"] : []), ...(metadata?.projection !== true && Object.hasOwn(document, "display") ? ["display"] : []), ...(metadata?.projection === true && Object.hasOwn(document, "largeUiGammaTrial") ? ["largeUiGammaTrial"] : []), ...(metadata?.projection === true ? PROJECTION_DISPLAY_SWITCHES.filter(key => Object.hasOwn(document, key)) : []), ...(metadata?.projection === true && Object.hasOwn(document, "leadInfo") ? ["leadInfo"] : [])]) || (metadata?.projection === true ? document.version !== 8 : document.version !== 16) ||
+  if (!keysEqual(document, ["version", "palette", "layouts", "widgetColors", "roadColors", ...(Object.hasOwn(document, "widgetOrder") ? ["widgetOrder"] : []), ...(Object.hasOwn(document, "speedSources") ? ["speedSources"] : []), ...(Object.hasOwn(document, "speedSourcesCard") ? ["speedSourcesCard"] : []), ...(Object.hasOwn(document, "speedAlign") ? ["speedAlign"] : []), ...(Object.hasOwn(document, "clock24Hour") ? ["clock24Hour"] : []), ...(metadata?.projection !== true && Object.hasOwn(document, "reduceMotion") ? ["reduceMotion"] : []), ...(Object.hasOwn(document, "showMaxSpeed") ? ["showMaxSpeed"] : []), ...(metadata?.projection !== true && Object.hasOwn(document, "speedDisplayOffset") ? ["speedDisplayOffset"] : []), ...(metadata?.projection !== true && Object.hasOwn(document, "driveRender") ? ["driveRender"] : []), ...(metadata?.projection !== true && Object.hasOwn(document, "blackWhileStreaming") ? ["blackWhileStreaming"] : []), ...(metadata?.projection !== true && Object.hasOwn(document, "display") ? ["display"] : []), ...(metadata?.projection === true && Object.hasOwn(document, "largeUiGammaTrial") ? ["largeUiGammaTrial"] : []), ...(metadata?.projection === true ? PROJECTION_DISPLAY_SWITCHES.filter(key => Object.hasOwn(document, key)) : []), ...(metadata?.projection === true && Object.hasOwn(document, "leadInfo") ? ["leadInfo"] : [])]) || (metadata?.projection === true ? document.version !== 8 : document.version !== 16) ||
     (Object.hasOwn(document, "speedSources") && typeof document.speedSources !== "boolean") ||
     (Object.hasOwn(document, "speedSourcesCard") && typeof document.speedSourcesCard !== "boolean") ||
     (Object.hasOwn(document, "speedAlign") && !SPEED_ALIGNMENTS.includes(document.speedAlign)) ||
@@ -153,6 +157,8 @@ export function validDocument(document, metadata) {
     (Object.hasOwn(document, "reduceMotion") && typeof document.reduceMotion !== "boolean") ||
     (Object.hasOwn(document, "showMaxSpeed") && typeof document.showMaxSpeed !== "boolean") ||
     (Object.hasOwn(document, "speedDisplayOffset") && (!Number.isFinite(document.speedDisplayOffset) || document.speedDisplayOffset < -5 || document.speedDisplayOffset > 5)) ||
+    (Object.hasOwn(document, "driveRender") && !DRIVE_RENDERS.includes(document.driveRender)) ||
+    (Object.hasOwn(document, "blackWhileStreaming") && typeof document.blackWhileStreaming !== "boolean") ||
     (Object.hasOwn(document, "display") && (!object(document.display) || !Object.values(document.display).every((value) => typeof value === "string"))) ||
     (Object.hasOwn(document, "largeUiGammaTrial") && typeof document.largeUiGammaTrial !== "boolean") ||
     PROJECTION_DISPLAY_SWITCHES.some(key => Object.hasOwn(document, key) && typeof document[key] !== "boolean") ||
@@ -180,12 +186,13 @@ export function validDocument(document, metadata) {
       const resizable = widget.resizable, box = widget.box, opacity = widget.opacity
       const rotate = wheelRotationAvailable(widget, name, metadata?.projection === true) && object(position) && Object.hasOwn(position, "rotate")
       return keysEqual(position, ["x", "y", "enabled", ...(resizable ? ["size"] : []), ...(box ? ["width", "height"] : []),
-        ...(widget.kind === "uniden_alerts" ? ["transparency", "hide_when_no_alert", "scale"] : []), ...(opacity ? ["opacity"] : []), ...(widget.iconSize ? ["display"] : []), ...(widget.backgroundToggle ? ["background"] : []), ...(widget.collapseToggle ? ["collapse"] : []), ...(widget.bluetoothToggle ? ["bluetooth"] : []), ...(widget.wifiNameHeight ? ["wifiName"] : []), ...(widget.sizes ? ["size"] : []), ...(widget.scale ? ["scale"] : []), ...(rotate ? ["rotate"] : [])]) &&
+        ...(widget.kind === "uniden_alerts" ? ["transparency", "hide_when_no_alert", "scale"] : []), ...(opacity ? ["opacity"] : []), ...(widget.iconSize || widget.displayModes ? ["display"] : []), ...(widget.backgroundToggle ? ["background"] : []), ...(widget.collapseToggle ? ["collapse"] : []), ...(widget.bluetoothToggle ? ["bluetooth"] : []), ...(widget.wifiNameHeight ? ["wifiName"] : []), ...(widget.sizes ? ["size"] : []), ...(widget.scale ? ["scale"] : []), ...(rotate ? ["rotate"] : [])]) &&
         (!rotate || typeof position.rotate === "boolean") &&
         (widget.kind !== "uniden_alerts" || (Number.isInteger(position.transparency) && position.transparency >= 0 &&
           position.transparency <= 100 && typeof position.hide_when_no_alert === "boolean" &&
           Number.isInteger(position.scale) && position.scale >= 50 && position.scale <= 150)) &&
         (!widget.iconSize || ["words", "icons"].includes(position.display)) &&
+        (!widget.displayModes || widget.displayModes.includes(position.display)) &&
         (!widget.backgroundToggle || typeof position.background === "boolean") &&
         (!widget.collapseToggle || typeof position.collapse === "boolean") &&
         (!widget.bluetoothToggle || typeof position.bluetooth === "boolean") &&
@@ -261,17 +268,20 @@ export function validSnapshot(data) {
         !positive(area.width) || !positive(area.height) || area.x + area.width > profile.width ||
         area.y + area.height > profile.height || typeof widget.label !== "string" || typeof widget.kind !== "string" ||
         !positive(widget.width) || !positive(widget.height) || widget.width > area.width || widget.height > area.height) return false
-      if (widget.box && (!(widget.kind === "nav_map" || projection && ["nav_card", "pip_camera"].includes(widget.kind)) ||
-        (widget.kind === "nav_map" ? !object(widget.opacity) : !positive(widget.aspectRatio)) ||
+      if (widget.box && (!(["nav_map", "birds_eye"].includes(widget.kind) || projection && ["nav_card", "pip_camera"].includes(widget.kind)) ||
+        (["nav_map", "birds_eye"].includes(widget.kind) ? !object(widget.opacity) : !positive(widget.aspectRatio)) ||
         ![widget.box.minWidth, widget.box.maxWidth, widget.box.minHeight, widget.box.maxHeight].every(Number.isInteger) ||
         widget.box.minWidth < 24 || widget.box.minHeight < 24 || widget.box.minWidth > widget.box.maxWidth ||
         widget.box.minHeight > widget.box.maxHeight || widget.box.maxWidth > area.width || widget.box.maxHeight > area.height)) return false
       if (widget.aspectRatio != null && (!projection || !widget.box || !["nav_card", "pip_camera"].includes(widget.kind) ||
         !positive(widget.aspectRatio) || widget.aspectRatio !== widget.width / widget.height)) return false
-      if (widget.opacity && (!(["nav_map", "jetlink_status", "network_signal"].includes(widget.kind) || projection && ["nav_home", "nav_work", "bookmark", "car_exit", "cruise_limits", "now_playing"].includes(widget.kind)) ||
+      if (widget.opacity && (!(["nav_map", "jetlink_status", "network_signal"].includes(widget.kind) || projection && widget.kind === "birds_eye" || projection && ["nav_home", "nav_work", "bookmark", "car_exit", "cruise_limits", "now_playing"].includes(widget.kind)) ||
         !object(widget.opacity) || ![widget.opacity.min, widget.opacity.max, widget.opacity.default].every(Number.isInteger) ||
         widget.opacity.min < 0 || widget.opacity.max > 100 || widget.opacity.min > widget.opacity.default ||
         widget.opacity.default > widget.opacity.max)) return false
+      if (widget.displayModes != null && (!projection || widget.kind !== "birds_eye" || !Array.isArray(widget.displayModes) ||
+        widget.displayModes.length < 2 || !widget.displayModes.every(mode => ["overlay", "full"].includes(mode)) ||
+        !widget.displayModes.includes(widget.default?.display))) return false
       if (Object.hasOwn(widget, "rotateToggle") && !wheelRotationAvailable(widget, name, projection)) return false
       if (widget.collapseToggle != null && (!projection || widget.kind !== "now_playing" || widget.collapseToggle !== true)) return false
       if (widget.bluetoothToggle != null && (widget.kind !== "network_signal" || widget.bluetoothToggle !== true)) return false

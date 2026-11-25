@@ -20,6 +20,7 @@ from openpilot.starpilot.ui.controller_feature import SETUP_ACTION, SETUP_QUESTI
 from openpilot.starpilot.ui.vehicle_bool import VEHICLE_BOOL_KEYS, confirmation_question as vehicle_question
 from openpilot.starpilot.ui.conditional_feature import confirmation_question as conditional_question
 from openpilot.starpilot.ui.appearance_owner import AppearanceOwner, LABELS as APPEARANCE_LABELS
+from openpilot.starpilot.ui import drive_render, streaming_blackout
 from openpilot.starpilot.ui.display_owner import AUTO_PREFIX as DISPLAY_AUTO_PREFIX, DisplayOwner, LABELS as DISPLAY_LABELS
 from openpilot.starpilot.ui.sounds_owner import SoundsOwner
 from openpilot.starpilot.ui.power_owner import PowerOwner, HOURS, VOLTS, POWER_KEYS, confirm_question as power_question
@@ -449,6 +450,10 @@ def _question(row: FeatureRow, request: FeatureSettingsRequest) -> str:
   if key in DISPLAY_LABELS or key.startswith(DISPLAY_AUTO_PREFIX):
     value = request.value + (" " + row.unit if row.unit and request.value != "Auto" and not request.value.endswith(row.unit) else "")
     return f"Save {row.label.lower()} as {value}? This changes only the display."
+  if key == streaming_blackout.KEY:
+    return f"Turn {row.label} {request.value.lower()}? This changes only the comma's driving screen."
+  if key == drive_render.KEY:
+    return f"Set {row.label} to {request.value}? StarPort uses the choice from its next connection."
   if key in APPEARANCE_LABELS:
     return f"Save {row.label} as {request.value}? This changes only the display."
   if key == VASM_RESET:
@@ -587,7 +592,7 @@ class SettingsGateway:
         return False
       fresh = self.context.sample() if live else ctx
       return fresh.cp_raw == ctx.cp_raw
-    return AppearanceOwner(self.params, authorized)
+    return AppearanceOwner(self.params, authorized, large_display=HARDWARE.get_device_type() != "mici")
 
   def _sounds_owner(self, ctx: AuthorityContext, *, live: bool = False,
                     session_valid: Callable[[], bool] = lambda: True) -> SoundsOwner:

@@ -16,7 +16,7 @@ from typing import Protocol
 from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.onroad_rear_fog import render_rear_fog
-from openpilot.starpilot.ui import clip
+from openpilot.starpilot.ui import clip, drive_render, streaming_blackout
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.starpilot.ui.onroad_customization import (CLOCK_WIDGET, MODE_WIDGET, RAIL_WIDGETS, STOPPED_TIMER_WIDGET, placement, rgba,
                                                          widget_order, widget_size)
@@ -140,7 +140,14 @@ class OnroadView:
     self.extra_overlays = extra_overlays
     self.driver_monitor_layer: OverlayLayer | None = None
     self.map_layer: OverlayLayer | None = None  # Android Auto map overlay, under the HUD widgets
+    self.birds_eye_layer: OverlayLayer | None = None  # Android Auto birds-eye panel, under the HUD widgets
     self.projection_exit_layer: ProjectionControlLayer | None = None
+    # The native comma 3 / 3X screen sets this (an onroad_drive_render.DriveRenderLayer): the 3D drive render
+    # replaces the camera composition while Galaxy's "3D drive render" is set to Comma display.
+    self.drive_render = None
+    # The comma's own screen sets this (a projection_stream_lease.StreamLeaseReader): True while StarPort's drive
+    # view is reaching the car screen. With "Black screen while StarPort streams" on, this screen then draws black.
+    self.streaming_blackout: Callable[[], bool] | None = None
     self.pip_layer = pip_layer
     self.stock_confidence_layer: OverlayLayer | None = None
     self.stock_confidence_reset: Callable[[], None] | None = None
@@ -183,12 +190,102 @@ class OnroadView:
       uniden.feed.set_enabled(uniden.runtime_active)
     if state.camera_available and self.camera_layer is None:
       raise ValueError("Camera observation requires a camera renderer")
-    if self.fonts.profile == Profile.LARGE:
+    if self.streaming_blackout_active(state):
+      self._alerts_only(state)
+      if uniden := getattr(self, "uniden", None):
+        uniden.render_border(state, state.viewport_width, 1080)
+    elif self.drive_render_active(state):
+      self._drive_render(state)
+      if uniden := getattr(self, "uniden", None):
+        uniden.render_border(state, state.viewport_width, 1080)
+    elif self.fonts.profile == Profile.LARGE:
       self._large(state)
       if uniden := getattr(self, "uniden", None):
         uniden.render_border(state, *(self.projection_viewport or (state.viewport_width, 1080)))
     else:
       self._compact(state)
+
+  def streaming_blackout_active(self, state: OnroadState) -> bool:
+    """The comma's own screen is black with alerts only for this frame: the owner turned on "Black screen while
+    StarPort streams" and StarPort's drive view is reaching the car screen.
+
+    Never the projection, a layout or replay preview, or the reverse driver camera. A speed limit waiting for the
+    driver's answer brings the normal screen back while its prompt can show, since the prompt and its tap targets
+    belong to it. The lease is only read once the saved choice is on.
+    """
+    reader = getattr(self, "streaming_blackout", None)
+    return bool(reader is not None and self.projection_viewport is None and state.visual_preview is None and
+                not state.reverse_driver_camera and streaming_blackout.enabled(state.customization) and
+                not manual_slc_confirmation(self.fonts.profile, state) and reader())
+
+  def _alerts_only(self, state: OnroadState) -> None:
+    """A black screen with the alert layer: no camera receive or upload, model, HUD, widgets, borders, map or PiP.
+
+    The large screen also keeps an open Quick Select and its developer sidebar; render() adds the Uniden border.
+    The widgets' places take no taps.
+    """
+    if self.fonts.profile == Profile.LARGE:
+      width, height = state.viewport_width, 1080
+      rl.draw_rectangle_rec(rl.Rectangle(0, 0, width, height), rl.BLACK)
+      content = rl.Rectangle(30, 30, width - 60, height - 60)
+      clip.begin_scissor_mode(30, 30, int(content.width), int(content.height))
+      try:
+        if (quick_select := getattr(self, 'quick_select_layer', None)) is not None:
+          quick_select(content, state)
+        self.alert.render(content, state.alert)
+      finally:
+        clip.end_scissor_mode()
+      if state.appearance.show_developer_sidebar:
+        render_live_sidebar(self.fonts, rl.Rectangle(width, 0, SIDEBAR_WIDTH, height), state.developer_metrics)
+      return
+    rl.draw_rectangle(0, 0, 536, 240, rl.BLACK)
+    clip.begin_scissor_mode(0, 0, 476, 240)
+    try:
+      signals = state.border_signals
+      direction = (-1 if signals.left_blinker else 1 if signals.right_blinker else 0) if signals else 0
+      self.alert.render(rl.Rectangle(0, 0, 476, 240), state.alert, signal_direction=direction)
+    finally:
+      clip.end_scissor_mode()
+
+  def drive_render_active(self, state: OnroadState) -> bool:
+    """The comma's own large screen draws the 3D drive render in place of the camera for this frame.
+
+    Never the projection, a layout or replay preview, or the reverse driver camera; a render that cannot be built
+    leaves the camera composition in place. So does a speed limit waiting for the driver's answer: its prompt and
+    tap targets belong to the camera composition, which returns while the prompt can show (an alert hides the
+    prompt there too, so the render is back under the alert).
+    """
+    layer = getattr(self, "drive_render", None)
+    return bool(layer is not None and self.fonts.profile == Profile.LARGE and self.projection_viewport is None and
+                state.visual_preview is None and not state.reverse_driver_camera and
+                drive_render.effective(state.customization.get(drive_render.FIELD), True) == drive_render.DEVICE and
+                not manual_slc_confirmation(self.fonts.profile, state) and layer.ready() and
+                not self.streaming_blackout_active(state))
+
+  def _drive_render(self, state: OnroadState) -> None:
+    """The 3D drive render over the content area: no camera receive/upload, model overlay, widgets, map or PiP work.
+
+    Alerts, the developer sidebar, the blind-spot and signal borders, the engagement-colour border and the Uniden
+    border stay. The driver-monitoring face, the corner hint, the curve glow, the traffic badge, the status label,
+    the rear-fog indicator and every layout widget are not drawn, and the widgets' places take no taps.
+    """
+    width, height = state.viewport_width, 1080
+    frame = rl.Rectangle(0, 0, width, height)
+    content = rl.Rectangle(30, 30, width - 60, height - 60)
+    rl.draw_rectangle_rec(frame, rl.BLACK)
+    clip.begin_scissor_mode(30, 30, int(content.width), int(content.height))
+    try:
+      self.drive_render.render(content, state)
+      if (quick_select := getattr(self, 'quick_select_layer', None)) is not None:
+        quick_select(content, state)
+      self.alert.render(content, state.alert)
+    finally:
+      clip.end_scissor_mode()
+    if state.appearance.show_developer_sidebar:
+      render_live_sidebar(self.fonts, rl.Rectangle(width, 0, SIDEBAR_WIDTH, height), state.developer_metrics)
+    rl.draw_rectangle_lines_ex(frame, 30, rl.BLACK)
+    rl.draw_rectangle_rounded_lines_ex(content, 0.12, 10, 30, axis_status_color(state))
+    render_large_half_borders(state, state.observed_ns / 1e9 if state.observed_ns else rl.get_time(), content, int(height))
 
   def _slc_actions(self, state: OnroadState) -> None:
     sign = self.unified_speed.sign if self.fonts.profile == Profile.LARGE else self.compact_hud._speed_limit_widget
@@ -310,6 +407,9 @@ class OnroadView:
       if "nav_map" in state.customization["layouts"]["large"] and state.alert.size != AlertSize.FULL:
         if map_layer := getattr(self, "map_layer", None):
           submit("nav_map", lambda: map_layer(content, state))
+      if "birds_eye" in state.customization["layouts"]["large"] and state.alert.size != AlertSize.FULL:
+        if birds_eye_layer := getattr(self, "birds_eye_layer", None):
+          submit("birds_eye", lambda: birds_eye_layer(content, state))
       if "nav_card" in state.customization["layouts"]["large"]:
         submit("nav_card", lambda: self.navigation.render(state))
       for key in ("nav_home", "nav_work", "bookmark"):
@@ -406,6 +506,9 @@ class OnroadView:
         map_layer = getattr(self, "map_layer", None)
         if map_layer is not None and state.alert.size != AlertSize.FULL:
           map_layer(content, state)
+        birds_eye_layer = getattr(self, "birds_eye_layer", None)
+        if birds_eye_layer is not None and state.alert.size != AlertSize.FULL:
+          birds_eye_layer(content, state)
         if state.alert.size != AlertSize.FULL:
           if placement(state.customization, "large", "cruise_limits")["enabled"]:
             self.unified_speed.render(content, state)

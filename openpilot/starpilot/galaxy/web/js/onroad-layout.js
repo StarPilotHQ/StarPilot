@@ -15,7 +15,7 @@ import { GalaxySettingRow, switchRow } from "./galaxy-setting-row.js"
 import { showDraftChange } from "./save-feedback.js"
 import { snapTargets, snapMove, snapResize, snapThreshold } from "./layout-snap.js"
 
-import { PROFILES, ROAD_COLORS, PATH_MODES, HEX, PROJECTION_DISPLAY_SWITCHES, layoutDocument, previewDocument, withDisplay, orderedWidgetIds, widgetPalette, withAlpha, widgetSize, placementLimits, clampBox, clampPlacement, overlapsReserved, previewPoint, validDocument, validSnapshot, wheelRotationAvailable } from "./onroad-layout-document.js"
+import { PROFILES, ROAD_COLORS, PATH_MODES, HEX, PROJECTION_DISPLAY_SWITCHES, DEVELOPER_FIELDS, layoutDocument, previewDocument, withDisplay, orderedWidgetIds, widgetPalette, withAlpha, widgetSize, placementLimits, clampBox, clampPlacement, overlapsReserved, previewPoint, validDocument, validSnapshot, wheelRotationAvailable } from "./onroad-layout-document.js"
 export { layoutDocument, previewDocument, withDisplay, orderedWidgetIds, widgetPalette, withAlpha, widgetSize, placementLimits, clampBox, clampPlacement, overlapsReserved, previewPoint, validDocument, validSnapshot } from "./onroad-layout-document.js"
 
 const previewVisibilityKey = projection => "gx-layout-preview-visibility-v2:" + (projection ? "starport" : "comma")
@@ -430,6 +430,18 @@ export const LayoutWidgetPreview = {
         <rect x="24" y="171" :width="(560 - 48 - 190) * .35" height="6" rx="3" fill="#b296ff" />
         <text :x="560 - 24" y="182" text-anchor="end" font-size="22" font-weight="600" fill="#ebe1ff">ETA 3:51 PM</text>
       </svg>
+      <g v-else-if="widget.kind === 'birds_eye'">
+        <rect :width="widget.width" :height="widget.height" :rx="Math.min(28, widget.width / 4)" fill="#0a0c12" :fill-opacity="235 / 255 * (widget.opacity ?? 90) / 100" stroke="#ffffff28" stroke-width="2" />
+        <g :transform="'translate(' + widget.width / 2 + ' ' + widget.height + ') scale(' + Math.min(widget.width / 520, widget.height / 650) + ')'" stroke-linecap="round" fill="none">
+          <path d="M-190 -20 Q-130 -420 -210 -630 L-60 -630 Q40 -420 190 -20 Z" fill="#283040" stroke="none" />
+          <path d="M-190 -20 Q-130 -420 -210 -630 M190 -20 Q40 -420 -60 -630" stroke="#969eb0" stroke-width="4" />
+          <path d="M-60 -20 Q-40 -420 -160 -630 M60 -20 Q-5 -420 -110 -630" stroke="#eceff8" stroke-width="3" />
+          <path d="M0 -130 Q-5 -300 -60 -400" stroke="#4fd28a" stroke-width="40" stroke-opacity=".8" />
+          <rect x="-24" y="-130" width="48" height="76" rx="12" fill="#eef1f7" />
+          <rect x="-82" y="-470" width="40" height="34" rx="8" fill="#d6dbe4" transform="rotate(-18 -62 -453)" />
+        </g>
+        <text :x="widget.width / 2" y="40" text-anchor="middle" font-size="26" font-weight="600" fill="#aab4c6">{{ widget.display === 'full' ? 'Birds-eye (full screen)' : 'Birds-eye view' }}</text>
+      </g>
       <g v-else-if="widget.kind === 'nav_map'">
         <defs>
           <radialGradient id="gx-nav-map-fade" cx=".5" cy=".55" r=".75"><stop offset=".55" stop-color="white" /><stop offset="1" stop-color="white" stop-opacity="0" /></radialGradient>
@@ -579,7 +591,12 @@ export const OnroadLayoutPage = {
     editAvailable() { return !!this.state.data?.editable && !this.state.error && !this.state.needsReload && !this.state.discard },
     editable() { return this.editAvailable && !this.busy },
     dirty() { return !!this.state.draft && JSON.stringify(this.state.draft) !== JSON.stringify(this.state.data.document) },
-    stockChanged() { return !!this.state.draft && JSON.stringify(this.state.draft) !== JSON.stringify(this.state.data.defaults) },
+    // The Developer page's choices are not part of the stock colors and layouts; reset to stock leaves them alone.
+    stockChanged() {
+      if (!this.state.draft) return false
+      const draft = Object.fromEntries(Object.entries(this.state.draft).filter(([key]) => !DEVELOPER_FIELDS.includes(key)))
+      return JSON.stringify(draft) !== JSON.stringify(this.state.data.defaults)
+    },
     canUndo() { return this.state.history.undo.length > 0 },
     canRedo() { return this.state.history.redo.length > 0 },
     pendingLeave() { return typeof this.state.discard === "function" || ["back", "device", "projection"].includes(this.state.discard) },
@@ -725,7 +742,7 @@ export const OnroadLayoutPage = {
           ? { x: (sprite.offsetX || 0) + ink[0] - 2, y: (sprite.offsetY || 0) + ink[1] - 2, width: ink[2] + 4, height: ink[3] + 4 }
           : { x: 0, y: -widget.visualInsetTop, width, height: height + widget.visualInsetTop + widget.visualInsetBottom }
         return {
-          ...widget, width, height, outline, ...(widget.iconSize ? { display: this.layout[widget.id].display } : {}),
+          ...widget, width, height, outline, ...(widget.iconSize || widget.displayModes ? { display: this.layout[widget.id].display } : {}),
           ...(widget.kind === "uniden_alerts" ? { transparency: this.layout[widget.id].transparency, scale: this.layout[widget.id].scale } : {}),
           ...(widget.opacity ? { opacity: this.layout[widget.id].opacity } : {}),
           ...(widget.backgroundToggle ? { background: this.layout[widget.id].background } : {}),
@@ -1167,6 +1184,8 @@ export const OnroadLayoutPage = {
       if (!this.editable || this.state.drag || !this.stockChanged) return
       const before = clone(this.state.draft)
       this.state.draft = clone(this.state.data.defaults)
+      // The Developer page owns these choices; restoring colors and layouts leaves them alone.
+      for (const key of DEVELOPER_FIELDS) if (Object.hasOwn(before, key)) this.state.draft[key] = before[key]
       this.recordChange(before)
       this.state.colorError = this.state.placementError = ""
       this.state.notice = "Stock StarPilot colors and both layouts are restored in your draft. Save to apply them."
@@ -1315,6 +1334,14 @@ export const OnroadLayoutPage = {
       }
       Object.assign(this.selectedPosition, clampPlacement(this.limitProfile, this.state.selected,
         this.selectedPosition.x, this.selectedPosition.y, this.layout))
+      this.recordChange(before)
+      this.state.notice = ""
+    },
+    setDisplayMode(mode) {
+      if (!this.editable || this.state.drag || this.state.layerDrag || !this.selectedWidget?.displayModes?.includes(mode)) return
+      this.finishColorEdit()
+      const before = clone(this.state.draft)
+      this.selectedPosition.display = mode
       this.recordChange(before)
       this.state.notice = ""
     },

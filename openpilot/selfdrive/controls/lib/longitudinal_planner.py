@@ -77,11 +77,14 @@ def get_max_accel(v_ego, faster_takeoffs=False):
 def get_coast_accel(pitch):
   return np.sin(pitch) * -5.65 - 0.3  # fitted from data using xx/projects/allow_throttle/compute_coast_accel.py
 
-def get_cruise_accel(e2e, v_cruise, v_ego, a_cruise_prev, angle_steers, CP, dt, accel_coast, allow_throttle,
-                     profile: AppliedProfile | None = None,
-                     base_brake_floor: float = A_CRUISE_MIN, selected_acceleration_max: float | None = None, faster_takeoffs: bool = False,
-                     *, a_target_prev: float | None = None, ease_slc_braking: bool = False,
-                     speed_step: bool = False, downhill_error: float | None = None):
+def cruise_accel_limits(e2e, v_ego, angle_steers, CP, accel_coast, allow_throttle, profile: AppliedProfile | None = None,
+                        base_brake_floor: float = A_CRUISE_MIN, selected_acceleration_max: float | None = None,
+                        faster_takeoffs: bool = False, *, downhill: bool = False) -> tuple[float, float]:
+  """(floor, ceiling) in m/s^2 that get_cruise_accel clips the cruise target to this cycle.
+
+  Both are after the acceleration and braking profiles, the lateral-acceleration budget, a withheld throttle and a
+  downhill speed correction; starpilotLongitudinalPlan publishes them for display.
+  """
   ceiling = TAKEOFF_ACCEL_MAX if faster_takeoffs else ACCEL_MAX
   max_accel = ceiling if e2e else get_max_accel(v_ego, faster_takeoffs)
   if selected_acceleration_max is not None and not e2e:
@@ -103,10 +106,22 @@ def get_cruise_accel(e2e, v_cruise, v_ego, a_cruise_prev, angle_steers, CP, dt, 
       max_accel = min(max_accel, coast_limit)
 
   cruise_min = max(ACCEL_MIN, -profile.cruise_brake_magnitude) if profile is not None else max(ACCEL_MIN, base_brake_floor)
+  if downhill:
+    max_accel = min(max_accel, 0.)
+  return cruise_min, max_accel
+
+
+def get_cruise_accel(e2e, v_cruise, v_ego, a_cruise_prev, angle_steers, CP, dt, accel_coast, allow_throttle,
+                     profile: AppliedProfile | None = None,
+                     base_brake_floor: float = A_CRUISE_MIN, selected_acceleration_max: float | None = None, faster_takeoffs: bool = False,
+                     *, a_target_prev: float | None = None, ease_slc_braking: bool = False,
+                     speed_step: bool = False, downhill_error: float | None = None):
+  cruise_min, max_accel = cruise_accel_limits(e2e, v_ego, angle_steers, CP, accel_coast, allow_throttle, profile,
+                                              base_brake_floor, selected_acceleration_max, faster_takeoffs,
+                                              downhill=downhill_error is not None)
   speed_error = v_cruise - v_ego
   if downhill_error is not None:
     speed_error = downhill_error
-    max_accel = min(max_accel, 0.)
   if not e2e and not faster_takeoffs and v_ego >= MIN_ALLOW_THROTTLE_SPEED and speed_error > 0.:
     speed_error /= CRUISE_ACCEL_RESPONSE_TIME
   elif ease_slc_braking and speed_error < 0.:
@@ -153,6 +168,7 @@ class LongitudinalPlanner:
 
     self.v_desired_filter = FirstOrderFilter(init_v, 2.0, self.dt)
     self.a_cruise = init_a
+    self.cruise_accel_limits: tuple[float, float] | None = None  # this cycle's cruise floor and ceiling, for display
     self.previous_manual_cruise_kph: float | None = None
     self.manual_cruise_step_until_ns = 0
     self.output_a_target = init_a
@@ -509,6 +525,10 @@ class LongitudinalPlanner:
                                      a_target_prev=self.output_a_target,
                                      ease_slc_braking=v_cruise == ceiling.effective_mps and not relevant_lead, speed_step=speed_step,
                                      downhill_error=downhill_error)
+    # The limits that call just clipped to; display only, nothing in the plan reads them back.
+    self.cruise_accel_limits = cruise_accel_limits(
+      sm['selfdriveState'].experimentalMode, v_ego, steer_angle_without_offset, self.CP, accel_coast, self.allow_throttle,
+      cruise_profile, global_floor, selected_acceleration, faster_takeoffs, downhill=downhill_error is not None)
     if self.button_cruise is not None:
       button_target = self.button_cruise.sample(
         sm, now_ns=sample_now_ns, drive_id=drive_id, target_speed=v_cruise,
@@ -639,6 +659,8 @@ class LongitudinalPlanner:
     hold.modelMonoTime = longitudinalPlan.modelMonoTime
     hold.driveStartMonoTime = self.plan_drive_id
     hold.forceStopHolding = bool(self.force_stop_plan.manual_hold)
+    if self.cruise_accel_limits is not None:
+      hold.accelLimitMin, hold.accelLimitMax = (float(limit) for limit in self.cruise_accel_limits)
     hold.forceStopBraking = bool(self.force_stop_distance_braking and self.force_stop_plan.forcing and
                                 self.force_stop_plan.should_stop)
     hold.forceStopEpisodeMonoTime = self.force_stop_plan.episode_ns
