@@ -284,7 +284,6 @@ def collect_route_inputs(root, route, *, permitted, walker=None, isolate_segment
   windows = {}
   stable_windows = {}
   baseline_tracking = {}
-  baseline_qualified = {}
   bookends = {}
   raw_windows = {}
   context_metadata = {}
@@ -326,6 +325,8 @@ def collect_route_inputs(root, route, *, permitted, walker=None, isolate_segment
   def consume(segment, events):
     if isolate_segments:
       state['context'] = None  # Partial sections cannot inherit metadata across a missing section.
+    baseline_qualified = {}
+    segment_windows = {}
     companions = {}
     rows = {}
     controls = []
@@ -452,19 +453,23 @@ def collect_route_inputs(root, route, *, permitted, walker=None, isolate_segment
           run_context = context
         for context, runs in selected.items():
           for qualified in runs:
-            for duration, destination in ((2_000_000_000, windows), (6_000_000_000, stable_windows)):
+            for duration, destination in ((2_000_000_000, segment_windows), (6_000_000_000, stable_windows)):
               for window in whole_windows(tuple(qualified), duration_ns=duration):
                 if continuous_control_window(window, timeline, metadata_for, context_metadata[context]):
                   destination.setdefault(context, []).append(window)
                 else:
                   counts['whole_control_window_refusals'] += 1
 
-    # Known-zero proposals and their controller checks use the same original
-    # endpoints. Every intervening envelope still has to pass independently.
-    for context in baseline_tracking:
-      # Keep the published collection separate from the next segment's
-      # continuous-window appends; aliasing duplicates original identities.
-      windows[context] = list(baseline_qualified[context])
+    # Prefer checks on the observed baseline grid where the two grids overlap.
+    # Keep disjoint continuous windows, including in segments without a six-second baseline.
+    for context in baseline_qualified.keys() | segment_windows.keys():
+      baseline = baseline_qualified.get(context, ())
+      standalone = [
+        window for window in segment_windows.get(context, ())
+        if all(window.points[-1].mono_ns < child.points[0].mono_ns or child.points[-1].mono_ns < window.points[0].mono_ns
+               for child in baseline)
+      ]
+      windows.setdefault(context, []).extend(sorted([*baseline, *standalone], key=lambda w: w.points[0].mono_ns))
     if sum(map(len, windows.values())) + sum(map(len, stable_windows.values())) + sum(map(len, baseline_tracking.values())) > MAX_WINDOWS:
       raise ValueError('Whole-drive tracking window bound exceeded')
 

@@ -1203,34 +1203,6 @@ class TestOffroadRouteCoverage(unittest.TestCase):
     self.assertEqual(recorded['sampling'], 'input_ordered_original_endpoints_no_interpolation')
     self.assertFalse(assessment.report()['automatically_saved'])
 
-  def test_segment_snapshots_do_not_alias_cumulative_original_windows(self):
-    from types import SimpleNamespace
-    from openpilot.starpilot.flm import offroad_processor as processor
-    from openpilot.starpilot.flm.offroad_route import RouteReceipt
-
-    # Isolate the real segment boundary. The next segment appends a continuous
-    # child and independently adds that same original to the cumulative native list.
-    originals = [SimpleNamespace(identity=str(i) * 64) for i in range(1, 7)]
-    receipt = RouteReceipt('declared-two-segments', 'd' * 64, (), 'a' * 64, 1, 2, 3, ())
-
-    def walk(root, route, *, permitted, consume):
-      self.assertTrue(permitted())
-      cells = dict(zip(consume.__code__.co_freevars, consume.__closure__, strict=True))
-      native = cells['baseline_qualified'].cell_contents
-      published = cells['windows'].cell_contents
-      cells['baseline_tracking'].cell_contents['context'] = []
-      native['context'] = list(originals[:3])
-      consume(0, ())
-      published['context'].extend(originals[3:])
-      native['context'].extend(originals[3:])
-      consume(1, ())
-      return receipt
-
-    inputs = processor.collect_route_inputs(None, {'routeId': receipt.route_id}, permitted=lambda: True, walker=walk)
-    self.assertEqual(inputs.windows['context'], originals)
-    self.assertEqual(len({w.identity for w in inputs.windows['context']}), 6)
-    self.assertEqual(inputs.counts['whole_control_window_refusals'], 0)
-
   def test_primary_statistics_keep_original_children_and_never_supply_qualification(self):
     from openpilot.starpilot.flm.offroad_baseline_windows import tracking_proposal_windows
     from openpilot.starpilot.flm.offroad_evidence import RouteWindow, whole_windows, window_identity

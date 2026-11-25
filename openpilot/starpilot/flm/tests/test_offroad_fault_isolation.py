@@ -74,6 +74,53 @@ def zstd_recording(root, counter, *, fault=None, **kwargs):
 
 
 class TestRouteFaultIsolation(unittest.TestCase):
+  def test_short_verified_windows_survive_a_later_bookended_baseline(self):
+    from openpilot.starpilot.flm import offroad_processor as processor
+    from openpilot.starpilot.flm.offroad_evidence import RoutePoint
+    from openpilot.starpilot.flm.offroad_route import RouteReceipt
+
+    route = {'routeId': 'declared-two-segments'}
+    receipt = RouteReceipt(route['routeId'], 'd' * 64, (), 'a' * 64, 1, 2, 3, ())
+    cp = structs.CarParams.new_message().as_reader()
+    lateral = SimpleNamespace(lateralControlState=SimpleNamespace(which=lambda: 'torqueState'))
+    metadata = SimpleNamespace(learningEvidence=SimpleNamespace(version=1))
+
+    def event(kind, stamp, value):
+      return SimpleNamespace(which=lambda: kind, logMonoTime=stamp, valid=True, **{kind: value})
+
+    def read_control(row):
+      return SimpleNamespace(
+        control_ns=row.logMonoTime, state_ns=row.logMonoTime, source_receipt_ns=row.logMonoTime,
+        controller_mode='starpilot', controller_revision='fixture', baseline_revision='fixture',
+        baseline_values=(), vehicle_model_anchor=(), enabled=True, active=True, valid=True,
+        manual=False, override=False, fault=False, saturated=False, limited=False, native_required=False,
+      )
+
+    def read_point(row, unused_companions, *, route, segment, context_key):
+      stamp = row.logMonoTime
+      return RoutePoint(route, segment, stamp, 'lateral_acceleration', context_key,
+                        0.1, 0.09, 25.0, 0.1, 0.1, stamp, stamp, True, False, False, True)
+
+    def walk(root, selected, *, permitted, consume):
+      for segment, samples in enumerate((400, 600)):
+        start = 1_000_000_000 + 10_000_000_000 * segment
+        events = [event('carParams', start, cp)]
+        for i in range(samples):
+          stamp = start + 10_000_000 * i
+          events.extend((event('starpilotLateralState', stamp, metadata), event('controlsState', stamp, lateral)))
+        consume(segment, events)
+      return receipt
+
+    with (
+      patch('openpilot.starpilot.flm.offroad_control_metadata.read_control_metadata', side_effect=read_control),
+      patch.object(processor, 'read_point', side_effect=read_point),
+    ):
+      inputs = processor.collect_route_inputs(None, route, permitted=lambda: True, walker=walk)
+    retained = [w for rows in inputs.windows.values() for w in rows]
+    self.assertEqual([w.points[0].segment for w in retained], [0, 0, 1, 1, 1])
+    self.assertEqual(len({w.identity for w in retained}), 5)
+    self.assertEqual(sum(map(len, inputs.baseline_tracking.values())), 1)
+
   def test_many_short_drives_do_not_invalidate_the_flm_inventory(self):
     # Inventory-only fixture; these bytes are never admitted as learning evidence.
     with tempfile.TemporaryDirectory() as directory:
