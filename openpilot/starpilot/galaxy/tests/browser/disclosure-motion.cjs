@@ -18,7 +18,7 @@ for (const icon of reviewIcons) assert.ok(iconCss.includes('.' + icon + '::befor
     await page.route('http://motion.test/**', route => {
       const pathname = new URL(route.request().url()).pathname
       if (pathname === '/') return route.fulfill({ contentType: 'text/html', body: `<!doctype html><html><head>
-        <link rel="stylesheet" href="/css/galaxy.css"><link rel="stylesheet" href="/css/settings.css"><link rel="stylesheet" href="/css/flm.css">
+        <link rel="stylesheet" href="/css/galaxy.css"><link rel="stylesheet" href="/css/galaxy-components.css"><link rel="stylesheet" href="/css/settings.css"><link rel="stylesheet" href="/css/flm.css">
         <link rel="stylesheet" href="/vendor/bootstrap-icons/bootstrap-icons.min.css"></head>
         <body><i id="review-icon" class="bi ${reviewIcons.at(-1)}" aria-hidden="true"></i><main id="fixture" style="padding:24px"></main><script type="module">
           import {createApp} from '/vendor/vue/vue.esm-browser.js'

@@ -1,0 +1,24 @@
+.gx-card.gx-app-download { width: min(calc(100% - 40px), 380px); padding: 28px 24px 18px; gap: 16px; text-align: center; justify-items: center; }
+.gx-app-download__icon { width: 72px; height: 72px; object-fit: contain; }
+.gx-app-download h2 { margin: 0; font-size: 1.5rem; line-height: 1.2; }
+.gx-app-download > p { margin: 0; color: var(--text-muted); line-height: 1.5; }
+.gx-app-download__get { width: 100%; min-height: 48px; }
+.gx-app-download__actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: 100%; }
+.gx-app-download__actions > .gx-btn { min-width: 0; min-height: 48px; padding-inline: 8px; white-space: normal; }
+.gx-app-download > .gx-app-download__platform { margin-top: -8px; font-size: .75rem; }
+.gx-app-download > .gx-btn--text { background: transparent; border-color: transparent; box-shadow: none; color: var(--text-muted); min-height: 44px; }
+
+/* Shared disclosure motion. Native focus, keyboard and open state stay intact. */
+.gx-select-menu {
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity var(--motion-base), transform var(--motion-base), display var(--motion-base) allow-discrete, overlay var(--motion-base) allow-discrete;
+}
+.gx-select-menu[open] { opacity: 1; transform: translateY(0); }
+.gx-select-menu:not([open]) { pointer-events: none; }
+@starting-style {
+  .gx-select-menu[open] { opacity: 0; transform: translateY(-4px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gx-select-menu { transition: none; }
+}
