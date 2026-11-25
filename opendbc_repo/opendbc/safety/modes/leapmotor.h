@@ -19,6 +19,12 @@
 // negated to match openpilot's convention (positive = left)
 #define LEAPMOTOR_ANGLE_CENTER 32490
 
+// ADAS_LKA.LCC_RAMP (bytes 16-17, little-endian) sets how much effort the EPS may put into following the angle: idle
+// 0x7801, 254 lower per step deeper. Stock LCC goes to 46 steps; openpilot's low-speed boost to at most 56 (0x4071), the
+// deepest value whose top 4 bits stay 4. Must match leapmotorcan.LCC_RAMP_IDLE and LCC_RAMP_STEPS_BOOST_MAX.
+#define LEAPMOTOR_LCC_RAMP_IDLE 0x7801
+#define LEAPMOTOR_LCC_RAMP_DEEPEST 0x4071
+
 // ADAS_LKA.ACC_ACCEL_REQ: byte 4, 0.05 m/s^2 per bit, raw 100 = 0 m/s^2. Must match CarControllerParams.
 #define LEAPMOTOR_ACCEL_INACTIVE 100
 // The camera's request at or below this (-2.0 m/s^2) is passed on: openpilot may ask for more braking, not less
@@ -159,6 +165,13 @@ static bool leapmotor_tx_hook(const CANPacket_t *msg) {
     int desired_angle = LEAPMOTOR_ANGLE_CENTER - (int)GET_BYTES_LE(msg, 13, 2);  // STEER_ANGLE_REQ
     bool lka_active = GET_BIT(msg, 99U);                                         // LCC_STEERING_ACTIVE_COPY
     if (steer_angle_cmd_checks_vm(desired_angle, lka_active, LEAPMOTOR_STEERING_LIMITS, LEAPMOTOR_STEERING_PARAMS)) {
+      tx = false;
+    }
+
+    // while openpilot steers, the EPS effort may go no deeper than the boost's maximum. Otherwise the field carries the
+    // camera's own value, which is not a ramp depth (LCC state bits), and is passed on.
+    int lcc_ramp = (int)GET_BYTES_LE(msg, 16, 2);  // LCC_RAMP
+    if (lka_active && ((lcc_ramp < LEAPMOTOR_LCC_RAMP_DEEPEST) || (lcc_ramp > LEAPMOTOR_LCC_RAMP_IDLE))) {
       tx = false;
     }
 
