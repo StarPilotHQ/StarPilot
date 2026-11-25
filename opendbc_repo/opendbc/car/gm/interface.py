@@ -3,7 +3,7 @@ from opendbc.car import ACCEL_MAX_TAKEOFF
 from math import fabs, exp
 import numpy as np
 
-from opendbc.car import Bus, get_safety_config, structs
+from opendbc.car import Bus, get_safety_config, scale_rot_inertia, scale_tire_stiffness, structs
 from opendbc.car.pedal import supported_pedal_detected
 from opendbc.car.gm.pedal_capability import pedal_candidate
 from opendbc.car.common.conversions import Conversions as CV
@@ -22,6 +22,7 @@ from opendbc.car.gm.values import (volt_cc_pedal_profile, CAR, CarControllerPara
 from opendbc.car.gm.values import (malibu_hybrid_profile, MALIBU_HYBRID_SOURCES,
                                    is_volt_sdgm_accepted_envelope, volt_sdgm_accepted_accel_max)
 from opendbc.car.interfaces import CarInterfaceBase, TorqueFromLateralAccelCallbackType, LateralAccelFromTorqueCallbackType
+from opendbc.car.vin import VIN_UNKNOWN, is_valid_vin
 
 TransmissionType = structs.CarParams.TransmissionType
 NetworkLocation = structs.CarParams.NetworkLocation
@@ -43,9 +44,16 @@ class CarInterface(CarInterfaceBase):
                     structs.CarState.GearShifter.eco, structs.CarState.GearShifter.manumatic)
 
   @classmethod
-  def get_params(cls, candidate, fingerprint, car_fw, alpha_long, is_release, docs, *, auto_pedal=True):
+  def get_params(cls, candidate, fingerprint, car_fw, alpha_long, is_release, docs, *, auto_pedal=True, vin=VIN_UNKNOWN):
     selected = pedal_candidate(candidate, fingerprint) if auto_pedal else candidate
-    return super().get_params(selected, fingerprint, car_fw, alpha_long, is_release, docs)
+    ret = super().get_params(selected, fingerprint, car_fw, alpha_long, is_release, docs)
+    # The recorded 2018 Yukon XL SLT uses the same CC profile as the short Yukon.
+    if selected == CAR.GMC_YUKON_CC and is_valid_vin(vin) and vin.startswith('1GKS2GKC') and vin[9] == 'J':
+      ret.wheelbase = 3.302  # GMC 2018 Yukon brochure, 130.0 inches.
+      ret.centerToFront = ret.wheelbase * CAR.GMC_YUKON_CC.config.specs.centerToFrontRatio
+      ret.rotationalInertia = scale_rot_inertia(ret.mass, ret.wheelbase)
+      ret.tireStiffnessFront, ret.tireStiffnessRear = scale_tire_stiffness(ret.mass, ret.wheelbase, ret.centerToFront, ret.tireStiffnessFactor)
+    return ret
 
   def apply(self, c, now_nanos=None, *, startup_keepalive=False):
     if startup_keepalive:

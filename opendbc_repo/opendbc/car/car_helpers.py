@@ -12,6 +12,7 @@ from opendbc.car.mock.values import CAR as MOCK
 from opendbc.car.gm.pedal_capability import automatic_bolt_candidate
 from opendbc.car.gm.discovery import (automatic_trax_candidate, automatic_volt_ascm_candidate, automatic_volt_candidate,
                                      normal_bus0_topology as gm_normal_bus0_topology)
+from opendbc.car.gm.values import CAR as GM
 from opendbc.car.ford.discovery import (normal_bus0_selection as ford_normal_bus0_selection,
                                        normal_bus0_queries as ford_normal_bus0_queries, normal_bus_query_brand)
 from opendbc.car.volvo.discovery import normal_bus_topology as volvo_normal_bus_topology, v60_bus_topology as volvo_v60_bus_topology
@@ -334,6 +335,8 @@ def get_car(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_multip
 
   CarInterface = interfaces[candidate]
   params_options = {'auto_pedal': False} if source == CarParams.FingerprintSource.fixed and candidate in interface_names['gm'] else {}
+  if candidate == GM.GMC_YUKON_CC:
+    params_options['vin'] = vin
   CP: CarParams = CarInterface.get_params(candidate, fingerprints, car_fw, alpha_long_allowed, is_release, docs=False, **params_options)
   CP.carVin = vin
   CP.carFw = car_fw
