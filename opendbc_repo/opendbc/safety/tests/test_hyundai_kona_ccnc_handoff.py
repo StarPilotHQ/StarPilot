@@ -32,6 +32,16 @@ class TestHyundaiKonaCcncHandoff(unittest.TestCase):
       self.assertFalse(self.safety.safety_tx_hook(self.packet(0, 'a6770a1880001800000a000000900000')))
       self.assertEqual(self.safety.safety_fwd_hook(2, 0x123), -1)
 
+  def test_release_library_camera_slot_helpers_are_inactive(self):
+    release = libsafety_py.ffi.dlopen(libsafety_py._build_libsafety(release=True))
+    release.set_alternative_experience(32)
+    self.assertEqual(release.set_safety_hooks(structs.CarParams.SafetyModel.hyundaiCanfd, 0x1C0C), 0)
+    camera = self.packet(2, 'a6770a1880001800000a000000900000')
+    self.assertFalse(release.safety_uses_camera_slot(camera))
+    self.assertFalse(release.safety_camera_release_current(camera, 10_000))
+    self.assertEqual(release.safety_camera_release_delay(camera, 10_000), 0)
+    self.assertEqual(release.safety_fwd_packet_hook(camera), -1)
+
   def test_output_hook_preserves_default_forwarding(self):
     self.assertEqual(self.safety.set_safety_hooks(structs.CarParams.SafetyModel.hyundai, 0), 0)
     for source, destination in ((0, 2), (1, -1), (2, 0)):

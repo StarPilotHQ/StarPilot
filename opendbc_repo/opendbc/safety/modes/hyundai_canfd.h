@@ -1231,7 +1231,7 @@ static bool hyundai_canfd_tx_hook_valid(const CANPacket_t *msg) {
   return tx;
 }
 
-#ifdef ALLOW_DEBUG
+#if defined(ALLOW_DEBUG) && !defined(STM32F4)
 static bool hyundai_kona_idle_handoff = false;
 static bool hyundai_kona_camera_seen = false;
 static bool hyundai_kona_output_seen = false;
@@ -1447,7 +1447,7 @@ static bool hyundai_canfd_tx_hook_checked(const CANPacket_t *msg) {
   if (hyundai_angle_aol_enabled && independent_command && !tx) {
     hyundai_ordinary_angle_release();
   }
-#ifdef ALLOW_DEBUG
+#if defined(ALLOW_DEBUG) && !defined(STM32F4)
   if (hyundai_kona_idle_handoff && (msg->addr == 0x12AU) && tx && !relay_malfunction) {
     hyundai_kona_track_output(microsecond_timer_get(), true, msg->data[2]);
   }
@@ -1456,7 +1456,7 @@ static bool hyundai_canfd_tx_hook_checked(const CANPacket_t *msg) {
 }
 
 static bool hyundai_canfd_tx_hook(const CANPacket_t *msg) {
-#ifdef ALLOW_DEBUG
+#if defined(ALLOW_DEBUG) && !defined(STM32F4)
   bool allowed = true;
   if (hyundai_kona_idle_handoff && (msg->addr == 0x12AU)) {
     const uint32_t now = microsecond_timer_get();
@@ -1467,7 +1467,7 @@ static bool hyundai_canfd_tx_hook(const CANPacket_t *msg) {
   }
 #endif
   return
-#ifdef ALLOW_DEBUG
+#if defined(ALLOW_DEBUG) && !defined(STM32F4)
     allowed &&
 #endif
     hyundai_canfd_tx_hook_checked(msg);
@@ -2453,7 +2453,7 @@ static safety_config hyundai_canfd_init(uint16_t raw_param) {
     const bool daw_profile = (param == 0x0011U) || (param == 0x0091U) || (param == 0x0811U) || (param == 0x0891U) ||
                              (param == 0x8015U) || (param == 0x8095U) || (param == 0x8815U) || (param == 0x8895U);
     ret = hyundai_daw_configure(ret, true, daw_profile);
-#ifdef ALLOW_DEBUG
+#if defined(ALLOW_DEBUG) && !defined(STM32F4)
     if (hyundai_kona_idle_handoff) {
       static CanMsg kona_tx[64];
       if (hyundai_canfd_angle_aol_capacity(&ret)) {
@@ -2477,7 +2477,7 @@ const safety_hooks hyundai_canfd_hooks = {
   .optional_rx = hyundai_canfd_optional_rx_hook,
   .tx = hyundai_canfd_tx_hook,
   .fwd = hyundai_canfd_fwd_hook,
-#ifdef ALLOW_DEBUG
+#if defined(ALLOW_DEBUG) && !defined(STM32F4)
   .fwd_packet = hyundai_kona_camera_without_slot,
   .stage_tx = hyundai_kona_stage_tx,
   .fwd_output = hyundai_kona_camera_output,

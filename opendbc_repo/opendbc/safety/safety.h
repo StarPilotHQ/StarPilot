@@ -366,7 +366,7 @@ int safety_fwd_packet_hook(const CANPacket_t *msg) {
   return destination_bus;
 }
 
-#if defined(ALLOW_DEBUG) || !defined(STM32H7)
+#if !defined(STM32F4) && (defined(ALLOW_DEBUG) || !defined(STM32H7))
 bool safety_uses_camera_slot(const CANPacket_t *msg) {
 #ifdef ALLOW_DEBUG
   return (current_safety_mode == SAFETY_HYUNDAI_CANFD) && hyundai_kona_idle_handoff && (msg->addr == 0x12AU);
