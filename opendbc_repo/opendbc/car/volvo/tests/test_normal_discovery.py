@@ -80,7 +80,7 @@ def test_actual_vin_and_live_can_discovery_keep_normal_wiring_and_profile():
   assert peer.switches and set(peer.switches) == {False}
   assert peer.sent and all(f.src == 0 for f in peer.sent)
   assert ci.CP.carFingerprint == CAR.POLESTAR_2
-  assert ci.CP.safetyConfigs[0].safetyParam == 5
+  assert ci.CP.safetyConfigs[0].safetyParam == 0
   assert ci.CP.pcmCruise and not ci.CP.openpilotLongitudinalControl
   assert ci.CP.carVin == VIN_UNKNOWN and not ci.CP.carFw
   assert str(ci.CP.steerControlType) == 'angle'

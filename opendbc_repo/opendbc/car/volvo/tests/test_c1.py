@@ -1,11 +1,15 @@
 import unittest
+from types import SimpleNamespace
+
 import pytest
 from opendbc.can import CANPacker, CANParser
-from opendbc.car import structs
+from opendbc.car import Bus, ButtonType, CanData, structs
 from opendbc.car.volvo.values import CAR, DBC
 from opendbc.car.volvo.interface import CarInterface
 from opendbc.car.volvo.carstate import CarState
 from opendbc.car.volvo.carcontroller import CarController
+from opendbc.car.volvo.tests.test_cma import _Actuators, _stock_messages
+from opendbc.car.volvo.volvocan import create_c1_checksum
 
 
 def params(alpha=False, release=False):
@@ -111,10 +115,13 @@ class TestVolvoC1Host(unittest.TestCase):
         assert not eliminate_incompatible_cars(SimpleNamespace(address=293, dat=bytes(7)), [CAR.VOLVO_V40])
 
   def test_host_output_matches_native_sign_relay_and_limits(self):
+    from opendbc.car.volvo.tests.test_cma import packet
+    from opendbc.safety.tests.libsafety import libsafety_py
+
+    lib = libsafety_py.libsafety
+    packer = CANPacker('volvo_v40_2017_pt')
     for active in [False, True]:
       with self.subTest(active=active):
-        from opendbc.safety.tests import test_volvo_c1 as native
-
         cp = params()
         cs = CarState(cp)
         parsers = cs.get_can_parsers(cp)
@@ -125,14 +132,132 @@ class TestVolvoC1Host(unittest.TestCase):
         cc.latActive = active
         cc.cruiseControl.cancel = True
         cc.actuators.steeringAngleDeg = 15
-        native.reset()
-        native.lib.set_angle_meas(284, 284)
-        native.lib.set_desired_angle_last(284)
+        assert lib.set_safety_hooks(cp.safetyConfigs[0].safetyModel.raw, cp.safetyConfigs[0].safetyParam) == 0
+        lib.init_tests()
+        lib.set_timer(0)
+        lib.set_angle_meas(284, 284)
+        lib.set_desired_angle_last(284)
         for _ in range(6):
-          native.rx('VehicleSpeed1', 0, {'VehicleSpeed': 72})
-        native.lib.set_controls_allowed(True)
+          assert lib.safety_rx_hook(packet(packer.make_can_msg('VehicleSpeed1', 0, {'VehicleSpeed': 72})))
+        lib.set_controls_allowed(True)
         for frame in range(100):
           cc.latActive = active and frame >= 2
           _, messages = controller.update(cc.as_reader(), cs, frame * 10000000)
           for message in messages:
-            assert native.lib.safety_tx_hook(native.packet(message)), (active, frame, message)
+            assert lib.safety_tx_hook(packet(message)), (active, frame, message)
+
+
+def _can_data(msg):
+  address, data, bus = msg
+  return CanData(address, data, bus)
+
+
+def test_c1_carstate_decodes_vehicle_and_cruise_signals():
+  cp = CarInterface.get_non_essential_params(CAR.VOLVO_V40)
+  cs = CarState(cp)
+  parsers = CarState.get_can_parsers(cp)
+  packer = CANPacker(DBC[cp.carFingerprint][Bus.pt])
+
+  messages = [
+    packer.make_can_msg("VehicleSpeed1", 0, {"VehicleSpeed": 72}),
+    packer.make_can_msg("CCButtons", 0, {"ACCStopBtn": 1, "ACCSetBtn": 1}),
+    packer.make_can_msg("PSCM1", 0, {"SteeringAngleServo": -12.5, "LKATorque": 7}),
+    packer.make_can_msg("PedalandBrake", 0, {"AccPedal": 6, "BrakePedalActive2": 1}),
+    packer.make_can_msg("TCM0", 0, {"GearShifter": 3}),
+    packer.make_can_msg("ACC", 0, {"SpeedTargetACC": 100}),
+    packer.make_can_msg("MiscCarInfo", 0, {"TurnSignal": 1}),
+    packer.make_can_msg("FSM0", 2, {"ACCStatusOnOff": 1, "ACCStatusActive": 1}),
+    packer.make_can_msg("FSM1", 2, {}),
+  ]
+  packets = [(1_000_000, [_can_data(msg) for msg in messages])]
+  for parser in parsers.values():
+    parser.update(packets)
+
+  ret = cs.update(parsers)
+  assert ret.vEgoRaw == pytest.approx(20.0)
+  assert ret.steeringAngleDeg == pytest.approx(-12.5, abs=0.05)
+  assert ret.steeringTorque == 7
+  assert ret.gasPressed and ret.brakePressed
+  assert ret.gearShifter == structs.CarState.GearShifter.drive
+  assert ret.cruiseState.available and ret.cruiseState.enabled
+  assert ret.cruiseState.speed == pytest.approx(100 / 3.6)
+  assert ret.leftBlinker and not ret.rightBlinker
+  assert len(ret.buttonEvents) == 2
+  assert any(event.type == ButtonType.cancel and event.pressed for event in ret.buttonEvents)
+  assert any(event.type == ButtonType.setCruise and event.pressed for event in ret.buttonEvents)
+
+  release = packer.make_can_msg("CCButtons", 0, {})
+  packets = [(2_000_000, [_can_data(release)])]
+  for parser in parsers.values():
+    parser.update(packets)
+  ret = cs.update(parsers)
+  assert len(ret.buttonEvents) == 2
+  assert any(event.type == ButtonType.cancel and not event.pressed for event in ret.buttonEvents)
+  assert any(event.type == ButtonType.setCruise and not event.pressed for event in ret.buttonEvents)
+
+
+def _c1_state():
+  return SimpleNamespace(
+    out=SimpleNamespace(steeringAngleDeg=10.0, vEgo=12.0, vEgoRaw=12.0),
+    c1_lka_torque=5,
+    c1_msg_pscm=_stock_messages(DBC[CAR.VOLVO_V40][Bus.pt], ["PSCM1"])["PSCM1"],
+  )
+
+
+def test_c1_controller_emits_checked_steering_and_pscm_relay():
+  cp = CarInterface.get_non_essential_params(CAR.VOLVO_V40)
+  controller = CarController(DBC[cp.carFingerprint], cp)
+  cc = SimpleNamespace(
+    latActive=True,
+    actuators=_Actuators(),
+    cruiseControl=SimpleNamespace(cancel=False),
+  )
+
+  actuators, can_sends = controller.update(cc, _c1_state(), 0)
+  assert [(msg[0], msg[2]) for msg in can_sends] == [(0x125, 2), (0xD0, 0)]
+
+  fsm = can_sends[1][1]
+  assert fsm[7] & 0x3 == 3
+  assert fsm[6] == create_c1_checksum(fsm)
+  assert 0.0 < actuators.steeringAngleDeg <= 2.0
+
+
+def test_c1_controller_sends_only_cancel_button():
+  cp = CarInterface.get_non_essential_params(CAR.VOLVO_V40)
+  controller = CarController(DBC[cp.carFingerprint], cp)
+  cc = SimpleNamespace(
+    latActive=False,
+    actuators=_Actuators(),
+    cruiseControl=SimpleNamespace(cancel=True),
+  )
+
+  _, can_sends = controller.update(cc, _c1_state(), 0)
+  buttons = next(msg for msg in can_sends if msg[0] == 0x10)
+  assert buttons[2] == 0
+  assert buttons[1][7] == 0x10
+  assert buttons[1][6] == 0
+
+
+def test_c1_controller_temporarily_drops_steering_on_zero_torque_fault():
+  cp = CarInterface.get_non_essential_params(CAR.VOLVO_V40)
+  controller = CarController(DBC[cp.carFingerprint], cp)
+  cs = _c1_state()
+  cs.c1_lka_torque = 0
+  cc = SimpleNamespace(
+    latActive=True,
+    actuators=_Actuators(),
+    cruiseControl=SimpleNamespace(cancel=False),
+  )
+
+  directions = []
+  for _ in range(23):
+    _, can_sends = controller.update(cc, cs, 0)
+    directions.extend(msg[1][7] & 0x3 for msg in can_sends if msg[0] == 0xD0)
+
+  assert directions[:-1] == [3] * 11
+  assert directions[-1] == 0
+
+  while controller.frame <= 122:
+    _, can_sends = controller.update(cc, cs, 0)
+  fsm = next(msg for msg in can_sends if msg[0] == 0xD0)
+  assert fsm[1][7] & 0x3 == 3

@@ -1,112 +1,105 @@
-"""Unsupported rack status withdraws host commands without starving stock transport."""
-import pytest
-from opendbc.car import gen_empty_fingerprint, structs
-from opendbc.car.volvo.helpers import (checksum_1_pscm_related_message, checksum_2_pscm_related_message,
-                                      pscm_status_validation_class)
-from opendbc.car.volvo.interface import CarInterface
-from opendbc.car.volvo.tests.test_cma_primary_angle import _sources
-from opendbc.car.volvo.values import CAR
+"""Unsupported rack status (PSCM_RELATED) is a temporary steer fault, which withdraws
+openpilot's commands so panda forwards the stock frames until the rack recovers."""
+import unittest
+from opendbc.can.parser import CANParser
+from opendbc.car.volvo.helpers import (
+  pscm_status_supported,
+)
+from opendbc.car.volvo.tests.test_cma import _make_state, _pscm_related, _step
+from opendbc.car.volvo.tests.test_cma_integrity import PSCM_RELATED_CHECKSUM_1, PSCM_RELATED_CHECKSUM_2
 
 
-def status(b1, b2):
-  return bytes([checksum_1_pscm_related_message(b1, b2), b1, b2, checksum_2_pscm_related_message(b2), 0, 0, 0xFF, 0xFF])
+# Counter 5, LCA_ENABLED_ECHO 1, status 8, replica 5 (matches a frame seen on the car).
+_PSCM_SUPPORTED = _pscm_related(0x51, 0x85)
 
 
-def interface():
-  cp = CarInterface.get_params(CAR.POLESTAR_2, gen_empty_fingerprint(), [], False, False, False)
-  ci = CarInterface(cp)
-  for frame in range(40):
-    now = 1_000_000_000 + frame * 10_000_000
-    ci.update([(now, _sources('POLESTAR_2', frame=frame))])
-    ci.apply(structs.CarControl.new_message().as_reader(), now + 1000)
-  assert ci.CS.out.canValid and ci.CS.pscm_status_supported
-  return ci
+def _make_state_with_pscm_registered():
+  # The Volvo parsers subscribe lazily on first access, which happens in the first
+  # CarState.update(); frames before that aren't parsed.
+  cs, parsers, packers = _make_state()
+  cs.update(parsers)
+  return cs, parsers, packers
 
 
-def step(ci, frame, active, rack_status=None):
-  incoming = _sources('POLESTAR_2', frame=frame)
-  if rack_status is not None:
-    incoming = [(a, rack_status if a == 0x17 and b == 2 else d, b) for a, d, b in incoming]
-  now = 1_000_000_000 + frame * 10_000_000
-  ci.update([(now, incoming)])
-  _, messages = ci.apply(structs.CarControl.new_message(latActive=active).as_reader(), now + 1000)
-  return incoming, messages
+def test_pscm_supported_status_has_no_steer_fault():
+  cs, parsers, packers = _make_state_with_pscm_registered()
+  ret = _step(cs, parsers, packers, 0, False, _PSCM_SUPPORTED)
+  assert ret.steerFaultTemporary is False
 
 
-def forwarded(frames):
-  return [(a, d, 2 if b == 0 else 0) for a, d, b in frames
-          if (b == 0 and a in (0x58, 0x57, 0x67, 0x69, 0x90, 0x97, 0x92)) or (b == 2 and a in (0x16, 0x17))]
+def test_pscm_unsupported_status_is_a_temporary_steer_fault_until_it_recovers():
+  cs, parsers, packers = _make_state_with_pscm_registered()
+  quality_bit = _pscm_related(0x51 | 0x8, 0x85)  # valid checksums, quality bit set
+  for t, frame, fault in ((0, _PSCM_SUPPORTED, False), (10_000, quality_bit, True), (20_000, _PSCM_SUPPORTED, False)):
+    ret = _step(cs, parsers, packers, t, False, frame)
+    assert ret.steerFaultTemporary is fault, frame.hex()
 
 
-GOOD = status(0x11, 0x81)
-OFFSET = status(0x31, 0x81)
+def test_pscm_replica_lagging_one_count_is_not_a_steer_fault():
+  """The rack sometimes sends RACK_COUNTER_REPLICA one count behind with valid checksums.
+  Treating that as unsupported caused false disengages on a real Polestar drive."""
+  cs, parsers, packers = _make_state_with_pscm_registered()
+  for i in range(45):
+    counter = i % 15
+    replica = (counter - (i % 2)) % 15  # alternate equal / one behind, across the wrap
+    ret = _step(cs, parsers, packers, i * 10_000, False, _pscm_related((counter << 4) | 1, 0x80 | replica))
+    assert ret.steerFaultTemporary is False, (counter, replica)
 
 
-@pytest.mark.parametrize('unsupported', [
-  OFFSET, status(0x18, 0x81), status(0xF0, 0x8F), status(0, 0xA0),
-  bytes([GOOD[0] ^ 1]) + GOOD[1:], GOOD[:3] + bytes([GOOD[3] ^ 1]) + GOOD[4:],
-])
-def test_unsupported_status_uses_stock_until_request_cycles(unsupported):
-  ci = interface()
-  step(ci, 40, True)
-  assert ci.CC.lat_active
-  incoming, messages = step(ci, 41, True, unsupported)
-  assert not ci.CC.lat_active and ci.CS.pscm_rearm_required
-  assert messages == forwarded(incoming)
-  incoming, messages = step(ci, 42, True, GOOD)
-  assert ci.CS.pscm_status_supported and ci.CS.pscm_rearm_required and not ci.CC.lat_active
-  assert messages == forwarded(incoming)
-  step(ci, 43, False, GOOD)
-  assert not ci.CS.pscm_rearm_required
-  step(ci, 44, True, GOOD)
-  assert ci.CC.lat_active
+def test_pscm_never_received_is_a_temporary_steer_fault():
+  cs, parsers, packers = _make_state()
+  ret = cs.update(parsers)
+  assert ret.steerFaultTemporary is True
 
 
-@pytest.mark.parametrize('recover_in_batch', [False, True])
-def test_mixed_batch_cannot_hide_bad_status_or_replay_an_earlier_class(recover_in_batch):
-  ci = interface()
-  step(ci, 40, True)
-  received = [(0x17, GOOD, 2), (0x17, OFFSET, 2)]
-  if recover_in_batch:
-    received.append((0x17, GOOD, 2))
-  ci.update([(1_410_000_000, received)])
-  assert ci.CS.pscm_rearm_required
-  _, messages = ci.apply(structs.CarControl.new_message(latActive=True).as_reader(), 1_410_001_000)
-  assert not ci.CC.lat_active
-  expected = GOOD if recover_in_batch else OFFSET
-  assert [m for m in messages if m[0] == 0x17] == [(0x17, expected, 0)]
+def _decode(frame):
+  """(signals, raw frame) for a PSCM_RELATED frame, decoded the way carstate gets it."""
+  parser = CANParser("volvo_mid_1", [("PSCM_RELATED", 0)], 0)
+  parser.update([(0, [(0x17, frame, 0)])])
+  return dict(parser.vl["PSCM_RELATED"]), bytes(frame)
 
 
-def test_missing_status_cannot_grant_host_lateral():
-  cp = CarInterface.get_params(CAR.POLESTAR_2, gen_empty_fingerprint(), [], False, False, False)
-  ci = CarInterface(cp)
-  ci.update([(1_000_000_000, [m for m in _sources('POLESTAR_2') if m[0] != 0x17])])
-  ci.CS.out = structs.CarState.new_message(canValid=True, gearShifter=structs.CarState.GearShifter.drive).as_reader()
-  ci.apply(structs.CarControl.new_message(latActive=True).as_reader(), 1_000_001_000)
-  assert not ci.CC.lat_active
-  assert pscm_status_validation_class(GOOD) == (8, True, True)
-  assert pscm_status_validation_class(OFFSET) == (8, True, False)
+class TestPscmStatusSupported(unittest.TestCase):
+  def test_signal_names_match_the_nibbles(self):
+    msg, _ = _decode(_pscm_related(0x51, 0x85))
+    assert (msg["RACK_COUNTER"], msg["LCA_ENABLED_ECHO"]) == (5, 1)  # byte 1 high / low nibble
+    assert (msg["PSCM_STATUS"], msg["RACK_COUNTER_REPLICA"]) == (8, 5)  # byte 2 high / low nibble
 
+  def test_frames_seen_on_the_car_are_supported(self):
+    for (b1, b2), cs1 in PSCM_RELATED_CHECKSUM_1.items():
+      frame = bytes([cs1, b1, b2, PSCM_RELATED_CHECKSUM_2[b2], 0, 0, 0, 0])
+      with self.subTest(frame=frame.hex()):
+        assert pscm_status_supported(*_decode(frame))
 
-@pytest.mark.parametrize('counter', range(15))
-@pytest.mark.parametrize('lag', [0, 1])
-def test_supported_counter_relationship_keeps_host_active(counter, lag):
-  ci = interface()
-  step(ci, 40, True)
-  packet = status((counter << 4) | 1, 0x80 | ((counter - lag) % 15))
-  assert pscm_status_validation_class(packet) == (8, True, True)
-  step(ci, 41, True, packet)
-  assert ci.CC.lat_active and not ci.CS.pscm_rearm_required
-  incoming, messages = step(ci, 42, False, packet)
-  assert messages == forwarded(incoming)
+  def test_each_condition_alone_makes_it_unsupported(self):
+    base = _pscm_related(0x51, 0x85)  # RACK_COUNTER 5, LCA_ENABLED_ECHO 1, PSCM_STATUS 8, replica 5
+    assert pscm_status_supported(*_decode(base))
+    cases = {
+      "bad checksum 1": bytes([base[0] ^ 1]) + base[1:],
+      "bad checksum 2": base[:3] + bytes([base[3] ^ 1]) + base[4:],
+      "PSCM_STATUS 9": _pscm_related(0x51, 0x95),
+      "LCA_ENABLED_ECHO top bit set": _pscm_related(0x59, 0x85),
+      "replica one ahead of RACK_COUNTER": _pscm_related(0x51, 0x86),
+      "replica 15": _pscm_related(0xF1, 0x8F),
+      "never received (zeros)": bytes(8),
+    }
+    for name, frame in cases.items():
+      with self.subTest(name):
+        assert not pscm_status_supported(*_decode(frame))
 
+  def test_rack_counter_replica_equal_or_one_behind_is_supported(self):
+    for counter in range(15):
+      for lag in (0, 1):
+        replica = (counter - lag) % 15
+        with self.subTest(counter=counter, replica=replica):
+          assert pscm_status_supported(*_decode(_pscm_related((counter << 4) | 1, 0x80 | replica)))
 
-@pytest.mark.parametrize('counter,replica', [(15, 14), (15, 0), (0, 1), (0, 13), (1, 14)])
-def test_other_counter_relationships_still_withdraw(counter, replica):
-  ci = interface()
-  step(ci, 40, True)
-  packet = status((counter << 4) | 1, 0x80 | replica)
-  assert pscm_status_validation_class(packet) == (8, True, False)
-  incoming, messages = step(ci, 41, True, packet)
-  assert not ci.CC.lat_active and ci.CS.pscm_rearm_required
-  assert messages == forwarded(incoming)
+  def test_other_rack_counter_relationships_are_unsupported(self):
+    # replica ahead, two or more behind, or a counter of 15 (never valid)
+    for counter, replica in ((15, 14), (15, 0), (0, 1), (0, 13), (1, 14), (5, 3), (14, 15)):
+      with self.subTest(counter=counter, replica=replica):
+        assert not pscm_status_supported(*_decode(_pscm_related((counter << 4) | 1, 0x80 | replica)))
+
+  def test_short_frame_is_unsupported(self):
+    msg, raw = _decode(_pscm_related(0x51, 0x85))
+    assert not pscm_status_supported(msg, raw[:7])

@@ -382,57 +382,6 @@ bool safety_test_toyota_invalid_counter_status(void) {
   return !safety_rx_checks_invalid;
 }
 
-// Model retained/uninitialized H7 NOLOAD memory before a fresh Volvo mode init.
-// Test-only helper: do not corrupt a workspace currently selected by safety.
-bool safety_test_volvo_cma_poison_workspace(void) {
-  if (current_safety_mode != SAFETY_NOOUTPUT) {
-    return false;
-  }
-  memset(volvo_cma_rx_checks_workspace(), 0xA5, VOLVO_CMA_RX_CHECK_COUNT * sizeof(RxCheck));
-  memset(volvo_cma_relay_data, 0xA5, sizeof(volvo_cma_relay_data));
-  memset(volvo_cma_relay_ts, 0xA5, sizeof(volvo_cma_relay_ts));
-  memset(volvo_cma_relay_valid, 0xA5, sizeof(volvo_cma_relay_valid));
-  memset(volvo_cma_relay_index, 0xA5, sizeof(volvo_cma_relay_index));
-  volvo_cma_lca2_primary_seen = true;
-  volvo_cma_lca2_primary_last = 0xA5U;
-  volvo_cma_lca2_primary_counter = 0xA5U;
-  volvo_cma_lca2_second_seen = true;
-  volvo_cma_lca2_second_last = 0xA5U;
-  volvo_cma_lca2_second_wrong = 99;
-  volvo_cma_lca2_phase_valid = true;
-  volvo_cma_lca2_phase_one = 0xA5U;
-  volvo_cma_lca2_phase_two = 0xA5U;
-  volvo_cma_lca2_phase_offset = 0xA5U;
-  volvo_cma_gear_seen = true;
-  volvo_cma_drive_gear = true;
-  volvo_cma_gear_ts = 0xA5A5A5A5U;
-  return true;
-}
-
-// Called after selecting CMA/SPA and before any RX: every retained cache field
-// must be initialized, even though invalid entries could not authorize TX.
-bool safety_test_volvo_cma_cold_state_zeroed(void) {
-  if ((current_safety_mode != SAFETY_VOLVO) || ((current_safety_param > 1U) && (current_safety_param != 5U))) {
-    return false;
-  }
-  bool cleared = !volvo_cma_lca2_primary_seen && (volvo_cma_lca2_primary_last == 0U) &&
-    (volvo_cma_lca2_primary_counter == 0U) && !volvo_cma_lca2_second_seen &&
-    (volvo_cma_lca2_second_last == 0U) && (volvo_cma_lca2_second_wrong == 0) &&
-    !volvo_cma_lca2_phase_valid && (volvo_cma_lca2_phase_one == 0U) &&
-    (volvo_cma_lca2_phase_two == 0U) && (volvo_cma_lca2_phase_offset == 0U) &&
-    !volvo_cma_gear_seen && !volvo_cma_drive_gear && (volvo_cma_gear_ts == 0U);
-  for (uint8_t i = 0U; i < VOLVO_CMA_RELAY_COUNT; i++) {
-    cleared &= volvo_cma_relay_index[i] == 0U;
-    for (uint8_t j = 0U; j < 4U; j++) {
-      cleared &= !volvo_cma_relay_valid[i][j] && (volvo_cma_relay_ts[i][j] == 0U);
-      for (uint8_t b = 0U; b < 8U; b++) {
-        cleared &= volvo_cma_relay_data[i][j][b] == 0U;
-      }
-    }
-  }
-  return cleared;
-}
-
 // Test transport adapter only; enforces the actual board startup mode guard.
 bool tesla_preap_test_config_word(uint16_t index, uint16_t value) {
   const bool non_car = (current_safety_mode == SAFETY_SILENT) || (current_safety_mode == SAFETY_NOOUTPUT) ||
