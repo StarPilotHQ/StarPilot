@@ -23,7 +23,7 @@ def test_params_keys_default_off():
 
 
 def test_starpilot_settings_default_off():
-  tree = ast.parse((ROOT / "starpilot" / "ui" / "feature_settings_owner.py").read_text())
+  tree = ast.parse((ROOT / "starpilot" / "ui" / "feature_defaults.py").read_text())
   defaults = next(node.value for node in ast.walk(tree)
                   if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "BOOL_DEFAULTS" for t in node.targets))
   values = {k.value: v.value for k, v in zip(defaults.keys, defaults.values, strict=True) if isinstance(k, ast.Constant)}
