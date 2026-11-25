@@ -88,8 +88,8 @@ def _capture_summary(kind: str, data: bytes) -> str:
       rows = capture["externalInputInterfaces"]
       counts = [sum(row["discovery"] == state for row in rows) for state in ("eligible", "filtered", "duplicate identity")]
       suffix = " (inventory truncated)" if capture.get("truncated") else ""
-      return (f"External input interfaces: {len(rows)}{suffix}\n"
-              f"Eligible: {counts[0]} | Filtered: {counts[1]} | Duplicate identity: {counts[2]}")
+      header = f"External input interfaces: {len(rows)}{suffix}\n"
+      return header + f"Eligible: {counts[0]} | Filtered: {counts[1]} | Duplicate identity: {counts[2]}"
     text = raw.decode("utf-8", errors="replace").strip()
     if kind == "starport":
       return text[:600]

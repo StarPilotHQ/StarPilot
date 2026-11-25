@@ -147,7 +147,7 @@ class LogRelayStagerTest(unittest.TestCase):
         data = stream.getvalue()
         post = Mock(return_value=Mock(status_code=200))
         post.return_value.json.return_value = {"claimUrl": VALID_CLAIM}
-        stager = LogRelayStager(lambda: ("logs.zip", data), lambda: data, lambda: data, post=post)
+        stager = LogRelayStager(lambda data=data: ("logs.zip", data), lambda data=data: data, lambda data=data: data, post=post)
         stager._run(kind, "ios", "Test")
         self.assertEqual(post.call_args.kwargs["data"], data)
         self.assertEqual(unquote(post.call_args.kwargs["headers"]["X-Galaxy-Summary"]), expected)
