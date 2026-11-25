@@ -99,7 +99,7 @@ class LogRelayStager:
     self._connection_zip = connection_zip
     self._controller_zip = controller_zip
     self._post = post
-    self._stage_url = stage_url
+    self._stage_url: Callable[[], str] | str = stage_url
     self._official = official
     self._lock = threading.Lock()
     self._thread: threading.Thread | None = None
@@ -108,7 +108,8 @@ class LogRelayStager:
     self._fork: bool | None = None
 
   def _url(self) -> str:
-    return self._stage_url() if callable(self._stage_url) else self._stage_url
+    stage_url = self._stage_url
+    return stage_url if isinstance(stage_url, str) else stage_url()
 
   def status(self, session=None) -> dict:
     with self._lock:

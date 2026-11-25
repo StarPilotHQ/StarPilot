@@ -821,8 +821,8 @@ def test_c4_shell_passes_full_panel_placements_and_saved_triggers():
   from openpilot.starpilot.ui.presentation import Profile
   shell = StarShellSession.__new__(StarShellSession)
   shell.profile = Profile.COMPACT
-  shell._pip_saved = SimpleNamespace(enabled=True, mask=starting_mask(1928, 1208), invert=True,
-                                     on_blinker=False, on_bsm=True)
+  shell._pip_saved = SavedPiP((), enabled=True, mask=starting_mask(1928, 1208),
+                             on_blinker=False, on_bsm=True, invert=True)
   shell._pip_signals_cache = Signals(True, False, False, True, False)
   shell.pip_renderer = Mock()
   shell.pip_renderer.render.return_value = "rendered"

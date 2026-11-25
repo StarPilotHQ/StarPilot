@@ -744,9 +744,9 @@ def validate_document(value):
       size = WHEEL_SIZES[profile][1]
       if scalable:
         minimum, _, maximum = WIDGET_SIZES[key][profile]
-        if type(placement["size"]) is not int or not minimum <= cast(int, placement["size"]) <= maximum:
+        if type(placement["size"]) is not int or not minimum <= placement["size"] <= maximum:
           raise ValueError("Invalid widget size")
-        size = cast(int, placement["size"])
+        size = placement["size"]
       # Only a gauge the saved layout actually placed moves; one filled in from defaults is already in the new box.
       saved_layout = value.get("layouts", {}).get(profile) if type(value.get("layouts")) is dict else None
       old_gauge = key == CEM_GAUGE_WIDGET and value["version"] < 7 and type(saved_layout) is dict and key in saved_layout
