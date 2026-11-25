@@ -152,13 +152,19 @@ for _index, (_key, _label) in enumerate(zip(RAIL_WIDGETS, ("Model confidence", "
 # Keep layouts saved before camera widgets valid when the registry grows.
 CAMERALESS_WIDGETS = {profile: set(data["widgets"]) for profile, data in PROFILES.items()}
 CAMERA_WIDGETS = ("pip_left", "pip_right")
-for _profile, (_size, _margin) in {"large": (600, 24), "compact": (80, 16)}.items():
+
+
+def camera_widgets(profile):
+  return CAMERA_WIDGETS[:1] if str(profile) == "compact" else CAMERA_WIDGETS
+
+
+for _profile, (_width, _height, _margin) in {"large": (600, 600, 24), "compact": (476, 240, 0)}.items():
   _bounds = PROFILES[_profile]["bounds"]
-  for _side, _key in zip(("left", "right"), CAMERA_WIDGETS, strict=True):
-    _x = _bounds["x"] + (_margin if _side == "left" else _bounds["width"] - _margin - _size)
-    _y = _bounds["y"] + _bounds["height"] - _margin - _size
+  for _side, _key in zip(("left", "right"), camera_widgets(_profile), strict=False):
+    _x = _bounds["x"] + (_margin if _side == "left" else _bounds["width"] - _margin - _width)
+    _y = _bounds["y"] + _bounds["height"] - _margin - _height
     PROFILES[_profile]["widgets"][_key] = {
-      **_widget(f"PiP {_side} side camera", "pip_camera", _size, _size, _x, _y), "layer": "underlay"}
+      **_widget((f"Adj Spot Camera {_side.title()}" if _profile == "large" else "Adj Spot Camera"), "pip_camera", _width, _height, _x, _y), "layer": "underlay"}
 
 MODE_WIDGET = "driving_mode_descriptions"
 for _profile, _geometry in {"large": (580, 68, 640, 344), "compact": (168, 44, 154, 0)}.items():
@@ -372,7 +378,7 @@ DEFAULT_WIDGET_ORDER = {
             STOPPED_TIMER_WIDGET, NAV_CARD_WIDGET, JETLINK_WIDGET, SIGNAL_WIDGET, UNIDEN_WIDGET, "rear_fog", "pip_left", "pip_right"),
   "compact": ("speed_limit", "max_speed", "steering_wheel", "torque_bar",
               "driver_monitor", *RAIL_WIDGETS, MODE_WIDGET, CLOCK_WIDGET, WEATHER_WIDGET,
-              STOPPED_TIMER_WIDGET, NAV_CARD_WIDGET, "rear_fog", "pip_left", "pip_right"),
+              STOPPED_TIMER_WIDGET, NAV_CARD_WIDGET, "rear_fog", "pip_left"),
 }
 
 
@@ -427,7 +433,7 @@ def customization_metadata():
 
 
 def default_document():
-  return {"version": 16, "clock24Hour": False, "reduceMotion": False, "palette": dict(PALETTE), "roadColors": {profile: {} for profile in PROFILES},
+  return {"version": 17, "clock24Hour": False, "reduceMotion": False, "palette": dict(PALETTE), "roadColors": {profile: {} for profile in PROFILES},
           "widgetColors": {profile: {} for profile in PROFILES}, "layouts": {
     profile: {key: {**widget["default"], **({"size": WIDGET_SIZES[key][profile][1]} if key in WIDGET_SIZES else {})}
               for key, widget in data["widgets"].items()}
@@ -509,7 +515,7 @@ def migrate_confirmation_layout(layout, profile, widgets, bounds, *, extra_heigh
 
 
 def validate_document(value):
-  if type(value) is not dict or type(value.get("version")) is not int or value["version"] not in range(1, 17):
+  if type(value) is not dict or type(value.get("version")) is not int or value["version"] not in range(1, 18):
     raise ValueError("Invalid customization version")
   if value["version"] < 16:
     # Version 16 folded the separate speed limit actions widget into the speed limit sign.
@@ -521,6 +527,23 @@ def validate_document(value):
     if type(value.get("widgetOrder")) is dict:
       value["widgetOrder"] = {profile: [key for key in order if key != "speed_limit_actions"] if type(order) is list else order
                               for profile, order in value["widgetOrder"].items()}
+  # C4 has one shared camera panel; accept the old pair without changing C3.
+  compact = value.get("layouts", {}).get("compact") if type(value.get("layouts")) is dict else None
+  if type(compact) is dict and "pip_right" in compact:
+    value = copy.deepcopy(value)
+    compact = value["layouts"]["compact"]
+    right = compact.pop("pip_right")
+    left = compact.get("pip_left")
+    if any(type(item) is not dict or set(item) != {"x", "y", "enabled"} or type(item["enabled"]) is not bool or
+           any(type(item[axis]) not in (int, float) or not math.isfinite(item[axis]) for axis in ("x", "y")) for item in (left, right)):
+      raise ValueError("Invalid legacy camera placement")
+    left["enabled"] = left["enabled"] or right["enabled"]
+    colors = value.get("widgetColors", {}).get("compact") if type(value.get("widgetColors")) is dict else None
+    if type(colors) is dict and colors.get("pip_right") == {}:
+      colors.pop("pip_right")
+    order = value.get("widgetOrder", {}).get("compact") if type(value.get("widgetOrder")) is dict else None
+    if type(order) is list:
+      value["widgetOrder"]["compact"] = [key for key in order if key != "pip_right"]
   fields = {"version", "palette", "layouts"} | ({"widgetColors"} if value["version"] >= 2 else set())
   if value["version"] >= 3:
     fields.add("roadColors")
@@ -587,13 +610,14 @@ def validate_document(value):
                                  type(legacy["enabled"]) is not bool or
                                  any(type(legacy[axis]) not in (int, float) or not math.isfinite(legacy[axis]) for axis in ("x", "y"))):
         raise ValueError("Invalid legacy camera placement")
-      for side, key in enumerate(CAMERA_WIDGETS):
+      for side, key in enumerate(camera_widgets(profile)):
         widget = PROFILES[profile]["widgets"][key]
         position = dict(widget["default"])
         if legacy is not None:
           bounds = widget_bounds(profile, key)
+          shift = side * widget["width"] if profile == "large" else 0
           position.update(enabled=legacy["enabled"],
-                          x=max(bounds["x"], min(legacy["x"], bounds["x"] + bounds["width"] - 2 * widget["width"])) + side * widget["width"],
+                          x=max(bounds["x"], min(legacy["x"], bounds["x"] + bounds["width"] - 2 * widget["width"])) + shift,
                           y=max(bounds["y"], min(legacy["y"], bounds["y"] + bounds["height"] - widget["height"])))
         layouts[profile][key] = position
   layouts = copy.deepcopy(layouts)
@@ -670,6 +694,14 @@ def validate_document(value):
         bounds = data['bounds']
       if legacy_signal:
         _fit_legacy_signal(placement, bounds)
+      if value["version"] < 17 and profile == "compact" and key in CAMERA_WIDGETS and type(placement) is dict:
+        # Move the legacy 80px widget into the shared C4 panel.
+        if any(type(placement.get(axis)) not in (int, float) or not math.isfinite(placement[axis]) for axis in ("x", "y")):
+          raise ValueError("Invalid widget position")
+        if key in value["layouts"][profile] and not (0 <= placement["x"] <= bounds["width"] - 80 and
+                                                    0 <= placement["y"] <= bounds["height"] - 80):
+          raise ValueError("Invalid legacy camera position")
+        placement = layout[key] = {**placement, "x": 0, "y": 0}
       if (key == JETLINK_WIDGET and type(placement) is dict and type(placement.get('y')) in (int, float) and
           math.isfinite(placement['y']) and
           bounds['y'] + bounds['height'] - JETLINK_SIZE[1] < placement['y'] <= bounds['y'] + bounds['height'] - 84):

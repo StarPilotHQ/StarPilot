@@ -34,7 +34,7 @@ export const SETTINGS_SECTIONS = Object.freeze([
 ])
 
 // Crop numeric rows and the inline editor row are controlled from the dedicated
-// Blind Spot Camera page; they stay writable through the settings API for the
+// Adj Spot Camera page; they stay writable through the settings API for the
 // widget/VASM editor but must not surface in the generic toggles list.
 export const isPipCropRow = (row) => ["Visual camera crop editor", "Camera crop size", "Restore default camera crop"].includes(row.label) ||
   /^Vehicle (left|right) crop/.test(row.label || "")
@@ -51,7 +51,7 @@ const SECTION_LINKS = {
     { label: "Display", page: "display", value: "Adjust screen brightness and display timing" },
     { label: "Driving Screen Widgets, Colors & Layout", page: "ui_layout" },
     { label: "Quick Select", page: "favorites" },
-    { label: "Blind Spot Camera & Preview", page: "pip" },
+    { label: "Adj Spot Camera & Preview", page: "pip" },
   ],
 }
 

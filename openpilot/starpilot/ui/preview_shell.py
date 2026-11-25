@@ -122,7 +122,7 @@ def reference_feature_scene(scene: str) -> tuple[Destination, str, FeatureSettin
   elif scene == "settings_pip":
     rows = (boolean("pip:enabled", "On"), boolean("pip:blinker", "Off"), number, reset,
             FeatureRow("", "Camera availability", "No fresh cabin frame", reason="Check the live crop preview while parked"))
-    destination, field, page, title = Destination.APPEARANCE, "appearance", "pip", "Blind Spot Camera & Preview"
+    destination, field, page, title = Destination.APPEARANCE, "appearance", "pip", "Adj Spot Camera & Preview"
   else:
     rows = (boolean("enabled_off", "Off"), boolean("enabled_on", "On"),
             boolean("disabled_off", "Off", available=False), boolean("disabled_on", "On", available=False),

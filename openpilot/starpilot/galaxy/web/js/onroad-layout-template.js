@@ -207,7 +207,7 @@ export const ONROAD_LAYOUT_TEMPLATE = `
               <div ref="widgetsHelp" class="gx-layout__subhead gx-layout__help-anchor"><h3>Widgets</h3><span>{{ activeWidgets.length }} active</span>
                 <button class="gx-icon-btn gx-layout__info" type="button" :aria-expanded="state.widgetsHelpOpen" aria-controls="gx-layout-widgets-help" aria-label="How the widget list works" title="How the widget list works" @click="toggleFloating('widgetsHelpOpen', 'widgetsHelp')"><i class="bi bi-info-circle" aria-hidden="true"></i></button>
                 <GxCollapse><div v-show="state.widgetsHelpOpen" id="gx-layout-widgets-help" class="gx-layout__popover" @click="closeFloating('widgetsHelpOpen')" @keydown.esc="closeFloating('widgetsHelpOpen')">
-                  <p>Tap a widget to edit it.</p><p>Drag ⠿ to reorder. The top row is in front, and alerts stay above all widgets. Each side camera can be locked to the front; unlock it to move widgets above.</p><p>The eyes follow the chosen scene. Choose General edit to arrange every enabled widget. Hiding a widget with the eye affects only this scene's preview.</p>
+                  <p>Tap a widget to edit it.</p><p>Drag ⠿ to reorder. The top row is in front, and alerts stay above all widgets. Each Adj Spot Camera can be locked to the front; unlock it to move widgets above.</p><p>The eyes follow the chosen scene. Choose General edit to arrange every enabled widget. Hiding a widget with the eye affects only this scene's preview.</p>
                 </div></GxCollapse>
               </div>
               <div v-if="!projection && leadRows.length" class="gx-actions">
@@ -443,7 +443,7 @@ export const ONROAD_LAYOUT_TEMPLATE = `
               <h5 class="gx-layout__display-group">Camera</h5>
               <GalaxySettingRow feedback="draft" :row="switchRow('Show Camera on Blind-Spot Warning', state.draft.blindSpotCamera === true)" :index="0"
                 :disabled="!editable || !!state.drag || !!state.layerDrag || !projectionHasPipWidget" :save-value="(index, value) => setProjectionDisplay('blindSpotCamera', value)" />
-              <p v-if="!projectionHasPipWidget" class="gx-note">Add a left or right blind-spot camera widget to enable this option.</p>
+              <p v-if="!projectionHasPipWidget" class="gx-note">Add a left or right Adj Spot Camera widget to enable this option.</p>
               <GalaxySettingRow feedback="draft" :row="switchRow('Large UI Gamma Effect', state.draft.largeUiGammaTrial)" :index="1"
                 :disabled="!editable || !!state.drag || !!state.layerDrag" :save-value="(index, value) => setLargeUiGammaTrial(value)" />
               <p class="gx-note">The large UI road-camera color effect on StarPort (not shown in the preview).</p>
@@ -471,7 +471,7 @@ export const ONROAD_LAYOUT_TEMPLATE = `
       </GxDialog>
       <GxDialog v-if="state.pipUnlockConfirm" labelledby="gx-layout-pip-unlock-title" describedby="gx-layout-pip-unlock-body" alert @close="cancelCameraUnlock">
         <div><h3 id="gx-layout-pip-unlock-title">Unlock {{ profile?.widgets[state.pipUnlockConfirm]?.label }}?</h3>
-          <p id="gx-layout-pip-unlock-body">Warning: moving other widgets on top of this side camera may block your view of the blind-spot camera. Are you sure?</p></div>
+          <p id="gx-layout-pip-unlock-body">Warning: moving other widgets on top of this Adj Spot Camera may block your view of the Adj Spot Camera. Are you sure?</p></div>
         <div class="gx-settings__controls gx-actions">
           <button type="button" class="gx-btn gx-btn--tonal" @click="cancelCameraUnlock">Cancel</button>
           <button type="button" class="gx-btn gx-btn--danger" @click="confirmCameraUnlock">Unlock</button>

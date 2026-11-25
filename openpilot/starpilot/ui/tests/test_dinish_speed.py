@@ -751,7 +751,7 @@ def test_v5_geometry_migrates_the_card():
   doc['layouts']['large']['cruise_limits'].update(x=1550, y=638)
   doc['layouts']['large']['speed_limit_actions'] = {'x': 1550, 'y': 954, 'enabled': True}
   migrated = validate_document(doc)
-  assert migrated['version'] == 16
+  assert migrated['version'] == 17
   assert migrated['layouts']['large']['cruise_limits'] == default_document()['layouts']['large']['cruise_limits']
   assert 'speed_limit_actions' not in migrated['layouts']['large']
   assert migrated['speedSources'] is True

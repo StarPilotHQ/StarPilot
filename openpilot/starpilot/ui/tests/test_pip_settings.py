@@ -45,7 +45,7 @@ class PiPSettingsTests(unittest.TestCase):
     from openpilot.starpilot.ui.onroad_customization import PARAM_KEY, default_document, read_customization
     document = default_document()
     document["layouts"]["large"]["pip_left"]["enabled"] = False
-    document["layouts"]["compact"]["pip_right"]["enabled"] = False
+    document["layouts"]["compact"]["pip_left"]["enabled"] = False
     layout = Path(self.params.get_param_path(PARAM_KEY))
     layout.write_bytes(json.dumps(document).encode())
     from openpilot.starpilot.system.starport.projection_layout import (ProjectionLayoutSource, decode_layout_for_viewport,
@@ -61,7 +61,7 @@ class PiPSettingsTests(unittest.TestCase):
     self.assertTrue(self.owner.apply(action))
     saved = read_customization(self.params)
     self.assertTrue(all(saved["layouts"][profile][key]["enabled"]
-                        for profile in ("large", "compact") for key in ("pip_left", "pip_right")))
+                        for profile in ("large", "compact") for key in (("pip_left", "pip_right") if profile == "large" else ("pip_left",))))
     projected = decode_layout_for_viewport(projection_path.read_bytes(), viewport)
     self.assertTrue(projected["widgets"]["pip_left"]["enabled"] and projected["widgets"]["pip_right"]["enabled"])
     # A camera removed while PiP is on stays removed; turning PiP off does not touch the layout.
@@ -111,7 +111,7 @@ class PiPSettingsTests(unittest.TestCase):
     path = Path(self.params.get_param_path(MASK))
     path.write_bytes(original)
     page = self.owner.snapshot(include_editor=True)
-    self.assertEqual(page.title, 'Blind Spot Camera & Preview')
+    self.assertEqual(page.title, 'Adj Spot Camera & Preview')
     self.assertFalse(any(row.key.startswith(FORMAT_PREFIX) for row in page.rows))
     self.assertEqual(path.read_bytes(), original)
     editor, source = self.owner.editor_with_source()
@@ -237,7 +237,7 @@ class PiPSettingsTests(unittest.TestCase):
     session._pip_request_epoch = 0
     session.input = Mock()
     session._unavailable = Mock()
-    link = FeatureRow("", "Blind Spot Camera", "", page="pip", available=True)
+    link = FeatureRow("", "Adj Spot Camera", "", page="pip", available=True)
     session._appearance_ui(FeatureUiAction("open", link))
     self.assertEqual(session.appearance_page, "appearance")
     session.appearance_page = "pip"
@@ -312,7 +312,7 @@ class PiPSettingsTests(unittest.TestCase):
          patch.object(appearance_compact.gui_app, "texture", return_value=None):
       appearance_compact.AppearanceCompact(Session()).entry_button().click()
       parent = shown[-1]
-      self.assertFalse(any(item.label == "blind spot camera" for item in parent.items))
+      self.assertFalse(any(item.label == "Adj Spot Camera" for item in parent.items))
       appearance_compact.AppearanceCompact(Session()).open("pip")
       child = shown[-1]
       next(item for item in child.items if item.label == "show on turn signal").click()

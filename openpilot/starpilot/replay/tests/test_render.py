@@ -574,12 +574,14 @@ def test_published_readiness_survives_buffering_but_rejects_seeks_and_old_epochs
   assert sleeps == [.01] * len(times)  # Native playback keeps its original idle wait.
 
 
+@pytest.mark.parametrize('profile', ('compact', 'large'))
 @pytest.mark.parametrize('matching_frame', (False, True))
 @pytest.mark.parametrize('streams,expected_streams', (({0, 2}, [0, 2]), ([2, 0], [2, 0])))
-def test_epoch_reset_preserves_native_camera_stream_and_eligible_paused_frame(monkeypatch, matching_frame, streams, expected_streams):
+def test_epoch_reset_preserves_native_camera_stream_and_eligible_paused_frame(monkeypatch, matching_frame, streams, expected_streams, profile):
   monkeypatch.setattr('openpilot.starpilot.ui.runtime_snapshot.RuntimeSnapshotAdapter', Mock())
   monkeypatch.setattr('openpilot.starpilot.ui.pip_render.PiPRenderer', Mock())
   core: Any = object.__new__(Compositor)
+  core.profile = profile
   client = Mock(frame_id=5 if matching_frame else 4, timestamp_sof=9_000_000_000, timestamp_eof=9_010_000_000)
   client.is_connected.return_value = True
   frame = SimpleNamespace(frame_id=5)
@@ -607,6 +609,8 @@ def test_epoch_reset_preserves_native_camera_stream_and_eligible_paused_frame(mo
                             _offroad_transition_callbacks=callbacks)
   core.render_receipts = {'modelV2': 1}
   core.reset_epoch(3)
+  from openpilot.starpilot.ui.pip_render import PiPRenderer
+  assert PiPRenderer.call_args.args[0] == ('curved' if profile == 'compact' else 'bubble')
   for callback in callbacks:
     callback()
   assert core.render_receipts == {}

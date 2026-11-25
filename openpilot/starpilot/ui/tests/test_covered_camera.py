@@ -287,3 +287,9 @@ def test_large_shell_forwards_the_saved_camera_and_temporary_reverse(monkeypatch
   session.view.camera_layer(rl.Rectangle(0, 0, 2160, 1080), state)
   kwargs = camera.render_camera_model_layer.call_args.kwargs
   assert kwargs['camera_view'] is choice and kwargs['reverse_driver'] is reverse
+
+
+@pytest.mark.parametrize('profile,shape', [(runtime_app.Profile.COMPACT, 'curved'), (runtime_app.Profile.LARGE, 'bubble')])
+def test_side_camera_shape_follows_device_profile(lifecycle, monkeypatch, request, profile, shape):
+  make_session(monkeypatch, request, profile, Mock())
+  runtime_app.PiPRenderer.assert_called_once_with(shape)

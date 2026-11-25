@@ -317,7 +317,7 @@ class Compositor:
       from openpilot.starpilot.ui.pip_render import PiPRenderer
       self.pip_saved = read_pip(ui_state.params)
       self.pip_stream = ReplayCameraStream(ui_state)
-      self.pip = PiPRenderer('bubble', self.pip_stream, frame_availability=PassiveAvailability())
+      self.pip = PiPRenderer('curved' if self.profile == 'compact' else 'bubble', self.pip_stream, frame_availability=PassiveAvailability())
       self.resources.callback(lambda: self.pip.close())
       self._new_view()
       self.resources.callback(lambda: self.view.close())
@@ -443,15 +443,19 @@ class Compositor:
     signals = Signals(car is not None, bool(car.leftBlinker) if car else False, bool(car.rightBlinker) if car else False,
                       bool(car.leftBlindspot) if car else False, bool(car.rightBlindspot) if car else False)
     positions = {}
-    for side, key in zip(('left', 'right'), CAMERA_WIDGETS, strict=True):
+    for side, key in zip(('left', 'right'), CAMERA_WIDGETS if self.profile == 'large' else ('pip_left', 'pip_left'), strict=True):
       position = placement(state.customization, self.profile, key)
       if position['enabled']:
         width, height = widget_size(state.customization, self.profile, key)
         positions[side] = Rect(position['x'], position['y'], width, height)
+    if submit is not None and self.profile == 'compact':
+      submit_widget = submit
+      def submit(_key, draw):
+        submit_widget('pip_left', draw)
     status = self.pip.render(rect, saved.mask, signals, enabled=self.cabin, on_blinker=saved.on_blinker,
                              on_bsm=saved.on_bsm, invert=saved.invert, now=now / 1e9, placements=positions, submit=submit)
     if not self.cabin or status not in ('rendered', 'inactive'):
-      self.fonts.draw('RECORDED SIDE CAMERA UNAVAILABLE', FontRole.MEDIUM, 18 if self.profile == 'compact' else 25,
+      self.fonts.draw('RECORDED ADJ SPOT CAMERA UNAVAILABLE', FontRole.MEDIUM, 18 if self.profile == 'compact' else 25,
                       18 if self.profile == 'compact' else rect.x + 30,
                       180 if self.profile == 'compact' else rect.y + rect.height - 62, self.rl.Color(245, 200, 155, 255))
 
@@ -517,7 +521,7 @@ class Compositor:
     self.pip_stream._client = pip_client
     self.pip_stream.release_retired()
     self.pip_stream.reset()
-    self.pip = PiPRenderer('bubble', self.pip_stream, frame_availability=PassiveAvailability())
+    self.pip = PiPRenderer('curved' if self.profile == 'compact' else 'bubble', self.pip_stream, frame_availability=PassiveAvailability())
     self.view.close()
     self.adapter = RuntimeSnapshotAdapter(self.ui)
     self._new_view()

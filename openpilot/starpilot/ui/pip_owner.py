@@ -24,7 +24,7 @@ RESET = "pip:reset"
 EDITOR = "pip:mask:editor"
 FORMAT_PREFIX = "pip:format:"
 MASK_PREFIX = "pip:mask:"
-LABELS = {ENABLED: "Use blind spot camera", BLINKER: "Show on turn signal",
+LABELS = {ENABLED: "Use Adj Spot Camera", BLINKER: "Show on turn signal",
           BSM: "Show on blind spot warning", INVERT: "Mirror camera crop"}
 
 
@@ -230,7 +230,7 @@ class PiPOwner:
                            reason="" if live else "Open the live crop preview while parked to check the camera."))
     defaults = dict.fromkeys(BOOL_KEYS, 'Off')
     rows = [replace(row, default_value=defaults[row.key]) if row.key in defaults else row for row in rows]
-    return FeatureSettingsState(page="pip", title="Blind Spot Camera & Preview",
+    return FeatureSettingsState(page="pip", title="Adj Spot Camera & Preview",
                                 subtitle="Choose when to show the camera and adjust its crop from the live preview. " +
                                          "Resolution follows the camera automatically.",
                                 rows=tuple(rows), parked=parked)

@@ -156,7 +156,7 @@ def test_new_layouts_reject_torque_overlap_and_legacy_migration_is_targeted(prof
   original = deepcopy(doc)
   migrated = validate_document(doc)
   assert doc == original
-  assert migrated['version'] == 16
+  assert migrated['version'] == 17
   assert migrated['palette'] == doc['palette']
   assert migrated['layouts']['large']['current_speed'] == doc['layouts']['large']['current_speed']
   assert migrated['layouts'][str(profile)][owner]['y'] == default_document()['layouts'][str(profile)][owner]['y']

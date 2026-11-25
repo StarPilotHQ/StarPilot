@@ -21,7 +21,7 @@ export { layoutDocument, previewDocument, withDisplay, orderedWidgetIds, widgetP
 const previewVisibilityKey = projection => "gx-layout-preview-visibility-v2:" + (projection ? "starport" : "comma")
 const oldProjectionVisibilityKey = "gx-layout-preview-visibility-v2:android-auto"
 function loadPreviewVisibility(projection) {
-  const hidden = { large: {}, compact: {} }
+  const hidden = { large: {}, compact: projection ? {} : { pip_left: true } }
   try {
     const currentKey = previewVisibilityKey(projection)
     const raw = localStorage.getItem(currentKey) ?? (projection ? localStorage.getItem(oldProjectionVisibilityKey) : null)
@@ -377,7 +377,8 @@ export const LayoutWidgetPreview = {
         <path :d="'M ' + widget.width / 2 + ' ' + widget.height * .68 + ' Q ' + widget.width * .65 + ' ' + widget.height * .68 + ' ' + widget.width * .8 + ' ' + widget.height * .74" :stroke-width="widget.height * .18" opacity=".9" />
       </g>
       <g v-else-if="widget.kind === 'pip_camera'">
-        <circle :cx="widget.width / 2" :cy="widget.height / 2" :r="widget.width / 2 - 3" fill="#152c39" fill-opacity=".35" stroke="#5ee5ee" stroke-width="3" />
+        <rect v-if="widget.width !== widget.height" x="0" y="0" :width="widget.width" :height="widget.height" :rx="Math.min(widget.width, widget.height) * .22" fill="#152c39" fill-opacity=".35" stroke="#5ee5ee" stroke-width="3" />
+        <circle v-else :cx="widget.width / 2" :cy="widget.height / 2" :r="widget.width / 2 - 3" fill="#152c39" fill-opacity=".35" stroke="#5ee5ee" stroke-width="3" />
         <text :x="widget.width / 2" :y="widget.height / 2" text-anchor="middle" :font-size="widget.height / 10">{{ widget.label }}</text>
       </g>
       <g v-else-if="['nav_home', 'nav_work', 'bookmark'].includes(widget.kind)" :opacity="(widget.opacity ?? 100) / 100">

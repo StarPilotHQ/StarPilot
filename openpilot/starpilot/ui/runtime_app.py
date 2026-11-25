@@ -170,7 +170,7 @@ class StarShellSession(TeslaSpeedActions):
     self.network_layer = network_layer
     self.settings_layer = settings_layer
     self.fonts = BitmapFonts(profile, Path(font_dir) if font_dir else default_font_directory())
-    self.pip_renderer = PiPRenderer("bubble")
+    self.pip_renderer = PiPRenderer("curved" if profile == Profile.COMPACT else "bubble")
     self.pip_warning = PiPWarningSource()
     self._pip_saved = None
     self._vasm_saved = None
@@ -905,7 +905,7 @@ class StarShellSession(TeslaSpeedActions):
       self.pip_renderer.deactivate()
       return
     camera_positions = {}
-    for side, key in zip(("left", "right"), CAMERA_WIDGETS, strict=True):
+    for side, key in zip(("left", "right"), CAMERA_WIDGETS if self.profile == Profile.LARGE else ("pip_left", "pip_left"), strict=True):
       position = placement(state.customization, self.profile, key)
       if position["enabled"]:
         width, height = widget_size(state.customization, self.profile, key)
@@ -913,9 +913,11 @@ class StarShellSession(TeslaSpeedActions):
         camera_positions[side] = Rect(position["x"] + shift, position["y"], width, height)
     status = self.pip_renderer.render(rect, saved.mask, signals, enabled=True,
                                       on_blinker=saved.on_blinker, on_bsm=saved.on_bsm, invert=saved.invert,
-                                      placements=camera_positions, **({"submit": submit} if submit is not None else {}))
+                                      placements=camera_positions,
+                                      **({"submit": (lambda _key, draw: submit("pip_left", draw)) if self.profile == Profile.COMPACT else submit}
+                                         if submit is not None else {}))
     if status not in ("rendered", "inactive") and state.alert.size == AlertSize.NONE:
-      self.fonts.draw("SIDE CAMERA UNAVAILABLE", FontRole.MEDIUM,
+      self.fonts.draw("ADJ SPOT CAMERA UNAVAILABLE", FontRole.MEDIUM,
                       18 if self.profile == Profile.COMPACT else 25,
                       18 if self.profile == Profile.COMPACT else rect.x + 30,
                       180 if self.profile == Profile.COMPACT else rect.y + rect.height - 62,

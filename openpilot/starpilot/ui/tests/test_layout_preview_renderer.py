@@ -319,15 +319,22 @@ if __name__ == "__main__":
   unittest.main()
 
 
-def test_native_preview_draws_independent_camera_circles_without_camera_input():
+def test_native_preview_matches_camera_geometry_without_camera_input():
   for profile, width in ((Profile.COMPACT, 536), (Profile.LARGE, 1860), (Profile.LARGE, 2160)):
     canvas = _Canvas.__new__(_Canvas)
     canvas.profile, canvas.viewport = profile, None
     document = default_document()
     state = replace(sample_state('engaged', document), viewport_width=width)
     with patch('openpilot.starpilot.ui.layout_preview_renderer.rl.draw_circle_v') as circle, \
-         patch('openpilot.starpilot.ui.layout_preview_renderer.rl.draw_ring') as ring:
+         patch('openpilot.starpilot.ui.layout_preview_renderer.rl.draw_ring') as ring, \
+         patch('openpilot.starpilot.ui.layout_preview_renderer.rl.draw_rectangle_rounded') as panel:
       canvas._render_side_cameras(state)
+      if profile == Profile.COMPACT:
+        assert panel.call_count == 1
+        assert circle.call_count == ring.call_count == 0
+        target = panel.call_args.args[0]
+        assert (target.x, target.y, target.width, target.height) == (0, 0, 476, 240)
+        continue
       assert circle.call_count == ring.call_count == 2
       right_center, radius = circle.call_args.args[:2]
       assert right_center.x + radius == (width - 54 if profile == Profile.LARGE else 460)

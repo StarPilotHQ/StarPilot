@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { compile } from "../web/vendor/vue/vue.esm-browser.js"
 import * as documentHelpers from "../web/js/onroad-layout-document.js"
 import * as layoutModule from "../web/js/onroad-layout.js"
 import { ONROAD_LAYOUT_TEMPLATE } from "../web/js/onroad-layout-template.js"
@@ -54,7 +55,7 @@ export function snapshot() {
   metadata.roadColorFields = [{ id: 'path', label: 'Path', default: '#30FF9CFF' },
     { id: 'pathEdge', label: 'Path edges', default: '#00FF40FF' }, { id: 'laneLines', label: 'Lane lines', default: '#FFFFFFFF' }]
   metadata.profiles.compact.widgets.speed_limit.visualInsetTop = 32
-  const document = { version: 16, roadColors: { large: {}, compact: {} }, widgetColors: { large: {}, compact: {} }, palette: Object.fromEntries(metadata.paletteFields.map((field) => [field.id, field.default])),
+  const document = { version: 17, roadColors: { large: {}, compact: {} }, widgetColors: { large: {}, compact: {} }, palette: Object.fromEntries(metadata.paletteFields.map((field) => [field.id, field.default])),
     layouts: Object.fromEntries(Object.entries(metadata.profiles).map(([id, profile]) => [id,
       Object.fromEntries(Object.entries(profile.widgets).map(([key, definition]) => [key,
         { ...definition.default, ...(definition.resizable ? { size: definition.resizable.default } : {}) }]))])) }
@@ -364,6 +365,11 @@ try {
   Object.defineProperty(globalThis, "localStorage", { configurable: true, value: {
     getItem: key => preferences.get(key) ?? null, setItem: (key, value) => preferences.set(key, value)
   } })
+  assert.equal(editor().vm.state.hiddenPreviewWidgets.compact.pip_left, true)
+  assert.equal(OnroadLayoutPage.setup({ projection: true }).state.hiddenPreviewWidgets.compact.pip_left, undefined)
+  preferences.set("gx-layout-preview-visibility-v2:comma", JSON.stringify({ compact: { pip_left: false } }))
+  assert.equal(editor().vm.state.hiddenPreviewWidgets.compact.pip_left, false)
+  preferences.delete("gx-layout-preview-visibility-v2:comma")
   const preference = editor().vm
   assert.equal(preference.state.snapEnabled, true)
   preference.toggleSnap()
@@ -1386,11 +1392,11 @@ console.log("Ford rear fog: make visibility, saved placement and strict metadata
   assert.equal(clampPlacement(profile, 'speed_limit', 330, 16, sample.document.layouts.compact).x, 320)
 }
 
-// The device writes version 16 once the speed limit actions widget is folded into the sign.
+// The device writes version 17 with full-panel C4 side cameras.
 {
   const sample = snapshot()
   assert.equal(validDocument(sample.document, sample.metadata), true)
-  sample.document.version = 15
+  sample.document.version = 16
   assert.equal(validDocument(sample.document, sample.metadata), false)
 }
 
@@ -1403,3 +1409,45 @@ for (const invalidOffset of [true, null, "1", NaN, Infinity, -5.1, 5.1]) {
   assert.equal(validDocument(document, speedAdjustment.metadata), false)
 }
 assert.ok(SETTINGS_SECTIONS.find(section => section.id === "developer").pages.includes("developer"))
+
+
+// C4 has one locked camera widget covering the road panel.
+{
+  const sample = snapshot()
+  const profile = sample.metadata.profiles.compact
+  for (const side of ["left"]) {
+    const id = `pip_${side}`
+    profile.widgets[id] = widget("Adj Spot Camera", "pip_camera", 476, 240, 0, 0)
+    sample.document.layouts.compact[id] = { x: 0, y: 0, enabled: side === "left" }
+    assert.deepEqual(clampPlacement(profile, id, 300, 100, sample.document.layouts.compact), { x: 0, y: 0 })
+    assert.deepEqual(documentHelpers.widgetSize(profile.widgets[id], sample.document.layouts.compact[id]), [476, 240])
+  }
+  assert.equal(validDocument(sample.document, sample.metadata), true)
+  const vm = editor().vm
+  vm.state.data = sample; vm.state.draft = copy(sample.document); vm.state.profile = "compact"
+  assert.deepEqual(vm.cameraIds, ["pip_left"])
+  assert.deepEqual(vm.lockedCameraIds, ["pip_left"])
+  const original = copy(vm.state.draft)
+  assert.equal(vm.previewHidden("pip_left"), true)
+  assert.equal(vm.renderWidgets.some(widget => widget.id === "pip_left"), false)
+  vm.togglePreviewVisibility("pip_left")
+  assert.equal(vm.previewHidden("pip_left"), false)
+  assert.equal(vm.renderWidgets.some(widget => widget.id === "pip_left"), true)
+  assert.deepEqual(vm.state.draft, original)
+  assert.equal(vm.dirty, false)
+}
+
+
+// The actual Vue preview uses the same device-specific silhouettes as onroad.
+{
+  const render = compile(LayoutWidgetPreview.template, { decodeEntities: value => value.replaceAll("&amp;", "&") })
+  const nodes = vnode => [vnode, ...(Array.isArray(vnode.children) ? vnode.children.flatMap(nodes) : [])]
+  for (const [profile, width, height, shape] of [["large", 600, 600, "circle"], ["compact", 476, 240, "rect"]]) {
+    const tree = render({ widget: widget("Adj Spot Camera", "pip_camera", width, height, 0, 0),
+      palette: {}, sprite: null, native: false, profile }, [])
+    const camera = nodes(tree).find(node => node.type === shape)
+    assert.ok(camera, `${profile} renders a ${shape}`)
+    assert.equal(nodes(tree).some(node => node.type === (shape === "rect" ? "circle" : "rect")), false)
+    if (shape === "rect") assert.deepEqual([camera.props.width, camera.props.height, camera.props.rx], [476, 240, 52.8])
+  }
+}

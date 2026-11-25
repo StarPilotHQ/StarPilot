@@ -814,3 +814,28 @@ def test_white_balance_switch_follows_saved_choice(monkeypatch):
   FakeParams.value = False
   assert switch.enabled(0.5)
   assert not switch.enabled(1.5)
+
+
+def test_c4_shell_passes_full_panel_placements_and_saved_triggers():
+  from openpilot.starpilot.ui.runtime_app import StarShellSession
+  from openpilot.starpilot.ui.presentation import Profile
+  shell = StarShellSession.__new__(StarShellSession)
+  shell.profile = Profile.COMPACT
+  shell._pip_saved = SimpleNamespace(enabled=True, mask=starting_mask(1928, 1208), invert=True,
+                                     on_blinker=False, on_bsm=True)
+  shell._pip_signals_cache = Signals(True, False, False, True, False)
+  shell.pip_renderer = Mock()
+  shell.pip_renderer.render.return_value = "rendered"
+  document = default_document()
+  state = SimpleNamespace(customization=document)
+  shell._render_pip(Rect(0, 0, 476, 240), state)
+  options = shell.pip_renderer.render.call_args.kwargs
+  assert options["placements"] == {"left": Rect(0, 0, 476, 240), "right": Rect(0, 0, 476, 240)}
+  assert options["on_blinker"] is False and options["on_bsm"] is True and options["invert"] is True
+  submit, draw = Mock(), Mock()
+  shell._render_pip(Rect(0, 0, 476, 240), state, submit=submit)
+  shell.pip_renderer.render.call_args.kwargs["submit"]("pip_right", draw)
+  submit.assert_called_once_with("pip_left", draw)
+  document["layouts"]["compact"]["pip_left"]["enabled"] = False
+  shell._render_pip(Rect(0, 0, 476, 240), state)
+  assert shell.pip_renderer.render.call_args.kwargs["placements"] == {}

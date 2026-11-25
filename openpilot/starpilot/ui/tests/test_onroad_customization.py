@@ -13,7 +13,7 @@ import pytest
 from openpilot.starpilot.ui.appearance_preferences import OnroadAppearance
 from openpilot.starpilot.ui.onroad_customization import (
   CLOCK_WIDGET, DEFAULT_WIDGET_ORDER, MAX_BYTES, STOPPED_TIMER_WIDGET, customization_metadata, default_document, offset, read_customization,
-  validate_document, decode_document, widget_palette, rgba, widget_size)
+  validate_document, camera_widgets, decode_document, widget_palette, rgba, widget_size)
 from openpilot.starpilot.ui.onroad_compact_widgets import CompactHudRenderer
 from openpilot.starpilot.ui.onroad_large_widgets import CurrentSpeedHud, UnifiedSpeedWidget, SteeringWheelWidget
 from openpilot.starpilot.ui.onroad_state import (
@@ -69,7 +69,7 @@ def test_v12_portrait_upgrade_preserves_preferences_and_is_idempotent():
   before = copy.deepcopy(old)
   updated = validate_document(old)
   expected = copy.deepcopy(old)
-  expected['version'] = 16
+  expected['version'] = 17
   expected['layouts']['compact']['speed_limit'].update(x=320, y=16)
   assert old == before and updated == expected
   assert validate_document(updated) == updated
@@ -120,7 +120,7 @@ def test_v13_notice_upgrade_preserves_preferences_and_only_moves_a_conflicting_s
   before = copy.deepcopy(old)
   updated = validate_document(old)
   expected = copy.deepcopy(old)
-  expected['version'] = 16
+  expected['version'] = 17
   expected['layouts']['compact']['speed_limit']['y'] = min(sign_y, 16)
   assert old == before and updated == expected
   assert validate_document(updated) == updated
@@ -206,7 +206,7 @@ def test_v7_speed_layout_migration_is_bounded_non_mutating_and_idempotent():
   original = copy.deepcopy(document)
   migrated = validate_document(document)
   assert document == original
-  assert migrated['version'] == 16 and validate_document(migrated) == migrated
+  assert migrated['version'] == 17 and validate_document(migrated) == migrated
   assert migrated['layouts']['large']['cruise_limits']['x'] == 1391
   assert migrated['layouts']['large']['current_speed'] == original['layouts']['large']['current_speed']
   assert migrated['layouts']['large']['cem_gauge'] == {'x': 56, 'y': 536, 'enabled': True}
@@ -235,7 +235,7 @@ def test_v8_restores_only_compact_speed_defaults_and_preserves_customizations(cu
   original = copy.deepcopy(document)
   migrated = validate_document(document)
   assert document == original
-  assert migrated['version'] == 16 and validate_document(migrated) == migrated
+  assert migrated['version'] == 17 and validate_document(migrated) == migrated
   assert migrated['layouts']['large'] == document['layouts']['large']
   assert migrated['widgetColors'] == document['widgetColors']
   assert migrated['widgetOrder'] == document['widgetOrder']
@@ -274,7 +274,7 @@ def test_v8_layout_without_rails_preserves_customizations():
   original = copy.deepcopy(document)
   migrated = validate_document(document)
   assert document == original
-  assert migrated['version'] == 16 and validate_document(migrated) == migrated
+  assert migrated['version'] == 17 and validate_document(migrated) == migrated
   assert migrated['layouts']['large'] == original['layouts']['large']
   assert migrated['layouts']['compact']['speed_limit'] == default_document()['layouts']['compact']['speed_limit']
   assert migrated['palette'] == original['palette']
@@ -387,7 +387,7 @@ def test_v3_layout_migrates_wheel_size_without_changing_saved_placement_or_color
   for profile in ("large", "compact"):
     del document["layouts"][profile]["steering_wheel"]["size"]
   migrated = validate_document(document)
-  assert migrated["version"] == 16
+  assert migrated["version"] == 17
   assert migrated["palette"] == document["palette"]
   assert migrated["layouts"]["large"]["steering_wheel"] == {"x": 1300, "y": 100, "enabled": False, "size": 192}
   assert migrated["layouts"]["compact"]["steering_wheel"] == {"x": 90, "y": 130, "enabled": True, "size": 50}
@@ -425,7 +425,7 @@ def test_pre_action_saved_layout_migrates_without_losing_positions_or_palette(re
 def test_duplicate_key_cannot_apply_otherwise_valid_placement():
   document = default_document()
   document["layouts"]["large"]["current_speed"]["x"] = 100
-  raw = json.dumps(document).replace('"version": 16', '"version": 11, "version": 11').encode()
+  raw = json.dumps(document).replace('"version": 17', '"version": 11, "version": 11').encode()
   with patch("openpilot.starpilot.ui.onroad_customization.read_saved", return_value=(raw, True)):
     assert read_customization(Mock()) == default_document()
 
@@ -440,7 +440,7 @@ def test_v9_large_sign_migration_preserves_customizations_and_clamps_bottom_edge
   before = deepcopy(old)
   updated = validate_document(old)
   assert old == before
-  assert updated['version'] == 16
+  assert updated['version'] == 17
   assert updated['layouts']['large']['cruise_limits']['y'] == default_document()['layouts']['large']['cruise_limits']['y']
   assert updated['layouts']['compact'] == before['layouts']['compact']
   assert validate_document(updated) == updated
@@ -680,7 +680,7 @@ def test_v1_palette_positions_and_visibility_migrate_without_mutating_source():
   original = copy.deepcopy(old)
   result = decode_document(json.dumps(old).encode())
   assert old == original
-  assert result['version'] == 16
+  assert result['version'] == 17
   assert result['palette'] == old['palette']
   for profile, layout in old['layouts'].items():
     for key, position in layout.items():
@@ -836,28 +836,30 @@ def test_overlapping_sign_stays_visible_and_chooser_keeps_exact_input():
 
 
 @pytest.mark.parametrize('profile', ['large', 'compact'])
-def test_pip_circles_are_independent_widgets_and_migrate_old_camera_pair(profile):
+def test_pip_widgets_match_device_geometry_and_migrate_old_camera_pair(profile):
   import copy
   document = default_document()
   metadata = customization_metadata()['profiles'][profile]['widgets']
   assert 'vasm' not in metadata
-  for key in ('pip_left', 'pip_right'):
+  for key in camera_widgets(profile):
     assert metadata[key]['kind'] == 'pip_camera'
-    assert metadata[key]['width'] == metadata[key]['height']
-  right = copy.deepcopy(document['layouts'][profile]['pip_right'])
+    assert metadata[key]['label'] == (f"Adj Spot Camera {key.removeprefix('pip_').title()}" if profile == 'large' else 'Adj Spot Camera')
+    assert (metadata[key]['width'], metadata[key]['height']) == ((600, 600) if profile == 'large' else (476, 240))
+  right = copy.deepcopy(document['layouts']['large']['pip_right'])
   document['layouts'][profile]['pip_left']['enabled'] = False
-  assert validate_document(document)['layouts'][profile]['pip_right'] == right
+  assert validate_document(document)['layouts']['large']['pip_right'] == right
 
   legacy = copy.deepcopy(document)
   for name, layout in legacy['layouts'].items():
     layout.pop('pip_left')
-    layout.pop('pip_right')
+    layout.pop('pip_right', None)
     layout['vasm'] = {'x': 1200 if name == 'large' else 300, 'y': 650 if name == 'large' else 30, 'enabled': False}
   migrated = validate_document(legacy)
   for name, layout in migrated['layouts'].items():
     assert 'vasm' not in layout
-    assert not layout['pip_left']['enabled'] and not layout['pip_right']['enabled']
-    assert layout['pip_left']['x'] <= layout['pip_right']['x']
+    assert all(not layout[key]['enabled'] for key in camera_widgets(name))
+    if name == 'large':
+      assert layout['pip_left']['x'] <= layout['pip_right']['x']
     assert layout['current_speed' if name == 'large' else 'max_speed'] == document['layouts'][name]['current_speed' if name == 'large' else 'max_speed']
   assert validate_document(migrated) == migrated
 
@@ -1053,3 +1055,18 @@ def test_compact_navigation_upgrade_preserves_saved_layout_and_order():
   assert upgraded['layouts']['compact']['nav_card'] == default_document()['layouts']['compact']['nav_card']
   assert upgraded['widgetOrder']['compact'] == older['widgetOrder']['compact'] + ['nav_card']
   assert {k: v for k, v in upgraded['layouts']['compact'].items() if k != 'nav_card'} == older['layouts']['compact']
+
+
+def test_c4_camera_upgrade_preserves_visibility_and_other_widgets():
+  document = default_document()
+  document["version"] = 16
+  document["layouts"]["compact"]["pip_left"].update(x=16, y=144, enabled=False)
+  document["layouts"]["compact"]["pip_right"] = {"x": 380, "y": 144, "enabled": True}
+  document["widgetColors"]["compact"]["pip_right"] = {}
+  document["widgetOrder"] = {profile: list(widgets) for profile, widgets in document["layouts"].items()}
+  migrated = validate_document(document)
+  assert migrated["layouts"]["compact"]["pip_left"] == {"x": 0, "y": 0, "enabled": True}
+  assert "pip_right" not in migrated["layouts"]["compact"]
+  assert migrated["layouts"]["large"] == document["layouts"]["large"]
+  assert migrated["layouts"]["compact"]["max_speed"] == document["layouts"]["compact"]["max_speed"]
+  assert validate_document(migrated) == migrated
