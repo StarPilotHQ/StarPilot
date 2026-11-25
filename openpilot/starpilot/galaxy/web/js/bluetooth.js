@@ -1,4 +1,4 @@
-import { ConnectionLogs, ReportingGuide } from "./local-access.js"
+import { ConnectionLogs } from "./local-access.js"
 import { WikiHelp } from './wiki-help.js'
 import { UnidenPanel } from './uniden.js'
 import { GxState } from "./state.js"
@@ -170,7 +170,7 @@ export class BluetoothFeed {
 }
 
 export const BluetoothPage = {
-  components: { WikiHelp, UnidenPanel, GxState, GxNotice, BluetoothTabs, GxDialog, ConnectionLogs, ReportingGuide },
+  components: { WikiHelp, UnidenPanel, GxState, GxNotice, BluetoothTabs, GxDialog, ConnectionLogs },
   props: { go: { type: Function, default: path => { location.hash = path } }, unidenSettings: Boolean, mode: { type: String, required: true }, unauthorized: { type: Function, required: true } },
   data: () => ({ status: null, busy: false, error: "", pairValue: "", now: Date.now(), claimAt: Date.now(), forgetting: null, adding: false, dismissedPairing: null }),
   mounted() {
@@ -323,7 +323,6 @@ export const BluetoothPage = {
             <button class="gx-btn gx-btn--danger" :disabled="forgetting.state === 'working'" @click="confirmForget">{{ forgetting.state === 'working' ? 'Forgetting…' : forgetting.state === 'failed' ? 'Try again' : 'Forget' }}</button></div>
         </template>
       </GxDialog>
-      <ConnectionLogs v-if="mode === 'local' && !unidenSettings" panel show-controller :on-unauthorized="unauthorized" @help="go('/logs/help')" />
-    <ReportingGuide v-if="mode === 'local' && !unidenSettings" />
+      <ConnectionLogs v-if="mode === 'local' && !unidenSettings" panel :on-unauthorized="unauthorized" @help="go('/logs/help/connection')" />
   </section>`,
 }

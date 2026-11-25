@@ -77,13 +77,6 @@
           "availability": "local-only"
         },
         {
-          "name": "StarPort Logs",
-          "path": "/logs/starport",
-          "icon": "bi-phone",
-          "description": "Session logs and a download for bug reports",
-          "availability": "local-only"
-        },
-        {
           "name": "tmux Live View",
           "path": "/logs/tmux",
           "icon": "bi-terminal",
@@ -108,7 +101,7 @@
           "name": "Get help",
           "path": "/logs/help",
           "icon": "bi-life-preserver",
-          "description": "Driving, phone connection, controllers, and StarPort support",
+          "description": "Send StarPort, phone app, or controller logs, or ask on Discord",
           "availability": "always"
         }
       ]

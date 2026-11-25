@@ -65,7 +65,7 @@ try {
 
 // Compile the changed page templates to catch invalid nesting or Vue directives.
 for (const name of ['models', 'settings', 'navigation', 'starport', 'spotify', 'bluetooth', 'cameras',
-  'home', 'system-monitor', 'sentry', 'vasm', 'pip', 'galaxy', 'networks', 'tools', 'logs', 'software-status', 'driving',
+  'home', 'system-monitor', 'sentry', 'vasm', 'pip', 'galaxy', 'networks', 'tools', 'logs', 'log-help', 'software-status', 'driving',
   'longitudinal-curves', 'flm', 'record-history', 'onroad-layout-template', 'settings-recovery', 'diagnostic-tools']) {
   const source = readFileSync(new URL(`../web/js/${name}.js`, import.meta.url), 'utf8')
   const templates = [...source.matchAll(/(?:template:\s*|ONROAD_LAYOUT_TEMPLATE = )`([\s\S]*?)`/g)]

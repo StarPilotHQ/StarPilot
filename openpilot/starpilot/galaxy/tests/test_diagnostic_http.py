@@ -5,11 +5,13 @@ import json
 from pathlib import Path
 import tempfile
 import threading
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
 from openpilot.starpilot.galaxy.access import GalaxyAccessOwner
+from openpilot.starpilot.galaxy.log_relay_stage import LogRelayStager
 from openpilot.starpilot.galaxy.server import make_server
 from openpilot.starpilot.galaxy.settings import AuthorityContext, SettingsGateway
 
@@ -25,11 +27,24 @@ class DiagnosticHTTPTest(unittest.TestCase):
     self.console = SimpleNamespace(snapshot=lambda: self.record('console', {'available': True, 'text': 'actual console',
       'truncated': False, 'pane': 'comma:0.0', 'reason': ''}))
     self.settings = SimpleNamespace(diagnostics=lambda: self.record('settings', {'schemaVersion': 1, 'sections': []}))
+    self.stage_posts = []
+    self.stage_response = None
+    self.stager = LogRelayStager(
+      lambda **_kw: ('starport-logs.zip', b'PK\x03\x04' + b'0' * 32),
+      lambda: b'PK\x03\x04' + b'1' * 32,
+      lambda: b'PK\x03\x04' + b'2' * 32,
+      post=self._stage_post,
+      official=lambda: True,
+    )
     self.server = make_server(port=0, owner=self.access, parked=lambda: True, local_access=self.addresses,
-                              tmux_live=self.console, settings=self.settings)
+                              tmux_live=self.console, settings=self.settings, log_relay_stager=self.stager)
     self.thread = threading.Thread(target=self.server.serve_forever, kwargs={'poll_interval': .01}, daemon=True)
     self.thread.start()
     self.cookie = ''
+
+  def _stage_post(self, url, **kwargs):
+    self.stage_posts.append((url, kwargs))
+    return self.stage_response
 
   def tearDown(self):
     self.server.shutdown()
@@ -57,7 +72,7 @@ class DiagnosticHTTPTest(unittest.TestCase):
       connection.close()
 
   def test_real_http_routes_authentication_and_no_mutations(self):
-    for path in ('/api/local-access', '/api/local-access/capture', '/api/tmux/live', '/api/troubleshoot'):
+    for path in ('/api/local-access', '/api/local-access/capture', '/api/tmux/live', '/api/troubleshoot', '/api/logs/stage'):
       self.assertEqual(self.request(path, remote=True)[0], 401)
     self.assertEqual(self.calls, [])
     status, _, self.cookie = self.request('/api/auth/session')
@@ -73,21 +88,35 @@ class DiagnosticHTTPTest(unittest.TestCase):
     self.assertNotEqual(self.request('/api/tmux/live', method='POST', payload={})[0], 200)
     self.assertEqual(len(self.calls), before)
 
-  def test_support_code_captures_on_device_and_confirms_delivery(self):
+  def test_log_stage_routes_require_session_and_stage_bundle(self):
+    self.assertEqual(self.request('/api/logs/stage', method='POST', payload={'kind': 'starport', 'note': 'Blank'}, remote=True)[0], 401)
     _, _, self.cookie = self.request('/api/auth/session')
-    code = 'ab12' * 4
-    path = '/api/companion/support-ticket'
-    def post(action):
-      return self.request(path, method='POST', payload={'code': code, 'action': action})
-    ticket = Mock(status_code=200)
-    ticket.json.return_value = {'title': 'Lost network', 'kind': 'connection'}
-    receipt = Mock(status_code=200)
-    receipt.json.return_value = {'sent': True}
-    with patch('requests.post', side_effect=[ticket, ticket, receipt]) as relay:
-      self.assertEqual(post('check')[:2], (200, {'kind': 'connection', 'title': 'Lost network'}))
-      self.assertEqual(post('send')[:2], (200, {'sent': True}))
-      self.assertTrue(relay.call_args.kwargs['json']['archive'].startswith('UEsD'))
-      self.assertFalse(relay.call_args.kwargs['allow_redirects'])
+    claim_url = 'https://starpilot-log-relay.nathan-g-hubbard.workers.dev/report/galaxy/claim/' + ('a' * 64)
+    self.stage_response = Mock(status_code=200)
+    self.stage_response.json.return_value = {'claimUrl': claim_url}
+    status, idle, _ = self.request('/api/logs/stage')
+    self.assertEqual(status, 200)
+    self.assertEqual(idle['state'], 'idle')
+    self.assertTrue(idle['available'])
+
+    status, accepted, _ = self.request('/api/logs/stage', method='POST',
+                                       payload={'kind': 'connection', 'phone': 'ios', 'note': 'Lost network'})
+    self.assertEqual(status, 202)
+    self.assertEqual(accepted['kind'], 'connection')
+
+    deadline = time.monotonic() + 2
+    state = accepted
+    while state['state'] == 'staging' and time.monotonic() < deadline:
+      time.sleep(0.01)
+      _, state, _ = self.request('/api/logs/stage')
+    self.assertEqual(state['state'], 'ready')
+    self.assertEqual(state['claimUrl'], claim_url)
+    self.assertEqual(len(self.stage_posts), 1)
+    _, kwargs = self.stage_posts[0]
+    self.assertFalse(kwargs['allow_redirects'])
+    self.assertEqual(kwargs['headers']['X-Galaxy-Kind'], 'connection')
+    self.assertEqual(kwargs['headers']['X-Galaxy-Platform'], 'ios')
+    self.assertIn('Lost%20network', kwargs['headers']['X-Galaxy-Note'])
 
   def test_authenticated_forwarded_transport_uses_same_tools(self):
     status, _, self.cookie = self.request('/api/auth/login', method='POST', payload={'password': 'test-password-123'}, remote=True)

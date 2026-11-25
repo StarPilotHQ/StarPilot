@@ -69,43 +69,48 @@ assert.ok(!GalaxyPage.template.includes('<LocalAccess'))
 compile(GalaxyPage.template, { decodeEntities: value => value.replaceAll('&amp;', '&') })
 console.log('Galaxy local access remains independent of app installation')
 
-const capture = { onUnauthorized() { assert.fail('unexpected sign-in request') },
+const capture = { panel: false, controller: false, onUnauthorized() { assert.fail('unexpected sign-in request') },
   ...ConnectionLogs.data(), ...ConnectionLogs.methods }
 const originalFetch = globalThis.fetch
+const originalDocument = globalThis.document
+const downloads = []
+globalThis.document = {
+  createElement(tag) {
+    assert.equal(tag, 'a')
+    return { href: '', download: '', click() { downloads.push({ href: this.href, download: this.download }) }, remove() {} }
+  },
+  body: { appendChild() {} },
+}
 try {
   globalThis.fetch = async (url, options) => {
     assert.equal(url, './api/local-access/capture')
     assert.equal(options.credentials, 'same-origin')
     return { ok: true, json: async () => ({ schemaVersion: 1, zipBase64: 'UEsDBAAAAAAAAAAAAAAAAAAAAAAAAAAA' }) }
   }
-  await capture.captureConnectionLogs()
-  assert.equal(capture.capture.type, 'application/zip')
-  assert.equal(capture.captureRequest, null)
-  capture.resetCapture()
-  assert.equal(capture.capture, null)
-} finally { globalThis.fetch = originalFetch }
-const thread = { ...ConnectionLogs.data(), ...ConnectionLogs.methods, supportCode: 'AB12 CD34-EF56' }
-try {
+  await capture.downloadConnectionLogs()
+  assert.equal(capture.captureBusy, false)
+  assert.equal(capture.captureError, '')
+  assert.equal(downloads.at(-1).download, 'starpilot-connection-logs.zip')
+
+  const controllerCapture = { panel: true, controller: true, onUnauthorized() { assert.fail('unexpected sign-in request') },
+    ...ConnectionLogs.data(), ...ConnectionLogs.methods }
   globalThis.fetch = async (url, options) => {
-    assert.equal(url, './api/companion/support-ticket')
-    const { action, code } = JSON.parse(options.body)
-    assert.equal(code, 'ab12cd34ef56')
-    const body = action === 'check' ? { title: 'Lost network', kind: 'connection' } : { sent: true }
-    return { ok: true, json: async () => body }
+    assert.equal(url, './api/controllers/log/capture')
+    assert.equal(options.credentials, 'same-origin')
+    return { ok: true, json: async () => ({ schemaVersion: 1, zipBase64: 'UEsDBAAAAAAAAAAAAAAAAAAAAAAAAAAA' }) }
   }
-  await thread.threadAction('check')
-  assert.equal(thread.supportTicket.title, 'Lost network')
-  assert.equal(thread.supportSent, false)
-  await thread.threadAction('send')
-  assert.equal(thread.supportSent, true)
-} finally { globalThis.fetch = originalFetch }
+  await controllerCapture.downloadConnectionLogs()
+  assert.equal(downloads.at(-1).download, 'starpilot-controller-logs.zip')
+} finally {
+  globalThis.fetch = originalFetch
+  globalThis.document = originalDocument
+}
 assert.equal(LocalAccess.components.ConnectionLogs, ConnectionLogs)
 assert.ok(LocalAccess.template.includes("mode === 'local'"))
 compile(ConnectionLogs.template, { decodeEntities: value => value })
-assert.ok(ConnectionLogs.template.includes('Send to existing Discord thread'))
-assert.ok(ConnectionLogs.components.ReportingGuide.template.includes('#submit-logs-through-discord'))
-assert.ok(ConnectionLogs.components.ReportingGuide.template.includes('#report-a-problem-through-discord'))
-assert.match(ConnectionLogs.template, /<details[^>]*><summary><small>Manual ZIP download<\/small><\/summary>[\s\S]*Download ZIP<\/button>\s*<\/details>/)
+assert.ok(ConnectionLogs.template.includes('Send logs'))
+assert.ok(ConnectionLogs.template.includes('Download connection ZIP'))
+assert.equal(ConnectionLogs.components.ReportingGuide, undefined)
 for (const endpoint of ['./api/galaxy/qr.svg', './api/galaxy/session/qr.svg']) {
   const qr = {endpoint, ...RemoteQR.data(), ...RemoteQR.methods}
   try {

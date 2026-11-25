@@ -1018,7 +1018,7 @@ export const StarPortPage = {
         </div>
         <div class="gx-step__body">
           <div class="gx-driving__actions gx-actions">
-            <a class="gx-btn gx-btn--tonal" href="#/logs/starport"><i class="bi bi-journal-text"></i> Connection Logs</a>
+            <a class="gx-btn gx-btn--tonal" href="#/logs/help/starport"><i class="bi bi-journal-text"></i> Send StarPort logs</a>
           </div>
         </div>
       </section>

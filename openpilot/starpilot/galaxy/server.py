@@ -1,6 +1,7 @@
 """Galaxy settings, device services and software management."""
 
 import argparse
+import base64
 import hashlib
 from contextlib import nullcontext
 from http.cookies import SimpleCookie
@@ -99,7 +100,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
                 sounds=None, software_operations=None, drive_stats=None, layout_preview_socket=None, controllers_socket=None,
                 remote_pairing=None, parked=None, camera_snapshot=None, clock=time.monotonic, starport_setup=None,
                 starport_client=None, navigation=None, offline_maps=None, drive_state=None, cloud_provider=None, cloud_offroad=None, projection_layout=None,
-                local_access=None, tmux_live=None, starport_logs=None, starport_log_sender=None, hotspot=None, toyota_tools=None,
+                local_access=None, tmux_live=None, starport_logs=None, starport_log_sender=None, log_relay_stager=None, hotspot=None, toyota_tools=None,
                 replay_client=None, replay_root=None,
                 spotify_setup=None, companion=None, phone_location=None, reverse_proxy=None, local_hostnames=None, sound_preview=None):
   from openpilot.starpilot.galaxy.local_hostnames import LocalHostnames
@@ -165,6 +166,23 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
         source = starport_logs()
         starport_log_sender_source = StarPortLogSender(source.bundle, summary=lambda: device_summary(source.directory))
     return starport_log_sender_source
+
+  log_relay_stager_source = log_relay_stager
+  log_relay_stager_lock = threading.Lock()
+
+  def log_stager():
+    nonlocal log_relay_stager_source
+    with log_relay_stager_lock:
+      if log_relay_stager_source is None:
+        from openpilot.starpilot.galaxy.controller_diagnostics import controller_capture
+        from openpilot.starpilot.galaxy.log_relay_stage import LogRelayStager
+        source = starport_logs()
+        log_relay_stager_source = LogRelayStager(
+          source.bundle,
+          lambda: base64.b64decode(connection_capture(address_source.snapshot(), configuration_allowed=configuration_allowed)['zipBase64']),
+          lambda: base64.b64decode(controller_capture()['zipBase64']),
+        )
+    return log_relay_stager_source
   software_source = software
   software_operations_source = software_operations
   software_lock = threading.Lock()
@@ -1018,6 +1036,13 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
           # immediately before sending potentially sensitive content.
           if self.require_session():
             self.json(200, result)
+      elif path == '/api/logs/stage':
+        if self.require_session():
+          identity = self.settings_session()
+          if identity is None:
+            self.json(401, {'error': 'Sign in to Galaxy'})
+          else:
+            self.json(200, log_stager().status(identity))
       elif path == '/api/starport/logs/send':
         if self.require_session():
           self.json(200, starport_log_sender().status())
@@ -1753,7 +1778,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
                       '/api/galaxy/pair', '/api/galaxy/unpair', '/api/galaxy/device-name', '/api/galaxy/hotspot', '/api/galaxy/networks',
                       '/api/cameras/snapshot', '/api/cameras/white-balance',
                       '/api/starport/layout', '/api/starport/enable', '/api/starport/control', '/api/starport/pairing',
-                      '/api/starport/logs/send', '/api/companion/support-ticket',
+                      '/api/starport/logs/send', '/api/logs/stage',
                       '/api/starport/pairing/response', '/api/starport/pairing/cancel', '/api/starport/pairing/select',
                       '/api/spotify/enable', '/api/spotify/key', '/api/spotify/preferences', '/api/spotify/control', '/api/spotify/maintenance',
                       '/api/ui/layout', '/api/ui/layout/preview', '/api/favorites/slots',
@@ -1770,7 +1795,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
         self.json(405, {'error': 'Method unavailable'})
         return
       if (path.startswith(('/api/companion/', '/api/replay/', '/api/recordings/', '/api/connect/', '/api/cameras/', '/api/settings/', '/api/maps/',
-                           '/api/bluetooth/',
+                           '/api/bluetooth/', '/api/logs/',
                            '/api/starport/', '/api/spotify/', '/api/controllers/', '/api/vehicle-selection/', '/api/toyota-tools/',
                            '/api/models/', '/api/ui/', '/api/favorites/', '/api/sounds/', '/api/software/',
                            '/api/drives/', '/api/navigation/', '/api/drive-state/', '/api/sentry/', '/api/crash-reports/')) and
@@ -1828,50 +1853,23 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
         else:
           self.json(200 if authorized() else 401, result if authorized() else {'error': 'Sign in to Galaxy'})
         return
-      if path == '/api/companion/support-ticket':
-        import requests
+      if path == '/api/logs/stage':
         identity = self.settings_session()
         if identity is None:
           self.json(401, {'error': 'Sign in to Galaxy'})
           return
-        if (not isinstance(payload, dict) or not isinstance(payload.get('code'), str) or
-            not re.fullmatch(r'[0-9a-f]{16}', payload['code']) or payload.get('action') not in ('check', 'send')):
-          self.json(400, {'error': 'Enter the code from the Discord request.'})
-          return
-        relay = 'https://starpilot-log-relay.nathan-g-hubbard.workers.dev/report/galaxy/device'
-        def relay_post(body):
-          response = requests.post(relay, json=body, allow_redirects=False, timeout=(5, 30))
-          if response.status_code == 410:
-            raise LookupError()
-          response.raise_for_status()
-          if response.status_code != 200:
-            raise ValueError()
-          return response.json()
+        from openpilot.starpilot.galaxy.log_relay_stage import StageBusy, StageRejected
         try:
-          code = payload['code']
-          ticket = relay_post({'action': 'check', 'code': code})
-          kind = ticket['kind']
-          if kind not in ('controller', 'connection'):
-            raise ValueError()
-          if payload['action'] == 'check':
-            self.json(200, {'kind': kind, 'title': ticket['title']})
-            return
-          if kind == 'controller':
-            from openpilot.starpilot.galaxy.controller_diagnostics import controller_capture
-            capture = controller_capture()
+          result = log_stager().start(payload, identity)
+        except StageRejected as error:
+          self.json(400, {'error': str(error)})
+        except StageBusy as error:
+          self.json(409, {'error': str(error)})
+        else:
+          if self.settings_session() == identity:
+            self.json(202, result)
           else:
-            capture = connection_capture(address_source.snapshot(), configuration_allowed=configuration_allowed)
-          if self.settings_session() != identity:
             self.json(401, {'error': 'Sign in to Galaxy'})
-            return
-          result = relay_post({'action': 'send', 'code': code, 'archive': capture['zipBase64']})
-          if result.get('sent') is not True:
-            raise ValueError()
-          self.json(200, {'sent': True})
-        except LookupError:
-          self.json(410, {'error': 'Code expired or incorrect. Reopen the request in Discord.'})
-        except (requests.RequestException, OSError, RuntimeError, TypeError, ValueError):
-          self.json(503, {'error': 'Could not confirm delivery. Check the comma internet connection and your Discord thread.'})
         return
       if path == '/api/settings/flm-finding/accept':
         identity = self.settings_session()

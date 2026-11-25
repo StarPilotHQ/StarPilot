@@ -1,5 +1,6 @@
 import { PollTimer, connectionError } from "./polling.js"
 import { requestJson } from "./startup.js"
+import { downloadCaptureZip } from "./log-help.js"
 import { reactive } from "../vendor/vue/vue.esm-browser.js"
 import { GxNotice } from "./notice.js"
 
@@ -49,117 +50,42 @@ export class LocalAccessFeed {
   }
 }
 
-export const ReportingGuide = {
-  template: `<p class="gx-note">Reporting a new companion app issue? Read the instructions for
-    <a href="https://wiki.firestar.link/usage/companion-apps/ios/#submit-logs-through-discord" target="_blank" rel="noopener noreferrer">iPhone</a> or
-    <a href="https://wiki.firestar.link/usage/companion-apps/android/#report-a-problem-through-discord" target="_blank" rel="noopener noreferrer">Android</a>.</p>`,
-}
-
 export const ConnectionLogs = {
-  components: { GxNotice, ReportingGuide },
-  props: { ticket: String, panel: Boolean, controller: Boolean, showController: Boolean, onUnauthorized: { type: Function, default: () => {} } },
+  components: { GxNotice },
+  props: { panel: Boolean, controller: Boolean, onUnauthorized: { type: Function, default: () => {} } },
   emits: ["help"],
-  data: () => ({ supportCode: "", supportTicket: null, supportBusy: false, supportSent: false, capture: null, captureError: "", captureRequest: null }),
-  beforeUnmount() { this.resetCapture() },
+  data: () => ({ captureBusy: false, captureError: "", captureSignal: null }),
+  beforeUnmount() { this.captureSignal?.abort() },
   methods: {
-    resetCapture() {
-      this.captureRequest?.abort()
-      this.captureRequest = null
-      this.capture = null
-      this.captureError = ""
-    },
-    async threadAction(action) {
-      if (this.supportBusy) return
-      this.supportBusy = true
+    async downloadConnectionLogs() {
+      if (this.captureBusy) return
+      const controller = new AbortController()
+      this.captureSignal = controller
+      this.captureBusy = true
       this.captureError = ""
       try {
-        const result = await requestJson("./api/companion/support-ticket", { timeout: 90000, request: {
-          method: "POST", headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({action, code: this.supportCode.replace(/[\s-]/g, "").toLowerCase()})
-        }})
-        if (action === "check") this.supportTicket = result
-        else this.supportSent = result.sent === true
+        await downloadCaptureZip(this.controller ? "controller" : "connection", {
+          unauthorized: this.onUnauthorized,
+          request: { signal: controller.signal },
+        })
       } catch (error) {
-        if (error.status === 401) this.onUnauthorized()
-        else this.captureError = error.message
-      } finally { this.supportBusy = false }
-    },
-    async captureConnectionLogs() {
-      if (this.captureRequest) return
-      const request = new AbortController()
-      this.captureRequest = request
-      this.capture = null
-      this.captureError = ""
-      try {
-        const endpoint = this.controller ? "./api/controllers/log/capture" : "./api/local-access/capture"
-        const data = await requestJson(endpoint, { request: { signal: request.signal } })
-        if (this.captureRequest !== request) return
-        if (data?.schemaVersion !== 1 || typeof data.zipBase64 !== "string" || data.zipBase64.length > 131072)
-          throw new Error("Invalid diagnostic capture")
-        const bytes = Uint8Array.from(atob(data.zipBase64), character => character.charCodeAt(0))
-        if (bytes.length < 22 || bytes[0] !== 80 || bytes[1] !== 75 || bytes[2] !== 3 || bytes[3] !== 4)
-          throw new Error("Invalid diagnostic capture")
-        this.capture = new Blob([bytes], { type: "application/zip" })
-        if (this.ticket && /^[a-f0-9]{64}$/.test(this.ticket)) {
-          const form = document.createElement("form")
-          form.method = "post"
-          form.action = "https://starpilot-log-relay.nathan-g-hubbard.workers.dev/report/galaxy/fresh/" + this.ticket
-          const input = document.createElement("input")
-          input.type = "hidden"
-          input.name = "archive"
-          input.value = data.zipBase64
-          form.appendChild(input)
-          document.body.appendChild(form)
-          form.submit()
-          form.remove()
-        }
-      } catch (error) {
-        if (this.captureRequest !== request) return
-        if (error.status === 401 || ["setup_required", "access_unavailable"].includes(error.code)) this.onUnauthorized()
-        else this.captureError = connectionError(error)
+        if (error?.name !== "AbortError") this.captureError = error?.message || "Could not prepare diagnostic ZIP."
       } finally {
-        if (this.captureRequest === request) this.captureRequest = null
+        if (this.captureSignal === controller) {
+          this.captureSignal = null
+          this.captureBusy = false
+        }
       }
-    },
-    downloadConnectionLogs() {
-      if (!this.capture) return
-      const url = URL.createObjectURL(this.capture)
-      const link = document.createElement("a")
-      link.href = url
-      link.download = this.controller ? "starpilot-controller-logs.zip" : "starpilot-connection-logs.zip"
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      setTimeout(() => URL.revokeObjectURL(url), 1000)
     },
   },
   template: `<div class="gx-stack gx-connection-logs" :class="{ 'gx-card gx-panel': panel }">
     <div v-if="panel" class="gx-section__header"><i class="bi bi-file-earmark-text" aria-hidden="true"></i><span class="gx-section__title">Connection logs</span>
-      <button type="button" class="gx-btn gx-btn--tonal" @click="$emit('help')">Get help</button>
+      <button type="button" class="gx-btn gx-btn--tonal" @click="$emit('help')">Send logs</button>
     </div>
-    <div v-if="panel" class="gx-actions"><a class="gx-btn gx-btn--tonal" href="https://wiki.firestar.link/usage/companion-apps/#pair-your-phone" target="_blank" rel="noopener noreferrer">App connection help</a></div>
-    <details v-if="!ticket"><summary class="gx-btn">Send to existing Discord thread</summary>
-      <p v-if="supportSent" role="status">Support received the logs. Your Discord thread has the receipt.</p>
-      <form v-else class="gx-log-form" @submit.prevent="threadAction(supportTicket ? 'send' : 'check')">
-        <label class="gx-field-group">Discord request code<input class="gx-field" v-model="supportCode" :disabled="supportBusy" @input="supportTicket = null; captureError = ''" maxlength="24" autocomplete="off" spellcheck="false"></label>
-        <button v-if="!supportTicket" class="gx-btn" type="submit" :disabled="supportBusy || !supportCode.trim()">{{ supportBusy ? 'Finding report…' : 'Find report' }}</button>
-        <template v-else><p>{{ supportTicket.title }}</p><p>Only support staff receive the {{ supportTicket.kind }} logs.</p>
-          <button class="gx-btn" type="submit" :disabled="supportBusy">{{ supportBusy ? 'Sending…' : 'Capture and send' }}</button>
-        </template>
-      </form>
-    </details>
-    <details v-if="!ticket"><summary><small>Manual ZIP download</small></summary>
-      <p v-if="showController" class="gx-note">For controller ZIPs, open Get help and choose Bluetooth Controller Support.</p>
-      <button type="button" class="gx-btn gx-btn--tonal" :disabled="!!captureRequest" @click="captureConnectionLogs">{{ captureRequest ? 'Capturing…' : 'Capture logs' }}</button>
-      <button type="button" class="gx-btn gx-btn--tonal" :disabled="!capture" @click="downloadConnectionLogs">Download ZIP</button>
-    </details>
     <div v-else class="gx-actions">
-      <button type="button" class="gx-btn gx-btn--tonal" :disabled="!!captureRequest" @click="captureConnectionLogs">{{ captureRequest ? 'Capturing…' : 'Capture and send' }}</button>
-
+      <button type="button" class="gx-btn gx-btn--tonal" :disabled="captureBusy" @click="downloadConnectionLogs">{{ captureBusy ? 'Preparing ZIP…' : 'Download connection ZIP' }}</button>
     </div>
     <GxNotice v-if="captureError" tone="danger">{{ captureError }}</GxNotice>
-    <p v-if="capture && !ticket" class="gx-note" role="status">Capture ready. Download it to share with support.</p>
-    <ReportingGuide v-if="!panel && !ticket" />
   </div>`,
 }
 

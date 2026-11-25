@@ -1,4 +1,4 @@
-import { ConnectionLogs, ReportingGuide } from "./local-access.js"
+import { ConnectionLogs } from "./local-access.js"
 import { WikiHelp } from './wiki-help.js'
 import { requestJson } from "./startup.js"
 import { GxNotice } from "./notice.js"
@@ -29,7 +29,7 @@ export const choiceRow = (label, value, choices, reason = '') => ({ label, value
 
 export const NetworksPage = {
   name: "NetworksPage",
-  components: { WikiHelp, GxNotice, GxState, GalaxySettingRow, GalaxyHotspot, GxDialog, ConnectionLogs, ReportingGuide },
+  components: { WikiHelp, GxNotice, GxState, GalaxySettingRow, GalaxyHotspot, GxDialog, ConnectionLogs },
   props: { go: { type: Function, required: true }, mode: { type: String, required: true }, unauthorized: { type: Function, required: true } },
   data: () => ({ snapshot: null, busy: false, error: '', openUuid: null, adding: false, joiningSsid: '', joinPassword: '',
     hiddenOpen: false, hiddenSsid: '', showJoinPassword: false, forgetUuid: null, timer: null, controller: null, generation: 0, active: false }),
@@ -262,7 +262,6 @@ export const NetworksPage = {
     </template>
     <GxNotice v-if="error" tone="danger">{{ error }}</GxNotice>
     <GalaxyHotspot v-if="mode === 'local'" :mode="mode" :unauthorized="unauthorized" />
-    <ConnectionLogs v-if="mode === 'local'" panel :on-unauthorized="unauthorized" @help="go('/logs/help')" />
-  <ReportingGuide v-if="mode === 'local'" />
+    <ConnectionLogs v-if="mode === 'local'" panel :on-unauthorized="unauthorized" @help="go('/logs/help/connection')" />
   </section>`,
 }

@@ -24,6 +24,9 @@ const { resolve } = require('node:path')
       json: { state: 'configured', authenticated: true, localAccess: true },
     })
     if (path === '/api/device/state') return route.fulfill({ json: { state: 'parked', maxAgeMs: 3000 } })
+    if (path === '/api/logs/stage') return route.fulfill({
+      json: { state: 'idle', message: '', claimUrl: '', kind: '', available: true, fork: false, noteLimit: 200, modelLimit: 80 },
+    })
     if (path === '/api/starport/logs') return route.fulfill({ json: { schemaVersion: 1,
       sessions: [
         { name: 'session-000003.jsonl', size: 51712, modifiedAt: 1791354093, outcome: "projected, then failed: finding android auto: Could not find the car's Android Auto service: [Errno 112] Host is down", car: 'Honda T20', transport: 'wireless', trigger: 'car_connected' },
@@ -44,6 +47,7 @@ const { resolve } = require('node:path')
 
   const paths = [...new Set(['/', '/tools', '/settings', '/developer/connect', '/cameras/events',
     '/cameras/sentry-settings', '/cameras/pip', '/cameras/vasm', '/theme_maker/starport',
+    '/logs/help', '/logs/help/connection', '/logs/help/controller',
     '/logs/crashes', '/logs/starport', '/logs/monitor', '/logs/troubleshoot', '/logs/tmux', '/tuning/plots', '/tuning/flm',
     '/driving/longitudinal-curves', '/appearance', '/driving/conditional', '/driving/curve', '/driving/slc', '/driving/profiles', '/driving/traffic',
     ...groups.filter(([page]) => page !== "standard").map(([page]) => '/driving/' + page), ...catalog.tools.map(tool => tool.path)])]
@@ -81,6 +85,8 @@ const { resolve } = require('node:path')
   }
   await page.setViewportSize({ width: 390, height: 900 })
   await page.goto(base + '#/logs/starport')
+  await page.locator('.gx-log-help__sessions > summary').waitFor()
+  await page.locator('.gx-log-help__sessions > summary').click()
   await page.locator('.gx-starport-log').first().waitFor()
   await page.waitForFunction(() => !document.querySelector('.gx-route-enter-active, .gx-route-leave-active'))
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, 'Android Auto logs fit a phone viewport')
@@ -93,14 +99,19 @@ const { resolve } = require('node:path')
   assert.ok(phoneCards.every(card => card.width === 44 && card.height === 44), 'individual downloads remain compact touch targets')
   assert.deepEqual(await page.locator('.gx-starport-log__download').evaluateAll(links => links.map(link => link.getAttribute('download'))),
     ['session-000003.jsonl', 'session-000002.jsonl', 'car_ui.log'])
+  for (const label of ['Phone App', 'Controller']) {
+    await page.getByRole('tab', { name: new RegExp(label) }).click()
+    await page.waitForTimeout(50)
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${label}: no phone overflow`)
+  }
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
-  const desktop = await page.locator('.gx-starport-logs').evaluate(section => {
+  const desktop = await page.locator('.gx-log-help').evaluate(section => {
     const bounds = section.getBoundingClientRect()
     const content = section.closest('.gx-content').getBoundingClientRect()
     return { width: bounds.width, center: bounds.left + bounds.width / 2, contentCenter: content.left + content.width / 2 }
   })
-  assert.ok(desktop.width <= 960 && Math.abs(desktop.center - desktop.contentCenter) < 1, 'StarPort logs are centered and readable on desktop')
+  assert.ok(desktop.width <= 960 && Math.abs(desktop.center - desktop.contentCenter) < 1, 'Log help is centered and readable on desktop')
   await page.setViewportSize({ width: 390, height: 900 })
   await page.goto(base + '#/settings')
   const manage = page.getByRole('button', { name: 'Manage', exact: true }).first()
