@@ -228,19 +228,20 @@ class TestVoltStop(unittest.TestCase):
             self.assertIsNone(evidence)
 
   def test_card_resume_provider_remains_fresh_at_actual_gas_sender_cadence(self):
-    import time
     from openpilot.starpilot.controller_extensions import ResumePlanInputs
-    def clock_pair():
-      now = time.monotonic_ns()
-      return now, now
+
+    now_ns = 10_000_000_000
     self.enterContext(OpenpilotPrefix())
-    self.enterContext(patch('openpilot.starpilot.longitudinal.inputs.clock_pair_ns', side_effect=clock_pair))
+    self.enterContext(patch.dict('os.environ', {'SIMULATION': '0'}))
+    self.enterContext(patch.object(messaging, 'time', NS(monotonic=lambda: now_ns / 1e9)))
+    self.enterContext(patch('openpilot.starpilot.controller_extensions.time', NS(monotonic_ns=lambda: now_ns)))
+    self.enterContext(patch('openpilot.starpilot.longitudinal.inputs.clock_pair_ns', side_effect=lambda: (now_ns, now_ns)))
     provider = ResumePlanInputs()
     pm = messaging.PubMaster(['deviceState', 'carState', 'longitudinalPlan'])
-    drive = time.monotonic_ns() - 1_000_000_000
+    drive = now_ns - 1_000_000_000
     healthy = []
-    started = time.monotonic()
-    #100HzcarState/20Hzplan producers coalesce into the actual25Hzgas sender consumer.
+    # Advance the producer and receipt clocks independently of the runner's scheduling.
+    # The real queues still coalesce 100 Hz carState and 20 Hz plan into the 25 Hz consumer.
     for tick in range(204):
       for name, cadence in (('carState', 1), ('longitudinalPlan', 5), ('deviceState', 50)):
         if tick % cadence == 0:
@@ -255,10 +256,10 @@ class TestVoltStop(unittest.TestCase):
             event.longitudinalPlan.shouldStop = False
           pm.send(name, event)
       if tick % 4 == 0:
-        current = provider.update(time.monotonic_ns())
+        current = provider.update(now_ns)
         if tick >= 120:
           healthy.append(current)
-      time.sleep(max(0., started + (tick + 1) * .01 - time.monotonic()))
+      now_ns += 10_000_000
     self.assertTrue(all(healthy))
     tracker = provider.sm.freq_tracker['carState'].recent_avg_dt
     self.assertEqual(tracker.count, tracker.window_size)
@@ -267,9 +268,14 @@ class TestVoltStop(unittest.TestCase):
     event.valid = True
     event.longitudinalPlan.shouldStop = True
     pm.send('longitudinalPlan', event)
-    self.assertFalse(provider.update(time.monotonic_ns()))
-    time.sleep(.16)
-    self.assertFalse(provider.update(time.monotonic_ns()))
+    self.assertFalse(provider.update(now_ns))
+    now_ns += 40_000_000
+    event = messaging.new_message('longitudinalPlan', valid=True)
+    event.longitudinalPlan.shouldStop = False
+    pm.send('longitudinalPlan', event)
+    self.assertTrue(provider.update(now_ns))
+    now_ns += 160_000_000
+    self.assertFalse(provider.update(now_ns))
 
   def test_ascm_card_resume_uses_physical_clock_and_monotonic_plan_with_two_second_offset(self):
     from opendbc.car.gm.tests.test_ascm_intercept import params as ascm_params
