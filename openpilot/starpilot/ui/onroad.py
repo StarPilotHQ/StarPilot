@@ -18,6 +18,7 @@ from openpilot.starpilot.ui.raylib import rl
 from openpilot.starpilot.ui.onroad_rear_fog import render_rear_fog
 from openpilot.starpilot.ui import clip
 from openpilot.system.ui.lib.application import gui_app
+from openpilot.system.ui.lib.shader_polygon import ShaderState
 from openpilot.starpilot.ui.onroad_customization import (CLOCK_WIDGET, MODE_WIDGET, RAIL_WIDGETS, STOPPED_TIMER_WIDGET, placement, rgba,
                                                          widget_order, widget_size)
 from openpilot.starpilot.ui.appearance_preferences import CameraViewChoice
@@ -114,6 +115,12 @@ def axis_status_color(state: OnroadState) -> rl.Color:
   return rl.Color(18, 40, 57, 255)
 
 
+def _no_cleanup() -> None:
+  # Owners release their own resources: ShaderState is a process singleton and
+  # the wheel textures are unloaded by the HUD widgets' close().
+  pass
+
+
 class JetlinkRenderLayer(Protocol):
 
 
@@ -172,6 +179,33 @@ class OnroadView:
       self.personality = self.compact_sidebar.personality
       self._fade_path = asset_directory / "icons_mici/onroad/onroad_fade.png"
       self._fade: rl.Texture | None = None
+    self._engaged_assets_prepared = False
+    gui_app.add_render_prepare(self._prepare_engaged_assets, _no_cleanup)
+
+  def _prepare_engaged_assets(self) -> None:
+    """Compile/upload GPU assets first drawn on engage while still offroad.
+
+    The engaged path gradient shader and the steering wheel texture were created
+    lazily on the first engaged frame. That one-time shader compile and upload
+    coincided with 16-33 ms card stalls on the first engage of each drive, enough
+    to expire the 30 ms AOL intent wire and raise controlsMismatch. Warming them
+    at UI start moves that cost off the drive. Failures fall back to the original
+    lazy path in render.
+    """
+    if self._engaged_assets_prepared:
+      return
+    self._engaged_assets_prepared = True
+    try:
+      ShaderState.get_instance().initialize()
+    except Exception:
+      pass
+    try:
+      if self.fonts.profile == Profile.LARGE:
+        self.steering_wheel.prepare()
+      else:
+        self.compact_hud.prepare()
+    except Exception:
+      pass
 
   def _prepare_compact_fade(self) -> None:
     if self._fade is None:
@@ -597,6 +631,7 @@ class OnroadView:
 
   def close(self) -> None:
     self.quick_select_layer = None
+    gui_app.remove_render_prepare(self._prepare_engaged_assets)
     gui_app.remove_render_prepare(self._corner_cache.prepare)
     self._corner_cache.close()
     gui_app.remove_render_prepare(self.torque_bar.prepare)
