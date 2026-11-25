@@ -191,7 +191,7 @@ export async function referralStore(path,request,store,env){
   await staffDestination(env);
   if(path.endsWith('/scan')){
     await ensureGuildCommand(store,env,'refer-command-v1',{name:command,type:3});
-    await ensureGuildCommand(store,env,'test-app-command-v1',{name:'test-app',type:1,description:'Ask the reporter to test the latest public iOS TestFlight build'});
+    await ensureGuildCommand(store,env,'test-app-command-v1',{name:'test-app',type:1,description:'Ask the reporter to test the latest available iPhone or Android app beta'});
     await ensureGuildCommand(store,env,'staff-action-command-v1',{name:'companion-staff-action',type:1,description:'Open Staff Actions privately for this Companion ticket'});
     const start=await store.get('start');
     if(!start){await store.put('start',Date.now());return Response.json({ready:true});}

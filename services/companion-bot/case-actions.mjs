@@ -5,11 +5,11 @@ import {issueDriveLink, sendDriveInvite} from './drive-logs.mjs';
 
 const titles = {
   note:'Additional Report', tags:'Apply tags', working:'Mark in progress', assign:'Assign someone', unassign:'Clear assignment', priority:'Set Priority', status:'Change Status',
-  awaiting:'Awaiting deploy', investigate:'Further investigation', overview:'Report overview', question:'Ask the reporter', testing:'Request User Testing', commaTesting:'Request Comma Testing', appTesting:'Test latest iOS app', rename:'Rename Thread', duplicate:'Link Duplicate',
+  awaiting:'Awaiting deploy', investigate:'Further investigation', overview:'Report overview', question:'Ask the reporter', testing:'Request User Testing', commaTesting:'Request Comma Testing', appTesting:'Test latest app beta', rename:'Rename Thread', duplicate:'Link Duplicate',
   appLogs:'Request Phone App Logs', connection:'Request Comma Connection Logs', controller:'Request Controller Logs', starport:'Request StarPort Logs', removeTags:'Remove topic tags'
 };
 const descriptions={
-  appTesting:'Ask the reporter to install the latest public TestFlight build and retry.',
+  appTesting:'Ask the reporter to install the latest available phone beta and retry.',
   investigate:'Send this report back for investigation.',
   commaTesting:'Ask the reporter to update the comma and test the fix. Include a phone build if needed.',
   awaiting:'Record a fix that is waiting for deployment without pinging the reporter.',
@@ -41,7 +41,7 @@ export function caseButtons(user, platform) {
 }
 
 function staffMenu(base,channel){
-  const options=Object.entries(titles).filter(([key])=>key!=='note' && (key!=='appTesting'||base.endsWith(':ios:'))).map(([value,label])=>({label,value,description:descriptions[value]}));
+  const options=Object.entries(titles).filter(([key])=>key!=='note').map(([value,label])=>({label,value,description:descriptions[value]}));
   return privateCard('**Staff Actions**',[row({type:3,custom_id:base+'pick:'+channel,placeholder:'Choose a staff action',options})]);
 }
 
@@ -70,8 +70,7 @@ export function privateStaffCommand(i,env,ctx){
 async function ticketStaffMenu(i,env){
   function commandCard(base,channel){
     if(i.data?.name!=='test-app')return staffMenu(base,channel);
-    if(!base.endsWith(':ios:'))return privateCard('Use /test-app in an iPhone app report.');
-    return privateCard('**Request external iOS testing**',[row({type:2,style:1,label:'Prepare testing request',custom_id:base+'appTesting:'+channel})]);
+    return privateCard('**Request app beta testing**',[row({type:2,style:1,label:'Prepare testing request',custom_id:base+'appTesting:'+channel})]);
   }
   if(i.channel?.parent_id&&i.channel.parent_id!==supportForum)return;
   const referrals=env.REPORTS.get(env.REPORTS.idFromName('driving-referral-review'));
@@ -138,7 +137,6 @@ export async function caseInteraction(i,env,origin,ctx) {
   const selected=command==='pick'?i.data.values?.[0]:command;
   const commaTesting=selected==='commaTesting';
   const appTesting=selected==='appTesting';
-  if(appTesting && platform!=='ios')return ephemeral('Use this action in an iPhone app report.');
   const action=commaTesting||appTesting?'testing':selected;
   const reporterAction=['feedback','fulfilled'].includes(action);
   if(reporterAction && (actor!==user || bound!==channel))return ephemeral('Only the original reporter can respond to this request.');
@@ -220,7 +218,7 @@ export async function caseAction(storage,env,b){
   if(thread.thread_metadata?.locked)return result('A moderator locked this thread. Unlock it in Discord first.');
   if((thread.applied_tags.includes(supportTags.Closed)||thread.thread_metadata?.archived)&&!reopening&&!(action==='status'&&value==='Closed'))
     return result('This report is closed or archived. Staff can use Change Status → Open to resume it.');
-  if(b.appTesting && (platform!=='ios'||['controller','starport'].includes(record.reportKind)))return result('Use this action in an iPhone app report.');
+  if(b.appTesting && ['controller','starport'].includes(record.reportKind))return result('Use this action in a phone app report.');
   const fresh=await storage.transaction(async tx=>{
     const recent=await tx.get('case-interactions')||[];
     if(recent.includes(b.interaction))return false;
@@ -311,11 +309,18 @@ export async function caseAction(storage,env,b){
       delete payload.content;
       Object.assign(payload,supportCard('',['**Awaiting deploy**','A fix is waiting for release. Staff will ask you to test when it is available.',value,...fix].filter(Boolean).join('\n'),caseButtons(user,platform),[],state.color));
     }else{
-      const text=[action==='testing'?'**Waiting for user testing**':'**Staff need more information**',...(action==='testing'&&b.commaTesting?[updateComma]:[]),...(action==='testing'&&b.appTesting?[
-        '1. On your iPhone, open the [public StarPilot TestFlight link](https://testflight.apple.com/join/nfUDuEm4). Install TestFlight if prompted, then join the beta.',
-        '2. In TestFlight, open StarPilot and tap **Update** or **Install**. If it says **Open**, you already have the offered build.',
-        '3. Open StarPilot and retry the issue. In your feedback, include the version and build shown in TestFlight and what happened.'
-      ]:[]),value,...fix,'','Choose **Give feedback** to share your results, or **My request is fulfilled** to close the report.'].join('\n');
+      const appSteps=platform==='android' ? [
+        '1. Join the [Galaxy Android beta group](https://groups.google.com/g/galaxy-starpilot-android-beta) with the Google account you use for Google Play.',
+        '2. Open [Google Play testing](https://play.google.com/apps/testing/com.starpilot.galaxy) and choose **Become a tester**. Install or update Galaxy in Google Play.'
+      ] : [
+        '1. Open the [public StarPilot TestFlight link](https://testflight.apple.com/join/nfUDuEm4) on your iPhone. Install TestFlight if prompted, then join the beta.',
+        '2. In TestFlight, open StarPilot and tap **Update** or **Install**. If it says **Open**, launch the offered build.'
+      ];
+      const logs=platform==='android'?'Connections → Debugging options → Report a problem':'Settings → Logs & support → Report a problem on Discord';
+      const text=b.appTesting ? ['**Test the latest app beta**',...appSteps,'3. Try the issue again.',value,
+        'If it still happens, immediately open **'+logs+'** in the phone app and send fresh app logs to **this existing ticket**.',
+        'If it works, choose **My request is fulfilled** below.'].filter(Boolean).join('\n') :
+        [action==='testing'?'**Waiting for user testing**':'**Staff need more information**',...(action==='testing'&&b.commaTesting?[updateComma]:[]),value,...fix,'','Choose **Give feedback** to share your results, or **My request is fulfilled** to close the report.'].join('\n');
       delete payload.content;
       Object.assign(payload,supportCard(message,text,[reporterButtons(user,platform,channel)],[],state?.color));
     }

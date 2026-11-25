@@ -295,3 +295,16 @@ test('comma testing adds the official branch instruction only to the comma testi
     assert.equal(card.includes('2.0 (332)'),selected!=='appTesting');
   }
 });
+
+test('Android beta request links the group and Play opt-in and asks for fresh app logs',async t=>{
+  let posted;
+  t.mock.method(globalThis,'fetch',async(url,options)=>{
+    if(options.method==='POST'){posted=options.body;return Response.json({id:'8'});}
+    return Response.json({id:'4',type:11,parent_id:supportForum,applied_tags:[]});
+  });
+  const records=new Map([['thread:4',{platform:'android'}]]);
+  const store={get:k=>records.get(k),put:(k,v)=>records.set(k,v),transaction:fn=>fn(store)};
+  await caseAction(store,env,{action:'testing',appTesting:true,platform:'android',channel:'4',user:'1',actor:'3',interaction:'android-beta'});
+  for(const text of ['groups.google.com/g/galaxy-starpilot-android-beta','play.google.com/apps/testing/com.starpilot.galaxy','Debugging options','fresh app logs','existing ticket'])assert.ok(posted.includes(text));
+  assert.doesNotMatch(posted,/TestFlight|build number/i);
+});
