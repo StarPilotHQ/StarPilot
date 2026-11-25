@@ -87,6 +87,8 @@ class VolkswagenStockCardIntent(AolCardIntent):
     self.main_available = False
     self.main_neutral = False
     self.main_pulse = False
+    self.stock_main_rearm_ns = 0
+    self.stock_main_rearm_cruise_seen = False
     self.startup_arm_ns = 0
     self.startup_deferred = False
     self.startup_release_ns = 0
@@ -131,6 +133,15 @@ class VolkswagenStockCardIntent(AolCardIntent):
       else:
         events.append(structs.CarState.ButtonEvent(**event.to_dict()))
     available = bool(state.cruiseState.available)
+    if (not self.allowed_latch or not available or
+        any(event.type == ButtonType.cancel and event.pressed for event in state.buttonEvents)):
+      self.stock_main_rearm_ns = 0
+    if self.stock_main_rearm_ns and now_ns > self.stock_main_rearm_ns + SAFETY_MAX_AGE_NS:
+      self.allowed_latch = False
+      self.stock_main_rearm_ns = 0
+    if self.stock_main_rearm_ns and state.cruiseState.enabled:
+      self.stock_main_rearm_cruise_seen = True
+    stock_main_rearm = self.main_neutral and not self.main_available and stock_qualified(self.cp, marked_only=True)
     if (not self.settings.enabled or self.settings.main_action == AOL_TOGGLE or self.settings.lkas_action == AOL_TOGGLE or
         (state.canValid and not state.canTimeout and (state.steerFaultPermanent or state.accFaulted)) or
         any(event.type == ButtonType.cancel and event.pressed for event in CS.buttonEvents) and
@@ -194,6 +205,9 @@ class VolkswagenStockCardIntent(AolCardIntent):
         if not self.startup_release_ns:
           self.startup_release_ns = now_ns
       self.allowed_latch = True
+      if stock_main_rearm:
+        self.stock_main_rearm_ns = self._last_latch_edge_ns = now_ns
+        self.stock_main_rearm_cruise_seen = bool(state.cruiseState.enabled)
       if self.main_startup_pending and not self.startup_arm_ns:
         self.startup_arm_ns = now_ns
       self.main_startup_pending = False
@@ -207,6 +221,9 @@ class VolkswagenStockCardIntent(AolCardIntent):
   def observe_startup_readiness(self, sm, cs, *, native, panda_ready, now_ns, producer):
     from openpilot.starpilot.aol.runtime import AXIS_MAX_AGE_NS, SAFETY_MAX_AGE_NS, current_axis
     from openpilot.starpilot.aol.transport_pause import _configured_transport_native, cp_identity
+    if (self.stock_main_rearm_ns and panda_ready and native is not None and native.requestedLateral and native.lateralAllowed and
+        self.stock_main_rearm_ns <= native.observedMonoTime <= self.stock_main_rearm_ns + SAFETY_MAX_AGE_NS):
+      self.stock_main_rearm_ns = 0
     self.startup_ready = False
     floor_pending = self.startup_floor_pending
     self.startup_floor_pending = False
@@ -311,8 +328,11 @@ class VolkswagenStockCardIntent(AolCardIntent):
   def intent_publication(self, cs, source_ns):
     allowed, lateral, longitudinal = self.output(cs)
     armed, deadline = self.allowed_latch, source_ns + 200_000_000
+    pending_arm_ns = self.stock_main_rearm_ns
     if self.startup_deferred and not self.startup_granted and not self.startup_aborted:
-      deadline = min(deadline, self.startup_arm_ns + 200_000_000)
+      pending_arm_ns = self.startup_arm_ns
+    if pending_arm_ns:
+      deadline = min(deadline, pending_arm_ns + 200_000_000)
       if source_ns > deadline:
         allowed = armed = False
         deadline = source_ns + 200_000_000  # Fresh withdrawal, never a renewed arm.
@@ -442,7 +462,7 @@ def intent_disarming_fault(cp, events, state, **context):
 
 
 def awaiting_initial_request(cp, cs, sm, native, feedback, intent, *, now_ns, producer):
-  """A cold MAIN request may await its first native response, never output."""
+  """A fresh MAIN arm may await native steering permission without output."""
   from openpilot.starpilot.aol.runtime import SAFETY_MAX_AGE_NS, AXIS_MAX_AGE_NS, current_axis
   from openpilot.starpilot.aol.transport_pause import _configured_transport_native, cp_identity
   from openpilot.cereal import log
@@ -450,14 +470,17 @@ def awaiting_initial_request(cp, cs, sm, native, feedback, intent, *, now_ns, pr
     if not (stock_qualified(cp, marked_only=True) or long_qualified(cp, marked_only=True)):
       return False
     axis = current_axis(sm, now_ns=now_ns)
-    arm = intent.startup_arm_ns
+    stock_rearm = bool(intent.stock_main_rearm_ns and stock_qualified(cp, marked_only=True))
+    arm = intent.stock_main_rearm_ns if stock_rearm else intent.startup_arm_ns
     event_ns = int(sm.logMonoTime['onroadEvents'])
     reverse_event_pending = bool(axis is not None and 0 < event_ns < arm <= axis.sourceCarStateMonoTime and
       event_ns < axis.faultEventMonoTime <= axis.observedMonoTime and
       any(event.name == log.OnroadEvent.EventName.reverseGear and event.userDisable for event in sm['onroadEvents']))
-    # Stock cruise may already be off when independent MAIN startup arms.
-    stock_cruise_already_off = bool(stock_qualified(cp, marked_only=True) and not cs.cruiseState.enabled and
-      axis is not None and 0 < event_ns < arm and axis.faultEventMonoTime == event_ns)
+    joined_event = axis is not None and 0 < event_ns == axis.faultEventMonoTime
+    # MAIN can republish the factory cruise-off event before this re-arm gets a native grant.
+    stock_cruise_already_off = bool(stock_qualified(cp, marked_only=True) and not cs.cruiseState.enabled and joined_event and
+      (not intent.stock_main_rearm_cruise_seen if stock_rearm else event_ns < arm))
+    main_off_event_pending = stock_rearm and joined_event and event_ns < arm
     drive_identity = getattr(intent, 'startup_drive_identity', None)
     identity = None if drive_identity is None or axis is None or native is None else (
       cp_identity(cp), str(axis.sessionId), producer, int(axis.intentIntegrityEpoch), native.pandaSerial,
@@ -469,7 +492,7 @@ def awaiting_initial_request(cp, cs, sm, native, feedback, intent, *, now_ns, pr
       0 < arm <= native.observedMonoTime <= arm + SAFETY_MAX_AGE_NS and
       0 <= now_ns - native.observedMonoTime <= AXIS_MAX_AGE_NS)
     return bool(intent.settings.enabled and intent.settings.main_action != AOL_TOGGLE and intent.settings.lkas_action != AOL_TOGGLE and
-      intent.allowed_latch and not intent.pause_lateral and not feedback.ever_lateral_active and
+      intent.allowed_latch and not intent.pause_lateral and (stock_rearm or not feedback.ever_lateral_active) and
       not feedback.failed and not feedback.paused and not feedback.pending_event and not feedback.retention_started_ns and
       feedback.cp == cp_identity(cp) and
       0 < arm <= now_ns and (now_ns <= arm + SAFETY_MAX_AGE_NS or granted_in_window) and
@@ -498,7 +521,8 @@ def awaiting_initial_request(cp, cs, sm, native, feedback, intent, *, now_ns, pr
       not any(event.immediateDisable or
         event.softDisable and not (reverse_event_pending and event.name == log.OnroadEvent.EventName.wrongGear) or
         event.userDisable and not (reverse_event_pending and event.name == log.OnroadEvent.EventName.reverseGear or
-          stock_cruise_already_off and event.name == log.OnroadEvent.EventName.pcmDisable)
+          stock_cruise_already_off and event.name == log.OnroadEvent.EventName.pcmDisable or
+          main_off_event_pending and event.name == log.OnroadEvent.EventName.wrongCarMode)
         for event in sm['onroadEvents']))
   except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
     return False

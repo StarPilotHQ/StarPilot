@@ -186,3 +186,71 @@ def test_main_on_during_permanent_fault_does_not_queue_automatic_rearm(alpha):
   cs.steerFaultPermanent = False
   owner.update(cs, now_ns=1_020_000_000, fault_active=False)
   assert not owner.allowed_latch
+
+
+def test_stock_mqb_main_rearm_waits_only_for_the_current_native_receipt():
+  from openpilot.cereal import messaging
+  from openpilot.starpilot.aol.tests.test_gm_held_native import Peers
+  from openpilot.starpilot.aol.transport_pause import TransportPauseFeedback
+  from openpilot.starpilot.aol.wire import PandaSlot, SafetyState, encode_safety
+  from openpilot.starpilot.car.volkswagen.aol import awaiting_initial_request, policy_for
+
+  fp = gen_empty_fingerprint()
+  fp[0][0xAD] = 8
+  cp = CarInterface.get_params(CAR.VOLKSWAGEN_ATLAS_MK1, fp, [], False, False, False)
+  policy = policy_for(cp)
+  cp.safetyConfigs[-1].safetyParam |= policy.safety_param_addition
+  cp.alternativeExperience |= policy.alternative_experience_addition
+  owner = VolkswagenStockCardIntent(cp, AolSettings(True, 5., 0, 0, (0, 0, 0), (0, 0, 0)))
+  cs = structs.CarState(canValid=True, vEgo=8., vEgoRaw=8., gearShifter=structs.CarState.GearShifter.drive)
+  cs.cruiseState.available = True
+  arm = 2_000_000_000
+  owner.update(cs, now_ns=arm - 300_000_000)
+  cs.cruiseState.available = False
+  owner.update(cs, now_ns=arm - 100_000_000)
+  assert not owner.allowed_latch
+  cs.cruiseState.available = True
+  owner.update(cs, now_ns=arm)
+  assert owner.allowed_latch
+
+  now = arm + 110_000_000
+  stamp = now - 2_000_000
+  event = messaging.new_message('onroadEvents', 1, valid=True, logMonoTime=stamp)
+  event.onroadEvents[0].name = 'pcmDisable'
+  event.onroadEvents[0].userDisable = True
+  axis = messaging.new_message('aolAxisState', valid=True, logMonoTime=stamp)
+  axis.aolAxisState.sessionId = axis.aolAxisState.faultSessionId = 'drive'
+  axis.aolAxisState.intentProducerSessionId = 'card'
+  axis.aolAxisState.sequence = 2
+  axis.aolAxisState.faultReason = 'none'
+
+  axis.aolAxisState.qualified = True
+  axis.aolAxisState.desiredLateral = True
+  axis.aolAxisState.observedMonoTime = axis.aolAxisState.faultEventMonoTime = stamp
+  axis.aolAxisState.sourceCarStateMonoTime = stamp - 3_000_000
+  axis.aolAxisState.validUntilMonoTime = stamp + 30_000_000
+  health = messaging.new_message('pandaStates', 1, valid=True, logMonoTime=stamp)
+  health.pandaStates[0].safetyModel = 'volkswagen'
+  health.pandaStates[0].safetyParam = 8
+  health.pandaStates[0].alternativeExperience = 32
+  native = SafetyState(1, True, stamp, stamp + 200_000_000, 15, 8, False, False, True, False, 'board', 'drive',
+                       stamp, (PandaSlot(0, 'board', 15, 8, 32),))
+  wire = messaging.new_message('aolSafetyWire', 0, valid=True, logMonoTime=stamp)
+  wire.aolSafetyWire = encode_safety(native)
+  feedback = TransportPauseFeedback(cp)
+  feedback.session, feedback.sequence, feedback.ever_lateral_active = 'drive', 1, True
+  feedback.signature = (None,) * 14 + ('card', 0)
+  def waiting():
+    return awaiting_initial_request(cp, cs, Peers([axis, event, health, wire]), native, feedback,
+      owner, now_ns=now, producer='card')
+  assert waiting()
+  assert owner.intent_publication(cs, now)[-1] == arm + 200_000_000
+  event.onroadEvents[0].name = 'buttonCancel'
+  assert not waiting()
+  event.onroadEvents[0].name = 'pcmDisable'
+  cs.cruiseState.enabled = True
+  owner.update(cs, now_ns=now)
+  cs.cruiseState.enabled = False
+  assert not waiting()
+  owner.update(cs, now_ns=arm + 200_000_001)
+  assert not owner.allowed_latch
