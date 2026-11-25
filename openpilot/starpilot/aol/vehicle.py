@@ -184,8 +184,14 @@ def native_bootstrap_supported(CP):
 
 
 def intent_disarming_fault(CP, events, state, **context):
+  # Only the Subaru port consumes card time and transport feedback; never
+  # forward them into the generic classifier's fixed keyword contract.
+  now_ns = context.pop('now_ns', 0)
+  feedback = context.pop('feedback', None)
   if CP.brand == 'volkswagen':
     return volkswagen.intent_disarming_fault(CP, events, state, **context)
   if CP.brand == 'chrysler':
     return chrysler.intent_disarming_fault(CP, events, state, **context)
+  if CP.brand == 'subaru':
+    return subaru.intent_disarming_fault(CP, events, state, now_ns=now_ns, feedback=feedback, **context)
   return gm.intent_disarming_fault(CP, events, state, **context)

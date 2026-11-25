@@ -962,7 +962,8 @@ class Car:
         self.aol_card_intent.settings.enabled and self.aol_card_intent.main_action != 9),
       temporary_ui_process_failure=self.aol_process_fault_context.temporary_ui_failure(event_ns, now_ns),
       temporary_selfdrive_lagging=(qualified_gm(self.CP) or aol_policy_for(self.CP).intent_supported),
-      temporary_source_pause=(self.aol_transport_feedback.qualified or self.aol_transport_feedback.awaiting))
+      temporary_source_pause=(self.aol_transport_feedback.qualified or self.aol_transport_feedback.awaiting),
+      now_ns=now_ns, feedback=self.aol_transport_feedback)
 
   def aol_permission_owners(self) -> tuple[bool, bool, bool, bool, bool, bool]:
     # CP is fixed once the drive starts; these checks ran five times per 100 Hz frame.

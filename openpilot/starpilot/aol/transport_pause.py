@@ -124,6 +124,8 @@ class TransportPauseFeedback:
     self.honda_eps_retained_native_ns = 0
     self.fit_eps_intent = self.fit_eps_grant = None
     self.subaru_eps_brake_event_ns = 0
+    self.subaru_unknown_since_ns = 0
+    self.subaru_unknown_from_drivable = False
     self.hkg_eps_join_until_ns = 0
     self.lateral_source_ns = 0
     self.lateral_inventory = None
