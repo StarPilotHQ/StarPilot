@@ -1851,6 +1851,8 @@ class SettingsHttpTest(SettingsHttpFixture):
     self.assertFalse(self.params.get_bool("LaneCentering"))
 
   def test_confirm_finishes_before_acknowledged_logout(self):
+    from openpilot.starpilot.galaxy.auth import LocalSessions
+
     self.params.put_bool("LaneCentering", False, block=True)
     cookie = self.login()
     _, page, _ = self.request("/api/settings/pages/lane", cookie=cookie)
@@ -1866,16 +1868,26 @@ class SettingsHttpTest(SettingsHttpFixture):
     patcher = mock.patch.object(self.gateway, "confirm", side_effect=paused)
     patcher.start()
     self.addCleanup(patcher.stop)
-    with ThreadPoolExecutor(max_workers=2) as pool:
+    saved_at_revocation = []
+    revoke = LocalSessions.revoke
+
+    def observe_revocation(sessions, token):
+      saved_at_revocation.append(self.params.get_bool("LaneCentering"))
+      revoke(sessions, token)
+
+    with mock.patch.object(LocalSessions, "revoke", observe_revocation), ThreadPoolExecutor(max_workers=2) as pool:
       confirm = pool.submit(self.request, "/api/settings/confirm", cookie=cookie,
                             payload={"intent": preview["intent"], "confirmed": True})
       self.assertTrue(entered.wait(2))
       logout = pool.submit(self.request, "/api/auth/logout", cookie=cookie, payload={})
       self.assertFalse(logout.done())
       release.set()
-      self.assertEqual(confirm.result()[0], 200)
+      # The save is serialized with logout. The response still requires a live session.
+      self.assertIn(confirm.result()[:2], ((200, {"saved": True}), (401, {"error": "Sign in to Galaxy"})))
       self.assertEqual(logout.result()[0], 200)
+    self.assertEqual(saved_at_revocation, [True])
     self.assertTrue(self.params.get_bool("LaneCentering"))
+    self.assertEqual(self.request("/api/settings/pages/lane", cookie=cookie)[0], 401)
 
   def test_page_read_revoked_before_response_contains_no_settings(self):
     cookie = self.login()
