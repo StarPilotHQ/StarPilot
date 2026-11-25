@@ -26,7 +26,7 @@ from openpilot.starpilot.system.starport.bootstrap import MODERN_MAJOR, NAMES, B
 from openpilot.starpilot.system.starport.bugsink_report import PairingAttempt
 from openpilot.starpilot.system.starport.event_log import EventLog
 from openpilot.starpilot.system.starport.frame_source import (DEFAULT_PATH as DEFAULT_FRAME_PATH, FLAG_ASYNC_READBACK, FLAG_NV12,
-                                                                  FORMAT_NV12, FrameRequest)
+                                                                  FORMAT_NV12, FrameRequest, luma_summary)
 from openpilot.starpilot.system.starport.projection_control import DEFAULT_CONTROL_SOCKET, NATIVE_FOCUS
 from openpilot.starpilot.system.starport.radio_watch import (RADIO_CHANGE_WINDOW as RADIO_CHANGE_WINDOW,
                                                            RADIO_CHECK_INTERVAL as RADIO_CHECK_INTERVAL, SharedRadioWatch)
@@ -102,6 +102,20 @@ REFUSED_CAR_HINT_S = 120.0
 
 def short_uuids(device: dict) -> list[str]:
   return sorted(uuid[4:8] for uuid in device.get("uuids", []) if uuid.endswith("-0000-1000-8000-00805f9b34fb"))
+
+
+def frame_brightness(frame, mode) -> dict:
+  """Brightness of the last sent frame inside the area the car shows, and across the whole frame, for the stats log."""
+  if frame is None or mode is None or not mode.width or not mode.height:
+    return {}
+  sx, sy = frame.width / mode.width, frame.height / mode.height
+  margin_w, margin_h = mode.margin_width or 0, mode.margin_height or 0
+  left = mode.content_left if mode.content_left is not None else margin_w // 2
+  top = mode.content_top if mode.content_top is not None else margin_h - margin_h // 2
+  visible = luma_summary(frame, round(left * sx), round(top * sy), round((mode.width - margin_w) * sx),
+                         round((mode.height - margin_h) * sy))
+  whole = luma_summary(frame, 0, 0, frame.width, frame.height)
+  return {"luma_visible": visible, "luma_frame": whole} if visible else {}
 
 
 def encoder_preference(configured: str) -> str:
@@ -2229,6 +2243,8 @@ class Supervisor:
     unavailable: dict[str, bytes] = {}
     recoveries: list[float] = []  # when the hardware encoder was reopened, this session
     encode_peak = 0.0
+    sizes = {"bytes": 0, "frames": 0, "max": 0, "keyframe": 0}  # encoded sizes over each logged 30 s window
+    last_frame = None
     wait_for_frame = False
     audio = getattr(session, "audio", None)
     nav = getattr(session, "nav", None)
@@ -2295,6 +2311,12 @@ class Supervisor:
             data, keyframe = encoded
             encode_peak = max(encode_peak, encoder.last_encode_ms)
             session.send_frame(data, frame.captured_ns // 1000, keyframe=keyframe)
+            sizes["bytes"] += len(data)
+            sizes["frames"] += 1
+            sizes["max"] = max(sizes["max"], len(data))
+            if keyframe:
+              sizes["keyframe"] = len(data)
+            last_frame = frame
             if source.view == "car":
               source.source.mark_sent(frame.captured_ns)
             sent_at = time.monotonic()
@@ -2330,7 +2352,11 @@ class Supervisor:
                  "uptime_s": round(now - started), "frames_from_view": source.frames, "wifi_dbm": watch.wifi_dbm}
         self._set(stats=stats)
         if int(now - started) % 30 == 0:
-          self.log("stats", **{**device_health.sample(getattr(watch.lease, "interface", "wlan0")), **stats})
+          picture = {"frame_bytes_avg": sizes["bytes"] // sizes["frames"] if sizes["frames"] else None,
+                     "frame_bytes_max": sizes["max"], "keyframe_bytes": sizes["keyframe"] or None,
+                     **frame_brightness(last_frame, session.mode)}
+          self.log("stats", **{**device_health.sample(getattr(watch.lease, "interface", "wlan0")), **stats, **picture})
+          sizes.update(bytes=0, frames=0, max=0)
           encode_peak = 0.0  # the peak covers each logged 30 s window
           if audio is not None:
             audio.reset_peaks()

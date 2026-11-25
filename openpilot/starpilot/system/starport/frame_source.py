@@ -24,6 +24,7 @@ detected by the sequence number and retried by the consumer.
 
 from __future__ import annotations
 
+import math
 import mmap
 import os
 import struct
@@ -99,6 +100,28 @@ class Frame:
   captured_ns: int
   frame_id: int
   pixel_format: int = FORMAT_RGBA
+
+
+LUMA_STEP = 16
+
+
+def luma_summary(frame: Frame, left: int, top: int, width: int, height: int) -> dict:
+  """Brightness of a sparse grid inside one rectangle of the frame: mean, spread and the share of near-black samples."""
+  left, top = max(0, left), max(0, top)
+  right, bottom = min(frame.width, left + width), min(frame.height, top + height)
+  nv12 = frame.pixel_format == FORMAT_NV12
+  bpp, channel, black = (1, 0, 24) if nv12 else (4, 1, 16)  # NV12 black is Y=16; RGBA uses green as a luma stand-in
+  samples = bytearray()
+  for y in range(top, bottom, LUMA_STEP):
+    row = y * frame.width * bpp
+    samples += frame.data[row + left * bpp + channel:row + right * bpp:LUMA_STEP * bpp]
+  if not samples:
+    return {}
+  count = len(samples)
+  mean = sum(samples) / count
+  spread = math.sqrt(max(0.0, sum(value * value for value in samples) / count - mean * mean))
+  dark = sum(1 for value in samples if value <= black)
+  return {"mean": round(mean, 1), "std": round(spread, 1), "dark_pct": round(100 * dark / count, 1), "samples": count}
 
 
 def fit_content(source_w: int, source_h: int, width: int, height: int, margin_w: int, margin_h: int) -> tuple[int, int, int, int]:

@@ -136,6 +136,7 @@ def video_session(codec):
   session.audio = session.nav = None
   session.mode = VideoMode(1, 2, 720, 1280, 60, 0, 541, codec=codec)
   session.ignored_counts = {}
+  session.last_ui_config = b""
   session._log = lambda name, **values: events.append(name)
   return session, sent, events
 
@@ -145,13 +146,29 @@ def test_h265_session_answers_the_ui_config_request_with_the_same_config():
   body = ui_config_body()
   session.handle(1, VIDEO_UI_CONFIG_REQUEST, body)
   assert sent == [(1, VIDEO_UI_CONFIG_REPLY, body)]
-  assert events == ["ui_config_replied"]
+  assert events == ["ui_config_request", "ui_config_replied"]
 
 
-def test_h264_session_still_ignores_the_ui_config_request():
+def test_h264_session_logs_but_does_not_answer_the_ui_config_request():
   session, sent, events = video_session(CODEC_H264_BP)
   session.handle(1, VIDEO_UI_CONFIG_REQUEST, ui_config_body())
-  assert sent == [] and events == ["video_ignored"]
+  assert sent == [] and events == ["ui_config_request"]
+
+
+def test_repeated_ui_config_request_is_logged_once():
+  session, _, events = video_session(CODEC_H264_BP)
+  session.handle(1, VIDEO_UI_CONFIG_REQUEST, ui_config_body())
+  session.handle(1, VIDEO_UI_CONFIG_REQUEST, ui_config_body())
+  assert events == ["ui_config_request"]
+
+
+def test_ui_config_insets_reads_the_margins():
+  from openpilot.starpilot.system.starport.session import field, ui_config_insets
+  from openpilot.starpilot.system.starport.wire import parse_fields
+  insets = field(1, 66) + field(2, 66) + field(3, 0) + field(4, 390)
+  assert ui_config_insets(parse_fields(field(1, field(1, insets)))) == {"top": 66, "bottom": 66, "left": 0, "right": 390}
+  assert ui_config_insets({}) == {}
+  assert ui_config_insets({1: [5]}) == {}
 
 
 def test_keyframe_summary_reads_tier_and_level_through_emulation_prevention():

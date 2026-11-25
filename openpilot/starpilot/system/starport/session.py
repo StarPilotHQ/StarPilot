@@ -244,6 +244,19 @@ def describe_video_config(config: dict, display_type: int | None = None) -> str:
   return text
 
 
+def ui_config_insets(fields: dict) -> dict:
+  """The margins a head unit asks for in a UI config request: {top, bottom, left, right} in video pixels, or {}."""
+  try:
+    config = parse_fields(one(fields, 1, b""))
+    insets = parse_fields(one(config, 1, b""))
+  except (TypeError, ValueError):
+    return {}
+  if not insets:
+    return {}
+  return {name: int(one(insets, number, 0)) for number, name in ((1, "top"), (2, "bottom"), (3, "left"), (4, "right"))
+          if isinstance(one(insets, number, 0), int)}
+
+
 def describe_video_configs(channels: list[dict]) -> str:
   """What the head unit offered, for an error a person can act on."""
   offered = [describe_video_config(config, channel.get("display_type"))
@@ -752,6 +765,8 @@ class ProjectionSession(Session):
     self.connect_handsfree: Callable[[str], str] | None = None
     self.focus_requested_at: float | None = None
     self.focus_granted_at: float | None = None
+    self.focus_changed_at: float | None = None
+    self.last_ui_config = b""
     self.nav = None  # NavStatus, attached by the supervisor when the head unit offers turn-by-turn
     self.audio = None  # MediaAudio, attached by the supervisor when Spotify plays through Android Auto
     self.input_events = 0
@@ -1001,9 +1016,14 @@ class ProjectionSession(Session):
         if self.keyframe_test_active() and self.test_acks_logged < TEST_ACKS_LOGGED:
           self.test_acks_logged += 1
           self.event("video_ack", session=one(fields, 1), count=int(one(fields, 2, 0) or 0), pending=len(self.pending))
-      elif kind == VIDEO_UI_CONFIG_REQUEST and mode.codec == CODEC_H265:
-        self.send(channel, VIDEO_UI_CONFIG_REPLY, data)
-        self.event("ui_config_replied", channel=channel, bytes=len(data))
+      elif kind == VIDEO_UI_CONFIG_REQUEST:
+        if data != self.last_ui_config:
+          self.last_ui_config = data
+          self.event("ui_config_request", channel=channel, insets=ui_config_insets(fields), message=describe(data),
+                     replied=mode.codec == CODEC_H265)
+        if mode.codec == CODEC_H265:
+          self.send(channel, VIDEO_UI_CONFIG_REPLY, data)
+          self.event("ui_config_replied", channel=channel, bytes=len(data))
       else:
         self.ignored("video_ignored", channel, kind, data)
     elif channel == self.input_channel:
@@ -1078,7 +1098,11 @@ class ProjectionSession(Session):
       self.focus_granted_at = time.monotonic()
       if self.focus_requested_at is not None:
         wait = {"wait_s": round(self.focus_granted_at - self.focus_requested_at, 2)}
-    self.event("video_focus", focus=focus, unsolicited=unsolicited, focused=self.focused, **wait)
+    now = time.monotonic()
+    since = {"since_last_s": round(now - self.focus_changed_at, 1)} if self.focus_changed_at is not None else {}
+    self.focus_changed_at = now
+    self.event("video_focus", focus=focus, unsolicited=unsolicited, focused=self.focused, was_focused=was_focused,
+               frames_sent=self.frames_sent, frames_acked=self.acked, **since, **wait)
     if was_focused and not self.focused and self.grace_frame is not None:
       self.grace_focus_lost = True  # the car gave up on the stalled video: reconnect rather than wait unfocused
     if was_focused and not self.focused and self.touch is not None:
