@@ -1,13 +1,15 @@
-import {botPost,supportCard,privateCard} from './bot-delivery.mjs';
+import {botPost,supportCard,privateCard,ticketStates,ticketTitle} from './bot-delivery.mjs';
 import {discordTags, getReportThread, supportForum, supportTags} from './thread-tags.mjs';
 import {issueDriveLink, sendDriveInvite} from './drive-logs.mjs';
 
 const titles = {
   note:'Additional Report', tags:'Apply tags', working:'Mark in progress', assign:'Assign someone', unassign:'Clear assignment', priority:'Set Priority', status:'Change Status',
-  overview:'Report overview', question:'Ask the reporter', testing:'Request User Testing', rename:'Rename Thread', duplicate:'Link Duplicate',
+  awaiting:'Awaiting deploy', investigate:'Further investigation', overview:'Report overview', question:'Ask the reporter', testing:'Request User Testing', rename:'Rename Thread', duplicate:'Link Duplicate',
   appLogs:'Request Phone App Logs', connection:'Request Comma Connection Logs', controller:'Request Controller Logs', starport:'Request StarPort Logs', removeTags:'Remove topic tags'
 };
 const descriptions={
+  investigate:'Send this report back for investigation.',
+  awaiting:'Record a fix that is waiting for deployment without pinging the reporter.',
   overview:'See status, priority, assignment and the latest available diagnostic link privately.',
   question:'Mention the reporter and give them a feedback button.',
   tags:'Add topics such as Galaxy, Navigation or CarPlay.', removeTags:'Remove selected topics while keeping the platform and status.',
@@ -20,7 +22,7 @@ const descriptions={
   starport:'Request the original StarPort session ZIP for Android Auto troubleshooting.',
   controller:'USB and Bluetooth input inventory for a physical controller.'
 };
-const statusColor={'Open':0x3498db,'In Progress':0xe69b22,'Closed':0x359467};
+const statusNames=['Open','In Progress','Closed'];
 const row = component => ({type:1,components:[component]});
 const ephemeral = (content,controls) => Response.json({type:4,data:privateCard(content,controls)});
 const idPattern = /^\d{1,20}$/;
@@ -71,18 +73,28 @@ export async function caseInteraction(i,env,origin,ctx) {
   if(i.type===3 && command==='pick' && choices[action]){
     return ephemeral(titles[action], [row({type:3,custom_id:base+action+':'+channel,placeholder:titles[action],options:choices[action].map(value=>({label:value,value}))})]);
   }
-  const prompts={question:'What do you need from the reporter?',feedback:'What did you find or what do you need?',note:'What happened?',testing:'Build and steps to test',rename:'New thread title',duplicate:'Original Discord thread link or ID'};
+  const prompts={question:'What do you need from the reporter?',feedback:'What did you find or what do you need?',note:'What happened?',testing:'Steps to test',awaiting:'Update for the reporter (optional)',rename:'New thread title',duplicate:'Original Discord thread link or ID'};
   if(i.type===3 && prompts[action]){
-    return Response.json({type:9,data:{title:titles[action]||'Give feedback',custom_id:base+action+':'+channel,components:[row({type:4,custom_id:'value',label:prompts[action],style:['note','testing','feedback','question'].includes(action)?2:1,required:true,max_length:action==='rename'?100:action==='duplicate'?200:1500})]}});
+    const fields=[row({type:4,custom_id:'value',label:prompts[action],style:['note','testing','awaiting','feedback','question'].includes(action)?2:1,required:action!=='awaiting',max_length:action==='rename'?100:action==='duplicate'?200:1500})];
+    if(['awaiting','testing'].includes(action)){
+      fields.push(row({type:4,custom_id:'build',label:'App build (optional)',placeholder:'e.g. iOS 2.0 (332)',style:1,required:false,max_length:120}),
+        row({type:4,custom_id:'commit',label:'GitHub commit URL (optional)',placeholder:'https://github.com/owner/repo/commit/...',style:1,required:false,max_length:300}));
+    }
+    return Response.json({type:9,data:{title:titles[action]||'Give feedback',custom_id:base+action+':'+channel,components:fields}});
   }
   const value=['tags','removeTags'].includes(action)?i.data.values:i.type===5?i.data.components?.[0]?.components?.[0]?.value?.trim():i.data.values?.[0];
-  if(prompts[action] && (!value||i.type!==5) || choices[action]&&!choices[action].includes(value))return ephemeral('Choose a valid value.');
+  if(prompts[action] && ((!value&&action!=='awaiting')||i.type!==5) || choices[action]&&!choices[action].includes(value))return ephemeral('Choose a valid value.');
   if(action==='assign'&&(!idPattern.test(value)||!i.data.resolved?.members?.[value]))return ephemeral('Choose a server member.');
+  const fields=(i.data.components||[]).flatMap(r=>r.components||[]);
+  const build=fields.find(field=>field.custom_id==='build')?.value?.trim();
+  const commit=fields.find(field=>field.custom_id==='commit')?.value?.trim();
+  if(commit&&!/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/commit\/[\da-f]{7,64}\/?$/i.test(commit))
+    return ephemeral('Use a GitHub commit URL ending in the commit hash.');
   const owner=env.REPORTS.get(env.REPORTS.idFromName(user));
   ctx.waitUntil((async()=>{
     let content='Could not confirm the action. Check the thread before retrying.';
     try{
-      const response=await owner.fetch('https://reports/case-action',{method:'POST',body:JSON.stringify({user,platform,channel,action,actor,value,interaction:i.id,origin})});
+      const response=await owner.fetch('https://reports/case-action',{method:'POST',body:JSON.stringify({user,platform,channel,action,actor,value,build,commit,interaction:i.id,origin})});
       content=(await response.json()).message||content;
     }finally{
       await fetch('https://discord.com/api/v10/webhooks/'+i.application_id+'/'+i.token+'/messages/@original',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({...privateCard(content),content:null,embeds:[]}),redirect:'manual'});
@@ -105,9 +117,12 @@ export async function caseAction(storage,env,b){
   if(['feedback','fulfilled'].includes(action)&&actor!==user)return result('Only the reporter can respond.');
   const thread=await getReportThread(env,channel);
   if(action==='overview'){
-    const status=Object.keys(statusColor).find(name=>thread.applied_tags.includes(supportTags[name])) || 'No status tag';
+    const status=statusNames.find(name=>thread.applied_tags.includes(supportTags[name])) || 'No status tag';
     const summary=['**Report overview**', 'Status: '+status+(thread.thread_metadata?.archived?' (archived)':''),
       'Assigned to: '+(record.assignee?' <@'+record.assignee+'>':'Unassigned'), 'Priority: '+(record.priority??'Unset')];
+    if(record.releaseStage)summary.push('Fix: '+record.releaseStage);
+    if(record.build)summary.push('App build: '+record.build);
+    if(record.commit)summary.push('[View commit]('+record.commit+')');
     if(record.duplicate)summary.push('Original thread: <#'+record.duplicate+'>');
     const diagnostics=await storage.get('latest-diagnostics:'+channel);
     if(diagnostics)summary.push('[Open latest private diagnostics]('+diagnostics+')');
@@ -145,6 +160,12 @@ export async function caseAction(storage,env,b){
   }
   let message, nextStatus;
   const patch={};
+  const state=action==='fulfilled'?ticketStates.fulfilled
+    :action==='status'&&value==='Closed'?ticketStates.closed
+    :action==='investigate'||action==='status'&&value==='Open'?ticketStates.investigating
+    :action==='testing'?ticketStates.testing
+    :['awaiting','working'].includes(action)||action==='status'&&value==='In Progress'?ticketStates.reviewed:null;
+  const rename=state&&thread.name?{name:ticketTitle(thread.name,state)}:{};
   if(action==='duplicate'){
     const target=/^https:\/\/discord\.com\/channels\/1387432184121393333\/(\d{1,20})(?:\/\d{1,20})?\/?$/.exec(value)?.[1]||value;
     if(!idPattern.test(target)||channel===target)return result('Choose a different support thread.');
@@ -152,7 +173,8 @@ export async function caseAction(storage,env,b){
     patch.duplicate=target;
     message='Duplicate of <#'+target+'>.';
   }else if(action==='rename'){
-    await discordTags(env,'/channels/'+channel,{name:value});
+    const currentState=Object.values(ticketStates).find(item=>thread.name?.startsWith(item.circle));
+    await discordTags(env,'/channels/'+channel,{name:currentState?ticketTitle(value,currentState):value});
     patch.title=value;message='Renamed this report to '+value+'.';
   }else if(action==='assign'||action==='unassign'){
     patch.assignee=action==='assign'?value:null;
@@ -167,25 +189,43 @@ export async function caseAction(storage,env,b){
   }else if(action==='priority'){
     patch.priority=value==='Clear'?null:value;
     message=patch.priority===null?'Priority cleared.':'Priority '+value+' (0 is highest).';
-  }else if(action==='status'||action==='working'||action==='fulfilled'){
-    const status=action==='fulfilled'?'Closed':action==='working'?'In Progress':value;
+  }else if(action==='status'||['working','investigate','fulfilled'].includes(action)){
+    const status=action==='fulfilled'?'Closed':['working','investigate'].includes(action)?'In Progress':value;
     nextStatus=status;
+    patch.releaseStage=null;
     const statuses=['Open','In Progress','Closed'].map(name=>supportTags[name]);
     const tags=[...thread.applied_tags.filter(id=>!statuses.includes(id)),supportTags[status]];
     if(tags.length>5)return result('Remove a forum tag to make room for the status.');
-    await discordTags(env,'/channels/'+channel,{applied_tags:tags,...(reopening&&thread.thread_metadata?.archived?{archived:false}:{})});
-    message=action==='fulfilled'?'The reporter marked this request fulfilled.':action==='working'?'<@'+actor+'> is working on this report.':'Status changed to '+status+'.';
-  }else if(action==='testing'||action==='question')message='<@'+user+'>';
+    await discordTags(env,'/channels/'+channel,{applied_tags:tags,...rename,...(reopening&&thread.thread_metadata?.archived?{archived:false}:{})});
+    message=action==='investigate'?'Staff are investigating this report again.':action==='fulfilled'?'The reporter marked this request fulfilled.':action==='working'?'<@'+actor+'> is working on this report.':'Status changed to '+status+'.';
+  }else if(action==='testing'||action==='awaiting'){
+    if(rename.name && rename.name!==thread.name)await discordTags(env,'/channels/'+channel,rename);
+    patch.releaseStage=action==='testing'?'Ready for testing':'Awaiting deploy';
+    if(b.build)patch.build=b.build;
+    if(b.commit)patch.commit=b.commit;
+    message=action==='testing'?'<@'+user+'>':'';
+  }else if(action==='question')message='<@'+user+'>';
   else if(action==='feedback')message='Feedback from <@'+actor+'>\n'+value;
   else if(action==='note')message='Additional report from <@'+actor+'>\n'+value;
   else return result('Unknown action.');
   if(Object.keys(patch).length)await storage.transaction(async tx=>tx.put(key,{...await tx.get(key),...patch}));
   const payload={content:message,nonce:b.interaction,enforce_nonce:true,
     allowed_mentions:{parse:[],users:['testing','question'].includes(action)?[user]:action==='assign'?[value]:[]}};
-  if(action==='testing'||action==='question'){
-    const text=[action==='testing'?'**Waiting for user testing**':'**Staff need more information**',value,'','Choose **Give feedback** to share your results, or **My request is fulfilled** to close the report.'].join('\n');
-    delete payload.content;
-    Object.assign(payload,supportCard(message,text,[reporterButtons(user,platform,channel)]));
+  if(action==='awaiting'||action==='testing'||action==='question'){
+    const fix=[];
+    if(action!=='question'){
+      const build=patch.build||record.build, commit=patch.commit||record.commit;
+      if(build)fix.push('**App build:** '+build);
+      if(commit)fix.push('[View commit]('+commit+')');
+    }
+    if(action==='awaiting'){
+      delete payload.content;
+      Object.assign(payload,supportCard('',['**Awaiting deploy**','A fix is waiting for release. Staff will ask you to test when it is available.',value,...fix].filter(Boolean).join('\n'),caseButtons(user,platform),[],state.color));
+    }else{
+      const text=[action==='testing'?'**Waiting for user testing**':'**Staff need more information**',value,...fix,'','Choose **Give feedback** to share your results, or **My request is fulfilled** to close the report.'].join('\n');
+      delete payload.content;
+      Object.assign(payload,supportCard(message,text,[reporterButtons(user,platform,channel)],[],state?.color));
+    }
   }else if(action==='feedback'||action==='note'){
     delete payload.content;
     Object.assign(payload,supportCard('',message,caseButtons(user,platform)));
@@ -193,7 +233,7 @@ export async function caseAction(storage,env,b){
   if(nextStatus){
     delete payload.content;
     const controls=nextStatus==='Closed'?[row({type:2,style:2,label:'Staff Actions',custom_id:'case:'+user+':'+platform+':menu:'+channel})]:caseButtons(user,platform);
-    Object.assign(payload,supportCard('','**'+nextStatus+'**\n'+message,controls,[],statusColor[nextStatus]));
+    Object.assign(payload,supportCard('','**'+nextStatus+'**\n'+message,controls,[],state.color));
   }
   const post=await botPost(env,channel,payload);
   if(nextStatus==='Closed'){

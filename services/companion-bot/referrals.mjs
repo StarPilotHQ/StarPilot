@@ -1,4 +1,4 @@
-import {botPost,messageText,privateCard,supportCard} from './bot-delivery.mjs';
+import {botPost,ticketTitle,ticketStates,messageText,privateCard,supportCard} from './bot-delivery.mjs';
 import {caseButtons} from './case-actions.mjs';
 import {discordTags,supportForum,supportTags} from './thread-tags.mjs';
 
@@ -250,7 +250,7 @@ async function recoverMove(store,env,key,record){
   const title=record.title||record.category+' — '+record.observed.replace(/\s+/g,' ').slice(0,68);
   async function find(threads){
     for(const thread of threads){
-      if(thread.parent_id!==supportForum||thread.owner_id!==bot.id||thread.name!==title)continue;
+      if(thread.parent_id!==supportForum||thread.owner_id!==bot.id||!(thread.name===title||thread.name===ticketTitle(title,ticketStates.new)))continue;
       const opener=await discordTags(env,'/channels/'+thread.id+'/messages/'+thread.id);
       if(opener.author?.id===bot.id&&messageText(opener).endsWith('[Original driving report]('+urlFor(record.source)+')'))return thread.id;
     }

@@ -101,10 +101,10 @@ test('closing archives after the status card and reopening restores the same thr
   });
   const act=(action,value,id)=>caseAction(store,env,{channel:'4',user:'1',platform:'ios',actor:'3',action,value,interaction:id});
   await act('status','Closed','1');
-  assert.deepEqual(events,[{applied_tags:['42','1565237052524466207']},0x359467,{archived:true}]);
+  assert.deepEqual(events,[{applied_tags:['42','1565237052524466207']},0x3498db,{archived:true}]);
   assert.match((await (await act('working',null,'2')).json()).message,/closed or archived/);
   await act('status','Open','3');
-  assert.deepEqual(events.slice(3),[{applied_tags:['42','1565236988913913887'],archived:false},0x3498db]);
+  assert.deepEqual(events.slice(3),[{applied_tags:['42','1565236988913913887'],archived:false},0xe74c3c]);
 });
 
 test('the overview is staff-only and reads archived tickets without posting',async t=>{
@@ -133,4 +133,30 @@ test('asking a question pings only the reporter and offers feedback',async t=>{
   assert.deepEqual(message.allowed_mentions,{parse:[],users:['1']});
   assert.match(JSON.stringify(message.components),/Which build/);
   assert.match(JSON.stringify(message.components),/case:1:ios:feedback:4/);
+});
+
+test('deployment keeps the commit, testing adds the build, and the forum title follows the ticket lifecycle',async t=>{
+  const records=new Map([['thread:4',{platform:'ios'}]]);
+  const storage={get:key=>records.get(key),put:(key,val)=>records.set(key,val),transaction:fn=>fn(storage)};
+  const thread={id:'4',type:11,parent_id:supportForum,name:'🟠 Sentry preview',applied_tags:[],thread_metadata:{}};
+  const posts=[];
+  t.mock.method(globalThis,'fetch',async(url,options)=>{
+    if(options.method==='PATCH')Object.assign(thread,JSON.parse(options.body));
+    if(options.method==='POST')posts.push(JSON.parse(options.body));
+    return Response.json(thread);
+  });
+  const run=(action,extra={})=>caseAction(storage,env,{channel:'4',user:'1',actor:'3',platform:'ios',action,interaction:action,...extra});
+  const commit='https://github.com/StarPilotHQ/StarPilot/commit/1234abc';
+  await run('awaiting',{commit});
+  assert.equal(thread.name,'⚪ Sentry preview');
+  assert.deepEqual(posts.at(-1).allowed_mentions.users,[]);
+  await run('testing',{build:'2.0 (332)',value:'Check the preview.'});
+  assert.equal(thread.name,'🟣 Sentry preview');
+  assert.deepEqual(posts.at(-1).allowed_mentions.users,['1']);
+  assert.ok(JSON.stringify(posts.at(-1)).includes(commit));
+  assert.ok(JSON.stringify(posts.at(-1)).includes('2.0 (332)'));
+  await run('investigate');
+  assert.equal(thread.name,'🔴 Sentry preview');
+  await run('fulfilled',{actor:'1'});
+  assert.equal(thread.name,'🟢 Sentry preview');
 });

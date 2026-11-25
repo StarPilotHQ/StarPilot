@@ -1,3 +1,18 @@
+import {supportForum} from './thread-tags.mjs';
+
+export const ticketStates={
+  new:{circle:'🟠',color:0xf28c28},
+  reviewed:{circle:'⚪',color:0xffffff},
+  testing:{circle:'🟣',color:0x9b59b6},
+  investigating:{circle:'🔴',color:0xe74c3c},
+  fulfilled:{circle:'🟢',color:0x359467},
+  closed:{circle:'🔵',color:0x3498db}
+};
+export function ticketTitle(title,state){
+  const plain=title.replace(/^(?:🟠|⚪|🟣|🔴|🟢|🔵)\ufe0f?\s+/u,'');
+  return Array.from(state.circle+' '+plain).slice(0,100).join('');
+}
+
 export function supportCard(mention,text,buttons,inside=[],color=0xf2b134){
   const components=[];
   if(mention) components.push({type:10,content:mention});
@@ -35,7 +50,11 @@ export async function botPost(env, channel, payload) {
     delete message.content;
     Object.assign(message,card);
   }
-  const data = name ? {name, message, ...(tags && {applied_tags:tags})} : message;
+  if(name && channel===supportForum){
+    const card=message.components?.find(component=>component.type===17);
+    if(card)card.accent_color=ticketStates.new.color;
+  }
+  const data = name ? {name:channel===supportForum?ticketTitle(name,ticketStates.new):name, message, ...(tags && {applied_tags:tags})} : message;
   const headers = {Authorization:'Bot '+env.DISCORD_BOT_TOKEN};
   if (multipart) payload.set('payload_json',JSON.stringify(data));
   else headers['Content-Type']='application/json';
