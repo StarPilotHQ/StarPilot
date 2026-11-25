@@ -40,7 +40,8 @@ def card_publication_sequence(context):
   calls=[statement.value.func.attr for statement in statements if isinstance(statement,ast.Expr)]
   assert calls==['configure','finalize_aol_configuration','seal_publication']
   exec(compile(ast.Module(body=statements,type_ignores=[]),'actual-card-publication-order','exec'),
-       {'self':context,'aol_policy':policy_for(context.CP), 'hyundai_aol_safety_config':hyundai_aol_safety_config})
+       {'self':context,'aol_policy':policy_for(context.CP), 'HYUNDAI_CAR':CAR,
+        'hyundai_aol_safety_config':hyundai_aol_safety_config})
 
 
 @pytest.fixture(params=[(CAR.KIA_EV6,EV6Startup),(CAR.GENESIS_GV70_ELECTRIFIED_1ST_GEN,GV70Startup)])
