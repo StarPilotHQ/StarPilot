@@ -440,8 +440,9 @@ def read_traffic(sm, now_ns: int | None = None) -> bool:
   qualified) while openpilot is enabled and commanding longitudinal: the case the comma's own screen labels TRAFFIC.
   A request that is off, paused or without a usable profile, a stopped planner and a car without Traffic Mode all
   read False. This is looser than the comma's own label (TrafficDisplayProjector): the receipt's validity window,
-  session barrier and settings and button-map fingerprints are not checked, so after a planner restart or a
-  settings change this can read True for up to the message age the comma's screen would not.
+  session barrier and settings and button-map fingerprints are not checked, nor is the saved profile or button
+  assignment read here, so after a planner restart or a settings change this can read True where the comma's
+  screen shows nothing or TRAFFIC PROFILE UNAVAILABLE.
   """
   try:
     state = _current(sm, 'slcState', now_ns, TRAFFIC_MAX_AGE_NS)
