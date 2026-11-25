@@ -12,6 +12,7 @@ from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.shader_polygon import draw_polygon, Gradient
 from openpilot.system.ui.widgets import Widget
 from openpilot.common.filter_simple import FirstOrderFilter
+from openpilot.starpilot.ui.torque_feedback import accord_angle_error_bar, accord_angle_error_fraction
 
 # TODO: arc_bar_pts doesn't consider rounded end caps part of the angle span
 TORQUE_ANGLE_SPAN = 12.7  # degrees on the default 476 px camera view; narrower views beside the navigation panel scale down
@@ -160,6 +161,18 @@ class TorqueBar(Widget):
 
   def _update_state(self):
     if self._demo:
+      return
+
+    # Accord on the angle-loop EPS firmware: the bar is the angle error the setpoint carries,
+    # (setpoint sent - wheel angle) / the carcontroller's error clip at this speed, so full
+    # scale means the clip is binding.  Sign follows the torque branch: bar points the way the EPS pulls.
+    if accord_angle_error_bar(ui_state.CP):
+      car_state = ui_state.sm['carState']
+      if not ui_state.sm['carControl'].latActive:
+        self._torque_filter.update(0.0)
+      else:
+        setpoint = ui_state.sm['carOutput'].actuatorsOutput.steeringAngleDeg
+        self._torque_filter.update(accord_angle_error_fraction(setpoint, car_state.steeringAngleDeg, car_state.vEgoRaw))
       return
 
     # torque line

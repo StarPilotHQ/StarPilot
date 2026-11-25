@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -32,6 +33,32 @@ class TestHondaNormalDiscovery(unittest.TestCase):
     present.assert_not_called()
     generic_query.assert_not_called()
     self.assertIsNone(actual[0])
+
+  def _accord_discovery(self, normal_read, obd_read):
+    from opendbc.car.honda.values import CAR
+    switches = []
+    with patch('opendbc.car.car_helpers.get_vin', return_value=(-1, -1, VIN_UNKNOWN)) as vin, \
+         patch('opendbc.car.car_helpers.get_fw_versions', side_effect=[normal_read, obd_read]) as query, \
+         patch('opendbc.car.car_helpers.match_fw_to_car', return_value=(True, {CAR.HONDA_ACCORD})), \
+         patch('opendbc.car.car_helpers.can_fingerprint', return_value=(None, {})):
+      actual = fingerprint(lambda wait_for_one=False: [recorded_frames()], lambda frames: None, switches.append, None)
+    return switches, vin, query, actual
+
+  def test_accord_without_an_eps_read_queries_the_obd_port(self):
+    radar = SimpleNamespace(ecu="fwdRadar", logging=False, responseAddress=0, subAddress=0, bus=1)
+    eps = SimpleNamespace(ecu="eps", logging=False, responseAddress=0, subAddress=0, bus=1)
+    switches, vin, query, actual = self._accord_discovery([radar], [radar, eps])
+    self.assertEqual(switches, [False, True, False])
+    self.assertEqual(vin.call_count, 2)
+    self.assertEqual([call.kwargs for call in query.call_args_list],
+                     [{'query_brand': 'honda', 'normal_bus_only': True}, {'query_brand': 'honda'}])
+    self.assertEqual(actual[3], [radar, eps])
+
+  def test_accord_with_an_eps_read_stays_on_normal_wiring(self):
+    eps = SimpleNamespace(ecu="eps", logging=False, responseAddress=0, subAddress=0, bus=1)
+    switches, vin, query, _ = self._accord_discovery([eps], AssertionError("no second query"))
+    self.assertFalse(any(switches))
+    query.assert_called_once()
 
   def test_incomplete_or_invalid_traffic_cannot_select_honda(self):
     from opendbc.car.honda.discovery import normal_bus_topology

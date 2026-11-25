@@ -16,6 +16,7 @@ from openpilot.selfdrive.controls.lib.cycle_timing import ControlCycleTiming, PU
 from openpilot.common.swaglog import cloudlog
 
 from opendbc.car.car_helpers import interfaces
+from opendbc.car.honda.values import CAR as HONDA_CAR, accord_angle_steer_ratio
 from opendbc.car.vehicle_model import VehicleModel
 from openpilot.selfdrive.controls.lib.drive_helpers import clip_curvature
 from openpilot.selfdrive.controls.lib.highway_correction_gain import HighwayCorrectionGain, predicted_lateral_accels, read_gain
@@ -357,6 +358,9 @@ class Controls:
     torque_extension = getattr(self.LaC, 'starpilot_extension', None)
     if torque_extension is not None:
       sr = torque_extension.vehicle_model_ratio(sr, CS.vEgo)
+    if self.CP.carFingerprint == HONDA_CAR.HONDA_ACCORD and self.CP.steerControlType == car.CarParams.SteerControlType.angle:
+      # angle-loop EPS: the variable-ratio rack map at the measured angle replaces the learner
+      sr = accord_angle_steer_ratio(CS.steeringAngleDeg - lp.angleOffsetDeg)
     self.VM.update_params(x, sr)
 
     steer_angle_without_offset = math.radians(CS.steeringAngleDeg - lp.angleOffsetDeg)

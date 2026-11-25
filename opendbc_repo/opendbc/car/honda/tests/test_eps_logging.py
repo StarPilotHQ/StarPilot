@@ -39,9 +39,11 @@ def test_mixed_nonlogging_eps_still_refuses_modified_profile(other):
   assert not cp.flags & HondaFlags.EPS_MODIFIED
 
 
-def test_recorded_custom_angle_eps_remains_unsupported_in_mainline():
+def test_recorded_custom_angle_eps_steers_by_angle():
   cp = params(CAR.HONDA_ACCORD, [eps(ANGLE), eps(SERIAL, logging=True)])
-  assert cp.dashcamOnly
+  assert not cp.dashcamOnly
+  assert cp.flags & HondaFlags.EPS_ANGLE_LOOP_FW
+  assert cp.steerControlType == structs.CarParams.SteerControlType.angle
   assert not cp.flags & HondaFlags.EPS_MODIFIED
 
 
