@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 
 
-DISPLAY_VERSION = "7.0.2"
+DISPLAY_VERSION = "7.0.3"
 
 
 def read_display_version(root: str) -> str:
