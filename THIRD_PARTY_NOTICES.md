@@ -11,6 +11,22 @@ The Ubuntu archives retain their package copyright files. The
 [Ubuntu package archive](https://ubuntu.com/project/docs/how-ubuntu-is-made/concepts/package-archive/)
 provides source packages alongside the binaries.
 
+## Alexandre Sato GWM Haval H6
+
+GWM Haval H6 GT support - the car interface, CAN packing and CRC helpers, the DBC and the panda
+safety mode - is adapted from Alexandre Sato's openpilot port:
+
+- Source: <https://github.com/alexandresato/openpilot/tree/port_gwm_haval_h6>
+- Audited snapshots: [`6d82c406b`](https://github.com/alexandresato/openpilot/commit/6d82c406b)
+  ("init from scratch", 2024-07-06) and
+  [`5433e24bf`](https://github.com/alexandresato/opendbc/commit/5433e24bf)
+  ("move GWM to opendbc", 2024-08-18)
+- Source: <https://github.com/alexandresato/opendbc/tree/port_gwm_haval_h6>
+- Both repositories are MIT-licensed forks of `commaai/openpilot` and `commaai/opendbc`.
+- Provenance, contributors and local deviations: [CREDITS.md](CREDITS.md)
+
+Alexandre Sato does not maintain or endorse StarPilot or this adaptation.
+
 ## Jetlink
 
 Jetlink's comma client is copyright (c) 2026 Zeph Leggett and distributed under the MIT License. Its complete license and permission notice are retained in [jetlink_repo/LICENSE](jetlink_repo/LICENSE); source and revision are recorded in [CREDITS.md](CREDITS.md#jetlink-external-inference) and `upstream-sync.json`.
