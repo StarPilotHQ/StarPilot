@@ -333,7 +333,11 @@ export function isReferral(i){
   return (i.type===2 && i.data?.type===3 && i.data.name===command) || (i.type===3 && /^refer:(leave|move|retry|ios|android):\d{17,20}$/.test(i.data?.custom_id||''));
 }
 export async function referralInteraction(i,env,ctx){
-  const reply=text=>Response.json({type:4,data:privateCard(text)});
+  const inReview=configured(env)&&i.guild_id===guild&&i.channel_id===env.COMPANION_REVIEW_THREAD_ID;
+  const card=(text,controls=[])=>inReview
+    ? {...supportCard('',text,[],controls,0x5865f2),allowed_mentions:{parse:[]}}
+    : privateCard(text,controls);
+  const reply=text=>Response.json({type:4,data:card(text)});
   const manual=i.type===2;
   if(!configured(env)||i.guild_id!==guild||(!manual && i.channel_id!==env.COMPANION_REVIEW_THREAD_ID))return reply('Use the configured support review thread.');
   const settings=env.REPORTS.get(env.REPORTS.idFromName('companion-bot-setup'));
@@ -350,8 +354,8 @@ export async function referralInteraction(i,env,ctx){
       const choices=result.choosePlatform?[['ios','iOS'],['android','Android']]:result.retryMove?[['retry','Retry creation']]:[];
       if(choices.length)controls=[{type:1,components:choices.map(([key,label])=>({type:2,style:2,label,custom_id:'refer:'+key+':'+source}))}];
     }finally{
-      await fetch('https://discord.com/api/v10/webhooks/'+i.application_id+'/'+i.token+'/messages/@original',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({...privateCard(text,controls),content:null,embeds:[]})});
+      await fetch('https://discord.com/api/v10/webhooks/'+i.application_id+'/'+i.token+'/messages/@original',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({...card(text,controls),content:null,embeds:[]})});
     }
   })());
-  return Response.json({type:5,data:{flags:64}});
+  return Response.json(inReview?{type:5}:{type:5,data:{flags:64}});
 }

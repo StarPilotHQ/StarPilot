@@ -211,3 +211,32 @@ test('lost acknowledgements recover the existing review card and Companion ticke
   assert.equal(rows.get(key).destination,dest);
   assert.equal(rows.get(key).platform,'android');
 });
+
+test('review thread replies are shared from acknowledgement through final card; driving thread commands stay private',async t=>{
+  const guild='1387432184121393333',review='1575000066366644244',source='1574085782967292086';
+  const edits=[];
+  t.mock.method(globalThis,'fetch',async(url,options)=>{
+    assert.equal(options.method,'PATCH');
+    edits.push(JSON.parse(options.body));
+    return Response.json({});
+  });
+  const env={COMPANION_REVIEW_THREAD_ID:review,DRIVING_SAMPLE_THREAD_ID:source,
+    REPORTS:{idFromName:name=>name,get:name=>({fetch:async()=>Response.json(name==='companion-bot-setup'?{id:'sage'}:{message:'Choose a platform',choosePlatform:true})})}};
+  for(const inReview of [true,false]){
+    const click={type:inReview?3:2,guild_id:guild,channel_id:inReview?review:source,member:{roles:['sage'],user:{id:source}},
+      application_id:'app',token:'fixture',data:{custom_id:'refer:move:'+source}};
+    let done;
+    const ack=await (await referralInteraction(click,env,{waitUntil:job=>{done=job;}})).json();
+    assert.equal(ack.type,5);
+    assert.equal(Boolean(ack.data?.flags & 64),!inReview);
+    await done;
+    assert.equal(Boolean(edits.at(-1).flags & 64),!inReview);
+    assert.deepEqual(edits.at(-1).allowed_mentions,{parse:[]});
+    assert.equal(edits.at(-1).components[0].components[1].components.length,2);
+    click.member.roles=[];
+    const denied=await (await referralInteraction(click,env,{})).json();
+    assert.equal(denied.type,4);
+    assert.equal(Boolean(denied.data.flags & 64),!inReview);
+    assert.match(JSON.stringify(denied.data),/requires StarPilot Sage/);
+  }
+});
