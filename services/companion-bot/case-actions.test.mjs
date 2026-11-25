@@ -253,3 +253,29 @@ test('old webhook tickets use their verified report reference or exact saved thr
   }
   assert.equal(edits,2);
 });
+
+test('comma testing adds the official branch instruction only to the comma testing request',async t=>{
+  const {galaxyLogSteps,updateComma}=await import('./galaxy-log-request.mjs');
+  for(const kind of ['connection','controller','starport']){
+    const steps=galaxyLogSteps({kind,platform:'android'});
+    assert.ok(steps[0].startsWith(updateComma));
+    assert.match(steps.at(-1),/offline.*branch and version/);
+  }
+  const posts=[];
+  t.mock.method(globalThis,'fetch',async(url,options)=>{
+    if(options.method==='POST'){posts.push(JSON.parse(options.body));return Response.json({id:'8'});}
+    return Response.json({id:'4',type:11,parent_id:supportForum,applied_tags:[]});
+  });
+  const records=new Map([['thread:4',{platform:'ios'}]]);
+  const store={get:k=>records.get(k),put:(k,v)=>records.set(k,v),transaction:fn=>fn(store)};
+  for(const selected of ['testing','commaTesting']){
+    const pick=interaction('pick:4','3');
+    pick.data.values=[selected];
+    const modal=(await (await caseInteraction(pick,env)).json()).data;
+    assert.equal(modal.custom_id,'case:1:ios:'+selected+':4');
+    await caseAction(store,env,{action:'testing',commaTesting:selected==='commaTesting',platform:'ios',channel:'4',user:'1',actor:'3',value:'Verify the fix.',build:'2.0 (332)',interaction:selected});
+    const card=JSON.stringify(posts.at(-1));
+    assert.equal(card.includes(updateComma),selected==='commaTesting');
+    assert.ok(card.includes('2.0 (332)'));
+  }
+});

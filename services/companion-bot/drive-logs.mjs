@@ -1,5 +1,5 @@
 import {isReferral,referralInteraction} from './referrals.mjs';
-import {galaxyLogSteps} from './galaxy-log-request.mjs';
+import {galaxyLogSteps,routeSteps} from './galaxy-log-request.mjs';
 import {caseInteraction,privateStaffCommand,reporterButtons} from './case-actions.mjs';
 import {botPost,supportCard,privateCard} from './bot-delivery.mjs';
 import {rememberDriveMessage,webhookMessage} from './codex-review.mjs';
@@ -61,7 +61,7 @@ export function driveDownload(env, token, secret) {
 function formPage() {
   return new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Submit drive logs</title>
 <style>body{font:1rem/1.5 system-ui;margin:6vh auto;padding:1rem;max-width:32rem}label,input,textarea,button{display:block}label{margin-top:1rem}input,textarea{width:100%;box-sizing:border-box;padding:.55rem}button{margin-top:1.5rem;padding:.65rem 1rem}</style>
-<h1>Submit drive logs</h1><p>Share a comma connect route link, a segment log, or both. Your drive details go to the private support forum. Your support thread receives a receipt with a reference number.</p>
+<h1>Submit drive logs</h1><p>${routeSteps} You can also attach a segment log. Your drive details go to the private support forum. Your support thread receives a receipt with a reference number.</p>
 <form method="post" enctype="multipart/form-data"><label>Comma connect route link<input type="url" name="route" maxlength="1500" placeholder="https://connect.comma.ai/…"></label>
 <label>Time into the drive<input name="time" maxlength="40" placeholder="6:49"></label><label>What happened?<textarea name="note" maxlength="1000"></textarea></label>
 <label>Segment log (up to 24 MiB)<input type="file" name="log" accept=".zst"></label><button>Submit drive logs</button></form></html>`,
@@ -169,7 +169,7 @@ export async function driveObject(request,storage,env) {
       const capture = ['connection','controller','starport'].includes(record.kind);
       const title={connection:'Phone app connection logs',controller:'Controller logs',starport:'StarPort logs'}[record.kind];
       const intro=capture?'**'+title+' requested**\n'+galaxyLogSteps(record).map((step,i)=>(i+1)+'. '+step).join('\n\n'):
-        '**Drive logs requested**\nUse the link below to submit the drive logs privately for this report.';
+        '**Drive logs requested**\n'+routeSteps+' Use the link below to send your logs privately.';
       const link=record.origin+'/drive/'+record.token;
       const help=capture?'If the app can’t connect, open Galaxy in your phone’s browser using the Local Galaxy address on the comma while connected to its Wi-Fi or hotspot.':'';
       const backup=capture && record.kind!=='starport'?'[Offline ZIP help]('+record.origin+'/report/galaxy/fresh/'+record.token+')':'';

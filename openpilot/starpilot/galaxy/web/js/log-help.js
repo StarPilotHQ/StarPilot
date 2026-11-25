@@ -425,6 +425,7 @@ export const LogHelp = {
               <i class="bi bi-info-circle" aria-hidden="true"></i>
               <div class="gx-stack">
                 <strong>What we need</strong>
+                <p>Before collecting fresh logs, park and update your comma to the latest testing build from StarPilotHQ/StarPilot. Try the connection again.</p>
                 <p>{{ currentTopic.whatWeNeed }}</p>
                 <p v-if="currentTopic.extraHint" class="gx-note">{{ currentTopic.extraHint }}</p>
               </div>
@@ -475,6 +476,7 @@ export const LogHelp = {
               </template>
             </div>
 
+            <p v-if="!bluetooth" class="gx-note">Comma offline? Save the ZIP on your phone and send it when you have internet. Include the branch and version you captured.</p>
             <p v-if="stage.available && !canSend && stage.state !== 'staging'" class="gx-note">{{ missingHint }}</p>
             <GxState v-if="stage.state === 'staging'" loading>{{ stage.message || 'Uploading logs' }}…</GxState>
             <GxNotice v-if="stage.state === 'failed' || stage.error || zipError" tone="danger">{{ stage.error || stage.message || zipError }}</GxNotice>

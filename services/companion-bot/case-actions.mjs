@@ -1,14 +1,16 @@
+import {updateComma} from './galaxy-log-request.mjs';
 import {botPost,supportCard,privateCard,ticketStates,ticketTitle} from './bot-delivery.mjs';
 import {discordTags, getReportThread, supportForum, supportTags} from './thread-tags.mjs';
 import {issueDriveLink, sendDriveInvite} from './drive-logs.mjs';
 
 const titles = {
   note:'Additional Report', tags:'Apply tags', working:'Mark in progress', assign:'Assign someone', unassign:'Clear assignment', priority:'Set Priority', status:'Change Status',
-  awaiting:'Awaiting deploy', investigate:'Further investigation', overview:'Report overview', question:'Ask the reporter', testing:'Request User Testing', rename:'Rename Thread', duplicate:'Link Duplicate',
+  awaiting:'Awaiting deploy', investigate:'Further investigation', overview:'Report overview', question:'Ask the reporter', testing:'Request User Testing', commaTesting:'Request Comma Testing', rename:'Rename Thread', duplicate:'Link Duplicate',
   appLogs:'Request Phone App Logs', connection:'Request Comma Connection Logs', controller:'Request Controller Logs', starport:'Request StarPort Logs', removeTags:'Remove topic tags'
 };
 const descriptions={
   investigate:'Send this report back for investigation.',
+  commaTesting:'Ask the reporter to update the comma and test the fix. Include a phone build if needed.',
   awaiting:'Record a fix that is waiting for deployment without pinging the reporter.',
   overview:'See status, priority, assignment and the latest available diagnostic link privately.',
   question:'Mention the reporter and give them a feedback button.',
@@ -127,7 +129,9 @@ export async function caseInteraction(i,env,origin,ctx) {
     if(response.ok)sage=roles.includes((await response.json()).id);
   }
   const base=['case',user,platform].join(':')+':';
-  const action=command==='pick'?i.data.values?.[0]:command;
+  const selected=command==='pick'?i.data.values?.[0]:command;
+  const commaTesting=selected==='commaTesting';
+  const action=commaTesting?'testing':selected;
   const reporterAction=['feedback','fulfilled'].includes(action);
   if(reporterAction && (actor!==user || bound!==channel))return ephemeral('Only the original reporter can respond to this request.');
   if(!reporterAction && (action==='note' ? actor!==user&&!sage : !sage)) return ephemeral(action==='note'?'Only the reporter or StarPilot Sage can add details.':'Staff Actions requires the StarPilot Sage role.');
@@ -156,7 +160,7 @@ export async function caseInteraction(i,env,origin,ctx) {
       fields.push(row({type:4,custom_id:'build',label:'App build (optional)',placeholder:'e.g. iOS 2.0 (332)',style:1,required:false,max_length:120}),
         row({type:4,custom_id:'commit',label:'GitHub commit URL (optional)',placeholder:'https://github.com/owner/repo/commit/...',style:1,required:false,max_length:300}));
     }
-    return Response.json({type:9,data:{title:titles[action]||'Give feedback',custom_id:base+action+':'+channel,components:fields}});
+    return Response.json({type:9,data:{title:titles[selected]||'Give feedback',custom_id:base+selected+':'+channel,components:fields}});
   }
   const value=['tags','removeTags'].includes(action)?i.data.values:i.type===5?i.data.components?.[0]?.components?.[0]?.value?.trim():i.data.values?.[0];
   if(prompts[action] && ((!value&&action!=='awaiting')||i.type!==5) || choices[action]&&!choices[action].includes(value))return ephemeral('Choose a valid value.');
@@ -170,7 +174,7 @@ export async function caseInteraction(i,env,origin,ctx) {
   ctx.waitUntil((async()=>{
     let content='Could not confirm the action. Check the thread before retrying.';
     try{
-      const response=await owner.fetch('https://reports/case-action',{method:'POST',body:JSON.stringify({user,platform,channel,action,actor,value,build,commit,interaction:i.id,origin})});
+      const response=await owner.fetch('https://reports/case-action',{method:'POST',body:JSON.stringify({user,platform,channel,action,actor,value,build,commit,commaTesting,interaction:i.id,origin})});
       content=(await response.json()).message||content;
     }finally{
       await fetch('https://discord.com/api/v10/webhooks/'+i.application_id+'/'+i.token+'/messages/@original',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({...privateCard(content),content:null,embeds:[]}),redirect:'manual'});
@@ -298,7 +302,7 @@ export async function caseAction(storage,env,b){
       delete payload.content;
       Object.assign(payload,supportCard('',['**Awaiting deploy**','A fix is waiting for release. Staff will ask you to test when it is available.',value,...fix].filter(Boolean).join('\n'),caseButtons(user,platform),[],state.color));
     }else{
-      const text=[action==='testing'?'**Waiting for user testing**':'**Staff need more information**',value,...fix,'','Choose **Give feedback** to share your results, or **My request is fulfilled** to close the report.'].join('\n');
+      const text=[action==='testing'?'**Waiting for user testing**':'**Staff need more information**',...(action==='testing'&&b.commaTesting?[updateComma]:[]),value,...fix,'','Choose **Give feedback** to share your results, or **My request is fulfilled** to close the report.'].join('\n');
       delete payload.content;
       Object.assign(payload,supportCard(message,text,[reporterButtons(user,platform,channel)],[],state?.color));
     }

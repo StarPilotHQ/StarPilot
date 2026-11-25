@@ -85,6 +85,7 @@ export const ConnectionLogs = {
     <div v-else class="gx-actions">
       <button type="button" class="gx-btn gx-btn--tonal" :disabled="captureBusy" @click="downloadConnectionLogs">{{ captureBusy ? 'Preparing ZIP…' : 'Download connection ZIP' }}</button>
     </div>
+    <p class="gx-note">Before collecting fresh logs, park and update your comma to the latest testing build from StarPilotHQ/StarPilot. Try the connection again.</p>
     <GxNotice v-if="captureError" tone="danger">{{ captureError }}</GxNotice>
   </div>`,
 }
