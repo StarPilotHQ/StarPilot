@@ -176,17 +176,18 @@ static void kona_release_irq(void) {
   if (kona_release_pending && (late < 0x80000000U)) {
     kona_release_cancel();
     mpu_safety_open();
-    CANPacket_t output = kona_release_frame;
-    bool replaced = false;
-    int destination = -1;
     if ((late <= 1000U) && safety_camera_release_current(&kona_release_frame, now)) {
-      destination = safety_fwd_output_hook(&kona_release_frame, &output, &replaced);
-    }
-    mpu_safety_close();
-    if ((destination >= 0) && !replaced) {
-      can_set_checksum(&output);
-      can_send(&output, (uint8_t)destination, true);
-      can_health[kona_release_source].total_fwd_cnt += 1U;
+      CANPacket_t output = kona_release_frame;
+      bool replaced = false;
+      const int destination = safety_fwd_output_hook(&kona_release_frame, &output, &replaced);
+      mpu_safety_close();
+      if ((destination >= 0) && !replaced) {
+        can_set_checksum(&output);
+        can_send(&output, (uint8_t)destination, true);
+        can_health[kona_release_source].total_fwd_cnt += 1U;
+      }
+    } else {
+      mpu_safety_close();
     }
   }
   MICROSECOND_TIMER->SR = ~TIM_SR_CC1IF;
@@ -256,19 +257,22 @@ static void can_rx(uint8_t can_number) {
 
     // forwarding
     CANPacket_t to_send;
+    #ifdef ALLOW_DEBUG
     bool replaced = false;
+    #endif
     #ifdef STM32H7
     mpu_safety_open();
     #endif
+    #ifdef ALLOW_DEBUG
     int bus_fwd_num;
     if (safety_uses_camera_slot(&to_push)) {
       ENTER_CRITICAL();
       #if defined(ALLOW_DEBUG) && !defined(PANDA_BODY)
       const uint32_t now = microsecond_timer_get();
-      const uint32_t delay = safety_camera_release_delay(&to_push, now);
+      const uint32_t release_delay = safety_camera_release_delay(&to_push, now);
       kona_release_cancel();
-      if (delay != 0U) {
-        kona_release_schedule(&to_push, can_number, now + delay);
+      if (release_delay != 0U) {
+        kona_release_schedule(&to_push, can_number, now + release_delay);
         bus_fwd_num = -1;
       } else {
         bus_fwd_num = safety_fwd_output_hook(&to_push, &to_send, &replaced);
@@ -280,11 +284,16 @@ static void can_rx(uint8_t can_number) {
     } else {
       bus_fwd_num = safety_fwd_packet_hook(&to_push);
     }
+    #else
+    const int bus_fwd_num = safety_fwd_packet_hook(&to_push);
+    #endif
     #ifdef STM32H7
     mpu_safety_close();
     #endif
     if (bus_fwd_num >= 0) {
+      #ifdef ALLOW_DEBUG
       if (!replaced) {
+      #endif
         to_send.fd = to_push.fd;
         to_send.returned = 0U;
         to_send.rejected = 0U;
@@ -293,7 +302,9 @@ static void can_rx(uint8_t can_number) {
         to_send.bus = to_push.bus;
         to_send.data_len_code = to_push.data_len_code;
         (void)memcpy(to_send.data, to_push.data, dlc_to_len[to_push.data_len_code]);
+      #ifdef ALLOW_DEBUG
       }
+      #endif
       can_set_checksum(&to_send);
       can_send(&to_send, bus_fwd_num, true);
       can_health[can_number].total_fwd_cnt += 1U;

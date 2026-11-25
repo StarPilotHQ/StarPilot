@@ -1333,7 +1333,8 @@ static bool hyundai_kona_camera_output(const CANPacket_t *msg, CANPacket_t *outp
           candidate.data[5] = (candidate.data[5] & 0xFEU) | (msg->data[5] & 0x01U);
           candidate.data[7] = (candidate.data[7] & 0x0FU) | (msg->data[7] & 0xF0U);
         }
-        const int torque = (int)((((unsigned int)candidate.data[6] & 0xFU) << 7U) | (candidate.data[5] >> 1U)) - 1024;
+        const unsigned int raw_torque = (((unsigned int)candidate.data[6] & 0xFU) << 7U) | (candidate.data[5] >> 1U);
+        const int torque = (int)raw_torque - 1024;
         if ((source_delta <= 2U) &&
             !safety_max_limit_check(torque, HYUNDAI_CANFD_STEER_MAX_TORQUE, -HYUNDAI_CANFD_STEER_MAX_TORQUE)) {
           if (GET_BIT(&candidate, 52U)) {

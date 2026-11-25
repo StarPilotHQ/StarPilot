@@ -25,9 +25,19 @@ class TestHyundaiKonaCcncHandoff(unittest.TestCase):
     camera = self.packet(2, 'a6770a1880001800000a000000900000')
     for experience in ((0,) if debug else (0, 32)):
       self.mode(0x1C0C, experience)
+      self.assertFalse(self.safety.safety_uses_camera_slot(camera))
+      self.assertFalse(self.safety.safety_camera_release_current(camera, 0))
+      self.assertEqual(self.safety.safety_camera_release_delay(camera, 0), 0)
       self.assertEqual(self.safety.safety_fwd_packet_hook(camera), -1)
       self.assertFalse(self.safety.safety_tx_hook(self.packet(0, 'a6770a1880001800000a000000900000')))
       self.assertEqual(self.safety.safety_fwd_hook(2, 0x123), -1)
+
+  def test_output_hook_preserves_default_forwarding(self):
+    self.assertEqual(self.safety.set_safety_hooks(structs.CarParams.SafetyModel.hyundai, 0), 0)
+    for source, destination in ((0, 2), (1, -1), (2, 0)):
+      packet = libsafety_py.make_CANPacket(0x123, source, bytes(8))
+      self.assertEqual(self.safety.safety_fwd_packet_hook(packet), destination)
+      self.assertEqual(self.forward(packet)[:2], (destination, False))
 
   def forward(self, packet):
     output = libsafety_py.new_CANPacket()

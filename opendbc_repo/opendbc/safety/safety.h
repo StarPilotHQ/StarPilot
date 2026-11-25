@@ -366,6 +366,7 @@ int safety_fwd_packet_hook(const CANPacket_t *msg) {
   return destination_bus;
 }
 
+#if defined(ALLOW_DEBUG) || !defined(STM32H7)
 bool safety_uses_camera_slot(const CANPacket_t *msg) {
 #ifdef ALLOW_DEBUG
   return (current_safety_mode == SAFETY_HYUNDAI_CANFD) && hyundai_kona_idle_handoff && (msg->addr == 0x12AU);
@@ -401,16 +402,18 @@ bool safety_stage_tx_hook(const CANPacket_t *msg) {
 }
 
 int safety_fwd_output_hook(const CANPacket_t *msg, CANPacket_t *output, bool *replaced) {
-  int destination = safety_fwd_hook(msg->bus, msg->addr);
-  if (destination >= 0) {
-    if (current_hooks->fwd_output != NULL) {
-      destination = current_hooks->fwd_output(msg, output, replaced) ? -1 : destination;
-    } else if ((current_hooks->fwd_packet != NULL) && current_hooks->fwd_packet(msg)) {
+  int destination;
+  if (current_hooks->fwd_output != NULL) {
+    destination = safety_fwd_hook(msg->bus, msg->addr);
+    if ((destination >= 0) && current_hooks->fwd_output(msg, output, replaced)) {
       destination = -1;
     }
+  } else {
+    destination = safety_fwd_packet_hook(msg);
   }
   return destination;
 }
+#endif
 
 // 1Hz safety function called by main. Now just a check for lagging safety messages
 void safety_tick(void) {
