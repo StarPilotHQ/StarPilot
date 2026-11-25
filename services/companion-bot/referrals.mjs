@@ -229,7 +229,7 @@ export async function referralStore(path,request,store,env){
   const mentions=recipients.map(user=>'<@'+user+'>').join(' ');
   const original=record.reportText||record.summary||record.observed;
   const excerpt=original.length>3200?original.slice(0,3199)+'…':original;
-  const card=supportCard('',mentions+'\n\n**'+record.category+' support**\n'+excerpt+'\n\n[Original driving report]('+urlFor(source)+')',caseButtons(record.reporter,platform));
+  const card=supportCard('',mentions+'\n\n**'+record.category+' support**\nWe moved your report here from driving feedback so the Companion support team can help. We copied your report below. You can reply in this thread with updates.\n\n'+excerpt+'\n\n[Original driving report]('+urlFor(source)+')',caseButtons(record.reporter,platform));
   let receipt;
   try{receipt=await botPost(env,supportForum,{...card,thread_name:title,applied_tags:tags,allowed_mentions:{parse:[],users:recipients}});}
   catch{return Response.json({message:'Ticket delivery is uncertain. Choose Move again in a minute to check Discord.'});}
@@ -308,7 +308,7 @@ async function finishMove(store,env,key,record){
     if(applied.length!==thread.applied_tags.length||applied.some(tag=>!thread.applied_tags.includes(tag)))patch.applied_tags=applied;
     let postedNotice=false;
     if(!record.moveNotice){
-      const notice=supportCard('','**Moved to Companion Logs**\nStaff moved this report to Companion support. Your original report is linked there. Please post updates and reply to staff in the new ticket.\n\n'+link,[]);
+      const notice=supportCard('','**Your report moved to Companion support**\nThe Companion support team handles this issue. We copied your report into their forum, so there is no need to submit it again. This driving thread is closing. Use the link below to see your report and reply to the team.\n\n'+link,[]);
       const sent=await botPost(env,record.source,{...notice,flags:notice.flags|4096,allowed_mentions:{parse:[]},nonce:'move-'+record.source,enforce_nonce:true});
       if(!sent.ok)return Response.json({message:'Companion ticket created. Discord did not confirm the notice in the original thread. Check Send Messages in Threads and retry Move. '+link});
       const receipt=await sent.json();

@@ -107,6 +107,7 @@ test('Move closes only after registration and retries the same destination on a 
       assert.equal(opts.method,'POST');
       const notice=JSON.parse(opts.body);
       assert.ok(notice.components[0].components[0].content.includes(destination));
+      assert.match(notice.components[0].components[0].content,/no need to submit it again/);
       assert.deepEqual(notice.allowed_mentions,{parse:[]});
       if(!allowNotice)return new Response('',{status:403});
       notices++;
@@ -159,6 +160,7 @@ test('new linked ticket mentions the original reporter and both maintainers once
     for(const id of ids)assert.equal(text.split('<@'+id+'>').length,2);
     assert.ok(!text.includes(firestar));
     assert.ok(text.includes('Audio should continue.'));
+    assert.match(text,/reply in this thread/);
   }
 });
 
