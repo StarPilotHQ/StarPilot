@@ -119,3 +119,20 @@ def test_a_bluetooth_error_while_choosing_the_car_is_reported_not_raised(sup):
   sup.select_receiver = rejected
   sup._adopt_only_car(1000.0)
   assert "car_adopt_failed" in names(sup) and sup.config["receiver_address"] == ""
+
+
+def test_connected_car_without_aa_uuid_is_probed_once_and_adopted(sup, monkeypatch):
+  import socket
+  from openpilot.starpilot.system.starport import bt_sockets, sdp
+  sup._phone().paired_devices = [(CAR, "Ioniq 6", False)]
+  sup._phone().connected = True
+  calls = []
+  def fake_l2cap(address, psm):
+    calls.append((address, psm))
+    return socket.socketpair()[0]
+  monkeypatch.setattr(bt_sockets, "connect_l2cap", fake_l2cap)
+  monkeypatch.setattr(sdp, "query_channel", lambda sock, timeout=3.0: 5)
+  sup._adopt_only_car(1000.0)
+  assert calls == [(CAR, sdp.SDP_PSM)]
+  assert sup.config["rfcomm_cache"] == {CAR: 5}
+  assert sup.config["receiver_address"] == CAR

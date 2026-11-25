@@ -526,7 +526,8 @@ class Supervisor:
     from openpilot.starpilot.system.starport.bt_sockets import normalize_address
     address = normalize_address(address)
     device = self._phone().device(address)
-    if device is None or not device['paired'] or not device.get('starport'):
+    rfcomm_cache = self.config.get("rfcomm_cache") or {}
+    if device is None or not device['paired'] or not (device.get('starport') or address in rfcomm_cache):
       raise RuntimeError('Choose a paired Android Auto receiver')
     with self._lock:
       if self._thread is not None and self._thread.is_alive():
@@ -543,6 +544,37 @@ class Supervisor:
       self._phone().set_trusted(address)  # the car's own connections are accepted onroad, like a phone's
     except Exception as error:
       self.log("trust_failed", error=str(error))
+
+  def _probe_connected_devices(self, devices: list[dict]) -> None:
+    """Query already-connected paired devices over L2CAP SDP when BlueZ omitted AA_WIRELESS_UUID.
+
+    Only connected devices are probed (never paging sleeping cars), and each address is tried at most
+    once per daemon run unless forgotten.
+    """
+    from openpilot.starpilot.system.starport import bt_sockets, sdp
+    probed = getattr(self, "_sdp_probed", None)
+    if probed is None:
+      probed = self._sdp_probed = set()
+    rfcomm_cache = self.config.get("rfcomm_cache") or {}
+    for device in devices:
+      address = device["address"]
+      if not device.get("paired") or not device.get("connected") or device.get("starport"):
+        continue
+      if address in rfcomm_cache or address in probed:
+        continue
+      probed.add(address)
+      try:
+        with bt_sockets.connect_l2cap(address, sdp.SDP_PSM) as sdp_sock:
+          channel = sdp.query_channel(sdp_sock, timeout=3.0)
+      except (OSError, sdp.SdpError):
+        continue
+      with self._lock:
+        cache = dict(self.config.get("rfcomm_cache") or {})
+        cache[address] = channel
+        self.config["rfcomm_cache"] = cache
+        identity_store.save_config(self.config)
+        rfcomm_cache = cache
+      self.log("receiver_probed", address=address, channel=channel)
 
   def forget_receiver(self, address: str) -> bool:
     """A Bluetooth pairing was deleted: drop it as the chosen car or companion, and its RFCOMM channel,
@@ -807,8 +839,15 @@ class Supervisor:
       devices = self._phone().devices()
     except Exception as error:
       raise RuntimeError(f"Bluetooth unavailable: {error}") from error
-    return [{key: device[key] for key in ("address", "name", "paired", "connected", "starport")}
-            for device in devices if device["paired"]]
+    self._probe_connected_devices(devices)
+    rfcomm_cache = self.config.get("rfcomm_cache") or {}
+    return [{
+      "address": device["address"],
+      "name": device["name"],
+      "paired": device["paired"],
+      "connected": device["connected"],
+      "starport": bool(device.get("starport") or device["address"] in rfcomm_cache),
+    } for device in devices if device["paired"]]
 
   def maintain(self, now: float | None = None) -> None:
     """Periodic housekeeping from the daemon thread: pairing window, auto-connect."""
