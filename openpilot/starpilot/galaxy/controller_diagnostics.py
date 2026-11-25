@@ -1,7 +1,7 @@
 """Capture the USB and Bluetooth input inventory without opening any event device."""
 
 from base64 import b64encode
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 import hashlib
 from io import BytesIO
 import json
@@ -49,7 +49,7 @@ def controller_input_report():
 
 
 def controller_capture():
-  report = {'schemaVersion': 1, 'capturedAt': datetime.now(timezone.utc).isoformat(timespec='seconds'), **controller_input_report()}
+  report = {'schemaVersion': 1, 'capturedAt': datetime.now(UTC).isoformat(timespec='seconds'), **controller_input_report()}
   output = BytesIO()
   with ZipFile(output, 'w', compression=ZIP_DEFLATED) as archive:
     archive.writestr('bluetooth-log.json', json.dumps(report, indent=2) + '\n')

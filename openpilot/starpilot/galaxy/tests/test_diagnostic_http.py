@@ -1,4 +1,3 @@
-from unittest.mock import Mock, patch
 """Authenticated diagnostics over the same local and remote HTTP handler."""
 
 import http.client
@@ -8,6 +7,7 @@ import tempfile
 import threading
 from types import SimpleNamespace
 import unittest
+from unittest.mock import Mock, patch
 
 from openpilot.starpilot.galaxy.access import GalaxyAccessOwner
 from openpilot.starpilot.galaxy.server import make_server
@@ -75,7 +75,7 @@ class DiagnosticHTTPTest(unittest.TestCase):
 
   def test_support_code_captures_on_device_and_confirms_delivery(self):
     _, _, self.cookie = self.request('/api/auth/session')
-    code = 'ab12' * 3
+    code = 'ab12' * 4
     path = '/api/companion/support-ticket'
     def post(action):
       return self.request(path, method='POST', payload={'code': code, 'action': action})
@@ -84,7 +84,7 @@ class DiagnosticHTTPTest(unittest.TestCase):
     receipt = Mock(status_code=200)
     receipt.json.return_value = {'sent': True}
     with patch('requests.post', side_effect=[ticket, ticket, receipt]) as relay:
-      self.assertEqual(post('check')[1]['title'], 'Lost network')
+      self.assertEqual(post('check')[:2], (200, {'kind': 'connection', 'title': 'Lost network'}))
       self.assertEqual(post('send')[:2], (200, {'sent': True}))
       self.assertTrue(relay.call_args.kwargs['json']['archive'].startswith('UEsD'))
       self.assertFalse(relay.call_args.kwargs['allow_redirects'])

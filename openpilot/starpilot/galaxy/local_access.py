@@ -3,7 +3,7 @@
 from base64 import b64encode
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from ipaddress import IPv4Address, ip_network
 import json
 import re
@@ -82,22 +82,22 @@ class LocalAccess:
 
 
 DISCOVERY_UNIT = 'galaxy-lan-discovery.service'
-DISCOVERY_MESSAGE = re.compile(
-  r'(Galaxy Wi-Fi discovery available on [0-9]{1,3} local interface\(s\)|'
+DISCOVERY_MESSAGE = re.compile(''.join((
+  r'(Galaxy Wi-Fi discovery available on [0-9]{1,3} local interface\(s\)|',
   r'Wi-Fi discovery unavailable: [A-Za-z][A-Za-z0-9_]{0,63}|LAN publisher cleanup failed)\Z',
-)
+)))
 
 
 BLE_UNIT = 'galaxy-ble-fork.service'
-BLE_MESSAGE = re.compile(
-  r'(Pairing credentials changed; [0-9]{1,4} phone\(s\) paired|Phone claimed pairing window|'
-  r'Galaxy BLE handshake challenge requested; active sessions=[0-9]{1,4}|'
-  r'Rejected invalid or unauthenticated BLE message|Notification transfer interrupted \([A-Za-z0-9_]{1,64}\); reconnect to check request outcome|'
-  r'BLE advertisement released by BlueZ; bridge will re-register after restart|Registering Galaxy BLE advertisement|'
-  r'Starting Galaxy bridge pid=[0-9]{1,10} source=[0-9a-f]{12}|'
-  r'Galaxy BLE bridge ready on /org/bluez/hci[0-9]{1,3}; forwarding to localhost:[0-9]{1,5}|'
+BLE_MESSAGE = re.compile(''.join((
+  r'(Pairing credentials changed; [0-9]{1,4} phone\(s\) paired|Phone claimed pairing window|',
+  r'Galaxy BLE handshake challenge requested; active sessions=[0-9]{1,4}|',
+  r'Rejected invalid or unauthenticated BLE message|Notification transfer interrupted \([A-Za-z0-9_]{1,64}\); reconnect to check request outcome|',
+  r'BLE advertisement released by BlueZ; bridge will re-register after restart|Registering Galaxy BLE advertisement|',
+  r'Starting Galaxy bridge pid=[0-9]{1,10} source=[0-9a-f]{12}|',
+  r'Galaxy BLE bridge ready on /org/bluez/hci[0-9]{1,3}; forwarding to localhost:[0-9]{1,5}|',
   r'Stopping Galaxy bridge; clearing ready status and Bluetooth sessions)\Z',
-)
+)))
 INTERFACE_NAME = re.compile(r'[A-Za-z0-9_.:-]{1,32}\Z')
 
 
@@ -194,7 +194,7 @@ def _service_capture(run, unit, pattern, label):
         if isinstance(message, str) and pattern.fullmatch(message):
           stamp = entry.get('__REALTIME_TIMESTAMP', '')
           if isinstance(stamp, str) and re.fullmatch(r'[0-9]{1,16}', stamp):
-            timestamp = datetime.fromtimestamp(int(stamp) / 1e6, timezone.utc).isoformat(timespec='seconds')
+            timestamp = datetime.fromtimestamp(int(stamp) / 1e6, UTC).isoformat(timespec='seconds')
             message = f'{timestamp} {message}'
           events.append(message)
       except (ValueError, OSError, OverflowError):
@@ -207,7 +207,7 @@ def _service_capture(run, unit, pattern, label):
 
 def connection_capture(addresses, *, configuration_allowed=None, run=subprocess.run):
   lines = ['StarPilot connection capture', 'Capture schema: 2',
-           f'Captured at (UTC): {datetime.now(timezone.utc).isoformat(timespec="seconds")}',
+           f'Captured at (UTC): {datetime.now(UTC).isoformat(timespec="seconds")}',
            'Galaxy endpoint: HTTP port 8082', 'Bonjour service: _sp-galaxy._tcp.local.']
   try:
     with open('/proc/uptime') as stream:

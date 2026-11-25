@@ -26,8 +26,9 @@ from openpilot.starpilot.system.starport.bootstrap import MODERN_MAJOR, NAMES, B
 from openpilot.starpilot.system.starport.bugsink_report import PairingAttempt
 from openpilot.starpilot.system.starport.event_log import EventLog
 from openpilot.starpilot.system.starport.frame_source import (DEFAULT_PATH as DEFAULT_FRAME_PATH, FLAG_ASYNC_READBACK, FLAG_NV12,
-                                                                  FORMAT_NV12, FrameRequest, luma_summary)
+                                                                  FORMAT_NV12, FrameRequest, frame_brightness)
 from openpilot.starpilot.system.starport.projection_control import DEFAULT_CONTROL_SOCKET, NATIVE_FOCUS
+from openpilot.starpilot.system.starport.reachability import _open_projection, _tcp_failure_kind
 from openpilot.starpilot.system.starport.radio_watch import (RADIO_CHANGE_WINDOW as RADIO_CHANGE_WINDOW,
                                                            RADIO_CHECK_INTERVAL as RADIO_CHECK_INTERVAL, SharedRadioWatch)
 from openpilot.starpilot.system.starport.touch import DEFAULT_TOUCH_SOCKET, TouchEvent
@@ -71,51 +72,12 @@ REPORTED_SETTINGS = ("connection", "usb_mode", "view", "encoder", "fps", "bitrat
                      "unacked_video", "patient_tcp", "wired_handsfree", "head_unit_experiments", "head_unit_experiment_rules")
 
 
-def _open_projection(ip: str, ports: list[int], advertised: int, local_ip: str, log) -> socket.socket:
-  error: OSError | None = None
-  for port in ports:
-    try:
-      sock = socket.create_connection((ip, port), timeout=5.0, source_address=(local_ip, 0) if local_ip else None)
-    except OSError as failure:
-      error = error or failure  # the first port's failure decides how patiently to retry
-      continue
-    if port != advertised:
-      log("tcp_port_fallback", advertised=advertised, port=port)
-    return sock
-  assert error is not None
-  raise error
-
-
-def _tcp_failure_kind(error: OSError) -> str:
-  if isinstance(error, (TimeoutError, socket.timeout)):
-    return "timeout"
-  if isinstance(error, ConnectionRefusedError):
-    return "refused"
-  if getattr(error, "errno", None) in (errno.ENETUNREACH, errno.EHOSTUNREACH, errno.ENETDOWN, errno.EHOSTDOWN):
-    return "unreachable"
-  return "other"
-
-
 HANDSFREE_UUID = "0000111e-0000-1000-8000-00805f9b34fb"
 REFUSED_CAR_HINT_S = 120.0
 
 
 def short_uuids(device: dict) -> list[str]:
   return sorted(uuid[4:8] for uuid in device.get("uuids", []) if uuid.endswith("-0000-1000-8000-00805f9b34fb"))
-
-
-def frame_brightness(frame, mode) -> dict:
-  """Brightness of the last sent frame inside the area the car shows, and across the whole frame, for the stats log."""
-  if frame is None or mode is None or not mode.width or not mode.height:
-    return {}
-  sx, sy = frame.width / mode.width, frame.height / mode.height
-  margin_w, margin_h = mode.margin_width or 0, mode.margin_height or 0
-  left = mode.content_left if mode.content_left is not None else margin_w // 2
-  top = mode.content_top if mode.content_top is not None else margin_h - margin_h // 2
-  visible = luma_summary(frame, round(left * sx), round(top * sy), round((mode.width - margin_w) * sx),
-                         round((mode.height - margin_h) * sy))
-  whole = luma_summary(frame, 0, 0, frame.width, frame.height)
-  return {"luma_visible": visible, "luma_frame": whole} if visible else {}
 
 
 def encoder_preference(configured: str) -> str:

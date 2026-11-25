@@ -124,6 +124,20 @@ def luma_summary(frame: Frame, left: int, top: int, width: int, height: int) -> 
   return {"mean": round(mean, 1), "std": round(spread, 1), "dark_pct": round(100 * dark / count, 1), "samples": count}
 
 
+def frame_brightness(frame, mode) -> dict:
+  """Brightness of the last sent frame inside the area the car shows, and across the whole frame, for the stats log."""
+  if frame is None or mode is None or not mode.width or not mode.height:
+    return {}
+  sx, sy = frame.width / mode.width, frame.height / mode.height
+  margin_w, margin_h = mode.margin_width or 0, mode.margin_height or 0
+  left = mode.content_left if mode.content_left is not None else margin_w // 2
+  top = mode.content_top if mode.content_top is not None else margin_h - margin_h // 2
+  visible = luma_summary(frame, round(left * sx), round(top * sy), round((mode.width - margin_w) * sx),
+                         round((mode.height - margin_h) * sy))
+  whole = luma_summary(frame, 0, 0, frame.width, frame.height)
+  return {"luma_visible": visible, "luma_frame": whole} if visible else {}
+
+
 def fit_content(source_w: int, source_h: int, width: int, height: int, margin_w: int, margin_h: int) -> tuple[int, int, int, int]:
   """Largest undistorted rectangle for the source inside the receiver's visible area.
 

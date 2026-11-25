@@ -1,5 +1,8 @@
 """Classify live and logged connection failures to select retry delays."""
 
+import errno
+import socket
+
 ASLEEP = "asleep"          # the car did not answer a page at all: off, or still waking
 NOT_READY = "not_ready"    # the car answered, but its Android Auto service or Wi-Fi handshake is not up yet
 LOCAL = "local"            # this comma's own Bluetooth stack refused or was busy; the car says nothing
@@ -53,3 +56,27 @@ def retry_delay(reach: str, attempt: int, standard: float) -> float:
 def keeps_cached_channel(reach: str) -> bool:
   """A sleeping car says nothing about which RFCOMM channel is right, so its cached channel is kept."""
   return reach in (ASLEEP, LOCAL)
+
+
+def _open_projection(ip: str, ports: list[int], advertised: int, local_ip: str, log) -> socket.socket:
+  error: OSError | None = None
+  for port in ports:
+    try:
+      sock = socket.create_connection((ip, port), timeout=5.0, source_address=(local_ip, 0) if local_ip else None)
+    except OSError as failure:
+      error = error or failure  # the first port's failure decides how patiently to retry
+      continue
+    if port != advertised:
+      log("tcp_port_fallback", advertised=advertised, port=port)
+    return sock
+  assert error is not None
+  raise error
+
+def _tcp_failure_kind(error: OSError) -> str:
+  if isinstance(error, (TimeoutError, socket.timeout)):
+    return "timeout"
+  if isinstance(error, ConnectionRefusedError):
+    return "refused"
+  if getattr(error, "errno", None) in (errno.ENETUNREACH, errno.EHOSTUNREACH, errno.ENETDOWN, errno.EHOSTDOWN):
+    return "unreachable"
+  return "other"

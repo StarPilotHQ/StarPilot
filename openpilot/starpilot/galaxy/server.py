@@ -1098,7 +1098,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
         except ValueError:
           route_key = ''
         try:
-          result = navigation_owner().snapshot(route_key if re.fullmatch(r'[0-9a-hjkmnp-tv-z]{12}', route_key) else None)
+          result = navigation_owner().snapshot(route_key if re.fullmatch(r'[0-9a-f]{16}', route_key) else None)
         except (OSError, ValueError, RuntimeError):
           self.json(503, {'error': 'Navigation status is unavailable'})
         else:
@@ -1763,7 +1763,8 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
                       '/api/models/cancel', '/api/models/delete', '/api/models/refresh_manifest', '/api/models/jetlink',
                       '/api/models/laboratory', '/api/models/laboratory/download', '/api/models/laboratory/delete',
                       '/api/sounds/preview', '/api/sounds/download', '/api/sounds/cancel', '/api/software/action', '/api/drives/ignore',
-                      '/api/recordings/delete-videos', '/api/sentry/notifications', '/api/sentry/notifications/photo-test', '/api/sentry/events/delete', '/api/crash-reports/delete',
+                      '/api/recordings/delete-videos', '/api/sentry/notifications', '/api/sentry/notifications/photo-test', '/api/sentry/events/delete',
+                      '/api/crash-reports/delete',
                       '/api/navigation/search', '/api/navigation/action', '/api/navigation/offline', '/api/drive-state/action',
                       '/api/toyota-tools/action', '/api/vehicle-selection/preview', '/api/vehicle-selection/confirm'):
         self.json(405, {'error': 'Method unavailable'})
@@ -2057,9 +2058,9 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
               simulation_busy.set()
               try:
                 threading.Thread(target=capture_simulation, name='sentry-simulation', daemon=True).start()
-              except RuntimeError:
+              except RuntimeError as error:
                 simulation_busy.clear()
-                raise NotificationUnavailable("Could not start Sentry simulation")
+                raise NotificationUnavailable("Could not start Sentry simulation") from error
               last_simulation[0] = clock()
               result = notification_owner.snapshot()
           else:

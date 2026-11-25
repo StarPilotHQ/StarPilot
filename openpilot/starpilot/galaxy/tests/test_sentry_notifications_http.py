@@ -60,6 +60,10 @@ class NotificationHTTPTests(unittest.TestCase):
         self.assertEqual(photos, [])
         self.assertEqual(request({'action': 'simulate'}, cookie)[0], 403)
         parked[0] = True
+        self.assertEqual(request(test, cookie, test_route)[0], 503)
+        self.assertEqual(request({'action': 'configure', 'channel': 'appPush', 'enabled': True,
+                                  'url': 'https://relay.example.test', 'token': ''}, cookie)[0], 200)
+        photos.clear()
         self.assertEqual(request(test, cookie, test_route)[:2], (200, {'queued': True}))
         self.assertEqual(photos, ['cabin'])
         event_id = next(iter(owner.test_photos))

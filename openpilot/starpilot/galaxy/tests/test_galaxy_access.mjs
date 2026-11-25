@@ -64,8 +64,8 @@ try {
   for (const tile of tiles) tile.props.onClick()
   nodes.find(item => item.type === 'button' && item.text === 'Get help').props.onClick()
   assert.deepEqual(visits, ['/networks', '/bluetooth', '/logs/help'])
-  assert.equal(requests.length, 1, 'A browser reads remote pairing status without polling Android internet-sharing status')
-  assert.equal(requests[0][0], './api/galaxy/status')
+  assert.deepEqual(requests.map(([path]) => path).sort(), ['./api/galaxy/qr.svg', './api/galaxy/status'],
+    'A browser reads the pairing status and QR code without polling Android internet-sharing status')
   assert.equal(vm.url, link, 'Remote link reaches the web installer')
   const steps = vm.$.subTree.children.find(child => child.props?.class === 'gx-steps')
   const remote = steps.children.find(child => child.type === RemoteAccess).component.proxy

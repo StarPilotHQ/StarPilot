@@ -53,5 +53,5 @@ scrolls.length = 0
 delayedAlign()
 assert.deepEqual(scrolls, [], "a delayed alignment leaves the Widgets scroll position alone")
 
-assert.match(ONROAD_LAYOUT_TEMPLATE, /@click="openEditPanel\(\)"><span>Edit/)
+assert.match(ONROAD_LAYOUT_TEMPLATE, /@click="state\.inspectorPanel === 'lead' \? revealEditPanel\(\) : openEditPanel\(\)"><span>Edit/)
 globalThis.setTimeout = realTimeout
