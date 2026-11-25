@@ -5,6 +5,7 @@ import { GxNotice } from "./notice.js"
 import { connectionError } from "./polling.js"
 import { uploadPackage } from "./starport.js"
 import { GalaxySettingRow, switchRow } from "./galaxy-setting-row.js"
+import { BluetoothTabs } from "./bluetooth-tabs.js"
 
 const ADDRESS = /^(?:[0-9A-F]{2}:){5}[0-9A-F]{2}$/
 export const DOWNLOAD_PAGE = "https://developer.spotify.com/documentation/soloist/reference/downloads-and-updates"
@@ -253,8 +254,12 @@ export class SpotifyFeed {
 }
 
 export const SpotifyPage = {
-  components: { WikiHelp, GxNotice, GxDialog, GalaxySettingRow },
-  props: { mode: { type: String, required: true }, unauthorized: { type: Function, required: true } },
+  components: { WikiHelp, GxDialog, GxNotice, GalaxySettingRow, BluetoothTabs },
+  props: {
+    mode: { type: String, required: true },
+    unauthorized: { type: Function, required: true },
+    go: { type: Function, default: path => { location.hash = path } },
+  },
   data: () => ({
     setup: null, busy: false, error: "", uploadProgress: null, now: Date.now(),
     installOpen: false, removeOpen: false, resetOpen: false, showSetup: false, downloadStarted: false,
@@ -288,8 +293,10 @@ export const SpotifyPage = {
     phoneSource() { return this.setup?.preferences.source === "phone" },
     pauseMuteLabel() { return muteLabel(this.pauseDraft ?? this.setup?.preferences.pauseMute) },
     skipMuteLabel() { return muteLabel(this.skipDraft ?? this.setup?.preferences.skipMute) },
-    setupDone() { return this.phoneSource ? !!(ADDRESS.test(this.setup?.preferences.phoneAddress || "") && this.outputChosen) :
-      !!(this.installed && this.setup?.keyPresent && this.outputChosen) },
+    setupDone() {
+      return this.phoneSource ? !!(ADDRESS.test(this.setup?.preferences.phoneAddress || "") && this.outputChosen) :
+        !!(this.installed && this.setup?.keyPresent && this.outputChosen)
+    },
     player() { return this.setup?.service?.player || null },
     playing() { return this.player?.status === "playing" },
     track() { return this.player?.loggedIn ? this.player.track : null },
@@ -423,6 +430,7 @@ export const SpotifyPage = {
         <h2>Spotify & Phone Audio</h2>
         <p>Play Spotify on your comma, or send music from your phone through the comma to your car.</p>
       </div><WikiHelp /></header>
+      <BluetoothTabs active="spotify" :go="go" />
       <GxNotice tone="danger" v-if="error && setup">{{ error }}</GxNotice>
       <GxNotice v-if="!setup" :busy="!error" :tone="error ? 'danger' : 'info'">{{ error || "Checking Spotify setup… Reconnecting automatically…" }}</GxNotice>
 
@@ -437,83 +445,101 @@ export const SpotifyPage = {
         </template>
       </GxNotice>
 
-      <section v-if="setup" class="gx-card gx-step" aria-labelledby="gx-music-source-title">
-        <h3 id="gx-music-source-title">Music Source</h3>
-        <label class="gx-stack"><span>Play music from</span>
-          <select class="gx-field" :value="setup.preferences.source || 'spotify'" :disabled="busy" @change="chooseSource">
+      <section v-if="setup" class="gx-card gx-settings__section" aria-labelledby="gx-music-source-title">
+        <div class="gx-row gx-row--borderless">
+          <div class="gx-row__info">
+            <span id="gx-music-source-title" class="gx-row__label"><i class="bi bi-broadcast" aria-hidden="true"></i> Music Source</span>
+            <span class="gx-row__desc">{{ phoneSource ? 'Your phone sends music to the comma over Bluetooth. No Spotify install or API key is needed.' : 'Spotify streams on the comma. Your phone controls playback in Spotify.' }}</span>
+          </div>
+          <select class="gx-field" aria-label="Play music from" :value="setup.preferences.source || 'spotify'" :disabled="busy" @change="chooseSource">
             <option value="spotify">Spotify Connect on the comma</option>
             <option value="phone">Phone over Bluetooth</option>
           </select>
-        </label>
-        <p v-if="!phoneSource" class="gx-note">Spotify streams on the comma. Your phone controls playback in Spotify; the comma sends the music to the audio output you choose below.</p>
-        <template v-if="phoneSource">
-          <p class="gx-note">Pair your phone in the companion app, or choose <strong>Add a device → Pair phone</strong> on the <a class="gx-link" href="#/bluetooth">Bluetooth page</a>. Then choose it below and turn on phone audio. On your phone, select the comma as the media audio output. No Spotify install or API key is needed.</p>
-          <label class="gx-stack"><span>Phone</span>
-            <select class="gx-field" :value="setup.preferences.phoneAddress" :disabled="busy || !setup.parked" @change="choosePhone">
-              <option value="">Choose your paired phone…</option>
-              <option v-for="choice in deviceChoices" :key="choice.value" :value="choice.value">{{ choice.label }}</option>
-            </select>
-          </label>
-          <GalaxySettingRow :row="switchRow('Phone Audio', setup.enabled, 'Forward music from the selected phone. Playback and volume stay on your phone.')"
-            :index="0" :busy="busy" :save-value="(index, value) => setEnabled(value === 'On')" />
-          <p class="gx-note" role="status">{{ statusText }}</p>
-          <label class="gx-stack"><span>Pause smoothing · {{ pauseMuteLabel }}</span>
-            <input type="range" class="gx-slider" min="0" :max="setup.preferences.muteMax || 1.5" step="0.05" :value="pauseDraft ?? setup.preferences.pauseMute"
-              aria-label="Pause smoothing" :disabled="busy" @input="pauseDraft = Number($event.target.value)" @change="commitMute('pause', $event)" /></label>
-          <label class="gx-stack"><span>Skip smoothing · {{ skipMuteLabel }}</span>
-            <input type="range" class="gx-slider" min="0" :max="setup.preferences.muteMax || 1.5" step="0.05" :value="skipDraft ?? setup.preferences.skipMute"
-              aria-label="Skip smoothing" :disabled="busy" @input="skipDraft = Number($event.target.value)" @change="commitMute('skip', $event)" /></label>
-          <p class="gx-note">Briefly mutes incoming audio after pause or skip. Increase if the old song lingers; decrease if the next song starts clipped. Changes apply immediately.</p>
-          <p class="gx-note">Music only. Calls and microphone audio are not forwarded.</p>
-        </template>
-        <template v-if="setupDone && !phoneSource && !showSetup">
-        <label class="gx-stack"><span>Send audio to</span>
-          <select class="gx-field" :value="setup.preferences.output === 'bluetooth' ? setup.preferences.outputAddress : setup.preferences.output" :disabled="busy || !setup.parked" @change="chooseOutput">
+        </div>
+        <div v-if="setupDone && !phoneSource && !showSetup" class="gx-row">
+          <div class="gx-row__info">
+            <span class="gx-row__label">Send audio to</span>
+            <span class="gx-row__desc">Your car speakers through StarPort, or a paired Bluetooth car stereo or speaker that supports music.</span>
+            <span v-if="!outputChoices.length" class="gx-row__desc">No paired Bluetooth audio outputs found. Pair your car stereo or speaker on the <a class="gx-link" href="#/bluetooth">Bluetooth page</a>, or use StarPort.</span>
+          </div>
+          <select class="gx-field" aria-label="Send audio to" :value="setup.preferences.output === 'bluetooth' ? setup.preferences.outputAddress : setup.preferences.output" :disabled="busy || !setup.parked" @change="chooseOutput">
             <option value="" disabled>Choose an audio output…</option>
             <option value="starport">Car speakers via StarPort (Android Auto)</option>
             <optgroup label="Bluetooth car stereos and speakers">
               <option v-for="choice in outputChoices" :key="choice.value" :value="choice.value">{{ choice.label }}</option>
             </optgroup>
             <option value="test">Silent test (no speaker)</option>
-          </select></label>
-        <p class="gx-note">Choose your car speakers through StarPort, or a Bluetooth car stereo or speaker paired with the comma. Only Bluetooth devices that support receiving music appear here.</p>
-        <p v-if="!outputChoices.length" class="gx-note">No paired Bluetooth audio outputs found. Pair your car stereo or speaker on the <a class="gx-link" href="#/bluetooth">Bluetooth page</a>, or use StarPort.</p>
+          </select>
+        </div>
+        <template v-if="phoneSource">
+          <div class="gx-row">
+            <div class="gx-row__info">
+              <span class="gx-row__label"><i class="bi bi-phone" aria-hidden="true"></i> Phone</span>
+              <span class="gx-row__desc">Pair your phone in the companion app, or choose <strong>Add a device → Pair phone</strong> on the <a class="gx-link" href="#/bluetooth">Bluetooth page</a>. On your phone, select the comma as the media audio output.</span>
+              <span v-if="!setup.parked" class="gx-row__desc">Put the car in Park or use offroad mode to change the phone.</span>
+              <span class="gx-row__desc" role="status">{{ statusText }}</span>
+            </div>
+            <select class="gx-field" aria-label="Phone" :value="setup.preferences.phoneAddress" :disabled="busy || !setup.parked" @change="choosePhone">
+              <option value="">Choose your paired phone…</option>
+              <option v-for="choice in deviceChoices" :key="choice.value" :value="choice.value">{{ choice.label }}</option>
+            </select>
+          </div>
+          <GalaxySettingRow :row="switchRow('Phone Audio', setup.enabled, 'Forward music from the selected phone. Playback and volume stay on your phone.')"
+            :index="0" :busy="busy" :save-value="(index, value) => setEnabled(value === 'On')" />
+          <div class="gx-row gx-row--stack">
+            <label class="gx-slider-row"><span class="gx-row__label">Pause smoothing <span class="gx-row__value">{{ pauseMuteLabel }}</span></span>
+              <input type="range" class="gx-slider" min="0" :max="setup.preferences.muteMax || 1.5" step="0.05" :value="pauseDraft ?? setup.preferences.pauseMute"
+                aria-label="Pause smoothing" :disabled="busy" @input="pauseDraft = Number($event.target.value)" @change="commitMute('pause', $event)" /></label>
+          </div>
+          <div class="gx-row gx-row--stack">
+            <label class="gx-slider-row"><span class="gx-row__label">Skip smoothing <span class="gx-row__value">{{ skipMuteLabel }}</span></span>
+              <input type="range" class="gx-slider" min="0" :max="setup.preferences.muteMax || 1.5" step="0.05" :value="skipDraft ?? setup.preferences.skipMute"
+                aria-label="Skip smoothing" :disabled="busy" @input="skipDraft = Number($event.target.value)" @change="commitMute('skip', $event)" /></label>
+            <span class="gx-row__desc">Briefly mutes incoming audio after pause or skip. Increase if the old song lingers; decrease if the next song starts clipped. Changes apply immediately. Music only; calls and microphone audio are not forwarded.</span>
+          </div>
         </template>
-        <small v-if="phoneSource && !setup.parked" class="gx-note">Put the car in Park or use offroad mode to change the phone.</small>
       </section>
 
-      <section v-if="setup && setupDone && !phoneSource" class="gx-card gx-step gx-starport-home gx-spotify-now" aria-labelledby="gx-spotify-now-title">
-        <div class="gx-spotify-now__main">
-          <div class="gx-spotify-now__text">
-            <h3 id="gx-spotify-now-title" class="gx-truncate"><span translate="no">{{ track?.title || setup.preferences.deviceName }}</span></h3>
-            <p v-if="track" class="gx-truncate"><span translate="no">{{ track.artists }}</span><template v-if="track.album"> · <span translate="no">{{ track.album }}</span></template></p>
-            <p role="status" class="gx-note gx-truncate">{{ statusText }}<template v-if="setup.enabled"> · {{ outputName }}</template></p>
+      <section v-if="setup && setupDone && !phoneSource" class="gx-card gx-settings__section" aria-labelledby="gx-spotify-now-title">
+        <div class="gx-row gx-row--borderless">
+          <div class="gx-row__info">
+            <span class="gx-row__label"><i class="bi bi-spotify" aria-hidden="true"></i>
+              <span id="gx-spotify-now-title" class="gx-truncate" translate="no">{{ track?.title || setup.preferences.deviceName }}</span>
+              <span role="status" class="gx-starport-pill" :class="{ 'gx-starport-pill--ready': playing }">{{ statusText }}</span></span>
+            <span v-if="track" class="gx-row__desc gx-truncate"><span translate="no">{{ track.artists }}</span><template v-if="track.album"> · <span translate="no">{{ track.album }}</span></template></span>
+            <span v-if="setup.enabled" class="gx-row__desc">Output: {{ outputName }}</span>
+            <span v-if="setup.enabled && player?.loggedIn && player.volume !== null" class="gx-row__desc">Volume {{ player.volume }}% - change in Spotify app if needed, otherwise use car volume</span>
+          </div>
+          <div v-if="setup.enabled && player?.loggedIn" class="gx-actions gx-spotify-now__controls">
+            <button type="button" class="gx-icon-btn" aria-label="Previous" :disabled="!can.has('skip_prev')" @click="control('previous')"><i class="bi bi-skip-start-fill"></i></button>
+            <button type="button" class="gx-btn gx-spotify-now__play" :aria-label="playing ? 'Pause' : 'Play'" :disabled="!can.has(playing ? 'pause' : 'play') && !!track" @click="togglePlay">
+              <i :class="playing ? 'bi bi-pause-fill' : 'bi bi-play-fill'" aria-hidden="true"></i></button>
+            <button type="button" class="gx-icon-btn" aria-label="Next" :disabled="!can.has('skip_next')" @click="control('next')"><i class="bi bi-skip-end-fill"></i></button>
           </div>
         </div>
-        <div v-if="track && track.durationMs" class="gx-spotify-now__progress">
+        <div v-if="track && track.durationMs" class="gx-row gx-row--stack gx-spotify-now__progress">
           <input type="range" class="gx-slider gx-slider--galaxy" min="0" :max="track.durationMs" step="1000" :value="elapsed" :style="{ '--fill': Math.min(100, elapsed / track.durationMs * 100) + '%' }" :disabled="!can.has('seek')" aria-label="Position"
             @change="control('seek', { positionMs: Math.round(Number($event.target.value)) })" />
           <small class="gx-note">{{ formatTime(elapsed) }} / {{ formatTime(track.durationMs) }}</small>
         </div>
-        <div v-if="setup.enabled && player?.loggedIn" class="gx-actions gx-spotify-now__controls">
-          <button type="button" class="gx-icon-btn" aria-label="Previous" :disabled="!can.has('skip_prev')" @click="control('previous')"><i class="bi bi-skip-start-fill"></i></button>
-          <button type="button" class="gx-btn gx-spotify-now__play" :aria-label="playing ? 'Pause' : 'Play'" :disabled="!can.has(playing ? 'pause' : 'play') && !!track" @click="togglePlay">
-            <i :class="playing ? 'bi bi-pause-fill' : 'bi bi-play-fill'" aria-hidden="true"></i></button>
-          <button type="button" class="gx-icon-btn" aria-label="Next" :disabled="!can.has('skip_next')" @click="control('next')"><i class="bi bi-skip-end-fill"></i></button>
-        </div>
-        <small v-if="setup.enabled && player?.loggedIn && player.volume !== null" class="gx-note">Volume {{ player.volume }}% - change in Spotify app if needed, otherwise use car volume</small>
-        <div v-if="setup.enabled && player?.loggedIn && !player.active" class="gx-stack">
+        <div v-if="setup.enabled && player?.loggedIn && !player.active" class="gx-row">
+          <div class="gx-row__info">
+            <span class="gx-row__desc">Takes over from the phone or speaker Spotify is playing on now. Music plays through {{ outputName }}. You might need to confirm the switch in the Spotify app.</span>
+          </div>
           <button type="button" class="gx-btn gx-btn--tonal" @click="control('activate')">
             <i class="bi bi-broadcast" aria-hidden="true"></i> Move Spotify to <span translate="no">{{ setup.preferences.deviceName || 'StarPilot' }}</span></button>
-          <small class="gx-note">Takes over from the phone or speaker Spotify is playing on now. Music plays through {{ outputName }}. You might need to confirm the switch in the Spotify app.</small>
         </div>
         <GalaxySettingRow :row="switchRow('Move to ' + (setup.preferences.deviceName || 'StarPilot') + ' While Driving', setup.preferences.pullOnroad, 'While driving, takes Spotify over from your phone or another speaker whenever it is playing somewhere else.')"
           :index="1" :busy="busy" :save-value="(index, value) => feed.post('./api/spotify/preferences', { pullOnroad: value === 'On' })" />
         <GalaxySettingRow :row="switchRow('Spotify', setup.enabled, 'Turn off to stop playing and free up the comma. Your setup stays saved.')"
           :index="0" :busy="busy" :save-value="(index, value) => setEnabled(value === 'On')" />
-        <div class="gx-actions">
+        <div class="gx-row">
+          <div class="gx-row__info">
+            <span class="gx-row__label">Setup &amp; Settings</span>
+            <span class="gx-row__desc">Soloist, API key, audio output, name in Spotify, and storage.</span>
+          </div>
           <button type="button" class="gx-btn gx-btn--tonal" :aria-expanded="showSetup" aria-controls="gx-spotify-steps" @click="showSetup = !showSetup">
-            <i :class="showSetup ? 'bi bi-chevron-up' : 'bi bi-gear'" aria-hidden="true"></i> {{ showSetup ? 'Hide Setup' : 'Setup & Settings' }}</button>
+            <i :class="showSetup ? 'bi bi-chevron-up' : 'bi bi-gear'" aria-hidden="true"></i> {{ showSetup ? 'Hide Setup' : 'Setup &amp; Settings' }}</button>
         </div>
       </section>
 

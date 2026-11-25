@@ -112,3 +112,19 @@ test("tool search walks every depth and indexes other tool sections", () => {
   assert.deepEqual(nested.map(hit => hit.path), ["/parent", "/parent/child", "/parent/child/grandchild"])
   assert.equal(nested[2].context, "Parent · Child")
 })
+
+test("galaxy connections children appear in global search with Galaxy context", () => {
+  const entries = toolSearchEntries(catalogTools.filter(tool => tool.path === "/galaxy"))
+  assert.deepEqual(
+    entries.map(({ path, context }) => ({ path, context })),
+    [
+      { path: "/galaxy", context: "" },
+      { path: "/networks", context: "Galaxy Access & Connections" },
+      { path: "/bluetooth", context: "Galaxy Access & Connections" },
+      { path: "/bluetooth/uniden", context: "Galaxy Access & Connections" },
+      { path: "/bluetooth/controllers", context: "Galaxy Access & Connections" },
+    ],
+  )
+  assert.equal(searchSettings(entries, "uniden")[0].path, "/bluetooth/uniden")
+  assert.equal(searchSettings(entries, "controllers")[0].path, "/bluetooth/controllers")
+})

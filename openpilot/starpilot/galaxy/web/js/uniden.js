@@ -6,7 +6,7 @@ import { guardUnload } from './unload-guard.js'
 export function detectorStatus(state) {
   if (state?.connected) return { label: 'Connected', detail: 'Ready to receive detector alerts.', tone: 'connected' }
   const code = state?.connection_state
-  if (code === 'radio_off') return { label: 'Bluetooth off', detail: 'Turn on Bluetooth on the Devices tab.', tone: 'waiting' }
+  if (code === 'radio_off') return { label: 'Bluetooth off', detail: 'Turn on Bluetooth on the Bluetooth tab.', tone: 'waiting' }
   if (code === 'detector_pairing_required') return { label: 'Check pairing', detail: 'Pair the detector in Bluetooth, then select it here.', tone: 'waiting' }
   if (code === 'session_expired') return { label: 'Sign in required', detail: 'Sign in to Galaxy again to reconnect.', tone: 'waiting' }
   if (code === 'busy') return { label: 'Waiting for Bluetooth', detail: 'Finish any device search or pairing. Connection will resume automatically.', tone: 'waiting' }
@@ -75,7 +75,7 @@ export const UnidenPanel = {
     savedName() { return this.detectors.find(d => d.address.toUpperCase() === this.saved?.address)?.name || (this.saved?.address ? `Uniden ${this.saved.model}` : 'Select your detector') },
     connection() {
       if (!this.saved?.address) return { label: 'Not configured', detail: 'Choose a paired detector to get started.', tone: 'waiting' }
-      if (!this.ready) return { label: 'Not paired', detail: 'Pair the selected detector again on the Devices tab.', tone: 'waiting' }
+      if (!this.ready) return { label: 'Not paired', detail: 'Pair the selected detector again on the Bluetooth tab.', tone: 'waiting' }
       if (!this.saved.enabled) return { label: 'Integration off', detail: 'Enable the integration below to receive alerts.', tone: 'off' }
       return detectorStatus(this.state)
     },

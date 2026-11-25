@@ -38,11 +38,10 @@ const text = item => [item.text, ...item.children.map(text)].join(' ')
 const flush = async () => { await new Promise(resolve => setImmediate(resolve)); await nextTick() }
 const host = node('host')
 const { tools } = JSON.parse(readFileSync(new URL('../web/data/catalog.json', import.meta.url)))
-const galaxy = tools.find(tool => tool.path === '/galaxy')
 const visits = []
 const app = renderer.createApp({ ...GalaxyPage, components: { ...GalaxyPage.components,
   InstallApp: { props: ['url'], template: '<div class="web-link">{{ url }}</div>' },
-} }, { mode: 'local', tools: galaxy.children, go: path => visits.push(path), unauthorized() { unauthorized++ } })
+} }, { mode: 'local', go: path => visits.push(path), unauthorized() { unauthorized++ } })
 app.config.compilerOptions.decodeEntities = value => value.replaceAll('&amp;', '&')
 const vm = app.mount(host)
 await flush()
@@ -59,19 +58,38 @@ try {
   assert.match(text(host), /Galaxy Access & Connections/)
   assert.doesNotMatch(text(host), /MB today|Status:|offline app version/)
   assert.ok(tools.some(tool => tool.path === '/starport'), 'StarPort remains a standalone tool')
-  const tiles = nodes.filter(item => item.props.class === 'gx-menu-tile')
-  assert.deepEqual(tiles.map(item => item.children.find(child => child.type === 'span').text), ['Networks', 'Bluetooth'])
-  for (const tile of tiles) tile.props.onClick()
+  assert.equal(nodes.filter(item => item.props.class === 'gx-menu-tile').length, 0)
+  const nav = nodes.find(item => item.type === 'nav' && item.props.class === 'gx-settings-tabs')
+  const chips = nav.children.filter(item => item.type === 'button' && item.props.class?.includes('gx-chip'))
+  assert.deepEqual(chips.map(item => item.text), [
+    'Access & App', 'Networks', 'Bluetooth', 'Spotify & Phone Audio', 'Uniden', 'Controllers',
+  ])
+  assert.equal(chips[0].props['aria-pressed'], true)
+  for (const chip of chips.slice(1)) chip.props.onClick()
   nodes.find(item => item.type === 'button' && item.text === 'Get help').props.onClick()
-  assert.deepEqual(visits, ['/networks', '/bluetooth', '/logs/help'])
+  assert.deepEqual(visits, [
+    '/networks', '/bluetooth', '/spotify', '/bluetooth/uniden', '/bluetooth/controllers', '/logs/help',
+  ])
   assert.deepEqual(requests.map(([path]) => path).sort(), ['./api/galaxy/qr.svg', './api/galaxy/status'],
     'A browser reads the pairing status and QR code without polling Android internet-sharing status')
   assert.equal(vm.url, link, 'Remote link reaches the web installer')
   const steps = vm.$.subTree.children.find(child => child.props?.class === 'gx-steps')
   const remote = steps.children.find(child => child.type === RemoteAccess).component.proxy
+  await remote.copy('link', remote.url, '')
+  assert.equal(remote.copied, 'link')
   await remote.showAppKey()
   await nextTick()
-  assert.match(text(host), /test key/)
+  const keyInput = all(host).find(item => item.type === 'input' && item.props['aria-label'] === 'Phone app key')
+  assert.equal(keyInput?.props.value, 'test key')
+  remote.hideAppKey()
+  await nextTick()
+  assert.equal(remote.keyVisible, false)
+  assert.equal(remote.appKey, '')
+  remote.detailsOpen = false
+  await nextTick()
+  assert.ok(all(host).some(item => item.type === 'a' && text(item).includes('Open link')))
+  remote.detailsOpen = true
+  await nextTick()
   await remote.unpair()
   remote.legacyPassword = true
   await nextTick()

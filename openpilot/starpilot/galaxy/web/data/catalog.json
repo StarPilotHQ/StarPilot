@@ -51,6 +51,20 @@
           "icon": "bi-bluetooth",
           "description": "Adapter power, saved devices and connections",
           "availability": "local-only"
+        },
+        {
+          "name": "Uniden",
+          "path": "/bluetooth/uniden",
+          "icon": "bi-broadcast-pin",
+          "description": "Detector preferences, alert colors, frequency rules, and lockouts",
+          "availability": "local-only"
+        },
+        {
+          "name": "Controllers",
+          "path": "/bluetooth/controllers",
+          "icon": "bi-controller",
+          "description": "Assign USB or Bluetooth controller buttons to driving actions",
+          "availability": "local-only"
         }
       ]
     },

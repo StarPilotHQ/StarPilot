@@ -6,6 +6,7 @@ import { GxState } from "./state.js"
 import { GalaxySettingRow, switchRow } from "./galaxy-setting-row.js"
 import { GalaxyHotspot } from "./hotspot.js"
 import { GxDialog } from "./dialog.js"
+import { BluetoothTabs } from "./bluetooth-tabs.js"
 
 const METERED = ['Auto', 'Metered', 'Unmetered']
 const SECURITY = ['open', 'wpa', 'unsupported']
@@ -29,7 +30,7 @@ export const choiceRow = (label, value, choices, reason = '') => ({ label, value
 
 export const NetworksPage = {
   name: "NetworksPage",
-  components: { WikiHelp, GxNotice, GxState, GalaxySettingRow, GalaxyHotspot, GxDialog, ConnectionLogs },
+  components: { WikiHelp, GxNotice, GxState, GalaxySettingRow, GalaxyHotspot, GxDialog, ConnectionLogs, BluetoothTabs },
   props: { go: { type: Function, required: true }, mode: { type: String, required: true }, unauthorized: { type: Function, required: true } },
   data: () => ({ snapshot: null, busy: false, error: '', openUuid: null, adding: false, joiningSsid: '', joinPassword: '',
     hiddenOpen: false, hiddenSsid: '', showJoinPassword: false, forgetUuid: null, timer: null, controller: null, generation: 0, active: false }),
@@ -177,6 +178,7 @@ export const NetworksPage = {
   },
   template: `<section class="gx-driving gx-networks" aria-label="Networks">
     <header class="gx-settings__header gx-page-header"><div><h2>Networks</h2><p>Wi-Fi priority, cellular data, and local hotspot access.</p></div><WikiHelp /></header>
+    <BluetoothTabs active="networks" :go="go" />
     <GxState v-if="mode !== 'local'">Connect to your comma to manage its networks.</GxState>
     <GxState v-else-if="!snapshot && !error" loading>Loading network settings…</GxState>
     <template v-if="snapshot">
@@ -190,6 +192,10 @@ export const NetworksPage = {
         <GalaxySettingRow :row="switchRow('Cellular data', snapshot.cellular.enabled, cellularDetail)" :index="1"
           :busy="busy" :disabled="!snapshot.editable" :save-value="(index, value) => send({ action: 'cellular', value: value === 'On' })" />
       </section>
+    </template>
+    <GxNotice v-if="error" tone="danger">{{ error }}</GxNotice>
+    <GalaxyHotspot v-if="mode === 'local'" :mode="mode" :unauthorized="unauthorized" />
+    <template v-if="snapshot">
       <section class="gx-card gx-settings__section"><div class="gx-section__header"><i class="bi bi-wifi" aria-hidden="true"></i><span class="gx-section__title">Saved Wi-Fi networks</span><span v-if="snapshot.networks.length" class="gx-section__count">{{ snapshot.networks.length }}</span></div>
         <p v-if="!snapshot.networks.length" class="gx-empty">No saved Wi-Fi networks yet. Scan for nearby networks below to join one.</p>
         <p v-else class="gx-note gx-networks__caption">Joined in priority order when in range.</p>
@@ -260,8 +266,6 @@ export const NetworksPage = {
         </form>
       </GxDialog>
     </template>
-    <GxNotice v-if="error" tone="danger">{{ error }}</GxNotice>
-    <GalaxyHotspot v-if="mode === 'local'" :mode="mode" :unauthorized="unauthorized" />
     <ConnectionLogs v-if="mode === 'local'" panel :on-unauthorized="unauthorized" @help="go('/logs/help/connection')" />
   </section>`,
 }

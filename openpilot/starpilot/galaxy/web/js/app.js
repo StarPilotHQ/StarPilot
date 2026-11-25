@@ -13,6 +13,7 @@ import { createApp, reactive, defineAsyncComponent } from "../vendor/vue/vue.esm
 import { route, navigate, navigateBack, ensureBackEntry, setRouteLeaveGuard, startRouter } from "./router.js"
 import { loadCatalog } from "./startup.js"
 import { Tools } from "./tools.js"
+import { galaxyTabIndex } from "./bluetooth-tabs.js"
 window.addEventListener("beforeinstallprompt", rememberInstallPrompt)
 installDisclosureMotion()
 
@@ -125,7 +126,12 @@ createApp({
     state.pageError = ""
     if (path !== "/settings") state.searchPage = ""
     else if (route.view.searchPage !== undefined) state.searchPage = route.view.searchPage
-    this.routeDirection = route.direction < 0 || primaryTab(path) < primaryTab(previous) ? -1 : 1
+    const nextGalaxy = galaxyTabIndex(path), prevGalaxy = galaxyTabIndex(previous)
+    if (route.direction >= 0 && nextGalaxy >= 0 && prevGalaxy >= 0 && nextGalaxy !== prevGalaxy) {
+      this.routeDirection = nextGalaxy < prevGalaxy ? -1 : 1
+    } else {
+      this.routeDirection = route.direction < 0 || primaryTab(path) < primaryTab(previous) ? -1 : 1
+    }
   } },
   methods: {
     toggleHaptic,
@@ -155,7 +161,7 @@ createApp({
       save(PIN_KEY, String(state.navPinned))
     },
     isActive(path) {
-      if (path === "/galaxy" && ["/networks", "/bluetooth"].some(child =>
+      if (path === "/galaxy" && ["/networks", "/bluetooth", "/spotify"].some(child =>
         route.path === child || route.path.startsWith(child + "/"))) return true
       return route.path === path || route.path.startsWith(path + "/") || (path === "/manage_models" && route.path === "/model_laboratory")
     },
@@ -258,7 +264,7 @@ createApp({
         <VasmPage v-else-if="route.path === '/cameras/vasm'" :mode="state.monitorMode" :unauthorized="sessionExpired" :go="go" />
         <Tools v-else-if="route.path === '/tools'" :tools="visibleTools" :mode="state.monitorMode" />
         <SettingsPage @nested="ensureBackEntry" ref="activeSettings" v-else-if="route.path === '/developer/connect'" :mode="state.monitorMode" :unauthorized="sessionExpired" initial-section="developer" />
-        <GalaxyPage v-else-if="route.path === '/galaxy'" :mode="state.monitorMode" :tools="currentTool?.children || []" :unauthorized="sessionExpired" :go="go" />
+        <GalaxyPage v-else-if="route.path === '/galaxy'" :mode="state.monitorMode" :unauthorized="sessionExpired" :go="go" />
         <NetworksPage v-else-if="route.path === '/networks'" :go="go" :mode="state.monitorMode" :unauthorized="sessionExpired" />
         <OnroadLayoutPage ref="activeLayout" v-else-if="['/theme_maker', '/theme_maker/starport', '/appearance'].includes(route.path)" :key="route.path" :projection="route.path === '/theme_maker/starport'" :initial-panel="route.path === '/appearance' ? 'display' : 'widgets'" :mode="state.monitorMode" :unauthorized="sessionExpired" @target="go($event === 'projection' ? '/theme_maker/starport' : '/theme_maker')" @close="routeBack" />
         <SettingsRecoveryPage v-else-if="route.path === '/settings/recovery'" :mode="state.monitorMode" :unauthorized="sessionExpired" />
@@ -271,7 +277,7 @@ createApp({
         <BluetoothPage ref="activeBluetooth" v-else-if="['/bluetooth', '/bluetooth/uniden'].includes(route.path)" :uniden-settings="route.path === '/bluetooth/uniden'" :key="route.path" :mode="state.monitorMode" :unauthorized="sessionExpired" :go="go" />
         <ControllersPage v-else-if="route.path === '/bluetooth/controllers'" :mode="state.monitorMode" :unauthorized="sessionExpired" :go="go" />
         <StarPortPage v-else-if="route.path === '/starport'" :mode="state.monitorMode" :local-access="authState.localAccess" :unauthorized="sessionExpired" />
-        <SpotifyPage v-else-if="['/starport/audio', '/spotify'].includes(route.path)" :mode="state.monitorMode" :unauthorized="sessionExpired" />
+        <SpotifyPage v-else-if="['/starport/audio', '/spotify'].includes(route.path)" :mode="state.monitorMode" :unauthorized="sessionExpired" :go="go" />
         <SettingsPage @nested="ensureBackEntry" ref="activeSettings" v-else-if="route.path === '/settings/vehicle'" :mode="state.monitorMode" :unauthorized="sessionExpired" initial-section="vehicle" />
         <DevicePreferencesPage v-else-if="route.path === '/device-preferences'" :mode="state.monitorMode" :go="go" />
         <SettingsPage @nested="ensureBackEntry" ref="activeSettings" v-else-if="deviceSettingsPage" :key="deviceSettingsPage" :mode="state.monitorMode" :unauthorized="sessionExpired" :initial-page="deviceSettingsPage" :title="deviceSettingsPage === 'sounds' ? 'Sounds & Alerts' : 'Display'" :return-to="returnToDevice" />

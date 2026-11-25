@@ -24,7 +24,7 @@ export const RemoteQR = {
       } catch { if (!request.signal.aborted) this.failed = true }
     },
   },
-  template: '<div><button v-if="failed" class="gx-btn" @click="load">Retry QR code</button><img v-else-if="image" :src="image" :alt="alt" class="gx-tunnel__qr" @error="failed = true" /></div>',
+  template: '<div class="gx-remote-qr"><button v-if="failed" type="button" class="gx-btn gx-btn--tonal" @click="load">Retry QR code</button><img v-else-if="image" :src="image" :alt="alt" class="gx-tunnel__qr" @error="failed = true" /></div>',
 }
 
 export const RemoteAccess = {
@@ -33,7 +33,8 @@ export const RemoteAccess = {
   props: { title: { type: String, default: 'Remote access' }, step: { type: Number, default: 1 }, mode: { type: String, required: true }, unauthorized: { type: Function, required: true } },
   emits: ['link'],
   data: () => ({ loading: true, paired: false, url: '', tunnelClientAvailable: false, legacyPassword: false,
-    appKey: '', keyVisible: false, legacyPairingAvailable: false, password: '', busy: false, error: '', generation: 0, bluetooth: bluetoothConnection() }),
+    appKey: '', keyVisible: false, detailsOpen: true, copied: '',
+    legacyPairingAvailable: false, password: '', busy: false, error: '', generation: 0, bluetooth: bluetoothConnection() }),
   mounted() { this.load() },
   watch: { mode() {
     this.generation++
@@ -43,13 +44,21 @@ export const RemoteAccess = {
     this.setPairing({ paired: false, url: '' })
     this.load()
   } },
-  beforeUnmount() { this.generation++; this.appKey = ''; this.keyVisible = false },
+  beforeUnmount() {
+    this.generation++
+    this.appKey = ''
+    this.keyVisible = false
+    clearTimeout(this.copyTimer)
+  },
   methods: {
     setPairing({ paired, url }) {
       this.paired = paired
       this.url = paired ? url : ''
       this.appKey = ''
       this.keyVisible = false
+      this.copied = ''
+      clearTimeout(this.copyTimer)
+      if (!paired) this.detailsOpen = true
       this.$emit('link', this.url)
     },
     async showAppKey() {
@@ -57,8 +66,18 @@ export const RemoteAccess = {
       try { const data = await this.request('./api/galaxy/session'); if (this.url !== url || !this.paired) return; this.appKey = data.paired ? decodeURIComponent(data.sessionToken) : ''; this.keyVisible = !!this.appKey }
       catch (error) { if (error.name !== 'AbortError') this.error = error.message }
     },
-    async copyAppKey() {
-      try { await navigator.clipboard.writeText(this.appKey) } catch { this.error = 'Select and copy the displayed key.' }
+    hideAppKey() {
+      this.appKey = ''
+      this.keyVisible = false
+      this.copied = ''
+    },
+    async copy(which, value, fallback) {
+      const generation = this.generation
+      try { await navigator.clipboard.writeText(value) } catch { this.error = fallback; return }
+      if (generation !== this.generation) return
+      this.copied = which
+      clearTimeout(this.copyTimer)
+      this.copyTimer = setTimeout(() => { this.copied = '' }, 2000)
     },
     async request(path, body) {
       const generation = this.generation
@@ -113,23 +132,64 @@ export const RemoteAccess = {
   template: `<li class="gx-card gx-step" :class="{'gx-step--done': paired}" :inert="busy" :aria-busy="busy || undefined">
     <div class="gx-step__head">
       <span class="gx-step__num" aria-hidden="true"><i v-if="paired" class="bi bi-check-lg"></i><template v-else>{{ step }}</template></span>
-      <div><h3>{{ title }}</h3><p>Use a Firestar Link in the app or browser when you are away from your comma. Both devices need Internet.</p></div>
+      <div class="gx-remote-head__copy">
+        <div class="gx-remote-head__title">
+          <h3>{{ title }}</h3>
+          <span v-if="mode === 'local' && !loading" class="gx-starport-pill" :class="paired ? 'gx-starport-pill--ready' : 'gx-starport-pill--soon'">{{ paired ? 'Paired' : 'Not paired' }}</span>
+        </div>
+        <p>{{ paired && !detailsOpen ? 'Firestar Link active when away from your comma.' : 'Use a Firestar Link in the app or browser when you are away from your comma. Both devices need Internet.' }}</p>
+      </div>
+      <div v-if="mode === 'local' && !loading && paired" class="gx-actions gx-step__head-actions">
+        <a v-if="!detailsOpen && url" :href="url" target="_blank" rel="noopener" class="gx-btn gx-btn--tonal"><i class="bi bi-box-arrow-up-right" aria-hidden="true"></i> Open link</a>
+        <button type="button" class="gx-btn gx-btn--tonal" :aria-expanded="detailsOpen" @click="detailsOpen = !detailsOpen">{{ detailsOpen ? 'Hide' : 'Manage' }}</button>
+      </div>
     </div>
-    <div class="gx-step__body">
+    <div v-if="!paired || detailsOpen || mode !== 'local' || loading" class="gx-step__body">
       <GxState v-if="mode !== 'local'">Connect to your comma to set up remote access.</GxState>
       <GxState v-else-if="loading" loading>Checking pairing status…</GxState>
       <template v-else>
         <template v-if="paired">
           <GxNotice v-if="!tunnelClientAvailable" tone="warn">Remote access is not ready on this comma yet.</GxNotice>
           <BluetoothNotice v-if="bluetooth" feature="Galaxy QR code">Your Galaxy link remains available below.</BluetoothNotice>
-          <RemoteQR v-else :key="url" endpoint="./api/galaxy/qr.svg" alt="QR code for your Galaxy link" />
-          <p><a :href="url" target="_blank" rel="noopener" class="gx-btn gx-btn--tonal gx-wrap">Open your Galaxy link</a></p>
-          <section class="gx-card gx-panel gx-stack"><h3>App key</h3><p>Use this key to add remote access in the phone app. Keep it private.</p>
-            <div v-if="!keyVisible" class="gx-actions"><button class="gx-btn" @click="showAppKey">Show</button></div>
-            <template v-else><code class="gx-wrap">{{ appKey }}</code><div class="gx-actions"><button class="gx-btn" @click="copyAppKey">Copy</button></div>
-              <RemoteQR endpoint="./api/galaxy/session/qr.svg" alt="Add remote access to Galaxy" /></template>
-          </section>
-          <div class="gx-actions"><button type="button" class="gx-btn gx-btn--danger" @click="unpair">{{ busy ? 'Disconnecting…' : 'Turn off remote access' }}</button></div>
+          <div class="gx-remote-list">
+            <div class="gx-row gx-row--borderless gx-remote-row">
+              <div class="gx-remote-row__body">
+                <span class="gx-row__label">Browser link</span>
+                <span class="gx-row__desc">Scan or open on another device with your Galaxy password.</span>
+                <div class="gx-actions gx-remote-row__actions">
+                  <a :href="url" target="_blank" rel="noopener" class="gx-btn gx-btn--tonal"><i class="bi bi-box-arrow-up-right" aria-hidden="true"></i> Open Galaxy link</a>
+                  <button type="button" class="gx-btn gx-btn--tonal" @click="copy('link', url, 'Open the link to copy it.')"><i class="bi bi-copy" aria-hidden="true"></i> {{ copied === 'link' ? 'Copied' : 'Copy link' }}</button>
+                </div>
+              </div>
+              <RemoteQR v-if="!bluetooth" :key="url" endpoint="./api/galaxy/qr.svg" alt="QR code for your Galaxy link" />
+            </div>
+            <div v-if="keyVisible" class="gx-row gx-remote-row">
+              <div class="gx-remote-row__body">
+                <span class="gx-row__label">Phone app key</span>
+                <span class="gx-row__desc">Add remote access in the StarPilot phone app. Keep it private.</span>
+                <div class="gx-key-row">
+                  <input class="gx-field gx-key-field" type="text" readonly :value="appKey" aria-label="Phone app key" @focus="$event.target.select()" />
+                  <button type="button" class="gx-btn" @click="copy('key', appKey, 'Select and copy the displayed key.')"><i class="bi bi-copy" aria-hidden="true"></i> {{ copied === 'key' ? 'Copied' : 'Copy' }}</button>
+                  <button type="button" class="gx-btn gx-btn--tonal" @click="hideAppKey">Hide</button>
+                </div>
+              </div>
+              <RemoteQR v-if="!bluetooth" endpoint="./api/galaxy/session/qr.svg" alt="Add remote access to Galaxy" />
+            </div>
+            <div v-else class="gx-row gx-remote-row">
+              <div class="gx-row__info">
+                <span class="gx-row__label">Phone app key</span>
+                <span class="gx-row__desc">Add remote access in the StarPilot phone app. Keep it private.</span>
+              </div>
+              <button type="button" class="gx-btn gx-btn--tonal" @click="showAppKey">Show app key</button>
+            </div>
+            <div class="gx-row gx-remote-row">
+              <div class="gx-row__info">
+                <span class="gx-row__label">Remote tunnel</span>
+                <span class="gx-row__desc">Unpairing stops remote access until you set it up again.</span>
+              </div>
+              <button type="button" class="gx-btn gx-btn--danger" @click="unpair">{{ busy ? 'Disconnecting…' : 'Turn off remote access' }}</button>
+            </div>
+          </div>
         </template>
         <template v-else>
           <p v-if="legacyPassword || legacyPairingAvailable">Use your old password or choose a new one with at least 8 characters.</p>

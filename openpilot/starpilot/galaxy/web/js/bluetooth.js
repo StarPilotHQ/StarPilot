@@ -240,8 +240,8 @@ export const BluetoothPage = {
   template: `
     <section class="gx-driving gx-bluetooth" :aria-label="unidenSettings ? 'Uniden settings' : 'Bluetooth'" :inert="busy" :aria-busy="busy || undefined">
       <header class="gx-settings__header gx-page-header"><div><h2>{{ unidenSettings ? 'Uniden' : 'Bluetooth' }}</h2>
-        <p>{{ unidenSettings ? 'Detector preferences and custom frequency rules.' : 'Pair and manage devices here. Use the tabs for integration settings.' }}</p></div><WikiHelp /></header>
-      <BluetoothTabs :active="unidenSettings ? 'uniden' : 'devices'" :go="go" />
+        <p>{{ unidenSettings ? 'Detector preferences and custom frequency rules.' : 'Pair and manage devices here.' }}</p></div><WikiHelp /></header>
+      <BluetoothTabs :active="unidenSettings ? 'uniden' : 'bluetooth'" :go="go" />
       <GxState v-if="mode !== 'local'">Bluetooth requires the device. No radio was checked in preview.</GxState>
       <template v-else>
         <GxNotice tone="danger" v-if="error">{{ error }}</GxNotice>
@@ -305,6 +305,15 @@ export const BluetoothPage = {
             <p v-if="status.discovering && !nearby.length" class="gx-note gx-inset" role="status">Searching for devices…</p>
             <div v-for="device in nearby" :key="device.address" class="gx-row"><div class="gx-row__info"><span class="gx-row__label">{{ device.name || device.address }}</span><span class="gx-row__desc">{{ device.address }}</span></div>
               <button class="gx-btn" :disabled="!status.powered || !status.parked || status.pairing?.state === 'pairing'" @click="action('pair', {address:device.address})">Pair</button></div>
+          </section>
+          <section class="gx-card">
+            <div class="gx-row gx-row--borderless">
+              <div class="gx-row__info">
+                <span class="gx-row__label">StarPort</span>
+                <span class="gx-row__desc">Wireless Android Auto car screen pairing.</span>
+              </div>
+              <button type="button" class="gx-btn gx-btn--tonal" @click="go('/starport')"><i class="bi bi-phone" aria-hidden="true"></i> StarPort</button>
+            </div>
           </section>
         </template>
       </template>
