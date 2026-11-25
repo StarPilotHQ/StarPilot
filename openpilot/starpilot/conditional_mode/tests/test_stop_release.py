@@ -165,3 +165,29 @@ def test_niro_actual_cem_hold_releases_only_after_native_go(monkeypatch, vision)
     assert not case.owner.mode.projector.stop_detector.committed
   finally:
     case.doCleanups()
+
+
+@pytest.mark.parametrize(('fingerprint', 'slot', 'velocity', 'prefix_distance', 'clear'), [
+  ('TESLA_MODEL_Y', 4, -.075, -.025, True),
+  ('TESLA_MODEL_Y', 4, -.081, -.025, False),
+  ('TESLA_MODEL_Y', 6, -.075, -.025, False),
+  ('TESLA_MODEL_Y', 4, -.075, -.031, False),
+  ('KIA_NIRO_EV', 4, -.075, -.025, False),
+])
+def test_departure_tolerates_only_bounded_model_y_prefix_noise(fingerprint, slot, velocity, prefix_distance, clear):
+  cp = CarParams(openpilotLongitudinalControl=True, carFingerprint=fingerprint)
+  owner = StoppedLeadRelease()
+  detector = SimpleNamespace(committed=True, standstill_committed=True, standstill_reason='light', commit_distance_m=3.)
+  planner = SimpleNamespace(mpc=SimpleNamespace(solution_status=0), output_should_stop=False, output_a_target=.5,
+                            force_stop_plan=SimpleNamespace(forcing=False, should_stop=False))
+  results = []
+  for tick in range(13):
+    now = green.MONO + 1_000_000_000 + tick * 50_000_000
+    sm = scene(now, True)
+    model = sm['modelV2']
+    xs, velocities = list(model.position.x), list(model.velocity.x)
+    xs[4], velocities[slot] = prefix_distance, velocity
+    model.position.x, model.velocity.x = xs, velocities
+    results.append(owner.sample(sm, cp, planner, detector, now_ns=now, drive_id=green.MONO-1_000_000_000))
+  assert not any(results[:10])
+  assert results[10:] == [clear] * 3

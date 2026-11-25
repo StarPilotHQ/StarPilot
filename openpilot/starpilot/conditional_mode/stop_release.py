@@ -58,7 +58,11 @@ class StoppedLeadRelease:
         self.reset()
         return False
       velocities, times = tuple(model.velocity.x), tuple(ModelConstants.T_IDXS)
-      if len(velocities) != 33 or len(times) != 33 or not all(math.isfinite(v) and -.05 <= v <= 100. for v in velocities):
+      # A stationary Model Y can predict a few centimeters of reverse motion at launch.
+      prefix_noise = cp.carFingerprint == 'TESLA_MODEL_Y' and min(model.position.x) >= -.03
+      if (len(velocities) != 33 or len(times) != 33 or
+          not all(math.isfinite(v) and (-.08 if prefix_noise and t < .2 else -.05) <= v <= 100.
+                  for v, t in zip(velocities, times, strict=True))):
         self.reset()
         return False
       tail = [v for v, t in zip(velocities, times, strict=True) if t >= 2.]
