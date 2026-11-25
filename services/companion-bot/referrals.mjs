@@ -186,6 +186,7 @@ export async function referralStore(path,request,store,env){
     }while(startAfter);
     return Response.json(null,{status:404});
   }
+  if(path==='/referrals/legacy-starport')return Response.json(await moveLegacy(store,env,await request.json()));
   if(!configured(env))return Response.json({message:'Referral review is awaiting setup.'},{status:503});
   env=await resolveSource(store,env);
   await staffDestination(env);
@@ -357,8 +358,68 @@ async function finishMove(store,env,key,record){
   }
 }
 
+// Legacy StarPort reused one forum thread per device. Migrate the selected message only.
+export function legacyStarPortPost(message){
+  if(!id(message?.webhook_id)||!message.author?.bot||!/^\*\*StarPort logs from [^\n]+\*\*\r?$/m.test(message.content||''))return null;
+  const zip=message.attachments?.find(a=>/^starpilot-starport-logs-[\w-]+\.zip$/i.test(a.filename));
+  if(!zip)return null;
+  return {zip,note:/(?:^|\n)Note: ([\s\S]*?)(?:\r?\nFollow-up:|$)/.exec(message.content)?.[1]?.trim()||'StarPort diagnostics',
+    handle:/\nFollow-up: Discord `([\w.#-]+)`\s*$/.exec(message.content)?.[1]};
+}
+
+async function moveLegacy(store,env,{channel,message,reporter}){
+  if(![channel,message,reporter].every(id))return {message:'Choose a Discord member for this report.'};
+  const thread=await discordTags(env,'/channels/'+channel);
+  if(thread.type!==11||thread.guild_id!==guild)return {message:'Select a report in the original StarPort forum.'};
+  const parent=await discordTags(env,'/channels/'+thread.parent_id);
+  if(parent.type!==15||parent.guild_id!==guild||parent.name!=='starport-reports')return {message:'Select a message in #starport-reports.'};
+  const member=await discordTags(env,'/guilds/'+guild+'/members/'+reporter);
+  if(member.user?.id!==reporter||member.user.bot)return {message:'Choose the member who submitted the report.'};
+  const key='legacy-starport:'+message;
+  const record=await store.transaction(async tx=>{
+    const existing=await tx.get(key);
+    if(existing)return existing;
+    const fresh={reference:crypto.randomUUID(),reporter};
+    await tx.put(key,fresh);
+    return fresh;
+  });
+  if(record.reporter!==reporter)return {message:'Another staff action already selected a different reporter for this post.'};
+  let link=record.link;
+  if(!link){
+    const post=await discordTags(env,'/channels/'+channel+'/messages/'+message);
+    const details=legacyStarPortPost(post);
+    if(!details||post.channel_id!==channel)return {message:'The original StarPort report or ZIP is unavailable.'};
+    const {zip,note}=details;
+    const url=new URL(zip.url);
+    if(url.origin!=='https://cdn.discordapp.com'||!url.pathname.startsWith('/attachments/'+channel+'/')||!(zip.size>0&&zip.size<=10*1024*1024))
+      return {message:'The original ZIP is unavailable or exceeds 10 MB.'};
+    const archive=await fetch(url,{redirect:'error',signal:AbortSignal.timeout(15000)});
+    if(!archive.ok)return {message:'Discord could not download the original ZIP. Retry the command.'};
+    const file=await archive.blob();
+    if(file.size!==zip.size)return {message:'Discord returned an incomplete ZIP. Retry the command.'};
+    const form=new FormData();
+    form.set('metadata',JSON.stringify({user:{id:reporter,username:member.user.username},platform:'android',source:'starport',
+      reference:record.reference,description:note,deviceCapture:true}));
+    form.set('archive',file,zip.filename);
+    const owner=env.REPORTS.get(env.REPORTS.idFromName(reporter));
+    const submission=await owner.fetch('https://reports/submit-stage',{method:'POST',body:form});
+    const receipt=await submission.json();
+    if(!submission.ok||!receipt.sent)return {message:receipt.error||'Could not confirm the Companion ticket.'};
+    link=receipt.threadURL;
+    await store.put(key,{...record,link});
+  }
+  const ticket='[Open the Companion ticket]('+link+')';
+  if(!record.notified){
+    const text='**Your StarPort report moved to Companion support**\n<@'+reporter+'>, we copied your note and logs. '+ticket+' to follow up. If staff ask for fresh logs, update your comma to the latest [StarPilotHQ testing branch](https://github.com/StarPilotHQ/StarPilot/tree/testing), then open Galaxy’s StarPort support page.';
+    const notice=await botPost(env,channel,{...supportCard('',text,[]),message_reference:{message_id:message},allowed_mentions:{parse:[],users:[reporter],replied_user:false},nonce:'sp-'+message,enforce_nonce:true});
+    if(!notice.ok)return {message:'Ticket created. Retry the command to post the link in the original thread. '+ticket};
+    await store.put(key,{...record,link,notified:true});
+  }
+  return {message:'StarPort report transferred. '+ticket};
+}
+
 export function isReferral(i){
-  return (i.type===2 && i.data?.type===3 && i.data.name===command) || (i.type===3 && /^refer:(leave|move|retry|ios|android):\d{17,20}$/.test(i.data?.custom_id||''));
+  return (i.type===3 && /^legacy-starport:\d{17,20}$/.test(i.data?.custom_id||'')) || (i.type===2 && i.data?.type===3 && i.data.name===command) || (i.type===3 && /^refer:(leave|move|retry|ios|android):\d{17,20}$/.test(i.data?.custom_id||''));
 }
 export async function referralInteraction(i,env,ctx){
   const inReview=configured(env)&&i.guild_id===guild&&i.channel_id===env.COMPANION_REVIEW_THREAD_ID;
@@ -367,16 +428,24 @@ export async function referralInteraction(i,env,ctx){
     : privateCard(text,controls);
   const reply=text=>Response.json({type:4,data:card(text)});
   const manual=i.type===2;
-  if(!configured(env)||i.guild_id!==guild||(!manual && i.channel_id!==env.COMPANION_REVIEW_THREAD_ID))return reply('Use the configured support review thread.');
+  const legacySelect=i.type===3 && /^legacy-starport:\d{17,20}$/.test(i.data?.custom_id||'');
+  if(!configured(env)||i.guild_id!==guild||(!manual && !legacySelect && i.channel_id!==env.COMPANION_REVIEW_THREAD_ID))return reply('Use the configured support review thread.');
   const settings=env.REPORTS.get(env.REPORTS.idFromName('companion-bot-setup'));
   const sage=await settings.fetch('https://reports/sage-role');
   if(!sage.ok || !i.member?.roles?.includes((await sage.json()).id))return reply('This action requires StarPilot Sage.');
+  const target=i.data?.target_id;
+  const oldPost=manual && legacyStarPortPost(i.data?.resolved?.messages?.[target]);
+  if(oldPost && id(target)){
+    const hint=oldPost.handle?' The submitted handle was **'+oldPost.handle+'**.':'';
+    const picker={type:1,components:[{type:5,custom_id:'legacy-starport:'+target,placeholder:'Select the reporter to move this report',min_values:1,max_values:1}]};
+    return Response.json({type:4,data:privateCard('**Confirm the StarPort reporter**'+hint+' Select their Discord account to copy this note and ZIP to Companion support.',[picker])});
+  }
   const [,action,source]=manual?['','manual',i.channel_id]:i.data.custom_id.split(':');
   ctx.waitUntil((async()=>{
     let controls=[];
     let text='Could not confirm this referral. Check the review thread.';
     try{
-      const res=await object(env).fetch('https://reports/referrals/action',{method:'POST',body:JSON.stringify({action,source,actor:i.member.user.id})});
+      const res=legacySelect ? await object(env).fetch('https://reports/referrals/legacy-starport',{method:'POST',body:JSON.stringify({channel:i.channel_id,message:i.data.custom_id.split(':')[1],reporter:i.data.values?.[0]})}) : await object(env).fetch('https://reports/referrals/action',{method:'POST',body:JSON.stringify({action,source,actor:i.member.user.id})});
       const result=await res.json();
       text=result.message||text;
       const choices=result.choosePlatform?[['ios','iOS'],['android','Android']]:result.retryMove?[['retry','Retry creation']]:[];

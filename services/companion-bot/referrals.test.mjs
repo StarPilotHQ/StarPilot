@@ -245,3 +245,44 @@ test('review thread replies are shared from acknowledgement through final card; 
     assert.match(JSON.stringify(denied.data),/requires StarPilot Sage/);
   }
 });
+
+test('legacy StarPort transfer uses the selected post, preserves its ZIP, and reuses its ticket', async t=>{
+  const {referralStore,legacyStarPortPost}=await import('./referrals.mjs');
+  const guild='1387432184121393333',channel='111111111111111111',message='222222222222222222',reporter='333333333333333333';
+  const attachment={filename:'starpilot-starport-logs-20261125-090614.zip',size:4,url:'https://cdn.discordapp.com/attachments/'+channel+'/123/report.zip'};
+  const post={channel_id:channel,webhook_id:'444444444444444444',author:{bot:true},attachments:[attachment],
+    content:'**StarPort logs from 35ac1fb5**\nCar: PRIUS\nNote: screen missing\nsecond line\nFollow-up: Discord `cfranyota`'};
+  assert.equal(legacyStarPortPost({...post,webhook_id:null}),null);
+  const rows=new Map(),store={get:k=>rows.get(k),put:(k,v)=>rows.set(k,v),transaction:fn=>fn(store)};
+  let submissions=0,notices=0,forum='other';
+  t.mock.method(globalThis,'fetch',async(url,options)=>{
+    if(String(url)===attachment.url)return new Response('PK12');
+    const path=new URL(url).pathname.replace('/api/v10','');
+    if(path==='/channels/'+channel)return Response.json({type:11,guild_id:guild,parent_id:'parent'});
+    if(path==='/channels/parent')return Response.json({type:15,guild_id:guild,name:forum});
+    if(path==='/channels/'+channel+'/messages/'+message)return Response.json(post);
+    if(path==='/guilds/'+guild+'/members/'+reporter)return Response.json({user:{id:reporter,username:'cfranyota'}});
+    assert.equal(path,'/channels/'+channel+'/messages');
+    const notice=JSON.parse(options.body);
+    assert.equal(notice.message_reference.message_id,message);
+    assert.match(JSON.stringify(notice.components),/StarPilotHQ testing branch/);
+    notices++; return Response.json({id:'notice'});
+  });
+  const env={DISCORD_BOT_TOKEN:'test',REPORTS:{idFromName:id=>id,get:id=>({fetch:async(url,{body})=>{
+    assert.equal(id,reporter);
+    assert.equal(url,'https://reports/submit-stage');
+    const data=JSON.parse(body.get('metadata'));
+    assert.equal(data.description,'screen missing\nsecond line');
+    assert.equal(data.source,'starport');
+    assert.equal(await body.get('archive').text(),'PK12');
+    submissions++;
+    return Response.json({sent:true,threadURL:'https://discord.com/channels/'+guild+'/123/123'});
+  }})}};
+  const move=async()=> (await referralStore('/referrals/legacy-starport',{json:()=>({channel,message,reporter})},store,env)).json();
+  assert.match((await move()).message,/#starport-reports/);
+  forum='starport-reports';
+  assert.match((await move()).message,/transferred/);
+  assert.match((await move()).message,/transferred/);
+  assert.equal(submissions,1);
+  assert.equal(notices,1);
+});
