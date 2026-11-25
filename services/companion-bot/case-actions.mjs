@@ -305,10 +305,14 @@ export async function caseAction(storage,env,b){
       if(build)fix.push('**App build:** '+build);
       if(commit)fix.push('[View commit]('+commit+')');
     }
+    const heading=action==='awaiting'?'Awaiting deploy':action==='question'?'Staff need more information':
+      b.appTesting?'Test the latest app beta':'Waiting for user testing';
+    const sections=[];
+    const section=text=>sections.push({type:14,divider:true,spacing:1},{type:10,content:text});
+    if(value?.trim())section('**Message from <@'+actor+'>**\n'+value);
     if(action==='awaiting'){
-      delete payload.content;
-      Object.assign(payload,supportCard('',['**Awaiting deploy**','A fix is waiting for release. Staff will ask you to test when it is available.',value,...fix].filter(Boolean).join('\n'),caseButtons(user,platform),[],state.color));
-    }else{
+      section(['A fix is waiting for release. Staff will ask you to test when it is available.',...fix].join('\n'));
+    }else if(b.appTesting){
       const appSteps=platform==='android' ? [
         '1. Join the [Galaxy Android beta group](https://groups.google.com/g/galaxy-starpilot-android-beta) with the Google account you use for Google Play.',
         '2. Open [Google Play testing](https://play.google.com/apps/testing/com.starpilot.galaxy) and choose **Become a tester**. Install or update Galaxy in Google Play.'
@@ -317,13 +321,14 @@ export async function caseAction(storage,env,b){
         '2. In TestFlight, open StarPilot and tap **Update** or **Install**. If it says **Open**, launch the offered build.'
       ];
       const logs=platform==='android'?'Connections → Debugging options → Report a problem':'Settings → Logs & support → Report a problem on Discord';
-      const text=b.appTesting ? ['**Test the latest app beta**',...appSteps,'3. Try the issue again.',value,
-        'If it still happens, immediately open **'+logs+'** in the phone app and send fresh app logs to **this existing ticket**.',
-        'If it works, choose **My request is fulfilled** below.'].filter(Boolean).join('\n') :
-        [action==='testing'?'**Waiting for user testing**':'**Staff need more information**',...(action==='testing'&&b.commaTesting?[updateComma]:[]),value,...fix,'','Choose **Give feedback** to share your results, or **My request is fulfilled** to close the report.'].join('\n');
-      delete payload.content;
-      Object.assign(payload,supportCard(message,text,[reporterButtons(user,platform,channel)],[],state?.color));
+      section([...appSteps,'3. Try the issue again.'].join('\n'));
+      section('If it still happens, immediately open **'+logs+'** in the phone app and send fresh app logs to **this existing ticket**.\nIf it works, choose **My request is fulfilled** below.');
+    }else{
+      section([...(b.commaTesting?[updateComma]:[]),...fix,'Choose **Give feedback** to share your results, or **My request is fulfilled** to close the report.'].join('\n'));
     }
+    delete payload.content;
+    const controls=action==='awaiting'?caseButtons(user,platform):[reporterButtons(user,platform,channel)];
+    Object.assign(payload,supportCard(message,'**'+heading+'**',controls,sections,state?.color));
   }else if(action==='feedback'||action==='note'){
     delete payload.content;
     Object.assign(payload,supportCard('',message,caseButtons(user,platform)));

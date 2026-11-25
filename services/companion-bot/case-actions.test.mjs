@@ -289,6 +289,10 @@ test('comma testing adds the official branch instruction only to the comma testi
     const modal=(await (await caseInteraction(pick,env)).json()).data;
     assert.equal(modal.custom_id,'case:1:ios:'+selected+':4');
     await caseAction(store,env,{action:'testing',commaTesting:selected==='commaTesting',appTesting:selected==='appTesting',platform:'ios',channel:'4',user:'1',actor:'3',value:'Verify the fix.',build:'2.0 (332)',interaction:selected});
+    const sections=posts.at(-1).components.find(c=>c.type===17).components;
+    assert.equal(sections[1].type,14);
+    assert.equal(sections[2].content,'**Message from <@3>**\nVerify the fix.');
+    assert.equal(sections[3].type,14);
     const card=JSON.stringify(posts.at(-1));
     assert.equal(card.includes('https://testflight.apple.com/join/nfUDuEm4'),selected==='appTesting');
     assert.equal(card.includes(updateComma),selected==='commaTesting');
