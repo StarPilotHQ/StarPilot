@@ -117,11 +117,15 @@ def create_acc_commands(packer, CAN, enabled, active, accel, gas, stopping_count
   return commands
 
 
-def create_steering_control(packer, CAN, apply_torque, lkas_active, tja_control):
+def create_steering_control(packer, CAN, apply_torque, lkas_active, tja_control, angle_arm=None):
+  # angle_arm (Accord angle-loop EPS only): STEER_TORQUE is the angle setpoint, sent with the request off too, and
+  # STEER_CONTROL_ARM carries the arm the EPS lane requires.  None = the torque frame, unchanged.
   values = {
-    "STEER_TORQUE": apply_torque if lkas_active else 0,
+    "STEER_TORQUE": apply_torque if (lkas_active or angle_arm is not None) else 0,
     "STEER_TORQUE_REQUEST": lkas_active,
   }
+  if angle_arm is not None:
+    values["STEER_CONTROL_ARM"] = angle_arm
 
   if tja_control:
     values["STEER_DOWN_TO_ZERO"] = lkas_active

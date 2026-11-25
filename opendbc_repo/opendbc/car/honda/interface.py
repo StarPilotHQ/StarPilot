@@ -7,7 +7,9 @@ from opendbc.car import Bus, get_safety_config, structs, uds
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.disable_ecu import disable_ecu
 from opendbc.car.honda.hondacan import CanBus
-from opendbc.car.honda.values import CarControllerParams, HondaFlags, CAR, HondaSafetyFlags, MANUAL_TRANS_CARS, MODIFIED_EPS_FW, DBC
+from opendbc.car.honda.values import CarControllerParams, HondaFlags, CAR, HondaSafetyFlags, MANUAL_TRANS_CARS, MODIFIED_EPS_FW, DBC, \
+                                     is_accord_eps_angle_loop_fw
+from opendbc.car.lateral import MAX_LATERAL_ACCEL
 from opendbc.car.honda.carcontroller import CarController
 from opendbc.car.honda.carstate import CarState
 from opendbc.car.honda.radar_interface import RadarInterface
@@ -100,7 +102,12 @@ class CarInterface(CarInterfaceBase):
       ret.longitudinalTuning.kiV = [1.2, 0.8, 0.5]
 
     eps_observations = [fw for fw in car_fw if fw.ecu == "eps" and not fw.logging]
-    modified_eps = any(b"," in fw.fwVersion for fw in eps_observations)
+    # Accord angle-loop EPS firmware (39990-TVA,A16<letter>): the EPS closes the angle loop and openpilot sends the
+    # setpoint.  Not a torque-modified EPS, so it is kept out of the MODIFIED_EPS_FW allow-list check below (which would
+    # otherwise make the car dashcam-only).  Every EPS response must be the family; a mixed read falls through to it.
+    eps_angle_loop_fw = (candidate == CAR.HONDA_ACCORD and len(eps_observations) > 0 and
+                         all(is_accord_eps_angle_loop_fw(fw.fwVersion) for fw in eps_observations))
+    modified_eps = not eps_angle_loop_fw and any(b"," in fw.fwVersion for fw in eps_observations)
     eps_modified = bool(modified_eps) and all(
       fw.address == 0x18DA30F1 and fw.subAddress == 0 and
       fw.fwVersion in MODIFIED_EPS_FW.get(candidate, ()) for fw in eps_observations)
@@ -121,6 +128,21 @@ class CarInterface(CarInterfaceBase):
 
     elif candidate == CAR.HONDA_ACCORD:
       ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = ([[0.3], [0.09]] if eps_modified else [[0.6], [0.18]])
+      if eps_angle_loop_fw:
+        # angle-loop EPS firmware: the EPS closes the angle loop, openpilot sends the setpoint
+        ret.flags |= HondaFlags.EPS_ANGLE_LOOP_FW.value
+        ret.safetyConfigs[-1].safetyParam |= HondaSafetyFlags.ACCORD_ANGLE.value
+        ret.steerControlType = structs.CarParams.SteerControlType.angle
+        ret.steerActuatorDelay = CarControllerParams.ANGLE_STEER_ACTUATOR_DELAY
+        # The torque fit's MAX_LAT_ACCEL_MEASURED (0.32 m/s^2) means nothing to an angle setpoint; the onroad torque
+        # bar divides by this, so normalise it by the angle limit instead (3.589 m/s^2, where the setpoint clamp binds).
+        # Measured engaged hands-off over 35 routes: p99.9 3.46 m/s^2, per-route maxima 3.4-4.1. Only the bar and the
+        # car docs read maxLateralAccel; no controller or torque tune does.
+        ret.maxLateralAccel = MAX_LATERAL_ACCEL
+      elif not docs and not eps_observations:
+        # EPS fw unread: an angle-loop EPS would ignore torque frames (engaged, no steering, no alert), so fault instead.
+        # Note: upstream lists this EPS as non-essential (lost without comma power); such an Accord faults here too.
+        ret.flags |= HondaFlags.EPS_FW_UNREAD.value
 
     elif candidate == CAR.HONDA_ACCORD_11G:
       ret.longitudinalActuatorDelay = 0.05

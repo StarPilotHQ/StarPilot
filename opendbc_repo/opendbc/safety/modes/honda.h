@@ -34,6 +34,8 @@ static bool honda_fwd_brake = false;
 static bool honda_bosch_long = false;
 static bool honda_bosch_radarless = false;
 static bool honda_bosch_canfd = false;
+static bool honda_accord_angle = false;
+#define HONDA_PARAM_ACCORD_ANGLE 4096U
 static bool honda_mvl_stock = false;
 static uint8_t honda_mvl_buttons_fresh = 0U;
 static bool honda_rdx_high_gas = false;
@@ -101,6 +103,23 @@ static uint8_t honda_get_counter(const CANPacket_t *msg) {
   return (msg->data[counter_byte] >> 4U) & 0x3U;
 }
 
+// The Accord angle-loop EPS firmware (39990-TVA,A16x) exists only on classic Bosch. On it a 0xE4 frame with
+// STEER_CONTROL_ARM == 2 carries an angle setpoint in bytes 0-1 (-0.1 deg); the EPS runs its angle lane on no other
+// frame, and the stock camera only ever sends 0 or 1 there.
+static bool honda_angle_setpoint_capable(void) {
+  return (honda_hw == HONDA_BOSCH) && honda_accord_angle;
+}
+
+// Wheel angle for the angle setpoint check: where a request may start from, and what a request-off frame may hold.
+// STEERING_SENSORS is not a required RX check on Honda, so it arrives here, and its checksum is verified here.
+static void honda_optional_rx_hook(const CANPacket_t *msg) {
+  if (honda_angle_setpoint_capable() && msg_matches(msg, 0x14AU, honda_get_pt_bus(), 8U) &&
+      (honda_get_checksum(msg) == honda_compute_checksum(msg))) {
+    // STEER_ANGLE, -0.1 deg: the same units and sign as the 0xE4 setpoint
+    update_sample(&angle_meas, to_signed((msg->data[0] << 8) | msg->data[1], 16));
+  }
+}
+
 static void honda_rx_hook(const CANPacket_t *msg) {
   const bool pcm_cruise = ((honda_hw == HONDA_BOSCH) && !honda_bosch_long) || ((honda_hw == HONDA_NIDEC) && !honda_interceptor);
   unsigned int pt_bus = honda_get_pt_bus();
@@ -109,6 +128,14 @@ static void honda_rx_hook(const CANPacket_t *msg) {
   // sample speed
   if (msg->addr == 0x158U) {
     vehicle_moving = msg->data[0] | msg->data[1];
+  }
+
+  // speed for the angle setpoint check (Accord angle-loop EPS)
+  if (honda_angle_setpoint_capable()) {
+    if (msg_matches(msg, 0x158U, pt_bus)) {
+      // ENGINE_DATA XMISSION_SPEED, 0.01 kph
+      UPDATE_VEHICLE_SPEED(((msg->data[0] << 8) | msg->data[1]) * 0.01 * KPH_TO_MS);
+    }
   }
 
   // check ACC main state
@@ -317,6 +344,40 @@ static bool honda_tx_hook(const CANPacket_t *msg) {
     }
   }
 
+  // STEER: angle setpoint frames (STEER_CONTROL_ARM == 2, Accord angle-loop EPS) must stay inside the lateral
+  // acceleration and jerk limits, checked with the vehicle model on the value as sent
+  if ((msg->addr == 0xE4U) && (((msg->data[2] >> 2) & 0x3U) == 2U)) {
+    const AngleSteeringLimits HONDA_ACCORD_ANGLE_LIMITS = {
+      .max_angle = 4000,  // 400 deg, the EPS clamps its setpoint just above this
+      .angle_deg_to_can = 10,
+      .frequency = 100U,
+    };
+
+    // NOTE: HONDA_ACCORD, must match openpilot's VehicleModel
+    const AngleSteeringParams HONDA_ACCORD_ANGLE_PARAMS = {
+      .slip_factor = -0.0006999872680281922,  // calc_slip_factor(VM)
+      .steer_ratio = 16.33,
+      .wheelbase = 2.83,
+    };
+
+    const int desired_angle = to_signed((msg->data[0] << 8) | msg->data[1], 16);
+    const bool steer_req = GET_BIT(msg, 23U);  // STEER_TORQUE_REQUEST
+
+    bool violation = !honda_angle_setpoint_capable();
+    if (!violation) {
+      if (!steer_req && (desired_angle == 0)) {
+        // request off with a zero field: nothing is commanded, the next request starts from the wheel
+        desired_angle_last = SAFETY_CLAMP(angle_meas.values[0], -HONDA_ACCORD_ANGLE_LIMITS.max_angle, HONDA_ACCORD_ANGLE_LIMITS.max_angle);
+      } else {
+        violation |= steer_angle_cmd_checks_vm(desired_angle, steer_req, HONDA_ACCORD_ANGLE_LIMITS, HONDA_ACCORD_ANGLE_PARAMS);
+        violation |= safety_max_limit_check(desired_angle, HONDA_ACCORD_ANGLE_LIMITS.max_angle, -HONDA_ACCORD_ANGLE_LIMITS.max_angle);
+      }
+    }
+    if (violation) {
+      tx = false;
+    }
+  }
+
   // Bosch supplemental control check
   if (msg->addr == 0xE5U) {
     if ((GET_BYTES_64_LE(msg, 0, 8) & 0x00FFFFFFFFFFFFFFULL) != 0x0000000010800004ULL) {
@@ -381,6 +442,7 @@ static safety_config honda_nidec_init(uint16_t param) {
   const uint16_t HONDA_PARAM_NIDEC_ALT = 4;
 
   honda_hw = HONDA_NIDEC;
+  honda_accord_angle = false;
   honda_brake = 0;
   honda_brake_switch_prev = false;
   honda_fwd_brake = false;
@@ -426,7 +488,14 @@ static safety_config honda_nidec_init(uint16_t param) {
   return ret;
 }
 
-static safety_config honda_bosch_init(uint16_t param) {
+static safety_config honda_bosch_init(uint16_t requested_param) {
+  // Apply the Accord flag only to the classic Bosch base configurations the host can select.
+  const uint16_t param = (uint16_t)(requested_param & ~HONDA_PARAM_ACCORD_ANGLE);
+  bool accord_base = (param == 0U) || (param == 1U);
+#ifdef ALLOW_DEBUG
+  accord_base = accord_base || (param == 2U) || (param == 3U) || (param == 2082U) || (param == 2083U);
+#endif
+  honda_accord_angle = GET_FLAG(requested_param, HONDA_PARAM_ACCORD_ANGLE) && accord_base;
   honda_mvl_stock = ((param == 80U) || (param == 81U)) && ((alternative_experience == 0) || (alternative_experience == 32));
   honda_mvl_buttons_fresh = 0U;
   honda_interceptor_reset(false);
@@ -614,6 +683,7 @@ const safety_hooks honda_bosch_hooks = {
   .fwd = honda_mvl_stock_fwd_hook,
   .init = honda_bosch_init,
   .rx = honda_rx_hook,
+  .optional_rx = honda_optional_rx_hook,
   .tx = honda_tx_hook,
   .get_counter = honda_get_counter,
   .get_checksum = honda_get_checksum,

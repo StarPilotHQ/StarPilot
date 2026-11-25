@@ -607,12 +607,13 @@ int main() {
   unsupported.safety_param ^= 0x1U;
   assert(!aol_capable(unsupported, TEST_MODE, TEST_REGISTRY));
 
-  for (uint16_t word = 0U; word < 4096U; ++word) {
+  for (uint16_t word = 0U; word < 8192U; ++word) {
     auto stock_honda = status();
     stock_honda.safety_mode = 20U;
     stock_honda.safety_param = word;
     const bool classic = word == 34U || word == 35U || word == 163U;
-    const bool stock = word == 0U || word == 1U || word == 8U || word == 9U || word == 10U || word == 11U || word == 16U || word == 17U || word == 80U || word == 81U || word == 512U || word == 513U || word == 1058U || word == 1059U || word == 1570U || word == 1571U || word == 2082U || word == 2083U || word == 2211U;
+    const bool stock = word == 0U || word == 1U || word == 8U || word == 9U || word == 10U || word == 11U || word == 16U || word == 17U || word == 80U || word == 81U || word == 512U || word == 513U || word == 1058U || word == 1059U || word == 1570U || word == 1571U || word == 2082U || word == 2083U || word == 2211U ||
+                       word == 4096U || word == 4097U || word == 6178U || word == 6179U;
     assert(aol_capable(stock_honda, 20U, VEHICLE_REGISTRY) == (classic || stock));
     assert(aol_runtime_enabled(false, stock_honda, VEHICLE_REGISTRY) == stock);
     stock_honda.safety_mode = 1U;

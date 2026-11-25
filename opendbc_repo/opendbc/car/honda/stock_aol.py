@@ -37,8 +37,11 @@ MANUAL_SELECTION_PORTS = CLASSIC_BOSCH | NIDEC | RADARLESS | CANFD_STOCK | ALT_R
 # qualified() runs several times per 100 Hz frame in card and selfdrived, so
 # everything that depends only on this module is computed once, and its flag
 # tests use plain ints: IntFlag operators cost microseconds each in Python.
+# EPS_ANGLE_LOOP_FW / EPS_FW_UNREAD: Accord-only EPS-firmware detections (interface.py); the angle car keeps AOL, and
+# an unread EPS is already a permanent steer fault in carstate, so neither may drop the car out of these owners.
 _DETECTED = int(HondaFlags.BOSCH_EXT_HUD | HondaFlags.BOSCH_ALT_BRAKE | HondaFlags.HAS_BSM |
-                HondaFlags.EPS_MODIFIED | HondaFlags.HYBRID | HondaFlags.GAS_INTERCEPTOR)
+                HondaFlags.EPS_MODIFIED | HondaFlags.HYBRID | HondaFlags.GAS_INTERCEPTOR |
+                HondaFlags.EPS_ANGLE_LOOP_FW | HondaFlags.EPS_FW_UNREAD)
 _ALLOWED_FLAGS = {str(car): int(car.config.flags) | _DETECTED
                   for car in CLASSIC_BOSCH | NIDEC | RADARLESS | CANFD_STOCK | ALT_RADAR_STOCK | {CAR.HONDA_ACCORD_11G}}
 _BOSCH, _BOSCH_RADARLESS, _BOSCH_ALT_BRAKE = int(HondaFlags.BOSCH), int(HondaFlags.BOSCH_RADARLESS), int(HondaFlags.BOSCH_ALT_BRAKE)
@@ -102,6 +105,8 @@ def qualified(cp, *, marked_only=False):
             safety.safetyModel == _HONDA_NIDEC and safety.safetyParam == expected)
   if fingerprint in CLASSIC_BOSCH and flags & _BOSCH and not flags & _BOSCH_RADARLESS:
     expected = int(bool(flags & _BOSCH_ALT_BRAKE))
+    if fingerprint == CAR.HONDA_ACCORD and flags & int(HondaFlags.EPS_ANGLE_LOOP_FW):
+      expected |= int(HondaSafetyFlags.ACCORD_ANGLE)
     if cp.openpilotLongitudinalControl:
       expected |= int(HondaSafetyFlags.BOSCH_LONG)
       if fingerprint == CAR.ACURA_RDX_3G:

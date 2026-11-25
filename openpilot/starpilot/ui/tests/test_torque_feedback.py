@@ -4,6 +4,7 @@ from copy import deepcopy
 from types import SimpleNamespace as NS
 import unittest
 
+from opendbc.car.honda.values import HondaFlags
 from openpilot.starpilot.ui.torque_feedback import observe_torque_feedback
 
 
@@ -126,6 +127,27 @@ class TorqueFeedbackTests(unittest.TestCase):
     self.assertIsNone(observe(sm, cp).utilization)
     sm["carOutput"] = NS(actuatorsOutput=output)
     output.lateralControlMode = "newUnknownChannel"
+    self.assertIsNone(observe(sm, cp).utilization)
+
+  def test_accord_angle_loop_shows_angle_error_not_roll(self):
+    sm = Messages("angleState")
+    cp = NS(brand="honda", flags=HondaFlags.EPS_ANGLE_LOOP_FW.value, maxLateralAccel=3.5886)
+    sm["carState"].steeringAngleDeg = 1.0
+    sm["carState"].vEgo = sm["carState"].vEgoRaw = 26.9
+    sm["carOutput"].actuatorsOutput.steeringAngleDeg = 1.0
+    sm["vehicleParameters"].roll = 0.0326  # the device's standing +1.87 deg roll bias
+    sm["controlsState"].curvature = sm["controlsState"].desiredCurvature = 0.0
+    self.assertEqual((observe(sm, cp).utilization, observe(sm, cp).source), (0.0, "angle_error"))
+    self.assertEqual(observe(sm, NS(brand="honda", flags=0, maxLateralAccel=3.5886)).source, "lateral_acceleration_demand",
+                     "without the angle-loop flag the bar shows the lateral-acceleration demand")
+    sm["carOutput"].actuatorsOutput.steeringAngleDeg = 1.0 + 6.1  # left of the wheel by half the 12.2 deg clip
+    self.assertAlmostEqual(observe(sm, cp).utilization, -0.5)
+    sm["carOutput"].actuatorsOutput.steeringAngleDeg = 1.0 - 50.0
+    self.assertEqual(observe(sm, cp).utilization, 1.0)
+    sm["carControl"].latActive = False
+    self.assertEqual(observe(sm, cp).utilization, 0.0)
+    sm["carControl"].latActive = True
+    del sm["carOutput"]
     self.assertIsNone(observe(sm, cp).utilization)
 
   def test_read_only(self):
