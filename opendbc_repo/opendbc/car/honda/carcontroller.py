@@ -20,7 +20,6 @@ LongCtrlState = structs.CarControl.Actuators.LongControlState
 SteerControlType = structs.CarParams.SteerControlType
 
 
-
 def compute_gb_honda_bosch(accel, speed):
   # TODO returns 0s, is unused
   return 0.0, 0.0
@@ -136,8 +135,6 @@ class CarController(CarControllerBase):
     # The panda blocks a nonzero 0xE4 field unless lateral_controls_allowed().  Without an AOL policy that is
     # controls_allowed (needs ACC main on and engagement); with one it is a session-acknowledged axis permission the
     # carcontroller cannot see, so the hold is sent only in the subset every policy allows: enabled with main on.
-    # (The old tree also held under always-on lateral; the 7.0 panda predicate is stricter, so that case now sends 0,
-    # which the old design already accepted for the not-allowed state.)
     return bool(CS.out.cruiseState.available) and bool(CC.enabled)
 
   def _update_angle(self, CC, CS) -> tuple[float, int]:
