@@ -29,6 +29,7 @@ test('scan resolves the sample, skips old tickets, and sends a single private ca
   const guild='1387432184121393333',forum='1574085782967292000',review='1575000066366644244',sample='1574085782967292086';
   const bot='123456789123456789',user='987654321987654321';
   const fresh=String(BigInt(Date.now()+1000-1420070400000)<<22n);
+  let registrations=0;
   const posts=[];
   const env={DRIVING_SAMPLE_THREAD_ID:sample,COMPANION_REVIEW_THREAD_ID:review,DISCORD_BOT_TOKEN:'fixture',REPORT_MAINTAINER_ID:'524762496373096459',ANDROID_REPORT_MAINTAINER_ID:'420178305073938433',FIRESTAR_DISCORD_USER_ID:'123456789123456780'};
   const rows=new Map();
@@ -36,6 +37,13 @@ test('scan resolves the sample, skips old tickets, and sends a single private ca
   const thread=id=>({id,type:11,guild_id:guild,parent_id:forum});
   t.mock.method(globalThis,'fetch',async(url,opts)=>{
     const path=new URL(url).pathname.replace('/api/v10','');
+    if(path==='/applications/1574857862872703088/guilds/'+guild+'/commands'){
+      assert.equal(opts.method,'POST');
+      const payload=JSON.parse(opts.body);
+      assert.deepEqual(payload,{name:'Refer to Companion Support',type:3});
+      registrations++;
+      return Response.json({...payload,id:sample,guild_id:guild,application_id:'1574857862872703088'});
+    }
     if(opts.method==='POST'){posts.push({path,body:JSON.parse(opts.body)});return Response.json({id:'1'});}
     if(path==='/channels/'+sample)return Response.json(thread(sample));
     if(path==='/channels/'+forum)return Response.json({id:forum,type:15,guild_id:guild});
@@ -45,6 +53,7 @@ test('scan resolves the sample, skips old tickets, and sends a single private ca
     throw Error('Unexpected access '+path);
   });
   for(let i=0;i<3;i++)await referralStore('/referrals/scan',{},store,env);
+  assert.equal(registrations,1);
   assert.equal(posts.length,1);
   assert.ok(posts[0].body.flags & 4096);
   assert.deepEqual(posts[0].body.allowed_mentions,{parse:[],users:[env.REPORT_MAINTAINER_ID,env.ANDROID_REPORT_MAINTAINER_ID,env.FIRESTAR_DISCORD_USER_ID]});
@@ -181,7 +190,7 @@ test('lost acknowledgements recover the existing review card and Companion ticke
   const source='1574085782967292086',review='1575000066366644244',guild='1387432184121393333',forum='1574085782967292000',bot='1574857862872703088',dest='1574999999999999999',support='1565235002734809168';
   const key='report:'+source,title='A Companion report';
   const record={state:'offering',category:'Phone app',source,reporter:source,observed:'Android app'};
-  const rows=new Map([['start',1],['source:'+source,{DRIVING_FORUM_ID:forum}],[key,record]]);
+  const rows=new Map([['refer-command-v1',{id:dest}],['start',1],['source:'+source,{DRIVING_FORUM_ID:forum}],[key,record]]);
   const store={get:k=>rows.get(k),put:(k,v)=>rows.set(k,v),transaction:fn=>fn(store)};
   const env={COMPANION_REVIEW_THREAD_ID:review,DRIVING_SAMPLE_THREAD_ID:source,DISCORD_BOT_TOKEN:'test',REPORTS:{idFromName:k=>k,get:()=>({fetch:()=>new Response('',{status:503})})}};
   t.mock.method(globalThis,'fetch',async(url,o)=>{

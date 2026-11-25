@@ -139,6 +139,25 @@ async function recoverReview(store,env,key,record){
   });
   if(reserved)await deliverReview(store,env,key,record);
 }
+async function ensureReferralCommand(store,env){
+  const key='refer-command-v1';
+  const saved=await store.get(key);
+  if(saved?.id||saved?.retryAfter>Date.now())return;
+  await store.put(key,{retryAfter:Date.now()+300000});
+  try{
+    const app='1574857862872703088';
+    const response=await fetch('https://discord.com/api/v10/applications/'+app+'/guilds/'+guild+'/commands',{
+      method:'POST',redirect:'manual',signal:AbortSignal.timeout(10000),
+      headers:{Authorization:'Bot '+env.DISCORD_BOT_TOKEN,'Content-Type':'application/json'},
+      body:JSON.stringify({name:command,type:3})
+    });
+    if(!response.ok)throw Error('HTTP '+response.status);
+    const registered=await response.json();
+    if(!id(registered.id)||registered.name!==command||registered.type!==3||registered.guild_id!==guild||registered.application_id!==app)
+      throw Error('Invalid command receipt');
+    await store.put(key,{id:registered.id});
+  }catch(error){console.warn('Discord referral command registration pending',error.message);}
+}
 export async function pollReferrals(env){
   if(!configured(env))return;
   const res=await object(env).fetch('https://reports/referrals/scan',{method:'POST'});
@@ -149,6 +168,7 @@ export async function referralStore(path,request,store,env){
   env=await resolveSource(store,env);
   await staffDestination(env);
   if(path.endsWith('/scan')){
+    await ensureReferralCommand(store,env);
     const start=await store.get('start');
     if(!start){await store.put('start',Date.now());return Response.json({ready:true});}
     const {threads}=await discordTags(env,'/guilds/'+guild+'/threads/active');
