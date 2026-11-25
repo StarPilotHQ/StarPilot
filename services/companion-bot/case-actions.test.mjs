@@ -86,7 +86,13 @@ test('closing archives after the status card and reopening restores the same thr
   const store={get:k=>data.get(k),put:(k,v)=>data.set(k,v),transaction:fn=>fn(store)};
   const thread={id:'4',type:11,parent_id:supportForum,applied_tags:['42','1565236988913913887'],thread_metadata:{archived:false}};
   const events=[];
+  let unfollowStatus=204;
   t.mock.method(globalThis,'fetch',async(url,options)=>{
+    if(options.method==='DELETE'){
+      assert.equal(url,'https://discord.com/api/v10/channels/4/thread-members/3');
+      events.push('unfollow closer');
+      return new Response(null,{status:unfollowStatus});
+    }
     if(options.method==='PATCH'){
       const patch=JSON.parse(options.body);
       if(patch.applied_tags)thread.applied_tags=patch.applied_tags;
@@ -101,10 +107,18 @@ test('closing archives after the status card and reopening restores the same thr
   });
   const act=(action,value,id)=>caseAction(store,env,{channel:'4',user:'1',platform:'ios',actor:'3',action,value,interaction:id});
   await act('status','Closed','1');
-  assert.deepEqual(events,[{applied_tags:['42','1565237052524466207']},0x3498db,{archived:true}]);
+  assert.deepEqual(events,[{applied_tags:['42','1565237052524466207']},0x3498db,'unfollow closer',{archived:true}]);
   assert.match((await (await act('working',null,'2')).json()).message,/closed or archived/);
   await act('status','Open','3');
-  assert.deepEqual(events.slice(3),[{applied_tags:['42','1565236988913913887'],archived:false},0xe74c3c]);
+  assert.deepEqual(events.slice(4),[{applied_tags:['42','1565236988913913887'],archived:false},0xe74c3c]);
+  unfollowStatus=403;
+  assert.match((await (await act('status','Closed','4')).json()).message,/archived.*could not unfollow you/);
+  assert.equal(thread.thread_metadata.archived,true);
+  await act('status','Open','5');
+  events.length=0;
+  await caseAction(store,env,{channel:'4',user:'1',platform:'ios',actor:'1',action:'fulfilled',interaction:'6'});
+  assert.equal(events.includes('unfollow closer'),false);
+  assert.equal(thread.thread_metadata.archived,true);
 });
 
 test('the overview is staff-only and reads archived tickets without posting',async t=>{

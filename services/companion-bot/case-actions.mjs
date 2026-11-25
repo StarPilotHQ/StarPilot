@@ -317,9 +317,18 @@ export async function caseAction(storage,env,b){
   }
   const post=await botPost(env,channel,payload);
   if(nextStatus==='Closed'){
+    let followNotice='';
+    if(action==='status' && /^\d{1,20}$/.test(actor)){
+      try{
+        const membership=await fetch('https://discord.com/api/v10/channels/'+channel+'/thread-members/'+actor,{
+          method:'DELETE',headers:{Authorization:'Bot '+env.DISCORD_BOT_TOKEN},redirect:'manual',signal:AbortSignal.timeout(5000)
+        });
+        if(!membership.ok && membership.status!==404)followNotice=' Discord could not unfollow you.';
+      }catch{followNotice=' Discord could not confirm that you unfollowed.';}
+    }
     try{await discordTags(env,'/channels/'+channel,{archived:true});}
     catch{return result('Tagged Closed, but archiving failed. Check Manage Threads, then choose Closed again.');}
-    return result(post.ok?'Closed and archived. The original thread link still works.':'Closed and archived. Discord did not confirm the status card.');
+    return result((post.ok?'Closed and archived. The original thread link still works.':'Closed and archived. Discord did not confirm the status card.')+followNotice);
   }
   return result(post.ok?'Updated this report.':'Could not confirm the update message. Refresh the thread.');
 }
