@@ -18,10 +18,9 @@ def registry(tmp_path, now=lambda: 100):
 def test_opt_in_and_stale_lease(tmp_path):
   now = [100]
   owner = registry(tmp_path, lambda: now[0])
-  assert not owner.heartbeat(PAYLOAD, PEER)['enabled']
-  assert owner.lease() is None
-  owner.save({'enabled': True})
+  owner.save({'enabled': False})
   assert owner.heartbeat(PAYLOAD, PEER)['enabled']
+  assert owner.enabled()
   assert stat.S_IMODE(owner.lease_path.stat().st_mode) == 0o600
   assert owner.snapshot()['connected']
   assert 'pass' not in owner.snapshot()

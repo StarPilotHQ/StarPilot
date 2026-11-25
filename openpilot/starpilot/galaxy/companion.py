@@ -102,9 +102,11 @@ class CompanionRegistry:
       # The same hotspot peer may rotate credentials (app restart); only a different phone is refused.
       if previous and previous['peer'] != peer:
         raise FileExistsError('Another phone is sharing data')
-      enabled = self.enabled()
-      if enabled:
-        atomic_json(self.lease_path, {**lease, 'updated': self.clock()})
+      # The phone's own opt-in (with its disclosure) is consent: a hotspot heartbeat turns sharing on.
+      if not self.enabled():
+        atomic_json(self.path, {'enabled': True})
+      enabled = True
+      atomic_json(self.lease_path, {**lease, 'updated': self.clock()})
     return {'ok': True, 'enabled': enabled, 'active': phone_uplink_active(self.status_path, self.clock),
             'protocol': COMPANION_PROTOCOL, 'uploadDenyHosts': UPLOAD_DENY_HOSTS}
 
