@@ -144,10 +144,12 @@ test('new linked ticket mentions the original reporter and both maintainers once
   const rows=new Map([['source:'+source,{DRIVING_FORUM_ID:forum,DRIVING_REPORT_BOT_ID:reporter}],['report:'+source,{source,reporter,observed:'CarPlay disconnected',reportText:'**Observed Behavior**\nCarPlay disconnected\n\n**Expected Behavior**\nAudio should continue.',category:'Phone app',state:'pending'}]]);
   const store={get:k=>rows.get(k),put:(k,v)=>rows.set(k,v),transaction:fn=>fn(store)};
   const env={DRIVING_SAMPLE_THREAD_ID:source,COMPANION_REVIEW_THREAD_ID:review,DISCORD_BOT_TOKEN:'fixture',REPORT_MAINTAINER_ID:nate,ANDROID_REPORT_MAINTAINER_ID:di,FIRESTAR_DISCORD_USER_ID:firestar};
+  env.AI={run:async()=>({response:'CarPlay audio disconnects'})};
   const posts=[];
   t.mock.method(globalThis,'fetch',async(url,opts)=>{
     if(opts.method==='GET' && url.endsWith('/channels/'+review))return Response.json({type:12,guild_id:guild});
     assert.ok(url.endsWith('/channels/1565235002734809168/threads'));
+    assert.equal(JSON.parse(opts.body).name,'🟠 Phone app — CarPlay audio disconnects');
     posts.push(JSON.parse(opts.body).message);
     return new Response('',{status:403});
   });

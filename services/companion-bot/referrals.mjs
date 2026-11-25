@@ -1,3 +1,4 @@
+import {issueSummary} from './issue-summary.mjs';
 import {botPost,ticketTitle,ticketStates,messageText,privateCard,supportCard} from './bot-delivery.mjs';
 import {caseButtons} from './case-actions.mjs';
 import {discordTags,supportForum,supportTags} from './thread-tags.mjs';
@@ -230,12 +231,15 @@ export async function referralStore(path,request,store,env){
   if(action==='move'&&previous?.state==='creating')return recoverMove(store,env,key,previous);
   if(!['offering','pending'].includes(previous?.state))return Response.json({message:'This referral has already been handled.'});
   const reportKind=previous.category==='StarPort'?'starport':previous.category==='Bluetooth controller'?'controller':'connection';
-  const title=previous.category+' — '+(previous.observed||'').replace(/\s+/g,' ').slice(0,68);
   const evidence=[previous.sourceTitle,previous.observed,previous.summary].join(' ');
   const apple=/\b(?:iphone[s]?|ios|car[ -]?play)\b/i.test(evidence);
   const android=/\bandroid\b/i.test(evidence);
   const platform=selected||previous.platform||(reportKind==='starport'?'android':apple===android?null:apple?'ios':'android');
   if(action==='move'&&!platform)return Response.json({message:'Choose the phone platform for this ticket.',choosePlatform:true});
+  const details=[previous.observed,previous.reportText||previous.summary,previous.sourceTitle].filter(Boolean).join('\n');
+  const title=action==='move'
+    ? previous.category+' — '+(await issueSummary(env.AI,details,details.replace(/\*\*[^*]+\*\*/g,''))).slice(0,68)
+    : previous.title;
   const record=await store.transaction(async tx=>{
     const current=await tx.get(key);
     if(!['pending','offering'].includes(current?.state))return null;
