@@ -52,7 +52,8 @@ class LeadInfoTests(unittest.TestCase):
     self.params.put_bool("HideLeadMarker", False, block=True)
     self.assertTrue(self.row().available)
     for flag, mode, expected in ((b"0", b"2", LeadInfoMode.OFF), (b"1", b"1", LeadInfoMode.DISTANCE),
-                                 (b"1", b"2", LeadInfoMode.SPEED), (b"1", b"0", LeadInfoMode.SPEED)):
+                                 (b"1", b"2", LeadInfoMode.SPEED), (b"1", b"0", LeadInfoMode.SPEED),
+                                 (b"1", b"3", LeadInfoMode.RELATIVE_SPEED)):
       with self.subTest(flag=flag, mode=mode):
         Path(self.params.get_param_path("LeadInfo")).write_bytes(flag)
         Path(self.params.get_param_path("LeadInfoMode")).write_bytes(mode)
@@ -61,6 +62,15 @@ class LeadInfoTests(unittest.TestCase):
     self.params.put_bool("HideLeadMarker", True, block=True)
     self.assertFalse(self.row().available)
     self.assertEqual(onroad_appearance(self.params).lead_info_mode, LeadInfoMode.OFF)
+
+  def test_saves_relative_speed_without_changing_existing_mode_ids(self):
+    from openpilot.starpilot.system.starport.projection_layout import comma_display
+    self.params.put_bool("HideLeadMarker", False, block=True)
+    self.assertTrue(self.choose("Relative speed"))
+    self.assertEqual((self.raw("LeadInfo"), self.raw("LeadInfoMode")), (b"1", b"3"))
+    appearance = onroad_appearance(self.params)
+    self.assertEqual(appearance.lead_info_mode, LeadInfoMode.RELATIVE_SPEED)
+    self.assertEqual(comma_display(appearance)['leadInfo'], 'Speed')
 
   def test_manager_materializes_off_without_replacing_saved_choice(self):
     from openpilot.system.manager import manager

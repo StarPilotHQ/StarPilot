@@ -1161,7 +1161,7 @@ const displayRows = [
   { key: "DeveloperSidebar", label: "Developer Sidebar", group: "Big layout", choices: ["Off", "On"], available: true, reason: "", requires: "" },
   { key: "ShowBrakeStatus", label: "Wheel brake and acceleration colors", group: "widget", choices: ["Off", "On"], available: true, reason: "", requires: "" },
   { key: "HideLeadMarker", label: "Lead Indicator", group: "Lead car", choices: ["Off", "On"], available: true, reason: "", requires: "" },
-  { key: "LeadInfo", label: "Lead Info", group: "Lead car", choices: ["Off", "Distance", "Speed"], available: true, reason: "", requires: "HideLeadMarker" },
+  { key: "LeadInfo", label: "Lead Info", group: "Lead car", choices: ["Off", "Distance", "Speed", "Relative speed"], available: true, reason: "", requires: "HideLeadMarker" },
   { key: "SignalMetrics", label: "C4 amber signal border", group: "Alerts and borders", choices: ["Off", "On"], available: true, reason: "", requires: "" },
 ]
 const withDisplayData = () => ({ ...snapshot(), display: { rows: copy(displayRows),
@@ -1179,7 +1179,7 @@ assert.equal(validDocument({ ...merged.document, showMaxSpeed: "no" }, merged.me
 const display = editor()
 display.vm.state.data = merged; display.vm.state.draft = copy(merged.document)
 assert.deepEqual(display.vm.displayGroups.map(group => [group.name, group.rows.map(row => row.key)]),
-  [["Big layout", ["DeveloperSidebar"]], ["Lead car", ["HideLeadMarker", "LeadInfo"]], ["Alerts and borders", ["SignalMetrics"]]])
+  [["Big layout", ["DeveloperSidebar"]], ["Alerts and borders", ["SignalMetrics"]]])
 display.vm.setDisplay("DeveloperSidebar", "Off")
 assert.equal(display.vm.displaySettingRow(display.vm.displayRow("DeveloperSidebar")).value, "Off")
 assert.equal(display.vm.dirty, true)
@@ -1263,6 +1263,26 @@ assert.equal(display.vm.displayValue("LeadInfo"), "Distance")
 assert.equal(display.vm.dirty, true)
 display.vm.undo(); display.vm.undo()
 assert.equal(display.vm.dirty, false)
+display.vm.openLeadEditor()
+assert.equal(display.vm.state.inspectorPanel, "lead")
+assert.equal(display.vm.leadRows.length, 2)
+display.vm.setDisplay("HideLeadMarker", "On")
+display.vm.setDisplay("LeadInfo", "Relative speed")
+assert.equal(display.vm.leadPreviewLabel, "+4 mph")
+display.vm.roadColor("leadMarker", "#22CCFFFF")
+assert.equal(display.vm.leadColor, "#22CCFFFF")
+assert.equal(validDocument(display.vm.state.draft, display.vm.state.data.metadata), true)
+display.vm.resetRoad()
+assert.equal(display.vm.leadColor, "#22CCFFFF")
+display.vm.state.data.supportedProfiles = ["large", "compact"]
+display.vm.selectProfile("compact")
+assert.equal(display.vm.leadColor, "#FFFFFFFF")
+display.vm.selectProfile("large")
+display.vm.resetLeadColor()
+assert.equal(display.vm.leadColor, "#C92231FF")
+display.vm.undo()
+assert.equal(display.vm.leadColor, "#22CCFFFF")
+display.vm.resetToStock()
 display.vm.state.selected = "cruise_limits"
 display.vm.setShowMaxSpeed({ target: { checked: false } })
 assert.equal(display.vm.state.draft.showMaxSpeed, false)

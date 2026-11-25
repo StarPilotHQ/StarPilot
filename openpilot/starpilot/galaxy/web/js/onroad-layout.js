@@ -784,10 +784,16 @@ export const OnroadLayoutPage = {
       { offset: 1, color: '#0df87a', alpha: 102 / 255 }]
     },
     limits() { return this.selectedWidget ? placementLimits(this.limitProfile, this.state.selected, this.layout) : null },
+    leadRows() { return ["HideLeadMarker", "LeadInfo"].map(key => this.displayRow(key)).filter(Boolean) },
+    leadColor() { return this.roadStyle.leadMarker || (this.state.profile === "compact" ? "#FFFFFFFF" : "#C92231FF") },
+    leadPreviewLabel() {
+      return this.displayValue("HideLeadMarker") === "On" ?
+        ({ Distance: "82 ft", Speed: "42 mph", "Relative speed": "+4 mph" }[this.displayValue("LeadInfo")] || "") : ""
+    },
     displayGroups() {
       const groups = []
       for (const row of this.state.data?.display || []) {
-        if (row.group === "widget") continue
+        if (row.group === "widget" || ["HideLeadMarker", "LeadInfo"].includes(row.key)) continue
         const group = groups.find(item => item.name === row.group) || groups[groups.push({ name: row.group, rows: [] }) - 1]
         group.rows.push(row)
       }
@@ -892,12 +898,19 @@ export const OnroadLayoutPage = {
       this.state.inspectorPanel = "edit"
       this.revealEditPanel()
     },
+    openLeadEditor() {
+      if (this.projection || this.state.drag || this.state.layerDrag) return
+      this.deselectWidget()
+      this.state.inspectorPanel = "lead"
+      this.revealEditPanel()
+    },
     // On narrow screens the edit controls always open with their top just under the pinned tabs.
     revealEditPanel() {
       if (typeof window === "undefined") return
       const align = () => {
-        if (this.state.inspectorPanel !== "edit") return
-        const tabs = this.$refs.sections, panel = this.$refs.editPanel
+        const section = this.state.inspectorPanel
+        if (!["edit", "lead"].includes(section)) return
+        const tabs = this.$refs.sections, panel = section === "lead" ? this.$refs.leadPanel : this.$refs.editPanel
         if (!tabs || !panel || getComputedStyle(tabs).position !== "sticky") return
         const gap = panel.getBoundingClientRect().top - tabs.getBoundingClientRect().bottom - 8
         if (Math.abs(gap) >= 1) window.scrollBy(0, gap)
@@ -1243,7 +1256,8 @@ export const OnroadLayoutPage = {
     displaySettingRow(row) {
       const blocked = row.requires && this.displayValue(row.requires) !== "On"
       return {
-        label: row.label, value: this.displayValue(row.key), choices: row.choices, available: this.displayAvailable(row),
+        label: row.key === "LeadInfo" ? "Lead readout" : row.label,
+        value: this.displayValue(row.key), choices: row.choices, available: this.displayAvailable(row),
         reason: blocked ? "Turn on Lead Indicator first" : row.reason, action: true
       }
     },
@@ -1643,7 +1657,7 @@ export const OnroadLayoutPage = {
       this.recordChange(before)
     },
     roadColor(id, value, group = null) {
-      if (!this.editable || this.state.drag || !ROAD_COLORS.includes(id)) return
+      if (!this.editable || this.state.drag || !ROAD_COLORS.includes(id) && (id !== "leadMarker" || this.projection)) return
       if (!HEX.test(value)) { this.state.colorError = "Use eight hex digits, for example #30FF9CFF."; return }
       const before = clone(this.state.draft)
       this.state.draft.roadColors[this.state.profile][id] = value.toUpperCase()
@@ -1663,9 +1677,16 @@ export const OnroadLayoutPage = {
     resetRoad() {
       if (!this.editable || this.state.drag) return
       const before = clone(this.state.draft)
-      this.state.draft.roadColors[this.state.profile] = {}
+      const marker = this.roadStyle.leadMarker
+      this.state.draft.roadColors[this.state.profile] = marker ? { leadMarker: marker } : {}
       this.recordChange(before)
       this.state.colorError = ''
+    },
+    resetLeadColor() {
+      if (!this.editable || this.projection || this.state.drag || this.state.layerDrag) return
+      const before = clone(this.state.draft)
+      delete this.state.draft.roadColors[this.state.profile].leadMarker
+      this.recordChange(before)
     },
     widgetColors(id) { return widgetPalette(this.state.draft, this.state.data.metadata, this.state.profile, id) },
     color(id, value, group = null) {

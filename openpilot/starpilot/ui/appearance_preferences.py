@@ -26,25 +26,30 @@ class LeadInfoMode(IntEnum):
   OFF = 0
   DISTANCE = 1
   SPEED = 2
+  RELATIVE_SPEED = 3
 
 
-LEAD_INFO_LABELS = ("Off", "Distance", "Speed")
+LEAD_INFO_LABELS = ("Off", "Distance", "Speed", "Relative speed")
 
 
 def format_lead_info(lead, mode: int, metric: bool | None) -> str:
   """The lead's distance or speed for the text above the lead marker; empty when there is nothing to show."""
-  if lead is None or not lead.present or mode not in (LeadInfoMode.DISTANCE, LeadInfoMode.SPEED) or metric is None:
+  field = {LeadInfoMode.DISTANCE: "dRel", LeadInfoMode.SPEED: "vLead", LeadInfoMode.RELATIVE_SPEED: "vRel"}.get(mode)
+  if lead is None or not lead.present or field is None or metric is None:
     return ""
   try:
-    value = float(lead.dRel if mode == LeadInfoMode.DISTANCE else lead.vLead)
+    value = float(getattr(lead, field))
   except (AttributeError, TypeError, ValueError, OverflowError):
     return ""
   if not math.isfinite(value):
     return ""
-  value = max(value, 0.0)
+  if mode != LeadInfoMode.RELATIVE_SPEED:
+    value = max(value, 0.0)
   if mode == LeadInfoMode.DISTANCE:
     return f"{round(value if metric else value * 3.28084)} {'m' if metric else 'ft'}"
-  return f"{round(value * (CV.MS_TO_KPH if metric else CV.MS_TO_MPH))} {'km/h' if metric else 'mph'}"
+  speed = round(value * (CV.MS_TO_KPH if metric else CV.MS_TO_MPH))
+  prefix = "+" if mode == LeadInfoMode.RELATIVE_SPEED and speed > 0 else ""
+  return f"{prefix}{speed} {'km/h' if metric else 'mph'}"
 
 
 @dataclass(frozen=True)
@@ -121,14 +126,14 @@ def read_lead_info(params: Any) -> SavedLeadInfo:
     raw, readable = None, False
   if not flag.readable or not readable:
     return SavedLeadInfo(flag, raw, None, False)
-  if flag.value is None or raw not in (None, b"0", b"1", b"2"):
+  if flag.value is None or raw not in (None, b"0", b"1", b"2", b"3"):
     return SavedLeadInfo(flag, raw, None, True)
   if not flag.value:
     mode = LeadInfoMode.OFF
   elif raw in (None, b"0", b"2"):
     mode = LeadInfoMode.SPEED
   else:
-    mode = LeadInfoMode.DISTANCE
+    mode = LeadInfoMode(int(raw))
   return SavedLeadInfo(flag, raw, mode, True)
 
 

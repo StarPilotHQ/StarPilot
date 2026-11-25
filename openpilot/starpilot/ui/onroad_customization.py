@@ -640,7 +640,7 @@ def validate_document(value):
     if type(colors) is not dict or set(colors) != set(PROFILES):
       raise ValueError("Invalid road color profiles")
     for profile, overrides in colors.items():
-      if type(overrides) is not dict or not overrides.keys() <= ROAD_COLORS.keys() | {"pathMode"}:
+      if type(overrides) is not dict or not overrides.keys() <= ROAD_COLORS.keys() | {"pathMode", "leadMarker"}:
         raise ValueError("Invalid road color fields")
       for key, color in overrides.items():
         if key == "pathMode":

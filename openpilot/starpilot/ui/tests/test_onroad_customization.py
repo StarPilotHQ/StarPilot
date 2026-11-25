@@ -19,7 +19,22 @@ from openpilot.starpilot.ui.onroad_large_widgets import CurrentSpeedHud, Unified
 from openpilot.starpilot.ui.onroad_state import (
   AlertSize, ObservationKind, OnroadAlert, OnroadInput, OnroadRequest, OnroadState, SpeedLimitObservation, slc_controls, speed_limit_bounds)
 from openpilot.starpilot.ui.presentation import Profile
+from openpilot.starpilot.ui.road_colors import lead_marker_color
 from openpilot.starpilot.ui.tests.test_unified_speed_native import foreground_calls
+
+
+def test_lead_marker_color_is_optional_and_kept_per_profile():
+  doc = default_document()
+  assert lead_marker_color(doc['roadColors']['large'], 1.0) is None
+  doc['roadColors']['large']['leadMarker'] = '#22ccff80'
+  saved = validate_document(doc)
+  assert 'leadMarker' not in saved['roadColors']['compact']
+  assert saved['roadColors']['large']['leadMarker'] == '#22CCFF80'
+  color = lead_marker_color(saved['roadColors']['large'], .5)
+  assert (color.r, color.g, color.b, color.a) == (34, 204, 255, 64)
+  doc['roadColors']['large']['leadMarker'] = 'red'
+  with pytest.raises(ValueError):
+    validate_document(doc)
 
 
 @pytest.fixture(autouse=True)

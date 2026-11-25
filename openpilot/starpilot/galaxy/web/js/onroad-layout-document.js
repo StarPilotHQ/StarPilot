@@ -168,7 +168,8 @@ export function validDocument(document, metadata) {
     const profile = metadata.profiles[name], layout = document.layouts[name]
     const road = document.roadColors[name]
     if (!object(road) || !Object.entries(road).every(([key, value]) => key === "pathMode" ? PATH_MODES.includes(value) :
-      ROAD_COLORS.includes(key) && typeof value === "string" && HEX.test(value))) return false
+      (ROAD_COLORS.includes(key) || key === "leadMarker") &&
+      typeof value === "string" && HEX.test(value))) return false
     const colors = document.widgetColors[name]
     if (!object(colors) || !Object.entries(colors).every(([id, overrides]) => {
       const fields = profile.widgets[id]?.colors

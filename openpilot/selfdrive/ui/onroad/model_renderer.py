@@ -8,7 +8,7 @@ from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.params import Params
 from openpilot.starpilot.ui.appearance_preferences import format_lead_info
 from openpilot.starpilot.ui.rainbow_path import RainbowPath
-from openpilot.starpilot.ui.road_colors import edge_gradient, lane_color, path_mode, solid_gradient
+from openpilot.starpilot.ui.road_colors import edge_gradient, lane_color, lead_marker_color, path_mode, solid_gradient
 from openpilot.starpilot.ui.onroad_customization import ROAD_COLORS
 from openpilot.starpilot.lateral.lane_feedback import BLUE, direction as lane_centering_direction
 from openpilot.selfdrive.locationd.calibrationd import HEIGHT_INIT
@@ -413,8 +413,11 @@ class ModelRenderer(ModelGeometry, Widget):
       if not lead.glow or not lead.chevron:
         continue
 
-      rl.draw_triangle_fan(lead.glow, len(lead.glow), rl.Color(218, 202, 37, 255))
-      rl.draw_triangle_fan(lead.chevron, len(lead.chevron), rl.Color(201, 34, 49, lead.fill_alpha))
+      style = self.road_style
+      glow = lead_marker_color(style, 1.0)
+      fill = lead_marker_color(style, lead.fill_alpha / 255)
+      rl.draw_triangle_fan(lead.glow, len(lead.glow), glow if glow is not None else rl.Color(218, 202, 37, 255))
+      rl.draw_triangle_fan(lead.chevron, len(lead.chevron), fill if fill is not None else rl.Color(201, 34, 49, lead.fill_alpha))
 
   def _draw_lead_info(self, lead: LeadVehicle, text: str) -> None:
     # Centered just above the chevron's glow, kept on screen.

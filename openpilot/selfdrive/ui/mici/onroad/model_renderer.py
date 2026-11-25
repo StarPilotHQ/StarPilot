@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from openpilot.common.params import Params
 from openpilot.starpilot.ui.appearance_preferences import format_lead_info
 from openpilot.starpilot.ui.rainbow_path import RainbowPath
-from openpilot.starpilot.ui.road_colors import lane_color, path_mode, solid_gradient
+from openpilot.starpilot.ui.road_colors import lane_color, lead_marker_color, path_mode, solid_gradient
 from openpilot.starpilot.ui.onroad_customization import ROAD_COLORS
 from openpilot.starpilot.lateral.lane_feedback import BLUE, direction as lane_centering_direction
 from openpilot.common.filter_simple import FirstOrderFilter
@@ -216,7 +216,8 @@ class ModelRenderer(ModelGeometry, Widget):
   @staticmethod
   def _valid_lead_numbers(lead) -> bool:
     try:
-      distance, lateral, relative_speed = float(lead.dRel), float(lead.yRel), float(lead.vRel)
+      distance, lateral = float(lead.dRel), float(lead.yRel)
+      relative_speed = float(lead.vRel) if lead.vRel is not None else 0.0
       return distance > 0 and all(math.isfinite(value) for value in (distance, lateral, relative_speed))
     except (AttributeError, TypeError, ValueError, OverflowError):
       return False
@@ -227,6 +228,9 @@ class ModelRenderer(ModelGeometry, Widget):
     model = sm['modelV2']
     e2e = (sm.valid['longitudinalPlan'] and sm.valid['modelV2'] and
            plan.longitudinalPlanSource == log.LongitudinalPlan.LongitudinalPlanSource.e2e and len(model.leadsV3) > 1)
+    ego_speed = sm['carState'].vEgo if e2e and sm.all_checks(['carState']) else None
+    if ego_speed is not None and not math.isfinite(ego_speed):
+      ego_speed = None
     leads = []
     for index in range(2):
       info = None
@@ -234,7 +238,8 @@ class ModelRenderer(ModelGeometry, Widget):
         candidate = model.leadsV3[index]
         if candidate.x and candidate.y and candidate.v:
           info = SimpleNamespace(present=candidate.prob > 0.5, dRel=candidate.x[0] - RADAR_TO_CAMERA,
-                                 yRel=-candidate.y[0], vRel=0.0, vLead=candidate.v[0])
+                                 yRel=-candidate.y[0], vRel=candidate.v[0] - ego_speed if ego_speed is not None else None,
+                                 vLead=candidate.v[0])
       elif sm.valid['radarState']:
         info = (sm['radarState'].leadOne, sm['radarState'].leadTwo)[index]
       valid = info is not None and info.present and self._valid_lead_numbers(info)
@@ -488,7 +493,8 @@ class ModelRenderer(ModelGeometry, Widget):
     for lead in self._lead_vehicles:
       if not lead.bar.size or lead.fade_filter.x <= 0:
         continue
-      draw_polygon(self._rect, lead.bar + offset, rl.Color(255, 255, 255, int(255 * lead.fade_filter.x)))
+      color = lead_marker_color(self.road_style, lead.fade_filter.x)
+      draw_polygon(self._rect, lead.bar + offset, color if color is not None else rl.Color(255, 255, 255, int(255 * lead.fade_filter.x)))
 
 
 

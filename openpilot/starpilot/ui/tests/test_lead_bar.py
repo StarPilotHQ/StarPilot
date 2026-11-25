@@ -18,9 +18,12 @@ def fixture():
   values = {'radarState': NS(leadOne=good, leadTwo=NS(present=False)),
             'longitudinalPlan': NS(longitudinalPlanSource=native.log.LongitudinalPlan.LongitudinalPlanSource.lead0),
             'modelV2': NS(leadsV3=[]), 'selfdriveState': NS(enabled=True, engageable=True),
-            'carState': NS(brakePressed=False)}
+            'carState': NS(brakePressed=False, vEgo=14.)}
   class SubMaster(dict):
-    valid = {'radarState': True, 'longitudinalPlan': True, 'modelV2': True}
+    valid = {'radarState': True, 'longitudinalPlan': True, 'modelV2': True, 'carState': True}
+
+    def all_checks(self, services):
+      return all(self.valid[service] for service in services)
   return renderer, SubMaster(values)
 
 
@@ -32,6 +35,7 @@ def test_radar_offset_labels_and_duplicate_lead_are_consistent():
   assert renderer._get_lead_bar.call_args.args[1:] == (20. + native.RADAR_TO_CAMERA, .1)
   assert renderer._format_lead_info(renderer._lead_vehicles[0].info, 1, True) == '20 m'
   assert renderer._format_lead_info(renderer._lead_vehicles[0].info, 2, True) == '36 km/h'
+  assert renderer._format_lead_info(renderer._lead_vehicles[0].info, 3, True) == '-4 km/h'
   assert renderer._lead_vehicles[1].info is None and not renderer._lead_vehicles[1].bar.size
 
 
@@ -43,6 +47,14 @@ def test_e2e_without_radar_uses_matching_label_and_fails_closed_when_stale():
   renderer._update_leads(sm)
   assert renderer._get_lead_bar.call_args.args[1:] == (30., .2)
   assert renderer._lead_vehicles[0].info.dRel == 30. - native.RADAR_TO_CAMERA
+  assert renderer._format_lead_info(renderer._lead_vehicles[0].info, 2, False) == '27 mph'
+  assert renderer._format_lead_info(renderer._lead_vehicles[0].info, 3, False) == '-4 mph'
+  sm['carState'].vEgo = 10.
+  renderer._update_leads(sm)
+  assert renderer._format_lead_info(renderer._lead_vehicles[0].info, 3, False) == '+4 mph'
+  sm.valid['carState'] = False
+  renderer._update_leads(sm)
+  assert renderer._format_lead_info(renderer._lead_vehicles[0].info, 3, False) == ''
   assert renderer._format_lead_info(renderer._lead_vehicles[0].info, 2, False) == '27 mph'
   sm.valid['modelV2'] = False
   renderer._update_leads(sm)

@@ -26,6 +26,14 @@ def _rgba(color: str) -> tuple[int, ...]:
   return tuple(int(color[index:index + 2], 16) for index in (1, 3, 5, 7))
 
 
+def lead_marker_color(style: dict, opacity: float) -> rl.Color | None:
+  color = style.get("leadMarker")
+  if color is None:
+    return None
+  red, green, blue, alpha = _rgba(color)
+  return rl.Color(red, green, blue, int(alpha * max(0.0, min(1.0, opacity))))
+
+
 @lru_cache(maxsize=16)
 def solid_gradient(color: str = ROAD_COLORS["path"]) -> Gradient:
   red, green, blue, alpha = _rgba(color)

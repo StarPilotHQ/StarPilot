@@ -184,12 +184,13 @@ def projection_appearance(appearance, document):
 def comma_display(appearance):
   """The comma screen's display choices as AA switches, to start a car screen that has no saved layout."""
   lead_indicator = appearance.show_lead_indicator is True
+  lead_mode = min(int(appearance.lead_info_mode), len(LEAD_INFO_CHOICES) - 1)
   return {'blindSpotBorder': appearance.show_blindspot_border is True,
           'signalBorder': appearance.show_signal_border is True,
           'hidePersonalityAlerts': appearance.hide_personality_alerts is True,
           'wheelPedalFeedback': appearance.wheel_pedal_feedback is True,
           'leadIndicator': lead_indicator,
-          'leadInfo': LEAD_INFO_CHOICES[appearance.lead_info_mode] if lead_indicator else 'Off'}
+          'leadInfo': LEAD_INFO_CHOICES[lead_mode] if lead_indicator else 'Off'}
 
 
 def default_layout(screen, display=None):
