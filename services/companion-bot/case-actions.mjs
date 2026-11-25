@@ -52,24 +52,37 @@ export function privateStaffCommand(i,env,ctx){
       if(!role.ok||!i.member?.roles?.includes((await role.json()).id)){
         card=privateCard('Staff Actions requires the StarPilot Sage role.');
       }else{
-        const thread=await getReportThread(env,i.channel_id);
-        const path='/channels/'+thread.id+'/messages';
-        const opener=await discordTags(env,path+'/'+thread.id);
-        function controls(message){
-          if(message.author?.id!==i.application_id||message.channel_id!==thread.id)return;
-          const items=(message.components||[]).flatMap(row=>row.components||[]);
-          for(const item of items){
-            const match=/^case:(\d{1,20}):(ios|android):menu(?::(\d{1,20}))?$/.exec(item.custom_id||'');
-            if(match&&(!match[3]||match[3]===thread.id))return staffMenu('case:'+match[1]+':'+match[2]+':',thread.id);
-          }
-        }
-        card=controls(opener)||(await discordTags(env,path+'?limit=100')).map(controls).find(Boolean)||card;
+        card=await ticketStaffMenu(i,env)||card;
       }
-    }catch{card=privateCard('Could not open Staff Actions. Check that this is a Companion ticket and the bot can read its message history.');}
+    }catch(error){
+      console.warn('Private staff menu lookup failed',i.channel_id,error.message);
+      card=privateCard('Could not verify the ticket. Try Staff Actions on the report card.');
+    }
     await fetch('https://discord.com/api/v10/webhooks/'+i.application_id+'/'+i.token+'/messages/@original',{
       method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({...card,content:null,embeds:[]}),redirect:'manual'});
   })());
   return Response.json({type:5,data:{flags:64}});
+}
+
+async function ticketStaffMenu(i,env){
+  if(i.channel?.parent_id&&i.channel.parent_id!==supportForum)return;
+  const referrals=env.REPORTS.get(env.REPORTS.idFromName('driving-referral-review'));
+  const response=await referrals.fetch('https://reports/referrals/ticket',{method:'POST',body:JSON.stringify({channel:i.channel_id})});
+  const linked=response.ok?await response.json():null;
+  if(linked&&idPattern.test(linked.reporter)&&['ios','android'].includes(linked.platform))
+    return staffMenu('case:'+linked.reporter+':'+linked.platform+':',i.channel_id);
+  const thread=await getReportThread(env,i.channel_id);
+  const path='/channels/'+thread.id+'/messages';
+  const opener=await discordTags(env,path+'/'+thread.id).catch(()=>null);
+  function controls(message){
+    if(message?.author?.id!==i.application_id||message.channel_id!==thread.id)return;
+    const items=(message.components||[]).flatMap(row=>row.components||[]);
+    for(const item of items){
+      const match=/^case:(\d{1,20}):(ios|android):menu(?::(\d{1,20}))?$/.exec(item.custom_id||'');
+      if(match&&(!match[3]||match[3]===thread.id))return staffMenu('case:'+match[1]+':'+match[2]+':',thread.id);
+    }
+  }
+  return controls(opener)||(await discordTags(env,path+'?limit=100')).map(controls).find(Boolean);
 }
 
 export async function caseInteraction(i,env,origin,ctx) {

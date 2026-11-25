@@ -163,6 +163,28 @@ export async function pollReferrals(env){
   if(!res.ok)throw Error('Referral scan unavailable');
 }
 export async function referralStore(path,request,store,env){
+  if(path==='/referrals/ticket'){
+    const {channel}=await request.json();
+    if(!id(channel))return Response.json(null,{status:400});
+    const key='destination:'+channel;
+    const cached=await store.get(key);
+    if(cached)return Response.json(cached);
+    // Tickets moved before the destination index was added are keyed by their driving thread.
+    let startAfter;
+    do{
+      const page=await store.list({prefix:'report:',limit:100,...(startAfter&&{startAfter})});
+      for(const [source,record] of page){
+        startAfter=source;
+        if(record.destination===channel&&['moved','created'].includes(record.state)&&id(record.reporter)&&['android','ios'].includes(record.platform)){
+          const ticket={reporter:record.reporter,platform:record.platform};
+          await store.put(key,ticket);
+          return Response.json(ticket);
+        }
+      }
+      if(page.size<100)break;
+    }while(startAfter);
+    return Response.json(null,{status:404});
+  }
   if(!configured(env))return Response.json({message:'Referral review is awaiting setup.'},{status:503});
   env=await resolveSource(store,env);
   await staffDestination(env);
@@ -283,6 +305,7 @@ async function finishMove(store,env,key,record){
       id:record.destination,title:record.title,platform:record.platform,reportKind:record.reportKind,created:record.created,reporter:record.reporter
     })});
     if(!result.ok)throw Error('Could not register Companion ticket');
+    await store.put('destination:'+record.destination,{reporter:record.reporter,platform:record.platform});
     await store.put(key,{...record,state:'moved'});
   }
   const link='[Open the Companion ticket]('+urlFor(record.destination)+')';

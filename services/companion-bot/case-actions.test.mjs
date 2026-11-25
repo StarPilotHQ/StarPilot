@@ -186,3 +186,29 @@ test('slash command opens only an ephemeral staff menu without posting to the ti
     assert.match(JSON.stringify(edits.at(-1)),roles.length?/case:1:ios:pick:4/:/requires the StarPilot Sage role/);
   }
 });
+
+test('a renamed, previously moved ticket opens its private menu even without Discord message history',async t=>{
+  const {privateStaffCommand}=await import('./case-actions.mjs');
+  const {referralStore}=await import('./referrals.mjs');
+  const channel='1574999999999999999',reporter='1574000000000000000';
+  const entries=new Map([['report:old',{destination:channel,reporter,platform:'ios',state:'moved'}]]);
+  let lists=0;
+  const store={get:k=>entries.get(k),put:(k,v)=>entries.set(k,v),list:()=>{lists++;return new Map(entries);}};
+  const runtime={REPORTS:{idFromName:k=>k,get:k=>({fetch:(url,init)=>k==='companion-bot-setup'
+    ?Response.json({id:'sage'}):referralStore(new URL(url).pathname,new Request(url,init),store,{})})}};
+  const i={guild_id:'1387432184121393333',channel_id:channel,channel:{parent_id:supportForum},application_id:'9',token:'fixture',member:{roles:['sage']}};
+  t.mock.method(globalThis,'fetch',async(url,o)=>{
+    assert.equal(o.method,'PATCH');
+    assert.ok(url.endsWith('/messages/@original'));
+    const card=JSON.parse(o.body);
+    assert.ok(card.flags & 64);
+    assert.ok(JSON.stringify(card).includes('case:'+reporter+':ios:pick:'+channel));
+    return Response.json({});
+  });
+  for(let n=0;n<2;n++){
+    let done;
+    assert.equal((await privateStaffCommand(i,runtime,{waitUntil:p=>{done=p;}}).json()).data.flags,64);
+    await done;
+  }
+  assert.equal(lists,1);
+});
