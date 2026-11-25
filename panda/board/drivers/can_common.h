@@ -187,11 +187,19 @@ bool can_check_checksum(CANPacket_t *packet) {
 
 void can_send(CANPacket_t *to_push, uint8_t bus_number, bool skip_tx_hook) {
   bool tx_allowed = skip_tx_hook;
+  bool staged = false;
   if (!tx_allowed) {
     #ifdef STM32H7
     mpu_safety_open();
     #endif
-    tx_allowed = safety_tx_hook(to_push) != 0;
+    #ifdef STM32H7
+    if (safety_uses_camera_slot(to_push)) {
+      ENTER_CRITICAL();
+      staged = safety_stage_tx_hook(to_push);
+      EXIT_CRITICAL();
+    }
+    #endif
+    tx_allowed = !staged && (safety_tx_hook(to_push) != 0);
     #ifdef STM32H7
     mpu_safety_close();
     #endif
@@ -202,7 +210,7 @@ void can_send(CANPacket_t *to_push, uint8_t bus_number, bool skip_tx_hook) {
       tx_buffer_overflow += can_push(can_queues[bus_number], to_push) ? 0U : 1U;
       process_can(CAN_NUM_FROM_BUS_NUM(bus_number));
     }
-  } else {
+  } else if (!staged) {
     safety_tx_blocked += 1U;
     to_push->returned = 0U;
     to_push->rejected = 1U;

@@ -820,12 +820,15 @@ static safety_config hyundai_canfd_gv60_extend_tx(const safety_config original, 
 }
 #endif
 
+#define HYUNDAI_CANFD_STEER_MAX_TORQUE 409
+#define HYUNDAI_CANFD_STEER_MAX_RATE_UP 10
+
 static bool hyundai_canfd_tx_hook_valid(const CANPacket_t *msg) {
   static uint8_t hyundai_canfd_ioniq6_lfa_mirror[4] = {0};
   const TorqueSteeringLimits HYUNDAI_CANFD_STEERING_LIMITS = {
-    .max_torque = 409,
+    .max_torque = HYUNDAI_CANFD_STEER_MAX_TORQUE,
     .max_rt_delta = 375,
-    .max_rate_up = 10,
+    .max_rate_up = HYUNDAI_CANFD_STEER_MAX_RATE_UP,
     .max_rate_down = 3,
     .driver_torque_allowance = 250,
     .driver_torque_multiplier = 2,
@@ -1237,6 +1240,11 @@ static uint32_t hyundai_kona_camera_ts = 0U;
 static uint32_t hyundai_kona_output_ts = 0U;
 static uint8_t hyundai_kona_camera_counter = 0U;
 static uint8_t hyundai_kona_output_counter = 0U;
+static bool hyundai_kona_pending = false;
+static bool hyundai_kona_emitting = false;
+static bool hyundai_kona_slot_owned = false;
+static uint32_t hyundai_kona_pending_ts = 0U;
+static CANPacket_t hyundai_kona_pending_msg;
 
 static bool hyundai_kona_host_steering(void) {
   return controls_allowed || ((aol_get_permission_mask() & 1U) != 0U);
@@ -1262,26 +1270,106 @@ static void hyundai_kona_track_output(uint32_t now, bool host, uint8_t counter) 
   hyundai_kona_output_counter = counter;
 }
 
-static bool hyundai_kona_camera_fwd(const CANPacket_t *msg) {
+static bool hyundai_kona_camera_without_slot(const CANPacket_t *msg) {
+  return hyundai_kona_idle_handoff && (msg->bus == 2U) && (msg->addr == 0x12AU);
+}
+
+static bool hyundai_kona_camera_release_current(const CANPacket_t *msg, uint32_t now) {
+  return (msg->bus == 2U) && hyundai_kona_output_seen && hyundai_kona_host_output &&
+         hyundai_kona_camera_seen && !relay_malfunction && !safety_rx_checks_invalid && aol_rx_healthy() &&
+         !hyundai_kona_host_steering() && hyundai_kona_lfa_valid(msg) &&
+         ((uint8_t)(msg->data[2] - hyundai_kona_output_counter) == 1U) &&
+         ((uint8_t)(msg->data[2] - hyundai_kona_camera_counter) == 1U) &&
+         (safety_get_ts_elapsed(now, hyundai_kona_camera_ts) <= 20000U);
+}
+
+static bool hyundai_kona_stage_tx(const CANPacket_t *msg) {
+  bool staged = false;
+  if (hyundai_kona_idle_handoff && (msg->addr == 0x12AU) && (msg->bus == 0U)) {
+    const uint32_t now = microsecond_timer_get();
+    const uint8_t source_delta = (uint8_t)(hyundai_kona_camera_counter - msg->data[2]);
+    staged = !safety_rx_checks_invalid && aol_rx_healthy() && hyundai_kona_host_steering() &&
+             hyundai_kona_lfa_valid(msg) && hyundai_kona_camera_seen &&
+             (safety_get_ts_elapsed(now, hyundai_kona_camera_ts) <= 20000U) && (source_delta <= 1U);
+    if (staged) {
+      hyundai_kona_pending_msg = *msg;
+      hyundai_kona_pending_ts = now;
+      hyundai_kona_pending = true;
+    } else {
+      hyundai_kona_pending = false;
+    }
+  }
+  return staged;
+}
+
+static bool hyundai_kona_camera_output(const CANPacket_t *msg, CANPacket_t *output, bool *replaced) {
   bool blocked = false;
   if (hyundai_kona_idle_handoff && (msg->bus == 2U) && (msg->addr == 0x12AU)) {
     const uint32_t now = microsecond_timer_get();
-    const bool valid = hyundai_kona_lfa_valid(msg);
-    if (valid) {
-      const uint8_t delta = (uint8_t)(msg->data[2] - hyundai_kona_camera_counter);
-      if (!hyundai_kona_camera_seen ||
-          (safety_get_ts_elapsed(now, hyundai_kona_camera_ts) > 50000U) ||
-          ((delta > 0U) && (delta <= 127U))) {
-        hyundai_kona_camera_seen = true;
-        hyundai_kona_camera_counter = msg->data[2];
-        hyundai_kona_camera_ts = now;
-      }
-    }
-    blocked = !valid || safety_rx_checks_invalid || !aol_rx_healthy() || hyundai_kona_host_steering() ||
-              (msg->data[2] != hyundai_kona_camera_counter) ||
-              !hyundai_kona_output_ready(now, false, msg->data[2]);
+    const uint8_t counter = msg->data[2];
+    const uint32_t camera_age = safety_get_ts_elapsed(now, hyundai_kona_camera_ts);
+    const uint8_t delta = (uint8_t)(counter - hyundai_kona_camera_counter);
+    const bool advancing = (delta > 0U) && (delta <= 127U);
+    const bool consecutive = hyundai_kona_camera_seen && (delta == 1U) && (camera_age <= 20000U);
+    blocked = !hyundai_kona_lfa_valid(msg) || safety_rx_checks_invalid || !aol_rx_healthy() ||
+              (hyundai_kona_camera_seen && (camera_age <= 50000U) && !advancing);
     if (!blocked) {
-      hyundai_kona_track_output(now, false, msg->data[2]);
+      hyundai_kona_camera_counter = counter;
+      hyundai_kona_camera_seen = true;
+      hyundai_kona_camera_ts = now;
+
+      const bool authority = hyundai_kona_host_steering();
+      if (!authority) {
+        hyundai_kona_slot_owned = false;
+      }
+      if (authority && consecutive && hyundai_kona_pending &&
+          (safety_get_ts_elapsed(now, hyundai_kona_pending_ts) <= 20000U)) {
+        CANPacket_t candidate = hyundai_kona_pending_msg;
+        const uint8_t source_delta = (uint8_t)(counter - candidate.data[2]);
+        const uint8_t camera_grade = (msg->data[4] >> 6U) | ((msg->data[5] & 1U) << 2U);
+        const bool camera_warning = (camera_grade >= 4U) || ((msg->data[7] & 0xF0U) != 0U);
+        if (camera_warning) {
+          candidate.data[4] = (candidate.data[4] & 0x3FU) | (msg->data[4] & 0xC0U);
+          candidate.data[5] = (candidate.data[5] & 0xFEU) | (msg->data[5] & 0x01U);
+          candidate.data[7] = (candidate.data[7] & 0x0FU) | (msg->data[7] & 0xF0U);
+        }
+        const int torque = (int)((((unsigned int)candidate.data[6] & 0xFU) << 7U) | (candidate.data[5] >> 1U)) - 1024;
+        if ((source_delta <= 2U) &&
+            !safety_max_limit_check(torque, HYUNDAI_CANFD_STEER_MAX_TORQUE, -HYUNDAI_CANFD_STEER_MAX_TORQUE)) {
+          if (GET_BIT(&candidate, 52U)) {
+            const int max_torque = SAFETY_MAX(desired_torque_last, 0) + HYUNDAI_CANFD_STEER_MAX_RATE_UP;
+            const int min_torque = SAFETY_MIN(desired_torque_last, 0) - HYUNDAI_CANFD_STEER_MAX_RATE_UP;
+            const unsigned int raw = (unsigned int)(SAFETY_CLAMP(torque, min_torque, max_torque) + 1024);
+            candidate.data[5] = (candidate.data[5] & 0x01U) | (uint8_t)((raw & 0x7FU) << 1U);
+            candidate.data[6] = (candidate.data[6] & 0xF0U) | (uint8_t)(raw >> 7U);
+          }
+          candidate.data[2] = counter;
+          const uint16_t checksum = hyundai_common_canfd_compute_checksum(&candidate) ^ 0x041DU;
+          candidate.data[0] = (uint8_t)checksum;
+          candidate.data[1] = (uint8_t)(checksum >> 8U);
+          hyundai_kona_emitting = true;
+          *replaced = safety_tx_hook(&candidate);
+          hyundai_kona_emitting = false;
+          if (*replaced) {
+            *output = candidate;
+            hyundai_kona_slot_owned = true;
+          }
+        }
+      }
+      hyundai_kona_pending = false;
+      if (!*replaced) {
+        const bool camera_neutral = ((msg->data[6] & 0x3FU) == 0x08U) && ((msg->data[5] & 0xFEU) == 0U);
+        blocked = (hyundai_kona_slot_owned && !camera_neutral) ||
+                  !hyundai_kona_output_ready(now, false, counter);
+        if (!blocked) {
+          if (hyundai_kona_host_output) {
+            desired_torque_last = 0;
+          }
+          hyundai_kona_track_output(now, false, counter);
+        }
+      }
+    } else {
+      hyundai_kona_pending = false;
     }
   }
   return blocked;
@@ -1371,7 +1459,7 @@ static bool hyundai_canfd_tx_hook(const CANPacket_t *msg) {
   bool allowed = true;
   if (hyundai_kona_idle_handoff && (msg->addr == 0x12AU)) {
     const uint32_t now = microsecond_timer_get();
-    allowed = !safety_rx_checks_invalid && aol_rx_healthy() && hyundai_kona_host_steering() &&
+    allowed = hyundai_kona_emitting && !safety_rx_checks_invalid && aol_rx_healthy() && hyundai_kona_host_steering() &&
               hyundai_kona_lfa_valid(msg) && hyundai_kona_camera_seen &&
               (safety_get_ts_elapsed(now, hyundai_kona_camera_ts) <= 50000U) &&
               (msg->data[2] == hyundai_kona_camera_counter) && hyundai_kona_output_ready(now, true, msg->data[2]);
@@ -2335,10 +2423,13 @@ static safety_config hyundai_canfd_init(uint16_t raw_param) {
   hyundai_daw_init(true, false);
   hyundai_canfd_reset_ioniq6_state();
   hyundai_ordinary_angle_reset();
-#ifdef ALLOW_DEBUG
+#if defined(ALLOW_DEBUG) && !defined(STM32F4) && !defined(PANDA_BODY)
   hyundai_kona_idle_handoff = (raw_param == 0x1C0CU) && (alternative_experience == 32);
   hyundai_kona_camera_seen = false;
   hyundai_kona_output_seen = false;
+  hyundai_kona_pending = false;
+  hyundai_kona_emitting = false;
+  hyundai_kona_slot_owned = false;
   const bool kona_profile_valid = (raw_param != 0x1C0CU) || hyundai_kona_idle_handoff;
   const uint16_t param = hyundai_kona_idle_handoff ? 0x0C0CU : raw_param;
   const bool valid = !GET_FLAG(param, 32768U) || (param == 0x8015U) || (param == 0x8095U) ||
@@ -2386,7 +2477,9 @@ const safety_hooks hyundai_canfd_hooks = {
   .tx = hyundai_canfd_tx_hook,
   .fwd = hyundai_canfd_fwd_hook,
 #ifdef ALLOW_DEBUG
-  .fwd_packet = hyundai_kona_camera_fwd,
+  .fwd_packet = hyundai_kona_camera_without_slot,
+  .stage_tx = hyundai_kona_stage_tx,
+  .fwd_output = hyundai_kona_camera_output,
 #endif
   .get_counter = hyundai_canfd_get_counter,
   .get_checksum = hyundai_canfd_get_checksum,

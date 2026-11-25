@@ -366,6 +366,52 @@ int safety_fwd_packet_hook(const CANPacket_t *msg) {
   return destination_bus;
 }
 
+bool safety_uses_camera_slot(const CANPacket_t *msg) {
+#ifdef ALLOW_DEBUG
+  return (current_safety_mode == SAFETY_HYUNDAI_CANFD) && hyundai_kona_idle_handoff && (msg->addr == 0x12AU);
+#else
+  (void)msg;
+  return false;
+#endif
+}
+
+bool safety_camera_release_current(const CANPacket_t *msg, uint32_t now) {
+#ifdef ALLOW_DEBUG
+  return safety_uses_camera_slot(msg) && hyundai_kona_camera_release_current(msg, now);
+#else
+  (void)msg;
+  (void)now;
+  return false;
+#endif
+}
+
+uint32_t safety_camera_release_delay(const CANPacket_t *msg, uint32_t now) {
+#ifdef ALLOW_DEBUG
+  const uint32_t age = safety_get_ts_elapsed(now, hyundai_kona_output_ts);
+  return ((age >= 9000U) && (age < 10000U) && safety_camera_release_current(msg, now)) ? (10000U - age) : 0U;
+#else
+  (void)msg;
+  (void)now;
+  return 0U;
+#endif
+}
+
+bool safety_stage_tx_hook(const CANPacket_t *msg) {
+  return !relay_malfunction && (current_hooks->stage_tx != NULL) && current_hooks->stage_tx(msg);
+}
+
+int safety_fwd_output_hook(const CANPacket_t *msg, CANPacket_t *output, bool *replaced) {
+  int destination = safety_fwd_hook(msg->bus, msg->addr);
+  if (destination >= 0) {
+    if (current_hooks->fwd_output != NULL) {
+      destination = current_hooks->fwd_output(msg, output, replaced) ? -1 : destination;
+    } else if ((current_hooks->fwd_packet != NULL) && current_hooks->fwd_packet(msg)) {
+      destination = -1;
+    }
+  }
+  return destination;
+}
+
 // 1Hz safety function called by main. Now just a check for lagging safety messages
 void safety_tick(void) {
   const uint8_t MAX_MISSED_MSGS = 10U;

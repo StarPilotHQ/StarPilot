@@ -1,5 +1,6 @@
 import os
 from unittest.mock import Mock, patch
+from types import SimpleNamespace
 
 import pytest
 
@@ -8,7 +9,7 @@ from opendbc.car.hyundai.canfd_owner import config_index
 from opendbc.car.hyundai.canfd_stock_aol import qualified_long
 from opendbc.car.hyundai.interface import CarInterface
 from opendbc.car.hyundai.values import CAR, HyundaiFlags
-from openpilot.starpilot.car.hyundai.aol import independent_cruise_buttons_supported, native_accepts_cp, policy_for
+from openpilot.starpilot.car.hyundai.aol import configure_kona_factory_handoff, independent_cruise_buttons_supported, native_accepts_cp, policy_for
 
 CARS = (CAR.HYUNDAI_KONA_2ND_GEN, CAR.HYUNDAI_KONA_HEV_2ND_GEN)
 
@@ -226,3 +227,12 @@ def test_idle_handoff_omits_only_kona_steering_packet():
     assert [frame for frame in after if frame[0] != 0x12A] == [frame for frame in before if frame[0] != 0x12A]
     assert any(frame[0] == 0x12A for frame in before)
     assert [data[2] for addr, data, _ in after if addr == 0x12A] == ([] if expected is None else [expected])
+
+@pytest.mark.parametrize('panda_type,faults,expected', [('cuatro', [], 0x1C0C), ('redPanda', [], 0x0C0C), ('cuatro', ['fault'], 0x0C0C)])
+def test_kona_factory_handoff_is_limited_to_healthy_internal_c4(panda_type, faults, expected):
+  cp = kona_params(CARS[0])
+  cp.alternativeExperience = 32
+  cp.safetyConfigs[0].safetyParam = 0x0C0C
+  panda = SimpleNamespace(pandaType=panda_type, faults=faults, ignitionLine=True, ignitionCan=False, controlsAllowed=False)
+  configure_kona_factory_handoff(cp, [panda])
+  assert cp.safetyConfigs[0].safetyParam == expected

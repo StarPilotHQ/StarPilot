@@ -365,6 +365,11 @@ class Car:
         raise RuntimeError('AOL requires the exact vehicle safety configuration')
       config.safetyParam |= aol_policy.safety_param_addition
       self.CP.alternativeExperience |= aol_policy.alternative_experience_addition
+      if self.CP.carFingerprint == HYUNDAI_CAR.HYUNDAI_KONA_2ND_GEN and config.safetyParam == 0x0C0C and not is_release:
+        from openpilot.starpilot.car.hyundai.aol import configure_kona_factory_handoff
+        self.sm.update(0)
+        if self.sm.valid['pandaStates'] and self.sm.alive['pandaStates']:
+          configure_kona_factory_handoff(self.CP, self.sm['pandaStates'])
     self.vehicle_startup.finalize_aol_configuration(self.CI)
     from openpilot.starpilot.car.hyundai.redneck_cruise import configure
     self.redneck_cruise = configure(self, subscribed_services)

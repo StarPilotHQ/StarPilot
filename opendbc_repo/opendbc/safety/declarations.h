@@ -232,6 +232,8 @@ typedef bool (*tx_hook)(const CANPacket_t *msg);  // returns true if the message
 typedef bool (*fwd_hook)(int bus_num, int addr);      // returns true if the message should be blocked from forwarding
 
 typedef bool (*fwd_packet_hook)(const CANPacket_t *msg);
+typedef bool (*stage_tx_hook)(const CANPacket_t *msg);
+typedef bool (*fwd_output_hook)(const CANPacket_t *msg, CANPacket_t *output, bool *replaced);
 
 typedef struct {
   safety_hook_init init;
@@ -240,6 +242,8 @@ typedef struct {
   tx_hook tx;
   fwd_hook fwd;
   fwd_packet_hook fwd_packet;
+  stage_tx_hook stage_tx;
+  fwd_output_hook fwd_output;
   get_checksum_t get_checksum;
   compute_checksum_t compute_checksum;
   get_counter_t get_counter;
@@ -371,6 +375,11 @@ extern safety_config current_safety_config;
 
 int safety_fwd_hook(int bus_num, int addr);
 int safety_fwd_packet_hook(const CANPacket_t *msg);
+bool safety_uses_camera_slot(const CANPacket_t *msg);
+uint32_t safety_camera_release_delay(const CANPacket_t *msg, uint32_t now);
+bool safety_camera_release_current(const CANPacket_t *msg, uint32_t now);
+bool safety_stage_tx_hook(const CANPacket_t *msg);
+int safety_fwd_output_hook(const CANPacket_t *msg, CANPacket_t *output, bool *replaced);
 int set_safety_hooks(uint16_t mode, uint16_t param);
 
 extern const safety_hooks body_hooks;
