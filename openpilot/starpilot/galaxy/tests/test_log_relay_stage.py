@@ -1,5 +1,8 @@
 """Tests for one-way log relay staging and Galaxy /api/logs/stage endpoints."""
 
+from io import BytesIO
+from zipfile import ZipFile
+
 import http.client
 import json
 from pathlib import Path
@@ -21,7 +24,6 @@ from openpilot.starpilot.galaxy.log_relay_stage import (
   StageRejected,
   clean_stage_request,
 )
-from openpilot.starpilot.galaxy.server import make_server
 from openpilot.starpilot.galaxy.starport_send import DISCORD_FILE_LIMIT
 
 VALID_CLAIM = "https://starpilot-log-relay.nathan-g-hubbard.workers.dev/report/galaxy/claim/" + ("a1b2" * 16)
@@ -120,11 +122,33 @@ class LogRelayStagerTest(unittest.TestCase):
         call = calls[-1]
         self.assertEqual(call["url"], STAGE_URL)
         self.assertEqual(call["data"], expected_zip)
+        self.assertNotIn("X-Galaxy-Summary", call["headers"])
         self.assertFalse(call["allow_redirects"])
         self.assertEqual(call["headers"]["Content-Type"], "application/zip")
         self.assertEqual(call["headers"]["X-Galaxy-Kind"], expected_kind)
         self.assertEqual(call["headers"]["X-Galaxy-Platform"], expected_platform)
         self.assertEqual(unquote(call["headers"]["X-Galaxy-Note"]), expected_note)
+
+  def test_summary_header_matches_staged_archive(self):
+    cases = (
+      ("starport", "SUMMARY.txt", "Device abc12345\nCar: Test car\nHead unit: Unité", "Device abc12345\nCar: Test car\nHead unit: Unité"),
+      ("connection", "connection-logs.txt", "Bonjour advertiser: active\nen0: private\nBluetooth bridge: inactive",
+       "Bonjour advertiser: active\nBluetooth bridge: inactive"),
+      ("controller", "bluetooth-log.json", json.dumps({"externalInputInterfaces": [{"discovery": "eligible"}, {"discovery": "filtered"}]}),
+       "External input interfaces: 2\nEligible: 1 | Filtered: 1 | Duplicate identity: 0"),
+    )
+    for kind, member, contents, expected in cases:
+      with self.subTest(kind=kind):
+        stream = BytesIO()
+        with ZipFile(stream, "w") as archive:
+          archive.writestr(member, contents)
+        data = stream.getvalue()
+        post = Mock(return_value=Mock(status_code=200))
+        post.return_value.json.return_value = {"claimUrl": VALID_CLAIM}
+        stager = LogRelayStager(lambda: ("logs.zip", data), lambda: data, lambda: data, post=post)
+        stager._run(kind, "ios", "Test")
+        self.assertEqual(post.call_args.kwargs["data"], data)
+        self.assertEqual(unquote(post.call_args.kwargs["headers"]["X-Galaxy-Summary"]), expected)
 
   def test_retries_starport_without_system_snapshot_when_oversize(self):
     seen_args = []
@@ -208,6 +232,8 @@ class LogRelayStagerTest(unittest.TestCase):
 
 class LogStageHTTPTest(unittest.TestCase):
   def setUp(self):
+    from openpilot.starpilot.galaxy.server import make_server
+
     self.temp = tempfile.TemporaryDirectory()
     self.addCleanup(self.temp.cleanup)
     self.access = GalaxyAccessOwner(Path(self.temp.name))

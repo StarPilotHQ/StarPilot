@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import re
 import threading
 from collections.abc import Callable
+from io import BytesIO
 from urllib.parse import quote
+from zipfile import BadZipFile, ZipFile
 
 from openpilot.starpilot.galaxy.starport_send import DISCORD_FILE_LIMIT, official_install
 
@@ -70,6 +73,32 @@ def clean_stage_request(payload: object) -> tuple[str, str, str]:
     return kind, "ios", f"Controller ({model}): {note}"
 
   return kind, "android", note
+
+
+def _capture_summary(kind: str, data: bytes) -> str:
+  """Summarize the staged capture without collecting a second snapshot."""
+  member = {"starport": "SUMMARY.txt", "connection": "connection-logs.txt", "controller": "bluetooth-log.json"}[kind]
+  try:
+    with ZipFile(BytesIO(data)) as archive, archive.open(member) as stream:
+      raw = stream.read(256 * 1024 + 1)
+    if len(raw) > 256 * 1024:
+      return ""
+    if kind == "controller":
+      capture = json.loads(raw)
+      rows = capture["externalInputInterfaces"]
+      counts = [sum(row["discovery"] == state for row in rows) for state in ("eligible", "filtered", "duplicate identity")]
+      suffix = " (inventory truncated)" if capture.get("truncated") else ""
+      return (f"External input interfaces: {len(rows)}{suffix}\n"
+              f"Eligible: {counts[0]} | Filtered: {counts[1]} | Duplicate identity: {counts[2]}")
+    text = raw.decode("utf-8", errors="replace").strip()
+    if kind == "starport":
+      return text[:600]
+    labels = ("Comma uptime: ", "Parked configuration allowed: ", "Bonjour advertiser: ", "Bluetooth bridge: ")
+    lines = text.splitlines()
+    return "\n".join(line[:220] for line in lines if line.startswith(labels))[:600]
+  except (BadZipFile, KeyError, ValueError, TypeError, AttributeError, OSError, EOFError):
+    # Missing or older summary formats should still deliver the original ZIP.
+    return ""
 
 
 def _response_error(response) -> str:
@@ -166,12 +195,14 @@ class LogRelayStager:
         post = requests.post
       else:
         post = self._post
+      summary = _capture_summary(kind, data)
       response = post(
         self._url(),
         data=data,
         headers={
           "Content-Type": "application/zip",
           "X-Galaxy-Kind": kind,
+          **({"X-Galaxy-Summary": quote(summary, safe="")} if summary else {}),
           "X-Galaxy-Platform": platform,
           "X-Galaxy-Note": quote(formatted_note, safe=""),
         },
