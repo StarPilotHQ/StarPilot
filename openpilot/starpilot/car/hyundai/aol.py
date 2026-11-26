@@ -321,9 +321,10 @@ def create_intent(CP, settings):
   from openpilot.starpilot.aol.intent import AolCardIntent
 
   independent_cruise_buttons = independent_cruise_buttons_supported(CP)
+  mixed_hda2_stock = _mixed_hda2_stock(CP)
   return AolCardIntent(settings, explicit_latch=policy_for(CP).explicit_latch,
                        independent_cruise_buttons=independent_cruise_buttons,
-                       preserve_unassigned_cancel=_mixed_hda2_stock(CP))
+                       preserve_unassigned_cancel=mixed_hda2_stock, confirm_main_available=mixed_hda2_stock)
 
 
 def ordinary_axis_request_allowed(CP, CS) -> bool:

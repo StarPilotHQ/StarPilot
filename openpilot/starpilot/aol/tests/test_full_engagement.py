@@ -282,3 +282,48 @@ def test_mixed_hda2_arms_from_engagement_and_preserves_only_unassigned_cancel(en
     assert not owner.output(cs)[0]
   owner.update(cs, now_ns=8, fault_active=True)
   assert not owner.output(cs)[0]
+
+
+@pytest.mark.parametrize('interrupt', [None, 'expired', 'invalid', 'fault', 'cancel', 'neutral'])
+def test_mixed_stock_main_waits_for_factory_availability(interrupt):
+  from opendbc.car.hyundai.values import CAR
+  from opendbc.car import gen_empty_fingerprint
+  from opendbc.car.hyundai.interface import CarInterface
+  from openpilot.starpilot.car.hyundai.aol import create_intent
+
+  observed = gen_empty_fingerprint()
+  observed[2][0x50] = 16
+  cp = CarInterface.get_params(CAR.HYUNDAI_PALISADE_2023, observed, [], False, False, False)
+  assert cp.safetyConfigs[0].safetyParam == 0x2010
+  owner, cs = create_intent(cp, SETTINGS), state()
+  start = 545_907_606_000
+  cs.cruiseState.available = False
+  cs.gasPressed = True
+  owner.update(cs, now_ns=start - 10_000_000)
+  observe(owner, cs, start - 10_000_000, enabled=False, active=False)
+  cs.buttonEvents = [car.CarState.ButtonEvent(type='mainCruise', pressed=True)]
+  owner.update(cs, now_ns=start)
+  assert not owner.allowed_latch
+  cs.buttonEvents = []
+  if interrupt == 'cancel':
+    cs.buttonEvents = [car.CarState.ButtonEvent(type='cancel', pressed=True)]
+  if interrupt == 'neutral':
+    cs.gearShifter = 'neutral'
+  cs.canValid = interrupt != 'invalid'
+  owner.update(cs, now_ns=start + 8_485_000, fault_active=interrupt == 'fault')
+  assert not owner.allowed_latch
+  cs.canValid, cs.gearShifter, cs.buttonEvents = True, 'drive', []
+  cs.cruiseState.available = cs.cruiseState.enabled = True
+  ready = start + (100_000_001 if interrupt == 'expired' else 25_005_000)
+  owner.update(cs, now_ns=ready, fault_active=False)
+  assert owner.output(cs)[0] == (interrupt is None)
+  if interrupt is None:
+    observe(owner, cs, ready + 5_000_000)
+    cs.buttonEvents = [car.CarState.ButtonEvent(type='mainCruise', pressed=False)]
+    owner.update(cs, now_ns=ready + 33_000_000)
+    cs.buttonEvents = []
+    cs.brakePressed, cs.gasPressed, cs.cruiseState.enabled = True, False, False
+    owner.update(cs, now_ns=604_026_441_000)
+    assert owner.output(cs)[0]
+    owner.update(cs, now_ns=604_036_508_000, native_rejection_ns=604_032_234_000)
+    assert not owner.allowed_latch

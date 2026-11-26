@@ -147,11 +147,14 @@ def disarming_fault(events, CS, *, temporary_ui_process_failure: bool = False,
 
 class AolCardIntent:
   def __init__(self, settings: AolSettings, *, explicit_latch: bool = False, lkas_button_supported: bool = True,
-               independent_cruise_buttons: bool = False, preserve_unassigned_cancel: bool = False):
+               independent_cruise_buttons: bool = False, preserve_unassigned_cancel: bool = False,
+               confirm_main_available: bool = False):
     self.settings = settings
     self.explicit_latch = explicit_latch
     self.independent_cruise_buttons = independent_cruise_buttons
     self.preserve_unassigned_cancel = preserve_unassigned_cancel
+    self.confirm_main_available = confirm_main_available
+    self._pending_main_arm_ns = 0
     self.lkas_button_supported = lkas_button_supported
     self.allowed_latch = False
     # Observational only: records the exact branch that changed True to False.
@@ -278,6 +281,12 @@ class AolCardIntent:
         self._record_latch_clear('disarming_fault')
         self.allowed_latch = False
         self._gesture_neutral_seen = False
+    if self._pending_main_arm_ns and (
+        not 0 < now_ns - self._pending_main_arm_ns <= 100_000_000 or not self.settings.enabled or
+        self._fault_inhibit or native_rejection_ns or not CS.canValid or CS.canTimeout or CS.accFaulted or
+        CS.vehicleSensorsInvalid or CS.gearShifter not in (GearShifter.drive, GearShifter.sport, GearShifter.low, GearShifter.brake) or
+        any(event.pressed for event in CS.buttonEvents)):
+      self._pending_main_arm_ns = 0
     if not CS.canValid or CS.canTimeout:
       self._record_latch_clear('can_invalid_or_timeout')
       self.allowed_latch = False
@@ -365,10 +374,21 @@ class AolCardIntent:
         lateral_engaged = not self.pause_lateral and (self.allowed_latch or standard_enabled)
         if lateral_engaged:
           self._record_latch_clear('physical_toggle')
-        self.allowed_latch = not lateral_engaged
-        self.pause_lateral = lateral_engaged
-        if not lateral_engaged:
-          self.physical_arm_ns = now_ns
+        if (self.confirm_main_available and not lateral_engaged and self._main_held and not self._lkas_held and
+            not CS.cruiseState.available and now_ns > 0):
+          if (not native_rejection_ns and not CS.vehicleSensorsInvalid and
+              CS.gearShifter in (GearShifter.drive, GearShifter.sport, GearShifter.low, GearShifter.brake)):
+            self._pending_main_arm_ns = now_ns
+        else:
+          self.allowed_latch = not lateral_engaged
+          self.pause_lateral = lateral_engaged
+          if not lateral_engaged:
+            self.physical_arm_ns = now_ns
+
+    if self._pending_main_arm_ns and CS.cruiseState.available:
+      self.physical_arm_ns = self._pending_main_arm_ns
+      self._pending_main_arm_ns = 0
+      self._arm_from_full_engagement(CS, source_ns=now_ns)
 
     for event in CS.buttonEvents:
       button = int(event.type.raw)
