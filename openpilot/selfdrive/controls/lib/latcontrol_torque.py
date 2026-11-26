@@ -113,8 +113,8 @@ class LatControlTorque(LatControl):
       friction *= 1.0 - 0.5 * speed_weight * center_weight
     if self.accord_center_friction and not CS.steeringPressed:
       speed_weight = np.interp(CS.vEgo * CV.MS_TO_MPH, [50., 58.], [0., 1.])
-      center_weight = np.interp(abs(setpoint), [0.25, 0.60], [1., 0.])
-      friction *= 1.0 - 0.35 * speed_weight * center_weight
+      center_weight = np.interp(abs(setpoint), [0.30, 0.60], [1., 0.])
+      friction *= 1.0 - 0.65 * speed_weight * center_weight
     return friction
 
   def update(self, active, CS, VM, params, steer_limited_by_safety, desired_curvature, curvature_limited, lat_delay):
