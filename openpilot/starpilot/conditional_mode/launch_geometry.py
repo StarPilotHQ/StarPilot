@@ -2,6 +2,7 @@
 
 import math
 from openpilot.selfdrive.modeld.constants import ModelConstants
+from openpilot.starpilot.conditional_mode.turn_scene import MIN_STEERING_ANGLE_DEG
 
 
 def qualified_launch_horizon(model, car, lead_present, *, gradual=False):
@@ -14,7 +15,8 @@ def qualified_launch_horizon(model, car, lead_present, *, gradual=False):
     or lead_present
     or model.action.shouldStop is not False
     or not math.isfinite(model.action.desiredAcceleration)
-    or not (0.05 if gradual else 0.3) <= model.action.desiredAcceleration <= 10.0
+    or model.action.desiredAcceleration > 10.0
+    or (model.action.desiredAcceleration <= 0.0 if gradual else model.action.desiredAcceleration < 0.3)
   ):
     return None
   x, v, t = tuple(model.position.x), tuple(model.velocity.x), tuple(model.position.t)
@@ -43,8 +45,9 @@ def qualified_launch_horizon(model, car, lead_present, *, gradual=False):
     return None
   if gradual:
     lateral = tuple(model.position.y)
-    if (car.leftBlinker or car.rightBlinker or not math.isfinite(car.steeringAngleDeg) or abs(car.steeringAngleDeg) > 5.0 or
-        len(lateral) != len(x) or not all(math.isfinite(y) and abs(y) <= 0.75 for y in lateral) or
-        min(tail) < 1.0 or tail[-1] < 8.0):
+    if (car.leftBlinker or car.rightBlinker or not math.isfinite(car.steeringAngleDeg) or
+        abs(car.steeringAngleDeg) >= MIN_STEERING_ANGLE_DEG or len(lateral) != len(x) or
+        not all(math.isfinite(y) and abs(y) <= 0.75 for y, distance in zip(lateral, x, strict=True) if distance <= 54.) or
+        not all(math.isfinite(y) and abs(y) <= 1.5 for y in lateral) or min(tail) < 1.0 or tail[-1] < 8.0):
       return None
   return x[-1]

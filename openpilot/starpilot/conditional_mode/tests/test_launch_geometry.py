@@ -89,33 +89,16 @@ class RecordedLaunchTests(CemGreenCallerTests):
     _, _, _, plan = self.cycle(stopped=True, position=frame['x'], velocity=frame['v'], should_stop=True, desired_accel=frame['accel'])
     self.assertTrue(plan.shouldStop)
 
-  def test_gradual_straight_launch_requires_sustained_model_clear(self):
+  def test_gradual_launch_releases_on_current_clear_and_reapplies_current_stop(self):
     self.prime()
-    forward = {'stopped': True, 'position': CLEAR_97_X, 'velocity': CLEAR_97_V, 'should_stop': False, 'desired_accel': .15}
-    for _ in range(8):
-      _, _, held, plan = self.cycle(**forward)
-      self.assertTrue(held and plan.shouldStop)
-    _, _, held, plan = self.cycle(**(forward | {'should_stop': True}))
+    forward = {'stopped': True, 'position': CLEAR_97_X, 'velocity': CLEAR_97_V, 'desired_accel': .03}
+    _, _, held, plan = self.cycle(**forward, should_stop=True)
     self.assertTrue(held and plan.shouldStop)
-    for _ in range(10):
-      _, _, held, plan = self.cycle(**forward)
-      self.assertTrue(held and plan.shouldStop)
-    for _ in range(3):
-      _, _, held, plan = self.cycle(**forward)
-      if not held:
-        break
+    _, _, held, plan = self.cycle(**forward, should_stop=False)
     self.assertFalse(held or plan.shouldStop)
-    self.assertGreater(plan.aTarget, 0.)
-    self.assertLessEqual(plan.aTarget, .16)
-    _, _, held, plan = self.cycle(**(forward | {'should_stop': True}))
+    self.assertAlmostEqual(plan.aTarget, .03)
+    _, _, held, plan = self.cycle(**forward, should_stop=True)
     self.assertTrue(held and plan.shouldStop)
-
-  def test_gradual_confirmation_can_overlap_acceleration_buildup(self):
-    self.prime()
-    forward = {'stopped': True, 'position': CLEAR_97_X, 'velocity': CLEAR_97_V, 'should_stop': False}
-    for _ in range(12):
-      _, _, held, plan = self.cycle(**forward, desired_accel=.075)
-      self.assertTrue(held and plan.shouldStop)
-    _, _, held, plan = self.cycle(**forward, desired_accel=.1)
+    self.assertLessEqual(plan.aTarget, 0.)
+    _, _, held, plan = self.cycle(**forward, should_stop=False)
     self.assertFalse(held or plan.shouldStop)
-    self.assertGreater(plan.aTarget, 0.)
