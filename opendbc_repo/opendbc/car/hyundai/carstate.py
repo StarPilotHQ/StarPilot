@@ -51,7 +51,7 @@ BUTTONS_DICT = {Buttons.RES_ACCEL: ButtonType.accelCruise, Buttons.SET_DECEL: Bu
 
 
 def get_non_scc_cruise_signals(flags: int, car=None) -> tuple[str, str, str, str, str, str]:
-  if car == CAR.KIA_RAY_EV:
+  if car in (CAR.KIA_RAY_EV, CAR.HYUNDAI_KONA_EV_2023_NON_SCC):
     return "LABEL11", "CC_React", "LABEL11", "CC_Engaged", "E_EMS11", "Cruise_Limit_Target"
   if flags & HyundaiFlags.EV:
     return "LABEL11", "CC_React", "EMS12", "ACC_ACT", "E_EMS11", "Cruise_Limit_Target"

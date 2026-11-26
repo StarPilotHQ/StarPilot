@@ -125,6 +125,14 @@ class CarInterface(CarInterfaceBase):
   def _get_params(ret: structs.CarParams, candidate, fingerprint, car_fw, alpha_long, is_release, docs) -> structs.CarParams:
     ret.brand = "hyundai"
 
+    if candidate == CAR.HYUNDAI_KONA_EV_2023_NON_SCC:
+      ret.dashcamOnly = True
+      ret.autoResumeSng = False
+      ret.radarUnavailable = True
+      ret.safetyConfigs = [get_safety_config(structs.CarParams.SafetyModel.noOutput)]
+      CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
+      return ret
+
     if is_blended(ret):
       cam_can = CanBus(None, fingerprint).CAM
       lka_steering = any(fw.ecu == Ecu.adas for fw in car_fw) or 0x50 in fingerprint[cam_can]

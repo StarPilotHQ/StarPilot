@@ -950,6 +950,11 @@ class CAR(Platforms):
     HYUNDAI_KONA_EV.specs,
     flags=HyundaiFlags.EV | HyundaiFlags.ALT_LIMITS,
   )
+  HYUNDAI_KONA_EV_2023_NON_SCC = HyundaiNonSccPlatformConfig(
+    [HyundaiNonSccCarDocs("Hyundai Kona Electric SE 2023", package="Non-SCC, dashcam only", car_parts=CarParts.common([CarHarness.hyundai_o]))],
+    HYUNDAI_KONA_EV_2022.specs,
+    flags=HyundaiFlags.EV | HyundaiFlags.ALT_LIMITS,
+  )
   KIA_RAY_EV = HyundaiNonSccPlatformConfig(
     [HyundaiNonSccCarDocs("Kia Ray EV 2025", package="Non-SCC with comma pedal (6-byte sensor) and 8-byte LFA; other variants dashcam only",
                           car_parts=CarParts.common([CarHarness.hyundai_h]))],

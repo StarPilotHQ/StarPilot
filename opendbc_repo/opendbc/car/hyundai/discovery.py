@@ -1,6 +1,10 @@
 import time
 from itertools import product
 
+from opendbc.car.hyundai.values import CAR
+from opendbc.car.structs import CarParams
+from opendbc.car.vin import is_valid_vin
+
 
 NORMAL_BUS_LAYOUT = {(2, 0x110): 32, (2, 0x362): 32, (1, 0x35): 32,
                      (1, 0xEA): 24, (1, 0xA0): 24, (1, 0x1A0): 32,
@@ -30,6 +34,29 @@ MIXED_CAN_NORMAL_BUS_LAYOUT = {(2, 0x50): 16, (2, 0x2A4): 24, (0, 0x251): 16,
 QUIET_CAMERA_NORMAL_BUS_LAYOUT = {(0, 0xEA): 24, (0, 0xA0): 24, (0, 0x1A0): 32, (0, 0x60): 32,
                                   (0, 0x35): 32, (0, 0x1CF): 8, (0, 0x130): 16,
                                   **{(1, address): 32 for address in range(0x210, 0x220)}}
+
+
+def kona_electric_se_candidate(vin, fingerprint, car_fw):
+  if not is_valid_vin(vin) or vin[:8] != 'KM8K23AG' or vin[9] != 'P':
+    return None
+
+  layout = {(0, 0x251): 8, (0, 0x371): 8, (0, 0x386): 8, (0, 0x394): 8, (0, 0x4F1): 4,
+            (0, 0x592): 8, (1, 0x329): 8, (2, 0x340): 8}
+  if any(fingerprint.get(bus, {}).get(addr) != length for (bus, addr), length in layout.items()):
+    return None
+  if any(frames.keys() & {0x420, 0x421} for frames in fingerprint.values()):
+    return None
+
+  ecu = CarParams.Ecu
+  if any(fw.ecu == ecu.fwdRadar or (fw.address == 0x7D0 and fw.brand == 'hyundai') for fw in car_fw):
+    return None
+  observed_fw = {(fw.ecu.raw, fw.address, bytes(fw.fwVersion)) for fw in car_fw
+                 if fw.brand == 'hyundai' and fw.bus == 0 and not fw.subAddress and not fw.logging}
+  expected_fw = {
+    (ecu.eps, 0x7D4, b'\xf1\x00OSP MDPS C 1.00 1.02 56310K4261\x00 4OEPC102'),
+    (ecu.fwdCamera, 0x7C4, b'\xf1\x00OSP LKA  AT USA LHD 1.00 1.04 99211-J9200 904'),
+  }
+  return CAR.HYUNDAI_KONA_EV_2023_NON_SCC if expected_fw <= observed_fw else None
 
 
 def _canfd_variant_layouts():

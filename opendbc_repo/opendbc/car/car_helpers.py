@@ -16,7 +16,7 @@ from opendbc.car.gm.values import CAR as GM
 from opendbc.car.ford.discovery import (normal_bus0_selection as ford_normal_bus0_selection,
                                        normal_bus0_queries as ford_normal_bus0_queries, normal_bus_query_brand)
 from opendbc.car.volvo.discovery import normal_bus_topology as volvo_normal_bus_topology, v60_bus_topology as volvo_v60_bus_topology
-from opendbc.car.hyundai.discovery import normal_bus_topology
+from opendbc.car.hyundai.discovery import kona_electric_se_candidate, normal_bus_topology
 from opendbc.car.honda.discovery import (eps_needs_obd as honda_eps_needs_obd, nidec_bus0_topology,
                                          normal_bus_topology as honda_normal_bus_topology)
 from opendbc.car.honda.values import CAR as HONDA, HondaFlags
@@ -271,6 +271,8 @@ def fingerprint(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_mu
   # Refine after both automatic sources, before the explicit override below.
   if not fixed_fingerprint:
     car_fingerprint = automatic_bolt_candidate(car_fingerprint, finger, camera_cruise_messages, vin)
+    if car_fingerprint is None:
+      car_fingerprint = kona_electric_se_candidate(vin, finger, car_fw)
     if car_fingerprint == 'SUBARU_IMPREZA' and source == CarParams.FingerprintSource.fw and exact_match:
       # Subaru's early GT Crosstrek and Impreza share a firmware bucket.
       # NHTSA vPIC identifies JF2GT with model-year codes J and K as Crosstrek.
