@@ -238,8 +238,12 @@ def _control_reconstructible(control, stamp):
   from openpilot.starpilot.flm.route_recording import schema_base
 
   schema = getattr(control, 'stage_schema_revision', '')
-  return bool((schema_base(schema) or schema) == 'torque-selected-stage-snapshot-v1'
-              and inputs.get('active') == 1.0 and inputs.get('safety_limited') in (0.0, 1.0))
+  schema_kind = schema_base(schema) or schema
+  if inputs.get('active') != 1.0 or inputs.get('safety_limited') not in (0.0, 1.0):
+    return False
+  return schema_kind == 'torque-selected-stage-snapshot-v1' or (
+    schema_kind == 'pid-selected-stage-snapshot-v2' and inputs.get('curvature_limited') == 0.0
+  )
 
 
 def continuous_control_window(window, timeline, metadata_for, expected):

@@ -463,6 +463,41 @@ class TestOffroadSurface(unittest.TestCase):
     self.assertFalse(refused['qualified'])
     self.assertEqual(refused['reason'], 'original_limited_frame_was_changed')
 
+  def test_parked_pid_replay_restores_original_checkpoint(self):
+    from types import SimpleNamespace
+    from opendbc.car import structs
+    from openpilot.starpilot.flm.controller_replay import capture_snapshot, final_command, frame_input
+    from openpilot.starpilot.flm.offroad_controller_checks import check_candidate
+    from openpilot.starpilot.flm.pid_stages import PidObservation
+    from openpilot.starpilot.flm.tests.test_pid_replay import factory
+    from openpilot.starpilot.flm.tests.test_fullrate_pipeline import BASE, snapshots
+
+    selected = factory()
+    controller, vm = selected.create()
+    controller.automatic_flm_observation = observation = PidObservation()
+    cs = structs.CarState.new_message(vEgo=25.0, gearShifter='drive')
+    params = SimpleNamespace(angleOffsetDeg=0.0, roll=0.0)
+    curvature = 0.0001
+    original = []
+    for tick, limited in enumerate((False, True, False)):
+      stamp = BASE + tick * 10_000_000
+      checkpoint = capture_snapshot(controller, vm)
+      inputs = frame_input(cs, vm, params, active=True, safety_limited=limited,
+                           desired_curvature=curvature, curvature_limited=False, lat_delay=0.2)
+      observation.begin_frame()
+      torque, _, log = controller.update(True, cs, vm, params, limited, curvature, False, 0.2)
+      schema, stage, coordinates = observation.finish_frame(controller, log, selected_command=torque)
+      original.append(replace(snapshots(stamp)[0], control_ns=stamp, state_ns=stamp, source_receipt_ns=stamp,
+                              requested=final_command(torque), limited=limited, controller_mode='native',
+                              stage_schema_revision=schema, stage_values=stage, applied_coordinates=coordinates,
+                              replay_snapshot=checkpoint.values, replay_inputs=inputs + (('control_frame', float(tick + 1)),)))
+    clean = check_candidate(selected.cp, (original[0],), values(), require_change=False)
+    self.assertTrue(clean['qualified'], clean)
+    self.assertEqual(clean['commands'], ((BASE, original[0].requested, original[0].requested),))
+    missing_delivery = check_candidate(selected.cp, tuple(original), values(), require_change=False)
+    self.assertFalse(missing_delivery['qualified'])
+    self.assertEqual(missing_delivery['reason'], 'original_hint_requires_exact_unclipped_native_pair')
+
   def test_combined_original_inhibition_is_context_only(self):
     from types import SimpleNamespace
     from openpilot.starpilot.flm.torque_eligibility import replay_context
@@ -583,6 +618,10 @@ class TestOffroadSurface(unittest.TestCase):
       )
       self.assertEqual(original_delivery_context(control, (output,)), 'clipped_context')
       self.assertFalse(original_unclipped_hint(control, (output,)))
+      pid = replace(control, stage_schema_revision='pid-selected-stage-snapshot-v2@' + REVISION)
+      self.assertEqual(original_delivery_context(pid, (output,)), 'clipped_context')
+      self.assertFalse(original_unclipped_hint(pid, (output,)))
+      self.assertIsNone(original_delivery_context(pid, (replace(output, native_allowed=False),)))
       for changed in (
         replace(output, native_allowed=False),
         replace(output, fault=True),
@@ -1007,6 +1046,15 @@ class TestOffroadRouteCoverage(unittest.TestCase):
     ):
       with self.subTest(changes=changes):
         self.assertFalse(_control_reconstructible(decoded(original, **changes), stamp))
+    pid_schema = 'pid-selected-stage-snapshot-v2@' + REVISION + '+configured-v1'
+    for safety_limited in (0.0, 1.0):
+      for curvature_limited in (0.0, 1.0):
+        with self.subTest(safety_limited=safety_limited, curvature_limited=curvature_limited):
+          pid = replace(metadata, stage_schema_revision=pid_schema,
+                        replay_inputs=(('active', 1.0), ('safety_limited', safety_limited), ('curvature_limited', curvature_limited)))
+          self.assertEqual(_control_reconstructible(pid, stamp), curvature_limited == 0.0)
+          self.assertFalse(_control_eligible(pid, stamp))
+          self.assertFalse(_control_reconstructible(replace(pid, native_required=True, native_allowed=False), stamp))
     # Unneeded malformed replay vectors remain unvalidated metadata, never replay proof.
     strict = decoded([{'name': 'unneeded', 'text': 'not-a-frame'}], limited=False)
     self.assertTrue(_control_eligible(strict, stamp))

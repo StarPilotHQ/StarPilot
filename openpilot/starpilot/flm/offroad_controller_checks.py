@@ -11,7 +11,7 @@ def original_delivery_context(control, outputs):
   from openpilot.starpilot.flm.torque_eligibility import exact_unclipped_pair, bounded_context_output, consumed_sources_current
 
   schema = schema_base(control.stage_schema_revision) or control.stage_schema_revision
-  if schema != 'torque-selected-stage-snapshot-v1' or not outputs:
+  if schema not in ('torque-selected-stage-snapshot-v1', 'pid-selected-stage-snapshot-v2') or not outputs:
     return None
   original = replace(control, stage_schema_revision=schema)
   clipped = False
@@ -154,12 +154,15 @@ def check_candidate(cp, controls, values, *, score_start_ns=0, score_end_ns=2**6
     raise ValueError('Registered torque or torque-actuated PID required')
   baseline = first.baseline_revision
   RouteSurfaceEffects({NAMES[0]: values[NAMES[0]]}, baseline, accumulated=values)
-  if cp.lateralTuning.which() == 'pid':
-    from openpilot.starpilot.flm.pid_controller_replay import PidControllerFactory
+  pid = cp.lateralTuning.which() == 'pid'
+  if pid:
+    from openpilot.starpilot.flm.pid_controller_replay import PidControllerFactory, pid_snapshot_from_values
 
     factory = PidControllerFactory(cp, first.controller_mode, turn_assist=first.turn_assist)
+    decode_snapshot = pid_snapshot_from_values
   else:
     factory = SelectedControllerFactory(cp, first.controller_mode, turn_assist=first.turn_assist)
+    decode_snapshot = snapshot_from_values
   actual = ControllerReplay(
     factory, Objective('feedforward', 'high', 'steady'), identity=first.identity, baseline_revision=baseline, model_revision='historical-numerical-only'
   )
@@ -181,14 +184,10 @@ def check_candidate(cp, controls, values, *, score_start_ns=0, score_end_ns=2**6
       raise ValueError('Original controller input is ineligible')
     frame = _frame(evidence)
     gap = bool(last_ns and (frame.control_ns - last_ns > 50_000_000 or frame.frame_sequence != last_sequence + 1))
-    if gap or actual.failed:
-      # Only the original pre-frame snapshot can start a reconstruction.
-      if not evidence.replay_snapshot:
-        return {'qualified': False, 'reason': 'original_preframe_snapshot_missing', 'verified_frames': verified}
-      actual.checkpoint(frame.control_ns, snapshot_from_values(evidence.replay_snapshot))
-      checkpoints += 1
-    elif evidence.replay_snapshot:
-      actual.checkpoint(frame.control_ns, snapshot_from_values(evidence.replay_snapshot))
+    if (gap or actual.failed) and not evidence.replay_snapshot:
+      return {'qualified': False, 'reason': 'original_preframe_snapshot_missing', 'verified_frames': verified}
+    if evidence.replay_snapshot:
+      actual.checkpoint(frame.control_ns, decode_snapshot(evidence.replay_snapshot))
       checkpoints += 1
     actual.raw_mode = True
     neutral = actual.normalize(frame, _verify_only=True)
@@ -200,14 +199,14 @@ def check_candidate(cp, controls, values, *, score_start_ns=0, score_end_ns=2**6
       last_ns, last_sequence = frame.control_ns, frame.frame_sequence
       continue
     inputs = dict(evidence.replay_inputs)
-    inhibited = bool(inputs['safety_limited'] and cp.lateralTuning.which() == 'torque')
+    inhibited = bool(inputs['safety_limited'])
     if evidence.saturated or not inputs['active']:
       return {'qualified': False, 'reason': 'original_scored_frame_not_eligible', 'verified_frames': verified, 'failed_original_ns': frame.control_ns}
     deliveries = by_control.get(evidence.control_ns, ())
     observed_clip = any(output.limited for output in deliveries)
     delivery_context = original_delivery_context(evidence, deliveries) if evidence.limited or observed_clip else None
     nonemitted = not deliveries and original_outputs and original_nonemitted_control(cp, evidence, original_outputs, originals)
-    if not inhibited and (evidence.limited or observed_clip) and delivery_context is None and not nonemitted:
+    if (not inhibited or pid) and (evidence.limited or observed_clip) and delivery_context is None and not nonemitted:
       return {
         'qualified': False,
         'reason': 'original_hint_requires_exact_unclipped_native_pair',
@@ -240,7 +239,7 @@ def check_candidate(cp, controls, values, *, score_start_ns=0, score_end_ns=2**6
 
     delta = final_command(candidate) - final_command(reference)
     if inhibited:
-      if delta != 0 or trial.stage_calls != 0 or trial.friction_calls != 0:
+      if delta != 0 or trial.stage_calls != 0 or trial.friction_calls != 0 or trial.pid_error_calls != 0:
         return {'qualified': False, 'reason': 'original_limited_frame_was_changed', 'verified_frames': verified, 'failed_original_ns': frame.control_ns}
       inhibited_frames += 1
     elif nonemitted:
