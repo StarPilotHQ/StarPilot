@@ -11,6 +11,17 @@ jobs:
       pull-requests: write
     runs-on: ubuntu-latest
     steps:
+    - name: Close pull requests targeting testing
+      if: github.repository == 'StarPilotHQ/StarPilot' && github.event.pull_request.base.ref == 'testing'
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+      run: |
+        current=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json baseRefName,state --jq '.baseRefName + ":" + .state')
+        if [ "$current" = testing:OPEN ]; then
+          gh pr close "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --comment 'Please retarget this pull request to `stable` and reopen it. Maintainers publish qualified changes to `testing`.'
+        fi
+
     - uses: actions/checkout@v7
 
     # Label PRs
