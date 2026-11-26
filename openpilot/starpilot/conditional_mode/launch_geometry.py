@@ -14,7 +14,7 @@ def qualified_launch_horizon(model, car, lead_present, *, gradual=False):
     or lead_present
     or model.action.shouldStop is not False
     or not math.isfinite(model.action.desiredAcceleration)
-    or not (0.1 if gradual else 0.3) <= model.action.desiredAcceleration <= 10.0
+    or not (0.05 if gradual else 0.3) <= model.action.desiredAcceleration <= 10.0
   ):
     return None
   x, v, t = tuple(model.position.x), tuple(model.velocity.x), tuple(model.position.t)

@@ -624,7 +624,7 @@ class SceneProjector:
     launch_horizon = stop_horizon if stop_horizon is not None else (
       _standstill_clear_horizon(model) if model_transport_current else None)
     stationary_launch_clear = _stationary_launch_clear(model, car, lead, launch_horizon)
-    gradual_launch_clear = False
+    gradual_launch_accel = None
     # Qualify a stationary launch release and keep it valid after clearing; never acquire a stop or
     # qualify spatial/lead geometry from this bounded launch prefix.
     if (not stationary_launch_clear and model_transport_current and car_valid and
@@ -637,7 +637,7 @@ class SceneProjector:
         if (launch is None and self.stop_detector.standstill_committed and self.stop_detector.standstill_reason == 'light' and
             traffic is False and sign is False and dashboard_sign is False and forcing is False):
           launch = qualified_launch_horizon(model, car, lead_present, gradual=True)
-          gradual_launch_clear = launch is not None
+          gradual_launch_accel = model.action.desiredAcceleration if launch is not None else None
       except (AttributeError, TypeError, ValueError, OverflowError):
         launch = None
       if launch is not None:
@@ -668,7 +668,7 @@ class SceneProjector:
       model_tick_mono_s=model_stamp / 1e9 if model_stamp is not None else None,
       model_should_stop=current_stop,
       stationary_launch_clear=stationary_launch_clear,
-      gradual_launch_clear=gradual_launch_clear,
+      gradual_launch_accel=gradual_launch_accel,
       longitudinal_stop_active=bool(_field(control, 'longActive') is True and _field(selfdrive, 'enabled') is True and
         _field(controls, 'longControlState') == structs.CarControl.Actuators.LongControlState.stopping),
       longitudinal_launch_active=bool(_field(control, 'enabled') is True and _field(control, 'longActive') is True and

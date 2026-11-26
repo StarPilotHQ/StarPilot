@@ -109,3 +109,13 @@ class RecordedLaunchTests(CemGreenCallerTests):
     self.assertLessEqual(plan.aTarget, .16)
     _, _, held, plan = self.cycle(**(forward | {'should_stop': True}))
     self.assertTrue(held and plan.shouldStop)
+
+  def test_gradual_confirmation_can_overlap_acceleration_buildup(self):
+    self.prime()
+    forward = {'stopped': True, 'position': CLEAR_97_X, 'velocity': CLEAR_97_V, 'should_stop': False}
+    for _ in range(12):
+      _, _, held, plan = self.cycle(**forward, desired_accel=.075)
+      self.assertTrue(held and plan.shouldStop)
+    _, _, held, plan = self.cycle(**forward, desired_accel=.1)
+    self.assertFalse(held or plan.shouldStop)
+    self.assertGreater(plan.aTarget, 0.)

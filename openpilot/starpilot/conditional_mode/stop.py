@@ -63,7 +63,7 @@ class StopFrame:
   standstill_path_extent_m: float | None = None
   longitudinal_stop_active: bool = False
   longitudinal_launch_active: bool = False
-  gradual_launch_clear: bool = False
+  gradual_launch_accel: float | None = None
 
 
 @dataclass(frozen=True)
@@ -134,7 +134,7 @@ class StopLightDetector:
     self.approach_hold_until_s = 0.0
 
   def _commit(self, frame: StopFrame, horizon: float | None, model_stopping: bool | None, acquire: bool, dt: float) -> None:
-    if not frame.gradual_launch_clear:
+    if frame.gradual_launch_accel is None:
       self.gradual_clear_since_s = None
     if frame.pedal_override is True:
       self.committed = False
@@ -169,14 +169,15 @@ class StopLightDetector:
       clear_stationary_light = (launch_clear and self.standstill_reason == 'light' and
                                 frame.stop_sign_confirmed is False and frame.dashboard_stop_sign is False and
                                 frame.lead is not None and frame.lead.present is False)
-      if frame.gradual_launch_clear:
+      if frame.gradual_launch_accel is not None:
         self.commit_clear_since_s = None
         if not (clear and clear_stationary_light):
           self.gradual_clear_since_s = None
           return
         if self.gradual_clear_since_s is None:
           self.gradual_clear_since_s = frame.now_mono_s
-        if frame.now_mono_s - self.gradual_clear_since_s < 0.5:
+        # Confirm the forward path while acceleration builds to the release floor.
+        if frame.gradual_launch_accel < 0.1 or frame.now_mono_s - self.gradual_clear_since_s < 0.5:
           return
       if clear:
         if clear_stationary_light or (self.commit_clear_since_s is not None and
