@@ -1180,6 +1180,17 @@ FW_VERSIONS = {
       b'\xf1\x00PD__ SCC FNCUP      1.01 1.00 96400-G3000         ',
     ],
   },
+  CAR.HYUNDAI_I30_2026: {
+    (Ecu.fwdCamera, 0x7c4, None): [
+      b'\xf1\x00PD  MFC  AT EUR LHD 1.00 1.01 99211-G4600 251223',
+    ],
+    (Ecu.eps, 0x7d4, None): [
+      b'\xf1\x00PDe MDPS C 1.00 1.00 56300G4BB0  4P3EC100',
+    ],
+    (Ecu.fwdRadar, 0x7d0, None): [
+      b'\xf1\x00PDe_ RDR -----      1.00 1.01 99110-G4500         ',
+    ],
+  },
   CAR.HYUNDAI_ELANTRA_2021: {
     (Ecu.fwdRadar, 0x7d0, None): [
       b'\xf1\x00CN7_ SCC F-CUP      1.00 1.01 99110-AA000         ',

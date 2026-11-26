@@ -204,7 +204,8 @@ class CarController(CarControllerBase):
     if _projection is not None:
       _projection.begin(CC.actuators.torque, self.frame)
     actuators = CC.actuators
-    if self.CP.carFingerprint in (CAR.KIA_EV6_2025, CAR.HYUNDAI_KONA_EV_2023_NON_SCC) and self.CP.dashcamOnly:
+    if (self.CP.dashcamOnly and self.CP.carFingerprint in
+        (CAR.KIA_EV6_2025, CAR.HYUNDAI_KONA_EV_2023_NON_SCC, CAR.HYUNDAI_I30_2026)):
       return actuators.as_builder(), []
     hud_control = CC.hudControl
     # Card finalizes the AOL safety marker after CarInterface constructs us.
