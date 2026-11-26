@@ -1251,7 +1251,7 @@ static bool hyundai_kona_host_steering(void) {
 }
 
 static bool hyundai_kona_lfa_valid(const CANPacket_t *msg) {
-  return msg->fd && !msg->extended && (GET_LEN(msg) == 16U) &&
+  return !msg->extended && (GET_LEN(msg) == 16U) &&
          (hyundai_canfd_get_checksum(msg) == (hyundai_common_canfd_compute_checksum(msg) ^ 0x041DU));
 }
 
@@ -1277,7 +1277,7 @@ static bool hyundai_kona_camera_without_slot(const CANPacket_t *msg) {
 static bool hyundai_kona_camera_release_current(const CANPacket_t *msg, uint32_t now) {
   return (msg->bus == 2U) && hyundai_kona_output_seen && hyundai_kona_host_output &&
          hyundai_kona_camera_seen && !relay_malfunction && !safety_rx_checks_invalid && aol_rx_healthy() &&
-         !hyundai_kona_host_steering() && hyundai_kona_lfa_valid(msg) &&
+         !hyundai_kona_host_steering() && msg->fd && hyundai_kona_lfa_valid(msg) &&
          ((uint8_t)(msg->data[2] - hyundai_kona_output_counter) == 1U) &&
          ((uint8_t)(msg->data[2] - hyundai_kona_camera_counter) == 1U) &&
          (safety_get_ts_elapsed(now, hyundai_kona_camera_ts) <= 20000U);
@@ -1311,7 +1311,7 @@ static bool hyundai_kona_camera_output(const CANPacket_t *msg, CANPacket_t *outp
     const uint8_t delta = (uint8_t)(counter - hyundai_kona_camera_counter);
     const bool advancing = (delta > 0U) && (delta <= 127U);
     const bool consecutive = hyundai_kona_camera_seen && (delta == 1U) && (camera_age <= 20000U);
-    blocked = !hyundai_kona_lfa_valid(msg) || safety_rx_checks_invalid || !aol_rx_healthy() ||
+    blocked = !msg->fd || !hyundai_kona_lfa_valid(msg) || safety_rx_checks_invalid || !aol_rx_healthy() ||
               (hyundai_kona_camera_seen && (camera_age <= 50000U) && !advancing);
     if (!blocked) {
       hyundai_kona_camera_counter = counter;
@@ -1344,6 +1344,7 @@ static bool hyundai_kona_camera_output(const CANPacket_t *msg, CANPacket_t *outp
             candidate.data[5] = (candidate.data[5] & 0x01U) | (uint8_t)((raw & 0x7FU) << 1U);
             candidate.data[6] = (candidate.data[6] & 0xF0U) | (uint8_t)(raw >> 7U);
           }
+          candidate.fd = msg->fd;
           candidate.data[2] = counter;
           const uint16_t checksum = hyundai_common_canfd_compute_checksum(&candidate) ^ 0x041DU;
           candidate.data[0] = (uint8_t)checksum;
@@ -1461,7 +1462,7 @@ static bool hyundai_canfd_tx_hook(const CANPacket_t *msg) {
   if (hyundai_kona_idle_handoff && (msg->addr == 0x12AU)) {
     const uint32_t now = microsecond_timer_get();
     allowed = hyundai_kona_emitting && !safety_rx_checks_invalid && aol_rx_healthy() && hyundai_kona_host_steering() &&
-              hyundai_kona_lfa_valid(msg) && hyundai_kona_camera_seen &&
+              msg->fd && hyundai_kona_lfa_valid(msg) && hyundai_kona_camera_seen &&
               (safety_get_ts_elapsed(now, hyundai_kona_camera_ts) <= 50000U) &&
               (msg->data[2] == hyundai_kona_camera_counter) && hyundai_kona_output_ready(now, true, msg->data[2]);
   }

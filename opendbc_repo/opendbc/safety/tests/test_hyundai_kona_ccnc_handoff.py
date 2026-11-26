@@ -17,7 +17,7 @@ class TestHyundaiKonaCcncHandoff(unittest.TestCase):
 
   def packet(self, bus, body):
     packet = libsafety_py.make_CANPacket(0x12A, bus, bytes.fromhex(body))
-    packet[0].fd = 1
+    packet[0].fd = bus == 2
     return packet
 
   def test_handoff_is_debug_only_and_requires_exact_alternative_experience(self):
@@ -71,6 +71,9 @@ class TestHyundaiKonaCcncHandoff(unittest.TestCase):
       status.valid_quality_flag = True
       status.last_timestamp = 1_000_000
 
+    camera[0].fd = 0
+    self.assertEqual(self.forward(camera)[0], -1)
+    camera[0].fd = 1
     self.assertEqual(self.forward(camera)[:2], (0, False))
     self.assertEqual(self.forward(camera)[0], -1)
     corrupt = self.packet(2, 'a6770a1881001800000a000000900000')
@@ -88,11 +91,15 @@ class TestHyundaiKonaCcncHandoff(unittest.TestCase):
     host[0].data[0], host[0].data[1] = crc & 255, crc >> 8
     self.safety.set_timer(1_005_000)
     self.assertFalse(self.safety.safety_tx_hook(host))
+    host[0].data[0] ^= 1
+    self.assertFalse(self.safety.safety_stage_tx_hook(host))
+    host[0].data[0] ^= 1
     self.assertTrue(self.safety.safety_stage_tx_hook(host))
     self.safety.set_timer(1_010_000)
     match = self.packet(2, '5ce51500000108f0000a000000640000')
     bus, replaced, output = self.forward(match)
     self.assertEqual((bus, replaced, output[0].data[2]), (0, True, 21))
+    self.assertTrue(output[0].fd)
     self.assertEqual(output[0].data[7] & 0xF0, 0xF0)
 
     self.safety.set_controls_allowed(False)
