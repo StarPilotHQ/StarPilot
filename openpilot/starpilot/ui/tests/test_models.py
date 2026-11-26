@@ -126,7 +126,7 @@ class TestModelManager(unittest.TestCase):
     self.data = {"schemaVersion": 1, "models": [self.small, self.big, self.pending, self.missing], "isOnroad": False,
                  "activeSmallModel": "small", "activeBigModel": "big", "currentModel": "small", "downloading": False,
                  "capabilities": {"select": True, "download": True, "downloadAll": True, "favorites": True, "delete": True, "cancel": True,
-                                  "randomizer": True, "exclusions": True}}
+                                  "randomizer": True, "exclusions": True, "refresh": True}}
 
   def test_verified_profiles_and_pending_catalog_are_distinct(self):
     def picks(data, profile):
@@ -158,7 +158,8 @@ class TestModelManager(unittest.TestCase):
     self.assertFalse(model_action_allowed(self.data, "delete", self.big))
     self.assertTrue(model_action_allowed({**self.data, "activeBigModel": ""}, "delete", self.big))
     self.assertFalse(model_action_allowed({**self.data, "capabilities": {}}, "active", self.small, "small"))
-    moving = {**self.data, "isOnroad": True, "downloading": False}
+    moving = {**self.data, "isOnroad": True, "downloading": False,
+              "capabilities": self.data["capabilities"] | {"download": False, "downloadAll": False, "refresh": False}}
     self.assertTrue(model_action_allowed(moving, "active", self.small, "small"))
     self.assertTrue(model_action_allowed(moving, "active", self.big, "big"))
     self.assertFalse(model_action_allowed(moving | {"jetlinkBig": True}, "active", self.big, "big"))
@@ -324,9 +325,17 @@ class TestModelManager(unittest.TestCase):
       owner._action(page, "download", "missing")
       session.model_manager_action.assert_not_called()
       callback = confirm.call_args.args[2]
-      session.model_manager_snapshot.return_value = {**self.data, "isOnroad": True}
+      session.model_manager_snapshot.return_value = {**self.data, "isOnroad": True,
+                                                     "capabilities": self.data["capabilities"] | {"download": False}}
       callback()
       session.model_manager_action.assert_not_called()
+
+  def test_bench_download_capability_does_not_unlock_parked_model_changes(self):
+    bench = self.data | {"isOnroad": True}
+    self.assertTrue(model_action_allowed(bench, "download", self.missing))
+    self.assertTrue(model_action_allowed(bench, "download_all"))
+    self.assertTrue(model_action_allowed(bench, "refresh_manifest"))
+    self.assertFalse(model_action_allowed(bench, "delete", self.small))
 
   def test_randomizer_disables_manual_selection_but_keeps_favorites_independent(self):
     randomized = {**self.data, "randomizer": True}

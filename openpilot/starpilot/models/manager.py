@@ -354,12 +354,14 @@ def resolve_runtime(chestnut_available: bool, *, root: Path = ROOT, randomize: b
 
 class ModelManager:
   def __init__(self, *, root: Path = ROOT, parked: Callable[[], bool] | None = None,
-               gpu_present: Callable[[], bool] | None = None, opener=urlopen, jetlink=None, refresh_catalog: bool = False):
+               download_allowed: Callable[[], bool] | None = None, gpu_present: Callable[[], bool] | None = None,
+               opener=urlopen, jetlink=None, refresh_catalog: bool = False):
     self.root, self.opener = root, opener
     self.refresh_catalog = refresh_catalog
     self.last_refresh_attempt: float | None = None
     self.jetlink = jetlink
     self.parked = parked or (lambda: False)
+    self.download_allowed = download_allowed
     if gpu_present is None:
       from openpilot.selfdrive.modeld.helpers import chestnut_present
       gpu_present = chestnut_present
@@ -379,7 +381,7 @@ class ModelManager:
     self.verify_closed = False
 
   def _refresh_if_needed(self) -> None:
-    if not self.refresh_catalog or not self.parked():
+    if not self.refresh_catalog or not self._can_download():
       return
     now = time.monotonic()
     if self.last_refresh_attempt is not None and now - self.last_refresh_attempt < 300:
@@ -614,6 +616,7 @@ class ModelManager:
       from openpilot.starpilot.models.laboratory import configuration
       entries, prefs = catalog(self.root), preferences(self.root)
       parked, gpu = self.parked(), self.gpu_present()
+      downloads = parked or (self.download_allowed is not None and self.download_allowed())
       job = self._job_status()
       owner = self.jetlink_owner()
       jetlink = owner.snapshot()
@@ -648,13 +651,20 @@ class ModelManager:
               "downloading": job["downloading"], "refreshing": job["refreshing"], "progress": job.get("progress", ""),
               "downloadProgress": self._download_progress(job),
               "isOnroad": not parked, "gpuAvailable": gpu, "jetlink": jetlink,
-              "capabilities": {"configureLaboratory": not job["downloading"], "select": True, "download": parked,
-                               "downloadAll": parked, "cancel": True,
-                               "jetlink": parked, "refresh": parked, "favorites": True, "delete": parked, "randomizer": True, "exclusions": True}}
+              "capabilities": {"configureLaboratory": not job["downloading"], "select": True, "download": downloads,
+                               "downloadAll": downloads, "cancel": True,
+                               "jetlink": parked, "refresh": downloads, "favorites": True, "delete": parked, "randomizer": True, "exclusions": True}}
 
   def _require_parked(self) -> None:
     if not self.parked():
       raise ModelError("Turn the vehicle off before changing driving models")
+
+  def _can_download(self) -> bool:
+    return (self.download_allowed or self.parked)()
+
+  def _require_download_allowed(self) -> None:
+    if not self._can_download():
+      raise ModelError("Model downloads require confirmed offroad status")
 
   def action(self, action: str, payload: dict) -> dict:
     if not isinstance(payload, dict):
@@ -696,9 +706,8 @@ class ModelManager:
           saved.update(payload)
           atomic_json(self.root / "preferences.json", saved)
         return {**self.snapshot(), "message": "Model preferences saved"}
-      if action != "active":
-        self._require_parked()
       if action in ("download", "download_all", "refresh_manifest"):
+        self._require_download_allowed()
         if self.worker is not None and self.worker.is_alive():
           raise ModelError("A model download is already running")
         if action == "download" and (set(payload) - {"model", "allowGpuWithoutGpu", "variant"} or
@@ -717,7 +726,7 @@ class ModelManager:
             not self.gpu_present() and not payload.get("allowGpuWithoutGpu")):
           raise ModelError("Connect Chestnut or choose to download for later")
         with state_lock(self.root):
-          self._require_parked()
+          self._require_download_allowed()
           lock = (self.root / ".download.lock").open("a")
           try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -749,6 +758,8 @@ class ModelManager:
           self._finish_job(lock, True)
           raise
         return {"message": message}
+      if action != "active":
+        self._require_parked()
       if action == "active":
         job = self._job_status()
         if job["downloading"] and not job["refreshing"]:
@@ -816,6 +827,7 @@ class ModelManager:
   def _work(self, action: str, payload: dict, lock) -> None:
     failed = True
     try:
+      self._require_download_allowed()
       self._check_cancelled()
       self._publish_job(detail={"phase": "catalog"})
       self._refresh()
@@ -886,7 +898,7 @@ class ModelManager:
         raise ModelError("Model checksum did not match; download discarded")
       self._publish_job(detail={"phase": "installing"})
       with state_lock(self.root):
-        self._require_parked()
+        self._require_download_allowed()
         self._check_cancelled()
         os.replace(temp, destination)
       self.checked.pop(f"{mid}:{variant}", None)

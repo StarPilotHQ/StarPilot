@@ -92,6 +92,32 @@ class ModelManagerTest(unittest.TestCase):
   def model_status(self):
     return next(x for x in self.manager.snapshot()['models'] if x['value'] == 'gwm8223')
 
+  def test_bench_can_download_without_unlocking_parked_changes(self):
+    self.parked = False
+    self.manager.download_allowed = lambda: True
+    caps = self.manager.snapshot()['capabilities']
+    self.assertTrue(caps['download'] and caps['downloadAll'] and caps['refresh'])
+    self.assertFalse(caps['delete'] or caps['jetlink'])
+    with self.assertRaisesRegex(ModelError, "before changing driving models"):
+      self.manager.action('delete', {'model': 'gwm8223'})
+    self.download()
+    self.assertTrue(self.wait_for_check()['installed'])
+
+  def test_bench_authority_is_rechecked_before_publishing_the_artifact(self):
+    self.parked = False
+    offroad = True
+    self.manager.download_allowed = lambda: offroad
+    open_fixture = self.manager.opener
+    def opener(url, timeout):
+      nonlocal offroad
+      if url.endswith('chunk02of02'):
+        offroad = False
+      return open_fixture(url, timeout)
+    self.manager.opener = opener
+    self.download()
+    self.assertIn("confirmed offroad", self.manager.snapshot()['progress'])
+    self.assertFalse(self.wait_for_check()['installed'])
+
   def wait_for_check(self):
     deadline = time.monotonic() + 3
     while time.monotonic() < deadline:

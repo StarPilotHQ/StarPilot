@@ -88,7 +88,7 @@ def model_action_allowed(data: dict, action: str, model: dict | None = None, pro
                 "exclusion": "exclusions"}.get(action, action)
   if data.get("capabilities", {}).get(capability) is not True:
     return False
-  if data.get("isOnroad") is not False and action not in ("preferences", "cancel", "active"):
+  if data.get("isOnroad") is not False and action not in ("preferences", "cancel", "active", "download", "download_all", "refresh_manifest"):
     return False
   if action == "active":
     if profile == "big" and data.get("jetlinkBig") and data.get("isOnroad") is not False:
@@ -276,7 +276,7 @@ def _catalog_row(data: dict) -> FeatureRow:
   return FeatureRow("models:downloads", "Catalog", _catalog_summary(data), available=True,
                     actions=tuple((label, model_action_allowed(data, action)) for label, action in model_download_buttons(data)),
                     reason="Downloading" if data.get("downloading") else _plain(data.get("progress", "")) or
-                    ("Check for new models or get every missing one" if data.get("isOnroad") is False else OFFROAD))
+                    ("Check for new models or get every missing one" if data.get("capabilities", {}).get("refresh") else OFFROAD))
 
 
 def model_display_text(value: str) -> str:

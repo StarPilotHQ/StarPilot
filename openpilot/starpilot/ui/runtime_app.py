@@ -991,7 +991,7 @@ class StarShellSession(TeslaSpeedActions):
   def _model_manager(self):
     if getattr(self, 'model_manager', None) is None:
       from openpilot.starpilot.models.manager import ModelManager
-      self.model_manager = ModelManager(parked=self.confirmed_offroad, refresh_catalog=True)
+      self.model_manager = ModelManager(parked=self.confirmed_offroad, download_allowed=self.adapter.model_download_allowed, refresh_catalog=True)
     return self.model_manager
 
   def model_manager_snapshot(self, fresh: bool = False):

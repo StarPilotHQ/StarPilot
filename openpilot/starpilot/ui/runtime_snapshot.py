@@ -371,7 +371,7 @@ class RuntimeSnapshotAdapter:
     self._pair_failed = False
     self._replay_epoch: int | None = None
 
-  def _parked(self, ui: Any, pair: tuple[int, int, int] | None) -> bool:
+  def _parked(self, ui: Any, pair: tuple[int, int, int] | None, *, model_download: bool = False) -> bool:
     if host_parked():
       return not ui.started
     if pair is None:
@@ -400,7 +400,8 @@ class RuntimeSnapshotAdapter:
         int(sm.logMonoTime["pandaStates"]), int(sm.recv_time["pandaStates"] * 1e9),
         tuple(bool(p.ignitionLine or p.ignitionCan) for p in pandas),
       )
-      return fresh_offroad(evidence, now_mono_ns=mono_now, now_boot_ns=boot_now)
+      allow_bench = model_download and not pandas and ui.params.get_bool("IsOffroad") is True
+      return fresh_offroad(evidence, now_mono_ns=mono_now, now_boot_ns=boot_now, allow_bench=allow_bench)
     except (AttributeError, KeyError, TypeError, ValueError, OverflowError, OSError, RuntimeError):
       return False
 
@@ -412,6 +413,11 @@ class RuntimeSnapshotAdapter:
     if getattr(self.ui_state, "replay_clock", None) is not None:
       return False
     return self._parked(self.ui_state, _clock_pair(self._mono_clock, self._boot_clock))
+
+  def model_download_allowed(self) -> bool:
+    if getattr(self.ui_state, "replay_clock", None) is not None:
+      return False
+    return self._parked(self.ui_state, _clock_pair(self._mono_clock, self._boot_clock), model_download=True)
 
   def connectivity_allowed(self) -> bool:
     """Fresh effective offroad admission for connectivity setup, regardless of ignition."""

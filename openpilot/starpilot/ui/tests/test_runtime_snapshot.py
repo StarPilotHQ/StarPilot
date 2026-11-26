@@ -399,7 +399,38 @@ class TestRuntimeSnapshot(unittest.TestCase):
     ui.sm.replay_sample = ui.replay_sample
     adapter = NativeRuntimeSnapshotAdapter(ui)
     self.assertFalse(adapter.confirmed_offroad())
+    self.assertFalse(adapter.model_download_allowed())
     self.assertFalse(adapter.build(ShellMode.HOME).device.offroad)
+
+  def test_bench_download_requires_fresh_offroad_without_relaxing_other_actions(self):
+    ui = ui_fake()
+    ui.started = False
+    ui.sm['deviceState'].started = False
+    ui.params.values['IsOffroad'] = '1'
+    ui.sm.messages['pandaStates'] = []
+    ui.sm.seen['pandaStates'] = False
+    adapter = RuntimeSnapshotAdapter(ui)
+    self.assertFalse(adapter.confirmed_offroad())
+    self.assertTrue(adapter.model_download_allowed())
+    ui.params.values['IsOffroad'] = '0'
+    self.assertFalse(adapter.model_download_allowed())
+    ui.params.values['IsOffroad'] = '1'
+    ui.sm['deviceState'].started = True
+    self.assertFalse(adapter.model_download_allowed())
+    ui.sm['deviceState'].started = False
+    ui.sm.valid['deviceState'] = False
+    self.assertFalse(adapter.model_download_allowed())
+    ui.sm.valid['deviceState'] = True
+    ui.sm.put('pandaStates', [], age_ns=400_000_000)
+    self.assertFalse(adapter.model_download_allowed())
+    ui.sm.put('pandaStates', [])
+    self.assertTrue(adapter.model_download_allowed())
+    ui.sm.put('pandaStates', [NS(ignitionLine=False, ignitionCan=False)], age_ns=400_000_000)
+    self.assertFalse(adapter.model_download_allowed())
+    ui.sm.logMonoTime['deviceState'] -= 2_000_000_000
+    ui.sm.seen['pandaStates'] = False
+    ui.sm.messages['pandaStates'] = []
+    self.assertFalse(adapter.model_download_allowed())
 
   def test_replay_epoch_resets_projectors_and_saved_layout_cache(self):
     from openpilot.tools.replay.display_clock import ClockSample
