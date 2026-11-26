@@ -5,6 +5,7 @@ from collections import deque
 
 from openpilot.cereal import log
 from opendbc.car import structs
+from opendbc.car.honda.values import CAR as HONDA_CAR, HondaFlags
 from opendbc.car.hyundai.values import CAR, HyundaiFlags
 from opendbc.car.lateral import FRICTION_THRESHOLD, get_friction
 from opendbc.car.toyota import legacy_advert_filter
@@ -54,6 +55,9 @@ class LatControlTorque(LatControl):
       and not (CP.notCar or CP.passive or CP.dashcamOnly)
     )
     self.controller_mode = default_selection(CP).mode if controller_mode is None else ControllerMode(controller_mode)
+    self.accord_center_friction = (self.controller_mode == ControllerMode.STARPILOT and
+                                   CP.carFingerprint == HONDA_CAR.HONDA_ACCORD_9G and CP.openpilotLongitudinalControl and
+                                   bool(CP.flags & HondaFlags.GAS_INTERCEPTOR) and not CP.flags & HondaFlags.EPS_MODIFIED)
     self.sienna_center_friction = (self.controller_mode == ControllerMode.STANDARD and
                                   CP.carFingerprint == TOYOTA_CAR.TOYOTA_SIENNA and legacy_advert_filter.enabled(CP))
     self.controller_policy = policy_for(CP)
@@ -107,6 +111,10 @@ class LatControlTorque(LatControl):
       speed_weight = np.interp(CS.vEgo * CV.MS_TO_MPH, [34., 39., 50., 56.], [0., 1., 1., 0.])
       center_weight = np.interp(abs(setpoint), [0.22, 0.58], [1., 0.])
       friction *= 1.0 - 0.5 * speed_weight * center_weight
+    if self.accord_center_friction and not CS.steeringPressed:
+      speed_weight = np.interp(CS.vEgo * CV.MS_TO_MPH, [50., 58.], [0., 1.])
+      center_weight = np.interp(abs(setpoint), [0.25, 0.60], [1., 0.])
+      friction *= 1.0 - 0.35 * speed_weight * center_weight
     return friction
 
   def update(self, active, CS, VM, params, steer_limited_by_safety, desired_curvature, curvature_limited, lat_delay):
