@@ -20,6 +20,7 @@ static bool blended_aol_claimed = false;
 static bool blended_aol_session = false;
 static bool blended_aol_request_seen = false;
 static bool blended_aol_brake_continuation = false;
+static bool blended_aol_stock_continuation = false;
 static bool blended_aol_idle_owned[2] = {false, false};
 static bool blended_aol_neutral[3] = {false, false, false};
 static bool blended_aol_pressed[3] = {false, false, false};
@@ -47,6 +48,7 @@ static void blended_aol_clear(void) {
   blended_aol_session = false;
   blended_aol_request_seen = false;
   blended_aol_brake_continuation = false;
+  blended_aol_stock_continuation = false;
   blended_aol_idle_owned[0] = false;
   blended_aol_idle_owned[1] = false;
   blended_aol_token_ts = 0U;
@@ -109,20 +111,33 @@ static uint8_t blended_aol_request_mask(void) {
   return result;
 }
 
+static bool blended_aol_main_current(uint32_t now) {
+  return blended_aol_main_seen && blended_aol_main &&
+    (safety_get_ts_elapsed(now, blended_aol_main_ts) <= 100000U);
+}
+
 static uint8_t blended_aol_permission_mask(void) {
   uint8_t result = 0U;
+  const uint32_t now = microsecond_timer_get();
   const bool source_current = (blended_aol_token_source < 3U) &&
-    (safety_get_ts_elapsed(microsecond_timer_get(), blended_aol_source_ts[blended_aol_token_source]) <= 300000U);
+    (safety_get_ts_elapsed(now, blended_aol_source_ts[blended_aol_token_source]) <= 300000U);
   if (!aol_rx_healthy() || (blended_aol_token && !source_current)) {
     blended_aol_clear();
-  } else if (((blended_aol_request_mask() & 1U) != 0U) && (controls_allowed || blended_aol_token || blended_aol_brake_continuation)) {
-    result = 1U;
+  } else if ((blended_aol_request_mask() & 1U) != 0U) {
+    const bool stock_main = blended_aol_hda2 && !blended_aol_long && blended_aol_main_current(now);
+    const bool stock_buttons_current = (blended_aol_source_ts[0] != 0U) &&
+      (safety_get_ts_elapsed(now, blended_aol_source_ts[0]) <= 300000U);
+    if (stock_main && stock_buttons_current && controls_allowed && cruise_engaged_prev) {
+      blended_aol_stock_continuation = true;
+    }
+    if (controls_allowed || blended_aol_token || blended_aol_brake_continuation ||
+        (blended_aol_stock_continuation && stock_main && stock_buttons_current)) {
+      result = 1U;
+    }
   } else {
   }
   if (blended_aol_long) {
-    const bool main_current = blended_aol_main_seen && blended_aol_main &&
-      (safety_get_ts_elapsed(microsecond_timer_get(), blended_aol_main_ts) <= 100000U);
-    if (!main_current) {
+    if (!blended_aol_main_current(now)) {
       blended_aol_clear();
       result = 0U;
     } else if (aol_rx_healthy() && controls_allowed && !brake_pressed && !gas_pressed &&
@@ -153,7 +168,17 @@ static void blended_aol_rx(const CANPacket_t *msg) {
   if (blended_aol_enabled) {
     const unsigned int pt = blended_aol_hda2 ? 1U : 0U;
     const uint32_t now = microsecond_timer_get();
-    if (blended_aol_hda2 && !blended_aol_long && msg_matches(msg, 0x394U, pt, 8U)) {
+    const bool stock_hda2 = blended_aol_hda2 && !blended_aol_long;
+    if (stock_hda2 && msg_matches(msg, 0x421U, pt, 8U)) {
+      const bool main = GET_BIT(msg, 27U);
+      if (blended_aol_main && !main) {
+        blended_aol_clear();
+      }
+      blended_aol_main_seen = true;
+      blended_aol_main = main;
+      blended_aol_main_ts = now;
+    }
+    if (stock_hda2 && msg_matches(msg, 0x394U, pt, 8U)) {
       const bool brake = ((msg->data[5] >> 5U) & 3U) == 2U;
       if (brake && !brake_pressed && controls_allowed && blended_aol_owned[0] &&
           (safety_get_ts_elapsed(now, blended_aol_tx_ts[0]) <= AOL_HOST_REQUEST_TIMEOUT_US) &&
@@ -174,16 +199,14 @@ static void blended_aol_rx(const CANPacket_t *msg) {
     bool pressed = false;
     if ((msg->bus == pt) && (msg->addr == 0x4F1U) && (GET_LEN(msg) == 4U)) {
       if ((msg->data[0] & 7U) == 4U) {
-        // Mixed LONG Pause/Resume still clears ordinary/LONG authority in the
-        // cruise hook. Retain only an already claimed, current lateral token.
-        // CANCEL cannot arm, renew a request/gesture lease, or clear an inhibit.
         const bool source_current = (blended_aol_token_source < 3U) &&
           (safety_get_ts_elapsed(now, blended_aol_source_ts[blended_aol_token_source]) <= 300000U);
-        const bool retain_lateral = blended_aol_long && !GET_BIT(msg, 3U) &&
-          blended_aol_token && blended_aol_claimed && blended_aol_session && heartbeat_engaged &&
-          blended_aol_main_seen && blended_aol_main &&
-          (safety_get_ts_elapsed(now, blended_aol_main_ts) <= 100000U) && source_current &&
-          blended_aol_request_seen && ((aol_host_axis_mask & 1U) != 0U) &&
+        const bool gesture_owned = blended_aol_token && blended_aol_claimed && source_current &&
+          ((blended_aol_long && blended_aol_main_current(now)) || stock_hda2);
+        const bool stock_owned = stock_hda2 && blended_aol_stock_continuation && blended_aol_main_current(now) &&
+          (blended_aol_source_ts[0] != 0U) && (safety_get_ts_elapsed(now, blended_aol_source_ts[0]) <= 300000U);
+        const bool retain_lateral = !GET_BIT(msg, 3U) && (gesture_owned || stock_owned) &&
+          blended_aol_session && heartbeat_engaged && blended_aol_request_seen && ((aol_host_axis_mask & 1U) != 0U) &&
           (safety_get_ts_elapsed(now, aol_host_request_ts) <= AOL_HOST_REQUEST_TIMEOUT_US) &&
           aol_rx_healthy() && !relay_malfunction && !safety_rx_checks_invalid;
         if (!retain_lateral) {

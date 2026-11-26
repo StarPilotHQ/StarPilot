@@ -265,3 +265,51 @@ class TestHyundaiBlendedStock(unittest.TestCase):
     self.assertEqual(self.safety.safety_fwd_hook(2, 0x50), 0)
     self.safety.set_relay_malfunction(True)
     self.assertEqual(self.safety.safety_fwd_hook(2, 0x50), -1)
+
+  def test_hda2_stock_engagement_retains_lateral_only_through_cancel_and_brake(self):
+    for disarm in ('main', 'main_and_cancel', 'lease', 'relay', 'native_rx'):
+      with self.subTest(disarm=disarm):
+        self._start_hda2_aol()
+        self.safety.aol_set_host_request(3)
+        self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+        def button(value):
+          return common.make_msg(1, 0x4F1, dat=bytes([value, 0, 0, 0]))
+
+        def scc(counter, main, active):
+          dat = bytearray(8)
+          dat[1], dat[3] = counter << 4, (int(main) << 3) | (int(active) << 4)
+          return common.make_msg(1, 0x421, dat=bytes(dat))
+
+        self.assertTrue(self.safety.safety_rx_hook(button(4)))
+        self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+        self.assertTrue(self.safety.safety_rx_hook(button(2)))
+        self.assertTrue(self.safety.safety_rx_hook(scc(0, True, True)))
+        self.safety.aol_set_host_request(3)
+        self.assertTrue(self.safety.get_controls_allowed())
+        self.assertEqual(self.safety.aol_get_permission_mask(), 1)
+        self.assertTrue(self.safety.safety_tx_hook(self.steer(3)))
+
+        self._refresh_hda2_aol_rx(1_010_000)
+        self.assertTrue(self.safety.safety_rx_hook(button(4)))
+        self.assertTrue(self.safety.safety_rx_hook(scc(1, True, False)))
+        self.assertFalse(self.safety.get_controls_allowed())
+        self.assertEqual(self.safety.aol_get_permission_mask(), 1)
+        self.assertTrue(self.safety.safety_tx_hook(self.steer(3)))
+        self.assertFalse(self.safety.safety_tx_hook(common.make_msg(1, 0x421)))
+        brake = common.make_msg(1, 0x394, dat=bytes.fromhex('036c000003449798'))
+        self.assertTrue(self.safety.safety_rx_hook(brake))
+        self.assertEqual(self.safety.aol_get_permission_mask(), 1)
+
+        if disarm == 'main':
+          self.assertTrue(self.safety.safety_rx_hook(scc(2, False, False)))
+        elif disarm == 'main_and_cancel':
+          self.assertTrue(self.safety.safety_rx_hook(button(12)))
+        elif disarm == 'lease':
+          self._refresh_hda2_aol_rx(1_400_000)
+        elif disarm == 'relay':
+          self.safety.set_relay_malfunction(True)
+        else:
+          self.safety.set_timer(2_000_000)
+          self.safety.safety_tick()
+        self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+        self.assertFalse(self.safety.safety_tx_hook(self.steer(3)))

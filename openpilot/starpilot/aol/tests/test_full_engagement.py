@@ -240,3 +240,45 @@ def test_classic_hkg_pending_gas_engagement_cannot_replay_after_withdrawal(facto
   cs.gearShifter, cs.cruiseState.available, cs.buttonEvents = 'drive', True, []
   observe(owner, cs, 4)
   assert not owner.allowed_latch
+
+
+@pytest.mark.parametrize('entry', ['mainCruise', 'setCruise'])
+@pytest.mark.parametrize('cancel_action', [0, AOL_TOGGLE])
+def test_mixed_hda2_arms_from_engagement_and_preserves_only_unassigned_cancel(entry, cancel_action):
+  from opendbc.car.hyundai.values import CAR
+  from opendbc.car import gen_empty_fingerprint
+  from opendbc.car.hyundai.interface import CarInterface
+  from openpilot.starpilot.car.hyundai.aol import create_intent
+
+  observed = gen_empty_fingerprint()
+  observed[2][0x50] = 16
+  cp = CarInterface.get_params(CAR.HYUNDAI_PALISADE_2023, observed, [], False, False, False)
+  assert cp.safetyConfigs[0].safetyParam == 0x2010
+  settings = replace(SETTINGS, main_action=0, cancel_actions=(cancel_action, 0, 0))
+  owner, cs = create_intent(cp, settings), state()
+  owner.update(cs, now_ns=1)
+  observe(owner, cs, 1, enabled=False, active=False)
+  cs.buttonEvents = [car.CarState.ButtonEvent(type=entry, pressed=True)]
+  owner.update(cs, now_ns=2)
+  cs.buttonEvents = [car.CarState.ButtonEvent(type=entry, pressed=False)]
+  owner.update(cs, now_ns=3)
+  cs.buttonEvents = []
+  cs.cruiseState.enabled = True
+  observe(owner, cs, 4)
+  assert owner.output(cs)[0]
+  cs.brakePressed = True
+  owner.update(cs, now_ns=5)
+  assert owner.output(cs)[0]
+  cs.brakePressed = False
+  cs.buttonEvents = [car.CarState.ButtonEvent(type='cancel', pressed=True)]
+  owner.update(cs, now_ns=6, standard_enabled=True)
+  cs.cruiseState.enabled = False
+  observe(owner, cs, 6, enabled=False, active=False)
+  assert owner.output(cs)[0] is (cancel_action == 0)
+  assert not owner.pause_longitudinal
+  cs.buttonEvents = [car.CarState.ButtonEvent(type='mainCruise', pressed=True)]
+  if not cancel_action:
+    owner.update(cs, now_ns=7)
+    assert not owner.output(cs)[0]
+  owner.update(cs, now_ns=8, fault_active=True)
+  assert not owner.output(cs)[0]

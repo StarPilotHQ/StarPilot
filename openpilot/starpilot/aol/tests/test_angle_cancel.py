@@ -3,7 +3,8 @@ from dataclasses import replace
 
 import pytest
 
-from opendbc.car import structs
+from opendbc.car import gen_empty_fingerprint, structs
+from opendbc.car.hyundai.interface import CarInterface
 from opendbc.car.hyundai.canfd_angle_aol import MODELS
 from opendbc.car.hyundai.tests.test_stock_angle_aol import source_profile
 from opendbc.car.hyundai.values import CAR
@@ -63,11 +64,17 @@ def test_angle_cancel_mapping_preserves_saved_action_semantics(identity, action)
   assert owner.settings == settings
 
 
-@pytest.mark.parametrize('identity', sorted(MODELS))
+@pytest.mark.parametrize('identity', [*sorted(MODELS), CAR.HYUNDAI_PALISADE_2023])
 @pytest.mark.parametrize('restriction', ['none', 'unclaimed', 'mapped_cancel', 'paused', 'old_source', 'old_native',
                                        'wrong_session', 'foreign_inventory', 'rx_invalid', 'lat_denied', 'no_cancel'])
 def test_angle_cancel_preservation_requires_current_claim_and_native_inventory(identity, restriction):
-  cp = source_profile(CAR(identity))
+  if identity == CAR.HYUNDAI_PALISADE_2023:
+    observed = gen_empty_fingerprint()
+    observed[2][0x50] = 16
+    cp = CarInterface.get_params(identity, observed, [], False, False, False)
+    assert cp.safetyConfigs[0].safetyParam == 0x2010
+  else:
+    cp = source_profile(CAR(identity))
   cp.alternativeExperience = 32
   now, source = 10_000_000_000, 9_990_000_000
   settings = AolSettings(True, 0., 9, 0, (0, 0, 0), (0, 0, 0))

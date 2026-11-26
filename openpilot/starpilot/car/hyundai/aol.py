@@ -294,6 +294,10 @@ def native_latch_rejected(CP, native) -> bool:
   )
 
 
+def _mixed_hda2_stock(CP, *, marked_only=False):
+  return qualified_blended_stock(CP, marked_only=marked_only) and bool(CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG)
+
+
 def create_intent(CP, settings):
   from opendbc.car.hyundai.ev6_aol import qualified as ev6_qualified
   if CP.carFingerprint == HyundaiCAR.KIA_EV6 and qualified_canfd_stock(CP):
@@ -318,7 +322,8 @@ def create_intent(CP, settings):
 
   independent_cruise_buttons = independent_cruise_buttons_supported(CP)
   return AolCardIntent(settings, explicit_latch=policy_for(CP).explicit_latch,
-                       independent_cruise_buttons=independent_cruise_buttons)
+                       independent_cruise_buttons=independent_cruise_buttons,
+                       preserve_unassigned_cancel=_mixed_hda2_stock(CP))
 
 
 def ordinary_axis_request_allowed(CP, CS) -> bool:
@@ -428,7 +433,7 @@ def physical_cancel_lateral_allowed(CP, CS, intent, native, *, settings, previou
         not any(e.type == car.CarState.ButtonEvent.Type.cancel for e in CS.buttonEvents)):
       return False
     ev6_long = CP.carFingerprint == HyundaiCAR.KIA_EV6 and qualified_canfd_long(CP, marked_only=True)
-    return bool((ev6_long or qualified_blended_alpha(CP, marked_only=True) or
+    return bool((ev6_long or _mixed_hda2_stock(CP, marked_only=True) or qualified_blended_alpha(CP, marked_only=True) or
                  independent_cruise_buttons_supported(CP, marked_only=True)) and
       previous is not None and previous.lateral_active and previous.native_acknowledged and
       intent is not None and intent.settingsQualified and intent.allowedLatch and intent.lateralArmed and
