@@ -84,12 +84,19 @@ def temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
   honda_brake_release = bool(honda_eps and not cs.brakePressed and
     0 < event_ns == self.temporary_eps_event_ns == getattr(self, 'honda_eps_brake_event_ns', 0) and
     0 < getattr(self, 'honda_eps_source_ns', 0) <= now_ns <= self.honda_eps_source_ns + SAFETY_MAX_AGE_NS)
+  from opendbc.car.mazda.stock_aol import qualified as mazda_qualified
+  mazda_eps = bool(mazda_qualified(cp, marked_only=True) and self.lateral_only_baseline and
+    cs.cruiseState.available and cs.gearShifter == structs.CarState.GearShifter.drive and
+    not cs.regenBraking and not cs.doorOpen and not cs.accFaulted and not cs.vehicleSensorsInvalid and
+    not cs.steeringDisengage and not cs.buttonEvents and
+    not axis.desiredLongitudinal and not axis.longitudinalActive)
   # Seatbelt blocks normal LONG, not admitted LAT intent. Keep warnings/native/output checks.
   events = tuple(event for event in sm['onroadEvents'] if not (
     honda_eps and _fit_cruise_minimum_event(cp, cs, event)) and not (
     stock_eps_user and event.name == stock_user and event.userDisable and
     not event.softDisable and not event.immediateDisable) and not (
-    (subaru_brake or honda_eps and (cs.brakePressed or honda_brake_release)) and
+    (subaru_brake or honda_eps and (cs.brakePressed or honda_brake_release) or
+     mazda_eps and cs.brakePressed and not cs.gasPressed) and
     event.name == log.OnroadEvent.EventName.pedalPressed and event.userDisable and
     not event.softDisable and not event.immediateDisable) and not (
     self.lateral_only_baseline and cs.seatbeltUnlatched and not axis.desiredLongitudinal and
@@ -142,15 +149,7 @@ def temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, 
   stock_ford_eps = bool(ford_temporary_eps_restriction(cp, cs) and
     all(not event.userDisable or event.name in (log.OnroadEvent.EventName.pcmDisable,
         log.OnroadEvent.EventName.pedalPressed) and not event.softDisable and not event.immediateDisable for event in events))
-  from opendbc.car.mazda.stock_aol import qualified as mazda_qualified
-  stock_mazda_eps = bool(mazda_qualified(cp, marked_only=True) and
-    cs.cruiseState.available and not cs.cruiseState.enabled and
-    cs.gearShifter == structs.CarState.GearShifter.drive and
-    not cs.brakePressed and not cs.regenBraking and not cs.gasPressed and
-    not cs.doorOpen and not cs.accFaulted and
-    not cs.vehicleSensorsInvalid and not cs.steeringDisengage and not cs.buttonEvents and
-    all(not event.userDisable or event.name == log.OnroadEvent.EventName.pcmDisable and
-        not event.softDisable and not event.immediateDisable for event in events))
+  stock_mazda_eps = bool(mazda_eps and all(not event.userDisable for event in events))
   from opendbc.car.rivian.stock_aol import temporary_eps_restriction as rivian_temporary_eps_restriction
   stock_rivian_eps = bool(rivian_temporary_eps_restriction(cp, cs) and
     all(not event.userDisable or event.name == log.OnroadEvent.EventName.pcmDisable and

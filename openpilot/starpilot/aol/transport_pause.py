@@ -437,7 +437,7 @@ class TransportPauseFeedback:
       all(not event.immediateDisable and
           (not event.softDisable or event.name == log.OnroadEvent.EventName.steerTempUnavailable) for event in events))
     users = [event for event in events if event.userDisable]
-    if not (temporary or eps_recovery or users):
+    if not (temporary or eps_recovery or users or cp.brand == 'mazda' and getattr(self, 'temporary_eps_event_ns', 0)):
       return False
     from opendbc.car.chrysler.aol_contract import qualified as chrysler_qualified
     from openpilot.starpilot.car.nissan.aol import qualified as nissan_qualified
@@ -450,6 +450,25 @@ class TransportPauseFeedback:
     from opendbc.car.hyundai.canfd_stock_aol import qualified as stock_canfd_qualified
     from opendbc.car.hyundai.classic_scc_aol import qualified as stock_classic_qualified
 
+    previous = self.signature
+    eps_event = getattr(self, 'temporary_eps_event_ns', 0)
+    mazda_eps_recovery = bool(mazda_qualified(cp, marked_only=True) and self.lateral_only_baseline and
+      not cs.steerFaultTemporary and not cs.doorOpen and not cs.seatbeltUnlatched and not cs.vehicleSensorsInvalid and
+      not cs.regenBraking and not cs.buttonEvents and cs.cruiseState.available and
+      cs.gearShifter == 'drive' and str(axis.faultReason) == 'none' and str(axis.mode) == 'off' and
+      not axis.lateralActive and not axis.desiredLongitudinal and not axis.longitudinalActive and
+      previous is not None and previous[5] == 'none' and not previous[9] and not previous[10] and not previous[12] and
+      0 < eps_event <= previous[6] <= axis.faultEventMonoTime <= stamp <= now_ns <= eps_event + SAFETY_MAX_AGE_NS and
+      axis.sourceCarStateMonoTime >= previous[8] and stamp >= previous[2] and
+      (not axis.desiredLateral or axis.nativeAcknowledged) and
+      (int(sm.logMonoTime['onroadEvents']) == axis.faultEventMonoTime or
+       axis.faultEventMonoTime == eps_event < int(sm.logMonoTime['onroadEvents'])) and
+      all(not e.immediateDisable and
+          (not e.softDisable or e.name == log.OnroadEvent.EventName.steerTempUnavailable) and
+          (not e.userDisable or not e.softDisable and (
+            e.name == log.OnroadEvent.EventName.pcmDisable and not cs.cruiseState.enabled or
+            e.name == log.OnroadEvent.EventName.pedalPressed and cs.brakePressed and not cs.gasPressed))
+          for e in events))
     # PCM-off is not AOL-off: retain intent for location/EPS recovery;
     recovering_user = bool((location_fault or eps_recovery) and users)
     stock_angle = recovering_user and cp.brand == 'hyundai' and angle_qualified(cp, marked_only=True)
@@ -487,7 +506,7 @@ class TransportPauseFeedback:
       (cs.brakePressed or gm_physical_pedal_withdrawal(cp, cs)) and users and all(
       event.name == log.OnroadEvent.EventName.pedalPressed and
       not event.softDisable and not event.immediateDisable for event in users) and not faults)
-    if axis.longitudinalActive and not location_fault or not (temporary or eps_recovery or pedal):
+    if axis.longitudinalActive and not location_fault or not (temporary or eps_recovery or mazda_eps_recovery or pedal):
       return False
     if (not latched or self.failed or self.paused or self.pending_event or self.retention_started_ns or
       not self.session or str(axis.sessionId) != self.session or
@@ -496,7 +515,7 @@ class TransportPauseFeedback:
       int(getattr(axis, 'intentIntegrityEpoch', 0)) != self.availability_epoch or
       not self.lateral_inventory or not self.lateral_baseline_ns or
       not cs.canValid or cs.canTimeout or cs.steerFaultPermanent or cs.accFaulted or cs.steerFaultTemporary or
-      users and not (pedal or stock_temporary_user) or str(axis.faultReason) not in ('none', 'critical') or
+      users and not (pedal or stock_temporary_user or mazda_eps_recovery) or str(axis.faultReason) not in ('none', 'critical') or
       not 0 < self.lateral_source_ns <= axis.sourceCarStateMonoTime <= stamp <= now_ns or
       now_ns - axis.sourceCarStateMonoTime > AXIS_MAX_AGE_NS or
       not sm.seen['onroadEvents'] or not sm.valid['onroadEvents'] or not sm.alive['onroadEvents']):
@@ -512,15 +531,17 @@ class TransportPauseFeedback:
       0 < axis.faultEventMonoTime < event_ns and now_ns - event_ns <= AXIS_MAX_AGE_NS)
     if not (event_first or temporary and axis.faultEventMonoTime == event_ns and
       (withdrawn or str(axis.faultReason) == 'none' and axis.desiredLateral and
-       axis.lateralActive and axis.nativeAcknowledged) or eps_recovery and withdrawn or
+       axis.lateralActive and axis.nativeAcknowledged) or eps_recovery and withdrawn or mazda_eps_recovery or
       pedal and str(axis.faultReason) == 'none' and axis.desiredLateral and axis.lateralActive and
       not axis.desiredLongitudinal and not axis.longitudinalActive and
       axis.nativeAcknowledged and axis.faultEventMonoTime == event_ns):
       return False
-    native = _configured_transport_native(sm, cp, self.session, now_ns, require_longitudinal=not pedal)
+    native = _configured_transport_native(sm, cp, self.session, now_ns, require_longitudinal=not pedal,
+                                          allow_restricted_lateral=mazda_eps_recovery)
     if (native is None or not native.pandaInventory or native.observedMonoTime < self.lateral_native_ns or
         (native.pandaSerial, tuple(p.hardwareSerial for p in native.pandaInventory)) != self.lateral_inventory or
-        native.requestedLateral and not native.lateralAllowed or
+        mazda_eps_recovery and (native.requestedLongitudinal or native.longitudinalAllowed) or
+        native.requestedLateral and not native.lateralAllowed and not mazda_eps_recovery or
         pedal and not (native.requestedLateral and native.lateralAllowed) or
         axis.lateralActive and not (native.requestedLateral and native.lateralAllowed) or
         axis.longitudinalActive and not (native.requestedLongitudinal and native.longitudinalAllowed)):

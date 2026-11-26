@@ -236,6 +236,15 @@ def user_soft_disable_alert(alert_text_2: str) -> AlertCallbackType:
     return UserSoftDisableAlert(alert_text_2)
   return func
 
+def temporary_steering_advisory(CP, CS, sm, metric, soft_disable_time, personality) -> Alert:
+  from opendbc.car.mazda.stock_aol import qualified as mazda_aol_qualified
+
+  mazda_aol = mazda_aol_qualified(CP, marked_only=True)
+  return Alert("Steering Assist Temporarily Unavailable", "", AlertStatus.userPrompt, AlertSize.small,
+               Priority.LOW, VisualAlert.none if mazda_aol else VisualAlert.steerRequired,
+               AudibleAlert.none if mazda_aol else AudibleAlert.prompt, 1.8)
+
+
 def startup_master_alert(CP: car.CarParams, CS: car.CarState, sm: messaging.SubMaster, metric: bool, soft_disable_time: int, personality) -> Alert:
   branch = get_short_branch()  # Ensure get_short_branch is cached to avoid lags on startup
   if "REPLAY" in os.environ:
@@ -511,11 +520,7 @@ EVENTS: dict[int, dict[str, Alert | AlertCallbackType]] = {
   # ********** events only containing alerts that display while engaged **********
 
   EventName.steerTempUnavailableSilent: {
-    ET.WARNING: Alert(
-      "Steering Assist Temporarily Unavailable",
-      "",
-      AlertStatus.userPrompt, AlertSize.small,
-      Priority.LOW, VisualAlert.steerRequired, AudibleAlert.prompt, 1.8),
+    ET.WARNING: temporary_steering_advisory,
   },
 
   EventName.driverDistracted1: {
