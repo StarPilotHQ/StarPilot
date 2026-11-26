@@ -89,8 +89,19 @@ class AvailabilityPause:
         latest = companion.latest
         raw = latest[2] if latest is not None and latest[1] else None
         verified = companion.verified_sm_projection
+        sm_stamp = int(sm.logMonoTime['aolIntentWire'])
         sm_intent = transport.decode_intent(sm['aolIntentWire'])
-        projection = bool(verified is not None and int(sm.logMonoTime['aolIntentWire']) == verified[0] and
+        if self.active and latest is not None and 0 < sm_stamp < latest[0] and cp.brand == 'volkswagen':
+          from opendbc.car import structs
+          from opendbc.car.volkswagen.long_aol import qualified as mqb_long_qualified
+          if cp.transmissionType == structs.CarParams.TransmissionType.manual and mqb_long_qualified(cp, marked_only=True):
+            # Card can publish the next raw intent before its matching carState wakes Selfdrive.
+            # The exact older projection can only continue an existing off-output pause.
+            prior = companion.raw_projections.get(sm_stamp)
+            if (prior is not None and prior[0] == sm_intent and sm_intent is not None and
+                0 < sm_intent.observedMonoTime <= now_ns <= sm_intent.validUntilMonoTime):
+              verified = (sm_stamp, *prior)
+        projection = bool(verified is not None and sm_stamp == verified[0] and
           verified[2] == companion.integrity_epoch and verified[3] == companion.session and
           sm_intent == verified[1] and 0 < verified[0] <= now_ns <= verified[0] + transport.SAFETY_MAX_AGE_NS and
           sm_intent.settingsQualified and sm_intent.allowedLatch and sm_intent.lateralArmed and
