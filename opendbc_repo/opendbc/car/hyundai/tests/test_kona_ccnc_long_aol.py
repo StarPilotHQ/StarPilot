@@ -253,12 +253,19 @@ def test_kona_handoff_cruise_main_display_follows_star_long_engagement(handoff, 
   ci.CS.ccnc_162 = {'FAULT_LSS': 2, 'FAULT_FCA': 1}
   command = structs.CarControl(enabled=enabled, latActive=True, longActive=enabled)
   _, packets = ci.apply(command.as_reader(), 1_000_000_000)
-  parser = CANParser('hyundai_canfd_generated', [('CCNC_0x161', 0), ('CCNC_0x162', 0)], 0)
+  parser = CANParser('hyundai_canfd_generated', [('CCNC_0x161', 0), ('CCNC_0x162', 0), ('SCC_CONTROL', 0)], 0)
+  # The display runs at 20 Hz and SCC at 50 Hz.
+  _, scc_packets = ci.apply(command.as_reader(), 1_010_000_000)
   assert {0x161, 0x162} <= parser.update((1_000_000_000, packets))
+  assert 0x1A0 in parser.update((1_010_000_000, scc_packets))
+  assert parser.vl['SCC_CONTROL']['MainMode_ACC'] == int(not handoff or enabled)
   display = parser.vl['CCNC_0x161']
   assert display['SETSPEED_HUD'] == hud_mode
   assert display['LFA_ICON'] == 2
+  if handoff:
+    assert display['SETSPEED'] == hud_mode
   if hud_mode == 0:
+    assert display['DISTANCE'] == 0
     assert display['SETSPEED_SPEED'] == 255
     assert display['DISTANCE_SPACING'] == 0
   assert parser.vl['CCNC_0x162']['FAULT_LSS'] == 2
@@ -267,8 +274,11 @@ def test_kona_handoff_cruise_main_display_follows_star_long_engagement(handoff, 
 
 @pytest.mark.parametrize('speed,accel,previous,standstill,lead,word,cap', [
   (0.3, -0.27, -0.26, False, False, 0x1C0C, 1.2),
-  (0.5, -0.27, -0.26, False, False, 0x1C0C, 5.0),
-  (0.3, -0.80, -0.79, False, False, 0x1C0C, 5.0),
+  (2.2, -0.67, -0.66, False, False, 0x1C0C, 1.2),
+  (2.4, -1.13, -1.12, False, False, 0x1C0C, 1.2),
+  (1.2, -1.80, -1.78, False, False, 0x1C0C, 1.2),
+  (3.0, -0.60, -0.59, False, False, 0x1C0C, 5.0),
+  (0.3, -2.00, -1.99, False, False, 0x1C0C, 5.0),
   (0.3, -0.45, -0.20, False, False, 0x1C0C, 5.0),
   (0.1, -0.27, -0.26, True, False, 0x1C0C, 5.0),
   (0.3, -0.27, -0.26, False, True, 0x1C0C, 5.0),

@@ -635,7 +635,8 @@ class CarController(CarControllerBase):
                                                     CC.enabled, hud_control, CC.leftBlinker, CC.rightBlinker,
                                                     CS.ccnc_161.copy(), CS.ccnc_162.copy(), CS.ccnc_1b5 if support_current else None,
                                                     CS.is_metric, CS.out, show_cruise, CC.latActive,
-                                                    owned_lfa_status=(stock_ccnc_owned if self.ccnc_fault_ownership_required else None)))
+                                                    owned_lfa_status=(stock_ccnc_owned if self.ccnc_fault_ownership_required else None),
+                                                    owned_cruise_status=kona_handoff))
           self.last_ccnc_161_ts_ns = CS.ccnc_161_ts_ns
           self.last_ccnc_162_ts_ns = CS.ccnc_162_ts_ns
       else:
@@ -695,10 +696,11 @@ class CarController(CarControllerBase):
           lead = (self.torque_ev_lead_inputs.update(CS.torque_ev_camera_lead, hud_control.leadVisible, now_nanos)
                   if self.torque_ev_lead_inputs is not None else
                   fallback_lead(CS.torque_ev_camera_lead, hud_control.leadVisible, self.torque_ev_floor_boot_ns))
-          acc_options = torque_ev_scc_options(CS.out.cruiseState.available, CC.actuators.longControlState, lead)
+          acc_options = torque_ev_scc_options(CS.out.cruiseState.available and (not kona_handoff or CC.enabled),
+                                               CC.actuators.longControlState, lead)
           if (kona_handoff and CC.longActive and not CC.cruiseControl.override and stopping and
               not (CS.out.standstill or CS.out.brakePressed or CS.out.gasPressed or hud_control.leadVisible or lead.visible) and
-              0.0 < CS.out.vEgo < CV.MPH_TO_MS and -0.5 <= accel < 0.0 and accel >= self.accel_last - 0.02):
+              0.0 < CS.out.vEgo < 3.0 and self.CP.stopAccel < accel < 0.0 and accel >= self.accel_last - 0.02):
             acc_options["jerk_lower"] = 1.2
         elif is_gv70(self.CP):
           request = scc_request(CC.enabled, CC.cruiseControl.override, stopping, accel, self.accel_last)
