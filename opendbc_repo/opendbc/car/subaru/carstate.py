@@ -3,12 +3,17 @@ from opendbc.can import CANDefine, CANParser
 from opendbc.car import Bus, structs, create_button_events
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.interfaces import CarStateBase
+from opendbc.car.subaru.stock_aol import qualified as stock_aol_qualified
 from opendbc.car.subaru.values import CAR, DBC, CanBus, SubaruFlags
 from opendbc.car import CanSignalRateCalculator
 
 # 8-speed Lineartronic CVT simulated paddle-shift ratios 1..8 on 0x48 Transmission.Gear
 # (bits 0..2 = 0b001 Drive range, bits 3..6 = simulated gear 1..8 or 0 in shift transition, bit 7 = manual mode)
 SUBARU_CVT_MANUAL_GEARS = frozenset({129, 137, 145, 153, 161, 169, 177, 185, 193})
+# Drive range with ratio zero, with either state of the manual-mode bit.
+PADDLE_EXIT_GEARS = (1, 129)
+PADDLE_EXIT_WINDOW_NS = 750_000_000
+PADDLE_EXIT_PAUSE_NS = 150_000_000
 
 
 class CarState(CarStateBase):
@@ -20,6 +25,9 @@ class CarState(CarStateBase):
     self.avh_sources = AvhSources() if avh_selected(CP) else None
     can_define = CANDefine(DBC[CP.carFingerprint][Bus.pt])
     self.shifter_values = can_define.dv["Transmission"]["Gear"]
+    self.paddle_ratio_ns = 0
+    self.paddle_exit_pause_ns = 0
+    self.paddle_exit_in_drive = False
 
     self.sng_sources = {}
     self.sng_source_valid = {}
@@ -63,6 +71,36 @@ class CarState(CarStateBase):
     else:
       self._lkas_mode_settle_frames = max(0, self._lkas_mode_settle_frames - 1)
     self._prev_aol_enabled = aol
+
+  def _paddle_exit_paused(self, parser: CANParser) -> bool:
+    gear_ns = parser.ts_nanos["Transmission"]["Gear"]
+    now_ns = parser.last_nonempty_nanos
+    if parser.bus_timeout or not 0 < gear_ns <= now_ns:
+      self.paddle_ratio_ns = self.paddle_exit_pause_ns = 0
+      self.paddle_exit_in_drive = False
+      return False
+
+    for gear in parser.vl_all["Transmission"]["Gear"]:
+      position = self.shifter_values.get(int(gear))
+      if position in ("1", "2", "3", "4", "5", "6"):
+        self.paddle_ratio_ns = gear_ns
+        self.paddle_exit_in_drive = False
+        self.paddle_exit_pause_ns = 0
+      elif position == "D":
+        self.paddle_exit_in_drive = True
+        self.paddle_exit_pause_ns = 0
+      elif gear in PADDLE_EXIT_GEARS and self.paddle_exit_in_drive:
+        if not self.paddle_exit_pause_ns and 0 < self.paddle_ratio_ns <= gear_ns <= self.paddle_ratio_ns + PADDLE_EXIT_WINDOW_NS:
+          self.paddle_exit_pause_ns = gear_ns
+          self.paddle_ratio_ns = 0
+      else:
+        self.paddle_ratio_ns = self.paddle_exit_pause_ns = 0
+        self.paddle_exit_in_drive = False
+
+    # Report the transition as a paddle pause so both Card and SelfdriveD
+    # withdraw steering until the transmission reports Drive again.
+    return bool(0 < self.paddle_exit_pause_ns <= now_ns < self.paddle_exit_pause_ns + PADDLE_EXIT_PAUSE_NS and
+                stock_aol_qualified(self.CP, marked_only=True))
 
   def update(self, can_parsers) -> structs.CarState:
     cp = can_parsers[Bus.pt]
@@ -110,7 +148,10 @@ class CarState(CarStateBase):
     can_gear = int(cp_transmission.vl["Transmission"]["Gear"])
     if self.CP.carFingerprint == CAR.SUBARU_LEGACY_2025 and can_gear in SUBARU_CVT_MANUAL_GEARS:
       ret.gearShifter = structs.CarState.GearShifter.manumatic
-    elif self.CP.carFingerprint == CAR.SUBARU_IMPREZA_2020 and self.shifter_values.get(can_gear) in ("1", "2", "3", "4", "5", "6"):
+    elif self.CP.carFingerprint == CAR.SUBARU_IMPREZA_2020 and (
+      self._paddle_exit_paused(cp_transmission) or
+      self.shifter_values.get(can_gear) in ("1", "2", "3", "4", "5", "6")
+    ):
       ret.gearShifter = structs.CarState.GearShifter.manumatic
     elif self.CP.carFingerprint == CAR.SUBARU_LEGACY_2025 and can_gear == 0:
       ret.gearShifter = structs.CarState.GearShifter.neutral
