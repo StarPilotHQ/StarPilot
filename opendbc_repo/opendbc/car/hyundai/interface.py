@@ -7,7 +7,7 @@ from opendbc.car.hyundai.discovery import kona_electric_se_candidate
 from opendbc.car.hyundai.hyundaicanfd import CanBus
 from opendbc.car.hyundai.non_scc_aol import NON_SCC_IDS
 from opendbc.car.hyundai.values import (is_blended, is_blended_alpha, HyundaiFlags, CAR, DBC, HyundaiSafetyFlags, CANFD_ANGLE_MODEL_BITS,
-                                        CANFD_ANGLE_OBSERVED_ADAS_BIT, HYUNDAI_MRR35_RADAR_DBC, HYUNDAI_MRR30_RADAR_DBC,
+                                        CANFD_ANGLE_OBSERVED_ADAS_BIT, CARNIVAL_2027_CAMERA_FW, HYUNDAI_MRR35_RADAR_DBC, HYUNDAI_MRR30_RADAR_DBC,
                                         HYUNDAI_GV70_RADAR_DBC, HYUNDAI_G90_RADAR_DBC, HYUNDAI_MRREVO14F_RADAR_DBC)
 from opendbc.car.hyundai.radar_interface import RADAR_START_ADDR, MRR35_RADAR_START_ADDR, MRR30_RADAR_START_ADDR, radar_bus, \
                                                stinger_2022_radar_available
@@ -325,6 +325,8 @@ class CarInterface(CarInterfaceBase):
       ret.alphaLongitudinalAvailable = not is_release
       alpha_long = False
     from opendbc.car.hyundai.legacy_long_aol import CARS as legacy_long_cars
+    if candidate == CAR.KIA_CARNIVAL_2025 and any(fw.ecu == Ecu.fwdCamera and fw.fwVersion == CARNIVAL_2027_CAMERA_FW for fw in car_fw):
+      ret.alphaLongitudinalAvailable = False
     ret.openpilotLongitudinalControl = alpha_long and ret.alphaLongitudinalAvailable and candidate not in legacy_long_cars
     if (candidate in (CAR.KIA_CARNIVAL_2025, CAR.KIA_CARNIVAL_HEV_4TH_GEN) and
         ret.flags & HyundaiFlags.CANFD_ALT_BUTTONS and 0x1aa in fingerprint[CAN.ECAN] and

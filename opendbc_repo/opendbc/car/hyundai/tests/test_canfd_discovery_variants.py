@@ -122,3 +122,31 @@ def test_exact_recorded_configuration_keeps_irq_fault_blocking():
   assert cp.alternativeExperience == 0 and cp.pcmCruise and not cp.openpilotLongitudinalControl
   assert blocking_fault_mask(8, cp)
   assert blocking_fault_list([log.PandaState.FaultType.interruptRateCan2], cp)
+
+
+def test_carnival_2027_uses_the_gas_ccnc_profile_and_standard_stock_acc():
+  from opendbc.car import gen_empty_fingerprint
+  from opendbc.car.fw_versions import match_fw_to_car
+  from opendbc.car.hyundai.interface import CarInterface
+  from opendbc.car.hyundai.values import CAR, HyundaiFlags
+  from opendbc.car.structs import CarParams
+
+  fw = [CarParams.CarFw(ecu=ecu, address=address, fwVersion=version, brand='hyundai') for ecu, address, version in (
+    (CarParams.Ecu.fwdCamera, 0x7c4, b'\xf1\x00KA4 MFC  AT USA LHD 1.00 1.02 99210-R0800 251031'),
+    (CarParams.Ecu.fwdRadar, 0x7d0, b'\xf1\x00KA4_ RDR -----      1.00 1.02 99110-R0510         '),
+    (CarParams.Ecu.adas, 0x730, b'\xf1\x00KA4 FBL6 1.00 1.02 251159'),
+  )]
+  exact, matches = match_fw_to_car(fw, VIN_UNKNOWN)
+  assert exact and matches == {CAR.KIA_CARNIVAL_2025}
+  observed = gen_empty_fingerprint()
+  observed[0].update({0x3A5: 24})
+  observed[1].update({0x100: 32, 0x40: 32, 0xEA: 24, 0xA0: 24, 0x1A0: 32, 0x1CF: 8, 0x1AA: 16})
+  observed[2].update({0x110: 32, 0x362: 32})
+  frames = [CanData(address, bytes(length), bus) for bus in (0, 1, 2) for address, length in observed[bus].items()]
+  assert normal_bus_topology(lambda **kw: [frames])
+  for alpha_requested in (False, True):
+    cp = CarInterface.get_params(CAR.KIA_CARNIVAL_2025, observed, fw, alpha_requested, False, False)
+    assert cp.pcmCruise and not cp.openpilotLongitudinalControl and not cp.alphaLongitudinalAvailable
+    assert cp.flags & HyundaiFlags.CANFD_LKA_STEER_MSG_ALT
+    assert not cp.flags & (HyundaiFlags.CANFD_ALT_BUTTONS | HyundaiFlags.HYBRID)
+    assert cp.safetyConfigs[-1].safetyParam == 0x90

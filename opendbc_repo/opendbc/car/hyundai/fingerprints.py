@@ -1,6 +1,6 @@
 """ AUTO-FORMATTED USING opendbc/car/debug/format_fingerprints.py, EDIT STRUCTURE THERE."""
 from opendbc.car.structs import CarParams
-from opendbc.car.hyundai.values import CAR
+from opendbc.car.hyundai.values import CAR, CARNIVAL_2027_CAMERA_FW
 
 Ecu = CarParams.Ecu
 
@@ -153,10 +153,12 @@ FW_VERSIONS = {
   },
   CAR.KIA_CARNIVAL_2025: {
     (Ecu.fwdCamera, 0x7c4, None): [
+      CARNIVAL_2027_CAMERA_FW,
       b'\xf1\x00KA4 MFC  AT CAN LHD 1.00 1.00 99210-R0700 250324',
       b'\xf1\x00KA4 MFC  AT USA LHD 1.00 1.05 99210-R0500 240305',
     ],
     (Ecu.fwdRadar, 0x7d0, None): [
+      b'\xf1\x00KA4_ RDR -----      1.00 1.02 99110-R0510         ',
       b'\xf1\x00KA4_ SCC FHCUP      1.00 1.01 99110-R0510         ',
       b'\xf1\x00KA4_ RDR -----      1.00 1.01 99110-R0510         ',
     ],

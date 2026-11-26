@@ -263,6 +263,9 @@ class HyundaiCanFDPlatformConfig(PlatformConfig):
       self.dbc_dict = {Bus.pt: "hyundai_canfd_generated", Bus.radar: self.radar_dbc}
 
 
+CARNIVAL_2027_CAMERA_FW = b'\xf1\x00KA4 MFC  AT USA LHD 1.00 1.02 99210-R0800 251031'
+
+
 class CAR(Platforms):
   # Hyundai
   HYUNDAI_AZERA_6TH_GEN = HyundaiPlatformConfig(
@@ -824,6 +827,7 @@ class CAR(Platforms):
     [
       HyundaiCarDocs("Kia Carnival 2025", car_parts=CarParts.common([CarHarness.hyundai_k])),
       HyundaiCarDocs("Kia Carnival (with HDA II) 2025", "Highway Driving Assist II", car_parts=CarParts.common([CarHarness.hyundai_q])),
+      HyundaiCarDocs("Kia Carnival (with HDA II) 2027", "Highway Driving Assist II", car_parts=CarParts.common([CarHarness.hyundai_q])),
     ],
     KIA_CARNIVAL_4TH_GEN.specs,
     flags=HyundaiFlags.CCNC,
