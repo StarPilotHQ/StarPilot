@@ -11,6 +11,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import traceback
 from unittest.mock import patch
@@ -794,7 +795,9 @@ def run(suite, output, collect_only=False, shard_index=None, shard_count=4):
   pytest_nodeids = []
   records, platform_tests, gate_errors = [], {}, []
   phase = "initialization"
-  plan = {"schema_version": 1, "suite": suite, "status": "initializing", "workers": 1,
+  # Interface cases are independent; lifecycle and safety suites keep one pinned native process.
+  workers = max(1, int(os.environ.get("STARPILOT_VEHICLE_WORKERS", "1"))) if suite == "interfaces" else 1
+  plan = {"schema_version": 1, "suite": suite, "status": "initializing", "workers": workers,
           "scope": "host synthetic interfaces" if suite == "interfaces" else "host safety hooks",
           "uncovered": ["historical route replay", "hardware and bus integration", "additional downstream vehicles",
                         "independent lateral/longitudinal feature transitions", "device firmware execution"],
@@ -857,13 +860,19 @@ def run(suite, output, collect_only=False, shard_index=None, shard_count=4):
     plan.update(selected_test_ids=ids, interface_test_ids=platform_tests, collection_errors=errors,
                 status="error" if errors else "not_run" if collect_only else "ready")
     (output / "plan.json").write_text(json.dumps(plan, sort_keys=True, indent=2) + "\n")
-    print(f"{suite}: {len(ids)} tests; {len(platform_tests)} concrete platform interface tests; one process", flush=True)
+    print(f"{suite}: {len(ids)} tests; {len(platform_tests)} concrete platform interface tests; {workers} process(es)", flush=True)
     if collect_only and not errors:
       return 0
     if not errors:
       phase = "execution"
-      records = test_runner.run_batch([test.id() for test in tests], capture_output=True) if tests else []
-      pytest_records, pytest_errors = vehicle_pytest.run(pytest_nodeids)
+      if workers > 1:
+        batches = test_runner.make_batches(tests)
+        records = [record for batch in test_runner.run_parallel(batches, min(workers, len(batches)), None, True)
+                   for record in batch] if batches else []
+        pytest_records, pytest_errors = vehicle_pytest.run_parallel(pytest_nodeids, workers)
+      else:
+        records = test_runner.run_batch([test.id() for test in tests], capture_output=True) if tests else []
+        pytest_records, pytest_errors = vehicle_pytest.run(pytest_nodeids)
       records.extend(pytest_records)
       errors.extend(pytest_errors)
       phase = "source verification"
@@ -909,6 +918,33 @@ def run(suite, output, collect_only=False, shard_index=None, shard_count=4):
   return exit_code
 
 
+def shard_group_indices(group, groups, shard_count):
+  if type(groups) is not int or not 0 < groups <= shard_count or type(group) is not int or not 0 <= group < groups:
+    raise ValueError("Invalid lifecycle shard group")
+  return list(range(group, shard_count, groups))
+
+
+def run_group(suite, output, group, groups, shard_count):
+  # Each shard keeps its own process, Params and messaging namespace.
+  indices = shard_group_indices(group, groups, shard_count)
+  shared_memory = "/dev/shm" if Path("/dev/shm").is_dir() else "/tmp"
+  directories, processes = [], []
+  try:
+    for index in indices:
+      params = tempfile.TemporaryDirectory(prefix="starpilot-vehicle-params-")
+      messaging = tempfile.TemporaryDirectory(prefix="msgq_starpilot-vehicle-", dir=shared_memory)
+      directories += [params, messaging]
+      environment = dict(os.environ, PARAMS_ROOT=params.name, OPENPILOT_PREFIX=Path(messaging.name).name.removeprefix("msgq_"))
+      command = [sys.executable, str(Path(__file__).resolve()), "--suite", suite, "--shard-index", str(index),
+                 "--shard-count", str(shard_count), "--output", str(Path(output) / f"shard-{index}")]
+      processes.append(subprocess.Popen(command, cwd=ROOT, env=environment))
+    codes = [process.wait() for process in processes]
+  finally:
+    for directory in directories:
+      directory.cleanup()
+  return 0 if processes and not any(codes) else 1
+
+
 def main():
   parser = argparse.ArgumentParser(description=__doc__)
   parser.add_argument("--suite", choices=("interfaces", "safety-debug", "safety-release", "aol-lifecycle"), required=True)
@@ -916,10 +952,16 @@ def main():
   parser.add_argument("--collect-only", action="store_true")
   parser.add_argument("--shard-index", type=int)
   parser.add_argument("--shard-count", type=int, default=4)
+  parser.add_argument("--shard-group", type=int)
+  parser.add_argument("--shard-groups", type=int)
   args = parser.parse_args()
   os.chdir(ROOT)
   # Keep the same generated examples across collection, execution, and reruns.
   os.environ.setdefault("FUZZ_SEED", "0")
+  if args.shard_group is not None or args.shard_groups is not None:
+    if args.shard_index is not None or args.shard_group is None or args.shard_groups is None or args.collect_only:
+      parser.error("--shard-group and --shard-groups replace --shard-index")
+    return run_group(args.suite, args.output, args.shard_group, args.shard_groups, args.shard_count)
   return run(args.suite, args.output, args.collect_only, args.shard_index, args.shard_count)
 
 

@@ -1,7 +1,11 @@
 import ast
 from contextlib import contextmanager
+import json
 import os
 from pathlib import Path
+import subprocess
+import sys
+import tempfile
 
 
 def split_targets(root, targets):
@@ -120,3 +124,38 @@ def run(nodeids):
   if code not in (0, 1):
     errors.append(f"pytest execution exited {code}")
   return list(recorder.records.values()), errors
+
+
+def run_parallel(nodeids, workers):
+  """Whole modules split across separate serial pytest processes."""
+  modules = {}
+  for nodeid in nodeids:
+    modules.setdefault(nodeid.split("::", 1)[0], []).append(nodeid)
+  chunks = [[] for _ in range(max(1, workers))]
+  for module_nodes in sorted(modules.values(), key=len, reverse=True):
+    min(chunks, key=len).extend(module_nodes)
+  chunks = [chunk for chunk in chunks if chunk]
+  if len(chunks) < 2:
+    return run(nodeids)
+  records, errors = [], []
+  with tempfile.TemporaryDirectory(prefix="vehicle-pytest-") as directory:
+    processes = []
+    for index, chunk in enumerate(chunks):
+      request, response = Path(directory) / f"{index}.json", Path(directory) / f"{index}.out.json"
+      request.write_text(json.dumps(chunk))
+      processes.append((subprocess.Popen([sys.executable, "-m", "tools.ci.vehicle_pytest", str(request), str(response)]), response))
+    for process, response in processes:
+      code = process.wait()
+      if code != 0 or not response.is_file():
+        errors.append(f"pytest worker process exited {code}")
+        continue
+      result = json.loads(response.read_text())
+      records.extend(result["records"])
+      errors.extend(result["errors"])
+  return records, errors
+
+
+if __name__ == "__main__":
+  selected = json.loads(Path(sys.argv[1]).read_text())
+  outcome, failures = run(selected)
+  Path(sys.argv[2]).write_text(json.dumps({"records": outcome, "errors": failures}))

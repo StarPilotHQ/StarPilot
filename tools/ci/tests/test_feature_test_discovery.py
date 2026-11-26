@@ -16,15 +16,15 @@ class TestFeatureTestDiscovery(unittest.TestCase):
     jobs = dict(re.findall(r'^  ([a-z_]+):\n(.*?)(?=^  [a-z_]+:|\Z)', workflow, re.M | re.S))
     shards = jobs['custom_pytest']
     complete = jobs['custom_pytest_complete']
-    matrix = re.search(r'^        shard: (\[.*\])$', shards, re.M)
+    matrix = re.search(r'^        group: (\[.*\])$', shards, re.M)
     assert matrix is not None
-    self.assertEqual(ast.literal_eval(matrix[1]), list(range(32)))
+    self.assertEqual(ast.literal_eval(matrix[1]), list(range(9)))
     self.assertIn('      fail-fast: false\n', shards)
     self.assertNotIn('continue-on-error:', shards + complete)
-    self.assertIn('      run: .venv/bin/python -m tools.ci.custom_pytest_shards run '
-                  + '--index "${{ matrix.shard }}" --count 32 --output "ci-results/custom-pytest-${{ matrix.shard }}"\n', shards)
-    self.assertIn('        name: custom-pytest-${{ matrix.shard }}\n', shards)
-    self.assertIn('        path: ci-results/custom-pytest-${{ matrix.shard }}/\n', shards)
+    self.assertIn('      run: .venv/bin/python -m tools.ci.custom_pytest_shards run --group "${{ matrix.group }}" --groups 9 '
+                  + '--count 32 --output "ci-results/custom-pytest-group-${{ matrix.group }}"\n', shards)
+    self.assertIn('        name: custom-pytest-group-${{ matrix.group }}\n', shards)
+    self.assertIn('        path: ci-results/custom-pytest-group-${{ matrix.group }}/\n', shards)
     self.assertIn('        if-no-files-found: error\n', shards)
     self.assertIn('    needs: custom_pytest\n', complete)
     self.assertIn('    if: always()\n', complete)
@@ -45,10 +45,12 @@ class TestFeatureTestDiscovery(unittest.TestCase):
 
   def test_missing_duplicate_or_mismatched_shards_are_rejected(self):
     workflow = (ROOT / '.github/workflows/tests.yaml').read_text()
-    matrix = 'shard: [' + ', '.join(map(str, range(32))) + ']'
-    for replacement in (list(range(31)), list(range(31)) + [30], list(range(33))):
+    matrix = 'group: [' + ', '.join(map(str, range(9))) + ']'
+    for replacement in (list(range(8)), list(range(8)) + [7], list(range(10))):
       with self.subTest(matrix=replacement), self.assertRaises(AssertionError):
-        self.assert_hosted_pytest_contract(workflow.replace(matrix, 'shard: ' + str(replacement)))
+        self.assert_hosted_pytest_contract(workflow.replace(matrix, 'group: ' + str(replacement)))
+    with self.assertRaises(AssertionError):
+      self.assert_hosted_pytest_contract(workflow.replace('--groups 9', '--groups 8'))
     with self.assertRaises(AssertionError):
       self.assert_hosted_pytest_contract(workflow.replace('--count 32', '--count 31'))
 

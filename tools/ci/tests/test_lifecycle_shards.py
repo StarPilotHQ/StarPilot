@@ -308,11 +308,11 @@ class LifecycleShardTests(unittest.TestCase):
     jobs = dict(re.findall(r'^  ([a-z_]+):\n(.*?)(?=^  [a-z_]+:|\Z)', workflow, re.M | re.S))
     workers = jobs['safety_release_contracts']
     aggregate = jobs['safety_release_complete']
-    self.assertIn('shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]', workers)
-    self.assertRegex(workers, r'--suite safety-release .*--shard-count 16\b')
+    self.assertIn('group: [0, 1, 2, 3]', workers)
+    self.assertRegex(workers, r'--suite safety-release --shard-group "\$\{\{ matrix.group \}\}" --shard-groups 4 --shard-count 16\b')
     self.assertRegex(aggregate, r'--suite safety-release --count 16\b')
-    self.assertIn('    timeout-minutes: 35\n', workers)
-    self.assertIn('      timeout-minutes: 20\n', workers)
+    self.assertIn('    timeout-minutes: 45\n', workers)
+    self.assertIn('      timeout-minutes: 30\n', workers)
     self.assertIn('      fail-fast: false\n', workers)
     self.assertIn('    needs: safety_release_contracts\n', aggregate)
 

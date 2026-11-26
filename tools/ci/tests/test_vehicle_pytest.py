@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import unittest
 
-from tools.ci.vehicle_pytest import Recorder, collect, run, split_targets, test_id as normalize_test_id
+from tools.ci.vehicle_pytest import Recorder, collect, run, run_parallel, split_targets, test_id as normalize_test_id
 
 
 class TestVehiclePytest(unittest.TestCase):
@@ -150,3 +150,23 @@ class TestVehiclePytest(unittest.TestCase):
                    SimpleNamespace(option=SimpleNamespace(dist="load"))):
       with self.subTest(config=config), self.assertRaises(pytest.UsageError):
         Recorder().pytest_configure(config)
+
+  def test_parallel_processes_keep_every_module_outcome(self):
+    with tempfile.TemporaryDirectory() as directory:
+      root = Path(directory)
+      for name in ("a", "b", "c"):
+        (root / f"test_{name}_fixture.py").write_text(f"import pytest\n@pytest.mark.parametrize('value', [1, 2])\ndef test_{name}(value): assert value\n")
+      (root / "test_d_fixture.py").write_text("def test_d(): assert False\n")
+      previous = Path.cwd()
+      try:
+        os.chdir(root)
+        with patch.dict(os.environ, {"PYTHONPATH": str(Path(__file__).resolve().parents[3])}):
+          nodeids, errors = collect(sorted(str(path.name) for path in root.glob("test_*.py")))
+          self.assertEqual(errors, [])
+          serial, serial_errors = run(nodeids)
+          parallel, parallel_errors = run_parallel(nodeids, 3)
+      finally:
+        os.chdir(previous)
+    self.assertEqual(parallel_errors, serial_errors)
+    self.assertEqual({row["id"]: row["status"] for row in parallel}, {row["id"]: row["status"] for row in serial})
+    self.assertEqual(len(parallel), 7)

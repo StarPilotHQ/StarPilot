@@ -706,3 +706,48 @@ def test_ford_library_cases_keep_complete_timelines_in_bounded_groups(count):
   reverse, reverse_loads = shards.partition(list(reversed(catalog)), count)
   assert [set(group) for group in reverse] == [set(group) for group in assignment]
   assert reverse_loads == loads
+
+
+@pytest.mark.parametrize('groups', [1, 4, 8, 32])
+def test_shard_groups_cover_every_index_once(groups):
+  indices = [index for group in range(groups) for index in shards.group_indices(group, groups, 32)]
+  assert sorted(indices) == list(range(32))
+
+
+@pytest.mark.parametrize('group, groups', [(-1, 8), (8, 8), (0, 0), (0, 33)])
+def test_invalid_shard_group_denied(group, groups):
+  with pytest.raises(ValueError):
+    shards.group_indices(group, groups, 32)
+
+
+def test_real_concurrent_groups_and_aggregate_keep_every_case(tmp_path, monkeypatch):
+  wrapper = tmp_path / 'tools/ci/run_host_tests.py'
+  wrapper.parent.mkdir(parents=True)
+  wrapper.write_bytes((Path(__file__).parents[1] / 'run_host_tests.py').read_bytes())
+  tests = tmp_path / 'openpilot/starpilot/tests'
+  tests.mkdir(parents=True)
+  for name in ('a', 'b', 'c', 'd'):
+    (tests / f'test_{name}.py').write_text(f'import os\ndef test_{name}():\n assert os.environ["PARAMS_ROOT"]\n')
+  monkeypatch.setattr(shards, 'ROOT', tmp_path)
+  monkeypatch.setattr(shards, 'source_snapshot', lambda root=tmp_path: source())
+  monkeypatch.setattr(shards, 'same_build_inputs', lambda a, b: a == b)
+  monkeypatch.setenv('PYTHONPATH', str(Path(__file__).parents[3]))
+  for group in range(2):
+    assert shards.run_group(group, 2, 4, tmp_path / 'jobs' / f'group-{group}') == 0
+  result = shards.aggregate(tmp_path / 'jobs', 4)
+  assert result['cases_passed'] == 4
+  assert result['status'] == 'completed'
+
+
+def test_timing_sensitive_modules_share_only_the_last_shard():
+  timing = sorted(shards.policy()['timing_sensitive'])
+  catalog = [f'{module}::test_case' for module in timing] + [f'other/test_{index}.py::test_case' for index in range(40)]
+  assignment, _ = shards.partition(catalog, 8)
+  assert sorted(node.split('::')[0] for node in assignment[-1]) == timing
+  assert not any(node.split('::')[0] in timing for shard in assignment[:-1] for node in shard)
+  assert all(assignment[:-1])
+
+
+def test_last_group_runs_only_the_timing_shard():
+  assert shards.group_indices(8, 9, 32) == [31]
+  assert 31 not in [index for group in range(8) for index in shards.group_indices(group, 9, 32)]

@@ -1,6 +1,7 @@
 """Run serial custom pytest shards and require exact passed or audited-unavailable outcomes."""
 import argparse
 from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import importlib
 import json
@@ -79,6 +80,10 @@ def policy():
     if (row.get('guard_source_path') != 'openpilot/starpilot/system/starport/tests/test_gpu_nv12.py' or
         len(row.get('guard_source_blob', '')) != 40 or row['guard'] != 'gpu_env'):
       raise ValueError('Map capability requires exact shared GPU fixture definition')
+  timing = value.get('timing_sensitive', {})
+  if (not isinstance(timing, dict) or set(timing) & set(value['independent_functions']) or
+      any(not module.endswith('.py') or not isinstance(row, dict) or not row.get('basis') for module, row in timing.items())):
+    raise ValueError('Invalid timing-sensitive custom pytest modules')
   if type(value['independent_max_cases']) is not int or not 1 <= value['independent_max_cases'] <= 60:
     raise ValueError('Invalid independent parameter group bound')
   numbers = [value['unknown_seconds_per_case'], value['independent_max_seconds']]
@@ -130,9 +135,13 @@ def partition(catalog, count, root=ROOT):
       if measured and measured['cases'] == len(nodes) and blob_id(Path(root) / module) == measured['blob']:
         rate = measured['seconds'] / measured['cases']
       units.append((rate * len(nodes), module, nodes))
+  # Timing-sensitive modules share the last shard, which CI runs alone.
+  timing = set(config.get('timing_sensitive', {}))
+  isolated = count > 1 and any(name in timing for _cost, name, _nodes in units)
+  regular = count - 1 if isolated else count
   selected, loads = [set() for _ in range(count)], [0.0] * count
-  for cost, _name, nodes in sorted(units, key=lambda unit: (-unit[0], unit[1])):
-    index = min(range(count), key=lambda i: (loads[i], i))
+  for cost, name, nodes in sorted(units, key=lambda unit: (-unit[0], unit[1])):
+    index = count - 1 if isolated and name in timing else min(range(regular), key=lambda i: (loads[i], i))
     selected[index].update(nodes)
     loads[index] += cost
   return [[node for node in catalog if node in shard] for shard in selected], loads
@@ -359,6 +368,45 @@ def run(index, count, output):
   return 0 if success else 1
 
 
+def measure(directory, basis, root=ROOT):
+  """Refresh whole-module timings from shard outcomes so partitions balance by real cost."""
+  path = Path(__file__).with_name('custom_pytest_workloads.json')
+  value = json.loads(path.read_text())
+  seconds, cases = defaultdict(float), Counter()
+  for outcome in sorted(Path(directory).rglob('outcomes.json')):
+    for node, rows in json.loads(outcome.read_text())['reports'].items():
+      module = node.split('::', 1)[0]
+      seconds[module] += sum(row['duration'] for row in rows)
+      cases[module] += 1
+  for module in sorted(cases):
+    if module in value['independent_functions'] or seconds[module] <= 0 or not (Path(root) / module).is_file():
+      continue
+    value['modules'][module] = {'basis': basis, 'blob': blob_id(Path(root) / module), 'cases': cases[module], 'seconds': seconds[module]}
+  value['modules'] = dict(sorted(value['modules'].items()))
+  write_json(path, value)
+  return len(cases)
+
+
+def group_indices(group, groups, count):
+  """The last group runs only the last (timing-sensitive) shard; the rest share the others."""
+  if type(groups) is not int or not 0 < groups <= count or type(group) is not int or not 0 <= group < groups:
+    raise ValueError('Invalid custom pytest shard group')
+  if groups == 1:
+    return list(range(count))
+  if group == groups - 1:
+    return [count - 1]
+  return list(range(group, count - 1, groups - 1))
+
+
+def run_group(group, groups, count, output):
+  # Each shard keeps its own process, Params and messaging namespace.
+  indices = group_indices(group, groups, count)
+  output = Path(output).resolve()
+  with ThreadPoolExecutor(max_workers=len(indices)) as pool:
+    codes = list(pool.map(lambda index: run(index, count, output / f'shard-{index}'), indices))
+  return 0 if not any(codes) else 1
+
+
 def aggregate(directory, count, root=ROOT):
   paths = sorted(Path(directory).rglob('receipt.json'))
   if len(paths) != count:
@@ -429,18 +477,30 @@ def aggregate(directory, count, root=ROOT):
 
 def main():
   parser = argparse.ArgumentParser(description=__doc__)
-  parser.add_argument('action', choices=('run', 'aggregate'))
+  parser.add_argument('action', choices=('run', 'aggregate', 'measure'))
   parser.add_argument('--index', type=int)
+  parser.add_argument('--group', type=int)
+  parser.add_argument('--groups', type=int)
   parser.add_argument('--count', type=int, default=32)
   parser.add_argument('--output', type=Path, required=True)
   parser.add_argument('--directory', type=Path)
+  parser.add_argument('--basis')
   args = parser.parse_args()
   if args.action == 'run':
+    if args.group is not None or args.groups is not None:
+      if args.index is not None or args.group is None or args.groups is None:
+        parser.error('--group and --groups replace --index')
+      return run_group(args.group, args.groups, args.count, args.output)
     if args.index is None:
       parser.error('--index is required')
     return run(args.index, args.count, args.output)
   if args.directory is None:
     parser.error('--directory is required')
+  if args.action == 'measure':
+    if not args.basis:
+      parser.error('--basis is required')
+    print(f'Measured {measure(args.directory, args.basis)} modules')
+    return 0
   result = aggregate(args.directory, args.count)
   write_json(args.output, result)
   print(json.dumps(result))

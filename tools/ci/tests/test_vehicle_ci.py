@@ -400,6 +400,14 @@ class TestCar(unittest.TestCase):
       with self.subTest(log=log, variant=variant), self.assertRaises(ValueError):
         compile_commands(log, variant)
 
+  def test_shard_groups_cover_every_lifecycle_shard_once(self):
+    for groups in (1, 4, 16):
+      indices = [index for group in range(groups) for index in run_vehicle_tests.shard_group_indices(group, groups, 16)]
+      self.assertEqual(sorted(indices), list(range(16)))
+    for group, groups in ((-1, 4), (4, 4), (0, 0), (0, 17)):
+      with self.subTest(group=group, groups=groups), self.assertRaises(ValueError):
+        run_vehicle_tests.shard_group_indices(group, groups, 16)
+
 
 if __name__ == "__main__":
   unittest.main()
