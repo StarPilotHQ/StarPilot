@@ -3,6 +3,7 @@
 import gzip
 import json
 from pathlib import Path
+from openpilot.starpilot.conditional_mode.tests.test_stop_commit_transport import CLEAR_97_V, CLEAR_97_X
 from openpilot.starpilot.longitudinal.tests.test_cem_green_release import CemGreenCallerTests
 
 
@@ -22,6 +23,7 @@ class RecordedLaunchTests(CemGreenCallerTests):
       event.modelV2 = payloads['modelV2']
       event.modelV2.position.t = list(ModelConstants.T_IDXS)
       event.modelV2.velocity.t = list(ModelConstants.T_IDXS)
+      event.modelV2.position.y = [0.] * ModelConstants.IDX_N
       payloads['modelV2'] = messaging.log_from_bytes(event.to_bytes()).modelV2
       if getattr(self, 'second_lead', False):
         radar = messaging.new_message('radarState')
@@ -86,3 +88,24 @@ class RecordedLaunchTests(CemGreenCallerTests):
     self.assertFalse(held or plan.shouldStop)
     _, _, _, plan = self.cycle(stopped=True, position=frame['x'], velocity=frame['v'], should_stop=True, desired_accel=frame['accel'])
     self.assertTrue(plan.shouldStop)
+
+  def test_gradual_straight_launch_requires_sustained_model_clear(self):
+    self.prime()
+    forward = {'stopped': True, 'position': CLEAR_97_X, 'velocity': CLEAR_97_V, 'should_stop': False, 'desired_accel': .15}
+    for _ in range(8):
+      _, _, held, plan = self.cycle(**forward)
+      self.assertTrue(held and plan.shouldStop)
+    _, _, held, plan = self.cycle(**(forward | {'should_stop': True}))
+    self.assertTrue(held and plan.shouldStop)
+    for _ in range(10):
+      _, _, held, plan = self.cycle(**forward)
+      self.assertTrue(held and plan.shouldStop)
+    for _ in range(3):
+      _, _, held, plan = self.cycle(**forward)
+      if not held:
+        break
+    self.assertFalse(held or plan.shouldStop)
+    self.assertGreater(plan.aTarget, 0.)
+    self.assertLessEqual(plan.aTarget, .16)
+    _, _, held, plan = self.cycle(**(forward | {'should_stop': True}))
+    self.assertTrue(held and plan.shouldStop)

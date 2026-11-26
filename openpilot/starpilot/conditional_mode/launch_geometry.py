@@ -4,7 +4,7 @@ import math
 from openpilot.selfdrive.modeld.constants import ModelConstants
 
 
-def qualified_launch_horizon(model, car, lead_present):
+def qualified_launch_horizon(model, car, lead_present, *, gradual=False):
   if (
     car.standstill is not True
     or car.vEgoRaw != 0.0
@@ -14,7 +14,7 @@ def qualified_launch_horizon(model, car, lead_present):
     or lead_present
     or model.action.shouldStop is not False
     or not math.isfinite(model.action.desiredAcceleration)
-    or not 0.3 <= model.action.desiredAcceleration <= 10.0
+    or not (0.1 if gradual else 0.3) <= model.action.desiredAcceleration <= 10.0
   ):
     return None
   x, v, t = tuple(model.position.x), tuple(model.velocity.x), tuple(model.position.t)
@@ -41,4 +41,10 @@ def qualified_launch_horizon(model, car, lead_present):
   tail = [a for a, stamp in zip(v, t, strict=True) if stamp >= 2.0]
   if not tail or min(tail) < 0.3 or tail[-1] < 5 or any(b < a for a, b in zip(tail, tail[1:], strict=False)):
     return None
+  if gradual:
+    lateral = tuple(model.position.y)
+    if (car.leftBlinker or car.rightBlinker or not math.isfinite(car.steeringAngleDeg) or abs(car.steeringAngleDeg) > 5.0 or
+        len(lateral) != len(x) or not all(math.isfinite(y) and abs(y) <= 0.75 for y in lateral) or
+        min(tail) < 1.0 or tail[-1] < 8.0):
+      return None
   return x[-1]
