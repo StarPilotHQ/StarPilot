@@ -15,17 +15,23 @@ import capnp
 
 from opendbc.car.structs import car
 from openpilot.starpilot.schema_cache import put_cache
-from openpilot.tools.lib.logreader import decompress_stream
+from openpilot.tools.lib.logreader import LogReader, decompress_stream
 from openpilot.tools.lib.url_file import URLFile
 
 
 OPENPILOT_COMMIT = 'ec95db3f1fa19f76940497fedfdb62e09ea19912'
 ARTIFACT_COMMIT = '9ae451c262c7402c9623f3baa1580c6242d6777b'
 OPENDBC_COMMIT = '35f7e0813462607ef1d703e52313e7571e31405d'
-TARGET_CAR_SHA256 = '1511eaaa36581a2182694e3cdf5a9b3cf05276e90c36bb5d82ee095e84c23d69'
+TARGET_CAR_SHA256 = '08a136115454b87608cb634daf52e80e16779afd78c6b000a0dc64eaccb02d46'
 FIXTURES = json.loads(Path(__file__).with_name('replay-fixture-cache.json').read_text())
-# The reviewed target differs from the source only by SafetyModel.teslaPreap @39.
-# No source field is dropped, renamed, defaulted or reinterpreted by this adapter.
+# The reviewed target only adds the Tesla Pre-AP and Leapmotor enum ordinals.
+# All fields and existing ordinals used by the historical adapter remain identical.
+B10_REPLAY_SEGMENT = '8ae32b57e2f9d13c|00000027--618a6de392--8'
+B10_SOURCE_COMMIT = '1a1a4934ce2b1449de365642cdf9dfb169729667'
+B10_INPUT_SHA256 = 'c66e1cec7ea83f88084163baefd65132e326c4dbfcf4e53286bebca392b7a793'
+B10_INPUT_BYTES = 10646860
+B10_LOG_SCHEMA_SHA256 = '71f205890d964efc56acf0eb9851424ca0fc9dfb459fc0e6fedf67536e578b1e'
+
 SOURCE_FILES = {
   'car.capnp': ('opendbc', OPENDBC_COMMIT, 'opendbc/car/car.capnp',
                 '098a19d69e8d233ac653503b53761a94824f31812757a11a7ded1589fe1e0788'),
@@ -96,3 +102,33 @@ def verified_fixture_params(segment: str, raw: bytes) -> dict[str, bytes]:
     sink = _Sink()
     put_cache(sink, 'CarParamsCache', converted, block=True)
     return {'CarParamsCache': sink.raw}
+
+
+def verified_b10_params(raw: bytes) -> dict[str, bytes]:
+  if len(raw) != B10_INPUT_BYTES or _digest(raw) != B10_INPUT_SHA256:
+    raise ValueError('Leapmotor replay input changed')
+  # The committed recording uses the exact current CarParams and Event layouts.
+  # Its additive custom schemas do not change CarParams.
+  root = Path(__file__).resolve().parents[2]
+  for path, expected in (('opendbc_repo/opendbc/car/car.capnp', TARGET_CAR_SHA256),
+                         ('openpilot/cereal/log.capnp', B10_LOG_SCHEMA_SHA256)):
+    if _digest((root / path).read_bytes()) != expected:
+      raise ValueError(f'Leapmotor replay schema changed: {path}')
+  init = cp = None
+  for message in LogReader.from_bytes(raw):
+    if message.which() == 'initData':
+      init = message.initData
+    elif message.which() == 'carParams':
+      cp = message.carParams
+    if init is not None and cp is not None:
+      break
+  if init is None or init.dirty or init.gitCommit != B10_SOURCE_COMMIT:
+    raise ValueError('Leapmotor replay source revision changed')
+  if (cp is None or cp.carFingerprint != 'LEAPMOTOR_B10' or cp.fingerprintSource != 'fw'
+      or not cp.openpilotLongitudinalControl or len(cp.safetyConfigs) != 1
+      or cp.safetyConfigs[0].safetyModel != car.CarParams.SafetyModel.leapmotor
+      or cp.safetyConfigs[0].safetyParam != 1):
+    raise ValueError('Leapmotor replay vehicle identity changed')
+  sink = _Sink()
+  put_cache(sink, 'CarParamsCache', cp, block=True)
+  return {'CarParamsCache': sink.raw}

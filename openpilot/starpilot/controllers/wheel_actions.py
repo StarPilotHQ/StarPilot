@@ -47,7 +47,7 @@ def button_reported(cp, key):
   brand = cp.brand
   if key not in KEYS[:8]:
     return True  # Physical media rows have their separate receiver contract.
-  if brand in ('body', 'byd', 'mg', 'mock', 'psa', 'rivian', 'subaru'):
+  if brand in ('body', 'byd', 'leapmotor', 'mg', 'mock', 'psa', 'rivian', 'subaru'):
     return False
   if brand == 'toyota':
     from opendbc.car.toyota import legacy_advert_filter, camera_2aa_filter

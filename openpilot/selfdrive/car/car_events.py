@@ -26,6 +26,10 @@ class CarEvents:
     self.low_speed_alert = False
     self.no_steer_warning = False
     self.silent_steer_warning = True
+    self.leapmotor_cancel = None
+    if CP.brand == 'leapmotor':
+      from openpilot.starpilot.car.leapmotor.events import CarCancel
+      self.leapmotor_cancel = CarCancel()
 
   def update(self, CS: car.CarState, CS_prev: car.CarState, CC: car.CarControl):
     if self.CP.brand in ('body', 'mock'):
@@ -103,6 +107,11 @@ class CarEvents:
       # TODO: this needs to be implemented generically in carState struct
       # if CC.eps_timer_soft_disable_alert:
       #   events.add(EventName.steerTimeLimit)
+
+    elif self.CP.brand == 'leapmotor':
+      if self.leapmotor_cancel.update(CS, CS_prev):
+        from openpilot.starpilot.car.leapmotor.events import announce
+        announce(events)
 
     return events
 

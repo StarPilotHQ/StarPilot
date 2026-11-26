@@ -197,7 +197,7 @@
   "reviewed_enum_additions": {
     "opendbc_repo/opendbc/car/car.capnp": {
       "enum": "SafetyModel",
-      "field": "teslaPreap @39;"
+      "fields": ["teslaPreap @39;", "leapmotor @40;"]
     }
   },
   "reviewed_payload_children": {

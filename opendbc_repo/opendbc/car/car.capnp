@@ -651,6 +651,7 @@ struct CarParams {
     bmw @37;
     mg @38;
     teslaPreap @39;
+    leapmotor @40;
   }
 
   enum SteerControlType {

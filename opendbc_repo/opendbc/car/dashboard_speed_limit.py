@@ -83,6 +83,14 @@ def volvo_sign(speed_kph: float) -> tuple[Status, float]:
   return (Status.VALID, speed_kph / 3.6) if speed_kph > 0 else (Status.ABSENT, 0.0)
 
 
+def leapmotor_sign(raw: int) -> tuple[Status, float]:
+  # ROAD_SIGNS.SPEED_LIMIT is in km/h: 20-130 in tens on the B10's drives. 0 and 255 only last single frames, and
+  # no code for "no sign" has been seen, so neither is evidence of absence.
+  if 1 <= raw <= 250:
+    return Status.VALID, raw / 3.6
+  return Status.UNKNOWN, 0.0
+
+
 def hyundai_canfd_sign(speed: int, system_status: int, is_metric: bool) -> tuple[Status, float]:
   # FR_CMR_02_100ms defines 0 as no recognition, 253 as unlimited, and
   # 254/255 as reserved/invalid. A failed ISLW system is not evidence of absence.

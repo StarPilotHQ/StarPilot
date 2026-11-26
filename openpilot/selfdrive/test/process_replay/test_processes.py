@@ -12,11 +12,12 @@ from openpilot.common.git import get_commit
 from openpilot.tools.lib.openpilotci import get_url
 from openpilot.selfdrive.test.process_replay.compare_logs import compare_logs, format_diff
 from openpilot.selfdrive.test.process_replay.diff_report import diff_process, diff_report
-from tools.ci.replay_fixture_cache import ARTIFACT_COMMIT, OPENPILOT_COMMIT, FIXTURES, verified_fixture_params
+from tools.ci.replay_fixture_cache import ARTIFACT_COMMIT, B10_REPLAY_SEGMENT, OPENPILOT_COMMIT, FIXTURES, verified_b10_params, verified_fixture_params
 from openpilot.selfdrive.test.process_replay.process_replay import CONFIGS, PROC_REPLAY_DIR, FAKEDATA, replay_process, \
                                                                    check_most_messages_valid
 from openpilot.tools.lib.filereader import FileReader
 from openpilot.tools.lib.logreader import LogReader, save_log
+from openpilot.tools.lib.route import Route
 from openpilot.tools.lib.url_file import URLFile
 from tools.ci.process_replay_coverage import replay_coverage, write_coverage
 from tools.ci.run_vehicle_tests import targets_for
@@ -65,6 +66,7 @@ segments = [
   ("FORD", "regen755D8CB1E1F|2025-04-08--23-13-43--0"),
   ("RIVIAN", "regen5FCAC896BBE|2025-04-08--23-13-35--0"),
   ("TESLA", "aebd8f1d4ea16066|000002d8--5850d3ea5c--2"),
+  ("LEAPMOTOR", B10_REPLAY_SEGMENT),                             # LEAPMOTOR.LEAPMOTOR_B10
 ]
 
 # dashcamOnly makes don't need to be tested until a full port is done
@@ -100,8 +102,11 @@ def run_test_process(data):
 
 def get_log_data(segment):
   r, n = segment.rsplit("--", 1)
-  with FileReader(get_url(r, n, "rlog.zst")) as f:
+  path = Route(r).log_paths()[int(n)] if segment == B10_REPLAY_SEGMENT else get_url(r, n, "rlog.zst")
+  with FileReader(path) as f:
     raw = f.read()
+  if segment == B10_REPLAY_SEGMENT:
+    return segment, raw, verified_b10_params(raw)
   custom_params = verified_fixture_params(segment, raw) if segment in FIXTURES else None
   return (segment, raw, custom_params)
 
@@ -223,7 +228,7 @@ if __name__ == "__main__":
         cur_log_fn = os.path.join(FAKEDATA, f"{segment}_{cfg.proc_name}_{cur_commit}.zst".replace("|", "_"))
         if args.update_refs:  # reference logs will not exist if routes were just regenerated
           route, seg_num = segment.rsplit("--", 1)
-          ref_log_path = get_url(route, seg_num, "rlog.zst")
+          ref_log_path = Route(route).log_paths()[int(seg_num)] if segment == B10_REPLAY_SEGMENT else get_url(route, seg_num, "rlog.zst")
         else:
           ref_log_fn = os.path.join(FAKEDATA, f"{segment}_{cfg.proc_name}_{ref_commit}.zst".replace("|", "_"))
           if ref_commit == OPENPILOT_COMMIT:
