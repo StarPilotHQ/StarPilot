@@ -26,6 +26,7 @@ from openpilot.starpilot.car.subaru.tests.native_fixture import subaru_native_pa
 def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, subaru_native_pair, tmp_path, aol=True, manual=False, stop_resume=False,
                                                                       hard_stop_native_first=False, main_only=False, preferences=None, firmware=None,
                                                                       manual_ratio=None, camera_hud=False, manual_phase=0,
+                                                                      paddle_gear_delay=0,
                                                                       deadline_gap=False, fixed_angle_handoff=False, host_first_stop=False,
                                                                       source_outage=False, vm_angle_handoff=0, crawl=False, eps_brake_join=False,
                                                                       high_angle_guard=False, main_on_brake=False, guard_brake_release=False,
@@ -208,11 +209,17 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
         if source_outage:
           pending_host_can.append((now, incoming))
         safety.set_timer((now // 1000) & 0xFFFFFFFF)
+        panda_gear_ahead = bool(paddle_gear_delay and elapsed == 150 + manual_phase - paddle_gear_delay)
         for addr, data, bus in incoming:
+          if panda_gear_ahead and addr == 0x48 and bus == 0:
+            raw = bytearray(data)
+            raw[3] = manual_ratio
+            raw[0] = (0x48 + sum(raw[1:])) & 255
+            data = bytes(raw)
           safety.safety_rx_hook(libsafety_py.make_CANPacket(addr, bus, data))
         safety.safety_tick()
         hard_stop_receipt = (hard_stop_native_first or host_first_stop) and elapsed == 125
-        paddle_native_receipt = bool(manual_phase and elapsed == 150 + manual_phase)
+        paddle_native_receipt = bool(manual_phase and elapsed == 150 + manual_phase - paddle_gear_delay)
         if hard_stop_receipt or paddle_native_receipt:
           # Native zero wheels and its USB poll precede the host's stopped CarState.
           receipt, hard_order = pandad.step(driven, published, now)
@@ -437,6 +444,16 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
           'events': [str(e.name) for e in driven['onroadEvents'].onroadEvents],
         }
         rows.append(row)
+        if paddle_gear_delay:
+          denial_tick = 150 + manual_phase - paddle_gear_delay
+          if denial_tick <= elapsed < 150 + manual_phase:
+            assert not row['intent'] and not row['lat'], row
+            assert all(not steering['request'] for steering in row['steering']), row
+          if panda_gear_ahead:
+            assert row['cardLatch'] and row['armed'], row
+          if paddle_gear_delay > 4 and elapsed == denial_tick + 4:
+            assert not row['cardLatch'] and not row['armed'], row
+            return
         if main_during_eps and 35 <= tick < 50:
           assert cs.steerFaultTemporary and not row['lat'] and not row['long'] and row['permission'] == 0, row
           assert all(not frame['request'] and frame['output'] == 0 and frame['nativeAccepted'] for frame in row['steering']), row
@@ -828,3 +845,10 @@ def test_actual_crosstrek_native_first_paddle_pause(subaru_native_pair, tmp_path
   test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(
     CAR.SUBARU_IMPREZA_2020, subaru_native_pair, tmp_path, main_only=True, manual_ratio=145, manual_phase=phase,
     preferences={'SubaruSNG': True})
+
+
+@pytest.mark.parametrize("phase, delay", ((4, 1), (7, 1), (7, 5)))
+def test_actual_crosstrek_panda_denial_before_card_gear(subaru_native_pair, tmp_path, phase, delay):
+  test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(
+    CAR.SUBARU_IMPREZA_2020, subaru_native_pair, tmp_path, main_only=True, manual_ratio=145, manual_phase=phase,
+    paddle_gear_delay=delay, preferences={'SubaruSNG': True})

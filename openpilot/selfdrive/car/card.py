@@ -697,7 +697,10 @@ class Car:
         getattr(self.aol_transport_feedback, 'subaru_main_retained_native_ns', 0) == int(native.observedMonoTime))
       volkswagen_reverse_pending = bool(volkswagen_aol and not transport_reset and native is not None and
         getattr(self.aol_transport_feedback, 'volkswagen_reverse_retained_native_ns', 0) == int(native.observedMonoTime))
-      rejected = native_reset or (not angle_arm_pending and not subaru_braked_main_pending and
+      paddle_denial = getattr(getattr(self, 'aol_transport_feedback', None), 'subaru_paddle_denial', None)
+      subaru_paddle_pending = bool(paddle_denial and not transport_reset and native is not None and
+                                  paddle_denial[0] == int(native.observedMonoTime))
+      rejected = native_reset or (not angle_arm_pending and not subaru_braked_main_pending and not subaru_paddle_pending and
         not volkswagen_initial_wait and not volkswagen_reverse_pending and not honda_eps_pending and
         native_latch_rejected(self.CP, native, state=CS if angle_panda_ready else None))
       rejection_ns = now_ns if native_reset else int(native.observedMonoTime) if rejected else 0
@@ -1081,6 +1084,9 @@ class Car:
       if self.aol_card_intent is not None:
         allowed_latch, pause_lateral, pause_longitudinal = self.aol_card_intent.output(CS)
         lateral_armed = self.aol_card_intent.allowed_latch
+        paddle_denial = getattr(getattr(self, 'aol_transport_feedback', None), 'subaru_paddle_denial', None)
+        if paddle_denial and not paddle_denial[3]:
+          allowed_latch = False
       intent_deadline_ns = int(cs_send.logMonoTime) + 200_000_000
       publication = (getattr(self.aol_card_intent, 'intent_publication', None) if self.CP.brand == 'volkswagen' else None)
       if publication is not None:
@@ -1905,6 +1911,11 @@ class Car:
         subaru_aol.sync_legacy_card_lateral(self, CS, CC)
       if getattr(self, "redneck_cruise", None):
         self.redneck_cruise.update(self, CS, CC, now_nanos)
+      paddle_denial = getattr(getattr(self, 'aol_transport_feedback', None), 'subaru_paddle_denial', None)
+      if CC.latActive and not CC.enabled and paddle_denial and not paddle_denial[3]:
+        suppressed = CC.as_builder()
+        suppressed.latActive = False
+        CC = suppressed.as_reader()
       self.last_actuators_output, can_sends = self.CI.apply(CC, now_nanos)
       self.publish_sendcan(can_sends, valid=CS.canValid)
       if learning_snapshot is not None and self.learning_send_committed_mono_ns:

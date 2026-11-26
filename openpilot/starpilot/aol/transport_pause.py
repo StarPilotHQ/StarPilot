@@ -1256,6 +1256,12 @@ class TransportPauseFeedback:
         cp_identity(cp) == self.cp)
       continuity = bool(not self.session or axis.sessionId == self.session and
         (axis.sequence > self.sequence or axis.sequence == self.sequence and signature == self.signature))
+      pending_paddle = self.subaru_paddle_denial
+      if pending_paddle is not None and not pending_paddle[3] and (
+          not current or not continuity or now_ns - pending_paddle[0] > AXIS_MAX_AGE_NS):
+        self.subaru_paddle_denial = None
+        self.failed = True
+        return True
       if not current and continuity and cp.brand == 'subaru':
         from openpilot.starpilot.car.subaru.aol import retain_stopped_intent
         if retain_stopped_intent(self, sm, cp, cs, axis, now_ns, latched=latched, producer=intent_producer_session, signature=signature):
@@ -1424,8 +1430,14 @@ class TransportPauseFeedback:
           return False
       if cp.brand == 'subaru' and current and continuity:
         from openpilot.starpilot.car.subaru.paused_intent import retain_paddle_denial, retain_paused_restriction
-        if (retain_paddle_denial(self, sm, cp, cs, axis, stamp, now_ns, latched=latched, producer=intent_producer_session) or
-            retain_paused_restriction(self, sm, cp, cs, axis, stamp, now_ns, latched=latched, producer=intent_producer_session)):
+        pending_paddle = self.subaru_paddle_denial
+        if retain_paddle_denial(self, sm, cp, cs, axis, stamp, now_ns, latched=latched, producer=intent_producer_session):
+          self.sequence, self.signature = int(axis.sequence), signature
+          return False
+        if pending_paddle is not None and not pending_paddle[3]:
+          self.failed = True
+          return True
+        if retain_paused_restriction(self, sm, cp, cs, axis, stamp, now_ns, latched=latched, producer=intent_producer_session):
           self.sequence, self.signature = int(axis.sequence), signature
           return False
       fit_eps_retained = False

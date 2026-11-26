@@ -147,7 +147,7 @@ def retain_paddle_denial(feedback, sm, cp, state, axis, stamp, now_ns, *, latche
   paddle = known_paddle_pause(cp, state)
   drive = state.gearShifter == structs.CarState.GearShifter.drive
   epoch = int(axis.intentIntegrityEpoch)
-  if (not (paddle or pending is not None and drive) or not latched or feedback.failed or feedback.paused or
+  if (not (paddle or drive) or not latched or feedback.failed or feedback.paused or
       feedback.pending_event or feedback.retention_started_ns or feedback.source_retention_started_ns or
       not feedback.ever_lateral_active or previous is None or not feedback.session or not producer or
       previous[0] != feedback.session or previous[7] != feedback.session or previous[5] != 'none' or
@@ -175,13 +175,16 @@ def retain_paddle_denial(feedback, sm, cp, state, axis, stamp, now_ns, *, latche
     return False
   denied_ns = int(native.observedMonoTime)
   if pending is None:
-    if (not paddle or not previous[9] or not previous[11] or not previous[13] or
+    if (not previous[9] or not previous[11] or not previous[13] or
         not 0 < previous[8] <= previous[2] <= now_ns <= previous[4] or
         not 0 < feedback.healthy_native_ns < denied_ns <= now_ns):
       return False
-  elif pending != (denied_ns, producer, epoch):
+  elif pending[:3] != (denied_ns, producer, epoch):
     return False
-  feedback.subaru_paddle_denial = denied_ns, producer, epoch
+  confirmed = paddle or bool(pending and pending[3])
+  if (not confirmed or pending is not None and not pending[3]) and now_ns - denied_ns > AXIS_MAX_AGE_NS:
+    return False
+  feedback.subaru_paddle_denial = denied_ns, producer, epoch, confirmed
   return True
 
 
