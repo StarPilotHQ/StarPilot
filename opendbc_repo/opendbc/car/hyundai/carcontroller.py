@@ -695,6 +695,10 @@ class CarController(CarControllerBase):
                   if self.torque_ev_lead_inputs is not None else
                   fallback_lead(CS.torque_ev_camera_lead, hud_control.leadVisible, self.torque_ev_floor_boot_ns))
           acc_options = torque_ev_scc_options(CS.out.cruiseState.available, CC.actuators.longControlState, lead)
+          if (kona_handoff and CC.longActive and not CC.cruiseControl.override and stopping and
+              not (CS.out.standstill or CS.out.brakePressed or CS.out.gasPressed or hud_control.leadVisible or lead.visible) and
+              0.0 < CS.out.vEgo < CV.MPH_TO_MS and -0.5 <= accel < 0.0 and accel >= self.accel_last - 0.02):
+            acc_options["jerk_lower"] = 1.2
         elif is_gv70(self.CP):
           request = scc_request(CC.enabled, CC.cruiseControl.override, stopping, accel, self.accel_last)
           accel = request.accel

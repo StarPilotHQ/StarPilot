@@ -263,3 +263,34 @@ def test_kona_handoff_cruise_main_display_follows_star_long_engagement(handoff, 
     assert display['DISTANCE_SPACING'] == 0
   assert parser.vl['CCNC_0x162']['FAULT_LSS'] == 2
   assert parser.vl['CCNC_0x162']['FAULT_FCA'] == 1
+
+
+@pytest.mark.parametrize('speed,accel,previous,standstill,lead,word,cap', [
+  (0.3, -0.27, -0.26, False, False, 0x1C0C, 1.2),
+  (0.5, -0.27, -0.26, False, False, 0x1C0C, 5.0),
+  (0.3, -0.80, -0.79, False, False, 0x1C0C, 5.0),
+  (0.3, -0.45, -0.20, False, False, 0x1C0C, 5.0),
+  (0.1, -0.27, -0.26, True, False, 0x1C0C, 5.0),
+  (0.3, -0.27, -0.26, False, True, 0x1C0C, 5.0),
+  (0.3, -0.27, -0.26, False, False, 0x0C0C, 5.0),
+])
+def test_kona_final_braking_jerk(speed, accel, previous, standstill, lead, word, cap):
+  from opendbc.can import CANParser
+
+  cp = kona_params(CARS[0])
+  cp.safetyConfigs[0].safetyParam = word
+  cp.alternativeExperience = 32
+  ci = CarInterface(cp)
+  ci.CS.out = structs.CarState(vEgo=speed, standstill=standstill, cruiseState={'available': True}).as_reader()
+  ci.CC.accel_last = previous
+  command = structs.CarControl(enabled=True, longActive=True,
+                               actuators={'accel': accel, 'longControlState': 'stopping'},
+                               hudControl={'leadVisible': lead})
+  _, frames = ci.apply(command.as_reader(), 1_000_000_000)
+  parser = CANParser('hyundai_canfd_generated', [('SCC_CONTROL', 0)], 0)
+  assert 0x1A0 in parser.update((1_000_000_000, frames))
+  values = parser.vl['SCC_CONTROL']
+  assert values['aReqValue'] == pytest.approx(accel)
+  assert values['aReqRaw'] == pytest.approx(accel)
+  assert values['ACCMode'] == values['StopReq'] == 1
+  assert values['JerkLowerLimit'] == pytest.approx(cap)
