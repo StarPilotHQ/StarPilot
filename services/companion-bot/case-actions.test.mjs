@@ -13,7 +13,11 @@ test('reporter can add details and staff get a private action menu',async()=>{
   assert.equal((await (await caseInteraction(interaction('menu','2'),env)).json()).data.components[0].components.length,1);
   const menu=await (await caseInteraction(interaction('menu','3'),env)).json();
   assert.equal(menu.data.flags,32832);
-  assert.deepEqual(menu.data.components[0].components[1].components[0].options.slice(0,3).map(o=>o.value),['tags','working','assign']);
+  const picker=menu.data.components[0].components[1].components[0];
+  assert.equal(picker.type,3);
+  assert.deepEqual(picker.options.slice(0,3).map(o=>o.value),['tags','working','assign']);
+  assert.equal(new Set(picker.options.map(o=>o.value)).size,20);
+  for(const option of picker.options) assert.ok(option.label && option.emoji.name && option.description.length <= 100 && option.description.length > 0);
   assert.match((await (await caseInteraction(interaction('priority:5','2'),env)).json()).data.components[0].components[0].content,/original/);
 });
 test('priority is stored on the verified ticket and a repeated interaction posts once',async()=>{

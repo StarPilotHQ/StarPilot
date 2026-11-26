@@ -8,23 +8,28 @@ const titles = {
   awaiting:'Awaiting deploy', investigate:'Further investigation', overview:'Report overview', question:'Ask the reporter', testing:'Request User Testing', commaTesting:'Request Comma Testing', appTesting:'Test latest app beta', rename:'Rename Thread', duplicate:'Link Duplicate',
   appLogs:'Request Phone App Logs', connection:'Request Comma Connection Logs', controller:'Request Controller Logs', starport:'Request StarPort Logs', removeTags:'Remove topic tags'
 };
-const descriptions={
-  appTesting:'Ask the reporter to install the latest available phone beta and retry.',
-  investigate:'Send this report back for investigation.',
-  commaTesting:'Ask the reporter to update the comma and test the fix. Include a phone build if needed.',
-  awaiting:'Record a fix that is waiting for deployment without pinging the reporter.',
-  overview:'See status, priority, assignment and the latest available diagnostic link privately.',
-  question:'Mention the reporter and give them a feedback button.',
-  tags:'Add topics such as Galaxy, Navigation or CarPlay.', removeTags:'Remove selected topics while keeping the platform and status.',
-  working:'Show that you are actively working on the report.', assign:'Pick and notify the person handling the report.',
-  unassign:'Remove the current assignee.', priority:'Set urgency from 0 (highest) to 5, or clear it.',
-  status:'Open, mark in progress, or close and archive the thread.', testing:'Mention the reporter with the build and steps to test.',
-  rename:'Update the title people see in the forum.', duplicate:'Link to the original report by thread link or ID.',
-  appLogs:'Ask the reporter for fresh diagnostics from the phone app in this ticket.',
-  connection:'Phone app pairing, Bluetooth bridge, Wi-Fi and discovery on the comma.',
-  starport:'Request the original StarPort session ZIP for Android Auto troubleshooting.',
-  controller:'USB and Bluetooth input inventory for a physical controller.'
-};
+const staffActions = [
+  ["tags", "🏷️", "Add topic tags to this report."],
+  ["working", "🛠️", "Show that you’re working on this report."],
+  ["assign", "👤", "Choose and notify a staff member."],
+  ["priority", "🚦", "Set priority from 0 (highest) to 5, or clear it."],
+  ["status", "📋", "Open, mark in progress, or close and archive this report."],
+  ["question", "💬", "Ask the reporter for more information."],
+  ["testing", "🧪", "Send the reporter your test steps and build details."],
+  ["appTesting", "📱", "Ask the reporter to try the latest phone app beta."],
+  ["commaTesting", "🚗", "Ask the reporter to update their comma and test again."],
+  ["appLogs", "📲", "Request fresh logs from the reporter’s phone app."],
+  ["connection", "📶", "Request comma logs for pairing, Wi-Fi, or device discovery."],
+  ["controller", "🎮", "Request Bluetooth or USB logs for a physical controller."],
+  ["starport", "🖥️", "Request StarPort session logs for Android Auto projection."],
+  ["awaiting", "📦", "Record a fix that’s waiting for release."],
+  ["investigate", "🔎", "Mark the report for further investigation."],
+  ["overview", "🗂️", "Privately view status, priority, assignment, and diagnostics."],
+  ["rename", "✏️", "Change the title displayed in the forum."],
+  ["duplicate", "🔗", "Link this duplicate to the original report."],
+  ["unassign", "👥", "Clear the current staff assignment."],
+  ["removeTags", "➖", "Remove selected topic tags."],
+];
 const statusNames=['Open','In Progress','Closed'];
 const row = component => ({type:1,components:[component]});
 const ephemeral = (content,controls) => Response.json({type:4,data:privateCard(content,controls)});
@@ -41,8 +46,10 @@ export function caseButtons(user, platform) {
 }
 
 function staffMenu(base,channel){
-  const options=Object.entries(titles).filter(([key])=>key!=='note').map(([value,label])=>({label,value,description:descriptions[value]}));
-  return privateCard('**Staff Actions**',[row({type:3,custom_id:base+'pick:'+channel,placeholder:'Choose a staff action',options})]);
+  const options=staffActions.map(([value,icon,description])=>({
+    label:titles[value], value, description, emoji:{name:icon}
+  }));
+  return privateCard('**Staff Actions**',[row({type:3,custom_id:base+'pick:'+channel,placeholder:'Choose an action…',options})]);
 }
 
 export function privateStaffCommand(i,env,ctx){
