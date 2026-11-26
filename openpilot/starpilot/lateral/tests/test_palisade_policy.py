@@ -107,10 +107,11 @@ def test_hda2_softens_rapid_highway_corrections_across_longitudinal_modes(alpha,
   policy = LatControlTorque(cp.as_reader(), interfaces[cp.carFingerprint](cp), .01).starpilot_extension.policy
   value, demand, jerk = direction * .4, direction * .45, direction * 1.1
   baseline = policy.output(value, demand, 31.)
-  assert policy.output_context(value, demand, jerk, 0., 31.) == pytest.approx(.88 * baseline)
+  assert policy.output_context(value, demand, jerk, 0., 31.) == pytest.approx(.78 * baseline)
   assert policy.output_context(value, demand, .2, 0., 31.) == baseline
-  assert policy.output_context(value, direction, jerk, 0., 31.) == policy.output(value, direction, 31.)
-  assert policy.output_context(value, demand, jerk, 0., 20.) == policy.output(value, demand, 20.)
+  assert policy.output_context(value, direction, jerk, 0., 31.) == pytest.approx(.78 * policy.output(value, direction, 31.))
+  assert policy.output_context(value, demand, jerk, 0., 20.) == pytest.approx(.78 * policy.output(value, demand, 20.))
+  assert policy.output_context(value, demand, jerk, 0., 10.5) == policy.output(value, demand, 10.5)
 
 
 @pytest.mark.parametrize('alpha', (False, True))
@@ -214,3 +215,27 @@ def test_hda2_uses_stronger_friction_damping_in_both_longitudinal_modes(alpha):
   hda1 = topology_params('hdai')
   other = LatControlTorque(hda1.as_reader(), interfaces[hda1.carFingerprint](hda1), .01).starpilot_extension.policy
   assert other.friction_context(.3, .4, 0., 30.) == other.friction(.3, .4, 30.)
+
+
+@pytest.mark.parametrize('alpha', (False, True))
+def test_hda2_curve_transition_taper_preserves_steady_turns_and_driver_response(alpha):
+  cp = topology_params('hdaii')
+  cp.openpilotLongitudinalControl, cp.pcmCruise = alpha, not alpha
+  policy = LatControlTorque(cp.as_reader(), interfaces[cp.carFingerprint](cp), .01).starpilot_extension.policy
+
+  for side in (-1., 1.):
+    steady = policy.output(.5, side * 1.2, 30.)
+    for phase in (-1., 1.):
+      transition = policy.output_context(.5, side * 1.2, side * phase * .85, 0., 30.)
+      assert transition == pytest.approx(.78 * steady)
+    for demand, jerk, speed in ((1.2, .20, 30.), (.18, .85, 30.), (2.5, .85, 30.), (1.2, .85, 10.5)):
+      assert policy.output_context(.5, side * demand, side * jerk, 0., speed) == policy.output(.5, side * demand, speed)
+
+  for attr in ('driver_steering', 'previous_pressed'):
+    setattr(policy, attr, True)
+    assert policy.output_context(.5, 1.2, .85, 0., 30.) == policy.output(.5, 1.2, 30.)
+    setattr(policy, attr, False)
+
+  hda1 = topology_params('hdai')
+  other = LatControlTorque(hda1.as_reader(), interfaces[hda1.carFingerprint](hda1), .01).starpilot_extension.policy
+  assert other.output_context(.5, 1.2, .85, 0., 30.) == other.output(.5, 1.2, 30.)

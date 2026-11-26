@@ -70,9 +70,15 @@ class PalisadeTorquePolicy(HKGShapedTorquePolicy):
 
   def output_context(self, value, setpoint, jerk, measurement, speed):
     output = self.output(value, setpoint, speed)
-    if not self.hda2 or speed <= 24. or self.previous_pressed:
+    if not self.hda2 or self.previous_pressed:
       return output
     highway = float(np.interp(speed, (24., 29.), (0., 1.)))
     transient = float(np.interp(abs(jerk), (.35, .9), (0., 1.)))
     small_curve = float(np.interp(abs(setpoint), (.18, .40, .55, .85), (0., 1., 1., 0.)))
-    return output * (1.0 - .12 * highway * transient * small_curve)
+    taper = .12 * highway * transient * small_curve
+    if self.driver_steering:
+      return output * (1.0 - taper)
+    speed_weight = np.interp(speed, (10.5, 17.0), (0., 1.))
+    curve_weight = np.interp(abs(setpoint), (.18, .45, 1.8, 2.5), (0., 1., 1., 0.))
+    jerk_weight = np.interp(abs(jerk), (.20, .85), (0., 1.))
+    return output * (1.0 - max(taper, .22 * speed_weight * curve_weight * jerk_weight))
