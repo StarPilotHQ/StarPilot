@@ -851,7 +851,7 @@ border-radius: var(--radius-full); color: var(--text-muted);
 .gx-view > *, .gx-driving > *, .gx-long-curves > *, .gx-vehicle > * { margin-block: 0; }
 .gx-view h2, .gx-monitor h2 { margin-top: 0; }
 .gx-note { color: var(--text-muted); font-size: var(--fs-sm); }
-.gx-alert { --notice-accent: var(--primary); align-items: center; backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); border: 1px solid var(--glass-border); border-left: 4px solid var(--notice-accent); border-radius: var(--radius-md); display: flex; gap: var(--sp-3); box-sizing: border-box; min-width: 0; width: 100%; margin: 0; padding: var(--sp-4); background: color-mix(in srgb, var(--notice-accent) 12%, transparent); }
+.gx-alert { --notice-accent: var(--primary); align-items: center; backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur); border: 1px solid var(--glass-border); border-left: 4px solid var(--notice-accent); border-radius: var(--radius-md); display: flex; gap: var(--sp-3); box-sizing: border-box; min-width: 0; width: 100%; margin: 0 0 var(--sp-4); padding: var(--sp-4); background: color-mix(in srgb, var(--notice-accent) 12%, transparent); }
 * + .gx-alert { margin-top: var(--sp-4); }
 .gx-alert--warn { --notice-accent: var(--warning); }
 .gx-alert--danger { --notice-accent: var(--error); }
