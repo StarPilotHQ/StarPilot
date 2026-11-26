@@ -24,7 +24,7 @@ The radar interface preserves that attribution while adapting to the current int
 
 ## RAV4 Continental ARS510 receiver
 
-The optional ACC-target and fused-track receivers and DBC preserve firestar5683's Dom integration from `b220a37f4bd119e402225a7aa16a7cd84878d0af` (Sea Turtles, 2026-10-13) and its ARS510 source attribution to ds-sebastian/ars510-radar `fb5b29c2b5999f34afeb6f7ac494a73949d66c67`, copyright 2026 ARS510 radar contributors. The DBC is the one in commaai/opendbc#3860 (ds-sebastian/opendbc `ddcc0b07d1759c96a1d208ae1db13ad91ce23435`). The complete MIT permission and warranty notice is retained in THIRD_PARTY_NOTICES.md. Startup/settings ownership is adapted to the current StarPilot architecture; no original firmware binaries or safety permissions are copied.
+The ACC-target receiver and DBC preserve firestar5683's Dom integration from `b220a37f4bd119e402225a7aa16a7cd84878d0af` (Sea Turtles, 2026-10-13) and its ARS510 source attribution to ds-sebastian/ars510-radar `fb5b29c2b5999f34afeb6f7ac494a73949d66c67`, copyright 2026 ARS510 radar contributors. The DBC is the one in commaai/opendbc#3860 (ds-sebastian/opendbc `ddcc0b07d1759c96a1d208ae1db13ad91ce23435`). The complete MIT permission and warranty notice is retained in THIRD_PARTY_NOTICES.md. Startup/settings ownership is adapted to the current StarPilot architecture; no original firmware binaries or safety permissions are copied.
 
 ## Spotify Bluetooth output
 

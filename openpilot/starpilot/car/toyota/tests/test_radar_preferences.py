@@ -39,7 +39,6 @@ def test_retired_choice_cannot_disable_or_change_automatic_receiver(tmp_path, ca
   owner.prepare(cp)
   owner.finalize(cp)
   assert cp.flags & ToyotaFlags.ARS510_RADAR, 'AUTOMATIC_CONTINENTAL_RADAR'
-  assert not cp.flags & ToyotaFlags.ARS510_FUSED
   assert not cp.radarUnavailable and RadarInterface(cp).ars510 is not None
   assert cp.safetyConfigs[0].to_dict() == baseline['safetyConfigs'][0]
   assert cp.lateralTuning.to_dict() == baseline['lateralTuning']
@@ -98,11 +97,12 @@ def test_disabled_radar_keeps_acc_target_receiver_without_changing_authority(can
   from opendbc.car.toyota.ars510_preferences import configure_radar
   cp = CarInterface.get_params(candidate, gen_empty_fingerprint(), [], True, False, False)
   assert cp.flags & ToyotaFlags.DISABLE_RADAR
-  cp.flags |= int(ToyotaFlags.ARS510_FUSED)
+  cp.flags &= ~int(ToyotaFlags.ARS510_RADAR)
+  cp.radarUnavailable = True
   before = cp.to_dict()
   assert configure_radar(cp)
   expected = before.copy()
-  expected['flags'] = (expected['flags'] & ~int(ToyotaFlags.ARS510_FUSED)) | int(ToyotaFlags.ARS510_RADAR)
+  expected['flags'] |= int(ToyotaFlags.ARS510_RADAR)
   expected['radarUnavailable'] = False
   assert cp.to_dict() == expected
   assert cp.flags & ToyotaFlags.DISABLE_RADAR and cp.openpilotLongitudinalControl

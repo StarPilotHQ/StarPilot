@@ -19,7 +19,7 @@ def supported(cp):
 def configure_radar(cp):
   if not supported(cp):
     return False
-  cp.flags &= ~int(ToyotaFlags.ARS510_RADAR | ToyotaFlags.ARS510_FUSED)
+  cp.flags &= ~int(ToyotaFlags.ARS510_RADAR)
   # Alpha long's UDS disable (DISABLE_RADAR) only stops the radar's car-bus (bus 0) output;
   # the ACC target on the radar bus (bus 1) keeps running at full rate, so it stays the lead source.
   cp.flags |= int(ToyotaFlags.ARS510_RADAR)

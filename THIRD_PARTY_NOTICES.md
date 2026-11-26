@@ -92,7 +92,7 @@ The Ford CAN FD camera-radar filtering includes work adapted from BluePilot's `b
 
 ## Continental ARS510 radar
 
-The optional RAV4 radar decoders are adapted from
+The RAV4 ACC-target radar receiver is adapted from
 <https://github.com/ds-sebastian/ars510-radar> at
 `fb5b29c2b5999f34afeb6f7ac494a73949d66c67`. `toyota_tss2_ars510.dbc` is the DBC
 of commaai/opendbc#3860 (ds-sebastian/opendbc `ddcc0b07d1759c96a1d208ae1db13ad91ce23435`).

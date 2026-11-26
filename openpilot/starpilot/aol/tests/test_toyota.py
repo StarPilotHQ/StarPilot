@@ -144,8 +144,6 @@ class TestHighlanderAol(unittest.TestCase):
           self.assertEqual(qualified(cp), expected)
           cp.alternativeExperience = 32
           self.assertEqual(qualified(cp, marked_only=True), expected)
-          cp.flags |= int(ToyotaFlags.ARS510_FUSED)
-          self.assertFalse(qualified(cp))
 
   def test_radar_torque_factory_stock_and_alpha_transport(self):
     from opendbc.car.toyota.carcontroller import CarController
