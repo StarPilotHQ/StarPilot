@@ -1648,6 +1648,13 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
             self.json(401, {'error': 'Sign in to Galaxy'})
       elif path == '/api/settings/non-defaults':
         non_default_settings(self, settings_recovery)
+      elif path == '/api/settings/mode':
+        if not self.require_session():
+          return
+        try:
+          self.json(200, feature_settings().settings_mode())
+        except (OSError, RuntimeError):
+          self.json(503, {'error': 'Settings mode is unavailable'})
       elif path.startswith('/api/settings/pages/'):
         if not self.require_session():
           return
@@ -1769,7 +1776,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
           self.json(404, {'error': 'Not found'})
         return
       if path not in ('/api/companion/uplink', '/api/companion/settings', '/api/companion/location',
-                      '/api/connect/proxy', '/api/connect/provider', '/api/auth/login', '/api/auth/logout', '/api/settings/preview', '/api/settings/confirm',
+                      '/api/connect/proxy', '/api/connect/provider', '/api/auth/login', '/api/auth/logout', '/api/settings/preview', '/api/settings/confirm', '/api/settings/mode',
                       '/api/settings/recovery/preview', '/api/settings/recovery/confirm',
                       '/api/settings/flm-backup/preview', '/api/settings/flm-backup/confirm',
                       '/api/settings/flm-finding/accept',
@@ -3163,6 +3170,13 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
                 raise SettingsChanged('Session changed')
               result = settings_recovery().confirm(payload['intent'], *identity,
                                                    session_valid=lambda: self.settings_session() == identity)
+          elif path == '/api/settings/mode':
+            if type(payload) is not dict or set(payload) != {'mode'} or payload['mode'] not in ('simple', 'advanced'):
+              raise ValueError('Invalid settings mode')
+            with effect_lock:
+              if self.settings_session() != identity:
+                raise SettingsChanged('Session changed')
+              result = feature_settings().settings_mode(payload['mode'], authorized=lambda: self.settings_session() == identity)
           elif path == '/api/settings/reset-default':
             if not isinstance(payload, dict) or set(payload) != {'view', 'row'} or \
                not isinstance(payload['view'], str) or len(payload['view']) > 64 or type(payload['row']) is not int:

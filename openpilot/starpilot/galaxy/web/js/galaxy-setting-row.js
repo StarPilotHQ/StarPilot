@@ -234,7 +234,7 @@ export const GalaxySettingRow = {
   template: `
     <div class="gx-row" :class="{ disabled: dimmed, 'gx-row--stack': control === 'slider', 'gx-row--heading': row.heading }" :role="row.heading ? 'heading' : undefined" :aria-level="row.heading ? 3 : undefined" :inert="busy || updating" :aria-busy="busy || updating || undefined">
       <div class="gx-row__info">
-        <span class="gx-row__label">{{ row.label }}</span>
+        <span class="gx-row__label">{{ row.label }} <span v-if="row.level === 'advanced'" class="gx-setting-level" role="img" aria-label="Advanced control" title="Advanced control"></span></span>
         <span v-if="presentedRow.reason && !row.heading && !compact" class="gx-row__desc">{{ ' ' + presentedRow.reason.replace('https://firestar.link/discord', '') }}</span>
         <template v-if="compact && presentedRow.reason && !row.heading"><span class="gx-row__desc">{{ presentedRow.reason.split('. ')[0] + (presentedRow.reason.includes('. ') ? '.' : '') }}</span><details class="gx-row__help"><summary>What this changes</summary><p>{{ presentedRow.reason }}</p></details></template>
         <a v-if="presentedRow.reason?.includes('https://firestar.link/discord')" class="gx-btn gx-btn--tonal" href="https://firestar.link/discord" target="_blank" rel="noopener">StarPilot Discord</a>

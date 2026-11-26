@@ -1092,3 +1092,13 @@ button.gx-chip.gx-uniden__choice[aria-pressed="true"] { background: var(--primar
   .gx-uniden__field:last-child { grid-column: 1 / -1; }
   .gx-uniden__heading, .gx-uniden__rule-footer { flex-wrap: wrap; }
 }
+
+.gx-settings__mode { flex: none; min-height: 36px; min-width: 112px; margin-inline-start: auto; padding: 6px 12px; }
+.gx-settings__mode > i { color: inherit; font-size: .9em; }
+.gx-settings__mode[aria-pressed="true"] > i { color: var(--warning); }
+.gx-settings__header.gx-page-header { align-items: center; }
+.gx-settings__header > h2 { flex: 1; min-width: 0; margin: 0; }
+.gx-settings .gx-wiki-help { align-self: center; }
+.gx-settings .gx-wiki-help > i { display: block; line-height: 1; }
+.gx-settings .gx-wiki-help > i::before { display: block; vertical-align: 0; }
+.gx-setting-level { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--warning); margin-inline: 4px; vertical-align: middle; }

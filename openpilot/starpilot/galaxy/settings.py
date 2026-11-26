@@ -15,6 +15,7 @@ from typing import Protocol, cast
 
 from openpilot.starpilot.ui.feature_settings_owner import FeatureSettingsOwner, AGGRESSIVE_COOLING_KEY
 from openpilot.starpilot.galaxy.setting_descriptions import description
+from openpilot.starpilot.galaxy.settings_mode import read_mode, save_mode
 from openpilot.starpilot.galaxy.localization_settings import LocalizationSettingsOwner
 from openpilot.starpilot.ui.controller_feature import SETUP_ACTION, SETUP_QUESTION
 from openpilot.starpilot.ui.vehicle_bool import VEHICLE_BOOL_KEYS, confirmation_question as vehicle_question
@@ -27,7 +28,7 @@ from openpilot.starpilot.audio.alert_volume import SPECS as SOUND_SPECS
 from openpilot.starpilot.ui.presentation import Profile
 from openpilot.common.hardware import HARDWARE
 from openpilot.starpilot.ui.feature_settings_state import (
-  FeatureRow, FeatureSettingsRequest, FEATURE_CONFIRM_ACTIONS, is_heading, is_long_confirm_action, row_change, row_default,
+  FeatureRow, FeatureSettingsRequest, SettingLevel, setting_levels, FEATURE_CONFIRM_ACTIONS, is_heading, is_long_confirm_action, row_change, row_default,
 )
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.galaxy.device_settings import CALIBRATION_RESET, DRIVER_MONITORING_RESET, KEY as VOACC_KEY, HOLD_KEY, DeviceSettingsOwner
@@ -407,8 +408,8 @@ def _session_key(token: str) -> bytes:
   return hashlib.sha256(token.encode("ascii")).digest()
 
 
-def _projection(row: FeatureRow) -> dict:
-  return {"label": row.label, "value": row.value, "choices": list(row.choices), "step": row.step,
+def _projection(row: FeatureRow, default_level: SettingLevel = SettingLevel.SIMPLE) -> dict:
+  return {"id": row.key, "level": row.level if row.level is not None else default_level, "label": row.label, "value": row.value, "choices": list(row.choices), "step": row.step,
           "minimum": row.minimum, "maximum": row.maximum, "unit": row.unit,
           "available": row.available, "reason": description(row), "learnedValue": row.learned_value,
           "page": row.page if row.page in PAGES else "", "action": bool(row.key and row.available and not row.page),
@@ -527,6 +528,9 @@ class SettingsGateway:
     close = getattr(self.context, "close", None)
     if close is not None:
       close()
+
+  def settings_mode(self, mode=None, *, authorized=lambda: True) -> dict:
+    return read_mode(self.params) if mode is None else save_mode(self.params, mode, authorized=authorized)
 
   def diagnostics(self) -> dict:
     """Read the same bounded, non-secret presentation used by driving settings."""
@@ -729,9 +733,11 @@ class SettingsGateway:
       view_id = secrets.token_urlsafe(24)
       self.views[view_id] = _View(_session_key(token), generation, page, state.rows, ctx.cp_raw, self.clock() + TTL)
     scope = hashlib.sha256(_session_key(token) + generation + (ctx.cp_raw or b"")).digest()
-    result = {"page": page, "title": state.title, "subtitle": state.subtitle, "parked": state.parked,
+    result = {"page": page, "title": state.title, "subtitle": state.subtitle, "parked": state.parked, "level": state.level,
+              "levels": sorted({state.row_level(row) for row in state.rows if not is_heading(row.key)}),
+              "settingsMode": read_mode(self.params)["mode"],
               "vehicleIdentified": bool(ctx.cp is not None and getattr(ctx.cp, "carFingerprint", None)),
-              "rows": [{**_projection(row), "revision": hashlib.sha256(scope + repr(row).encode()).hexdigest()}
+              "rows": [{**_projection(row, state.level), "revision": hashlib.sha256(scope + repr(row).encode()).hexdigest()}
                        for row in state.rows], "view": view_id}
     if page == "hub" or any(row.page for row in state.rows):
       rows_by_page = {page: state}
@@ -741,6 +747,19 @@ class SettingsGateway:
         if name not in rows_by_page:
           rows_by_page[name] = self._state(name, ctx)
         return rows_by_page[name]
+
+      def presentation_page(name: str):
+        if name not in PAGES:
+          return None
+        try:
+          return page_state(name)
+        except SettingsUnavailable:
+          return None
+
+      for source, projected in zip(state.rows, result["rows"], strict=True):
+        child = presentation_page(source.page) if source.page else None
+        if child is not None:
+          projected["levels"] = sorted(setting_levels(child, presentation_page))
 
       def has_car_control(name: str, visited: frozenset[str] = frozenset()) -> bool:
         if name in visited or name not in PAGES:
@@ -766,6 +785,9 @@ class SettingsGateway:
         for source, projected in zip(state.rows, result["rows"], strict=False):
           if source.page:
             projected["carVisible"] = has_car_control(source.page)
+      result["levels"] = sorted(setting_levels(state, presentation_page))
+      result["pageLevels"] = {name: sorted(setting_levels(snapshot, presentation_page))
+                             for name, snapshot in list(rows_by_page.items()) if name != "hub"}
     if page == "vasm":
       result["editor"] = editor
       result["editorRow"] = next((index for index, row in enumerate(state.rows) if row.key == VASM_ANNOTATION), -1)

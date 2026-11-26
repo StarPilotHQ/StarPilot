@@ -43,6 +43,25 @@ class SettingsGatewayTest(unittest.TestCase):
   def page(self, name):
     return self.gateway.page(name, self.session, self.generation)
 
+  def test_category_defaults_and_navigation_levels_use_shared_metadata(self):
+    from openpilot.starpilot.ui.feature_settings_state import FeatureRow, FeatureSettingsState, SettingLevel
+
+    developer = FeatureSettingsState("developer", rows=(
+      FeatureRow("debug", "Debug", "Off"),
+      FeatureRow("basic", "Basic", "On", level=SettingLevel.SIMPLE),
+    ), level=SettingLevel.ADVANCED)
+    states = {"hub": FeatureSettingsState("hub", rows=(FeatureRow("", "Developer", "", page="developer"),)),
+              "developer": developer}
+    with mock.patch.object(self.gateway, "_state", side_effect=lambda name, ctx: states.get(name, FeatureSettingsState(name))):
+      page = self.page("developer")
+      self.assertEqual([row["level"] for row in page["rows"]], ["advanced", "simple"])
+      hub = self.page("hub")
+      self.assertEqual(hub["rows"][0]["levels"], ["advanced", "simple"])
+      states["developer"] = replace(developer, rows=developer.rows[:1])
+      hub = self.page("hub")
+      self.assertEqual(hub["rows"][0]["levels"], ["advanced"])
+      self.assertEqual(hub["pageLevels"]["developer"], ["advanced"])
+
   def test_kona_main_cruise_assignment_stays_selected_after_save(self):
     from opendbc.car.hyundai.tests.test_kona_ccnc_long_aol import kona_params
     from opendbc.car.hyundai.values import CAR as HYUNDAI
@@ -1420,6 +1439,24 @@ class SettingsGatewayTest(unittest.TestCase):
 
 
 class SettingsHttpTest(SettingsHttpFixture):
+  def test_settings_mode_is_authenticated_and_saved_on_the_device(self):
+    from openpilot.starpilot.galaxy.settings_mode import KEY
+
+    self.assertEqual(self.request("/api/settings/mode")[0], 401)
+    self.assertEqual(self.request("/api/settings/mode", payload={"mode": "advanced"})[0], 401)
+    cookie = self.login()
+    self.assertEqual(self.request("/api/settings/mode", cookie=cookie)[:2], (200, {"mode": "simple"}))
+    self.assertEqual(self.request("/api/settings/mode", cookie=cookie, payload={"mode": "advanced"},
+                                  origin="http://untrusted.invalid")[0], 403)
+    self.assertEqual(self.request("/api/settings/mode", cookie=cookie,
+                                  payload={"mode": "advanced"})[:2], (200, {"mode": "advanced"}))
+    self.assertEqual(read_saved(self.params, KEY, 1), (b"1", True))
+    second_cookie = self.login()
+    self.assertEqual(self.request("/api/settings/mode", cookie=second_cookie)[:2], (200, {"mode": "advanced"}))
+    self.assertEqual(self.request("/api/settings/pages/hub", cookie=second_cookie)[1]["settingsMode"], "advanced")
+    self.assertEqual(self.request("/api/settings/mode", cookie=second_cookie, payload={"mode": "developer"})[0], 400)
+    self.assertEqual(read_saved(self.params, KEY, 1), (b"1", True))
+
   def test_force_stop_disable_http_while_onroad(self):
     self.context.value = AuthorityContext(False, self.context.value.cp, b"verified-cp")
     self.params.put_bool("ForceStops", True, block=True)

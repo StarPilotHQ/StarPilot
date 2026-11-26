@@ -239,7 +239,7 @@ export const VehicleControlsPage = {
           </template>
         </div></article>
         <ToyotaToolsPage :mode="mode" :unauthorized="unauthorized" />
-        <SettingsPage ref="vehicleSettings" :mode="mode" :unauthorized="unauthorized" initial-page="vehicle" title="Vehicle settings" />
+        <SettingsPage ref="vehicleSettings" :mode="mode" :unauthorized="unauthorized" initial-page="vehicle" title="Vehicle settings" :show-preferences="false" />
         <GxDialog v-if="state.pending" labelledby="gx-vehicle-controls-confirm-title" @close="feed.cancel()"><h3 id="gx-vehicle-controls-confirm-title">Confirm Vehicle Selection</h3><p>{{ state.pending.question }}</p>
             <p>The choice takes effect after the next start.</p>
             <div class="gx-settings__controls gx-actions"><button type="button" class="gx-btn gx-btn--tonal" @click="feed.cancel()">Cancel</button>

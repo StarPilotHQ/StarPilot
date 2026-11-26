@@ -31,6 +31,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"IgnoreIgnitionLine", {PERSISTENT, BOOL, "0"}},
     {"TeslaWakeOnCAN", {PERSISTENT, BOOL, "0"}},
     {"DeveloperUI", {PERSISTENT, BOOL, "0"}},
+    {"SettingsAdvanced", {PERSISTENT, BOOL, "0"}},
     {"LatSmoothSeconds", {PERSISTENT, FLOAT}},
     {"SubaruSmoothingContext", {CLEAR_ON_MANAGER_START | CLEAR_ON_OFFROAD_TRANSITION, BYTES}},
     {"SubaruAvhStartup", {PERSISTENT, BOOL, "0"}},

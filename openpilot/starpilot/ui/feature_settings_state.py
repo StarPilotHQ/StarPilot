@@ -90,6 +90,11 @@ def is_heading(key: str) -> bool:
   return key.startswith(HEADING_PREFIX)
 
 
+class SettingLevel(StrEnum):
+  SIMPLE = "simple"
+  ADVANCED = "advanced"
+
+
 @dataclass(frozen=True)
 class FeatureRow:
   key: str
@@ -122,6 +127,7 @@ class FeatureRow:
   accepted_finding_value: float | None = None
   coordinate_locked: bool | None = None
   learning_eligible: bool | None = None
+  level: SettingLevel | None = None  # None inherits the containing category.
 
 
 @dataclass(frozen=True)
@@ -140,6 +146,26 @@ class FeatureSettingsState:
   subtitle_tone: str = ""
   # Pinned (title, current value) chips; a tap emits FeatureUiAction("toolbar", direction=index).
   toolbar: tuple[tuple[str, str], ...] = ()
+  level: SettingLevel = SettingLevel.SIMPLE
+
+  def row_level(self, row: FeatureRow) -> SettingLevel:
+    return row.level if row.level is not None else self.level
+
+
+def setting_levels(state: FeatureSettingsState, resolve_page: Callable[[str], FeatureSettingsState | None],
+                   visited: frozenset[str] = frozenset()) -> frozenset[SettingLevel]:
+  if state.page in visited:
+    return frozenset()
+  levels = set()
+  for row in state.rows:
+    if is_heading(row.key):
+      continue
+    child = resolve_page(row.page) if row.page else None
+    if child is not None:
+      levels.update(setting_levels(child, resolve_page, visited | {state.page}))
+    else:
+      levels.add(state.row_level(row))
+  return frozenset(levels)
 
 
 def feature_body_top(state: FeatureSettingsState) -> int:

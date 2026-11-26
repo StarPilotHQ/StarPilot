@@ -420,10 +420,9 @@ assert.equal(htmlStates.at(-1).error, "Galaxy could not load settings. Refresh t
 htmlFeed.stop()
 
 const sections = (await import('../web/js/settings.js')).SETTINGS_SECTIONS
-assert.equal(sections.at(-1).id, 'developer')
-assert.deepEqual(sections.at(-1).pages, ['developer'])
-assert.equal(sections.at(-2).id, 'device')
-assert.equal(sections.at(-2).label, 'Device & System')
+assert(!sections.some(section => section.id === 'developer'))
+assert.equal(sections.at(-1).id, 'device')
+assert.equal(sections.at(-1).label, 'Device & System')
 assert(!sections.some(section => section.id === 'localization'))
 assert(sections.find(section => section.id === 'device').pages.includes('localization'))
 assert(sections.find(section => section.id === 'device').pages.includes('starport_options'))
@@ -471,15 +470,18 @@ assert.equal(brakeRows[0].row.label, "Disengage AOL on Brake")
 
 // Browser settings cancel device polling and never require a device request.
 {
-  const { feed, requests, timers } = fixture()
+  const { feed, requests, timers, reply } = fixture()
   feed.active = true
-  await feed.load('browser_preferences')
+  const loading = feed.load('browser_preferences')
+  assert.equal(requests[0].url, './api/settings/mode')
+  await reply(0, { mode: 'simple' })
+  await loading
   assert.equal(feed.data.page, 'browser_preferences')
-  assert.equal(requests.length, 0)
+  assert.equal(requests.length, 1)
   feed.scheduleParkedRefresh()
   assert.equal(timers.size, 0)
   const device = SETTINGS_SECTIONS.find(section => section.id === "device")
   const rows = SettingsPage.computed.visibleRows.call({initialPage:'hub', activeSection:device, state:{query:'', data:{page:'hub',rows:[]}}})
-  assert.deepEqual(rows.map(({row})=>row.page), ['power','data','starport_options','browser_preferences','localization'])
+  assert.deepEqual(rows.map(({row})=>row.page), ['power','data','starport_options','browser_preferences','localization','developer'])
   feed.stop()
 }
