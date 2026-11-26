@@ -9,13 +9,13 @@ from opendbc.car import structs
 from opendbc.car.hyundai.values import CAR, HyundaiFlags, HyundaiSafetyFlags
 
 NON_SCC_IDS = frozenset((CAR.HYUNDAI_BAYON_1ST_GEN_NON_SCC, CAR.HYUNDAI_ELANTRA_2022_NON_SCC,
-  CAR.HYUNDAI_ELANTRA_HEV_2022_NON_SCC, CAR.HYUNDAI_KONA_NON_SCC, CAR.HYUNDAI_KONA_EV_NON_SCC,
+  CAR.HYUNDAI_ELANTRA_HEV_2022_NON_SCC, CAR.HYUNDAI_KONA_NON_SCC, CAR.HYUNDAI_KONA_EV_NON_SCC, CAR.HYUNDAI_KONA_EV_2023_NON_SCC,
   CAR.KIA_CEED_PHEV_2022_NON_SCC, CAR.KIA_FORTE_2019_NON_SCC, CAR.KIA_FORTE_2021_NON_SCC,
   CAR.KIA_SELTOS_2023_NON_SCC, CAR.GENESIS_G70_2021_NON_SCC))
 SOFTWARE_CRUISE = 0x0020
 AOL_MARKER = 0x0400
 AOL_EXPERIENCE = 32
-AOL_WORDS = frozenset((0x1400, 0x1c00, 0x1440, 0x1c40, 0x1441, 0x1c41, 0x1402, 0x1c02))
+AOL_WORDS = frozenset((0x1400, 0x1c00, 0x1440, 0x1c40, 0x1441, 0x1c41, 0x1c51, 0x1402, 0x1c02))
 
 
 def stock_word(cp):
@@ -27,6 +27,8 @@ def stock_word(cp):
       word |= int(safety)
   if cp.flags & HyundaiFlags.HAS_LDA_BUTTON:
     word |= int(HyundaiSafetyFlags.HAS_LDA_BUTTON)
+  if cp.carFingerprint == CAR.HYUNDAI_KONA_EV_2023_NON_SCC:
+    word |= int(HyundaiSafetyFlags.KONA_EV_LABEL_CRUISE)
   return word
 
 
@@ -47,6 +49,9 @@ def qualified(cp):
   # The observed alternative CLU source is marked only at the AOL boundary;
   # ordinary safety may still use its original MAIN-only profile.
   ordinary = word & ~int(HyundaiSafetyFlags.HAS_LDA_BUTTON)
+  if cp.carFingerprint == CAR.HYUNDAI_KONA_EV_2023_NON_SCC:
+    return (safety.safetyModel == structs.CarParams.SafetyModel.hyundai and
+            (safety.safetyParam & ~SOFTWARE_CRUISE) in (0x1851, 0x1C51))
   return (safety.safetyModel == structs.CarParams.SafetyModel.hyundai and
           (safety.safetyParam & ~SOFTWARE_CRUISE) in (word, ordinary, word | AOL_MARKER))
 

@@ -88,6 +88,7 @@ static bool hyundai_non_scc_software_cruise_param(uint16_t param) {
     case 0x1020U: case 0x1820U: case 0x1420U: case 0x1C20U:
     case 0x1060U: case 0x1860U: case 0x1460U: case 0x1C60U:
     case 0x1061U: case 0x1861U: case 0x1461U: case 0x1C61U:
+    case 0x1871U: case 0x1C71U:
     case 0x1022U: case 0x1822U: case 0x1422U: case 0x1C22U:
       selected = true;
       break;
@@ -252,6 +253,16 @@ static void hyundai_blended_cancel_check(void) {
 }
 
 static void hyundai_rx_hook(const CANPacket_t *msg) {
+  if (hyundai_kona_ev_label_cruise && (msg->bus == 0U) && (msg->addr == 0x592U) && (GET_LEN(msg) == 8U)) {
+    if (!hyundai_kona_ev_label_fresh()) {
+      controls_allowed = false;
+      cruise_engaged_prev = true;
+      hyundai_last_button_interaction = HYUNDAI_PREV_BUTTON_SAMPLES;
+      classic_non_scc_aol_clear_authorization();
+    }
+    hyundai_kona_ev_label_ts = microsecond_timer_get();
+    hyundai_kona_ev_label_seen = true;
+  }
   classic_non_scc_aol_rx(msg);
   blended_aol_rx(msg);
   hyundai_blended_cancel_check();
@@ -283,9 +294,14 @@ static void hyundai_rx_hook(const CANPacket_t *msg) {
       hyundai_common_cruise_state_check(GET_BIT(msg, 35U));
     }
     if (hyundai_non_scc) {
-      if ((msg->addr == 0x595U) && hyundai_hybrid_gas_signal) {
+      if (hyundai_kona_ev_label_cruise && (msg->addr == 0x592U) && (GET_LEN(msg) == 8U)) {
+        hyundai_common_cruise_state_check(GET_BIT(msg, 34U) && GET_BIT(msg, 35U));
+        if (brake_pressed || gas_pressed) {
+          controls_allowed = false;
+        }
+      } else if ((msg->addr == 0x595U) && hyundai_hybrid_gas_signal) {
         hyundai_common_cruise_state_check(GET_BIT(msg, 51U));
-      } else if ((msg->addr == 0x329U) && hyundai_ev_gas_signal) {
+      } else if ((msg->addr == 0x329U) && hyundai_ev_gas_signal && !hyundai_kona_ev_label_cruise) {
         hyundai_common_cruise_state_check(GET_BIT(msg, 30U));
       } else if ((msg->addr == 0x260U) && !hyundai_ev_gas_signal && !hyundai_hybrid_gas_signal) {
         hyundai_common_cruise_state_check(GET_BIT(msg, 26U));
@@ -321,6 +337,13 @@ static void hyundai_rx_hook(const CANPacket_t *msg) {
         } else {
         }
         cruise_button_prev = cruise_button;
+      } else if (hyundai_kona_ev_label_cruise) {
+        hyundai_common_cruise_buttons_check(cruise_button == HYUNDAI_BTN_CANCEL ? HYUNDAI_BTN_NONE : cruise_button,
+                                           false, false, hyundai_long_main_policy);
+        if ((cruise_button == HYUNDAI_BTN_CANCEL) || main_button) {
+          controls_allowed = false;
+          hyundai_last_button_interaction = HYUNDAI_PREV_BUTTON_SAMPLES;
+        }
       } else {
         hyundai_common_cruise_buttons_check(cruise_button, main_button, false, hyundai_long_main_policy);
       }
@@ -513,7 +536,9 @@ static bool hyundai_tx_hook(const CANPacket_t *msg) {
                                         hyundai_alt_limits_2 ? HYUNDAI_STEERING_LIMITS_ALT_2 :
                                         hyundai_alt_limits ? HYUNDAI_STEERING_LIMITS_ALT : HYUNDAI_STEERING_LIMITS;
 
-    if (steer_torque_cmd_checks(desired_torque, steer_req, limits)) {
+    if (steer_torque_cmd_checks(desired_torque, steer_req, limits) ||
+        (hyundai_kona_ev_label_cruise && ((desired_torque != 0) || steer_req) &&
+         (!hyundai_kona_ev_label_fresh() || !aol_rx_healthy()))) {
       tx = false;
     }
   }
@@ -554,7 +579,8 @@ static bool hyundai_tx_hook(const CANPacket_t *msg) {
       allowed_set = (button == HYUNDAI_BTN_SET) && stock_cruise_ready;
     }
     bool allowed_cancel = (button == 4) && cruise_engaged_prev;
-    if (!(allowed_resume || allowed_set || allowed_cancel)) {
+    if (!(allowed_resume || allowed_set || allowed_cancel) ||
+        (hyundai_kona_ev_label_cruise && (!hyundai_kona_ev_label_fresh() || !aol_rx_healthy()))) {
       tx = false;
     }
   }
@@ -675,6 +701,7 @@ static safety_config hyundai_init(uint16_t safety_param) {
     hyundai_long_main_policy = HYUNDAI_MAIN_TRACK;
   }
   classic_non_scc_aol_configure(param, false);
+  hyundai_kona_ev_label_cruise = (param == 0x1851U) || (param == HYUNDAI_KONA_EV_LABEL_CRUISE_AOL);
   blended_aol_configure(param);
   hyundai_blended_alpha = false;
 #ifdef ALLOW_DEBUG
@@ -859,6 +886,11 @@ static safety_config hyundai_init(uint16_t safety_param) {
       HYUNDAI_NON_SCC_HEV_ADDR_CHECK
       HYUNDAI_CLASSIC_AOL_LDA_RX_CHECKS
     };
+    static RxCheck hyundai_kona_ev_label_rx_checks[] = {
+      HYUNDAI_COMMON_RX_CHECKS(false)
+      HYUNDAI_CLASSIC_AOL_EV_MAIN_RX_CHECK
+      HYUNDAI_LDA_BUTTON_ADDR_CHECK
+    };
     static RxCheck hyundai_classic_aol_ev_rx_checks[] = {
       HYUNDAI_COMMON_RX_CHECKS(false)
       HYUNDAI_NON_SCC_EV_ADDR_CHECK
@@ -895,7 +927,9 @@ static safety_config hyundai_init(uint16_t safety_param) {
       SET_TX_MSGS(HYUNDAI_TX_MSGS, ret);
     }
     if (hyundai_non_scc) {
-      if (classic_non_scc_aol_ev) {
+      if (hyundai_kona_ev_label_cruise) {
+        SET_RX_CHECKS(hyundai_kona_ev_label_rx_checks, ret);
+      } else if (classic_non_scc_aol_ev) {
         if (classic_non_scc_aol_lda) {
           SET_RX_CHECKS(hyundai_classic_aol_ev_lda_rx_checks, ret);
         } else {
@@ -929,7 +963,8 @@ static safety_config hyundai_init(uint16_t safety_param) {
     }
   }
   hyundai_classic_scc_aol_rx_config(&ret, false);
-  if (classic_long_aol_param(param) && !classic_long_aol_enabled) {
+  if ((classic_long_aol_param(param) && !classic_long_aol_enabled) ||
+      (!hyundai_non_scc_software_cruise && ((param == 0x1871U) || (param == 0x1C71U)))) {
     const safety_config denied = {0};
     ret = denied;
   }

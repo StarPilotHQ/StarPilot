@@ -3,6 +3,7 @@ from opendbc.car.hyundai.ioniq5pe_long_profile import required as pe_long_requir
 from opendbc.car.pedal import supported_pedal_detected
 from opendbc.car.hyundai.classic_scc_aol import CLASSIC_SCC_IDS
 from opendbc.car import Bus, get_safety_config, structs, uds
+from opendbc.car.hyundai.discovery import kona_electric_se_candidate
 from opendbc.car.hyundai.hyundaicanfd import CanBus
 from opendbc.car.hyundai.non_scc_aol import NON_SCC_IDS
 from opendbc.car.hyundai.values import (is_blended, is_blended_alpha, HyundaiFlags, CAR, DBC, HyundaiSafetyFlags, CANFD_ANGLE_MODEL_BITS,
@@ -121,17 +122,23 @@ class CarInterface(CarInterfaceBase):
       return -3.5, 3.5
     return CarInterfaceBase.get_pid_accel_limits(CP, current_speed, cruise_speed, faster_takeoffs=faster_takeoffs)
 
+  @classmethod
+  def get_params(cls, candidate, fingerprint, car_fw, alpha_long, is_release, docs, *, vin=""):
+    cp = super().get_params(candidate, fingerprint, car_fw, alpha_long, is_release, docs)
+    if candidate == CAR.HYUNDAI_KONA_EV_2023_NON_SCC:
+      identified = kona_electric_se_candidate(vin, fingerprint, car_fw) == candidate
+      if (identified and fingerprint.get(0, {}).get(0x391) == 8 and fingerprint.get(2, {}).get(0x485) == 4 and
+          cp.safetyConfigs[-1].safetyParam == 0x1841):
+        cp.safetyConfigs[-1].safetyParam |= HyundaiSafetyFlags.KONA_EV_LABEL_CRUISE.value
+      else:
+        cp.dashcamOnly = True
+        cp.safetyConfigs = [get_safety_config(structs.CarParams.SafetyModel.noOutput)]
+      cp.autoResumeSng = False
+    return cp
+
   @staticmethod
   def _get_params(ret: structs.CarParams, candidate, fingerprint, car_fw, alpha_long, is_release, docs) -> structs.CarParams:
     ret.brand = "hyundai"
-
-    if candidate == CAR.HYUNDAI_KONA_EV_2023_NON_SCC:
-      ret.dashcamOnly = True
-      ret.autoResumeSng = False
-      ret.radarUnavailable = True
-      ret.safetyConfigs = [get_safety_config(structs.CarParams.SafetyModel.noOutput)]
-      CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
-      return ret
 
     if is_blended(ret):
       cam_can = CanBus(None, fingerprint).CAM

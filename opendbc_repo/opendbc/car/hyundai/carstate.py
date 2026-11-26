@@ -260,6 +260,8 @@ class CarState(CarStateBase):
       available_msg, available_sig, enabled_msg, enabled_sig, speed_msg, speed_sig = get_non_scc_cruise_signals(self.CP.flags, self.CP.carFingerprint)
       ret.cruiseState.available = cp.vl[available_msg][available_sig] != 0
       ret.cruiseState.enabled = cp.vl[enabled_msg][enabled_sig] != 0
+      if self.CP.carFingerprint == CAR.HYUNDAI_KONA_EV_2023_NON_SCC:
+        ret.cruiseState.enabled &= ret.cruiseState.available
       ret.cruiseState.standstill = False
       ret.cruiseState.nonAdaptive = False
       ret.cruiseState.speed = cp.vl[speed_msg][speed_sig] * speed_conv

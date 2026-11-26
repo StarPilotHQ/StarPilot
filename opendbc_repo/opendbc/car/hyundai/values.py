@@ -78,6 +78,7 @@ class HyundaiSafetyFlags(IntFlag):
   LONG = 4
   CAMERA_SCC = 8
   CANFD_LKA_STEER_MSG = 16
+  KONA_EV_LABEL_CRUISE = 16
   CANFD_ALT_BUTTONS = 32
   ALT_LIMITS = 64
   CANFD_LKA_STEER_MSG_ALT = 128
@@ -951,7 +952,7 @@ class CAR(Platforms):
     flags=HyundaiFlags.EV | HyundaiFlags.ALT_LIMITS,
   )
   HYUNDAI_KONA_EV_2023_NON_SCC = HyundaiNonSccPlatformConfig(
-    [HyundaiNonSccCarDocs("Hyundai Kona Electric SE 2023", package="Non-SCC, dashcam only", car_parts=CarParts.common([CarHarness.hyundai_o]))],
+    [HyundaiNonSccCarDocs("Hyundai Kona Electric SE 2023", package="Non-SCC", car_parts=CarParts.common([CarHarness.hyundai_o]))],
     HYUNDAI_KONA_EV_2022.specs,
     flags=HyundaiFlags.EV | HyundaiFlags.ALT_LIMITS,
   )

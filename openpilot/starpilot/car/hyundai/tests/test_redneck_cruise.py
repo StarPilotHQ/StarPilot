@@ -11,7 +11,7 @@ from openpilot.starpilot.vehicle_preferences import VehicleStartupPreferences
 
 def test_default_off_is_byte_identical_and_selected_is_only_a_button_profile():
   assert not VehicleStartupPreferences().hyundai_software_cruise
-  for candidate in NON_SCC_IDS:
+  for candidate in NON_SCC_IDS - {CAR.HYUNDAI_KONA_EV_2023_NON_SCC}:
     cp = CarInterface.get_non_essential_params(candidate)
     before = cp.to_dict()
     assert software_cruise.eligible(cp), candidate

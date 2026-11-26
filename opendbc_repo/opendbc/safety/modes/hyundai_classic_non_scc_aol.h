@@ -11,6 +11,7 @@
 #define HYUNDAI_NON_SCC_HEV_AOL_LDA 0x1C02U
 #define HYUNDAI_NON_SCC_EV_ALT_AOL_MAIN 0x1441U
 #define HYUNDAI_NON_SCC_EV_ALT_AOL_LDA 0x1C41U
+#define HYUNDAI_KONA_EV_LABEL_CRUISE_AOL 0x1C51U
 #define HYUNDAI_CLASSIC_SOURCE_MAX_AGE_US 300000U
 
 static bool classic_scc_aol_enabled = false;
@@ -39,6 +40,15 @@ static bool classic_scc_aol_param(uint16_t param) {
   return (param == 0x0500U) || (param == 0x0D00U) || (param == 0x8408U) || (param == 0x840AU) || (param == 0x8C08U) || (param == 0x8C0AU) ||
     (((param & 0x0400U) != 0U) && ((param & 0xF1B4U) == 0U) &&
     ((param & 3U) != 3U) && ((param & 0x0240U) != 0x0240U));
+}
+
+static bool hyundai_kona_ev_label_cruise = false;
+static bool hyundai_kona_ev_label_seen = false;
+static uint32_t hyundai_kona_ev_label_ts = 0U;
+
+static bool hyundai_kona_ev_label_fresh(void) {
+  return hyundai_kona_ev_label_seen &&
+         (safety_get_ts_elapsed(microsecond_timer_get(), hyundai_kona_ev_label_ts) <= HYUNDAI_CLASSIC_SOURCE_MAX_AGE_US);
 }
 
 static bool classic_non_scc_aol_enabled = false;
@@ -83,6 +93,8 @@ static void classic_non_scc_aol_clear_authorization(void) {
 
 static void classic_non_scc_aol_reset(void) {
   classic_non_scc_aol_clear_authorization();
+  hyundai_kona_ev_label_cruise = false;
+  hyundai_kona_ev_label_seen = false;
   classic_non_scc_aol_enabled = false;
   classic_scc_aol_enabled = false;
   classic_scc_aol_camera = false;
@@ -113,6 +125,7 @@ static uint8_t classic_non_scc_aol_request_mask(void) {
   const bool token_expired = classic_non_scc_aol_token && !classic_non_scc_aol_claimed &&
     (safety_get_ts_elapsed(now, classic_non_scc_aol_token_ts) > AOL_HOST_REQUEST_TIMEOUT_US);
   if (relay_malfunction || safety_rx_checks_invalid || expired || token_expired ||
+      (hyundai_kona_ev_label_cruise && !hyundai_kona_ev_label_fresh()) ||
       (classic_non_scc_aol_session && !heartbeat_engaged)) {
     classic_non_scc_aol_clear_authorization();
   } else if (heartbeat_engaged) {
@@ -257,12 +270,14 @@ static void classic_non_scc_aol_configure(uint16_t param, bool legacy) {
   classic_non_scc_aol_enabled = ((!legacy && ((param == HYUNDAI_FORTE_AOL_MAIN) || (param == HYUNDAI_FORTE_AOL_LDA) ||
                                (param == HYUNDAI_KONA_AOL_MAIN) || (param == HYUNDAI_KONA_AOL_LDA) ||
                                (param == HYUNDAI_NON_SCC_HEV_AOL_MAIN) || (param == HYUNDAI_NON_SCC_HEV_AOL_LDA) ||
-                               (param == HYUNDAI_NON_SCC_EV_ALT_AOL_MAIN) || (param == HYUNDAI_NON_SCC_EV_ALT_AOL_LDA))) || classic_scc_aol_enabled || classic_long_aol_enabled) &&
+                               (param == HYUNDAI_NON_SCC_EV_ALT_AOL_MAIN) || (param == HYUNDAI_NON_SCC_EV_ALT_AOL_LDA) ||
+                               (param == HYUNDAI_KONA_EV_LABEL_CRUISE_AOL))) || classic_scc_aol_enabled || classic_long_aol_enabled) &&
     ((unsigned int)alternative_experience == 32U);
   classic_non_scc_aol_lda = classic_non_scc_aol_enabled && (((classic_scc_aol_enabled || classic_long_aol_enabled) && ((param & 0x0800U) != 0U)) || (param == HYUNDAI_FORTE_AOL_LDA) || (param == HYUNDAI_KONA_AOL_LDA) ||
                                                           (param == HYUNDAI_NON_SCC_HEV_AOL_LDA) ||
-                                                          (param == HYUNDAI_NON_SCC_EV_ALT_AOL_LDA));
-  classic_non_scc_aol_ev = classic_non_scc_aol_enabled && ((param == HYUNDAI_NON_SCC_EV_ALT_AOL_MAIN) || (param == HYUNDAI_NON_SCC_EV_ALT_AOL_LDA));
+                                                          (param == HYUNDAI_NON_SCC_EV_ALT_AOL_LDA) || (param == HYUNDAI_KONA_EV_LABEL_CRUISE_AOL));
+  classic_non_scc_aol_ev = classic_non_scc_aol_enabled && ((param == HYUNDAI_NON_SCC_EV_ALT_AOL_MAIN) || (param == HYUNDAI_NON_SCC_EV_ALT_AOL_LDA) ||
+                                                          (param == HYUNDAI_KONA_EV_LABEL_CRUISE_AOL));
   classic_non_scc_aol_hev = classic_non_scc_aol_enabled && ((param == HYUNDAI_NON_SCC_HEV_AOL_MAIN) || (param == HYUNDAI_NON_SCC_HEV_AOL_LDA));
   if (classic_non_scc_aol_enabled) {
     static const AolSafetyPolicy policy = {

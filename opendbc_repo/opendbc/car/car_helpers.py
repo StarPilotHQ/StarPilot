@@ -17,6 +17,7 @@ from opendbc.car.ford.discovery import (normal_bus0_selection as ford_normal_bus
                                        normal_bus0_queries as ford_normal_bus0_queries, normal_bus_query_brand)
 from opendbc.car.volvo.discovery import normal_bus_topology as volvo_normal_bus_topology, v60_bus_topology as volvo_v60_bus_topology
 from opendbc.car.hyundai.discovery import kona_electric_se_candidate, normal_bus_topology
+from opendbc.car.hyundai.values import CAR as HYUNDAI
 from opendbc.car.honda.discovery import (eps_needs_obd as honda_eps_needs_obd, nidec_bus0_topology,
                                          normal_bus_topology as honda_normal_bus_topology)
 from opendbc.car.honda.values import CAR as HONDA, HondaFlags
@@ -337,7 +338,7 @@ def get_car(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_multip
 
   CarInterface = interfaces[candidate]
   params_options = {'auto_pedal': False} if source == CarParams.FingerprintSource.fixed and candidate in interface_names['gm'] else {}
-  if candidate == GM.GMC_YUKON_CC:
+  if candidate in (GM.GMC_YUKON_CC, HYUNDAI.HYUNDAI_KONA_EV_2023_NON_SCC):
     params_options['vin'] = vin
   CP: CarParams = CarInterface.get_params(candidate, fingerprints, car_fw, alpha_long_allowed, is_release, docs=False, **params_options)
   CP.carVin = vin

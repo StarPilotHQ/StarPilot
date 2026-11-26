@@ -2,6 +2,7 @@ from unittest import TestCase, mock
 
 from opendbc.car import CanData, gen_empty_fingerprint, structs
 from opendbc.car.car_helpers import get_car
+from opendbc.car.hyundai import non_scc_aol, software_cruise
 from opendbc.car.hyundai.discovery import kona_electric_se_candidate
 from opendbc.car.hyundai.fingerprints import FW_VERSIONS
 from opendbc.car.hyundai.values import CAR
@@ -10,7 +11,7 @@ MODEL = CAR.HYUNDAI_KONA_EV_2023_NON_SCC
 SE_VIN = 'KM8K23AG0PU000000'
 SCC_VIN = 'KM8K53AG1PU000000'
 SE_LAYOUT = ((0, 0x251, 8), (0, 0x371, 8), (0, 0x386, 8), (0, 0x394, 8), (0, 0x4F1, 4),
-             (0, 0x592, 8), (1, 0x329, 8), (2, 0x340, 8))
+             (0, 0x391, 8), (0, 0x592, 8), (1, 0x329, 8), (2, 0x340, 8), (2, 0x485, 4))
 
 
 def kona_electric_fw(include_radar=False):
@@ -37,15 +38,33 @@ def interface(vin, layout=SE_LAYOUT, radar=False, forced_candidate=None):
 
 
 class TestKonaElectricSE(TestCase):
-  def test_exact_auto_and_manual_identity_cannot_transmit(self):
+  def test_exact_auto_and_manual_identity_use_stock_cruise_steering(self):
     for manual in (None, MODEL):
       with self.subTest(manual=manual):
         ci = interface(SE_VIN, forced_candidate=manual)
         cp = ci.CP
         self.assertEqual(cp.carFingerprint, MODEL)
-        self.assertTrue(cp.dashcamOnly)
+        self.assertFalse(cp.dashcamOnly)
+        self.assertTrue(cp.pcmCruise)
         self.assertFalse(cp.alphaLongitudinalAvailable)
         self.assertFalse(cp.openpilotLongitudinalControl)
+        self.assertFalse(cp.autoResumeSng)
+        self.assertEqual([(s.safetyModel, s.safetyParam) for s in cp.safetyConfigs], [(structs.CarParams.SafetyModel.hyundai, 0x1851)])
+        self.assertTrue(non_scc_aol.qualified(cp))
+        self.assertEqual(non_scc_aol.aol_word(cp), 0x1c51)
+        self.assertFalse(software_cruise.selected(software_cruise.prepare(cp, False)))
+        self.assertTrue(software_cruise.selected(software_cruise.prepare(cp, True)))
+        self.assertEqual(cp.safetyConfigs[0].safetyParam, 0x1871)
+        self.assertEqual(non_scc_aol.aol_word(cp), 0x1c71)
+
+  def test_wrong_manual_match_remains_read_only(self):
+    wrong_lkas = (*SE_LAYOUT[:-1], (2, 0x485, 8))
+    for vin, layout in ((SCC_VIN, SE_LAYOUT), (SE_VIN, wrong_lkas)):
+      with self.subTest(vin=vin, layout=layout):
+        ci = interface(vin, layout, forced_candidate=MODEL)
+        cp = ci.CP
+        self.assertTrue(cp.dashcamOnly)
+        self.assertFalse(software_cruise.eligible(cp))
         self.assertEqual([(s.safetyModel, s.safetyParam) for s in cp.safetyConfigs], [(structs.CarParams.SafetyModel.noOutput, 0)])
         cmd = structs.CarControl(enabled=True, latActive=True, longActive=True)
         self.assertFalse(ci.apply(cmd.as_reader(), 0)[1])

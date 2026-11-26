@@ -12,6 +12,9 @@ from openpilot.starpilot.aol.intent import AolSettings, AOL_TOGGLE
 from openpilot.starpilot.car.hyundai.aol import policy_for, create_intent, native_accepts_cp
 
 
+MATCH_ANY_LAYOUT_IDS = NON_SCC_IDS - {CAR.HYUNDAI_KONA_EV_2023_NON_SCC}
+
+
 def params(identity, source=None):
   fingerprint = gen_empty_fingerprint()
   if source is not None:
@@ -21,7 +24,7 @@ def params(identity, source=None):
 
 class TestNonSccProfiles(unittest.TestCase):
   def test_actual_factory_profiles_and_mismatched_gas_denied(self):
-    for identity in NON_SCC_IDS:
+    for identity in MATCH_ANY_LAYOUT_IDS:
       for source in (None, 0x391, 0x50c):
         with self.subTest(identity=identity, source=source):
           cp = params(identity, source)
@@ -45,7 +48,7 @@ class TestNonSccProfiles(unittest.TestCase):
 
   def test_physical_lkas_intent_and_native_word_binding(self):
     settings = AolSettings(True, 0., AOL_TOGGLE, 0, (0, 0, 0), (0, 0, 0))
-    for identity in NON_SCC_IDS:
+    for identity in MATCH_ANY_LAYOUT_IDS:
       with self.subTest(identity=identity):
         cp = params(identity, 0x391)
         owner = create_intent(cp, settings)
@@ -65,7 +68,7 @@ class TestNonSccProfiles(unittest.TestCase):
         self.assertFalse(owner.allowed_latch)
 
   def test_actual_dbc_main_and_enabled_sources_are_distinct_for_ev(self):
-    for identity in NON_SCC_IDS:
+    for identity in MATCH_ANY_LAYOUT_IDS:
       with self.subTest(identity=identity):
         cp = params(identity)
         available_msg, available_sig, enabled_msg, enabled_sig, _, _ = get_non_scc_cruise_signals(cp.flags, identity)
