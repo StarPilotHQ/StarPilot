@@ -27,6 +27,11 @@ def policy_for(cp, startup_preferences=None):
 
 
 def stopping_decel_rate(cp, policy):
+  from opendbc.car.hyundai.values import CAR as HYUNDAI
+  if cp.carFingerprint == HYUNDAI.HYUNDAI_KONA_2ND_GEN:
+    from opendbc.car.hyundai.canfd_stock_aol import qualified_long
+    if qualified_long(cp):
+      return 0.8
   from opendbc.car.hyundai.legacy_long_aol import stopping_decel_rate as legacy_stop_rate
   rate = legacy_stop_rate(cp)
   if rate is not None:

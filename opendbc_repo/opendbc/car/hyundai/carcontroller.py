@@ -627,12 +627,13 @@ class CarController(CarControllerBase):
                       now_nanos - min(CS.ccnc_161_ts_ns, CS.ccnc_162_ts_ns) <= 50_000_000 and
                       abs(CS.ccnc_161_ts_ns - CS.ccnc_162_ts_ns) <= 50_000_000)
         if fresh_pair:
+          show_cruise = CS.out.cruiseState.available and (not kona_handoff or CC.enabled)
           support_current = (CS.ccnc_1b5_ts_ns > 0 and CS.ccnc_1b5_ts_ns <= now_nanos and
                              abs(CS.ccnc_1b5_ts_ns - pair_ts) <= 50_000_000)
           can_sends.extend(hyundaicanfd.create_ccnc(self.packer, self.CAN, self.CP.openpilotLongitudinalControl,
                                                     CC.enabled, hud_control, CC.leftBlinker, CC.rightBlinker,
                                                     CS.ccnc_161.copy(), CS.ccnc_162.copy(), CS.ccnc_1b5 if support_current else None,
-                                                    CS.is_metric, CS.out, CS.out.cruiseState.available, CC.latActive,
+                                                    CS.is_metric, CS.out, show_cruise, CC.latActive,
                                                     owned_lfa_status=(stock_ccnc_owned if self.ccnc_fault_ownership_required else None)))
           self.last_ccnc_161_ts_ns = CS.ccnc_161_ts_ns
           self.last_ccnc_162_ts_ns = CS.ccnc_162_ts_ns

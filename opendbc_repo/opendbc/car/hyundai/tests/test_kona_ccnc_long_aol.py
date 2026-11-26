@@ -236,3 +236,30 @@ def test_kona_factory_handoff_is_limited_to_healthy_internal_c4(panda_type, faul
   panda = SimpleNamespace(pandaType=panda_type, faults=faults, ignitionLine=True, ignitionCan=False, controlsAllowed=False)
   configure_kona_factory_handoff(cp, [panda])
   assert cp.safetyConfigs[0].safetyParam == expected
+
+
+@pytest.mark.parametrize('handoff,enabled,hud_mode', ((True, False, 0), (True, True, 2), (False, False, 1)))
+def test_kona_handoff_cruise_main_display_follows_star_long_engagement(handoff, enabled, hud_mode):
+  from opendbc.can import CANParser
+  cp = kona_params(CARS[0])
+  cp.safetyConfigs[0].safetyParam = 0x1C0C if handoff else 0x0C0C
+  cp.alternativeExperience = 32
+  ci = CarInterface(cp)
+  ci.CS.out = structs.CarState(cruiseState={'available': True}, vCruiseCluster=40.).as_reader()
+  for frame in range(5):
+    ci.apply(structs.CarControl().as_reader(), 950_000_000 + frame * 10_000_000)
+  ci.CS.ccnc_161_ts_ns = ci.CS.ccnc_162_ts_ns = 1_000_000_000
+  ci.CS.ccnc_161 = {'SETSPEED_HUD': 3, 'SETSPEED_SPEED': 20, 'DISTANCE_SPACING': 1}
+  ci.CS.ccnc_162 = {'FAULT_LSS': 2, 'FAULT_FCA': 1}
+  command = structs.CarControl(enabled=enabled, latActive=True, longActive=enabled)
+  _, packets = ci.apply(command.as_reader(), 1_000_000_000)
+  parser = CANParser('hyundai_canfd_generated', [('CCNC_0x161', 0), ('CCNC_0x162', 0)], 0)
+  assert {0x161, 0x162} <= parser.update((1_000_000_000, packets))
+  display = parser.vl['CCNC_0x161']
+  assert display['SETSPEED_HUD'] == hud_mode
+  assert display['LFA_ICON'] == 2
+  if hud_mode == 0:
+    assert display['SETSPEED_SPEED'] == 255
+    assert display['DISTANCE_SPACING'] == 0
+  assert parser.vl['CCNC_0x162']['FAULT_LSS'] == 2
+  assert parser.vl['CCNC_0x162']['FAULT_FCA'] == 1
