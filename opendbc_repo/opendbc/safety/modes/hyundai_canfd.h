@@ -1359,6 +1359,22 @@ static bool hyundai_kona_camera_output(const CANPacket_t *msg, CANPacket_t *outp
         }
       }
       hyundai_kona_pending = false;
+      if (!*replaced && authority && consecutive && hyundai_kona_slot_owned) {
+        // Keep the camera's status and counter without repeating old host torque.
+        CANPacket_t neutral = *msg;
+        neutral.data[5] &= 0x01U;
+        neutral.data[6] = (neutral.data[6] & 0xC0U) | 0x08U;
+        const uint16_t checksum = hyundai_common_canfd_compute_checksum(&neutral) ^ 0x041DU;
+        neutral.data[0] = (uint8_t)checksum;
+        neutral.data[1] = (uint8_t)(checksum >> 8U);
+        neutral.bus = 0U;
+        hyundai_kona_emitting = true;
+        *replaced = safety_tx_hook(&neutral);
+        hyundai_kona_emitting = false;
+        if (*replaced) {
+          *output = neutral;
+        }
+      }
       if (!*replaced) {
         const bool camera_neutral = ((msg->data[6] & 0x3FU) == 0x08U) && ((msg->data[5] & 0xFEU) == 0U);
         blocked = (hyundai_kona_slot_owned && !camera_neutral) ||

@@ -113,3 +113,38 @@ class TestHyundaiKonaCcncHandoff(unittest.TestCase):
     self.safety.set_relay_malfunction(True)
     self.assertEqual(self.forward(following)[0], -1)
     self.assertFalse(self.safety.safety_stage_tx_hook(host))
+
+  def test_empty_owned_slot_uses_neutral_camera_status(self):
+    if self.safety.set_safety_hooks(structs.CarParams.SafetyModel.allOutput, 0) != 0:
+      self.skipTest('Kona factory handoff is DEBUG only')
+    self.mode(0x1C0C)
+    self.safety.set_timer(1_000_000)
+    for status in self.safety.rx_status:
+      status.msg_seen = True
+      status.valid_checksum = True
+      status.valid_quality_flag = True
+      status.last_timestamp = 1_000_000
+    self.assertEqual(self.forward(self.packet(2, '784d1400000108f0000a000000640000'))[:2], (0, False))
+    self.safety.set_controls_allowed(True)
+    self.safety.set_aol_test_heartbeat(True)
+    self.safety.aol_set_host_request(3)
+    host = self.packet(0, 'a009150280001800000a000000900000')
+    host[0].data[2] = 20
+    from opendbc.car.hyundai.hyundaicanfd import hkg_can_fd_checksum
+    crc = hkg_can_fd_checksum(0x12A, None, bytearray(host[0].data[0:16]))
+    host[0].data[0], host[0].data[1] = crc & 255, crc >> 8
+    self.safety.set_timer(1_005_000)
+    self.assertTrue(self.safety.safety_stage_tx_hook(host))
+    self.safety.set_timer(1_010_000)
+    self.assertEqual(self.forward(self.packet(2, '5ce51500000108f0000a000000640000'))[:2], (0, True))
+
+    self.safety.set_timer(1_019_900)
+    camera = self.packet(2, '110d1600000108f0000a000000640000')
+    bus, replaced, output = self.forward(camera)
+    self.assertEqual((bus, replaced), (0, True))
+    self.assertTrue(output[0].fd)
+    self.assertEqual(output[0].data[2], 22)
+    self.assertEqual(output[0].data[5] & 0xFE, 0)
+    self.assertEqual(output[0].data[6] & 0x3F, 8)
+    self.assertEqual(output[0].data[7], camera[0].data[7])
+    self.assertEqual(self.forward(camera)[0], -1)
