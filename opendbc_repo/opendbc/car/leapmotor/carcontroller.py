@@ -43,7 +43,7 @@ class CarController(CarControllerBase):
       boost -= 1
     elif behind > CarControllerParams.RAMP_BOOST_LAG and eps_torque < CarControllerParams.RAMP_BOOST_EPS_TORQUE_HOLD:
       boost += 1
-    return min(max(boost, 0), leapmotorcan.LCC_RAMP_STEPS_BOOST_MAX - leapmotorcan.LCC_RAMP_STEPS_MIN)
+    return min(max(boost, 0), leapmotorcan.LCC_RAMP_STEPS_MAX - leapmotorcan.LCC_RAMP_STEPS_MIN)
 
   def long_accel(self, CC, camera_lka: dict) -> float | None:
     """openpilot's acceleration request for ADAS_LKA, or None to send the camera's.

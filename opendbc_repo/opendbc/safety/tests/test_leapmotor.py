@@ -17,7 +17,7 @@ ADAS_LKA = 0x83
 POWERTRAIN_STATE = 0xB7
 # ADAS_LKA.LCC_RAMP bounds while steering, as in leapmotor.h
 LCC_RAMP_IDLE = 0x7801
-LCC_RAMP_DEEPEST = 0x4071
+LCC_RAMP_DEEPEST = 0x4A5D
 
 
 def round_angle(apply_angle, can_offset=0):
@@ -261,7 +261,7 @@ class TestLeapmotorSafety(common.CarSafetyTest, common.AngleSteeringSafetyTest):
       self.assertFalse(self._rx(libsafety_py.make_CANPacket(addr, self.MAIN_BUS, bytes(bad))), hex(addr))
 
   def test_lcc_ramp_limit(self):
-    # while steering, the EPS effort word must be between idle and the deepest boost value; otherwise it is free
+    # while steering, the EPS effort word must be between idle and the deepest stock value; otherwise it is free
     self.safety.set_controls_allowed(True)
     self._reset_speed_measurement(10)
     for lka_active in (True, False):
@@ -274,7 +274,7 @@ class TestLeapmotorSafety(common.CarSafetyTest, common.AngleSteeringSafetyTest):
 
   def test_lcc_ramp_limit_matches_car_code(self):
     self.assertEqual(LCC_RAMP_IDLE, leapmotorcan.LCC_RAMP_IDLE)
-    self.assertEqual(LCC_RAMP_DEEPEST, leapmotorcan.LCC_RAMP_IDLE - leapmotorcan.LCC_RAMP_STEP * leapmotorcan.LCC_RAMP_STEPS_BOOST_MAX)
+    self.assertEqual(LCC_RAMP_DEEPEST, leapmotorcan.LCC_RAMP_IDLE - leapmotorcan.LCC_RAMP_STEP * leapmotorcan.LCC_RAMP_STEPS_MAX)
 
   def test_accel_request_unchecked_without_longitudinal(self):
     # only with the longitudinal flag is the acceleration request checked: an unknown hard request is then blocked

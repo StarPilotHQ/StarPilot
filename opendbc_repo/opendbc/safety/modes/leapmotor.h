@@ -20,10 +20,10 @@
 #define LEAPMOTOR_ANGLE_CENTER 32490
 
 // ADAS_LKA.LCC_RAMP (bytes 16-17, little-endian) sets how much effort the EPS may put into following the angle: idle
-// 0x7801, 254 lower per step deeper. Stock LCC goes to 46 steps; openpilot's low-speed boost to at most 56 (0x4071), the
-// deepest value whose top 4 bits stay 4. Must match leapmotorcan.LCC_RAMP_IDLE and LCC_RAMP_STEPS_BOOST_MAX.
+// 0x7801, 254 lower per step deeper. Stock LCC goes no deeper than 46 steps (0x4A5D), and neither may openpilot.
+// Must match leapmotorcan.LCC_RAMP_IDLE and LCC_RAMP_STEPS_MAX.
 #define LEAPMOTOR_LCC_RAMP_IDLE 0x7801
-#define LEAPMOTOR_LCC_RAMP_DEEPEST 0x4071
+#define LEAPMOTOR_LCC_RAMP_DEEPEST 0x4A5D
 
 // ADAS_LKA.ACC_ACCEL_REQ: byte 4, 0.05 m/s^2 per bit, raw 100 = 0 m/s^2. Must match CarControllerParams.
 #define LEAPMOTOR_ACCEL_INACTIVE 100

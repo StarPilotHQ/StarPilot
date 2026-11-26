@@ -55,17 +55,18 @@ class CarControllerParams:
   TAKE_BACK_MAX_ANGLE_ERROR = 45.
   # The stock ramp depth follows lateral acceleration, which stays small in sharp turns at low speed: there the wheel
   # fell > 5 deg behind with the EPS near its torque ceiling (25d, 260). While the wheel is RAMP_BOOST_LAG behind the
-  # command below RAMP_BOOST_MAX_SPEED, the ramp goes one step deeper per frame (deepest stock value 46 steps, about
-  # +/-70 torque; up to LCC_RAMP_STEPS_BOOST_MAX), and back one step per frame once within RAMP_BOOST_CAUGHT_UP.
-  # Replayed on 3 drives: active 23-31% of the time below 30 km/h, 3-7% at 30-80 km/h. Not at speed, where such a lag was the driver's own nudge.
+  # command below RAMP_BOOST_MAX_SPEED, the ramp goes one step deeper per frame (up to the deepest stock value, 46 steps,
+  # about +/-70 torque), and back one step per frame once within RAMP_BOOST_CAUGHT_UP. Replayed on 3 drives: active
+  # 23-31% of the time below 30 km/h, 3-7% at 30-80 km/h. Not at speed, where such a lag was the driver's own nudge.
   RAMP_BOOST_LAG = 3.  # deg
   RAMP_BOOST_CAUGHT_UP = 1.5  # deg
   RAMP_BOOST_MAX_SPEED = 60.  # km/h
   # Past about 150 of STEER_TORQUE_EPS the EPS sets its own DRIVER_OVERRIDE flag with the driver's hands off, and
   # openpilot lets go like the stock LCC does: engaged frames with the flag set were 0-1% below 130, 9% at 130-160
-  # and 50% above 160 (route 00000005, 56 steps; 28% above 160 on route 273 at 52 steps). In a tightening turn at
-  # 25 km/h the boost drove it to -167..-218 three times, the EPS let go each time and the wheel sprang back 25-30 deg.
-  # So the boost goes no deeper from RAMP_BOOST_EPS_TORQUE_HOLD and backs off from RAMP_BOOST_EPS_TORQUE_BACK.
+  # and 50% above 160 (a test build ramping to 56 steps; 28% above 160 at 52 steps). In a tightening turn at 25 km/h
+  # the boost drove it to -167..-218 three times, the EPS let go each time and the wheel sprang back 25-30 deg.
+  # So the boost goes no deeper from RAMP_BOOST_EPS_TORQUE_HOLD and backs off from RAMP_BOOST_EPS_TORQUE_BACK. With
+  # it, the EPS peaked at 136 through a 72 deg turn at 33-47 km/h and never flagged an override above 100.
   RAMP_BOOST_EPS_TORQUE_HOLD = 100
   RAMP_BOOST_EPS_TORQUE_BACK = 120
 
