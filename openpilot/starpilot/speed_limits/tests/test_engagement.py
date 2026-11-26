@@ -83,15 +83,19 @@ def engage(instance, *, now=START + 10_000_000):
   return cs
 
 
-@pytest.mark.parametrize('gesture,match,limit,delay,expected', [
-  ('decelCruise', True, 50., 80_000_000, 50.),
-  ('decelCruise', False, 50., 80_000_000, 60.),
-  ('accelCruise', True, 50., 80_000_000, 60.),
-  ('decelCruise', True, 70., 80_000_000, 60.),
-  ('decelCruise', True, 20., 80_000_000, 60.),
-  ('decelCruise', True, 50., 550_000_000, 60.),
+@pytest.mark.parametrize('gesture,match,limit,delay,gas_at_set,expected', [
+  ('decelCruise', True, 50., 80_000_000, False, 50.),
+  ('decelCruise', False, 50., 80_000_000, False, 60.),
+  ('accelCruise', True, 50., 80_000_000, False, 60.),
+  ('decelCruise', True, 70., 80_000_000, False, 60.),
+  ('decelCruise', True, 20., 80_000_000, False, 60.),
+  ('decelCruise', True, 50., 550_000_000, False, 60.),
+  ('decelCruise', True, 50., 100_000_000, True, 50.),
+  ('decelCruise', True, 50., 550_000_000, True, 60.),
+  ('accelCruise', True, 50., 100_000_000, True, 60.),
+  ('decelCruise', True, 70., 100_000_000, True, 60.),
 ])
-def test_redneck_set_matching_preserves_the_stock_ceiling_and_resume(gesture, match, limit, delay, expected):
+def test_redneck_set_matching_preserves_the_stock_ceiling_and_resume(gesture, match, limit, delay, gas_at_set, expected):
   from opendbc.car.hyundai.interface import CarInterface
   from opendbc.car.hyundai.software_cruise import prepare
   from opendbc.car.hyundai.values import CAR
@@ -103,11 +107,11 @@ def test_redneck_set_matching_preserves_the_stock_ceiling_and_resume(gesture, ma
   instance.redneck_cruise = RedneckCruise(cp, SimpleNamespace(redneckCruiseAvailable=True, pcmCruiseSpeed=False))
   sm.seen, sm.recv_time = dict(sm.valid), {}
 
-  def step(now, *, enabled, stock_speed, buttons=()):
+  def step(now, *, enabled, stock_speed, buttons=(), gas=False):
     sm.advance(now)
     sm.recv_time['carControl'] = now / 1e9
     sm['carControl'].enabled = enabled
-    cs = car.CarState(canValid=True, vEgo=15., gearShifter='drive', buttonEvents=list(buttons),
+    cs = car.CarState(canValid=True, vEgo=15., gearShifter='drive', gasPressed=gas, buttonEvents=list(buttons),
       cruiseState={'available': True, 'enabled': enabled, 'speed': stock_speed / 3.6, 'speedCluster': stock_speed / 3.6})
     with patch.object(card.time, 'monotonic_ns', return_value=now), patch.object(cruise, 'monotonic_ns', return_value=now):
       instance.update_cruise_speed(cs)
@@ -115,8 +119,10 @@ def test_redneck_set_matching_preserves_the_stock_ceiling_and_resume(gesture, ma
     instance.CC_prev = car.CarControl(enabled=enabled)
     return instance.v_cruise_helper.v_cruise_kph
 
-  step(START, enabled=False, stock_speed=0., buttons=({'type': gesture, 'pressed': True},))
-  assert step(START + 20_000_000, enabled=True, stock_speed=0.) == cruise.V_CRUISE_UNSET
+  step(START, enabled=False, stock_speed=0., gas=gas_at_set, buttons=({'type': gesture, 'pressed': True},))
+  assert step(START + 20_000_000, enabled=True, stock_speed=0., gas=gas_at_set) == cruise.V_CRUISE_UNSET
+  if gas_at_set:
+    assert step(START + 40_000_000, enabled=True, stock_speed=60., gas=True) == pytest.approx(60.)
   assert step(START + delay, enabled=True, stock_speed=60.) == pytest.approx(expected)
   assert step(START + delay + 20_000_000, enabled=True, stock_speed=60.) == pytest.approx(expected)
   assert not sm['carControl'].longActive and not cp.openpilotLongitudinalControl

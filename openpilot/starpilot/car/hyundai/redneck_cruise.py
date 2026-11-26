@@ -289,7 +289,7 @@ class RedneckCruise:
     cc = card.sm['carControl']
     if (not card.slc_match_on_engage or not card.slc_control_enabled or not cs.canValid or cs.canTimeout or
         not cs.cruiseState.available or cs.gearShifter != car.CarState.GearShifter.drive or
-        cs.standstill or cs.brakePressed or cs.gasPressed or cs.accFaulted):
+        cs.standstill or cs.brakePressed or cs.accFaulted):
       self.set_match_ns = 0
       return
     if not self.set_match_ns and not cs.buttonEvents:
@@ -306,7 +306,7 @@ class RedneckCruise:
       return
 
     helper = card.v_cruise_helper
-    if (not cc.enabled or not cs.cruiseState.enabled or not current(card.sm, 'carControl', now_ns) or
+    if (cs.gasPressed or not cc.enabled or not cs.cruiseState.enabled or not current(card.sm, 'carControl', now_ns) or
         not V_CRUISE_MIN <= helper.v_cruise_kph < V_CRUISE_UNSET):
       return
     self.set_match_ns = 0
