@@ -33,6 +33,8 @@ BASE_INTERVAL_NS = 1_000_000_000
 FOLLOWUP_INTERVAL_NS = 300_000_000
 FOLLOWUP_WINDOW_NS = 1_000_000_000
 MODEL_RETRY_NS = 5_000_000_000
+DIAGNOSTIC_INTERVAL_NS = 30_000_000_000
+HEALTH_INTERVAL_NS = 60_000_000_000
 MAX_BUFFER_BYTES = 32 * 1024 * 1024
 
 
@@ -191,9 +193,21 @@ class VASMRuntime:
     self.next_side = "left"
     self.followup_until_ns = 0
     self.status = "disabled"
-    self.last_error_log_ns = -10_000_000_000
+    self.last_diagnostic_ns: int | None = None
 
-  def _reset(self, status: str, now_ns: int) -> None:
+  def _diagnostic(self, now_ns: int, status: str, reason: str, **details) -> None:
+    # One shared budget also bounds noisy fail/recover cycles. Successful
+    # inference gets only a minute summary; observations already carry scores.
+    interval = HEALTH_INTERVAL_NS if status == "valid" else DIAGNOSTIC_INTERVAL_NS
+    if self.last_diagnostic_ns is not None and 0 <= now_ns - self.last_diagnostic_ns < interval:
+      return
+    self.last_diagnostic_ns = now_ns
+    cloudlog.event("vasm.status", status=status, reason=reason,
+                   settings_fingerprint=self.saved.fingerprint, cores=list(self.inference_cores), **details)
+
+  def _reset(self, status: str, now_ns: int, *, reason: str = "", **details) -> None:
+    if reason:
+      self._diagnostic(now_ns, status, reason, **details)
     changed = status != self.status or self.last_frame_id >= 0
     if changed and (self.last_frame_id >= 0 or self.client is not None):
       pair = self.pair_clock()
@@ -271,11 +285,17 @@ class VASMRuntime:
     active = (self.saved.readable and self.saved.valid and
               self.saved.preferences.enabled and self.saved.preferences.annotation is not None and self.model_path is not None)
     if not active:
-      self._reset("disabled", now_ns)
+      self._reset("disabled", now_ns, reason="settings_or_model_path",
+                  readable=self.saved.readable, valid=self.saved.valid, enabled=self.saved.preferences.enabled,
+                  configured=self.saved.preferences.annotation is not None, model_path=str(self.model_path))
       return None
     try:
       if not self._fresh_authority(now_ns):
-        self._reset("unavailable", now_ns)
+        self._reset("unavailable", now_ns, reason="vehicle_or_device_state",
+                    started=bool(self.messages["deviceState"].started),
+                    can_valid=bool(self.messages["carState"].canValid), gear=str(self.messages["carState"].gearShifter),
+                    car_age_ms=(now_ns - self.messages.logMonoTime["carState"]) / 1e6,
+                    device_age_ms=(now_ns - self.messages.logMonoTime["deviceState"]) / 1e6)
         return None
       if self.model is None:
         if now_ns - self.last_model_attempt_ns < MODEL_RETRY_NS:
@@ -283,17 +303,18 @@ class VASMRuntime:
         self.last_model_attempt_ns = now_ns
         self.model = self.model_factory(self.model_path)
         if not self.model.load():
+          self._diagnostic(now_ns, "unavailable", "model_load", detail=self.model.last_error)
           self.model = None
           self._reset("unavailable", now_ns)
           return None
         self.messages.update(0)
         if not self._fresh_authority(self.mono_clock()) or not self._settings_current():
-          self._reset("unavailable", self.mono_clock())
+          self._reset("unavailable", self.mono_clock(), reason="state_or_settings_after_model_load")
           return None
       if self.client is None:
         self.client = self.client_factory()
       if not self.client.is_connected():
-        self._reset("unavailable", now_ns)
+        self._reset("unavailable", now_ns, reason="camera_disconnected")
         self.client = self.client_factory()
         self.client.connect(False)
         return None
@@ -305,17 +326,22 @@ class VASMRuntime:
         return None
       frame = copy_cabin_nv12(self.client)
       if frame is None:
+        self._diagnostic(now_ns, "unavailable", "camera_frame_missing_or_invalid")
         return None
       image, eof_boot_ns, frame_id = frame
       pair = self.pair_clock()
       if pair is None:
-        self._reset("stale", now_ns)
+        self._reset("stale", now_ns, reason="clock_pair")
         return None
       offset_ns = pair[1] - pair[0]
       if (self.last_pair_offset_ns is not None and abs(offset_ns - self.last_pair_offset_ns) > RESUME_SKEW_NS or
           eof_boot_ns <= max(self.last_eof_boot_ns, self.camera_after_boot_ns) or frame_id <= self.last_frame_id or
           not 0 <= pair[1] - eof_boot_ns <= SOURCE_TTL_NS):
-        self._reset("stale", now_ns)
+        self._reset("stale", now_ns, reason="camera_timestamp",
+                    frame_id=frame_id, previous_frame_id=self.last_frame_id,
+                    frame_age_ms=(pair[1] - eof_boot_ns) / 1e6,
+                    clock_offset_changed=self.last_pair_offset_ns is not None and
+                    abs(offset_ns - self.last_pair_offset_ns) > RESUME_SKEW_NS)
         return None
       self.last_pair_offset_ns = offset_ns
       self.last_eof_boot_ns, self.last_frame_id = eof_boot_ns, frame_id
@@ -327,6 +353,7 @@ class VASMRuntime:
       score = self.model.infer_nv12(image, width=image.shape[1], height=image.shape[0] * 2 // 3,
                                     annotation=self.saved.preferences.annotation, side=side)
       if score is None:
+        self._diagnostic(self.mono_clock(), "stale", "inference", detail=self.model.last_error, side=side)
         self.model = None
         self.last_model_attempt_ns = self.mono_clock()
         self._reset("stale", now_ns)
@@ -336,10 +363,12 @@ class VASMRuntime:
       after = self.pair_clock()
       if (after is None or abs((after[1] - after[0]) - offset_ns) > RESUME_SKEW_NS or
           not 0 <= after[1] - eof_boot_ns <= SOURCE_TTL_NS):
-        self._reset("stale", now_ns)
+        self._reset("stale", now_ns, reason="camera_expired_after_inference",
+                    frame_age_ms=(after[1] - eof_boot_ns) / 1e6 if after is not None else None,
+                    inference_ms=(self.mono_clock() - pair[0]) / 1e6)
         return None
       if not saved_current or not self._fresh_authority(after[0]):
-        self._reset("unavailable", after[0])
+        self._reset("unavailable", after[0], reason="state_or_settings_after_inference", settings_current=saved_current)
         return None
       if self.policy.threshold != self.saved.preferences.confidence or \
          self.policy.smooth_seconds != self.saved.preferences.smooth_seconds:
@@ -357,12 +386,14 @@ class VASMRuntime:
       self.sequence += 1
       observation = self._observation("valid", after[0], after[1], eof_boot_ns, frame_id, side, state)
       self.emit(observation)
+      self._diagnostic(after[0], "valid", "inference_ok", frame_id=frame_id,
+                       frame_age_ms=(after[1] - eof_boot_ns) / 1e6, inference_ms=(after[0] - pair[0]) / 1e6,
+                       interval_ms=interval_ns / 1e6, left_confidence=state.display_left_confidence,
+                       right_confidence=state.display_right_confidence,
+                       opencv_version=getattr(self.model.cv2, "__version__", "unknown"))
       return observation
     except Exception as error:
-      if now_ns - self.last_error_log_ns >= 10_000_000_000:
-        cloudlog.error("V-ASM observation unavailable: %s", error)
-        self.last_error_log_ns = now_ns
-      self._reset("unavailable", now_ns)
+      self._reset("unavailable", now_ns, reason="exception", detail=str(error), error=True)
       return None
 
   def close(self) -> None:

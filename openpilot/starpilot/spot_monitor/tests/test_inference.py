@@ -3,6 +3,8 @@
 import hashlib
 import os
 from pathlib import Path
+import subprocess
+import sys
 
 import numpy as np
 import pytest
@@ -40,6 +42,7 @@ class FakeDnn:
     self.loaded = None
 
   def readNetFromONNX(self, raw):
+    assert isinstance(raw, np.ndarray) and raw.dtype == np.uint8 and raw.ndim == 1
     self.loaded = raw
     return self.net
 
@@ -105,7 +108,7 @@ def test_exact_asset_cpu_mask_crop_class_one_and_loaded_bytes_pinned(tiny_model,
   assert model.load()
   assert cv2.threads == 1
   assert model.loaded_sha256 == inference.MODEL_SHA256
-  assert cv2.dnn.loaded == tiny_model.read_bytes()
+  assert cv2.dnn.loaded.tobytes() == tiny_model.read_bytes()
   assert (net.backend, net.target) == (cv2.dnn.DNN_BACKEND_OPENCV, cv2.dnn.DNN_TARGET_CPU)
   annotation = decode_annotation(b'{"version":1,"width":32,"height":32,"poly_left":[[4,4],[20,4],[4,20]],"poly_right":[]}')
   frame = np.full((48, 32), 128, dtype=np.uint8)
@@ -132,6 +135,26 @@ def test_changed_source_rejected_on_explicit_reload(tiny_model):
   tiny_model.write_bytes(b"small tampered ONNX fixture")
   assert not model.load()
   assert model.net is None and model.loaded_sha256 is None
+
+
+def test_bundled_model_loads_and_infers_with_real_opencv():
+  pytest.importorskip("cv2")
+  # Isolate the native binding: a regression here can segfault rather than
+  # raise a Python exception, which the fake network cannot reproduce.
+  result = subprocess.run([sys.executable, "-c", """
+import numpy as np
+from openpilot.starpilot.spot_monitor.inference import DEFAULT_MODEL_PATH, MODEL_SHA256, VASMInference
+from openpilot.starpilot.spot_monitor.policy import decode_annotation
+model = VASMInference(DEFAULT_MODEL_PATH)
+assert model.load(), model.last_error
+assert model.loaded_sha256 == MODEL_SHA256
+annotation = decode_annotation(b'{"version":1,"width":32,"height":32,"poly_left":[[0,0],[32,0],[32,32],[0,32]],"poly_right":[]}')
+score = model.infer_nv12(np.full((48, 32), 128, dtype=np.uint8), width=32, height=32,
+                         annotation=annotation, side="left")
+assert score is not None, model.last_error
+assert 0 <= score <= 1
+"""], capture_output=True, text=True, timeout=30)
+  assert result.returncode == 0, f"OpenCV exited {result.returncode}: {result.stdout}{result.stderr}"
 
 
 def test_asset_missing_wrong_size_symlink_and_bad_output_fail_unavailable(tiny_model, tmp_path):

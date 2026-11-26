@@ -81,6 +81,23 @@ class Model(VASMInference):
     return 0.96
 
 
+def test_diagnostics_share_a_budget_and_summarize_healthy_operation():
+  runtime = VASMRuntime(None, None, Client, lambda _event: None)
+  with patch("openpilot.starpilot.spot_monitor.runtime.cloudlog.event") as log:
+    runtime._diagnostic(1_000_000_000, "unavailable", "model_load", detail="unsupported model")
+    for second in range(2, 31):
+      runtime._diagnostic(second * 1_000_000_000, "unavailable", "camera_disconnected")
+    assert log.call_count == 1
+    assert log.call_args.kwargs["detail"] == "unsupported model"
+    runtime._diagnostic(31_000_000_000, "stale", "camera_expired_after_inference", frame_age_ms=650)
+    assert log.call_count == 2
+    runtime._diagnostic(32_000_000_000, "valid", "inference_ok")
+    assert log.call_count == 2
+    runtime._diagnostic(91_000_000_000, "valid", "inference_ok")
+    runtime._diagnostic(92_000_000_000, "valid", "inference_ok")
+    assert log.call_count == 3
+
+
 def test_stride_uv_offset_copy_and_short_buffer_refused():
   client = Client()
   client.add(2_000_000_000, 0)
@@ -301,12 +318,16 @@ def test_model_load_failure_retries_only_after_bounded_backoff(tmp_path):
   class BadModel(Model):
     def load(self):
       attempts.append(clock[0])
+      self.last_error = "unsupported model fixture"
       return False
 
   runtime = VASMRuntime(params, messages, Client, lambda event: None,
                         model_path=Path("/external/model.onnx"), mono_clock=lambda: clock[0],
                         pair_clock=lambda: (clock[0], clock[0] + 1_000_000_000), model_factory=lambda _: BadModel())
-  assert runtime.tick() is None
+  with patch("openpilot.starpilot.spot_monitor.runtime.cloudlog.event") as log:
+    assert runtime.tick() is None
+    assert log.call_args.kwargs["reason"] == "model_load"
+    assert log.call_args.kwargs["detail"] == "unsupported model fixture"
   clock[0] += 4_000_000_000
   messages.refresh()
   assert runtime.tick() is None

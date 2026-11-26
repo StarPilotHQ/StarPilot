@@ -71,7 +71,9 @@ class VASMInference:
         import cv2  # optional runtime dependency; no model load on import
         self.cv2 = cv2
       self.cv2.setNumThreads(1)
-      net = self.cv2.dnn.readNetFromONNX(raw)
+      # Select OpenCV's in-memory buffer overload explicitly; passing Python
+      # bytes directly can crash in the native binding.
+      net = self.cv2.dnn.readNetFromONNX(np.frombuffer(raw, dtype=np.uint8))
       net.setPreferableBackend(self.cv2.dnn.DNN_BACKEND_OPENCV)
       net.setPreferableTarget(self.cv2.dnn.DNN_TARGET_CPU)
       self.net = net
