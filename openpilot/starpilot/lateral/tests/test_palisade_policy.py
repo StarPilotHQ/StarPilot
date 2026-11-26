@@ -181,3 +181,36 @@ def test_palisade_damps_shallow_mid_speed_corrections_without_softening_deeper_t
   assert tick(1.3) == pytest.approx(1.0)
   state.steeringPressed = True
   assert tick(.4) == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize('alpha', (False, True))
+def test_hda2_uses_stronger_friction_damping_in_both_longitudinal_modes(alpha):
+  cp = topology_params('hdaii')
+  cp.openpilotLongitudinalControl, cp.pcmCruise = alpha, not alpha
+  controller = LatControlTorque(cp.as_reader(), interfaces[cp.carFingerprint](cp), .01)
+  policy = controller.starpilot_extension.policy
+  for sign in (-1., 1.):
+    for speed, demand, increment in ((10.5, .3, 0.), (17.5, .3, .28), (30., 1.1, .14), (30., 1.65, 0.)):
+      baseline, scale = policy.friction(sign * demand, .4, speed)
+      assert policy.friction_context(sign * demand, .4, 0., speed) == pytest.approx((baseline + increment, scale))
+
+  vm = VehicleModel(cp)
+  parameters = log.VehicleParameters.new_message(angleOffsetDeg=0., roll=0.)
+  state = SimpleNamespace(vEgo=17.5, steeringAngleDeg=0., steeringPressed=False)
+  shaped = policy.friction_context
+  increments = []
+
+  def observe(demand, jerk, measurement, speed):
+    selected = shaped(demand, jerk, measurement, speed)
+    increments.append(selected[0] - policy.friction(demand, jerk, speed)[0])
+    return selected
+
+  with patch.object(policy, 'friction_context', side_effect=observe):
+    for pressed in (True, False, False):
+      state.steeringPressed = pressed
+      controller.update(True, state, vm, parameters, False, .0002, False, .2)
+  assert increments == pytest.approx([0., 0., .28])
+
+  hda1 = topology_params('hdai')
+  other = LatControlTorque(hda1.as_reader(), interfaces[hda1.carFingerprint](hda1), .01).starpilot_extension.policy
+  assert other.friction_context(.3, .4, 0., 30.) == other.friction(.3, .4, 30.)

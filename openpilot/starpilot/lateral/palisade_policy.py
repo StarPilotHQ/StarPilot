@@ -21,10 +21,12 @@ class PalisadeTorquePolicy(HKGShapedTorquePolicy):
     super().__init__(parent, cp)
     self.hda2 = cp.carFingerprint == CAR.HYUNDAI_PALISADE_2023 and bool(cp.flags & HyundaiFlags.CANFD_LKA_STEER_MSG)
     self.center_output_taper = 0.27 if self.hda2 else shaping.PALISADE_CENTER_OUTPUT_TAPER_MAX
+    self.driver_steering = False
     self.feedforward_demand = 0.0
     self.feedforward_filter = FirstOrderFilter(0.0, 0.27, self.dt, initialized=False) if self.hda2 else None
 
   def update(self, active, cs, vm, params, safety_limited, curvature, curvature_limited, delay):
+    self.driver_steering = cs.steeringPressed
     if self.feedforward_filter is not None:
       if not active or cs.steeringPressed or self.previous_pressed or cs.vEgo <= 10.5:
         self.feedforward_filter.initialized = False
@@ -53,6 +55,14 @@ class PalisadeTorquePolicy(HKGShapedTorquePolicy):
       shallow = float(np.interp(abs(setpoint), (.25, 1.0), (1., 0.)))
       threshold += .20 * highway * shallow
     return threshold, 1.0 + (shaping.get_palisade_friction_scale(speed, setpoint, jerk) - 1.0) * taper
+
+  def friction_context(self, setpoint, jerk, measurement, speed):
+    threshold, scale = self.friction(setpoint, jerk, speed)
+    if self.hda2 and not (self.driver_steering or self.previous_pressed):
+      speed_weight = np.interp(speed, (10.5, 17.0), (0., 1.))
+      curve_weight = np.interp(abs(setpoint), (.55, 1.65), (1., 0.))
+      threshold += .28 * speed_weight * curve_weight
+    return threshold, scale
 
   def output(self, value, setpoint, speed):
     return value * shaping.get_palisade_center_output_scale(setpoint, speed, taper_max=self.center_output_taper)
