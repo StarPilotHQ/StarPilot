@@ -133,6 +133,7 @@ IONIQ_6_HIGHWAY_OUTPUT_TAPER_SPEED = 23.5
 IONIQ_6_HIGHWAY_OUTPUT_TAPER_SPEED_WIDTH = 2.0
 
 IONIQ_6_HIGHWAY_TRANSITION_OUTPUT_TAPER_MAX = 0.18
+IONIQ_6_STANDARD_HIGHWAY_TRANSITION_EXTRA_TAPER = 0.10
 
 IONIQ_6_HIGHWAY_TRANSITION_OUTPUT_TAPER_LAT = 1.05
 
@@ -673,13 +674,17 @@ def get_ioniq_6_highway_output_taper_scale(desired_lateral_accel: float, v_ego: 
   reduction = IONIQ_6_HIGHWAY_OUTPUT_TAPER_MAX * speed_weight * center_weight
   return 1.0 - reduction
 
-def get_ioniq_6_highway_transition_output_taper_scale(desired_lateral_accel: float, desired_lateral_jerk: float, v_ego: float) -> float:
+def get_ioniq_6_highway_transition_output_taper_scale(desired_lateral_accel: float, desired_lateral_jerk: float, v_ego: float,
+                                                    *, damp_standard_highway: bool = False) -> float:
   speed_weight = _ioniq_6_sigmoid((v_ego - IONIQ_6_HIGHWAY_OUTPUT_TAPER_SPEED) / IONIQ_6_HIGHWAY_OUTPUT_TAPER_SPEED_WIDTH)
   center_weight = _ioniq_6_sigmoid((IONIQ_6_HIGHWAY_TRANSITION_OUTPUT_TAPER_LAT - abs(desired_lateral_accel)) /
                                    IONIQ_6_HIGHWAY_TRANSITION_OUTPUT_TAPER_LAT_WIDTH)
   jerk_weight = _ioniq_6_sigmoid((abs(desired_lateral_jerk) - IONIQ_6_HIGHWAY_TRANSITION_OUTPUT_TAPER_JERK) /
                                  IONIQ_6_HIGHWAY_TRANSITION_OUTPUT_TAPER_JERK_WIDTH)
-  reduction = IONIQ_6_HIGHWAY_TRANSITION_OUTPUT_TAPER_MAX * speed_weight * center_weight * jerk_weight
+  max_reduction = IONIQ_6_HIGHWAY_TRANSITION_OUTPUT_TAPER_MAX
+  if damp_standard_highway:
+    max_reduction += IONIQ_6_STANDARD_HIGHWAY_TRANSITION_EXTRA_TAPER * np.interp(v_ego, [25.0, 30.0], [0.0, 1.0])
+  reduction = max_reduction * speed_weight * center_weight * jerk_weight
   return 1.0 - reduction
 
 def get_ioniq_6_low_speed_angle_assist_torque(desired_angle_deg: float, actual_angle_deg: float,
@@ -925,7 +930,9 @@ class Ioniq6TorquePolicy:
           output_torque = self.surface_math.low_speed_output(self.surface, self.surface_math.SurfaceInput(
             CS.vEgo, setpoint, desired_lateral_jerk, desired_angle, actual_angle, output_torque, False, directional_taper))
     output_torque *= get_ioniq_6_highway_output_taper_scale(setpoint, CS.vEgo)
-    output_torque *= get_ioniq_6_highway_transition_output_taper_scale(setpoint, desired_lateral_jerk, CS.vEgo)
+    output_torque *= get_ioniq_6_highway_transition_output_taper_scale(
+      setpoint, desired_lateral_jerk, CS.vEgo,
+      damp_standard_highway=not (self.is_2025 or CS.steeringPressed or self.prev_steering_pressed))
     if self.is_2025:
       output_torque *= get_ioniq_6_2025_center_output_scale(setpoint, CS.vEgo)
       output_limit = get_ioniq_6_2025_low_speed_output_limit(setpoint, desired_lateral_jerk, CS.vEgo)

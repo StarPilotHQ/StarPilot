@@ -65,6 +65,18 @@ def _rows(car, sequence, *, profile='2023', matched_frozen_cp=False, passive=Fal
 
 
 class Ioniq6PolicyTests(unittest.TestCase):
+  def test_highway_transition_taper_is_scoped_to_standard_assisted_steering(self):
+    fn = tune.get_ioniq_6_highway_transition_output_taper_scale
+    self.assertEqual(fn(0.15, 0.6, 25.0), fn(0.15, 0.6, 25.0, damp_standard_highway=True))
+    self.assertGreater(fn(0.15, 0.6, 34.0) - fn(0.15, 0.6, 34.0, damp_standard_highway=True), 0.08)
+    self.assertLess(fn(2.0, 0.6, 34.0) - fn(2.0, 0.6, 34.0, damp_standard_highway=True), 0.002)
+    sequence = [(True, 34.0, 0.2, 0.0002, pressed) for pressed in [False] * 80 + [True, False, False]]
+    for profile in ('2023', '2025'):
+      with self.subTest(profile=profile), mock.patch.object(tune, fn.__name__, wraps=fn) as taper:
+        _rows(HYUNDAI.HYUNDAI_IONIQ_6, sequence, profile=profile, matched_frozen_cp=True)
+        calls = [call.kwargs['damp_standard_highway'] for call in taper.call_args_list]
+        self.assertEqual(calls[-4:], [True, False, False, True] if profile == '2023' else [False] * 4)
+
   def test_ioniq_drive_loop_uses_original_flat_proportional_gain(self):
     cp = interfaces[HYUNDAI.HYUNDAI_IONIQ_6].get_non_essential_params(HYUNDAI.HYUNDAI_IONIQ_6)
     cp.lateralTuning.torque.latAccelFactor = 3.0
