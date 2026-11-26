@@ -120,6 +120,8 @@ assert.equal(data.document.leadInfo, "Off")
 const legacyLead = editorSnapshot({ ...raw, document: { ...raw.document, leadIndicator: undefined, leadInfo: undefined } }).document
 assert.deepEqual([legacyLead.leadIndicator, legacyLead.leadInfo], [false, "Off"])
 assert.equal(validDocument({ ...data.document, leadInfo: "Speed" }, data.metadata), true)
+assert.equal(validDocument({ ...data.document, leadInfo: "Relative speed" }, data.metadata), true)
+assert.equal(projectionPayload({ document: { ...data.document, leadIndicator: true, leadInfo: "Relative speed" } }, data.metadata).document.leadInfo, "Relative speed")
 assert.equal(validDocument({ ...data.document, leadInfo: "Both" }, data.metadata), false)
 assert.equal(validDocument({ ...native.document, leadIndicator: true }, native.metadata), false, "the comma screen keeps its own lead settings")
 assert.equal(projectionPayload({ document: { ...data.document, leadIndicator: true, leadInfo: "Distance" } }, data.metadata).document.leadInfo, "Distance")

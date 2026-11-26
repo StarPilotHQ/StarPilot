@@ -10,6 +10,7 @@ from openpilot.selfdrive.ui.onroad.alert_renderer import AlertRenderer
 from openpilot.selfdrive.ui.onroad.driver_state import DriverStateRenderer
 from openpilot.selfdrive.ui.onroad.hud_renderer import HudRenderer
 from openpilot.selfdrive.ui.onroad.model_renderer import ModelRenderer
+from openpilot.starpilot.ui.path_markers import PathMarkerInput
 from openpilot.selfdrive.ui.onroad.cameraview import CameraView
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.common.transformations.camera import DEVICE_CAMERAS, DeviceCameraConfig, view_frame_from_device_frame
@@ -52,7 +53,7 @@ class AugmentedRoadView(CameraView):
 
   def render_camera_model_layer(self, rect: rl.Rectangle, *, camera_view: int = CAMERA_VIEW_AUTO,
                                 reverse_driver: bool = False, road_style: dict | None = None,
-                                lead_display: tuple[bool, int, bool | None] | None = None, poll_camera: bool = True) -> None:
+                                markers: PathMarkerInput | None = None, poll_camera: bool = True) -> None:
     """Draw the existing calibrated camera/model without stock HUD or alert."""
     if not ui_state.started and ui_state.replay_clock is None:
       return
@@ -74,10 +75,9 @@ class AugmentedRoadView(CameraView):
     if ("pathEdge" in getattr(self.model_renderer, "road_style", {})) != ("pathEdge" in style):
       self.model_renderer._transform_dirty = True
     self.model_renderer.road_style = style
-    self.model_renderer.lead_display = lead_display
     gui_app.measure_frame_phase("camera", CameraView._render, self, rect, poll_camera=poll_camera)
     if target != DRIVER_CAM:
-      gui_app.measure_frame_phase("model", self.model_renderer.render, rect)
+      gui_app.measure_frame_phase("model", self.model_renderer.render_with_markers, rect, markers)
 
   def render_model_source_layer(self, rect: rl.Rectangle, *, show_long_indicator: bool | None = False) -> None:
     self._hud_renderer._draw_model_source(rect)

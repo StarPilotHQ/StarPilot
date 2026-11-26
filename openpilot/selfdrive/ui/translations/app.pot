@@ -19598,7 +19598,7 @@ msgid "show speed limits"
 msgstr ""
 
 #: openpilot/starpilot/ui/appearance_compact.py
-msgid "shown above the lead marker"
+msgid "shown below the lead line"
 msgstr ""
 
 #: openpilot/starpilot/ui/onroad_customization.py

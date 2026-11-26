@@ -35,7 +35,7 @@ class AppearanceOwner:
 
   def snapshot(self, profile: Profile, *, include_large: bool = False) -> FeatureSettingsState:
     parked = self.parked()
-    compact_only = ("StockConfidenceBallWidget", "DriverCamera", "HideLeadMarker", "LeadInfo")
+    compact_only = ("StockConfidenceBallWidget", "DriverCamera")
     keys = tuple(key for key in DEFAULTS if key not in compact_only and key in LABELS) if profile == Profile.LARGE else \
       ("DriverCamera", "StockConfidenceBallWidget", "HidePersonalityAlerts", "ShowBrakeStatus",
        "HideLeadMarker", "LeadInfo", "SignalMetrics", "BlindSpotMetrics")

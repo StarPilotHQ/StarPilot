@@ -19596,8 +19596,8 @@ msgid "show speed limits"
 msgstr "hiện giới hạn tốc độ"
 
 #: openpilot/starpilot/ui/appearance_compact.py
-msgid "shown above the lead marker"
-msgstr "hiện trên dấu xe trước"
+msgid "shown below the lead line"
+msgstr "hiện dưới vạch xe trước"
 
 #: openpilot/starpilot/ui/onroad_customization.py
 msgid "side camera"

@@ -117,7 +117,7 @@ class AppearanceCompact:
 
   def _lead_info_options(self, source, refresh) -> None:
     selector = NavScroller()
-    cards = [GreyBigButton("lead info", "shown above the lead marker")]
+    cards = [GreyBigButton("lead info", "shown below the lead line")]
     for choice in LEAD_INFO_LABELS:
       button = BigButton(choice.lower(), "selected" if choice == source.value else "choose")
       def selected(value=choice) -> None:

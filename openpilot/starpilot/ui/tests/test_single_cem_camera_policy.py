@@ -135,7 +135,7 @@ def test_large_camera_never_draws_road_geometry_over_driver_or_hidden_view(choic
        patch.object(large.gui_app,'measure_frame_phase',side_effect=lambda name,func,*args,**kwargs:func(*args,**kwargs)), \
        patch.object(large.CameraView,'_render') as render_camera, patch.object(large.rl,'draw_rectangle_rec') as neutral:
     view.render_camera_model_layer(rect,camera_view=choice)
-    view.model_renderer.render.assert_not_called()
+    view.model_renderer.render_with_markers.assert_not_called()
     if choice is CameraViewChoice.NONE or not available:
       render_camera.assert_not_called()
       neutral.assert_called_once_with(rect,large.rl.BLACK)
@@ -145,4 +145,4 @@ def test_large_camera_never_draws_road_geometry_over_driver_or_hidden_view(choic
       # and resumes calibrated road geometry on the actual native method.
       view.render_camera_model_layer(rect,camera_view=CameraViewChoice.STANDARD)
       assert view.stream_type==large.NARROW_ROAD_CAM
-      view.model_renderer.render.assert_called_once_with(rect)
+      view.model_renderer.render_with_markers.assert_called_once_with(rect, None)

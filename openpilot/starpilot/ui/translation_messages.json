@@ -26443,7 +26443,7 @@
       ]
     },
     {
-      "source": "shown above the lead marker",
+      "source": "shown below the lead line",
       "refs": [
         "openpilot/starpilot/ui/appearance_compact.py"
       ]

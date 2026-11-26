@@ -1,23 +1,18 @@
-import math
 import numpy as np
 from openpilot.starpilot.ui.raylib import rl
-from openpilot.cereal import log, messaging
+from openpilot.cereal import messaging
 from opendbc.car.structs import car
-from types import SimpleNamespace
 from openpilot.common.params import Params
-from openpilot.starpilot.ui.appearance_preferences import format_lead_info
+from openpilot.starpilot.ui.path_markers import PathMarkers, valid_lead_numbers
 from openpilot.starpilot.ui.rainbow_path import RainbowPath
-from openpilot.starpilot.ui.road_colors import lane_color, lead_marker_color, path_mode, solid_gradient
+from openpilot.starpilot.ui.road_colors import lane_color, path_mode, solid_gradient
 from openpilot.starpilot.ui.onroad_customization import ROAD_COLORS
 from openpilot.starpilot.lateral.lane_feedback import BLUE, direction as lane_centering_direction
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.selfdrive.locationd.calibrationd import HEIGHT_INIT
-from openpilot.selfdrive.controls.radard import RADAR_TO_CAMERA
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
 from openpilot.selfdrive.ui.mici.onroad import blend_colors
 from openpilot.system.ui.lib.application import gui_app
-from openpilot.system.ui.lib.application import FontWeight
-from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.lib.shader_polygon import draw_polygon, Gradient
 from openpilot.system.ui.widgets import Widget
 from openpilot.selfdrive.ui.onroad.model_renderer import ModelGeometry, ModelPoints
@@ -25,8 +20,6 @@ from openpilot.selfdrive.ui.onroad.model_renderer import ModelGeometry, ModelPoi
 CLIP_MARGIN = 500
 MIN_DRAW_DISTANCE = 10.0
 MAX_DRAW_DISTANCE = 100.0
-LEAD_BAR_LENGTH = 12.0
-LEAD_BAR_WIDTH = 1.8
 
 THROTTLE_COLORS = [
   rl.Color(13, 248, 122, 102),   # HSLF(148/360, 0.94, 0.51, 0.4)
@@ -47,20 +40,10 @@ LANE_LINE_COLORS = {
 }
 
 
+class ModelRenderer(PathMarkers, ModelGeometry, Widget):
+  LINE_PX = (2, 4)
+  LEAD_INFO_FONT = 32
 
-
-class LeadVehicle:
-  def __init__(self):
-    self.info = None
-    self.bar = np.empty((0, 2), dtype=np.float32)
-    self.d_filter = FirstOrderFilter(0.0, 0.2, 1 / gui_app.target_fps, initialized=False)
-    self.y_filter = FirstOrderFilter(0.0, 0.2, 1 / gui_app.target_fps, initialized=False)
-    self.fade_filter = FirstOrderFilter(0.0, 0.1, 1 / gui_app.target_fps)
-
-
-
-
-class ModelRenderer(ModelGeometry, Widget):
   def __init__(self):
     super().__init__()
     self._longitudinal_control = False
@@ -72,12 +55,7 @@ class ModelRenderer(ModelGeometry, Widget):
     self._lane_line_probs = np.zeros(4, dtype=np.float32)
     self._lane_centering_direction = 0
     self._road_edge_stds = np.zeros(2, dtype=np.float32)
-    self._lead_vehicles = [LeadVehicle(), LeadVehicle()]
-    self._leads_need_reset = False
-    self._lead_indicator_enabled = False
-    self._lead_info_mode = 0
-    self._lead_info_metric = None
-    self._render_lateral_active = False
+    self._init_markers()
     self._path_offset_z = HEIGHT_INIT[0]
 
     # Initialize ModelPoints objects
@@ -113,24 +91,9 @@ class ModelRenderer(ModelGeometry, Widget):
       self._longitudinal_control = cp.openpilotLongitudinalControl
 
 
-  def render_with_lead(self, rect: rl.Rectangle, enabled: bool, info_mode: int = 0, metric: bool | None = None,
-                       lateral_active: bool = False, paint: bool = True):
-    self._lead_indicator_enabled = enabled
-    self._lead_info_mode = info_mode
-    self._lead_info_metric = metric
-    self._render_lateral_active = lateral_active
-    self._paint = paint
-    try:
-      return self.render(rect)
-    finally:
-      self._lead_indicator_enabled = False
-      self._lead_info_mode = 0
-      self._lead_info_metric = None
-      self._render_lateral_active = False
-      self._paint = True
-
-  def _visual_status(self) -> UIStatus:
-    return UIStatus.ENGAGED if ui_state.status == UIStatus.DISENGAGED and getattr(self, '_render_lateral_active', False) else ui_state.status
+  def _draw_offset(self) -> tuple[float, float]:
+    # the car space transform maps to rect-origin space
+    return self._rect.x, self._rect.y
 
   def _render(self, rect: rl.Rectangle):
     sm = ui_state.sm
@@ -163,9 +126,8 @@ class ModelRenderer(ModelGeometry, Widget):
     model = sm['modelV2']
     radar_state = sm['radarState'] if sm.valid['radarState'] else None
     lead_one = radar_state.leadOne if radar_state else None
-    if lead_one and lead_one.present and not self._valid_lead_numbers(lead_one):
+    if lead_one and lead_one.present and not valid_lead_numbers(lead_one):
       lead_one = None
-    render_lead_indicator = self._lead_indicator_enabled
 
     # Update model data when needed
     model_updated = sm.updated['modelV2']
@@ -180,113 +142,13 @@ class ModelRenderer(ModelGeometry, Widget):
       self._update_model(lead_one, path_x_array, update_lane_geometry=model_updated or self._transform_dirty)
       self._transform_dirty = False
 
-    lead_ready = render_lead_indicator and bool(self._path.raw_points.size)
-    if lead_ready:
-      self._update_leads(sm)
-      self._leads_need_reset = True
-    elif getattr(self, "_leads_need_reset", True):
-      self._lead_vehicles = [LeadVehicle(), LeadVehicle()]
-      self._leads_need_reset = False
+    self._update_markers(sm)
 
     # Draw elements (hide when disengaged)
     if self._visual_status() != UIStatus.DISENGAGED:
       self._draw_lane_lines()
       self._draw_path(sm)
-
-    if lead_ready and getattr(self, '_paint', True):
-      self._draw_lead_indicator()
-      if self._lead_vehicles[0].bar.size and self._lead_vehicles[0].info is not None:
-        text = self._format_lead_info(self._lead_vehicles[0].info, self._lead_info_mode, self._lead_info_metric)
-        if text:
-          self._draw_lead_info(rect, text)
-
-  @staticmethod
-  def _draw_lead_info(rect: rl.Rectangle, text: str) -> None:
-    font = gui_app.font(FontWeight.SEMI_BOLD)
-    size = measure_text_cached(font, text, 40)
-    x, y = rect.x + (rect.width - size.x) / 2, rect.y + 22
-    for dx, dy in ((-1, -1), (1, -1), (-1, 1), (1, 1)):
-      rl.draw_text_ex(font, text, rl.Vector2(x + dx, y + dy), 40, 0, rl.BLACK)
-    rl.draw_text_ex(font, text, rl.Vector2(x, y), 40, 0, rl.WHITE)
-
-  @staticmethod
-  def _format_lead_info(lead, mode: int, metric: bool | None) -> str:
-    return format_lead_info(lead, mode, metric)
-
-  @staticmethod
-  def _valid_lead_numbers(lead) -> bool:
-    try:
-      distance, lateral = float(lead.dRel), float(lead.yRel)
-      relative_speed = float(lead.vRel) if lead.vRel is not None else 0.0
-      return distance > 0 and all(math.isfinite(value) for value in (distance, lateral, relative_speed))
-    except (AttributeError, TypeError, ValueError, OverflowError):
-      return False
-
-
-  def _update_leads(self, sm):
-    plan = sm['longitudinalPlan']
-    model = sm['modelV2']
-    e2e = (sm.valid['longitudinalPlan'] and sm.valid['modelV2'] and
-           plan.longitudinalPlanSource == log.LongitudinalPlan.LongitudinalPlanSource.e2e and len(model.leadsV3) > 1)
-    ego_speed = sm['carState'].vEgo if e2e and sm.all_checks(['carState']) else None
-    if ego_speed is not None and not math.isfinite(ego_speed):
-      ego_speed = None
-    leads = []
-    for index in range(2):
-      info = None
-      if e2e:
-        candidate = model.leadsV3[index]
-        if candidate.x and candidate.y and candidate.v:
-          info = SimpleNamespace(present=candidate.prob > 0.5, dRel=candidate.x[0] - RADAR_TO_CAMERA,
-                                 yRel=-candidate.y[0], vRel=candidate.v[0] - ego_speed if ego_speed is not None else None,
-                                 vLead=candidate.v[0])
-      elif sm.valid['radarState']:
-        info = (sm['radarState'].leadOne, sm['radarState'].leadTwo)[index]
-      valid = info is not None and info.present and self._valid_lead_numbers(info)
-      distance = float(info.dRel) + RADAR_TO_CAMERA if valid else 0.0
-      leads.append((valid, distance, float(info.yRel) if valid else 0.0, info if valid else None))
-    if leads[0][0] and leads[1][0] and abs(leads[1][1] - leads[0][1]) < 3.0:
-      leads[1] = (False, 0.0, 0.0, None)
-
-    ss, cs = sm['selfdriveState'], sm['carState']
-    available = ss.enabled or ss.engageable or cs.brakePressed or getattr(self, '_render_lateral_active', False)
-    lane = self._path.raw_points
-    geometry_valid = len(lane) > 0 and len(self._path.raw_points) > 0 and np.isfinite(lane).all() and np.isfinite(self._path.raw_points).all()
-    opacity = 0.4 if self._visual_status() == UIStatus.DISENGAGED else 0.8
-    for lead, (present, d_rel, y_rel, info) in zip(self._lead_vehicles, leads, strict=True):
-      visible = available and present and d_rel < MAX_DRAW_DISTANCE and geometry_valid
-      if not visible or abs(y_rel - lead.y_filter.x) > 3.0:
-        lead.d_filter.initialized = lead.y_filter.initialized = False
-      lead.fade_filter.update(opacity if visible else 0.0)
-      lead.info = info if visible else None
-      if visible:
-        lead.bar = self._get_lead_bar(lane, lead.d_filter.update(d_rel), lead.y_filter.update(y_rel))
-        if not lead.bar.size:
-          lead.info = None
-          lead.fade_filter.update(0.0)
-      elif not present or not geometry_valid:
-        lead.bar = np.empty((0, 2), dtype=np.float32)
-
-
-  def _get_lead_bar(self, lane, d_rel, y_rel):
-    # bar on the road behind the lead, following the lane
-    x = np.array([d_rel, d_rel - min(6.0, 0.25 * d_rel)])
-    y = np.interp(x, lane[:, 0], lane[:, 1]) - np.interp(d_rel, lane[:, 0], lane[:, 1]) - y_rel
-    z = np.interp(x, self._path.raw_points[:, 0], self._path.raw_points[:, 2]) + self._path_offset_z
-    corners = np.vstack((np.column_stack((x, y + LEAD_BAR_WIDTH / 2, z)), np.column_stack((x, y - LEAD_BAR_WIDTH / 2, z))[::-1]))
-    pts = self._car_space_transform @ corners.T
-    if not np.isfinite(pts).all() or np.any(np.abs(pts[2]) < 1e-6):
-      return np.empty((0, 2), dtype=np.float32)
-    bar = (pts[:2] / pts[2]).T
-
-    far, near = bar[[0, 3]], bar[[1, 2]]
-    length = np.linalg.norm(near.mean(axis=0) - far.mean(axis=0))
-    if not math.isfinite(length) or length < 1e-6:
-      return np.empty((0, 2), dtype=np.float32)
-    bar[[1, 2]] = far + (near - far) * np.clip(length, 3.0, LEAD_BAR_LENGTH) / length
-    return bar.astype(np.float32)
-
-
+    self._draw_markers()
 
   def _update_model(self, lead, path_x_array, *, update_lane_geometry: bool = True):
     """Update model visualization data based on model message"""
@@ -487,16 +349,6 @@ class ModelRenderer(ModelGeometry, Widget):
         draw_polygon(self._rect, path_pts, rl.Color(0, 0, 0, 90))
       else:
         draw_polygon(self._rect, path_pts, gradient=gradient)
-
-  def _draw_lead_indicator(self):
-    offset = np.array([self._rect.x, self._rect.y], dtype=np.float32)
-    for lead in self._lead_vehicles:
-      if not lead.bar.size or lead.fade_filter.x <= 0:
-        continue
-      color = lead_marker_color(self.road_style, lead.fade_filter.x)
-      draw_polygon(self._rect, lead.bar + offset, color if color is not None else rl.Color(255, 255, 255, int(255 * lead.fade_filter.x)))
-
-
 
   @staticmethod
   def _get_path_length_idx(pos_x_array: np.ndarray, path_height: float) -> int:

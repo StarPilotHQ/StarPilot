@@ -9,6 +9,8 @@ from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.selfdrive.ui.mici.onroad import model_renderer as native_model
 from openpilot.selfdrive.ui.ui_state import UIStatus
+from openpilot.starpilot.ui import path_markers
+from openpilot.starpilot.ui.path_markers import PathMarkerInput
 from openpilot.starpilot.conditional_mode.policy import ModeChoice
 from openpilot.starpilot.ui.onroad_compact_widgets import CompactHudRenderer, MiciSidebarWidgets
 from openpilot.starpilot.ui.onroad_border import render_compact_turn_signals
@@ -52,10 +54,10 @@ def test_confidence_uses_model_probabilities_and_marks_unknown_as_unknown():
 
 def test_aol_model_geometry_uses_fresh_lateral_display_context(monkeypatch):
   renderer = native_model.ModelRenderer.__new__(native_model.ModelRenderer)
-  renderer._render_lateral_active = False
+  renderer._init_markers()
+  renderer._markers = PathMarkerInput()
   renderer._torque_filter = Mock()
   renderer._transform_dirty = False
-  renderer._lead_indicator_enabled = False
   monkeypatch.setattr(renderer, '_path', NS(raw_points=np.array([[1.0, 0.0, 0.0]], dtype=np.float32)), raising=False)
   renderer._draw_lane_lines = Mock()
   renderer._draw_path = Mock()
@@ -72,21 +74,21 @@ def test_aol_model_geometry_uses_fresh_lateral_display_context(monkeypatch):
   source = SubMaster()
   source.recv_frame, source.updated, source.valid = sm.recv_frame, sm.updated, sm.valid
   ui = NS(sm=source, started_frame=1, status=UIStatus.DISENGAGED, display_time_ns=lambda: 1_000_000_000)
-  with patch.object(native_model, 'ui_state', ui):
+  with patch.object(native_model, 'ui_state', ui), patch.object(path_markers, 'ui_state', ui):
     renderer._render(rl.Rectangle(0, 0, 476, 240))
     renderer._draw_lane_lines.assert_not_called()
-    renderer._render_lateral_active = True
+    renderer._markers = PathMarkerInput(lateral_active=True)
     renderer._render(rl.Rectangle(0, 0, 476, 240))
     renderer._draw_lane_lines.assert_called_once()
     renderer._draw_path.assert_called_once_with(source)
     assert renderer._visual_status() == UIStatus.ENGAGED
-    renderer._render_lateral_active = False
+    renderer._markers = PathMarkerInput()
     assert renderer._visual_status() == UIStatus.DISENGAGED
 
 
 def test_aol_lane_and_path_colors_do_not_use_disengaged_black(monkeypatch):
   renderer = native_model.ModelRenderer.__new__(native_model.ModelRenderer)
-  renderer._render_lateral_active = False
+  renderer._markers = PathMarkerInput()
   monkeypatch.setattr(renderer, '_torque_filter', NS(x=0.0), raising=False)
   renderer._rect = rl.Rectangle(0, 0, 476, 240)
   monkeypatch.setattr(renderer, '_path', NS(projected_points=np.array([[10.0, 10.0], [20.0, 20.0]], dtype=np.float32)), raising=False)
@@ -97,11 +99,12 @@ def test_aol_lane_and_path_colors_do_not_use_disengaged_black(monkeypatch):
   renderer._experimental_mode = True
   monkeypatch.setattr(renderer, '_exp_gradient', NS(colors=[]), raising=False)
   ui = NS(status=UIStatus.DISENGAGED, params=Mock(), display_time_ns=lambda: 1_000_000_000)
-  with patch.object(native_model, 'ui_state', ui), patch.object(native_model, 'draw_polygon') as polygon:
+  with patch.object(native_model, 'ui_state', ui), patch.object(path_markers, 'ui_state', ui), \
+       patch.object(native_model, 'draw_polygon') as polygon:
     assert renderer._get_ll_color(0.7, True, True).r == 0
     renderer._draw_path({'longitudinalPlan': NS(allowThrottle=True)})
     assert polygon.call_args.args[2].a == 90
-    renderer._render_lateral_active = True
+    renderer._markers = PathMarkerInput(lateral_active=True)
     assert renderer._get_ll_color(0.7, True, True).g == 255
     renderer._draw_path({'longitudinalPlan': NS(allowThrottle=True)})
     assert polygon.call_args.args[2].r == 255

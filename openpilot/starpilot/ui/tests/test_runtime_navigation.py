@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.common.params import Params
+from openpilot.starpilot.ui.path_markers import PathMarkerInput
 from openpilot.starpilot.ui.presentation import Profile
 from openpilot.starpilot.ui.settings_state import COMPACT_MENU, Destination, SettingsInput, SettingsState
 
@@ -137,16 +138,14 @@ class TestNativeCameraComposition(unittest.TestCase):
         view._switch_stream_if_needed.assert_called_once()
         view._update_calibration.assert_called_once_with()
         camera.assert_called_once_with(view, rect, poll_camera=True, **({"paint": True} if module is compact else {}))
-        if model_field == "_model_renderer":
-          model.render_with_lead.assert_called_once_with(rect, False, 0, None, lateral_active=False, paint=True)
-          model.render_with_lead.reset_mock()
-          with patch.object(module, "ui_state", NS(started=True, sm=object())), \
-               patch.object(module.CameraView, "_render"):
-            compact.AugmentedRoadView.render_camera_model_layer(view, rect, lead_indicator=True,
-                                                                lead_info_mode=1, lead_info_metric=True)
-          model.render_with_lead.assert_called_once_with(rect, True, 1, True, lateral_active=False, paint=True)
-        else:
-          model.render.assert_called_once_with(rect)
+        extra = {"paint": True} if module is compact else {}
+        model.render_with_markers.assert_called_once_with(rect, None, **extra)
+        model.render_with_markers.reset_mock()
+        markers = PathMarkerInput(indicator=True, info_mode=1, metric=True)
+        with patch.object(module, "ui_state", NS(started=True, sm=object())), \
+             patch.object(module.CameraView, "_render"):
+          module.AugmentedRoadView.render_camera_model_layer(view, rect, markers=markers)
+        model.render_with_markers.assert_called_once_with(rect, markers, **extra)
 
 
 if __name__ == "__main__":

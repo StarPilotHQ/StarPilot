@@ -33,7 +33,7 @@ LEAD_INFO_LABELS = ("Off", "Distance", "Speed", "Relative speed")
 
 
 def format_lead_info(lead, mode: int, metric: bool | None) -> str:
-  """The lead's distance or speed for the text above the lead marker; empty when there is nothing to show."""
+  """The lead's distance or speed for the text below the lead line; empty when there is nothing to show."""
   field = {LeadInfoMode.DISTANCE: "dRel", LeadInfoMode.SPEED: "vLead", LeadInfoMode.RELATIVE_SPEED: "vRel"}.get(mode)
   if lead is None or not lead.present or field is None or metric is None:
     return ""

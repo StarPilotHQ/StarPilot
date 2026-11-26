@@ -496,6 +496,7 @@ class RuntimeSnapshotAdapter:
     display_model = display_message(sm, "modelV2", now_ns, after_frame=after) if started else None
     display_radar = display_message(sm, "radarState", now_ns, after_frame=after) if started else None
     display_plan = display_message(sm, 'longitudinalPlan', now_ns, after_frame=after) if started else None
+    display_force_stop = display_message(sm, 'starpilotLongitudinalPlan', now_ns, after_frame=after) if started else None
     display_events = _message_at_age(sm, 'onroadEvents', now_ns, after, EVENTS_DISPLAY_MAX_AGE_NS) if started else None
     display_monitor = display_message(sm, 'driverMonitoringState', now_ns, after_frame=after) if started else None
     if display_monitor is not None:
@@ -840,7 +841,9 @@ class RuntimeSnapshotAdapter:
                          stock_confidence_source_stamp_ns=int(sm.logMonoTime["modelV2"]) if display_model is not None else None,
                          stock_confidence_drive_frame=after if started else None,
                          model_confidence=_model_confidence(display_model),
-                         lead_indicator_source_fresh=display_model is not None and display_radar is not None)
+                         lead_indicator_source_fresh=display_model is not None and display_radar is not None,
+                         force_stop=bool(display_force_stop is not None and
+                                         (display_force_stop.forceStopBraking or display_force_stop.forceStopHolding)))
 
     ancillary_key = (bool(ui.started), int(ui.started_frame), confirmed_offroad)
     ancillary = self._onroad_view_ancillary if onroad_view_only else self._onroad_ancillary

@@ -120,32 +120,22 @@ def test_transform_guard_preserves_render_projection_updates(renderer, monkeypat
   monkeypatch.setattr(model_renderer, "ui_state", SimpleNamespace(sm=sm, started_frame=0))
   renderer._torque_filter = Mock()
   renderer._path = SimpleNamespace(raw_points=np.array([[10, 0, 0]], dtype=np.float32))
-  renderer._lead_indicator_enabled = False
   renderer._visual_status = lambda: model_renderer.UIStatus.DISENGAGED
   renderer._update_model = Mock()
   renderer._update_raw_points = Mock()
+  renderer._update_markers = Mock()
+  renderer._draw_markers = Mock()
   renderer._transform_dirty = True
 
   renderer._render(renderer._clip_region)
   assert renderer._update_model.call_count == 1
   assert not renderer._transform_dirty
-  disabled_leads = renderer._lead_vehicles
   renderer.set_transform(renderer._car_space_transform.copy())
   renderer._render(renderer._clip_region)
   assert renderer._update_model.call_count == 1
-  assert renderer._lead_vehicles is disabled_leads
-  renderer._lead_indicator_enabled = True
-  renderer._update_leads = Mock()
-  renderer._draw_lead_indicator = Mock()
-  renderer._render(renderer._clip_region)
-  renderer._update_leads.assert_called_once_with(sm)
-  renderer._lead_indicator_enabled = False
-  renderer._render(renderer._clip_region)
-  reset_leads = renderer._lead_vehicles
-  assert reset_leads is not disabled_leads
-  assert all(lead.info is None and not lead.bar.size for lead in reset_leads)
-  renderer._render(renderer._clip_region)
-  assert renderer._lead_vehicles is reset_leads
+  # markers keep time every frame, whether or not the model geometry changed
+  assert renderer._update_markers.call_count == renderer._draw_markers.call_count == 2
+  renderer._update_markers.assert_called_with(sm)
   changed = renderer._car_space_transform.copy()
   changed[0, 0] += 1
   renderer.set_transform(changed)
@@ -226,7 +216,7 @@ def test_radar_only_reuses_lane_geometry_without_changing_path_filters_or_clip(r
     assert batch_calls[-1].kwargs['z_offsets'] == (0, 0, 0, 0, 0, 0, renderer._path_offset_z)
 
 
-def test_large_render_preserves_lead_cadence_and_lane_invalidation(renderer, monkeypatch):
+def test_large_render_updates_markers_every_frame_and_keeps_lane_invalidation(renderer, monkeypatch):
   from openpilot.selfdrive.ui.onroad import model_renderer
 
   class Messages(dict):
@@ -239,21 +229,20 @@ def test_large_render_preserves_lead_cadence_and_lane_invalidation(renderer, mon
                 radarState=SimpleNamespace(leadOne=None))
   monkeypatch.setattr(model_renderer, "ui_state", SimpleNamespace(sm=sm, started_frame=0))
   view = object.__new__(LargeModelRenderer)
-  view.lead_display = None
   view._path = ModelPoints(raw_points=np.array([[10, 0, 0]], dtype=np.float32))
   view._longitudinal_control = True
   view._update_model = Mock()
   view._update_raw_points = Mock()
-  view._update_leads = Mock()
+  view._update_markers = Mock()
   view._draw_lane_lines = Mock()
   view._draw_path = Mock()
-  view._draw_lead_indicator = Mock()
+  view._draw_markers = Mock()
   view._transform_dirty = True
   view._render(renderer._clip_region)
   assert view._update_model.call_args.kwargs == {"update_lane_geometry": True}
   assert not view._transform_dirty
   view._render(renderer._clip_region)
-  assert view._update_model.call_count == view._update_leads.call_count == 1
+  assert view._update_model.call_count == 1
   sm.updated["radarState"] = True
   view._render(renderer._clip_region)
   assert view._update_model.call_args.kwargs == {"update_lane_geometry": False}
@@ -262,5 +251,5 @@ def test_large_render_preserves_lead_cadence_and_lane_invalidation(renderer, mon
   view._render(renderer._clip_region)
   assert view._update_model.call_args.kwargs == {"update_lane_geometry": True}
   view._update_raw_points.assert_called_once_with(sm["modelV2"])
-  assert view._update_model.call_count == view._update_leads.call_count == 3
-  assert view._draw_path.call_count == view._draw_lead_indicator.call_count == 4
+  assert view._update_model.call_count == 3
+  assert view._update_markers.call_count == view._draw_path.call_count == view._draw_markers.call_count == 4

@@ -52,7 +52,8 @@ class AppearanceSettingsTests(unittest.TestCase):
   def test_absent_defaults_are_read_only_and_match_both_views(self):
     self.assertEqual(onroad_appearance(self.params), OnroadAppearance())
     self.assertEqual(tuple(row.key for row in self.owner.snapshot(Profile.LARGE).rows),
-                     ("DeveloperSidebar", "HidePersonalityAlerts", "ShowBrakeStatus", "BlindSpotMetrics", "SignalMetrics", "TurnByTurn:large", "ReduceMotion"))
+                     ("DeveloperSidebar", "HidePersonalityAlerts", "ShowBrakeStatus", "HideLeadMarker", "LeadInfo",
+                      "BlindSpotMetrics", "SignalMetrics", "TurnByTurn:large", "ReduceMotion"))
     self.assertEqual(tuple(row.key for row in self.owner.snapshot(Profile.COMPACT).rows),
                      ("CameraView", "DriverCamera", "StockConfidenceBallWidget", "HidePersonalityAlerts", "ShowBrakeStatus",
                       "HideLeadMarker", "LeadInfo", "SignalMetrics", "BlindSpotMetrics", "TurnByTurn:compact"))
@@ -271,7 +272,8 @@ class AppearanceSettingsTests(unittest.TestCase):
     self.assertFalse(self.owner.apply(request))
 
   def test_lead_indicator_inverts_exact_saved_choice_and_repairs_invalid_bytes(self):
-    self.assertNotIn("HideLeadMarker", (row.key for row in self.owner.snapshot(Profile.LARGE).rows))
+    large_keys = [row.key for row in self.owner.snapshot(Profile.LARGE).rows]
+    self.assertLess(large_keys.index("HideLeadMarker"), large_keys.index("LeadInfo"))
     source = Path(self.params.get_param_path("HideLeadMarker"))
     self.assertIsNone(read_visibility(self.params, "HideLeadMarker").raw)
     self.assertFalse(onroad_appearance(self.params).show_lead_indicator)

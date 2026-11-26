@@ -5,16 +5,12 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace as NS
 import unittest
-from unittest.mock import Mock, patch
-
-import numpy as np
-from openpilot.starpilot.ui.raylib import rl
+from unittest.mock import patch
 
 from openpilot.common.params import Params
-from openpilot.selfdrive.ui.mici.onroad import model_renderer as native
 from openpilot.starpilot import saved_document
 from openpilot.starpilot.ui.appearance_owner import AppearanceOwner
-from openpilot.starpilot.ui.appearance_preferences import LeadInfoMode, onroad_appearance, read_lead_info
+from openpilot.starpilot.ui.appearance_preferences import LeadInfoMode, format_lead_info, onroad_appearance, read_lead_info
 from openpilot.starpilot.ui.feature_settings_state import FeatureSettingsRequest
 from openpilot.starpilot.ui.presentation import Profile
 
@@ -70,7 +66,7 @@ class LeadInfoTests(unittest.TestCase):
     self.assertEqual((self.raw("LeadInfo"), self.raw("LeadInfoMode")), (b"1", b"3"))
     appearance = onroad_appearance(self.params)
     self.assertEqual(appearance.lead_info_mode, LeadInfoMode.RELATIVE_SPEED)
-    self.assertEqual(comma_display(appearance)['leadInfo'], 'Speed')
+    self.assertEqual(comma_display(appearance)['leadInfo'], 'Relative speed')
 
   def test_manager_materializes_off_without_replacing_saved_choice(self):
     from openpilot.system.manager import manager
@@ -151,7 +147,7 @@ class LeadInfoTests(unittest.TestCase):
 
   def test_finite_metric_and_imperial_text(self):
     lead = NS(present=True, dRel=20.0, vLead=12.5)
-    format_info = native.ModelRenderer._format_lead_info
+    format_info = format_lead_info
     self.assertEqual(format_info(lead, 1, True), "20 m")
     self.assertEqual(format_info(lead, 1, False), "66 ft")
     self.assertEqual(format_info(lead, 2, True), "45 km/h")
@@ -162,64 +158,6 @@ class LeadInfoTests(unittest.TestCase):
     self.assertEqual(format_info(NS(present=False, dRel=20, vLead=12.5), 1, True), "")
     self.assertEqual(format_info(lead, 1, None), "")
     self.assertEqual(format_info(lead, 0, True), "")
-
-  def test_native_text_is_centered_with_original_outline(self):
-    rect = rl.Rectangle(10, 20, 400, 240)
-    with patch.object(native.gui_app, "font", return_value=object()), \
-         patch.object(native, "measure_text_cached", return_value=NS(x=80.0)), \
-         patch.object(native.rl, "draw_text_ex") as draw:
-      native.ModelRenderer._draw_lead_info(rect, "20 m")
-    self.assertEqual(draw.call_count, 5)
-    self.assertEqual([(call.args[2].x, call.args[2].y) for call in draw.call_args_list],
-                     [(169.0, 41.0), (171.0, 41.0), (169.0, 43.0), (171.0, 43.0), (170.0, 42.0)])
-    self.assertEqual([call.args[-1] for call in draw.call_args_list], [rl.BLACK] * 4 + [rl.WHITE])
-
-  def test_native_text_needs_current_primary_bar_and_context_resets(self):
-    renderer = native.ModelRenderer.__new__(native.ModelRenderer)
-    renderer._lead_indicator_enabled = False
-    renderer._lead_info_mode = 0
-    renderer._lead_info_metric = None
-    renderer._torque_filter = Mock()
-    renderer._path = native.ModelPoints(raw_points=np.array([[20.0, 0.0, 0.0]], dtype=np.float32))
-    renderer._path_offset_z = 0.0
-    renderer._transform_dirty = False
-    renderer._update_model = Mock()
-    renderer._update_leads = Mock(side_effect=lambda *_: setattr(renderer, "_lead_vehicles", [
-      NS(bar=np.ones((4, 2), dtype=np.float32), info=NS(present=True, dRel=20.0, vLead=10.0)), native.LeadVehicle()]))
-    renderer._draw_lead_indicator = Mock()
-    renderer._draw_lead_info = Mock()
-    renderer._draw_lane_lines = Mock()
-    renderer._draw_path = Mock()
-    renderer._experimental_mode = False
-    rect = rl.Rectangle(0, 0, 476, 240)
-    lead = NS(present=True, dRel=20.0, yRel=0.0, vRel=-1.0, vLead=12.5)
-    messages = {"carOutput": NS(actuatorsOutput=NS(torque=0.0)), "extrinsicsCalibration": NS(height=[]),
-                "selfdriveState": NS(experimentalMode=False), "modelV2": NS(),
-                "radarState": NS(leadOne=lead, leadTwo=NS(present=False))}
-
-    class SubMaster:
-      recv_frame = {"extrinsicsCalibration": 2, "modelV2": 2}
-      updated = {"carParams": False, "modelV2": False, "radarState": False}
-      valid = {"radarState": True}
-
-      def __getitem__(self, key):
-        return messages[key]
-
-    sm = SubMaster()
-    ui = NS(sm=sm, started_frame=1, status=native.UIStatus.DISENGAGED)
-    with patch.object(native, "ui_state", ui), patch.object(native.ModelRenderer, "render", autospec=True,
-                                                              side_effect=lambda self, _rect: self._render(_rect)):
-      renderer.render_with_lead(rect, True, 1, True)
-      renderer._draw_lead_info.assert_called_once_with(rect, "20 m")
-      self.assertEqual((renderer._lead_info_mode, renderer._lead_info_metric), (0, None))
-      renderer._draw_lead_info.reset_mock()
-      sm.recv_frame["modelV2"] = 0
-      renderer.render_with_lead(rect, True, 1, True)
-      renderer._draw_lead_info.assert_not_called()
-      sm.recv_frame["modelV2"] = 2
-      renderer._path.raw_points = np.empty((0, 3), dtype=np.float32)
-      renderer.render_with_lead(rect, True, 1, True)
-      renderer._draw_lead_info.assert_not_called()
 
 
 if __name__ == "__main__":

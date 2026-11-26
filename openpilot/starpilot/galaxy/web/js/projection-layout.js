@@ -1,7 +1,7 @@
 // Translate the independent AA placement document into the existing editor model.
 const clone = (value) => JSON.parse(JSON.stringify(value))
-// Text above the Android Auto lead marker, matching projection_layout.LEAD_INFO_CHOICES.
-export const LEAD_INFO = ["Off", "Distance", "Speed"]
+// Text below the Android Auto lead line, matching projection_layout.LEAD_INFO_CHOICES.
+export const LEAD_INFO = ["Off", "Distance", "Speed", "Relative speed"]
 
 // projection_onroad draws the fixed brand at (width - 210, height - 90),
 // using Sora-800.fnt at 30 * Profile.LARGE.font_scale. Reuse that atlas and

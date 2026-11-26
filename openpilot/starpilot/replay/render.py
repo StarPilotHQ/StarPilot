@@ -358,6 +358,7 @@ class Compositor:
       self.view.extra_overlays = lambda rect, state: self.camera.render_model_source_layer(rect, show_long_indicator=None)
 
   def _camera_layer(self, rect, state):
+    from openpilot.starpilot.ui.path_markers import path_markers
     self.primary_ready = self._primary_matches()
     if self.profile == 'compact':
       if state.appearance.camera_view == 4:
@@ -386,13 +387,11 @@ class Compositor:
       if self.profile == 'compact':
         camera = cast('CompactRoadView', self.camera)
         camera.render_camera_model_layer(rect, camera_view=state.appearance.camera_view,
-                                         reverse_driver=state.reverse_driver_camera,
-                                         lead_indicator=state.appearance.show_lead_indicator and state.lead_indicator_source_fresh,
-                                         lead_info_mode=state.appearance.lead_info_mode, lead_info_metric=state.appearance.lead_info_metric,
-                                         lateral_active=state.lateral_active, road_style=state.customization['roadColors']['compact'],
-                                         poll_camera=False)
+                                         reverse_driver=state.reverse_driver_camera, markers=path_markers(state),
+                                         road_style=state.customization['roadColors']['compact'], poll_camera=False)
       else:
-        self.camera.render_camera_model_layer(rect, road_style=state.customization['roadColors']['large'], poll_camera=False)
+        self.camera.render_camera_model_layer(rect, road_style=state.customization['roadColors']['large'],
+                                              markers=path_markers(state), poll_camera=False)
     finally:
       sm.updated = original
     self.render_receipts.update({name: receipts[name] for name in flags.read if name in receipts})

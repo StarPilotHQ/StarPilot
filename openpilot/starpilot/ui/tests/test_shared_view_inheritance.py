@@ -8,6 +8,7 @@ from openpilot.selfdrive.ui.onroad import cameraview as large_camera
 from openpilot.selfdrive.ui.mici.onroad import cameraview as small_camera
 from openpilot.selfdrive.ui.onroad import model_renderer as large_model
 from openpilot.selfdrive.ui.mici.onroad import model_renderer as small_model
+from openpilot.starpilot.ui import path_markers
 
 
 @pytest.mark.parametrize("module", [large_camera, small_camera])
@@ -48,12 +49,14 @@ def test_shared_camera_constructor_preserves_display_specific_clients_and_unifor
     assert camera._road_camera_val.tolist() == [0]
 
 
-def test_shared_model_constructor_keeps_distinct_lead_types_and_native_geometry():
+def test_shared_model_constructor_shares_path_markers_and_native_geometry():
   assert issubclass(small_model.ModelRenderer, large_model.ModelGeometry)
   assert issubclass(large_model.ModelRenderer, large_model.ModelGeometry)
   for module in (large_model, small_model):
     renderer = module.ModelRenderer()
-    assert all(isinstance(lead, module.LeadVehicle) for lead in renderer._lead_vehicles)
+    assert isinstance(renderer, path_markers.PathMarkers)
+    assert isinstance(renderer._lead, path_markers.LeadMarker)
+    assert isinstance(renderer._stop_point, path_markers.StopPoint)
     assert len(renderer._lane_lines) == 4 and len(renderer._road_edges) == 2
     assert renderer._path.raw_points.shape == (0, 3)
     assert renderer._path.raw_points.dtype == np.float32

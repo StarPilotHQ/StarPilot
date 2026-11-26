@@ -19600,8 +19600,8 @@ msgid "show speed limits"
 msgstr "afficher les limites de vitesse"
 
 #: openpilot/starpilot/ui/appearance_compact.py
-msgid "shown above the lead marker"
-msgstr "affiché au-dessus du repère du véhicule de tête"
+msgid "shown below the lead line"
+msgstr "affiché sous la ligne du véhicule de tête"
 
 #: openpilot/starpilot/ui/onroad_customization.py
 msgid "side camera"

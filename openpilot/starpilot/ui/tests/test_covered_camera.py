@@ -13,6 +13,8 @@ from openpilot.selfdrive.ui.mici.onroad import cameraview, model_renderer
 from openpilot.starpilot.ui import runtime_app
 from openpilot.starpilot.ui.appearance_preferences import LeadInfoMode
 from openpilot.starpilot.ui.onroad_state import OnroadState, SpeedLimitObservation
+from openpilot.starpilot.ui import path_markers
+from openpilot.starpilot.ui.path_markers import path_markers as markers_for
 from openpilot.starpilot.ui.tests import test_compact_settings_lifecycle
 from openpilot.system.ui.widgets import Widget
 
@@ -104,7 +106,7 @@ def test_covered_model_keeps_filters_geometry_leads_and_reveal_pixels(monkeypatc
     return NS(x=x, y=[y] * 33, z=[0.] * 33)
   model = NS(position=line(0), laneLines=[line(y) for y in (-3.5, -1.8, 1.8, 3.5)],
              roadEdges=[line(-6), line(6)], laneLineProbs=[.6, .9, .8, .5], roadEdgeStds=[.2, .3],
-             acceleration=NS(x=[.2] * 33))
+             acceleration=NS(x=[.2] * 33), velocity=NS(x=[20.] * 33))
   sm = Messages(modelV2=model, extrinsicsCalibration=NS(height=[1.2]), carParams=NS(openpilotLongitudinalControl=True),
                 carOutput=NS(actuatorsOutput=NS(torque=.7)), carState=NS(vEgo=20., brakePressed=False),
                 selfdriveState=NS(experimentalMode=False, enabled=True, engageable=True),
@@ -113,15 +115,17 @@ def test_covered_model_keeps_filters_geometry_leads_and_reveal_pixels(monkeypatc
   clock = [1_000_000_000]
   ui = NS(sm=sm, started_frame=1, status=module.UIStatus.ENGAGED, params=Mock(), display_time_ns=lambda: clock[0])
   monkeypatch.setattr(module, 'ui_state', ui)
+  monkeypatch.setattr(path_markers, 'ui_state', ui)
   monkeypatch.setattr(module, 'lane_centering_direction', lambda *_: -1)
   draw = Mock()
   monkeypatch.setattr(module, 'draw_polygon', draw)
-  monkeypatch.setattr(module.rl, 'draw_triangle_fan', Mock())
+  line_draws = Mock()
+  monkeypatch.setattr(path_markers, 'draw_polygon', line_draws)
   for renderer in (visible, covered):
     renderer._rect = rl.Rectangle(0, 0, 476, 240)
     renderer.road_style = {'pathMode': mode, 'path': '#456789AB'}
     renderer.set_transform(np.array([[238., 80., 0.], [240., 0., -100.], [1., 0., 0.]], dtype=np.float32))
-    renderer._lead_indicator_enabled = True
+    renderer._markers = path_markers.PathMarkerInput(indicator=True)
     renderer._rainbow_path.refresh_enabled = Mock(return_value=mode == 'rainbow')
   for index in range(60):
     clock[0] += 16_000_000
@@ -134,18 +138,24 @@ def test_covered_model_keeps_filters_geometry_leads_and_reveal_pixels(monkeypatc
     for renderer, paint in ((visible, True), (covered, False)):
       renderer._paint = paint
       draw.reset_mock()
+      line_draws.reset_mock()
       renderer._render(renderer._rect)
       if not paint:
         draw.assert_not_called()
+        line_draws.assert_not_called()
     for field in ('_torque_filter', '_blend_filter', '_acceleration_x_filter', '_acceleration_x_filter2'):
       assert getattr(visible, field).x == getattr(covered, field).x
     assert visible._lane_centering_direction == covered._lane_centering_direction
     assert vars(visible._rainbow_path) == vars(covered._rainbow_path) | {'refresh_enabled': visible._rainbow_path.refresh_enabled}
-    for a, b in zip(visible._lead_vehicles, covered._lead_vehicles, strict=True):
-      assert a.info == b.info
-      np.testing.assert_array_equal(a.bar, b.bar)
-      for name in ("d_filter", "y_filter", "fade_filter"):
-        assert vars(getattr(a, name)) == vars(getattr(b, name))
+    def box(rect):
+      return None if rect is None else (rect.x, rect.y, rect.width, rect.height)
+    a, b = visible._lead, covered._lead
+    assert a.info == b.info and box(a.box) == box(b.box) and (a.d_raw, a.gliding) == (b.d_raw, b.gliding)
+    for name in ("d_filter", "fade_filter"):
+      assert vars(getattr(a, name)) == vars(getattr(b, name))
+    assert visible._lead.box is not None
+    assert box(visible._stop_point.box) == box(covered._stop_point.box)
+    assert vars(visible._stop_point.fade_filter) == vars(covered._stop_point.fade_filter)
     for a, b in zip([visible._path, *visible._lane_lines, *visible._road_edges],
                     [covered._path, *covered._lane_lines, *covered._road_edges], strict=True):
       np.testing.assert_array_equal(a.projected_points, b.projected_points)
@@ -170,9 +180,9 @@ def test_model_paint_flag_cannot_leak_after_render_exception(monkeypatch):
     raise RuntimeError('render failed')
   monkeypatch.setattr(renderer, 'render', fail, raising=False)
   with pytest.raises(RuntimeError, match='render failed'):
-    renderer.render_with_lead(rl.Rectangle(0, 0, 476, 240), True, paint=False)
+    renderer.render_with_markers(rl.Rectangle(0, 0, 476, 240), path_markers.PathMarkerInput(indicator=True), paint=False)
   assert renderer._paint is True
-  assert renderer._render_lateral_active is False
+  assert renderer._markers is None
 
 
 def make_session(monkeypatch, request, profile, camera):
@@ -241,7 +251,8 @@ def test_compact_layout_propagates_paint_and_resets_after_first_touch_and_except
     else:
       layout._render(layout.rect)
     assert camera_paint.call_args.kwargs['paint'] is touched
-    assert camera._model_renderer.render_with_lead.call_args.kwargs['paint'] is touched
+    assert camera._model_renderer.render_with_markers.call_args.kwargs['paint'] is touched
+    assert camera._model_renderer.render_with_markers.call_args.args[1] == markers_for(state)
     assert session.camera_paint is True
   assert camera._update_calibration.call_count == 3
   assert layout._native_onroad._bookmark_icon.process_gesture.call_count == 3
@@ -257,11 +268,12 @@ def test_large_camera_paint_is_unchanged(monkeypatch, request, lead_mode, metric
   state = replace(state, appearance=replace(state.appearance, show_lead_indicator=True, lead_info_mode=lead_mode, lead_info_metric=metric))
   session.view.camera_layer(rl.Rectangle(0, 0, 2160, 1080), state)
   kwargs = camera.render_camera_model_layer.call_args.kwargs
-  assert set(kwargs) == {'road_style', 'camera_view', 'reverse_driver', 'lead_display'}
+  assert set(kwargs) == {'road_style', 'camera_view', 'reverse_driver', 'markers'}
   assert kwargs['road_style'] == state.customization['roadColors']['large']
-  assert kwargs['lead_display'] == (True, int(lead_mode), metric)
+  assert kwargs['markers'] == markers_for(state)
+  assert (kwargs['markers'].info_mode, kwargs['markers'].metric) == (int(lead_mode), metric)
   session.view.camera_layer(rl.Rectangle(0, 0, 2160, 1080), replace(state, appearance=replace(state.appearance, show_lead_indicator=False)))
-  assert camera.render_camera_model_layer.call_args.kwargs['lead_display'][0] is False
+  assert camera.render_camera_model_layer.call_args.kwargs['markers'].indicator is False
   assert kwargs['camera_view'] == state.appearance.camera_view
   assert kwargs['reverse_driver'] == state.reverse_driver_camera
   assert 'paint' not in kwargs

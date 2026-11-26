@@ -273,7 +273,7 @@ class TestProjectionLayout(unittest.TestCase):
     self.assertEqual((document['leadIndicator'], document['leadInfo']), (False, 'Off'))
     older = {k: v for k, v in document.items() if k not in ('leadIndicator', 'leadInfo')}
     self.assertEqual(validate_layout(older, SCREEN), document, 'older layouts get the lead defaults')
-    for choice in ('Off', 'Distance', 'Speed'):
+    for choice in ('Off', 'Distance', 'Speed', 'Relative speed'):
       self.assertEqual(validate_layout({**document, 'leadInfo': choice}, SCREEN)['leadInfo'], choice)
     for value in ('speed', 'Both', 1, True, None, [], {}):
       with self.subTest(value=value), self.assertRaises(ValueError):

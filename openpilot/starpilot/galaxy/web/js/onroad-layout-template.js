@@ -138,11 +138,9 @@ export const ONROAD_LAYOUT_TEMPLATE = `
                   :transform="'translate(' + (roadBounds.x + roadBounds.width * .48) + ' ' + (roadBounds.y + roadBounds.height * .53) + ') scale(' + (state.profile === 'compact' ? 1 : 3) + ')'"
                   @pointerdown.stop @click="openLeadEditor" @keydown.enter.prevent="openLeadEditor" @keydown.space.prevent="openLeadEditor">
                   <rect x="-32" y="-29" width="64" height="53" fill="transparent" />
-                  <path v-if="state.profile === 'compact'" d="M-25 4 L25 4 L23 9 L-23 9 Z" :fill="leadColor"
+                  <rect x="-25" y="4" width="50" height="4" rx="2" :fill="leadColor"
                     :opacity="displayValue('HideLeadMarker') === 'On' ? 1 : .45" />
-                  <path v-else d="M0 15 L-15 -9 L0 -4 L15 -9 Z" :fill="leadColor"
-                    :opacity="displayValue('HideLeadMarker') === 'On' ? 1 : .45" />
-                  <text v-if="leadPreviewLabel" y="-14" text-anchor="middle" font-size="12" font-weight="600" fill="white"
+                  <text v-if="leadPreviewLabel" y="20" text-anchor="middle" font-size="12" font-weight="600" fill="white"
                     stroke="#101014" stroke-width="2" paint-order="stroke">{{ leadPreviewLabel }}</text>
                   <rect class="gx-layout__selection" x="-29" y="-29" width="58" height="50" rx="4" fill="none" stroke="#b799ff" stroke-dasharray="3 2" />
                 </g>

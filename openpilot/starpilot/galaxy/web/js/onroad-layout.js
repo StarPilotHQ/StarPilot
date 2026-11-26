@@ -786,7 +786,7 @@ export const OnroadLayoutPage = {
     },
     limits() { return this.selectedWidget ? placementLimits(this.limitProfile, this.state.selected, this.layout) : null },
     leadRows() { return ["HideLeadMarker", "LeadInfo"].map(key => this.displayRow(key)).filter(Boolean) },
-    leadColor() { return this.roadStyle.leadMarker || (this.state.profile === "compact" ? "#FFFFFFFF" : "#C92231FF") },
+    leadColor() { return this.roadStyle.leadMarker || "#FFFFFFFF" },
     leadPreviewLabel() {
       return this.displayValue("HideLeadMarker") === "On" ?
         ({ Distance: "82 ft", Speed: "42 mph", "Relative speed": "+4 mph" }[this.displayValue("LeadInfo")] || "") : ""

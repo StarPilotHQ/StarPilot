@@ -63,7 +63,8 @@ class TestProjectionLayoutRuntime(unittest.TestCase):
             camera.stream_type = 2
           view.camera.render_camera_model_layer = render
           view._camera_layer(None, SimpleNamespace(customization=default_document(), appearance=OnroadAppearance(),
-                                                   reverse_driver_camera=False))
+                                                   reverse_driver_camera=False, lead_indicator_source_fresh=False,
+                                                   lateral_active=False))
           self.assertEqual(view.camera_stream, 2)
         finally:
           view.close()
@@ -317,14 +318,16 @@ class TestProjectionLayoutRuntime(unittest.TestCase):
     native, _ = helper.dependencies()
     native.ui_state.started = True
     comma = OnroadAppearance(show_lead_indicator=True, lead_info_mode=LeadInfoMode.DISTANCE, lead_info_metric=False)
-    state = OnroadState(False, False, None, None, SpeedLimitObservation(), customization=default_document(), appearance=comma)
+    state = OnroadState(False, False, None, None, SpeedLimitObservation(), customization=default_document(), appearance=comma,
+                        lead_indicator_source_fresh=True)
     rendered, painted = [], []
     native.adapter = lambda *_: SimpleNamespace(build=lambda *_a, **_k: SimpleNamespace(onroad=state))
     layout = default_layout_for_viewport((2880, 1080))
     view = projection.ProjectionOnroad(dependencies=native, viewport=(2880, 1080), customization=layout)
     self.addCleanup(view.close)
     view.onroad.render = rendered.append
-    view.camera.render_camera_model_layer = lambda _rect, **kwargs: painted.append(kwargs['lead_display'])
+    view.camera.render_camera_model_layer = lambda _rect, **kwargs: painted.append(
+      (kwargs['markers'].indicator, kwargs['markers'].info_mode, kwargs['markers'].metric))
     view.camera.stream_type = None
 
     def lead(document):

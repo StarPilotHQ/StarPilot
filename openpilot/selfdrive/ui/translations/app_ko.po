@@ -19596,8 +19596,8 @@ msgid "show speed limits"
 msgstr "제한 속도 표시"
 
 #: openpilot/starpilot/ui/appearance_compact.py
-msgid "shown above the lead marker"
-msgstr "선행 차량 표시 위에 표시됨"
+msgid "shown below the lead line"
+msgstr "선행 차량 선 아래에 표시됨"
 
 #: openpilot/starpilot/ui/onroad_customization.py
 msgid "side camera"

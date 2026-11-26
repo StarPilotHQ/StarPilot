@@ -9,6 +9,7 @@ from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.selfdrive.ui.mici.onroad import model_renderer as compact
 from openpilot.selfdrive.ui.onroad import model_renderer as large
+from openpilot.starpilot.ui import path_markers
 from openpilot.starpilot.ui.rainbow_path import RainbowPath
 from openpilot.system.ui.lib.shader_polygon import Gradient
 
@@ -66,22 +67,26 @@ class TestRainbowPath(unittest.TestCase):
             return self.values[key]
         sm = SubMaster(messages)
         ui = NS(status=compact.UIStatus.ENGAGED, started_frame=5, display_time_ns=Mock())
-        with patch.object(module, "ui_state", ui), patch.object(ui, "display_time_ns", return_value=1_000_000_000), \
+        with patch.object(module, "ui_state", ui), patch.object(path_markers, "ui_state", ui), \
+             patch.object(ui, "display_time_ns", return_value=1_000_000_000), \
              patch.object(module, "draw_polygon") as draw:
           renderer._draw_path(sm)
           self.assertIs(draw.call_args.kwargs["gradient"], renderer._exp_gradient)
         renderer.road_style = {"pathMode": "rainbow"}
-        with patch.object(module, "ui_state", ui), patch.object(ui, "display_time_ns", return_value=2_000_000_000), \
+        with patch.object(module, "ui_state", ui), patch.object(path_markers, "ui_state", ui), \
+             patch.object(ui, "display_time_ns", return_value=2_000_000_000), \
              patch.object(module, "draw_polygon") as draw:
           renderer._draw_path(sm)
           self.assertEqual(len(draw.call_args.kwargs["gradient"].colors), 12)
         sm.recv_frame["carState"] = 4
-        with patch.object(module, "ui_state", ui), patch.object(ui, "display_time_ns", return_value=2_100_000_000), \
+        with patch.object(module, "ui_state", ui), patch.object(path_markers, "ui_state", ui), \
+             patch.object(ui, "display_time_ns", return_value=2_100_000_000), \
              patch.object(module, "draw_polygon"):
           renderer._draw_path(sm)
         self.assertEqual(renderer._rainbow_path.phase_deg, 0.0)
         sm.recv_frame["carState"] = 5
-        with patch.object(module, "ui_state", ui), patch.object(ui, "display_time_ns", return_value=2_200_000_000), \
+        with patch.object(module, "ui_state", ui), patch.object(path_markers, "ui_state", ui), \
+             patch.object(ui, "display_time_ns", return_value=2_200_000_000), \
              patch.object(module, "draw_polygon"):
           renderer._draw_path(sm)
         self.assertGreater(renderer._rainbow_path.phase_deg, 0.0)

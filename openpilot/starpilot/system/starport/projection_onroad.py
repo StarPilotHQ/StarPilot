@@ -281,13 +281,11 @@ class ProjectionOnroad:
     self.onroad.close()
 
   def _camera_layer(self, rect, state):
-    # The car screen's own lead choices; without them the marker stays off rather than following the comma.
-    appearance = getattr(state, 'appearance', None)
-    lead_display = ((appearance.show_lead_indicator, int(appearance.lead_info_mode), appearance.lead_info_metric)
-                    if appearance is not None else (False, 0, None))
+    from openpilot.starpilot.ui.path_markers import path_markers
+    # The car screen's own lead choices; without them the markers stay off rather than following the comma.
     self.camera.render_camera_model_layer(rect, camera_view=state.appearance.camera_view,
                                           reverse_driver=state.reverse_driver_camera,
-                                          road_style=state.customization['roadColors']['large'], lead_display=lead_display)
+                                          road_style=state.customization['roadColors']['large'], markers=path_markers(state))
     # The camera can switch narrow/wide while rendering. Pace the stream actually
     # drawn, not the previous selection (whose next frame may arrive later).
     self.camera_stream = self.camera.stream_type

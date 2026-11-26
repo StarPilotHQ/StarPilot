@@ -12,6 +12,7 @@ from openpilot.selfdrive.ui.mici.onroad.driver_state import DriverStateRenderer
 from openpilot.selfdrive.ui.mici.onroad.hud_renderer import HudRenderer
 from openpilot.selfdrive.ui.mici.onroad.long_indicator import LongIndicator
 from openpilot.selfdrive.ui.mici.onroad.model_renderer import ModelRenderer
+from openpilot.starpilot.ui.path_markers import PathMarkerInput
 from openpilot.selfdrive.ui.mici.onroad.navigation import NavigationPanel, PANEL_WIDTH
 from openpilot.selfdrive.ui.mici.onroad.confidence_ball import ConfidenceBall
 from openpilot.selfdrive.ui.mici.onroad.cameraview import CameraView
@@ -252,10 +253,8 @@ class AugmentedRoadView(CameraView):
     self._fade_texture = gui_app.texture("icons_mici/onroad/onroad_fade.png")
 
   def render_camera_model_layer(self, rect: rl.Rectangle, *, camera_view: int = CAMERA_VIEW_AUTO,
-                                reverse_driver: bool = False, lead_indicator: bool = False,
-                                lead_info_mode: int = 0, lead_info_metric: bool | None = None,
-                                lateral_active: bool = False, road_style: dict | None = None, paint: bool = True,
-                                poll_camera: bool = True) -> None:
+                                reverse_driver: bool = False, markers: PathMarkerInput | None = None,
+                                road_style: dict | None = None, paint: bool = True, poll_camera: bool = True) -> None:
     """Draw the existing calibrated camera/model without stock HUD or alert."""
     if not ui_state.started and ui_state.replay_clock is None:
       return
@@ -282,8 +281,7 @@ class AugmentedRoadView(CameraView):
     self._model_renderer.road_style = road_style or {}
     gui_app.measure_frame_phase("camera", CameraView._render, self, rect, paint=paint, poll_camera=poll_camera)
     if target != DRIVER_CAM and self.frame is not None:
-      gui_app.measure_frame_phase("model", self._model_renderer.render_with_lead, rect, lead_indicator,
-                                  lead_info_mode, lead_info_metric, lateral_active=lateral_active, paint=paint)
+      gui_app.measure_frame_phase("model", self._model_renderer.render_with_markers, rect, markers, paint=paint)
 
   def render_model_source_layer(self, rect: rl.Rectangle, *, show_long_indicator: bool | None = False) -> None:
     self._hud_renderer._draw_model_source(rect)

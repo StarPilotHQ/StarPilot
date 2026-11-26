@@ -22233,8 +22233,8 @@ msgid "show speed limits"
 msgstr "显示限速"
 
 #: openpilot/starpilot/ui/appearance_compact.py
-msgid "shown above the lead marker"
-msgstr "显示在前车标记上方"
+msgid "shown below the lead line"
+msgstr "显示在前车线下方"
 
 #: openpilot/starpilot/ui/onroad_customization.py
 msgid "side camera"

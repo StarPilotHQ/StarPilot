@@ -218,6 +218,7 @@ class OnroadState:
   stock_confidence_drive_frame: int | None = None
   model_confidence: float | None = None
   lead_indicator_source_fresh: bool = False
+  force_stop: bool = False  # Force Stop is braking for, or holding at, a stop
   customization: dict = field(default_factory=default_document)
   wheel_acceleration: float | None = None
   wheel_rotation: float = 0.0

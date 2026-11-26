@@ -161,8 +161,8 @@ DISPLAY_DEFAULTS = {'blindSpotBorder': False, 'signalBorder': False, 'blindSpotC
                     'hidePersonalityAlerts': False, 'wheelPedalFeedback': False,
                     'leadIndicator': False, 'leadInfo': 'Off', 'speedSources': False,
                     'speedSourcesCard': False, 'speedAlign': 'left'}
-# Lead info shown above the lead marker, in LeadInfoMode order.
-LEAD_INFO_CHOICES = ('Off', 'Distance', 'Speed')
+# Lead info shown below the lead line, in LeadInfoMode order.
+LEAD_INFO_CHOICES = ('Off', 'Distance', 'Speed', 'Relative speed')
 
 
 def projection_appearance(appearance, document):
@@ -171,7 +171,7 @@ def projection_appearance(appearance, document):
   from openpilot.starpilot.ui.appearance_preferences import LeadInfoMode
   lead_indicator = document.get('leadIndicator', False) is True
   lead_info = document.get('leadInfo', 'Off')
-  # Like the comma, lead info only shows with the lead marker on.
+  # Like the comma, lead info only shows with the lead indicator on.
   lead_info_mode = LeadInfoMode(LEAD_INFO_CHOICES.index(lead_info)) if lead_indicator and lead_info in LEAD_INFO_CHOICES else LeadInfoMode.OFF
   # Camera View remains the shared saved choice; this layout has no camera override.
   return replace(appearance,
@@ -184,13 +184,12 @@ def projection_appearance(appearance, document):
 def comma_display(appearance):
   """The comma screen's display choices as AA switches, to start a car screen that has no saved layout."""
   lead_indicator = appearance.show_lead_indicator is True
-  lead_mode = min(int(appearance.lead_info_mode), len(LEAD_INFO_CHOICES) - 1)
   return {'blindSpotBorder': appearance.show_blindspot_border is True,
           'signalBorder': appearance.show_signal_border is True,
           'hidePersonalityAlerts': appearance.hide_personality_alerts is True,
           'wheelPedalFeedback': appearance.wheel_pedal_feedback is True,
           'leadIndicator': lead_indicator,
-          'leadInfo': LEAD_INFO_CHOICES[lead_mode] if lead_indicator else 'Off'}
+          'leadInfo': LEAD_INFO_CHOICES[int(appearance.lead_info_mode)] if lead_indicator else 'Off'}
 
 
 def default_layout(screen, display=None):

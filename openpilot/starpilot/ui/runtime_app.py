@@ -17,6 +17,7 @@ import threading
 from typing import Any, cast
 from collections.abc import Callable
 
+from openpilot.starpilot.ui.path_markers import path_markers
 from openpilot.starpilot.ui.raylib import rl
 import openpilot.cereal.messaging as messaging
 from opendbc.car.structs import car as car_schema
@@ -182,19 +183,12 @@ class StarShellSession(TeslaSpeedActions):
       def camera_layer(rect, state):
         if profile == Profile.COMPACT:
           camera_owner.render_camera_model_layer(rect, camera_view=state.appearance.camera_view,
-                                                 reverse_driver=state.reverse_driver_camera,
-                                                 lead_indicator=state.appearance.show_lead_indicator and
-                                                                state.lead_indicator_source_fresh,
-                                                 lead_info_mode=state.appearance.lead_info_mode,
-                                                 lead_info_metric=state.appearance.lead_info_metric,
-                                                 lateral_active=state.lateral_active,
+                                                 reverse_driver=state.reverse_driver_camera, markers=path_markers(state),
                                                  road_style=state.customization["roadColors"]["compact"], paint=self.camera_paint)
         else:
           camera_owner.render_camera_model_layer(rect, camera_view=state.appearance.camera_view,
-                                                 reverse_driver=state.reverse_driver_camera,
-                                                 road_style=state.customization["roadColors"]["large"],
-                                                 lead_display=(state.appearance.show_lead_indicator, int(state.appearance.lead_info_mode),
-                                                               state.appearance.lead_info_metric))
+                                                 reverse_driver=state.reverse_driver_camera, markers=path_markers(state),
+                                                 road_style=state.customization["roadColors"]["large"])
       self.view = ShellView(self.fonts, Path(__file__).parents[2] / "selfdrive/assets",
                             camera_layer=camera_layer,
                             pip_layer=self._render_pip)

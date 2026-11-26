@@ -126,6 +126,7 @@ class UIState:
         "starpilotLateralState",
         "starpilotNavigation",
         "longitudinalPlan",
+        "starpilotLongitudinalPlan",
         "gpsLocationExternal",
         "gpsLocation",
         "navInstruction",
@@ -142,9 +143,12 @@ class UIState:
         *(["customReserved6", "cabinCameraState", "narrowRoadEncodeIdx", "wideRoadEncodeIdx", "cabinEncodeIdx"]
           if self.replay_clock is not None else []),
       ],
-      ignore_alive=["slcVisionObservation", "starpilotSelfdriveState", "starpilotLateralState", "aolAxisState", "starpilotCarState"],
-      ignore_valid=["slcVisionObservation", "starpilotSelfdriveState", "starpilotLateralState", "aolAxisState", "starpilotCarState"],
-      ignore_avg_freq=["slcVisionObservation", "starpilotSelfdriveState", "starpilotLateralState", "aolAxisState", "starpilotCarState"],
+      ignore_alive=["slcVisionObservation", "starpilotSelfdriveState", "starpilotLateralState", "aolAxisState", "starpilotCarState",
+                    "starpilotLongitudinalPlan"],
+      ignore_valid=["slcVisionObservation", "starpilotSelfdriveState", "starpilotLateralState", "aolAxisState", "starpilotCarState",
+                    "starpilotLongitudinalPlan"],
+      ignore_avg_freq=["slcVisionObservation", "starpilotSelfdriveState", "starpilotLateralState", "aolAxisState", "starpilotCarState",
+                       "starpilotLongitudinalPlan"],
     )
 
     self.prime_state = ProjectionPrimeState(self.params) if self.replay_clock is not None or isinstance(self.params, ProjectionParams) else PrimeState()
