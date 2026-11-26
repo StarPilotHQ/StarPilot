@@ -17,7 +17,7 @@ from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.lateral.lane_change_preferences import (
   KEY as LANE_CHANGE_KEY, MAX_BYTES as LANE_CHANGE_LIMIT, LaneChangePolicy, decode as decode_lane_change, to_value,
 )
-from openpilot.starpilot.ui.feature_settings_state import FeatureRow, FeatureSettingsRequest
+from openpilot.starpilot.ui.feature_settings_state import SettingLevel, FeatureRow, FeatureSettingsRequest
 
 
 CHOICES = ('Stock Controller', 'StarPilot Controller')
@@ -152,7 +152,7 @@ class ControllerFeature:
                               'Turn off to restore your previous tune.' if not conflict and (not active or complete) else
                               'Preparation was interrupted. Turn off to restore your previous tune.' if not conflict else
                               'Turn off to restore previous settings while keeping changes made after preparation.'),
-                      capability=capability, dependencies=tuple((key, raw) for key, raw in (sources or {}).items()))
+                      capability=capability, dependencies=tuple((key, raw) for key, raw in (sources or {}).items()), level=SettingLevel.ADVANCED)
 
   def apply_setup(self, request: FeatureSettingsRequest) -> bool:
     from openpilot.starpilot.ui.tuning_preparation import transition
@@ -194,7 +194,7 @@ class ControllerFeature:
     return FeatureRow(DOCUMENT_KEY, 'Steering Controller', value, raw, choices if valid else (),
                       available=allowed, reason=reason, capability=capability,
                       dependencies=((LEARNING_OFF_KEY, learning), (LEARNING_PREFERENCES_KEY, preference.raw)),
-                      default_value=CHOICES[0] if selection_from_bytes(CP, None).mode == ControllerMode.STANDARD else CHOICES[1])
+                      default_value=CHOICES[0] if selection_from_bytes(CP, None).mode == ControllerMode.STANDARD else CHOICES[1], level=SettingLevel.ADVANCED)
 
   def learning_row(self, CP=None) -> FeatureRow | None:
     CP = self.vehicle_params() if CP is None else CP
@@ -212,7 +212,7 @@ class ControllerFeature:
                       available=valid and self.authority('preferences'),
                       reason=reason if valid else 'Saved controller or learning preference is unreadable or invalid.',
                       capability=capability, dependencies=((DOCUMENT_KEY, controller), (LEARNING_OFF_KEY, legacy)),
-                      default_value="On")
+                      default_value="On", level=SettingLevel.ADVANCED)
 
   def apply_learning(self, request: FeatureSettingsRequest) -> bool:
     CP = self.vehicle_params()

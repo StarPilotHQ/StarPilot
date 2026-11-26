@@ -1,7 +1,7 @@
 from opendbc.car.gm.long_tune import CONFIGURABLE_ACC_TUNE_CARS, VOLT_TUNE_CARS, tune_options
 from openpilot.starpilot.car.gm.tune_preferences import KEY, CHOICES, read_choice
 from openpilot.starpilot.saved_document import commit_exact
-from openpilot.starpilot.ui.feature_settings_state import FeatureRow
+from openpilot.starpilot.ui.feature_settings_state import SettingLevel, FeatureRow
 
 
 class GmTuneFeature:
@@ -45,7 +45,7 @@ class GmTuneFeature:
     return (FeatureRow(KEY, "Speed Control Tune", CHOICES[value] if valid else "Invalid saved choice", raw,
                        choices=tuple(CHOICES[v] for v in options), available=parked and self.owner.authority("parked_preferences") and readable,
                        capability=capability, repair_value="" if applicable else CHOICES[0], default_value=CHOICES[0],
-                       reason=reason + timing),)
+                       reason=reason + timing, level=SettingLevel.ADVANCED),)
 
   def apply(self, request):
     value = next((code for code, label in CHOICES.items() if label == request.value), None)
@@ -89,7 +89,8 @@ class GmTruckFeature:
     return (FeatureRow(TRUCK_KEY, "Truck Speed Control", ("On" if enabled else "Off") if valid else "Invalid saved choice", raw,
                        choices=("Off", "On"), available=parked and self.owner.authority("parked_preferences") and readable,
                        capability=capability, repair_value="" if valid else "Off", default_value="Off",
-                       reason="Softens small acceleration requests, reduces grade corrections, and smooths light braking. Updates within half a second."),)
+                       reason="Softens small acceleration requests, reduces grade corrections, and smooths light braking. Updates within half a second.",
+                       level=SettingLevel.ADVANCED),)
 
   def apply(self, request):
     from openpilot.starpilot.car.gm.tune_preferences import TRUCK_KEY, read_truck_choice
@@ -143,7 +144,7 @@ class GmEvPresetFeature:
     return (FeatureRow(self.KEY, 'EV Acceleration Presets', ('On' if value else 'Off') if valid else 'Invalid saved choice', raw,
                        choices=('Off', 'On'), available=parked and self.owner.authority('parked_preferences') and readable,
                        capability=capability, repair_value='' if valid else ('On' if default else 'Off'),
-                       default_value='On' if default else 'Off',
+                       default_value='On' if default else 'Off', level=SettingLevel.ADVANCED,
                        reason=('Select EV curves for inherited acceleration presets. ' +
                                'Individual personality and custom curves remain as selected. ' +
                                'Truck presets take priority. Updates within one second.')),)

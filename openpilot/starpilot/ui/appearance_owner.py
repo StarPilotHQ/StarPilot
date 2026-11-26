@@ -10,7 +10,7 @@ from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.ui.onroad_customization import MAX_BYTES, PARAM_KEY, decode_document, default_document
 from openpilot.starpilot.ui.appearance_preferences import (CAMERA_LABELS, DEFAULTS, LEAD_INFO_LABELS, MAX_RAW_BYTES,
                                                           RETIRED_DISPLAY_KEYS, read_camera_view, read_lead_info, read_visibility)
-from openpilot.starpilot.ui.feature_settings_state import FeatureRow, FeatureSettingsRequest, FeatureSettingsState
+from openpilot.starpilot.ui.feature_settings_state import FeatureRow, FeatureSettingsRequest, FeatureSettingsState, SettingLevel
 from openpilot.starpilot.ui.presentation import Profile
 
 
@@ -112,6 +112,7 @@ class AppearanceOwner:
     row = FeatureRow("SpeedDisplayOffset", "Speed display adjustment", value, source=raw,
                      step=0.1, minimum=-5., maximum=5., unit="%", default_value="0",
                      available=self.parked() and valid,
+                     level=SettingLevel.ADVANCED,
                      reason=("0% leaves the display unchanged. Lower if the comma reads too high; raise if it reads too low. " +
                              "Only changes displayed vehicle speed, not cruise speed or vehicle control.") if valid else
                             "Repair the saved driving-screen layout first.")

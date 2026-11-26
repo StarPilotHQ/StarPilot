@@ -3,7 +3,7 @@ from collections.abc import Callable
 from openpilot.starpilot.car.gm.radar_recovery import KEY, capability
 from openpilot.starpilot.saved_document import commit_exact
 from openpilot.starpilot.saved_source import read_saved
-from openpilot.starpilot.ui.feature_settings_state import FeatureRow
+from openpilot.starpilot.ui.feature_settings_state import SettingLevel, FeatureRow
 
 
 class VoltRadarFeature:
@@ -23,7 +23,7 @@ class VoltRadarFeature:
     return (FeatureRow(KEY, "Radar Recovery Alert", ("On" if raw == b"1" else "Off") if valid else "Invalid saved choice",
                        source=raw, choices=("Off", "On") if valid else (), default_value="Off", capability=binding,
                        available=valid and self.owner.authority("preferences"),
-                       reason="Play a chime and show a brief message when a radar fault clears. You must re-engage manually."),)
+                       reason="Play a chime and show a brief message when a radar fault clears. You must re-engage manually.", level=SettingLevel.ADVANCED),)
 
   def apply(self, request):
     if (request.key != KEY or request.value not in ("Off", "On") or request.expected not in (None, b"0", b"1") or

@@ -14,7 +14,7 @@ from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.car.ford.controller_selection import (KEY as MODE, CHOICES as CONTROLLERS,
                                                            default_controller, read_controller, encoded_choice)
 from openpilot.starpilot.saved_document import commit_exact
-from openpilot.starpilot.ui.feature_settings_state import FeaturePage, FeatureRow
+from openpilot.starpilot.ui.feature_settings_state import SettingLevel, FeaturePage, FeatureRow
 
 MANIFEST = {setting.key: setting for setting in SETTINGS}
 PINION = "FordPrefSteerAngleCurvature"
@@ -117,7 +117,7 @@ class FordBluePilotFeature:
                         available=parked_ok and readable and safe_off, capability=capability,
                         dependencies=dependencies or (), default_value=labels[int(default)],
                         repair_value="" if number is not None else labels[int(default)],
-                        reason="Safe Mode must be off" if not safe_off else "" if parked else "Change while parked")
+                        reason="Safe Mode must be off" if not safe_off else "" if parked else "Change while parked", level=SettingLevel.ADVANCED)
 
     tuning = TUNING_BY_KEY[key]
     if tuning.mode != self.mode():
@@ -130,7 +130,7 @@ class FordBluePilotFeature:
       shown = SWITCH[int(default)]
       return FeatureRow(key, tuning.label, SWITCH[int(number)] if number is not None else "Invalid saved value", raw,
                         choices=SWITCH, available=available, capability=capability, dependencies=dependencies or (),
-                        default_value=shown, repair_value="" if number is not None else shown, reason=reason)
+                        default_value=shown, repair_value="" if number is not None else shown, reason=reason, level=SettingLevel.ADVANCED)
     bounds = MANIFEST[key].range
     assert bounds is not None
     low, high = bounds
@@ -138,7 +138,7 @@ class FordBluePilotFeature:
     return FeatureRow(key, tuning.label, str(round(number, 4)) if number is not None else "Invalid saved value", raw,
                       step=tuning.step if number is not None else 0.0, minimum=low, maximum=high, available=available,
                       capability=capability, dependencies=dependencies or (), default_value=shown,
-                      repair_value="" if number is not None else shown, reason=reason)
+                      repair_value="" if number is not None else shown, reason=reason, level=SettingLevel.ADVANCED)
 
   def default(self, key):
     """Vehicle-specific controller defaults and the library defaults for its own tuning settings."""

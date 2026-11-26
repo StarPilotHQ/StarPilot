@@ -155,21 +155,19 @@ assert.match(SettingsPage.template, /Adjust acceleration, braking and following 
 assert.match(SettingsPage.template, /Tune low-speed following and jerk, blending toward Relaxed at higher speeds\./)
 const app = (await import('node:fs')).readFileSync(new URL('../web/js/app.js', import.meta.url), 'utf8')
 assert.match(app, /:initial-panel="route\.path === '\/appearance' \? 'display' : 'widgets'"/)
-const filtered = SettingsPage.computed.visibleRows.call({ state: { query: "lane", data: { rows: [
+const pageRows = SettingsPage.computed.visibleRows.call({ state: { data: { rows: [
   { label: "SLC", value: "Off", reason: "" }, { label: "Lane Centering", value: "On", reason: "" },
 ] } } })
-assert.deepEqual(filtered.map(({ index }) => index), [1]) // Filter keeps the original owner row index.
+assert.deepEqual(pageRows.map(({ index }) => index), [0, 1]) // Keep the original owner row indices.
 
 const developerRows = [{ label: "Use VOACC", value: "Off", reason: "" }, { label: "StarPort", value: "", reason: "", heading: true },
   { label: "Stay on Wi-Fi", value: "On", reason: "" }, { label: "Allow H.265 video", value: "Off", reason: "" }]
-const cardsFor = (query) => {
-  const view = { state: { query, data: { rows: developerRows } }, initialPage: "developer", activeSection: {} }
+const cardsFor = () => {
+  const view = { state: { data: { rows: developerRows } }, initialPage: "developer", activeSection: {} }
   view.visibleRows = SettingsPage.computed.visibleRows.call(view)
   return SettingsPage.computed.rowCards.call(view).map(({ title, entries }) => [title, entries.map(({ index }) => index)])
 }
-assert.deepEqual(cardsFor(""), [["", [0]], ["StarPort", [2, 3]]], "a heading row starts its own card")
-assert.deepEqual(cardsFor("h.265"), [["", []], ["StarPort", [3]]], "search keeps a row in its card when the heading is filtered out")
-assert.deepEqual(cardsFor("voacc"), [["", [0]]], "an emptied card is not shown")
+assert.deepEqual(cardsFor(), [["", [0]], ["StarPort", [2, 3]]], "a heading row starts its own card")
 
 const experimentRows = [{ label: "Stay on Wi-Fi", value: "On", reason: "" }, { key: "heading:experiments", label: "Specific car experiments", value: "", reason: "", heading: true, collapsed: true },
   { label: "Try experimental fixes", value: "Off", reason: "" }]
@@ -180,7 +178,6 @@ const experimentCards = (state) => {
 }
 assert.deepEqual(experimentCards({ openCards: [] }), [["", true], ["Specific car experiments", false]], "a collapsible group starts closed")
 assert.deepEqual(experimentCards({ openCards: ["heading:experiments"] }), [["", true], ["Specific car experiments", true]])
-assert.deepEqual(experimentCards({ openCards: [], query: "experimental" }).at(-1), ["Specific car experiments", true], "searching opens a matching group")
 const toggled = { state: { openCards: [] } }
 SettingsPage.methods.toggleCard.call(toggled, "heading:experiments")
 assert.deepEqual(toggled.state.openCards, ["heading:experiments"])

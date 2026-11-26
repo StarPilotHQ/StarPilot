@@ -2,7 +2,7 @@ from opendbc.car import structs
 from opendbc.car.tesla.values import CAR
 from openpilot.starpilot.saved_document import commit_exact
 from openpilot.starpilot.car.tesla.radar_settings import DOCUMENT_KEY, MAX_BYTES, encode, read_radar_settings
-from openpilot.starpilot.ui.feature_settings_state import FeatureRow
+from openpilot.starpilot.ui.feature_settings_state import SettingLevel, FeatureRow
 
 KEYS = frozenset(("preap_radar:mode", "preap_radar:offset"))
 FLOAT32_MAX = 3.4028234663852886e38
@@ -36,11 +36,11 @@ class PreAPRadarFeature:
     return [FeatureRow("preap_radar:mode", "Hardware radar", mode if saved.valid else "Invalid saved configuration", source,
                        choices=("Off", "Front", "Behind nosecone") if saved.valid else (),
                        repair_value="" if saved.valid else "Off", available=allowed, capability=capable, vehicle_fingerprint=owner.vehicle_fingerprint(),
-                       dependencies=saved.sources, reason="Parked hardware setup. Applies after restart."),
+                       dependencies=saved.sources, reason="Parked hardware setup. Applies after restart.", level=SettingLevel.ADVANCED),
             FeatureRow("preap_radar:offset", "Radar lateral offset", str(saved.offset) if saved.valid else "Invalid saved configuration", source,
                        step=0.05 if saved.valid else 0.0, minimum=-FLOAT32_MAX, maximum=FLOAT32_MAX, unit="m",
                        repair_value="" if saved.valid else "0.0", available=allowed, capability=capable, vehicle_fingerprint=owner.vehicle_fingerprint(),
-                       dependencies=saved.sources, reason="Parked hardware setup. Applies after restart.")]
+                       dependencies=saved.sources, reason="Parked hardware setup. Applies after restart.", level=SettingLevel.ADVANCED)]
 
   def apply(self, request):
     if request.key not in KEYS or request.related_source is not None or request.direction or request.display_unit:

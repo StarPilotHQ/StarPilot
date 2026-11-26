@@ -31,6 +31,36 @@ def required_document(raw: object) -> dict:
 
 
 class FeatureSettingsOwnerTests(unittest.TestCase):
+  def test_setting_levels_follow_tuning_and_convenience_policy(self):
+    from openpilot.starpilot.ui.feature_settings_state import SettingLevel
+
+    def snapshot(page):
+      return self.owner.snapshot(page, parked=True, system_long=True, lateral_context=True, metric=False)
+
+    for page in ("torque/developer", "profiles/developer", "tuning", "personalities",
+                 "standard", "traffic", "traffic/braking"):
+      state = snapshot(page)
+      self.assertEqual(state.level, SettingLevel.ADVANCED)
+      self.assertTrue(all(state.row_level(row) == SettingLevel.ADVANCED for row in state.rows))
+    for page, advanced, simple in (
+      ("lane", "LaneCenteringStrength", "LaneCentering"),
+      ("profiles", "profile:stopped_gap", "profile:global_acceleration"),
+      ("lane_change", "lane_change:width", "lane_change:delay"),
+      ("lane_change", "conditional:cem:signal_lane_width_m", "lane_change:auto"),
+      ("conditional/cem", "conditional:cem:speed_mps", "conditional:cem:lead"),
+    ):
+      state = snapshot(page)
+      rows = {row.key: row for row in state.rows}
+      self.assertEqual(state.row_level(rows[advanced]), SettingLevel.ADVANCED)
+      self.assertEqual(state.row_level(rows[simple]), SettingLevel.SIMPLE)
+    state = snapshot("aol")
+    rows = {row.key: row for row in state.rows}
+    for key in ("PauseLateralSpeed", "AolBrakePauseSpeedMps", "LateralResumeDelay"):
+      self.assertEqual(state.row_level(rows[key]), SettingLevel.SIMPLE)
+    for page in ("slc", "curve", "wheel", "data", "power"):
+      state = snapshot(page)
+      self.assertTrue(all(state.row_level(row) == SettingLevel.SIMPLE for row in state.rows))
+
   def test_bolt_wheel_menu_exposes_only_received_buttons(self):
     from opendbc.car.gm.tests.test_bolt_pedal import params
     from opendbc.car.gm.values import CAR

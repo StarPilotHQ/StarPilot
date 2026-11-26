@@ -4,7 +4,7 @@ from opendbc.car.subaru.stock_aol import qualified
 from openpilot.starpilot.car.subaru.smoothing import KEY, selected
 from openpilot.starpilot.saved_document import commit_exact
 from openpilot.starpilot.saved_source import read_saved
-from openpilot.starpilot.ui.feature_settings_state import FeatureRow
+from openpilot.starpilot.ui.feature_settings_state import SettingLevel, FeatureRow
 from openpilot.starpilot.vehicle_selection import read_selection
 
 
@@ -54,13 +54,13 @@ class SubaruSmoothingFeature:
                                        self.owner.authority('parked_preferences')), capability=capability,
                         dependencies=self.safe_dependency() or (), vehicle_fingerprint=self.owner.vehicle_fingerprint(),
                         repair_value='' if dev_valid else 'Off',
-                        reason='Use an explicit saved Subaru smoothing value next drive. Off uses the vehicle default.')
+                        reason='Use an explicit saved Subaru smoothing value next drive. Off uses the vehicle default.', level=SettingLevel.ADVANCED)
     return (toggle, FeatureRow(KEY, 'Subaru model curvature smoothing', shown if valid else 'Invalid saved choice', raw,
                        step=.005 if valid else 0., minimum=0., maximum=2., unit='s',
                        available=bool(parked and readable and dependencies is not None and self.owner.authority('parked_preferences')),
                        capability=capability, dependencies=dependencies or (), vehicle_fingerprint=self.owner.vehicle_fingerprint(),
                        repair_value='' if valid else '0', presets=(('0', 'Off'), ('.4', '0.4 s')),
-                       reason='Applies next drive. Maximum below 2 m/s, fades to zero at 8 m/s. Zero turns smoothing off.'),)
+                       reason='Applies next drive. Maximum below 2 m/s, fades to zero at 8 m/s. Zero turns smoothing off.', level=SettingLevel.ADVANCED),)
 
   def apply(self, request):
     if request.key == 'DeveloperUI':

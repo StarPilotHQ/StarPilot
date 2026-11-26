@@ -325,8 +325,8 @@ export const SettingsPage = {
     const navigation = route.view
     const navigationKey = `${props.initialPage}:${props.initialSection || ""}`
     const saved = navigation.settings?.key === navigationKey ? navigation.settings : null
-    const state = reactive({ status: "idle", data: null, pending: null, error: "", modeError: "", query: "", searchOpen: false, section: props.initialSection || "lateral", layoutOpen: false, layoutPanel: "widgets", favoritesOpen: false, soundChoicesDirty: false, testingSound: false, openCards: [], parents: [], panelDirection: 1, settingsPreference, pageLevels: {} })
-    if (saved) Object.assign(state, { section: saved.section, query: saved.query, searchOpen: saved.searchOpen, parents: saved.parents.slice() })
+    const state = reactive({ status: "idle", data: null, pending: null, error: "", modeError: "", section: props.initialSection || "lateral", layoutOpen: false, layoutPanel: "widgets", favoritesOpen: false, soundChoicesDirty: false, testingSound: false, openCards: [], parents: [], panelDirection: 1, settingsPreference, pageLevels: {} })
+    if (saved) Object.assign(state, { section: saved.section, parents: saved.parents.slice() })
     const feed = new SettingsFeed({ publish: (update) => Object.assign(state, update), unauthorized: props.unauthorized })
     return { state, feed, sections: SETTINGS_SECTIONS, navigation, navigationKey, restoredPage: saved?.page }
   },
@@ -352,7 +352,6 @@ export const SettingsPage = {
         (this.activeSection.pages.length === 1 && this.state.data?.page === this.activeSection.pages[0])
     },
     visibleRows() {
-      const needle = this.state.query.trim().toLocaleLowerCase()
       const rows = this.state.data?.rows || []
       const inHub = this.initialPage === "hub" && this.state.data?.page === "hub"
       const section = this.activeSection
@@ -372,10 +371,9 @@ export const SettingsPage = {
         const previous = rows[index - 1]
         return !(["sounds", "display"].includes(this.state.data?.page) && row.repairValue === "Auto" &&
           previous?.choices?.includes("Auto") && settingControl(previous) === "slider" && row.label === `Use Auto ${previous.label}`)
-      }).filter(({ row }) =>
-        !needle || `${row.label} ${row.value} ${row.reason}`.toLocaleLowerCase().includes(needle))
+      })
     },
-    // A heading row starts its own card; the rows after it belong to that card even when search hides the heading.
+    // A heading row starts its own card; the rows after it belong to that card.
     rowCards() {
       const heads = []
       const owner = (this.state.data?.rows || []).map((row) => {
@@ -384,7 +382,7 @@ export const SettingsPage = {
       })
       const cards = [{ title: "", key: "main", entries: [], collapsible: false, open: true }, ...heads.map(({ title, key, collapsible }) => ({ title, key, entries: [], collapsible, open: !collapsible }))]
       for (const entry of this.visibleRows) if (!entry.row.heading) cards[owner[entry.index] || 0].entries.push(entry)
-      for (const card of cards) if (card.collapsible) card.open = !!this.state.query || this.state.openCards.includes(card.key)
+      for (const card of cards) if (card.collapsible) card.open = this.state.openCards.includes(card.key)
       return cards.filter((card, index) => !index || card.entries.length)
     },
   },
@@ -411,9 +409,9 @@ export const SettingsPage = {
     if (this.feed.active && this.navigation.scroll) window.scrollTo(this.navigation.scroll.x, this.navigation.scroll.y)
   },
   beforeUnmount() {
-    const { data, section, query, searchOpen, parents } = this.state
+    const { data, section, parents } = this.state
     this.navigation.settings = {
-      key: this.navigationKey, page: data?.page || this.restoredPage || this.initialPage, section, query, searchOpen, parents: parents.slice(),
+      key: this.navigationKey, page: data?.page || this.restoredPage || this.initialPage, section, parents: parents.slice(),
     }
     this.navigation.searchPage = this.initialPage === "hub" ? "" : this.initialPage
     this.feed.stop()
@@ -459,7 +457,6 @@ export const SettingsPage = {
     open(page) {
       if (this.busy) return
       this.$emit?.("nested")
-      this.state.query = ""
       this.state.panelDirection = 1
       if (page === "ui_layout" || page === "appearance") {
         this.feed.stop()
@@ -478,11 +475,6 @@ export const SettingsPage = {
       if (at < 0) open.push(title)
       else open.splice(at, 1)
     },
-    togglePageSearch() {
-      this.state.searchOpen = !this.state.searchOpen
-      if (this.state.searchOpen) this.$nextTick(() => this.$refs.pageSearch?.focus())
-      else this.state.query = ""
-    },
     async openCropEditor() { (await import("./router.js")).navigate("/cameras/pip") },
     // The embedded editor switches targets through the routed editor, which keeps the leave guard.
     async openLayoutTarget(target) { (await import("./router.js")).navigate(target === "projection" ? "/theme_maker/starport" : "/theme_maker") },
@@ -499,7 +491,6 @@ export const SettingsPage = {
       this.state.parents = []
       this.state.section = section.id
       if (!this.feed.active) { this.feed.start(section.pages.length === 1 ? section.pages[0] : "hub"); return }
-      this.state.query = ""
       const page = section.pages.length === 1 ? section.pages[0] : "hub"
       if (this.state.data?.page !== page) this.feed.load(page, { keepData: false, quiet: false })
     },
@@ -524,7 +515,6 @@ export const SettingsPage = {
       this.state.panelDirection = -1
       const page = this.state.data?.page || this.initialPage
       this.state.section = this.activeSection?.id || this.state.section
-      this.state.query = ""
       if (page === this.initialPage && this.returnTo) { this.returnTo(); return }
       const parent = this.state.parents?.pop()
       if (parent) { this.feed.load(parent); return }
@@ -596,15 +586,13 @@ export const SettingsPage = {
                 </div>
                 <SettingsMode v-if="mode === 'local' && showPreferences && initialPage === 'hub' && !atSectionRoot" :advanced="advancedMode" :saving="state.settingsPreference.saving" @change="setSettingsMode" />
                 <WikiHelp v-if="title && initialPage === 'hub' && !atSectionRoot" :page="state.data.page" />
-                <button v-if="state.data.page !== 'hub' && state.data.rows.length" type="button" class="gx-icon-btn" :aria-label="state.searchOpen ? 'Close page search' : 'Search within this page'" :aria-pressed="state.searchOpen" @click="togglePageSearch"><i class="bi" :class="state.searchOpen ? 'bi-x-lg' : 'bi-search'" aria-hidden="true"></i></button>
                 </div>
-              <div v-if="state.searchOpen && !cardIndex" class="gx-settings__search"><input ref="pageSearch" v-model="state.query" class="gx-field" type="search" aria-label="Search within this page" placeholder="Search within…"></div>
               <GxCollapse><div v-if="card.open">
               <GxCollapse v-for="{ row, index, visible } in card.entries" :key="rowKey(row, index)"><div v-show="visible" :inert="!visible"><GalaxySettingRow :row="row" :index="index"
                 :busy="busy" :disabled="!!state.error || !row.available" :save-value="(index, value) => feed.previewValue(index, value)" :test-alert="state.data.page === 'sounds' ? testAlert : null"
                 @open="open" @review="(index, direction) => feed.preview(index, direction)" @reset-default="index => feed.resetDefault(index)" /></div></GxCollapse>
               </div></GxCollapse>
-              <div v-if="!cardIndex && !visibleRows.length" class="gx-empty"><template v-if="state.data.page === 'starport_options' && !state.query">Turn on StarPort to manage connection options. <a class="gx-link" href="#/starport">Open StarPort setup</a></template><template v-else>No matching settings.</template></div>
+              <div v-if="!cardIndex && !visibleRows.length" class="gx-empty"><template v-if="state.data.page === 'starport_options'">Turn on StarPort to manage connection options. <a class="gx-link" href="#/starport">Open StarPort setup</a></template><template v-else>No matching settings.</template></div>
             </section></GxCollapse>
             <GxCollapse><div v-if="state.data.page === 'sounds'" v-show="categoryVisible" :inert="!categoryVisible"><SoundPacks :unauthorized="unauthorized" :busy="busy" @installed="refreshSoundChoices" /></div></GxCollapse>
             </template>

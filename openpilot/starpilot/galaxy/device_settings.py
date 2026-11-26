@@ -6,7 +6,7 @@ from openpilot.starpilot.ui.calibration_reset import calibration_reset
 from openpilot.starpilot.saved_document import commit_exact
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.system.starport import head_unit_fixes
-from openpilot.starpilot.ui.feature_settings_state import FeatureRow, FeatureSettingsState
+from openpilot.starpilot.ui.feature_settings_state import FeatureRow, FeatureSettingsState, SettingLevel
 
 
 STARPORT_WIFI_KEY = "StarPortDedicatedWifi"
@@ -119,13 +119,13 @@ class DeviceSettingsOwner:
     row = FeatureRow(KEY, "Use VOACC", ("On" if raw == b"1" else "Off") if valid else "Invalid saved value",
                      raw, ("Off", "On") if valid else (), available=parked and valid,
                      reason=(DESCRIPTION if parked else "Park the vehicle to change this setting.") if valid else
-                            "Invalid saved value", default_value="Off")
+                            "Invalid saved value", default_value="Off", level=SettingLevel.ADVANCED)
     hold_raw, hold_readable = read_saved(self.params, HOLD_KEY, 8)
     hold_valid = hold_readable and hold_raw in (None, b"0", b"1")
     hold_row = FeatureRow(HOLD_KEY, HOLD_LABEL, ("On" if hold_raw == b"1" else "Off") if hold_valid else "Invalid saved value",
                           hold_raw, ("Off", "On") if hold_valid else (), available=parked and hold_valid,
                           reason=(HOLD_DESCRIPTION if parked else "Park the vehicle to change this setting.") if hold_valid else
-                                 "Invalid saved value", default_value="Off")
+                                 "Invalid saved value", default_value="Off", level=SettingLevel.ADVANCED)
     return row, hold_row
 
   def _reset_rows(self):

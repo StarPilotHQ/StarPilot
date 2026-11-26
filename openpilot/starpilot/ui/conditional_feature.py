@@ -22,7 +22,7 @@ from openpilot.starpilot.conditional_mode.manual_saved import KEY as MANUAL_KEY,
 from openpilot.starpilot.conditional_mode.preferences import encode_preferences
 from openpilot.starpilot.conditional_mode.runtime_settings import experimental_available, read_mode_sources
 from openpilot.starpilot.conditional_mode.policy import ModeChoice
-from openpilot.starpilot.ui.feature_settings_state import FeatureRow, FeatureSettingsRequest
+from openpilot.starpilot.ui.feature_settings_state import SettingLevel, FeatureRow, FeatureSettingsRequest
 
 
 LABELS = {
@@ -217,7 +217,7 @@ class ConditionalFeature:
                                unit=unit if valid_units else "",
                                available=allowed and valid_units, reason=SIGNAL_LANE_HELP.get(name, "") if allowed and valid_units else
                                "Invalid saved units" if not valid_units else unavailable,
-                               dependencies=dependencies, display_unit=unit if valid_units else ""))
+                               dependencies=dependencies, display_unit=unit if valid_units else "", level=SettingLevel.ADVANCED))
     return rows
 
   def apply(self, request: FeatureSettingsRequest) -> bool:

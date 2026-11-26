@@ -41,7 +41,7 @@ from openpilot.starpilot.ui.feature_defaults import (AGGRESSIVE_COOLING_DESCRIPT
                                                   AGGRESSIVE_COOLING_KEY as AGGRESSIVE_COOLING_KEY,
                                                   BOOL_DEFAULTS as BOOL_DEFAULTS, FLOAT_SPECS as FLOAT_SPECS)
 from openpilot.starpilot.ui.feature_settings_state import (
-  FeaturePage, FeatureRow, FeatureSettingsRequest, FeatureSettingsState, SLC_CONFIRM_ACTIONS, SLC_OFFSET_KEYS, TORQUE_CONFIRM_ACTIONS,
+  FeaturePage, FeatureRow, FeatureSettingsRequest, FeatureSettingsState, SettingLevel, SLC_CONFIRM_ACTIONS, SLC_OFFSET_KEYS, TORQUE_CONFIRM_ACTIONS,
 )
 from openpilot.starpilot.speed_limits.offset_document import MPH_TO_MPS
 from openpilot.starpilot.speed_limits.runtime_settings import (
@@ -218,7 +218,7 @@ class FeatureSettingsOwner:
       ('Off', 'On') if valid else (), default_value='Off', capability=capability, vehicle_fingerprint=self.vehicle_fingerprint(),
       available=valid and parked and self.authority('parked_preferences') and self.authority('preferences'),
       reason='Let StarPilot control acceleration and braking instead of factory ACC. ' +
-             'Takes effect next drive. May disable factory Automatic Emergency Braking.'),)
+             'Takes effect next drive. May disable factory Automatic Emergency Braking.', level=SettingLevel.ADVANCED),)
 
   def _apply_alpha_long(self, request):
     from openpilot.starpilot.saved_document import commit_exact
@@ -636,15 +636,16 @@ class FeatureSettingsOwner:
     except (OSError, ValueError, UnknownKeyName):
       return "invalid saved value", b"", False
 
-  def _bool_row(self, key: str, label: str, allowed: bool, reason: str = "") -> FeatureRow:
+  def _bool_row(self, key: str, label: str, allowed: bool, reason: str = "", *, level: SettingLevel | None = None) -> FeatureRow:
     value, raw, valid = self._value(key)
     return FeatureRow(key, label, value if value not in ("0", "1") else ("On" if value == "1" else "Off"), raw,
                       ("Off", "On") if valid and value in ("0", "1") else (), available=allowed and valid and value in ("0", "1"),
-                      default_value="On" if self._default(key) == "1" else "Off",
+                      level=level, default_value="On" if self._default(key) == "1" else "Off",
                       reason="Invalid saved value" if not valid or value not in ("0", "1") else
                       reason if allowed else "Unavailable with the current vehicle or feature settings")
 
-  def _number_row(self, key: str, label: str, allowed: bool, *, scale: float = 1.0, unit: str | None = None) -> FeatureRow:
+  def _number_row(self, key: str, label: str, allowed: bool, *, scale: float = 1.0, unit: str | None = None,
+                  level: SettingLevel | None = None) -> FeatureRow:
     low, high, step, stored_unit = FLOAT_SPECS[key]
     value, raw, valid = self._value(key)
     try:
@@ -661,7 +662,7 @@ class FeatureSettingsOwner:
     return FeatureRow(key, label, str(round(number * scale, 3)) if valid else f"Saved {value}", raw,
                       step=step * scale if valid else 0.0, minimum=low * scale, maximum=high * scale,
                       unit=unit or stored_unit, available=allowed and valid,
-                      default_value=default_value,
+                      default_value=default_value, level=level,
                       reason="Invalid saved value" if not valid else "" if allowed else "Unavailable with the current vehicle or feature settings")
 
   def _with_default(self, row: FeatureRow) -> FeatureRow:
@@ -809,7 +810,8 @@ class FeatureSettingsOwner:
                       available=allowed and (valid or self.authority("parked_preferences") and self._readable(KEY)),
                       repair_value="0" if not valid else "", default_value="0",
                       vehicle_fingerprint=self.vehicle_fingerprint(), capability=capability,
-                      reason="Reduces small steering corrections on highways above about 40 mph. 0% is off; higher values add more smoothing.")
+                      reason="Reduces small steering corrections on highways above about 40 mph. 0% is off; higher values add more smoothing.",
+                      level=SettingLevel.ADVANCED)
 
   def _apply_highway_smoothing(self, request: FeatureSettingsRequest) -> bool:
     from openpilot.selfdrive.controls.lib.highway_correction_gain import KEY, MAX_SETTING, MIN_SETTING
@@ -849,6 +851,7 @@ class FeatureSettingsOwner:
     configurable = parked or configure_while_driving
     title = {FeaturePage.HUB: "Driving Controls", FeaturePage.LANE: "Lane Centering"}.get(page, page.replace("_", " ").title())
     rows: list[FeatureRow] = []
+    level = SettingLevel.SIMPLE
     if page == "data":
       title = "Data Uploads"
       rows = [self._bool_row("AlwaysAllowUploads", "Always Allow Uploads", self.authority("preferences"),
@@ -888,6 +891,7 @@ class FeatureSettingsOwner:
       rows.append(FeatureRow("", "Driving Personalities", "Adjust Aggressive, Standard, Relaxed and Traffic profiles",
                              page=FeaturePage.PERSONALITIES, available=True))
     elif page == FeaturePage.PERSONALITIES:
+      level = SettingLevel.ADVANCED
       title = "Driving Personalities"
       rows = [FeatureRow("", name.title() + " Personality", "", page=name, available=True)
               for name in (*PROFILE_NAMES, "traffic")]
@@ -952,7 +956,7 @@ class FeatureSettingsOwner:
         row = self._bool_row("DisableOpenpilotLongitudinal", "Use Factory ACC" if toyota_factory_acc else "Disable StarPilot Speed Control",
                              parked and self.authority("parked_preferences"),
                              "Turn this on to use your car's factory adaptive cruise instead of StarPilot's" if toyota_factory_acc else
-                             "StarPilot does not control speed in this mode. Steering remains available after the next startup")
+                             "StarPilot does not control speed in this mode. Steering remains available after the next startup", level=SettingLevel.ADVANCED)
         if self._vw_alpha_off():
           row = replace(row, value="On", available=False,
                         reason="Speed control is off in driving settings. Enable Alpha Longitudinal there to restore it")
@@ -999,7 +1003,7 @@ class FeatureSettingsOwner:
       pitch_capability = self._long_pitch_capability()
       if pitch_capability is not None:
         row = self._bool_row("LongPitch", "Grade Compensation", configurable and self.authority("preferences"),
-                             "Compensates acceleration and braking for road grade. Refreshes during the drive.")
+                             "Compensates acceleration and braking for road grade. Refreshes during the drive.", level=SettingLevel.ADVANCED)
         rows.append(replace(row, available=row.available and self._readable("LongPitch"), capability=pitch_capability))
       cp = self.vehicle_params()
       policy = self.aol_settings_policy(cp)
@@ -1065,6 +1069,7 @@ class FeatureSettingsOwner:
       rows.extend(FordBluePilotFeature(self).rows(parked, options=True))
       rows.extend(FordClusterFeature(self).rows(parked))
     elif page == FeaturePage.TUNING:
+      level = SettingLevel.ADVANCED
       title = "Manual steering tune"
       capability = self._capability("torque")
       rows.extend(self.torque.manual_rows(capability, parked and self.authority("torque") and
@@ -1089,10 +1094,12 @@ class FeatureSettingsOwner:
       if learning_row is not None:
         rows.append(learning_row)
     elif page == FeaturePage.DEVELOPER_LONGITUDINAL:
+      level = SettingLevel.ADVANCED
       from openpilot.starpilot.ui.longitudinal_developer import rows as longitudinal_developer_rows
       title = "Developer Parameters"
       rows.extend(longitudinal_developer_rows(self))
     elif page == FeaturePage.DEVELOPER_LATERAL:
+      level = SettingLevel.ADVANCED
       title = 'Developer Parameters'
       controller_row = self.controller.row()
       if controller_row is not None:
@@ -1215,11 +1222,11 @@ class FeatureSettingsOwner:
                    replace(self._bool_row("LaneCenteringPauseOnSignal", "Pause on signal", allowed and lane_enabled == "1"),
                            default_reset_available=allowed and parked and self._value("LaneCenteringPauseOnSignal")[2] and
                            self._value("LaneCenteringPauseOnSignal")[0] in ("0", "1")),
-                   self._number_row("LaneCenterOffset", "Lane offset", allowed),
-                   replace(self._number_row("LaneCenteringE2EAuthority", "Model path preference", allowed, scale=100, unit="%"),
+                   self._number_row("LaneCenterOffset", "Lane offset", allowed, level=SettingLevel.ADVANCED),
+                   replace(self._number_row("LaneCenteringE2EAuthority", "Model path preference", allowed, scale=100, unit="%", level=SettingLevel.ADVANCED),
                            reason="Higher values let a confident model path reduce lane-centering correction when it differs from the lane center")))
       strength_row = self._number_row("LaneCenteringStrength", "Lane Centering Strength",
-                                      allowed and strength_supported, scale=100 / STRENGTH_BASELINE, unit="%")
+                                      allowed and strength_supported, scale=100 / STRENGTH_BASELINE, unit="%", level=SettingLevel.ADVANCED)
       rows.append(replace(strength_row,
                           value=str(round(float(strength_row.value))) if strength_row.step > 0 else strength_row.value,
                           default_value=str(round(float(strength_row.default_value))) if strength_row.default_value is not None else None,
@@ -1233,7 +1240,8 @@ class FeatureSettingsOwner:
     elif page == FeaturePage.PROFILES:
       title = "Long Planner"
       rows.append(self._bool_row(PLANNER_SELECTION_KEY, "Use StarPilot Longitudinal Planner", self.authority("preferences"),
-                                 reason="Off uses the upstream planner. Supported longitudinal control stays active. Changes apply on the next drive."))
+                                 reason="Off uses the upstream planner. Supported longitudinal control stays active. Changes apply on the next drive.",
+                                 level=SettingLevel.ADVANCED))
       allowed = configurable and system_long
       force_enabled, _, _ = self._value("ForceStops")
       rows.append(self._bool_row(
@@ -1257,7 +1265,7 @@ class FeatureSettingsOwner:
                                 "Lets gravity carry the car above set speed without targeting a higher speed. Changes apply while driving.")
       rows.append(downhill)
       if downhill.value == "On":
-        rows.append(self._number_row(SURPLUS_KEY, "Maximum Speed Above Set Speed", downhill_allowed))
+        rows.append(self._number_row(SURPLUS_KEY, "Maximum Speed Above Set Speed", downhill_allowed, level=SettingLevel.ADVANCED))
       rows.append(self._bool_row(LOW_SPEED_CRUISE_ON_SET, "Low-Speed Cruise Start", self.authority("preferences"),
                                 reason="Lets StarPilot SET at your current speed down to the vehicle’s minimum engagement speed. " +
                                        "Factory cruise still uses the car’s minimum speed."))
@@ -1286,11 +1294,12 @@ class FeatureSettingsOwner:
                              step=0.1 if unit_value == "1" else 0.5, minimum=0., maximum=round(MAX_EXTRA_STOPPED_GAP_M * scale, 3),
                              unit="m" if unit_value == "1" else "ft", available=allowed and valid and unit_valid,
                              dependencies=(("IsMetric", unit_raw),), display_unit="m" if unit_value == "1" else "ft",
-                             default_value="0", reason="Adds space behind slow or stopped leads with the StarPilot planner; zero keeps the normal gap."))
+                             default_value="0", reason="Adds space behind slow or stopped leads with the StarPilot planner; zero keeps the normal gap.",
+                             level=SettingLevel.ADVANCED))
       health = read_profile_health(self.params)
       master = health.values["CustomPersonalities"]
       master_row = self._bool_row("CustomPersonalities", "Custom Following and Jerk",
-                                  allowed and (health.dependencies_valid or master.value is True))
+                                  allowed and (health.dependencies_valid or master.value is True), level=SettingLevel.ADVANCED)
       reason = ("Invalid saved profile settings; restore defaults below" if not health.dependencies_valid else
                 "Enables saved following and jerk settings, plus preserved legacy curves. New acceleration/deceleration selections apply independently.")
       rows.append(replace(master_row, related_source=raw, dependencies=self.long_profiles.dependencies(health),
@@ -1300,13 +1309,14 @@ class FeatureSettingsOwner:
         rows.append(FeatureRow("long_repair:CustomPersonalities", "Restore saved profiles switch to Off",
                                "Invalid saved switch", master.raw,
                                available=parked and allowed and master.readable and self.long_profiles.capability() is not None,
-                               capability=self.long_profiles.capability(), dependencies=self.long_profiles.dependencies(health)))
+                               capability=self.long_profiles.capability(), dependencies=self.long_profiles.dependencies(health), level=SettingLevel.ADVANCED))
       if not valid:
         rows.append(FeatureRow("reset_profiles", "Invalid profile document", "", raw,
                                available=parked and allowed and health.values[PERSONALITY_PROFILES_PARAM].readable,
                                reason="Resets saved curves and presets" if health.values[PERSONALITY_PROFILES_PARAM].readable else
-                                      "Saved document unreadable or too large"))
+                                      "Saved document unreadable or too large", level=SettingLevel.ADVANCED))
     elif page == FeaturePage.TRAFFIC:
+      level = SettingLevel.ADVANCED
       title = "Traffic Profile"
       rows.extend(self.traffic_profiles.rows(configurable, system_long, repair_allowed=parked))
       for category in PRESETS:
@@ -1314,6 +1324,7 @@ class FeatureSettingsOwner:
         rows.extend(self.snapshot(f"traffic/{category}", parked=parked, system_long=system_long, lateral_context=lateral_context, metric=False,
                                   configure_while_driving=configure_while_driving).rows)
     elif page in PROFILE_NAMES:
+      level = SettingLevel.ADVANCED
       allowed = configurable and system_long
       name = page.title()
       health = read_profile_health(self.params)
@@ -1335,6 +1346,7 @@ class FeatureSettingsOwner:
     elif "/" in page:
       name, category = page.split("/", 1)
       if name in DOCUMENT_PROFILE_NAMES and category in PRESETS:
+        level = SettingLevel.ADVANCED
         title = f"{name.title()} {category.title()}"
         document, raw, valid = self._document()
         seed_from_named_acceleration = (name in PROFILE_NAMES and category == "acceleration" and valid and
@@ -1403,7 +1415,7 @@ class FeatureSettingsOwner:
         if page == FeaturePage.LANE_CHANGE else
         "Adjust these preferences for your vehicle."
     )
-    return FeatureSettingsState(page, title, subtitle, tuple(self._with_default(row) for row in rows), parked)
+    return FeatureSettingsState(page, title, subtitle, tuple(self._with_default(row) for row in rows), parked, level=level)
 
   def apply(self, request: FeatureSettingsRequest, *, reset_default: bool = False) -> bool:
     if reset_default and not self.authority("parked_preferences"):

@@ -14,7 +14,7 @@ from openpilot.starpilot.lateral.lane_change_preferences import (
 )
 from openpilot.starpilot.lateral.turn_initiation_preferences import KEY as TURN_INITIATION_KEY, saved as turn_initiation_saved
 from openpilot.starpilot.saved_document import commit_exact
-from openpilot.starpilot.ui.feature_settings_state import FeatureRow, FeatureSettingsRequest
+from openpilot.starpilot.ui.feature_settings_state import SettingLevel, FeatureRow, FeatureSettingsRequest
 
 
 GUIDANCE = "lane_change:automatic_turn_initiation"
@@ -115,7 +115,7 @@ class LaneChangeFeature:
     rows = [replace(common, key=PACE, label="Lane Change Speed", value=str(round(1.0 + (8.0 - policy.duration_s) * 9.0 / 5.0, 2)),
                     step=1.0, minimum=1.0, maximum=10.0, unit="", available=allowed,
                     reason="Sets how quickly steering moves into the adjacent lane. Higher values change lanes " +
-                           "more quickly; lower values make steering gentler."),
+                           "more quickly; lower values make steering gentler.", level=SettingLevel.ADVANCED),
             replace(common, key=ENABLED, label="Allow lane changes", value="On" if policy.enabled else "Off",
                     choices=("Off", "On"), available=allowed,
                     reason="Enables lane-change assistance after you signal. With Automatic Lane Changes off, give the wheel a nudge to begin."),
@@ -123,7 +123,7 @@ class LaneChangeFeature:
                     maximum=math.floor(MAX_SPEED_MPS * multiplier * 1000) / 1000,
                     unit=unit if unit_valid else "", available=allowed and unit_valid,
                     reason="Sets the lowest speed at which lane-change assistance can begin." if unit_valid else "Saved speed units unavailable",
-                    dependencies=(("IsMetric", unit_raw),), display_unit=unit if unit_valid else ""),
+                    dependencies=(("IsMetric", unit_raw),), display_unit=unit if unit_valid else "", level=SettingLevel.ADVANCED),
             replace(common, key=ONE, label="One change per signal", value="On" if policy.one_per_signal else "Off",
                     choices=("Off", "On"), available=allowed,
                     reason="Allows one assisted lane change until you release the turn signal."),
@@ -140,13 +140,15 @@ class LaneChangeFeature:
                     reason="Time to wait after signaling before an automatic lane change; lane and blindspot checks still apply"),
             replace(common, key=WIDTH, label="Minimum adjacent lane width", value=str(round(policy.minimum_lane_width_m / 0.3048, 1)),
                     step=0.1, minimum=0.0, maximum=15.0, unit="ft", available=allowed,
-                    reason="Minimum detected adjacent lane width for an automatic lane change; narrower or uncertain lanes require a driver nudge"),
+                    reason="Minimum detected adjacent lane width for an automatic lane change; narrower or uncertain lanes require a driver nudge",
+                    level=SettingLevel.ADVANCED),
             replace(common, key=CLOSE, label="Close lane-change gap", value="On" if policy.close_gap else "Off",
                     choices=("Off", "On"), available=allowed and long_available,
                     reason="Temporarily reduces following time during a lane change when the lane and lead gap are clear; requires StarPilot speed control"),
             replace(common, key=GAP, label="Lane-change follow gap", value=str(round(policy.close_gap_seconds, 2)),
                     step=0.05, minimum=0.75, maximum=1.0, unit="s", available=allowed and long_available,
-                    reason="Following time while Close lane-change gap is active. Higher values leave more space; returns to the normal gap afterward.")]
+                    reason="Following time while Close lane-change gap is active. Higher values leave more space; returns to the normal gap afterward.",
+                    level=SettingLevel.ADVANCED)]
 
     defaults = LaneChangePolicy()
     targets = {ENABLED: "On" if defaults.enabled else "Off", ONE: "On" if defaults.one_per_signal else "Off",
