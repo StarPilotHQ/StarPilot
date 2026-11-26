@@ -85,9 +85,7 @@ def configured(cp):
     required |= ToyotaFlags.ANGLE_CONTROL
     allowed |= ToyotaFlags.ANGLE_CONTROL
   if cp.carFingerprint in (CAR.TOYOTA_RAV4_TSS2_2022, CAR.TOYOTA_RAV4_TSS2_2023):
-    allowed |= ToyotaFlags.ARS510_RADAR | ToyotaFlags.ARS510_FUSED
-  if cp.flags & ToyotaFlags.ARS510_FUSED and not cp.flags & ToyotaFlags.ARS510_RADAR:
-    return False
+    allowed |= ToyotaFlags.ARS510_RADAR
   expected_steer = structs.CarParams.SteerControlType.angle if angle else structs.CarParams.SteerControlType.torque
   if cp.steerControlType != expected_steer:
     return False

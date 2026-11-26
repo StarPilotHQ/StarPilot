@@ -90,12 +90,11 @@ def configured(cp):
     required |= int(ToyotaFlags.RAISED_ACCEL_LIMIT)
   allowed = required | int(ToyotaFlags.HYBRID | ToyotaFlags.HAS_BSM)
   if cp.carFingerprint in (CAR.TOYOTA_RAV4_TSS2_2022, CAR.TOYOTA_RAV4_TSS2_2023):
-    allowed |= int(ToyotaFlags.ARS510_RADAR | ToyotaFlags.ARS510_FUSED)
+    allowed |= int(ToyotaFlags.ARS510_RADAR)
   expected_type = structs.CarParams.SteerControlType.angle if cp.carFingerprint == CAR.TOYOTA_RAV4_TSS2_2023 else structs.CarParams.SteerControlType.torque
   return bool(
     cp.flags & required == required
     and not int(cp.flags) & ~allowed
-    and (not cp.flags & ToyotaFlags.ARS510_FUSED or cp.flags & ToyotaFlags.ARS510_RADAR)
     and cp.steerControlType == expected_type
     and cp.safetyConfigs[0].safetyModel == structs.CarParams.SafetyModel.toyota
     and cp.safetyConfigs[0].safetyParam == words(cp.carFingerprint)[not cp.openpilotLongitudinalControl]

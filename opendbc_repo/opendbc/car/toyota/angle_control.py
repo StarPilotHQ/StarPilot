@@ -14,11 +14,10 @@ def configured(cp):
     required |= ToyotaFlags.RADAR_CAN_FILTER
   elif cp.openpilotLongitudinalControl:
     required |= ToyotaFlags.DISABLE_RADAR
-  allowed = required | ToyotaFlags.HYBRID | ToyotaFlags.HAS_BSM | ToyotaFlags.ARS510_RADAR | ToyotaFlags.ARS510_FUSED
+  allowed = required | ToyotaFlags.HYBRID | ToyotaFlags.HAS_BSM | ToyotaFlags.ARS510_RADAR
   expected = 0x449 | (0x1000 if filtered else 0) | (0 if cp.openpilotLongitudinalControl else 0x200)
   config = cp.safetyConfigs[0]
   return bool(cp.flags & required == required and not int(cp.flags) & ~int(allowed) and
-              (not cp.flags & ToyotaFlags.ARS510_FUSED or cp.flags & ToyotaFlags.ARS510_RADAR) and
               config.safetyModel == structs.CarParams.SafetyModel.toyota and config.safetyParam == expected)
 
 

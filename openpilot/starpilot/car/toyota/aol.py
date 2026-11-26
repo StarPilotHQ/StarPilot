@@ -75,9 +75,8 @@ def radar_filter_qualified(cp, *, marked_only=False):
     required |= ToyotaFlags.TSS2 | ToyotaFlags.RADAR_ACC | ToyotaFlags.RAISED_ACCEL_LIMIT
   allowed = required | ToyotaFlags.HYBRID | ToyotaFlags.HAS_BSM | ToyotaFlags.FILTER_BUTTONS
   if cp.carFingerprint == CAR.TOYOTA_RAV4_TSS2_2022:
-    allowed |= ToyotaFlags.ARS510_RADAR | ToyotaFlags.ARS510_FUSED
-  return bool(cp.flags & required == required and not int(cp.flags) & ~int(allowed) and
-              (not cp.flags & ToyotaFlags.ARS510_FUSED or cp.flags & ToyotaFlags.ARS510_RADAR))
+    allowed |= ToyotaFlags.ARS510_RADAR
+  return bool(cp.flags & required == required and not int(cp.flags) & ~int(allowed))
 
 
 def angle_qualified(cp, *, marked_only=False):
@@ -177,7 +176,8 @@ def qualified(cp, *, marked_only=False):
     if hold:
       return False
   allowed_flags = required_flags | ToyotaFlags.HYBRID | ToyotaFlags.HAS_BSM
-  if cp.carFingerprint == CAR.TOYOTA_RAV4_TSS2_2022 and not cp.openpilotLongitudinalControl:
+  if cp.carFingerprint == CAR.TOYOTA_RAV4_TSS2_2022:
+    # the ACC target receiver also runs under alpha long's radar disable (DISABLE_RADAR)
     allowed_flags |= ToyotaFlags.ARS510_RADAR
   if cp.flags & required_flags != required_flags or int(cp.flags) & ~int(allowed_flags | ToyotaFlags.AUTO_BRAKE_HOLD):
     return False

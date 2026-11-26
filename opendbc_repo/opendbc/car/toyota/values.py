@@ -69,7 +69,6 @@ class ToyotaFlags(IntFlag):
   HAS_BSM = 2  # blind spot monitoring
   LONG_FILTER = 8192
   ARS510_RADAR = 16384
-  ARS510_FUSED = 32768
   DISABLE_RADAR = 4
 
   # Static flags
