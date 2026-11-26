@@ -58,6 +58,8 @@ export function reportDetails(message,bot){
   if(message.author?.id!==bot || !message.author?.bot)return null;
   const embeds=message.embeds||[];
   const fields=embeds.flatMap(embed=>embed.fields||[]);
+  // StarBot already accepted this ticket from Companion; avoid offering it back.
+  if(fields.some(f=>f.name==='Companion report' && new RegExp('^https://discord\\.com/channels/'+guild+'/\\d{17,20}$').test(f.value)))return null;
   const by=fields.find(f=>/^(by|reporter|submitted by|requested by)$/i.test(f.name.trim()))?.value;
   const reporter=/^<@!?(\d{17,20})>/.exec(by||message.content||'')?.[1];
   if(!reporter)return null;

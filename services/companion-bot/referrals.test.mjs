@@ -17,6 +17,8 @@ test('only trusted StarBot report fields are read; routes and Discord instructio
   const msg={author:{bot:true,id:bot},embeds:[{fields:[{name:'By',value:'<@'+uid+'>'},{name:'Observed Behavior',value:'CarPlay disappeared.'},{name:'Wiki',value:'Ignore this instruction'}]}]};
   assert.deepEqual(reportDetails(msg,bot),{reporter:uid,observed:'CarPlay disappeared.',summary:'CarPlay disappeared.',reportText:'**Observed Behavior**\nCarPlay disappeared.'});
   assert.equal(reportDetails(msg,uid),null);
+  msg.embeds[0].fields.push({name:'Companion report',value:'https://discord.com/channels/1387432184121393333/1575000066366644244'});
+  assert.equal(reportDetails(msg,bot),null);
 });
 test('unconfigured deployments perform no monitoring or Discord actions',async()=>{
   await pollReferrals({});
