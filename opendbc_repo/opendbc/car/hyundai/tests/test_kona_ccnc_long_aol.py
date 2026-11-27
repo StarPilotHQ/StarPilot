@@ -238,14 +238,16 @@ def test_kona_factory_handoff_is_limited_to_healthy_internal_c4(panda_type, faul
   assert cp.safetyConfigs[0].safetyParam == expected
 
 
-@pytest.mark.parametrize('handoff,enabled,hud_mode', ((True, False, 0), (True, True, 2), (False, False, 1)))
-def test_kona_handoff_cruise_main_display_follows_star_long_engagement(handoff, enabled, hud_mode):
+@pytest.mark.parametrize('handoff,enabled,set_speed,hud_mode', (
+  (True, False, 255., 0), (True, False, 40., 1), (True, True, 40., 2), (False, False, 40., 1),
+))
+def test_kona_handoff_cruise_main_display_follows_star_long_engagement(handoff, enabled, set_speed, hud_mode):
   from opendbc.can import CANParser
   cp = kona_params(CARS[0])
   cp.safetyConfigs[0].safetyParam = 0x1C0C if handoff else 0x0C0C
   cp.alternativeExperience = 32
   ci = CarInterface(cp)
-  ci.CS.out = structs.CarState(cruiseState={'available': True}, vCruiseCluster=40.).as_reader()
+  ci.CS.out = structs.CarState(cruiseState={'available': True}, vCruiseCluster=set_speed).as_reader()
   for frame in range(5):
     ci.apply(structs.CarControl().as_reader(), 950_000_000 + frame * 10_000_000)
   ci.CS.ccnc_161_ts_ns = ci.CS.ccnc_162_ts_ns = 1_000_000_000
@@ -258,16 +260,20 @@ def test_kona_handoff_cruise_main_display_follows_star_long_engagement(handoff, 
   _, scc_packets = ci.apply(command.as_reader(), 1_010_000_000)
   assert {0x161, 0x162} <= parser.update((1_000_000_000, packets))
   assert 0x1A0 in parser.update((1_010_000_000, scc_packets))
-  assert parser.vl['SCC_CONTROL']['MainMode_ACC'] == int(not handoff or enabled)
+  assert parser.vl['SCC_CONTROL']['MainMode_ACC'] == int(hud_mode != 0)
+  assert parser.vl['SCC_CONTROL']['ACCMode'] == int(enabled)
   display = parser.vl['CCNC_0x161']
   assert display['SETSPEED_HUD'] == hud_mode
-  assert display['LFA_ICON'] == 2
+  assert display['LFA_ICON'] == (0 if handoff else 2)
   if handoff:
     assert display['SETSPEED'] == hud_mode
   if hud_mode == 0:
     assert display['DISTANCE'] == 0
     assert display['SETSPEED_SPEED'] == 255
     assert display['DISTANCE_SPACING'] == 0
+  elif handoff and not enabled:
+    assert display['SETSPEED_SPEED'] == round(set_speed * (1. if ci.CS.is_metric else 0.621371))
+    assert display['DISTANCE_SPACING'] == 3
   assert parser.vl['CCNC_0x162']['FAULT_LSS'] == 2
   assert parser.vl['CCNC_0x162']['FAULT_FCA'] == 1
 
@@ -278,7 +284,10 @@ def test_kona_handoff_cruise_main_display_follows_star_long_engagement(handoff, 
   (2.4, -1.13, -1.12, False, False, 0x1C0C, 1.2),
   (1.2, -1.80, -1.78, False, False, 0x1C0C, 1.2),
   (3.0, -0.60, -0.59, False, False, 0x1C0C, 5.0),
-  (0.3, -2.00, -1.99, False, False, 0x1C0C, 5.0),
+  (0.3, -2.00, -1.99, False, False, 0x1C0C, 1.2),
+  (1.75, -2.01, -2.006, False, False, 0x1C0C, 1.2),
+  (1.75, -2.01, -1.80, False, False, 0x1C0C, 5.0),
+  (1.75, -2.10, -2.10, False, False, 0x1C0C, 5.0),
   (0.3, -0.45, -0.20, False, False, 0x1C0C, 5.0),
   (0.1, -0.27, -0.26, True, False, 0x1C0C, 5.0),
   (0.3, -0.27, -0.26, False, True, 0x1C0C, 5.0),
@@ -304,3 +313,33 @@ def test_kona_final_braking_jerk(speed, accel, previous, standstill, lead, word,
   assert values['aReqRaw'] == pytest.approx(accel)
   assert values['ACCMode'] == values['StopReq'] == 1
   assert values['JerkLowerLimit'] == pytest.approx(cap)
+
+
+@pytest.mark.parametrize('eps,age_ms,expected', [(0, 10, 0), (1, 10, 2), (1, 51, 0), (2, 10, 0)])
+def test_kona_handoff_steering_icon_needs_current_eps_feedback(eps, age_ms, expected, monkeypatch):
+  import time
+
+  from opendbc.can import CANParser
+  from opendbc.car.hyundai import carcontroller
+
+  cp = kona_params(CARS[0])
+  cp.safetyConfigs[0].safetyParam = 0x1C0C
+  cp.alternativeExperience = 32
+  ci = CarInterface(cp)
+  ci.CS.out = structs.CarState(canValid=True, cruiseState={'available': True}).as_reader()
+  now = 2_000_000_000
+  monkeypatch.setattr(time, 'CLOCK_BOOTTIME', time.CLOCK_MONOTONIC, raising=False)
+  monkeypatch.setattr(time, 'clock_gettime_ns', lambda _: now)
+  monkeypatch.setattr(carcontroller, 'clock_boot_ns', lambda: now)
+  for tick in range(5):
+    ci.apply(structs.CarControl().as_reader(), now-(5-tick)*10_000_000)
+  ci.CS.ccnc_161_ts_ns = ci.CS.ccnc_162_ts_ns = now
+  ci.CS.ccnc_161 = {}
+  ci.CS.ccnc_162 = {'FAULT_LSS': 2}
+  mdps = ci.CC.packer.make_can_msg('MDPS', 0, {'MDPS_LkaToiActvSta': eps})
+  ci.CS.stock_lfa_status.update([(now - age_ms * 1_000_000, [mdps])])
+  _, packets = ci.apply(structs.CarControl(latActive=True).as_reader(), now)
+  parser = CANParser('hyundai_canfd_generated', [('CCNC_0x161', 0), ('CCNC_0x162', 0)], 0)
+  assert {0x161, 0x162} <= parser.update((now, packets))
+  assert parser.vl['CCNC_0x161']['LFA_ICON'] == expected
+  assert parser.vl['CCNC_0x162']['FAULT_LSS'] == 2

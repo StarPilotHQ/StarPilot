@@ -41,7 +41,7 @@ from opendbc.car.hyundai.torque_ev_scc import eligible as torque_ev_scc_eligible
 from opendbc.car.hyundai.ccnc_ev_stock import replacement_requested, qualified as qualified_ccnc_ev_stock
 from opendbc.car.hyundai.angle_tx_recovery import AngleTxRecovery
 from opendbc.car.hyundai.values import is_blended, HyundaiFlags, HyundaiSafetyFlags, Buttons, CarControllerParams, CAR
-from opendbc.car.interfaces import CarControllerBase
+from opendbc.car.interfaces import CarControllerBase, V_CRUISE_MAX
 from opendbc.car.vehicle_model import VehicleModel
 
 EV9_OP_LONG_ANGLE_TARGET_MAX = 140.0
@@ -448,6 +448,11 @@ class CarController(CarControllerBase):
     can_sends = []
     stock_popup_owned = False
     stock_ccnc_owned = False
+    kona_handoff = (self.CP.carFingerprint == CAR.HYUNDAI_KONA_2ND_GEN and
+                    self.CP.safetyConfigs[-1].safetyParam == KONA_IDLE_AOL_WORD)
+    show_cruise = CS.out.cruiseState.available and (not kona_handoff or CC.enabled or
+                                                   0. < CS.out.vCruiseCluster <= V_CRUISE_MAX)
+    show_ccnc_lateral = CC.latActive
     canfd_lfa_icon = (self.canfd_dash_icons.update(self.frame, CC.enabled, CC.latActive)
                        if self.canfd_dash_icons is not None else None)
 
@@ -574,6 +579,8 @@ class CarController(CarControllerBase):
       stock_lfa = stock_source.current(clock_boot_ns()) if stock_source is not None else None
       stock_faults = stock_source.last_fault() if stock_source is not None and stock_lfa is None else None
       stock_owned_status = False
+      if kona_handoff:
+        show_ccnc_lateral = bool(apply_steer_req and stock_source is not None and stock_source.steering_active_current(clock_boot_ns()))
       if stock_source is not None:
         display_healthy = CS.out.canValid and not (CS.out.canTimeout or CS.out.steerFaultTemporary or
                                                    CS.out.steerFaultPermanent or CS.out.accFaulted)
@@ -584,8 +591,6 @@ class CarController(CarControllerBase):
           stock_ccnc_owned = stock_source.owns_ccnc_fault_status(clock_boot_ns(), display_sample_ns=CS.ccnc_162_ts_ns,
                                                                healthy=display_healthy, qualified_warning=stock_owned_status)
       damping_source = getattr(CS, "stock_lkas_damping", None)
-      kona_handoff = (self.CP.carFingerprint == CAR.HYUNDAI_KONA_2ND_GEN and
-                      self.CP.safetyConfigs[-1].safetyParam == KONA_IDLE_AOL_WORD)
       lfa_counter = None
       if kona_handoff:
         if (CC.enabled or CC.latActive) and stock_lfa is not None:
@@ -628,13 +633,12 @@ class CarController(CarControllerBase):
                       now_nanos - min(CS.ccnc_161_ts_ns, CS.ccnc_162_ts_ns) <= 50_000_000 and
                       abs(CS.ccnc_161_ts_ns - CS.ccnc_162_ts_ns) <= 50_000_000)
         if fresh_pair:
-          show_cruise = CS.out.cruiseState.available and (not kona_handoff or CC.enabled)
           support_current = (CS.ccnc_1b5_ts_ns > 0 and CS.ccnc_1b5_ts_ns <= now_nanos and
                              abs(CS.ccnc_1b5_ts_ns - pair_ts) <= 50_000_000)
           can_sends.extend(hyundaicanfd.create_ccnc(self.packer, self.CAN, self.CP.openpilotLongitudinalControl,
                                                     CC.enabled, hud_control, CC.leftBlinker, CC.rightBlinker,
                                                     CS.ccnc_161.copy(), CS.ccnc_162.copy(), CS.ccnc_1b5 if support_current else None,
-                                                    CS.is_metric, CS.out, show_cruise, CC.latActive,
+                                                    CS.is_metric, CS.out, show_cruise, show_ccnc_lateral,
                                                     owned_lfa_status=(stock_ccnc_owned if self.ccnc_fault_ownership_required else None),
                                                     owned_cruise_status=kona_handoff))
           self.last_ccnc_161_ts_ns = CS.ccnc_161_ts_ns
@@ -696,11 +700,11 @@ class CarController(CarControllerBase):
           lead = (self.torque_ev_lead_inputs.update(CS.torque_ev_camera_lead, hud_control.leadVisible, now_nanos)
                   if self.torque_ev_lead_inputs is not None else
                   fallback_lead(CS.torque_ev_camera_lead, hud_control.leadVisible, self.torque_ev_floor_boot_ns))
-          acc_options = torque_ev_scc_options(CS.out.cruiseState.available and (not kona_handoff or CC.enabled),
+          acc_options = torque_ev_scc_options(show_cruise,
                                                CC.actuators.longControlState, lead)
           if (kona_handoff and CC.longActive and not CC.cruiseControl.override and stopping and
               not (CS.out.standstill or CS.out.brakePressed or CS.out.gasPressed or hud_control.leadVisible or lead.visible) and
-              0.0 < CS.out.vEgo < 3.0 and self.CP.stopAccel < accel < 0.0 and accel >= self.accel_last - 0.02):
+              0.0 < CS.out.vEgo < 3.0 and self.CP.stopAccel - 0.02 <= accel < 0.0 and accel >= self.accel_last - 0.02):
             acc_options["jerk_lower"] = 1.2
         elif is_gv70(self.CP):
           request = scc_request(CC.enabled, CC.cruiseControl.override, stopping, accel, self.accel_last)

@@ -141,6 +141,10 @@ class CANFDLfaStatus:
     return (((body[4] >> 6) | ((body[5] & 1) << 2)) == 4 and body[7] >> 4 == 15 and
             not body[6] & 0xF0)
 
+  def steering_active_current(self, now_ns):
+    return (self.eps_active and self.eps_healthy and
+            0 < self.eps_observed_ns <= now_ns <= self.eps_observed_ns + MAX_AGE_NS)
+
   def owns_display_status(self, active, now_ns, *, healthy=False):
     if active and not self.request_active:
       self.request_since_ns = now_ns
