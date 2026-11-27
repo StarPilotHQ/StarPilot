@@ -46,8 +46,9 @@ class CANFDLfaStatus:
   LENGTH = 16
   MAX_AGE_NS = MAX_AGE_NS
 
-  def __init__(self, bus):
+  def __init__(self, bus, *, eps_response_margin_ns=0):
     self.bus = bus
+    self.eps_response_margin_ns = eps_response_margin_ns
     self.last_packet_ns = 0
     self.counter = None
     self.body = None
@@ -161,7 +162,7 @@ class CANFDLfaStatus:
       qualified = (self.eps_active and 0 < self.request_since_ns <= self.eps_active_since_ns <= self.camera_fault_since_ns and
                    ((0 < self.camera_fault_since_ns - self.camera_healthy_ns <= MAX_AGE_NS) or
                     (self.camera_fault_since_ns == self.camera_healthy_ns and self.camera_fault_same_batch_healthy)) and
-                   self.camera_fault_since_ns - self.eps_active_since_ns <= OWNERSHIP_RESPONSE_NS)
+                   self.camera_fault_since_ns - self.eps_active_since_ns <= OWNERSHIP_RESPONSE_NS + self.eps_response_margin_ns)
       if qualified:
         self.display_fault_since_ns = self.camera_fault_since_ns
         self.display_last_active_ns = now_ns

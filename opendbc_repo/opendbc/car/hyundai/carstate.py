@@ -64,7 +64,9 @@ class CarState(CarStateBase):
   def __init__(self, CP):
     super().__init__(CP)
     preserve_status = preserves_stock_lfa(CP)
-    self.stock_lfa_status = CANFDLfaStatus(CanBus(CP).CAM) if preserve_status else None
+    sportage_eps_margin_ns = 10_000_000 if CP.carFingerprint == CAR.KIA_SPORTAGE_5TH_GEN else 0
+    self.stock_lfa_status = (CANFDLfaStatus(CanBus(CP).CAM, eps_response_margin_ns=sportage_eps_margin_ns)
+                             if preserve_status else None)
     self.stock_cluster_status = CANFDClusterStatus(CanBus(CP).CAM) if preserve_status else None
     self.stock_lkas_damping = (CANFDLkasDamping(CanBus(CP).CAM, bool(CP.flags & HyundaiFlags.CANFD_LKA_STEER_MSG_ALT))
                                if preserves_stock_lkas_damping(CP) else None)

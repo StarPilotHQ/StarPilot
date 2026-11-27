@@ -1009,3 +1009,40 @@ def test_ccnc_fault_handover_preserves_obstruction_and_unknown_codes(fault, owne
   for field in ('COUNTER', 'FAULT_FCA', 'FAULT_FSS', 'FAULT_ESS', 'FAULT_SCC'):
     assert decoder.vl['CCNC_0x162'][field] == original[field]
   assert decoder.vl['CCNC_0x161']['LFA_ICON'] == decoder.vl['CCNC_0x161']['CENTERLINE'] == 0
+
+
+@pytest.mark.parametrize('alpha', (False, True))
+@pytest.mark.parametrize('vehicle,case,owned', [
+  (CAR.KIA_SPORTAGE_5TH_GEN, 'recorded', True),
+  (CAR.KIA_SPORTAGE_5TH_GEN, 'late', False),
+  (CAR.KIA_SPORTAGE_5TH_GEN, 'idle', False),
+  (CAR.KIA_SPORTAGE_5TH_GEN, 'eps_fault', False),
+  (CAR.KIA_SPORTAGE_5TH_GEN, 'camera_fault', False),
+  (CAR.KIA_NIRO_EV_2ND_GEN, 'recorded', False),
+])
+def test_sportage_display_ownership_accepts_one_camera_frame_of_timing_skew(vehicle, case, owned, alpha, clock):
+  cp = params(vehicle, alpha=alpha, alternate=True)
+  ci = CarInterface(cp)
+  ci.update([])
+  packer = CANPacker(DBC[vehicle][Bus.pt])
+  bus = ci.CC.CAN
+  command = structs.CarControl.new_message()
+  observed = {}
+  for tick in range(28):
+    clock[0] = 30_000_000_000 + tick * 10_000_000 + (310_000 if tick >= 19 else 0)
+    command.enabled = command.latActive = tick >= 2 and case != 'idle'
+    warning = tick >= (21 if case == 'late' else 19)
+    stock = template(packer, bus.CAM, tick, warning=15 if warning else 0, fault=int(warning and case == 'camera_fault'))
+    frames = [frame for frame in physical_frames(ci, packer, tick, stock) if frame[0] != 0xEA]
+    frames.append(packer.make_can_msg('MDPS', bus.ECAN, {'COUNTER': tick,
+      'MDPS_LkaToiActvSta': int(tick >= 4 and case != 'idle'), 'MDPS_LkaFailSta': int(warning and case == 'eps_fault')}))
+    if tick % 5 == 0:
+      frame = packer.make_can_msg('LFAHDA_CLUSTER', bus.CAM, {'COUNTER': tick // 5, 'NEW_SIGNAL_1': 3 if warning else 0})
+      frames.append(frame)
+    assert ci.update([(clock[0], frames)]).canValid
+    _, packets = ci.apply(command.as_reader(), clock[0])
+    if tick >= 25:
+      observed.update((address, body) for address, body, src in packets if src == bus.ECAN and address in (0x12A, 0x1E0))
+  assert observed[0x12A][7] >> 4 == (0 if owned else 15)
+  assert observed[0x12A][6] >> 6 == int(case == 'camera_fault')
+  assert observed[0x1E0][4] & 7 == (0 if owned else 3)
