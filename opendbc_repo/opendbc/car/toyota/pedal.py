@@ -3,7 +3,7 @@ import numpy as np
 from opendbc.can import CANParser
 from opendbc.car.toyota.toyotacan import toyota_checksum
 from opendbc.car import structs, CanData
-from opendbc.car.toyota.values import CAR, ToyotaFlags, MIN_ACC_SPEED, PEDAL_TRANSITION
+from opendbc.car.toyota.values import ARS510_RADAR_CAR, CAR, ToyotaFlags, MIN_ACC_SPEED, PEDAL_TRANSITION
 
 LONG_WORD = 0x2049
 STOCK_WORD = 0x2249
@@ -84,7 +84,7 @@ def configured(cp):
   if angle:
     required |= ToyotaFlags.ANGLE_CONTROL
     allowed |= ToyotaFlags.ANGLE_CONTROL
-  if cp.carFingerprint in (CAR.TOYOTA_RAV4_TSS2_2022, CAR.TOYOTA_RAV4_TSS2_2023):
+  if cp.carFingerprint in ARS510_RADAR_CAR:
     allowed |= ToyotaFlags.ARS510_RADAR
   expected_steer = structs.CarParams.SteerControlType.angle if angle else structs.CarParams.SteerControlType.torque
   if cp.steerControlType != expected_steer:

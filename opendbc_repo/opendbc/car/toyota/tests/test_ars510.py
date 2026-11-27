@@ -10,6 +10,11 @@ from opendbc.car.toyota.radar_interface import RadarInterface
 from opendbc.car.toyota.values import ARS510_RADAR_CAR, CAR, ToyotaFlags
 
 
+def test_every_radar_acc_car_has_the_continental_radar():
+  # same rule as commaai/opendbc#3860: every radar-ACC Toyota (RAV4 2022-25, C-HR, Yaris) carries the ARS510
+  assert ARS510_RADAR_CAR == {CAR.TOYOTA_RAV4_TSS2_2022, CAR.TOYOTA_RAV4_TSS2_2023, CAR.TOYOTA_CHR_TSS2, CAR.TOYOTA_YARIS}
+
+
 @pytest.mark.parametrize('candidate', list(CAR))
 @pytest.mark.parametrize('alpha_long,can_filter', [(False, False), (True, False), (True, True)])
 def test_factory_selects_only_live_supported_continental_radar(candidate, alpha_long, can_filter):

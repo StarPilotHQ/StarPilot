@@ -2,7 +2,7 @@ from dataclasses import replace
 
 from opendbc.car import structs
 from opendbc.car.toyota.config_cache import cached_config
-from opendbc.car.toyota.values import CAR, ToyotaFlags, ToyotaSafetyFlags, EPS_SCALE, uses_toyota_auto_hold_aeb
+from opendbc.car.toyota.values import ARS510_RADAR_CAR, CAR, ToyotaFlags, ToyotaSafetyFlags, EPS_SCALE, uses_toyota_auto_hold_aeb
 from openpilot.starpilot.aol.policy import AolVehiclePolicy
 from openpilot.starpilot.aol.intent import AolCardIntent, AOL_TOGGLE
 
@@ -38,6 +38,9 @@ def secoc_qualified(cp, *, marked_only=False):
     if cp.openpilotLongitudinalControl:
       required |= ToyotaFlags.DISABLE_RADAR
   allowed = required | ToyotaFlags.HYBRID | ToyotaFlags.HAS_BSM
+  if radar:
+    # the ACC target receiver also runs under alpha long's radar disable (DISABLE_RADAR)
+    allowed |= ToyotaFlags.ARS510_RADAR
   if (cp is None or cp.brand != 'toyota' or cp.carFingerprint not in SECOC_TORQUE_CARS or
       cp.notCar or cp.passive or cp.dashcamOnly or not cp.pcmCruise or (not cp.openpilotLongitudinalControl and not radar) or
       not cp.secOcRequired or not cp.secOcKeyAvailable or
@@ -74,7 +77,7 @@ def radar_filter_qualified(cp, *, marked_only=False):
   if cp.carFingerprint in (CAR.TOYOTA_RAV4_TSS2_2022, CAR.TOYOTA_CHR_TSS2):
     required |= ToyotaFlags.TSS2 | ToyotaFlags.RADAR_ACC | ToyotaFlags.RAISED_ACCEL_LIMIT
   allowed = required | ToyotaFlags.HYBRID | ToyotaFlags.HAS_BSM | ToyotaFlags.FILTER_BUTTONS
-  if cp.carFingerprint == CAR.TOYOTA_RAV4_TSS2_2022:
+  if cp.carFingerprint in ARS510_RADAR_CAR:
     allowed |= ToyotaFlags.ARS510_RADAR
   return bool(cp.flags & required == required and not int(cp.flags) & ~int(allowed))
 
@@ -176,7 +179,7 @@ def qualified(cp, *, marked_only=False):
     if hold:
       return False
   allowed_flags = required_flags | ToyotaFlags.HYBRID | ToyotaFlags.HAS_BSM
-  if cp.carFingerprint == CAR.TOYOTA_RAV4_TSS2_2022:
+  if cp.carFingerprint in ARS510_RADAR_CAR:
     # the ACC target receiver also runs under alpha long's radar disable (DISABLE_RADAR)
     allowed_flags |= ToyotaFlags.ARS510_RADAR
   if cp.flags & required_flags != required_flags or int(cp.flags) & ~int(allowed_flags | ToyotaFlags.AUTO_BRAKE_HOLD):
