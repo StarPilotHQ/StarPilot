@@ -303,6 +303,7 @@ class TransportPauseFeedback:
     return native
 
   def _ordinary_warning_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, latched, producer):
+    from opendbc.car.hyundai.classic_scc_aol import qualified as stock_classic_qualified
     from openpilot.starpilot.aol.vehicle import policy_for
     from openpilot.starpilot.nostalgia import physical_cancel
 
@@ -336,7 +337,14 @@ class TransportPauseFeedback:
     released_brake = bool(self.ordinary_warning_retained and not cs.brakePressed and not cs.regenBraking and
       brake_proof is not None and brake_proof[0] == event_ns and
       brake_proof[2:] == (self.session, producer, self.availability_epoch) and now_ns <= brake_proof[1])
+    stock_main_off = bool(self.lateral_only_baseline and cp.brand == 'hyundai' and not policy.cruise_main_required and
+      (warning or recovering or pending) and not cs.cruiseState.available and not cs.cruiseState.enabled and
+      not cs.brakePressed and not cs.regenBraking and not cs.buttonEvents and
+      not axis.desiredLongitudinal and not axis.longitudinalActive and
+      all(not event.softDisable or event.name == log.OnroadEvent.EventName.selfdrivedLagging for event in events) and
+      stock_classic_qualified(cp, marked_only=True))
     if any(event.userDisable and event.name != stock_user and not (
+        event.name == log.OnroadEvent.EventName.wrongCarMode and stock_main_off and not event.softDisable or
         event.name == log.OnroadEvent.EventName.pedalPressed and (cs.brakePressed or cs.regenBraking or released_brake) or
         event.name == log.OnroadEvent.EventName.buttonCancel and (physical_cancel(cs, cp) or
           cp.brand == 'gm' and 0 < self.gm_withdrawal_ns == event_ns <= now_ns and

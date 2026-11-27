@@ -360,3 +360,48 @@ def test_missing_or_malformed_vehicle_policy_grants_no_intent_capability(cp):
   elif cp == 'malformed_registered_brand':
     cp = SimpleNamespace(brand='hyundai')
   assert not policy_for(cp).intent_supported
+
+
+@pytest.mark.parametrize('gas', [False, True])
+def test_classic_hyundai_main_off_lag_retains_independent_lateral_intent(gas):
+  from opendbc.car import gen_empty_fingerprint
+  from opendbc.car.hyundai.interface import CarInterface
+  from opendbc.car.hyundai.values import CAR
+  from opendbc.car.hyundai.classic_scc_aol import aol_word
+  from openpilot.cereal import messaging
+
+  fingerprint = gen_empty_fingerprint()
+  fingerprint[0].update({0x391: 8, 0x38d: 8})
+  fingerprint[2][0x485] = 4
+  fingerprint[1][0x500] = 8
+  cp = CarInterface.get_params(CAR.HYUNDAI_SONATA_HYBRID, fingerprint, [], False, False, False)
+  cp.safetyConfigs[0].safetyParam = aol_word(cp)
+  cp.alternativeExperience = 32
+  case = fixture.IoniqAvailabilityTests(methodName='runTest')
+  with ExitStack() as cleanup:
+    cleanup.callback(case.doCleanups)
+    cleanup.enter_context(OpenpilotPrefix())
+    sd, _, drive, card, receive = case._ioniq_availability_callers(full_op=False, cp=cp)
+    state = fixture.car_state()
+    state.cruiseState.available = False
+    state.cruiseState.enabled = False
+    state.gasPressed = gas
+
+    def state_event(tick):
+      message = messaging.new_message('carState', valid=True, logMonoTime=10_000_000_000 + tick * 10_000_000)
+      message.carState = state
+      return message
+
+    axis, _, command = drive(2, car_state_message=state_event(2), native_request_long=False)
+    assert axis.lateralActive and command.latActive
+    assert receive(10_020_000_000, axis=sd.pm.messages['aolAxisState'], event=sd.pm.messages['onroadEvents'],
+                   state=state, preserve_cruise_state=True)
+    with mock.patch.object(type(sd.rk), 'lagging', new_callable=mock.PropertyMock, return_value=True):
+      axis, alerts, command = drive(3, car_state_message=state_event(3), native_request_long=False)
+    assert alerts.alertType == 'selfdrivedLagging/softDisable'
+    assert not axis.lateralActive and not axis.longitudinalActive and not axis.nativeAcknowledged
+    assert not command.latActive and not command.longActive
+    events = sd.pm.messages['onroadEvents']
+    assert any(event.name == 'wrongCarMode' and event.userDisable for event in events.onroadEvents)
+    assert receive(10_030_000_000, axis=sd.pm.messages['aolAxisState'], event=events, state=state, preserve_cruise_state=True)
+    assert card.aol_transport_feedback.ordinary_warning_qualified
