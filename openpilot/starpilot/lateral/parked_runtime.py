@@ -28,7 +28,8 @@ def read_settings(params) -> ParkedSettings:
   try:
     enabled, readable = read_saved(params, 'ParkedClearance', 64)
     gap, gap_readable = read_saved(params, 'ParkedClearanceGap', 64)
-    if not readable or not gap_readable or enabled not in (None, b'0', b'1'):
+    right_hand_drive, side_readable = read_saved(params, 'IsRhdDetected', 8)
+    if not readable or not gap_readable or enabled not in (None, b'0', b'1') or not side_readable or right_hand_drive not in (None, b'0'):
       return ParkedSettings()
     value = DEFAULT_GAP if gap is None else float(gap)
     if not math.isfinite(value) or not 0 < value <= MAX_GAP:
@@ -61,12 +62,14 @@ class ParkedClearanceHost:
     self.last_refresh_ns: int | None = None
     self.last_radar_ns = 0
     self.correction = 0.0
+    self.shift = 0.0
     self.reason = 'inactive'
 
   def _stop(self, reason: str) -> float:
     self.detector.reset()
     self.last_radar_ns = 0
     self.correction = 0.0
+    self.shift = 0.0
     self.reason = reason
     return 0.0
 
@@ -85,7 +88,7 @@ class ParkedClearanceHost:
     try:
       car, model, radar = sm['carState'], sm['modelV2'], sm['radarTracks']
       if (not lateral_active or maneuver or not car.canValid or car.canTimeout or car.steeringPressed or car.leftBlinker or car.rightBlinker or
-          model.meta.laneChangeState != log.LaneChangeState.off or any(radar.errors.to_dict().values())):
+          car.leftBlindspot or model.meta.laneChangeState != log.LaneChangeState.off or any(radar.errors.to_dict().values())):
         return self._stop('inactive')
       speed = float(car.vEgo)
       if not math.isfinite(speed) or speed <= 0:
@@ -113,6 +116,7 @@ class ParkedClearanceHost:
         self.detector.update(points, speed, dt, self.settings.gap, room, True)
         self.reason = self.detector.reason
       self.correction = clip_scalar(-2.0 * self.detector.shift / lookahead ** 2 * GAIN, -MAX_CORRECTION, 0.0)
+      self.shift = float(self.detector.shift)
       return self.correction
     except (AttributeError, IndexError, TypeError, ValueError, OverflowError):
       return self._stop('invalid')

@@ -6,6 +6,8 @@ from opendbc.car.structs import car
 from openpilot.cereal import log
 from openpilot.starpilot.lateral import parked_runtime as runtime
 from openpilot.starpilot.lateral.parked_runtime import ParkedClearanceHost, ParkedSettings, read_settings
+from openpilot.starpilot.lateral.lane_centering import LaneCenteringController, LaneCenteringSettings, MAX_CORRECTION
+from openpilot.starpilot.lateral.tests.test_lane_centering import model as lane_model, observation as lane_observation, settled
 
 STEP_NS = 50_000_000
 
@@ -104,7 +106,7 @@ class TestParkedRuntime(unittest.TestCase):
     self.assertEqual(drive(host(), 4.0, oncoming, model=unmarked)[0], 0.0)
 
   def test_driver_and_authority_gates_reset(self):
-    for fields in ({'steeringPressed': True}, {'leftBlinker': True}, {'rightBlinker': True}, {'canTimeout': True}):
+    for fields in ({'steeringPressed': True}, {'leftBlinker': True}, {'rightBlinker': True}, {'canTimeout': True}, {'leftBlindspot': True}):
       self.assertEqual(drive(host(), 3.0, PARKED, **fields)[0], 0.0)
     self.assertEqual(drive(host(), 3.0, PARKED, active=False)[0], 0.0)
     self.assertEqual(drive(host(), 3.0, PARKED, maneuver=True)[0], 0.0)
@@ -113,8 +115,11 @@ class TestParkedRuntime(unittest.TestCase):
     bus.put('carState', car_message(steeringPressed=True), now)
     bus.put('radarTracks', radar_message(PARKED), now)
     bus.put('modelV2', bus['modelV2'], now)
+    self.assertGreater(subject.shift, 0.0)
+    self.assertEqual(subject.shift, subject.detector.shift)
     self.assertEqual(subject.update(bus, now_ns=now, lateral_active=True, maneuver=False), 0.0)
     self.assertEqual(subject.detector.shift, 0.0)
+    self.assertEqual(subject.shift, 0.0)
 
   def test_stale_or_invalid_inputs_reset(self):
     for name in ParkedClearanceHost.REQUIRED:
@@ -169,8 +174,36 @@ class TestParkedRuntime(unittest.TestCase):
         (Path(root) / 'ParkedClearanceGap').write_bytes(bad)
         self.assertEqual(read_settings(saved), ParkedSettings())
       (Path(root) / 'ParkedClearanceGap').write_bytes(b'1.2')
+      for side, expected in ((b'0', ParkedSettings(True, 1.2)), (b'1', ParkedSettings()), (b'x', ParkedSettings())):
+        (Path(root) / 'IsRhdDetected').write_bytes(side)
+        self.assertEqual(read_settings(saved), expected)
+      (Path(root) / 'IsRhdDetected').unlink()
       (Path(root) / 'ParkedClearance').write_bytes(b'yes')
       self.assertEqual(read_settings(saved), ParkedSettings())
+
+
+class TestParkedLaneCentering(unittest.TestCase):
+  def test_lane_centering_aims_at_the_nudged_position(self):
+    lanes = lane_model(left=-1.8, right=1.8)
+    centred = settled(LaneCenteringController(), lane_observation(lanes, settings=LaneCenteringSettings(True, 0.0, 0.0)))
+    nudged = settled(LaneCenteringController(), lane_observation(lanes, settings=LaneCenteringSettings(True, -0.2, 0.0)))
+    self.assertLess(nudged.correction, centred.correction)
+    self.assertLess(nudged.correction, 0.0)
+    self.assertLessEqual(abs(nudged.correction), MAX_CORRECTION)
+
+  def test_ramped_offset_is_followed_without_resets(self):
+    lanes = lane_model(left=-1.8, right=1.8)
+    controller = LaneCenteringController()
+    previous = settled(controller, lane_observation(lanes, settings=LaneCenteringSettings(True, 0.0, 0.0))).correction
+    for tick in range(1, 201):
+      offset = -min(0.3, 0.25 * tick * 0.01)
+      result = controller.update(lane_observation(lanes, settings=LaneCenteringSettings(True, offset, 0.0)))
+      self.assertIsNotNone(result.candidate_curvature)
+      self.assertNotIn(result.reason, ('invalid_input', 'time_discontinuity', 'inactive', 'invalid_model'))
+      self.assertLessEqual(result.correction, previous + 1e-12)
+      self.assertLessEqual(abs(result.correction - previous), 2 * MAX_CORRECTION * 0.01 / 0.4)
+      previous = result.correction
+    self.assertLess(previous, 0.0)
 
 
 if __name__ == '__main__':

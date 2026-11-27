@@ -3,6 +3,7 @@ import math
 import importlib
 import os
 import time
+from dataclasses import replace
 from numbers import Number
 
 from openpilot.cereal import log
@@ -709,7 +710,8 @@ class Controls:
           speed_mps=CS.vEgo,
           mode=lane_centering.mode,
           lateral_active=CC.latActive,
-          settings=lane_centering.settings,
+          settings=(replace(lane_centering.settings, offset_m=lane_centering.settings.offset_m - parked_clearance.shift)
+                    if parked_clearance is not None and parked_clearance.shift > 0.0 else lane_centering.settings),
           elapsed_seconds=lane_centering.elapsed_seconds,
           turn_signal_active=bool(CS.leftBlinker or CS.rightBlinker),
           driver_override=bool(CS.steeringPressed),
