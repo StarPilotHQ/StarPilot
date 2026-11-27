@@ -23,7 +23,8 @@ class TestJeepWk2AlphaLong(unittest.TestCase):
     self.assertTrue(cp.alphaLongitudinalAvailable)
     self.assertFalse(cp.openpilotLongitudinalControl)
     self.assertTrue(cp.pcmCruise)
-    self.assertFalse(cp.radarUnavailable)
+    # Still unavailable until #26842-class parse/FCW validation on WK2 (addrs alone are not enough).
+    self.assertTrue(cp.radarUnavailable)
     self.assertEqual(cp.safetyConfigs[0].safetyParam & ChryslerSafetyFlags.LONG_CONTROL, 0)
     self.assertTrue(brake_hold_supported(cp))
     self.assertTrue(aol_qualified(cp))
@@ -44,9 +45,11 @@ class TestJeepWk2AlphaLong(unittest.TestCase):
     self.assertFalse(cp.openpilotLongitudinalControl)
     self.assertTrue(cp.pcmCruise)
 
-  def test_radar_absent_keeps_unavailable(self):
-    cp = CarInterface.get_params(CAR.JEEP_GRAND_CHEROKEE_2019, gen_empty_fingerprint(), [], False, False, False)
-    self.assertTrue(cp.radarUnavailable)
+  def test_radar_stays_unavailable_even_when_tracks_present(self):
+    # Presence proves hardware; #26842 was parse/FCW quality — do not auto-enable.
+    for fp in (gen_empty_fingerprint(), _fp_with_radar()):
+      cp = CarInterface.get_params(CAR.JEEP_GRAND_CHEROKEE_2019, fp, [], False, False, False)
+      self.assertTrue(cp.radarUnavailable)
 
   def test_older_wk2_has_no_alpha_long(self):
     cp = CarInterface.get_params(CAR.JEEP_GRAND_CHEROKEE, gen_empty_fingerprint(), [], True, False, False)

@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-from opendbc.car import Bus, get_safety_config, structs
+from opendbc.car import get_safety_config, structs
 from opendbc.car.chrysler.carcontroller import CarController
 from opendbc.car.chrysler.carstate import CarState
 from opendbc.car.chrysler.radar_interface import RadarInterface
-from opendbc.car.chrysler.values import CAR, CUSW_CARS, DBC, RAM_HD, RAM_DT, RAM_CARS, ChryslerFlags, ChryslerSafetyFlags
+from opendbc.car.chrysler.values import CAR, CUSW_CARS, RAM_HD, RAM_DT, RAM_CARS, ChryslerFlags, ChryslerSafetyFlags
 from opendbc.car.interfaces import CarInterfaceBase
 
-# Stock radar track addresses used by RadarInterface (bus 1). Presence on the
-# fingerprint means the OEM forward radar is talking; we keep the ECU enabled.
+# Stock radar track addresses used by RadarInterface (bus 1). Presence means the
+# OEM forward radar ECU is talking — not that Pacifica fusion DBC scales/FCW are safe
+# for this platform (see issue 26842). Kept for future WK2 validation / opt-in.
 _CHRYSLER_RADAR_ADDRS = frozenset(range(0x2a2, 0x2b4 + 2, 2)) | frozenset(range(0x2c2, 0x2d4 + 2, 2))
 
 
@@ -25,8 +26,13 @@ class CarInterface(CarInterfaceBase):
     # TODO: Chrysler CUSW in dashcam pending comma safety validation and a fix for LKAS fault on disengage
     ret.dashcamOnly = candidate in (RAM_HD | CUSW_CARS)
 
-    # Default: keep upstream radarUnavailable until a platform opts in with live tracks.
-    # See https://github.com/commaai/openpilot/issues/26842 for the historical workaround.
+    # Radar parsing is forced off for Chrysler until per-platform validation.
+    # History: https://github.com/commaai/openpilot/issues/26842 — false planner FCWs
+    # on Pacifica Hybrid from noisy/incorrect fusion-radar parse (adeeb disabled in #27190;
+    # haraschax noted tracks look wrong: slow non-stationary ghosts + missing true lead).
+    # WK2-2019 has live bus1 track addrs, but that only proves ECU presence — not DBC scale
+    # correctness or safe planner FCW behavior. Do not re-enable until a WK2 route is
+    # offline-checked (vision lead vs radarTracks noise / false FCW). Keep OEM radar ECU up.
     ret.radarUnavailable = True
     ret.steerActuatorDelay = 0.1
     ret.steerLimitTimer = 0.4
@@ -72,9 +78,8 @@ class CarInterface(CarInterfaceBase):
 
       if candidate == CAR.JEEP_GRAND_CHEROKEE_2019:
         ret.flags |= ChryslerFlags.ALPHA_LONG_AVAILABLE.value
-        # Enable OEM radar fusion when the fusion DBC is present and track IDs appear on bus 1.
-        radar_seen = Bus.radar in DBC[candidate] and bool(_CHRYSLER_RADAR_ADDRS & set(fingerprint.get(1, {})))
-        ret.radarUnavailable = not (radar_seen or docs)
+        # Bus1 track addrs (_CHRYSLER_RADAR_ADDRS) are present on this car, but #26842 means
+        # addr presence ≠ safe parse. Leave radarUnavailable=True until WK2 offline validation.
         # Alpha long is experimental: available outside release builds (and for docs generation).
         ret.alphaLongitudinalAvailable = (not is_release) or docs
         if alpha_long and ret.alphaLongitudinalAvailable:
