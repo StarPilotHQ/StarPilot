@@ -110,6 +110,8 @@ class TestLocalizedPresentation(unittest.TestCase):
     old = SimpleNamespace(texture=SimpleNamespace(id=22), glyphCount=1)
     new = SimpleNamespace(texture=SimpleNamespace(id=23), glyphCount=100)
     fonts._language_fonts = {'vi': old}
+    fonts._language_chars = set()
+    fonts._headless_context = False
     fonts._measurements = {}
     fonts._vertical_ink = {}
     fonts._horizontal_ink = {}
@@ -126,6 +128,29 @@ class TestLocalizedPresentation(unittest.TestCase):
       assert fonts._language_fonts == {'ja': new}
       assert fonts._text_font('保存', FontRole.NORMAL) is new
       load.assert_called_once()
+
+  def test_language_font_grows_when_later_text_has_new_characters(self):
+    fonts = object.__new__(BitmapFonts)
+    first, grown = (SimpleNamespace(texture=SimpleNamespace(id=i), glyphCount=100) for i in (30, 31))
+    fonts._language_fonts, fonts._language_chars, fonts._headless_context = {}, set(), False
+    fonts._measurements, fonts._vertical_ink, fonts._horizontal_ink = {}, {}, {}
+    with patch('openpilot.starpilot.ui.presentation.multilang') as language, \
+         patch('openpilot.starpilot.ui.presentation.rl.load_font_ex', side_effect=[first, grown]) as load, \
+         patch('openpilot.starpilot.ui.presentation.rl.get_font_default', return_value=SimpleNamespace(texture=SimpleNamespace(id=99))), \
+         patch('openpilot.starpilot.ui.presentation.rl.is_window_ready', return_value=True), \
+         patch('openpilot.starpilot.ui.presentation.rl.rl_draw_render_batch_active') as flush, \
+         patch('openpilot.starpilot.ui.presentation.rl.unload_font') as unload, \
+         patch('openpilot.starpilot.ui.presentation.rl.gen_texture_mipmaps'), \
+         patch('openpilot.starpilot.ui.presentation.rl.set_texture_filter'):
+      language.language = 'en'
+      assert fonts._text_font('72°F', FontRole.NORMAL) is first
+      assert fonts._text_font('Lead — 2 m/s²', FontRole.NORMAL) is grown
+      codepoints = set(load.call_args.args[2].tolist())
+      assert {ord('°'), ord('—'), ord('²')} <= codepoints
+      flush.assert_called_once()
+      unload.assert_called_once_with(first)
+      assert fonts._text_font('— 72°F', FontRole.NORMAL) is grown
+      assert load.call_count == 2
 
   def test_home_statistics_use_shared_localized_measurement_and_drawing(self):
     from unittest.mock import Mock

@@ -114,6 +114,7 @@ class BitmapFonts:
     self._directory = directory
     self._fonts: dict[str, rl.Font] = {}
     self._language_fonts: dict[str, rl.Font] = {}
+    self._language_chars: set[str] = set()
     self._measurements: dict[tuple, TextSize] = {}
     self._vertical_ink: dict[tuple, tuple[float, float]] = {}
     self._horizontal_ink: dict[tuple, tuple[float, float]] = {}
@@ -151,21 +152,25 @@ class BitmapFonts:
       return self.font(role, fallback=fallback)
     language = multilang.language
     fonts = self._language_fonts
-    if language not in fonts:
+    # Rebuild when text has characters outside the atlas, else Raylib draws them as "?".
+    if language not in fonts or not self._language_chars.issuperset(text):
       filename = {"ja": "NotoSansCJKjp-Regular.otf", "ko": "NotoSansCJKkr-Regular.otf",
                   "zh-CHS": "NotoSansCJKsc-Regular.otf", "zh-CHT": "NotoSansCJKtc-Regular.otf",
                   "th": "NotoSansThai-Regular.ttf"}.get(language, "Inter-Regular.ttf")
       directory = Path(__file__).parents[2] / "selfdrive/assets/fonts"
-      chars = set(map(chr, range(32, 127))) | set(text)
+      chars = set(map(chr, range(32, 127))) | set(text) | (self._language_chars if language in fonts else set())
       chars.update(TRANSLATIONS_DIR.joinpath(f"app_{language}.po").read_text(encoding="utf-8"))
       points = sorted(map(ord, chars))
       glyphs = np.array(points, dtype=np.int32)
       font = rl.load_font_ex(str(directory / filename), 64, glyphs, len(points))
       if font.texture.id in (0, rl.get_font_default().texture.id) or font.glyphCount == 0:
         raise RuntimeError(f"Unable to load language font {filename}")
+      if fonts and (rl.is_window_ready() or self._headless_context):
+        rl.rl_draw_render_batch_active()  # draws already queued with the old atlas
       for previous in fonts.values():
         rl.unload_font(previous)
       fonts.clear()
+      self._language_chars = chars
       self._measurements.clear()
       self._vertical_ink.clear()
       self._horizontal_ink.clear()
