@@ -163,7 +163,11 @@ class HKGVehicleTorquePolicy(HKGShapedTorquePolicy):
       return shaping.get_kona_ev_2022_friction_threshold(speed, setpoint), 1
     return (base, 1.0)
 
-  def pid_error_context(self, error):
+  def pid_error_context(self, error, setpoint, speed):
+    if self.profile == 'tucson_4th_gen' and not (self.steering_pressed or self.previous_pressed):
+      speed_weight = np.interp(speed, (4., 7., 18., 22.), (0., 1., 1., 0.))
+      shallow_curve = np.interp(abs(setpoint), (.65, 1.15), (1., 0.))
+      return error * (1.0 - .15 * speed_weight * shallow_curve)
     return error * (1.0 - shaping.KIA_CARNIVAL_HEV_CENTER_ERROR_REDUCTION * self.hev_center_weight)
 
   def jerk_deadzone(self, setpoint, jerk, measurement, speed):

@@ -66,7 +66,7 @@ class HKGShapedTorquePolicy:
   def jerk_deadzone(self, setpoint, jerk, measurement, speed):
     return 0.0
 
-  def pid_error_context(self, error):
+  def pid_error_context(self, error, setpoint, speed):
     return error
 
   def output_context(self, value, setpoint, jerk, measurement, speed):
@@ -121,7 +121,7 @@ class HKGShapedTorquePolicy:
     if cs.vEgo < self.low_speed_reset_threshold:
       parent.pid.reset()
     freeze = safety_limited or cs.steeringPressed or cs.vEgo < self.low_speed_reset_threshold or unwind
-    pid_log.error = float(self.pid_error_context(error))
+    pid_log.error = float(self.pid_error_context(error, setpoint, cs.vEgo))
     output = parent.torque_from_lateral_accel(
       parent.pid.update(pid_log.error, error_rate=-rate, speed=cs.vEgo, feedforward=ff, freeze_integrator=freeze), parent.torque_params
     )

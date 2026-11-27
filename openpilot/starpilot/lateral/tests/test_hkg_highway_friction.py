@@ -164,3 +164,23 @@ class HKGHighwayFrictionTests(unittest.TestCase):
                     value = controller.friction(error, .01, threshold, cs, setpoint)
                   self.assertEqual(friction.call_args.args, (error, .01, threshold, controller.torque_params))
                   self.assertEqual(value, get_friction(error, .01, threshold, controller.torque_params))
+
+
+def test_tucson_softens_shallow_curve_feedback_in_both_cruise_modes():
+  for alpha_long in (False, True):
+    _, controller = controller_for(CAR.HYUNDAI_TUCSON_4TH_GEN, ControllerMode.STARPILOT,
+                                   openpilotLongitudinalControl=alpha_long, pcmCruise=not alpha_long)
+    policy = controller.starpilot_extension.policy
+    for direction in (-1., 1.):
+      assert math.isclose(policy.pid_error_context(direction, direction * .5, 13.), direction * .85)
+      for speed, demand in ((4., .5), (22., .5), (13., 1.15)):
+        assert policy.pid_error_context(direction, direction * demand, speed) == direction
+    for field in ('steering_pressed', 'previous_pressed'):
+      setattr(policy, field, True)
+      assert policy.pid_error_context(1., .5, 13.) == 1.
+      setattr(policy, field, False)
+
+  _, other = controller_for(CAR.KIA_EV6, ControllerMode.STARPILOT)
+  assert other.starpilot_extension.policy.pid_error_context(1., .5, 13.) == 1.
+  _, standard = controller_for(CAR.HYUNDAI_TUCSON_4TH_GEN, ControllerMode.STANDARD)
+  assert standard.starpilot_extension is None
