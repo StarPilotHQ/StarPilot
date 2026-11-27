@@ -337,7 +337,9 @@ class AolCardIntent:
       # owners keep their current event and native contracts.
       main_toggle = (not independent_buttons or main_managed) and not (
         self.independent_cruise_buttons and self.settings.main_wheel_action)
-      lkas_toggle = (not independent_buttons or lkas_managed) and not getattr(self, 'allow_manumatic', False)
+      lkas_toggle = (not independent_buttons or lkas_managed) and not (
+        getattr(self, 'allow_manumatic', False) or
+        (self.independent_cruise_buttons and self.settings.lkas_wheel_action))
       previously_held = (self._main_held and main_toggle) or (self._lkas_held and lkas_toggle)
       cancel_pressed = False
       for event in CS.buttonEvents:

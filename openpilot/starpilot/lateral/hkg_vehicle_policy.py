@@ -171,6 +171,12 @@ class HKGVehicleTorquePolicy(HKGShapedTorquePolicy):
       steady_curve = np.interp(abs(setpoint), (.5, .85), (1., 0.))
       steady_demand = np.interp(abs(self.jerk_filter.x), (.5, 1.0), (1., 0.))
       damping = .15 * speed_weight * shallow_curve + .30 * steady_speed * steady_curve * steady_demand
+      if 21. < speed < 31. and abs(error) > .14:
+        highway = np.interp(speed, (21., 24., 27., 31.), (0., 1., 1., 0.))
+        curve = np.interp(abs(setpoint), (.9, 1.7), (1., 0.))
+        transition = np.interp(abs(self.jerk_filter.x), (.8, 1.5), (1., 0.))
+        feedback = np.interp(abs(error), (.14, .38), (0., 1.))
+        damping += .35 * highway * curve * transition * feedback
       return error * (1.0 - damping)
     return error * (1.0 - shaping.KIA_CARNIVAL_HEV_CENTER_ERROR_REDUCTION * self.hev_center_weight)
 

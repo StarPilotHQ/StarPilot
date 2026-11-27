@@ -173,7 +173,7 @@ def test_tucson_softens_shallow_curve_feedback_in_both_cruise_modes():
     policy = controller.starpilot_extension.policy
     for direction in (-1., 1.):
       assert math.isclose(policy.pid_error_context(direction, direction * .5, 13.), direction * .55)
-      for speed, demand in ((4., .5), (22., .5), (13., 1.15)):
+      for speed, demand in ((4., .5), (31., .5), (13., 1.15)):
         assert policy.pid_error_context(direction, direction * demand, speed) == direction
     for demand, speed, base_scale in ((.5, 19., .8875), (.9, 13., .925)):
       assert math.isclose(policy.pid_error_context(1., demand, speed), base_scale)
@@ -189,3 +189,20 @@ def test_tucson_softens_shallow_curve_feedback_in_both_cruise_modes():
   assert other.starpilot_extension.policy.pid_error_context(1., .5, 13.) == 1.
   _, standard = controller_for(CAR.HYUNDAI_TUCSON_4TH_GEN, ControllerMode.STANDARD)
   assert standard.starpilot_extension is None
+
+
+def test_tucson_highway_feedback_damps_large_errors_without_touching_steady_tracking():
+  _, controller = controller_for(CAR.HYUNDAI_TUCSON_4TH_GEN, ControllerMode.STARPILOT)
+  policy = controller.starpilot_extension.policy
+  for side in (-1., 1.):
+    assert math.isclose(policy.pid_error_context(side * .5, side * .8, 25.), side * .325)
+    assert policy.pid_error_context(side * .1, side * .8, 25.) == side * .1
+    assert policy.pid_error_context(side * .5, side * 1.7, 25.) == side * .5
+    assert policy.pid_error_context(side * .5, side * .8, 31.) == side * .5
+    policy.jerk_filter.x = 1.5
+    assert policy.pid_error_context(side * .5, side * .8, 25.) == side * .5
+    policy.jerk_filter.x = 0.
+  for field in ('steering_pressed', 'previous_pressed'):
+    setattr(policy, field, True)
+    assert policy.pid_error_context(.5, .8, 25.) == .5
+    setattr(policy, field, False)

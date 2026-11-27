@@ -71,3 +71,31 @@ class SavedParams:
 def test_only_main_adopt_is_marked_as_a_main_wheel_action(lkas, main, main_wheel):
   settings = read_settings(SavedParams({'AlwaysOnLateral': b'1', 'LKASButtonControl': lkas, 'MainCruiseButtonControl': main}))
   assert settings.main_wheel_action == main_wheel
+
+
+@pytest.mark.parametrize('action,keeps_lateral', [(8, True), (9, False), (0, False)])
+def test_tucson_lkas_bookmark_does_not_double_as_lateral_toggle(action, keeps_lateral):
+  from opendbc.car import gen_empty_fingerprint
+  from opendbc.car.hyundai.interface import CarInterface
+  from opendbc.car.hyundai.values import CAR
+
+  fingerprint = gen_empty_fingerprint()
+  fingerprint[0][0x1AA] = 16
+  cp = CarInterface.get_params(CAR.HYUNDAI_TUCSON_4TH_GEN, fingerprint, [], False, False, False)
+  assert cp.safetyConfigs[0].safetyParam == 0x28
+  cp.safetyConfigs[0].safetyParam |= 0x800
+  settings = read_settings(SavedParams({'AlwaysOnLateral': b'1', 'LKASButtonControl': str(action).encode()}))
+  owner = create_intent(cp, settings)
+  assert owner.independent_cruise_buttons
+  cs = structs.CarState(canValid=True, gearShifter='drive', cruiseState={'available': True})
+  owner.update(cs, now_ns=1, fault_active=False)
+  if keeps_lateral:
+    press(owner, cs, 'lkas', 2)
+    assert not lateral(owner) and owner.physical_arm_ns == 0
+  cs.buttonEvents = []
+  owner.observe_full_engagement(cs, enabled=False, active=False, source_ns=5, observation_valid=True, now_ns=5, fault_active=False)
+  owner.observe_full_engagement(cs, enabled=True, active=True, source_ns=6, observation_valid=True, now_ns=6, fault_active=False)
+  assert lateral(owner)
+  press(owner, cs, 'lkas', 10, engaged=True)
+  assert lateral(owner) == keeps_lateral
+  assert owner.pause_lateral != keeps_lateral
