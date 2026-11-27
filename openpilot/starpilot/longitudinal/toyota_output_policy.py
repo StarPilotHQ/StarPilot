@@ -28,6 +28,7 @@ SIENNA_4G = str(CAR.TOYOTA_SIENNA_4TH_GEN)
 _ACCEL_MIN, _ACCEL_MAX = -5.0, 3.0
 RADAR_MAX_AGE_NS = 100_000_000  # Two periods of the current 20 Hz radarState service.
 CLOCK_PAIR_MAX_SKEW_NS = 5_000_000
+COROLLA_BRAKE_RELEASE_RATE = 4.0  # Match the Toyota PCM acceleration unwind limit.
 
 
 def clock_pair_ns() -> tuple[int, int] | None:
@@ -181,6 +182,7 @@ class ToyotaOutputPolicy:
   def reset(self) -> None:
     self.filtered_target = 0.0
     self.initialized = False
+    self.releasing_brake = False
 
   @staticmethod
   def _leads_valid(leads: tuple[Lead, ...] | None) -> bool:
@@ -204,24 +206,26 @@ class ToyotaOutputPolicy:
     return nearest is not None and nearest.speed_mps > 0.35
 
   def target(self, a_target: float, v_ego: float, should_stop: bool, last_output_accel: float,
-             *, leads: tuple[Lead, ...] | None = None) -> float | None:
+             *, leads: tuple[Lead, ...] | None = None, release_brake: bool = False) -> float | None:
     """Return a shaped target, or None for invalid/missing required evidence."""
     if (not _finite(a_target, _ACCEL_MIN, _ACCEL_MAX) or not _finite(v_ego, -math.inf, 70.0) or
         type(should_stop) is not bool or not _finite(last_output_accel, _ACCEL_MIN, _ACCEL_MAX)):
       self.reset()
       return None
     if self.corolla:
-      return self._corolla(float(a_target), float(v_ego), should_stop, float(last_output_accel))
+      return self._corolla(float(a_target), float(v_ego), should_stop, float(last_output_accel), release_brake)
     if not self._leads_valid(leads):
       self.reset()
       return None
     assert leads is not None
     return self._sienna(float(a_target), float(v_ego), should_stop, leads)
 
-  def _corolla(self, target: float, speed: float, should_stop: bool, previous_output: float) -> float:
+  def _corolla(self, target: float, speed: float, should_stop: bool, previous_output: float, release_brake: bool) -> float:
     if should_stop or speed >= 3.0:
       self.reset()
       return target
+    self.releasing_brake = (release_brake and target > 0.0 and previous_output < 0.0 and
+                            (self.releasing_brake or not self.initialized))
     if not self.initialized:
       self.filtered_target = previous_output
       self.initialized = True
@@ -230,6 +234,8 @@ class ToyotaOutputPolicy:
       return target
     tau = 0.18 if target < self.filtered_target else 0.30
     self.filtered_target += DT_CTRL / (tau + DT_CTRL) * (target - self.filtered_target)
+    if self.releasing_brake:
+      self.filtered_target = max(self.filtered_target, min(0.0, previous_output + COROLLA_BRAKE_RELEASE_RATE * DT_CTRL))
     return self.filtered_target
 
   def _sienna(self, target: float, speed: float, should_stop: bool, leads: tuple[Lead, ...]) -> float:

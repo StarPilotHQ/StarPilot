@@ -50,11 +50,11 @@ def test_corolla_pcm_hold_requires_current_plan_and_moving_lead(blocker):
 def test_corolla_resume_evidence_requires_current_car_and_plan(monkeypatch):
   names = ('carState', 'longitudinalPlan', 'deviceState')
   now = [1_050_000_000]
-  car_state = structs.CarState()
-  car_state.cruiseState.standstill = True
+  car_state = structs.CarState(standstill=True)
+  plan = SimpleNamespace(allowThrottle=True, fcw=False)
   class Messages(SimpleNamespace):
     def __getitem__(self, name):
-      return {'carState': car_state, 'deviceState': SimpleNamespace(started=True, startedMonoTime=900_000_000)}[name]
+      return {'carState': car_state, 'longitudinalPlan': plan, 'deviceState': SimpleNamespace(started=True, startedMonoTime=900_000_000)}[name]
   sm = Messages(seen={'deviceState': True}, alive={'deviceState': True}, valid={'deviceState': True},
                 all_checks=lambda requested: bool(requested) and requested[0] in names)
   def publish():
@@ -73,8 +73,44 @@ def test_corolla_resume_evidence_requires_current_car_and_plan(monkeypatch):
   now[0] += 20_000_000
   publish()
   assert inputs._vehicle_context(True).toyota_resume_fresh
+  assert inputs._vehicle_context(True).toyota_brake_release
+  plan.fcw = True
+  assert not inputs._vehicle_context(True).toyota_brake_release
+  plan.fcw = False
+  plan.allowThrottle = False
+  assert not inputs._vehicle_context(True).toyota_brake_release
   now[0] += 170_000_000
   publish()
   sm.logMonoTime['longitudinalPlan'] = now[0] - 160_000_000
   assert not inputs._vehicle_context(True).toyota_resume_fresh
   assert not inputs._vehicle_context(False).toyota_resume_fresh
+
+
+@pytest.mark.parametrize('blocker', (None, 'stale', 'moving', 'brake', 'gas', 'aeb', 'acc_fault', 'can', 'hold', 'stopped_lead'))
+def test_corolla_unwinds_braking_after_plan_clears_stop(blocker):
+  cp = CarInterface.get_params(CAR.TOYOTA_COROLLA_TSS2, gen_empty_fingerprint(), [], False, False, False)
+  cs = structs.CarState(standstill=True, canValid=True)
+  cs.cruiseState.enabled = True
+  owner, baseline = LongControl(cp), LongControl(cp)
+  for controller in (owner, baseline):
+    controller.update(True, cs, -0.2, True, (-3.5, 2.0))
+    controller.last_output_accel = -2.0
+
+  cs.standstill = blocker != 'moving'
+  cs.brakePressed = blocker == 'brake'
+  cs.gasPressed = blocker == 'gas'
+  cs.stockAeb = blocker == 'aeb'
+  cs.accFaulted = blocker == 'acc_fault'
+  cs.canValid = blocker != 'can'
+  context = LongitudinalContext(toyota_brake_release=blocker != 'stale', force_stop_braking=blocker == 'hold',
+                                leads=(STOPPED_LEAD,) if blocker == 'stopped_lead' else ())
+  outputs = [owner.update(True, cs, 0.1, False, (-3.5, 2.0), context=context) for _ in range(50)]
+  reference = [baseline.update(True, cs, 0.1, False, (-3.5, 2.0),
+                               context=replace(context, toyota_brake_release=False)) for _ in range(50)]
+  if blocker is None:
+    assert reference[-1] < -0.2
+    assert 0.0 <= outputs[-1] < 0.1
+    assert owner.update(True, cs, 0.1, True, (-3.5, 2.0), context=context) < 0
+    assert owner.long_control_state == LONG_STATE.stopping
+  else:
+    assert outputs == reference

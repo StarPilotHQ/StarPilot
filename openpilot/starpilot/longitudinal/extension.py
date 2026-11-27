@@ -28,6 +28,7 @@ class LongitudinalContext:
   faster_takeoffs: bool = False
   force_stop_braking: bool = False
   toyota_resume_fresh: bool = False
+  toyota_brake_release: bool = False
 
 
 class LongitudinalExtension:
@@ -139,7 +140,11 @@ class LongitudinalExtension:
 
   def target(self, a_target, CS, should_stop, last_output, context):
     if self.toyota_output is not None:
-      shaped = self.toyota_output.target(a_target, CS.vEgo, should_stop, last_output, leads=context.leads)
+      release_brake = (self.toyota_pcm_resume and context.toyota_brake_release and CS.standstill and
+                       CS.canValid and not CS.canTimeout and not CS.accFaulted and not CS.stockAeb and
+                       CS.cruiseState.enabled and not CS.brakePressed and not CS.gasPressed and
+                       not context.force_stop_braking and not self.toyota_output.hold_stopped_lead(CS.vEgo, context.leads))
+      shaped = self.toyota_output.target(a_target, CS.vEgo, should_stop, last_output, leads=context.leads, release_brake=release_brake)
       if shaped is not None:
         return shaped
     return self.vehicle_target(a_target, CS.vEgo, should_stop) if self.vehicle_target is not None else a_target
