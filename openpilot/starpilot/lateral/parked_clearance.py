@@ -8,15 +8,15 @@ from bisect import bisect_left
 from dataclasses import dataclass
 import math
 
-MIN_SPEED = 5.0
+MIN_SPEED = 3.0
 MAX_SPEED = 17.0
 STATIONARY_SPEED = 1.5
 MIN_DISTANCE = 4.0
 MAX_DISTANCE = 35.0
 MIN_LATERAL = 1.0
-MAX_LATERAL = 3.2
+MAX_LATERAL = 3.8
 TRACK_LATERAL = 6.0
-CONFIRM_SECONDS = 0.6
+CONFIRM_SECONDS = 0.4
 TRACK_GAP_SECONDS = 0.2
 HOLD_SECONDS = 0.6
 LATERAL_TAU = 0.15
@@ -26,7 +26,7 @@ MAX_GAP = 2.0
 MAX_SHIFT = 0.3
 MIN_LIMIT = 0.1
 MAX_LIMIT = 0.5
-RISE_RATE = 0.25
+RISE_RATE = 0.4
 FALL_RATE = 0.15
 MIN_LINE_SPACING = 0.9
 ONCOMING_LINE_SPACING = 1.1
@@ -35,7 +35,7 @@ LINE_PROB = 0.5
 LINE_STD = 0.3
 NO_LINE_PROB = 0.2
 UNCERTAIN_LINE_MARGIN = 0.5
-MAX_EDGE_STD = 1.0
+MAX_EDGE_STD = 1.5
 ONCOMING_SPEED = -2.0
 ONCOMING_LATERAL = 4.5
 ONCOMING_DISTANCE = 120.0
@@ -109,7 +109,7 @@ class ParkedClearance:
     self.hold = 0.0
     self.reason = 'inactive'
 
-  def update(self, points, speed: float, dt: float, gap: float, room: float, active: bool, limit: float = MAX_SHIFT) -> float:
+  def update(self, points, speed: float, dt: float, gap: float, room: float, active: bool, limit: float = MAX_SHIFT, watch: bool = False) -> float:
     values = (speed, dt, gap, room, limit)
     if not active or not all(type(v) in (int, float) and math.isfinite(v) for v in values) or dt <= 0 or gap <= 0 or limit <= 0:
       self.reset()
@@ -135,6 +135,9 @@ class ParkedClearance:
       self.tracks[identifier].unseen += dt
       if self.tracks[identifier].unseen > TRACK_GAP_SECONDS:
         del self.tracks[identifier]
+    if watch:
+      self.shift, self.demand, self.hold, self.reason = 0.0, 0.0, 0.0, 'inactive'
+      return 0.0
     confirmed = [t.lateral for i, t in self.tracks.items() if i in seen and t.age >= CONFIRM_SECONDS]
     if not MIN_SPEED <= speed <= MAX_SPEED:
       self.demand, self.hold, self.reason = 0.0, 0.0, 'speed'

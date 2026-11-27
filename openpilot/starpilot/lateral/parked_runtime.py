@@ -94,9 +94,10 @@ class ParkedClearanceHost:
         return self._stop(f'{name}_stale')
     try:
       car, model, radar = sm['carState'], sm['modelV2'], sm['radarTracks']
-      if (not lateral_active or maneuver or not car.canValid or car.canTimeout or car.steeringPressed or car.leftBlinker or car.rightBlinker or
-          car.leftBlindspot or model.meta.laneChangeState != log.LaneChangeState.off or any(radar.errors.to_dict().values())):
+      if not lateral_active or maneuver or not car.canValid or car.canTimeout or any(radar.errors.to_dict().values()):
         return self._stop('inactive')
+      watch = bool(car.steeringPressed or car.leftBlinker or car.rightBlinker or car.leftBlindspot or
+                   model.meta.laneChangeState != log.LaneChangeState.off)
       speed = float(car.vEgo)
       if not math.isfinite(speed) or speed <= 0:
         return self._stop('inactive')
@@ -120,8 +121,10 @@ class ParkedClearanceHost:
         line, edge = model.laneLines[1], model.roadEdges[0]
         room = left_room(center - _at(list(line.x), list(line.y), lookahead), float(model.laneLineProbs[1]), float(model.laneLineStds[1]),
                          center - _at(list(edge.x), list(edge.y), lookahead), float(model.roadEdgeStds[0]), oncoming=oncoming_ahead(points))
-        self.detector.update(points, speed, dt, self.settings.gap, room, True, self.settings.limit)
+        self.detector.update(points, speed, dt, self.settings.gap, room, True, self.settings.limit, watch)
         self.reason = self.detector.reason
+      elif watch:
+        self.detector.shift, self.detector.demand, self.detector.hold, self.reason = 0.0, 0.0, 0.0, 'inactive'
       self.correction = clip_scalar(-2.0 * self.detector.shift / lookahead ** 2 * GAIN, -MAX_CORRECTION * max(1.0, self.settings.limit / MAX_SHIFT), 0.0)
       self.shift = float(self.detector.shift)
       return self.correction

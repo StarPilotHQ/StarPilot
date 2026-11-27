@@ -130,6 +130,13 @@ class TestParkedRuntime(unittest.TestCase):
     self.assertEqual(subject.detector.shift, 0.0)
     self.assertEqual(subject.shift, 0.0)
 
+  def test_blinker_keeps_watching_and_resumes_without_reconfirm(self):
+    subject = host()
+    correction, _, now = drive(subject, 2.0, PARKED, leftBlinker=True)
+    self.assertEqual(correction, 0.0)
+    self.assertEqual(subject.shift, 0.0)
+    self.assertLess(drive(subject, 0.25, PARKED, start=now)[0], 0.0)
+
   def test_stale_or_invalid_inputs_reset(self):
     for name in ParkedClearanceHost.REQUIRED:
       subject = host()

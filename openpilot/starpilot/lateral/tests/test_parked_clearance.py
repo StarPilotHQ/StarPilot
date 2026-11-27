@@ -88,12 +88,27 @@ class TestParkedClearance(unittest.TestCase):
     self.assertEqual(detector.update([RadarPoint(1, 20.0, 2.3, 0.0)], 11.0, DT, 1.0, 0.6, False), 0.0)
     self.assertEqual(detector.tracks, {})
 
+  def test_watch_tracks_without_shift(self):
+    detector = ParkedClearance()
+    points = [RadarPoint(1, 20.0, 2.3, 0.0)]
+    for _ in range(round(1.0 / DT)):
+      self.assertEqual(detector.update(points, 11.0, DT, 1.0, 0.6, True, pc.MAX_SHIFT, True), 0.0)
+    self.assertEqual(detector.reason, 'inactive')
+    self.assertGreater(detector.update(points, 11.0, DT, 1.0, 0.6, True), 0.0)
+    self.assertEqual(detector.reason, 'parked')
+    self.assertEqual(detector.update(points, 11.0, DT, 1.0, 0.6, True, pc.MAX_SHIFT, True), 0.0)
+
   def test_invalid_inputs_add_nothing(self):
     for speed, dt, gap, room in ((math.nan, DT, 1.0, 0.6), (11.0, 0.0, 1.0, 0.6), (11.0, DT, 0.0, 0.6), (11.0, DT, 1.0, math.inf)):
       detector = ParkedClearance()
       for _ in range(60):
         self.assertEqual(detector.update([RadarPoint(1, 20.0, 2.3, 0.0)], speed, dt, gap, room, True), 0.0)
     self.assertEqual(run(ParkedClearance(), [RadarPoint(1, math.nan, 2.3, 0.0)], 3.0), 0.0)
+
+  def test_wide_gap_reaches_far_curb_cars(self):
+    point = [RadarPoint(1, 20.0, 3.5, 0.0)]
+    self.assertAlmostEqual(run(ParkedClearance(), point, 3.0, gap=2.0, room=0.6), 0.3)
+    self.assertEqual(run(ParkedClearance(), point, 3.0, gap=1.5, room=0.6), 0.0)
 
   def test_gap_setting_capped(self):
     detector = ParkedClearance()
@@ -117,10 +132,11 @@ class TestParkedClearance(unittest.TestCase):
     self.assertAlmostEqual(pc.left_room(1.6, 0.9, 0.1, 6.0, 0.8), 0.7)
     self.assertEqual(pc.left_room(0.8, 0.9, 0.1, 6.0, 0.2), 0.0)
     self.assertAlmostEqual(pc.left_room(1.6, 0.05, 1.4, 5.4, 0.7), 2.5)
-    self.assertEqual(pc.left_room(1.6, 0.05, 1.4, 5.4, 1.2), 0.0)
+    self.assertAlmostEqual(pc.left_room(1.6, 0.05, 1.4, 5.4, 1.2), 1.5)
+    self.assertEqual(pc.left_room(1.6, 0.05, 1.4, 5.4, 1.6), 0.0)
     self.assertAlmostEqual(pc.left_room(1.6, 0.4, 0.2, 6.0, 0.5), 0.5)
     self.assertAlmostEqual(pc.left_room(1.6, 0.9, 0.9, 6.0, 0.5), 0.2)
-    self.assertEqual(pc.left_room(1.6, 0.4, 0.2, 6.0, 1.2), 0.0)
+    self.assertEqual(pc.left_room(1.6, 0.4, 0.2, 6.0, 1.6), 0.0)
     self.assertEqual(pc.left_room(math.nan, 0.9, 0.1, 6.0, 0.2), 0.0)
     self.assertAlmostEqual(pc.left_room(1.6, 0.9, 0.1, 6.0, 0.8, oncoming=True), 0.5)
     self.assertEqual(pc.left_room(1.6, 0.05, 1.4, 5.4, 0.7, oncoming=True), 0.0)
