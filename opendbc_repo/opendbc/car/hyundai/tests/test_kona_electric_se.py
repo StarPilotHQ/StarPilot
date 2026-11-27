@@ -89,3 +89,19 @@ class TestKonaElectricSE(TestCase):
     del fp[2][0x421]
     fp[1][0x329] = 7
     self.assertIsNone(kona_electric_se_candidate(SE_VIN, fp, firmware))
+
+  def test_only_regular_set_and_resume_allow_pcm_enable(self):
+    from opendbc.can import CANPacker
+
+    for main, button, permitted in ((True, 0, False), (False, 4, False), (True, 2, False),
+                                   (False, 2, True), (False, 1, True)):
+      with self.subTest(main=main, button=button):
+        ci = interface(SE_VIN)
+        packer = CANPacker('hyundai_can_generated')
+        stamp = 1_000_000_000
+        ci.CS.cruise_buttons.append(button)
+        ci.CS.main_buttons.append(main)
+        active = packer.make_can_msg('LABEL11', 0, {'CC_React': 1, 'CC_Engaged': 1})
+        result = ci.update([(stamp, [active])])
+        self.assertTrue(result.cruiseState.available and result.cruiseState.enabled)
+        self.assertEqual(not result.blockPcmEnable, permitted)

@@ -417,6 +417,11 @@ class CarState(CarStateBase):
     ret.buttonEvents = button_events
 
     ret.blockPcmEnable = not self.recent_button_interaction()
+    if self.CP.carFingerprint == CAR.HYUNDAI_KONA_EV_2023_NON_SCC:
+      set_or_resume = next((not main and button in (Buttons.SET_DECEL, Buttons.RES_ACCEL)
+                            for button, main in zip(reversed(self.cruise_buttons), reversed(self.main_buttons), strict=True)
+                            if main or button in ENABLE_BUTTONS), False)
+      ret.blockPcmEnable = not set_or_resume or ret.brakePressed or ret.gasPressed
 
     # low speed steer alert hysteresis logic (only for cars with steer cut off above 10 m/s)
     if ret.vEgo < (self.CP.minSteerSpeed + 2.) and self.CP.minSteerSpeed > 10.:
