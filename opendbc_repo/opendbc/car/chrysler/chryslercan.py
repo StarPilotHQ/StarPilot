@@ -72,6 +72,40 @@ def create_cruise_buttons(packer, frame, bus, cancel=False, resume=False):
   return packer.make_can_msg("CRUISE_BUTTONS", bus, values)
 
 
+def create_das_3_long_command(packer, counter_offset, accel, das_3, *, long_active, stopping=False, starting=False):
+  """Build a cooperative DAS_3 longitudinal frame from a fresh stock source.
+
+  Copies unrelated OEM fields, then applies OP accel within measured WK2 envelopes.
+  Positive accel uses engine torque request; negative uses ACC_DECEL with DECEl_REQ.
+  """
+  from opendbc.car.chrysler.values import CarControllerParams
+  values = das_3.copy()
+  accel = float(max(CarControllerParams.ACCEL_MIN, min(CarControllerParams.ACCEL_MAX, accel)))
+  # Map accel to torque using the observed coast floor and measured peak.
+  if accel >= 0.0:
+    torque_frac = accel / CarControllerParams.ACCEL_MAX if CarControllerParams.ACCEL_MAX else 0.0
+    torque = CarControllerParams.TORQUE_MIN + torque_frac * (CarControllerParams.TORQUE_MAX - CarControllerParams.TORQUE_MIN)
+    if accel < 0.05:
+      torque = min(torque, 0.0)
+  else:
+    torque = CarControllerParams.TORQUE_MIN
+  torque = float(max(CarControllerParams.TORQUE_MIN, min(CarControllerParams.TORQUE_MAX, torque)))
+
+  values.update(
+    ACC_AVAILABLE=1,
+    ACC_ACTIVE=1 if long_active else 0,
+    ACC_GO=1 if (long_active and starting) else 0,
+    ACC_STANDSTILL=1 if (long_active and stopping) else 0,
+    ACC_DECEL_REQ=1 if (long_active and accel < -0.1) else 0,
+    ACC_DECEL=accel if long_active else 0.0,
+    ACC_BRK_PREP=0,
+    ENGINE_TORQUE_REQUEST=torque if long_active else CarControllerParams.TORQUE_MIN,
+    ENGINE_TORQUE_REQUEST_MAX=1 if (long_active and accel > 0.05) else 0,
+    COUNTER=(int(das_3["COUNTER"]) + counter_offset) % 16,
+  )
+  return packer.make_can_msg("DAS_3", 0, values)
+
+
 def chrysler_checksum(address: int, sig, d: bytearray) -> int:
   # standard CRC-8 SAE J1850 (poly 0x1D, init 0xFF, final XOR 0xFF)
   crc = 0xFF

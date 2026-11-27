@@ -78,15 +78,19 @@ class TestJeepBrakeHold(unittest.TestCase):
 
   def test_two_exact_platforms_stock_ownership_default_off_and_siblings(self):
     for candidate in CAR:
-      for release in (False, True):
-        cp = CarInterface.get_params(candidate, gen_empty_fingerprint(), [], True, release, False)
-        expected = candidate in (CAR.JEEP_GRAND_CHEROKEE, CAR.JEEP_GRAND_CHEROKEE_2019)
-        self.assertEqual(brake_hold_supported(cp), expected)
+      for alpha_long, release in ((False, False), (False, True), (True, False), (True, True)):
+        cp = CarInterface.get_params(candidate, gen_empty_fingerprint(), [], alpha_long, release, False)
+        # WK2 2019 alpha-long (non-release) takes DAS_3 ownership; hold stays stock-ACC-only.
+        wk2_alpha = (candidate == CAR.JEEP_GRAND_CHEROKEE_2019 and alpha_long and not release)
+        jeep = candidate in (CAR.JEEP_GRAND_CHEROKEE, CAR.JEEP_GRAND_CHEROKEE_2019)
+        expected_hold = jeep and not wk2_alpha
+        self.assertEqual(brake_hold_supported(cp), expected_hold, (candidate, alpha_long, release))
+        self.assertEqual(cp.openpilotLongitudinalControl, wk2_alpha)
+        self.assertEqual(cp.pcmCruise, not wk2_alpha)
         before = cp.to_dict()
         apply_brake_hold(cp, True)
-        self.assertEqual(cp.safetyConfigs[0].safetyParam, 4 if expected else before['safetyConfigs'][0]['safetyParam'])
-        self.assertFalse(cp.openpilotLongitudinalControl)
-        self.assertTrue(cp.pcmCruise)
+        self.assertEqual(cp.safetyConfigs[0].safetyParam,
+                         4 if expected_hold else before['safetyConfigs'][0]['safetyParam'])
         apply_brake_hold(cp, False)
         self.assertEqual(cp.to_dict(), before)
 

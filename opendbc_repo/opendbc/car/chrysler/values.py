@@ -12,8 +12,10 @@ Ecu = CarParams.Ecu
 class ChryslerSafetyFlags(IntFlag):
   RAM_DT = 1
   RAM_HD = 2
-  AOL_PACIFICA_HYBRID_SET_GUARD = 8
   JEEP_BRAKE_HOLD = 4
+  AOL_PACIFICA_HYBRID_SET_GUARD = 8
+  # WK2 openpilot longitudinal (alpha long). Distinct from JEEP_BRAKE_HOLD.
+  LONG_CONTROL = 16
 
 
 class ChryslerFlags(IntFlag):
@@ -22,6 +24,8 @@ class ChryslerFlags(IntFlag):
   HAS_BSM = 2  # blind spot monitoring
   STEERING_SPEED_BYPASS = 4
   JEEP_BRAKE_HOLD_AVAILABLE = 8
+  # Fingerprint admits alpha longitudinal (DAS_3 OP long) for this platform.
+  ALPHA_LONG_AVAILABLE = 16
 
 
 @dataclass
@@ -104,6 +108,14 @@ class CAR(Platforms):
 
 
 class CarControllerParams:
+  # Measured stock ACC envelopes on JEEP_GRAND_CHEROKEE_2019 route 00000004 segs 3-7.
+  # Standstill hold remains the tighter Jeep brake-hold band until ACC-to-stop logs arrive.
+  ACCEL_MIN = -1.8  # m/s^2
+  ACCEL_MAX = 4.0   # m/s^2
+  TORQUE_MIN = -52.0  # Nm
+  TORQUE_MAX = 268.0  # Nm
+  LONG_STEP = 2  # 50 Hz, matches DAS_3 stock rate class
+
   def __init__(self, CP):
     self.STEER_STEP = 2  # 50 Hz
     self.STEER_ERROR_MAX = 80

@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-from opendbc.car import get_safety_config, structs
+from opendbc.car import Bus, get_safety_config, structs
 from opendbc.car.chrysler.carcontroller import CarController
 from opendbc.car.chrysler.carstate import CarState
 from opendbc.car.chrysler.radar_interface import RadarInterface
-from opendbc.car.chrysler.values import CAR, CUSW_CARS, RAM_HD, RAM_DT, RAM_CARS, ChryslerFlags, ChryslerSafetyFlags
+from opendbc.car.chrysler.values import CAR, CUSW_CARS, DBC, RAM_HD, RAM_DT, RAM_CARS, ChryslerFlags, ChryslerSafetyFlags
 from opendbc.car.interfaces import CarInterfaceBase
+
+# Stock radar track addresses used by RadarInterface (bus 1). Presence on the
+# fingerprint means the OEM forward radar is talking; we keep the ECU enabled.
+_CHRYSLER_RADAR_ADDRS = frozenset(range(0x2a2, 0x2b4 + 2, 2)) | frozenset(range(0x2c2, 0x2d4 + 2, 2))
 
 
 class CarInterface(CarInterfaceBase):
@@ -21,8 +25,9 @@ class CarInterface(CarInterfaceBase):
     # TODO: Chrysler CUSW in dashcam pending comma safety validation and a fix for LKAS fault on disengage
     ret.dashcamOnly = candidate in (RAM_HD | CUSW_CARS)
 
-    # radar parsing needs some work, see https://github.com/commaai/openpilot/issues/26842
-    ret.radarUnavailable = True # Bus.radar not in DBC[candidate][Bus.radar]
+    # Default: keep upstream radarUnavailable until a platform opts in with live tracks.
+    # See https://github.com/commaai/openpilot/issues/26842 for the historical workaround.
+    ret.radarUnavailable = True
     ret.steerActuatorDelay = 0.1
     ret.steerLimitTimer = 0.4
 
@@ -61,8 +66,22 @@ class CarInterface(CarInterfaceBase):
 
       ret.lateralTuning.init('pid')
       ret.lateralTuning.pid.kpBP, ret.lateralTuning.pid.kiBP = [[9., 20.], [9., 20.]]
-      ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.15, 0.30], [0.03, 0.05]]
+      # Slightly softer high-speed P/I than Pacifica to reduce lane ping-pong reports.
+      ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.12, 0.22], [0.02, 0.035]]
       ret.lateralTuning.pid.kf = 0.00006
+
+      if candidate == CAR.JEEP_GRAND_CHEROKEE_2019:
+        ret.flags |= ChryslerFlags.ALPHA_LONG_AVAILABLE.value
+        # Enable OEM radar fusion when the fusion DBC is present and track IDs appear on bus 1.
+        radar_seen = Bus.radar in DBC[candidate] and bool(_CHRYSLER_RADAR_ADDRS & set(fingerprint.get(1, {})))
+        ret.radarUnavailable = not (radar_seen or docs)
+        # Alpha long is experimental: available outside release builds (and for docs generation).
+        ret.alphaLongitudinalAvailable = (not is_release) or docs
+        if alpha_long and ret.alphaLongitudinalAvailable:
+          ret.openpilotLongitudinalControl = True
+          ret.safetyConfigs[0].safetyParam |= ChryslerSafetyFlags.LONG_CONTROL.value
+          ret.minEnableSpeed = -1.  # advertise auto-resume / SNG capability
+          ret.autoResumeSng = True
 
     # Ram
     elif candidate == CAR.RAM_1500_5TH_GEN:
@@ -84,6 +103,8 @@ class CarInterface(CarInterfaceBase):
     if candidate not in CUSW_CARS and 0x4FF in fingerprint[0]:
       ret.flags |= ChryslerFlags.STEERING_SPEED_BYPASS.value
       ret.minSteerSpeed = 0.
+
+    ret.pcmCruise = not ret.openpilotLongitudinalControl
 
     ret.centerToFront = ret.wheelbase * 0.44
     if (0x62cc033 if candidate in CUSW_CARS else 0x2d0) in fingerprint[0]:

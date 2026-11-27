@@ -2,7 +2,7 @@ import os
 import time
 
 from opendbc.can import CANPacker
-from opendbc.car import Bus, DT_CTRL
+from opendbc.car import Bus, DT_CTRL, structs
 from opendbc.car.lateral import apply_meas_steer_torque_limits
 from opendbc.car.chrysler import chryslercan
 from opendbc.car.chrysler.aol_contract import qualified as aol_qualified
@@ -11,11 +11,14 @@ from opendbc.car.chrysler.values import CUSW_CARS, RAM_CARS, RAM_DT, CarControll
 from opendbc.car.structs import CarState
 from opendbc.car.interfaces import CarControllerBase
 
+LongCtrlState = structs.CarControl.Actuators.LongControlState
+
 
 class CarController(CarControllerBase):
   def __init__(self, dbc_names, CP):
     super().__init__(dbc_names, CP)
     self.apply_torque_last = 0
+    self.accel_last = 0.0
 
     self.hud_count = 0
     self.last_lkas_falling_edge = 0
@@ -109,7 +112,12 @@ class CarController(CarControllerBase):
       if _projection is not None:
         _projection.emit('chrysler.LKAS_COMMAND', apply_torque, lkas_control_bit, can_sends[-1])
 
-    if brake_hold_supported(self.CP) and self.CP.safetyConfigs[0].safetyParam == 4:
+    # Cooperative OP longitudinal (alpha long): replace DAS_3 accel/brake while engaged.
+    # Stock ACC remains the owner when alpha long is off (pcmCruise path + optional brake hold).
+    if self.CP.openpilotLongitudinalControl:
+      CS.brake_hold = False
+      self.update_jeep_long(CC, CS, now_nanos, can_sends)
+    elif brake_hold_supported(self.CP) and self.CP.safetyConfigs[0].safetyParam == 4:
       withdraw = bool(aol_qualified(self.CP, marked_only=True) and CS.aol_pause_longitudinal and
                       0 < CS.aol_pause_longitudinal_stamp_ns <= now_nanos and
                       now_nanos - CS.aol_pause_longitudinal_stamp_ns <= 30_000_000)
@@ -122,10 +130,49 @@ class CarController(CarControllerBase):
     new_actuators = CC.actuators.as_builder()
     new_actuators.torque = self.apply_torque_last / self.params.STEER_MAX
     new_actuators.torqueOutputCan = self.apply_torque_last
+    new_actuators.accel = self.accel_last
 
     if _projection is not None:
       _projection.finish(new_actuators.torque)
     return new_actuators, can_sends
+
+  def update_jeep_long(self, CC, CS, now_nanos, can_sends):
+    """Send DAS_3 longitudinal commands from a fresh stock source frame."""
+    if self.frame % self.params.LONG_STEP != 0:
+      return
+    now_boot_ns = now_nanos if self.jeep_hold_replay else time.clock_gettime_ns(time.CLOCK_BOOTTIME)
+    if (not CS.das_3 or not CS.out.canValid or CS.out.canTimeout or
+        not 0 <= now_boot_ns - CS.das_3_timestamp <= 100_000_000):
+      self.accel_last = 0.0
+      return
+
+    counter = int(CS.das_3["COUNTER"])
+    changed = counter != self.last_das_3_counter
+    self.last_das_3_counter = counter
+
+    # Cooperative: only replace DAS_3 while OP long is actively engaged.
+    # When disengaged, leave the bus to stock ACC (no dual owners).
+    long_active = bool(CC.longActive and CC.enabled)
+    if not long_active:
+      self.accel_last = 0.0
+      return
+
+    actuators = CC.actuators
+    stopping = actuators.longControlState == LongCtrlState.stopping
+    starting = actuators.longControlState == LongCtrlState.pid and CS.out.standstill
+    accel = max(self.params.ACCEL_MIN, min(self.params.ACCEL_MAX, float(actuators.accel)))
+    # Rate-limit accel changes toward stock-like response (~0.1 m/s^2 per 20 ms step).
+    max_delta = 0.1 * self.params.LONG_STEP
+    accel = max(self.accel_last - max_delta, min(self.accel_last + max_delta, accel))
+    self.accel_last = accel
+
+    can_sends.append(chryslercan.create_das_3_long_command(
+      self.packer, 2 if changed else 3, accel, CS.das_3,
+      long_active=True, stopping=stopping, starting=starting,
+    ))
+    # Resume button helps OEM leave standstill when starting from a stop (provisional).
+    if starting and self.frame % 10 == 0:
+      can_sends.append(chryslercan.create_cruise_buttons(self.packer, CS.button_counter + 1, 0, resume=True))
 
   def update_jeep_brake_hold(self, CC, CS, now_nanos, can_sends, *, withdraw=False):
     # CAN Event/parser timestamps are BOOTTIME. Card passes MONOTONIC for

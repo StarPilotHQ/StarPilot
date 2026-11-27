@@ -6,6 +6,7 @@
 #include "opendbc/safety/modes/chrysler_aol.h"
 
 static bool chrysler_jeep_hold;
+static bool chrysler_long_control;
 static bool chrysler_hold_armed;
 static bool chrysler_hold_cancelled;
 static uint8_t chrysler_hold_stock[8];
@@ -15,6 +16,13 @@ static bool chrysler_hold_gear_initialized;
 static uint8_t chrysler_hold_gear_counter;
 static uint32_t chrysler_hold_gear_timestamp;
 static uint32_t chrysler_hold_stock_timestamp;
+
+// Measured WK2 ACC envelopes (route 00000004): ACC_DECEL [-1.8, +4.0], torque [-52, +268] Nm.
+// Raw ACC_DECEL: phys = raw * 0.004885 - 16. Raw torque: phys = raw * 0.25 - 500.
+static const unsigned int CHRYSLER_LONG_DECEL_MIN = 2907U;   // -1.8 m/s^2
+static const unsigned int CHRYSLER_LONG_DECEL_MAX = 4094U;   // +4.0 m/s^2
+static const unsigned int CHRYSLER_LONG_TORQUE_MIN = 1792U;  // -52 Nm
+static const unsigned int CHRYSLER_LONG_TORQUE_MAX = 3072U;  // +268 Nm
 
 static bool chrysler_hold_ready(void) {
   const uint32_t now = microsecond_timer_get();
@@ -47,15 +55,18 @@ static void chrysler_rx_hook(const CANPacket_t *msg) {
   const unsigned int das_3_bus = (chrysler_platform == CHRYSLER_PACIFICA) ? 0U : 2U;
   if (msg_matches(msg, CHRYSLER_ADDR(DAS_3), das_3_bus)) {
     bool cruise_engaged = GET_BIT(msg, 21U);
-    pcm_cruise_check(cruise_engaged);
-    if (chrysler_jeep_hold) {
+    // OP long uses stalk buttons for engage; stock ACC_ACTIVE is not the owner.
+    if (!chrysler_long_control) {
+      pcm_cruise_check(cruise_engaged);
+    }
+    if (chrysler_jeep_hold || chrysler_long_control) {
       chrysler_hold_stock_timestamp = microsecond_timer_get();
       const bool previous_active = (chrysler_hold_stock[2] & 0x20U) != 0U;
       if (cruise_engaged && !previous_active) { chrysler_hold_cancelled = false; }
       acc_main_on = GET_BIT(msg, 20U);
       for (int i = 0; i < 8; i++) { chrysler_hold_stock[i] = msg->data[i]; }
       const unsigned int raw_decel = ((msg->data[2] & 0xFU) << 8) | msg->data[3];
-      if (chrysler_hold_ready() && !chrysler_hold_cancelled && cruise_engaged && (raw_decel < 3173U)) {
+      if (chrysler_jeep_hold && chrysler_hold_ready() && !chrysler_hold_cancelled && cruise_engaged && (raw_decel < 3173U)) {
         chrysler_hold_armed = true;
       }
     }
@@ -82,6 +93,20 @@ static void chrysler_rx_hook(const CANPacket_t *msg) {
     brake_pressed = ((msg->data[0U] & 0xFU) >> 2U) == 1U;
   }
   if (chrysler_jeep_hold && !chrysler_hold_ready()) { chrysler_hold_armed = false; }
+}
+
+static void chrysler_long_button_rx(const CANPacket_t *msg) {
+  // Software cruise engage/cancel for OP long (SET+/SET-/RESUME/CANCEL).
+  if (chrysler_long_control && msg_matches(msg, CHRYSLER_CRUISE_BUTTONS, 0U)) {
+    if ((GET_LEN(msg) != 3U) || (chrysler_get_checksum(msg) != chrysler_compute_checksum(msg))) {
+      return;
+    }
+    if (GET_BIT(msg, 0U)) {
+      controls_allowed = false;
+    } else if (GET_BIT(msg, 2U) || GET_BIT(msg, 3U) || GET_BIT(msg, 4U)) {
+      controls_allowed = true;
+    }
+  }
 }
 
 static void chrysler_hold_cancel_rx(const CANPacket_t *msg) {
@@ -171,21 +196,40 @@ static bool chrysler_tx_hook(const CANPacket_t *msg) {
     const unsigned int raw_decel = ((msg->data[2] & 0xFU) << 8) | msg->data[3];
     const unsigned int stock_counter = chrysler_hold_stock[6] >> 4;
     const unsigned int counter = msg->data[6] >> 4;
-    tx &= chrysler_hold_armed && chrysler_hold_ready() && ((chrysler_hold_stock[2] & 0x20U) == 0U) &&
-          (raw_decel >= 2661U) && (raw_decel <= 3173U) &&
-          ((counter == ((stock_counter + 2U) & 0xFU)) || (counter == ((stock_counter + 3U) & 0xFU))) &&
-          (msg->data[0] == (chrysler_hold_stock[0] & 0x1FU)) && (msg->data[1] == chrysler_hold_stock[1]) &&
-          ((msg->data[2] & 0xF0U) == ((chrysler_hold_stock[2] & 0x80U) | 0x30U)) &&
-          (msg->data[4] == 0x12U) && (msg->data[5] == (chrysler_hold_stock[5] & 0xC0U)) &&
-          ((msg->data[6] & 0xFU) == (chrysler_hold_stock[6] & 1U)) &&
-          (chrysler_get_checksum(msg) == chrysler_compute_checksum(msg));
+    const bool counter_ok = (counter == ((stock_counter + 2U) & 0xFU)) || (counter == ((stock_counter + 3U) & 0xFU));
+    const bool crc_ok = chrysler_get_checksum(msg) == chrysler_compute_checksum(msg);
+    if (chrysler_long_control) {
+      // Cooperative OP long: ACC_DECEL / ENGINE_TORQUE within measured WK2 envelopes.
+      const unsigned int raw_torque = ((msg->data[0] & 0x1FU) << 8) | msg->data[1];
+      const uint32_t now = microsecond_timer_get();
+      const bool stock_fresh = safety_get_ts_elapsed(now, chrysler_hold_stock_timestamp) <= 100000U;
+      tx = controls_allowed && stock_fresh && counter_ok && crc_ok &&
+           (raw_decel >= CHRYSLER_LONG_DECEL_MIN) && (raw_decel <= CHRYSLER_LONG_DECEL_MAX) &&
+           (raw_torque >= CHRYSLER_LONG_TORQUE_MIN) && (raw_torque <= CHRYSLER_LONG_TORQUE_MAX) &&
+           ((msg->data[5] & 0xC0U) == 0U);
+    } else {
+      tx &= chrysler_hold_armed && chrysler_hold_ready() && ((chrysler_hold_stock[2] & 0x20U) == 0U) &&
+            (raw_decel >= 2661U) && (raw_decel <= 3173U) && counter_ok &&
+            (msg->data[0] == (chrysler_hold_stock[0] & 0x1FU)) && (msg->data[1] == chrysler_hold_stock[1]) &&
+            ((msg->data[2] & 0xF0U) == ((chrysler_hold_stock[2] & 0x80U) | 0x30U)) &&
+            (msg->data[4] == 0x12U) && (msg->data[5] == (chrysler_hold_stock[5] & 0xC0U)) &&
+            ((msg->data[6] & 0xFU) == (chrysler_hold_stock[6] & 1U)) && crc_ok;
+    }
   }
   return tx;
 }
 
 static safety_config chrysler_init(uint16_t param) {
   const uint32_t CHRYSLER_PARAM_RAM_DT = 1U;  // set for Ram DT platform
+  const uint32_t CHRYSLER_PARAM_LONG_CONTROL = 16U;
   chrysler_jeep_hold = param == 4U;
+#ifdef ALLOW_DEBUG
+  // Alpha long (WK2): gated like other experimental longitudinal ports.
+  chrysler_long_control = GET_FLAG(param, CHRYSLER_PARAM_LONG_CONTROL);
+#else
+  chrysler_long_control = false;
+  SAFETY_UNUSED(CHRYSLER_PARAM_LONG_CONTROL);
+#endif
   chrysler_hold_armed = false;
   chrysler_hold_cancelled = false;
   chrysler_hold_drive = false;
@@ -265,7 +309,7 @@ static safety_config chrysler_init(uint16_t param) {
   } else {
     chrysler_platform = CHRYSLER_PACIFICA;
     ret = BUILD_SAFETY_CFG(chrysler_rx_checks, CHRYSLER_TX_MSGS);
-    if (chrysler_jeep_hold) { SET_TX_MSGS(CHRYSLER_JEEP_HOLD_TX_MSGS, ret); }
+    if (chrysler_jeep_hold || chrysler_long_control) { SET_TX_MSGS(CHRYSLER_JEEP_HOLD_TX_MSGS, ret); }
   }
   chrysler_aol_configure(param);
   // The allocated Hybrid guard never falls back to ordinary or Ram output.
@@ -279,6 +323,7 @@ static safety_config chrysler_init(uint16_t param) {
 static void chrysler_optional_rx(const CANPacket_t *msg) {
   chrysler_aol_optional_rx(msg);
   chrysler_hold_cancel_rx(msg);
+  chrysler_long_button_rx(msg);
 }
 
 const safety_hooks chrysler_hooks = {

@@ -16,15 +16,18 @@ _JEEP_FLAGS = _BASE_FLAGS | ChryslerFlags.JEEP_BRAKE_HOLD_AVAILABLE
 
 
 def qualified(cp, *, marked_only=False):
+  # Stock-ACC AOL remains available when alpha long is merely *available* but off.
+  # OP longitudinal (alpha on) is a different owner and is excluded here.
   if (cp is None or cp.brand != 'chrysler' or cp.carFingerprint not in CHRYSLER_AOL_CARS or
       cp.notCar or cp.passive or cp.dashcamOnly or not cp.pcmCruise or
-      cp.openpilotLongitudinalControl or cp.alphaLongitudinalAvailable or
+      cp.openpilotLongitudinalControl or
       cp.steerControlType != structs.CarParams.SteerControlType.torque or
       len(cp.safetyConfigs) != 1 or
       cp.alternativeExperience not in ((CHRYSLER_AOL_EXPERIENCE,) if marked_only else (0, CHRYSLER_AOL_EXPERIENCE))):
     return False
   jeep = cp.carFingerprint in (CAR.JEEP_GRAND_CHEROKEE, CAR.JEEP_GRAND_CHEROKEE_2019)
-  flags = _JEEP_FLAGS if jeep else _BASE_FLAGS
+  # ALPHA_LONG_AVAILABLE may be set on WK2 2019 even while pcmCruise remains True.
+  flags = (_JEEP_FLAGS | ChryslerFlags.ALPHA_LONG_AVAILABLE) if jeep else _BASE_FLAGS
   expected = (1 if cp.carFingerprint == CAR.RAM_1500_5TH_GEN else
               8 if cp.carFingerprint == CAR.CHRYSLER_PACIFICA_2019_HYBRID and cp.alternativeExperience == 32 else 0)
   return bool(not int(cp.flags) & ~int(flags) and
