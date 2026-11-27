@@ -191,13 +191,13 @@ def test_hda2_uses_stronger_friction_damping_in_both_longitudinal_modes(alpha):
   controller = LatControlTorque(cp.as_reader(), interfaces[cp.carFingerprint](cp), .01)
   policy = controller.starpilot_extension.policy
   for sign in (-1., 1.):
-    for speed, demand, increment in ((10.5, .3, 0.), (17.5, .3, .28), (30., 1.1, .14), (30., 1.65, 0.)):
+    for speed, demand, increment in ((10.5, .3, 0.), (21., .3, .28), (30., 1.1, .14), (30., 1.65, 0.)):
       baseline, scale = policy.friction(sign * demand, .4, speed)
       assert policy.friction_context(sign * demand, .4, 0., speed) == pytest.approx((baseline + increment, scale))
 
   vm = VehicleModel(cp)
   parameters = log.VehicleParameters.new_message(angleOffsetDeg=0., roll=0.)
-  state = SimpleNamespace(vEgo=17.5, steeringAngleDeg=0., steeringPressed=False)
+  state = SimpleNamespace(vEgo=21., steeringAngleDeg=0., steeringPressed=False)
   shaped = policy.friction_context
   increments = []
 
@@ -239,3 +239,23 @@ def test_hda2_curve_transition_taper_preserves_steady_turns_and_driver_response(
   hda1 = topology_params('hdai')
   other = LatControlTorque(hda1.as_reader(), interfaces[hda1.carFingerprint](hda1), .01).starpilot_extension.policy
   assert other.output_context(.5, 1.2, .85, 0., 30.) == other.output(.5, 1.2, 30.)
+
+
+@pytest.mark.parametrize('topology,alpha,extra', [('hdai', False, 0.), ('hdaii', False, .25), ('hdaii', True, .25)])
+def test_palisade_ramp_friction_is_limited_to_shallow_mid_speed_corrections(topology, alpha, extra):
+  cp = topology_params(topology)
+  cp.openpilotLongitudinalControl, cp.pcmCruise = alpha, not alpha
+  policy = LatControlTorque(cp.as_reader(), interfaces[cp.carFingerprint](cp), .01).starpilot_extension.policy
+  mid_speed_damping = .28 * (15. - 10.5) / (17. - 10.5) if policy.hda2 else 0.
+  highway_damping = .28 if policy.hda2 else 0.
+  for demand in (-.1, .1):
+    for speed, increment in ((10.5, 0.), (15., mid_speed_damping + extra), (21., highway_damping), (30., highway_damping)):
+      threshold, scale = policy.friction(demand, .4, speed)
+      assert policy.friction_context(demand, .4, 0., speed) == pytest.approx((threshold + increment, scale))
+
+  threshold, scale = policy.friction(.8, .4, 15.)
+  assert policy.friction_context(.8, .4, 0., 15.) == pytest.approx((threshold + mid_speed_damping * .85 / 1.1, scale))
+  for attr in ('driver_steering', 'previous_pressed'):
+    setattr(policy, attr, True)
+    assert policy.friction_context(.1, .4, 0., 15.) == policy.friction(.1, .4, 15.)
+    setattr(policy, attr, False)

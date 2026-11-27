@@ -62,6 +62,9 @@ class PalisadeTorquePolicy(HKGShapedTorquePolicy):
       speed_weight = np.interp(speed, (10.5, 17.0), (0., 1.))
       curve_weight = np.interp(abs(setpoint), (.55, 1.65), (1., 0.))
       threshold += .28 * speed_weight * curve_weight
+      ramp_speed = np.interp(speed, (10.5, 13.5, 16., 21.), (0., 1., 1., 0.))
+      near_center = np.interp(abs(setpoint), (.12, .65), (1., 0.))
+      threshold += .25 * ramp_speed * near_center
     return threshold, scale
 
   def output(self, value, setpoint, speed):
