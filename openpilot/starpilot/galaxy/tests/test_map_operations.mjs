@@ -190,3 +190,12 @@ assert.equal(findRegions('Canada').some((r) => r.token === 'ca_province.ON'), tr
 assert.equal(MapOperationsPanel.computed.canadianRegions.call({ regions: findRegions('Canada') }).length, 1)
 assert.equal(MapOperationsPanel.computed.otherRegions.call({ regions: findRegions('Canada') })[0].token, 'nation.CA')
 assert.equal(MapOperationsPanel.computed.canadianRegions.call({ regions: largeCatalog.regions }).length, 0)
+
+const moscow = { token: 'ru_district.moscow', name: 'Russia - Moscow area', bounds: [54, 36, 58, 40], groups: 4, available: true }
+const central = { token: 'ru_district.central', name: 'Russia - Central Federal District', bounds: [48, 30, 60, 48], groups: 54, available: true }
+const russianCatalog = { ...largeCatalog, regions: [...largeCatalog.regions, moscow, central] }
+assert.equal(validCatalog(russianCatalog), true)
+const russianSearch = search => MapOperationsPanel.computed.regions.call({ search, catalog: russianCatalog })
+assert.deepEqual(russianSearch('Moscow'), [moscow])
+assert.deepEqual(russianSearch('Central'), [central])
+assert.deepEqual(MapOperationsPanel.computed.russianRegions.call({ regions: russianSearch('Russia') }), [moscow, central])

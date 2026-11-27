@@ -11,7 +11,7 @@ func TestBundledManagedRegionCoverage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(regions) != 242 {
+	if len(regions) != 252 {
 		t.Fatalf("bundled catalog changed: %d", len(regions))
 	}
 	available := 0
@@ -23,7 +23,7 @@ func TestBundledManagedRegionCoverage(t *testing.T) {
 			}
 		}
 	}
-	if available != 238 {
+	if available != 248 {
 		t.Fatalf("review supported-region count changed: %d", available)
 	}
 	for token, groups := range map[string]int{"us_state.CA": 36, "us_state.TX": 56, "us_state.IL": 12, "nation.CA": 765, "nation.JP": 72, "nation.US": 390} {
@@ -35,6 +35,23 @@ func TestBundledManagedRegionCoverage(t *testing.T) {
 	for _, token := range []string{"us_state.AK", "nation.FJ", "nation.RU", "nation.AQ", "us_state.CA.extra", "nation."} {
 		if _, err := ResolveManagedRegion(token); err == nil {
 			t.Fatalf("unsupported region %s accepted", token)
+		}
+	}
+}
+
+func TestRussianDistrictCoverage(t *testing.T) {
+	for token, want := range map[string]struct {
+		bounds [4]float64
+		groups int
+	}{
+		"central":           {[4]float64{48, 30, 60, 48}, 54},
+		"moscow":            {[4]float64{54, 36, 58, 40}, 4},
+		"far-east":          {[4]float64{36, 104, 84, 180}, 912},
+		"far-east-dateline": {[4]float64{62, -180, 74, -168}, 36},
+	} {
+		region, err := ResolveManagedRegion("ru_district." + token)
+		if err != nil || region.Bounds != want.bounds || region.Groups != want.groups {
+			t.Fatalf("%s: %+v %v", token, region, err)
 		}
 	}
 }

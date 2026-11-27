@@ -264,6 +264,15 @@ class TestMapSnapshotOperationOwner(unittest.TestCase):
     with patch.object(ops.subprocess, 'run', return_value=completed):
       self.assertEqual([row['token'] for row in ops._catalog()[229:]], [f'ca_province.{code}' for code in codes])
 
+  def test_catalog_accepts_russian_regions_from_provider(self):
+    rows = [{**REGION, 'token': f'nation.region{i}'} for i in range(249)]
+    tokens = ['ru_district.central', 'ru_district.moscow', 'ru_district.far-east-dateline']
+    rows.extend({**REGION, 'token': token} for token in tokens)
+    completed = subprocess.CompletedProcess([], 0, json.dumps(rows).encode(), b'')
+    with patch.object(ops.subprocess, 'run', return_value=completed):
+      self.assertEqual([row['token'] for row in ops._catalog()[-3:]], tokens)
+    self.assertIsNone(ops.TOKEN.fullmatch('ru_district.moscow.extra'))
+
   def test_catalog_rejects_incomplete_and_duplicate_regions(self):
     for count in (0, 1, 228, 230, 241, 243):
       with self.subTest(count=count):

@@ -2183,5 +2183,97 @@
         "max_lat": 70.16293
       }
     }
+  },
+  "ru_district": {
+    "central": {
+      "full_name": "Russia - Central Federal District",
+      "bounding_box": {
+        "min_lon": 30.6998,
+        "min_lat": 49.5045,
+        "max_lon": 47.6702,
+        "max_lat": 59.6533
+      }
+    },
+    "far-east": {
+      "full_name": "Russia - Far Eastern Federal District (main area)",
+      "bounding_box": {
+        "min_lon": 105.4219,
+        "min_lat": 37.3466,
+        "max_lon": 180,
+        "max_lat": 82.0002
+      }
+    },
+    "far-east-dateline": {
+      "full_name": "Russia - Far Eastern Federal District (across the date line)",
+      "bounding_box": {
+        "min_lon": -180,
+        "min_lat": 62.2613,
+        "max_lon": -168.6841,
+        "max_lat": 72.2393
+      }
+    },
+    "moscow": {
+      "full_name": "Russia - Moscow area",
+      "bounding_box": {
+        "min_lon": 36,
+        "min_lat": 54,
+        "max_lon": 40,
+        "max_lat": 58
+      }
+    },
+    "north-caucasus": {
+      "full_name": "Russia - North Caucasus Federal District",
+      "bounding_box": {
+        "min_lon": 40.6726,
+        "min_lat": 41.1355,
+        "max_lon": 48.8645,
+        "max_lat": 46.2391
+      }
+    },
+    "northwestern": {
+      "full_name": "Russia - Northwestern Federal District",
+      "bounding_box": {
+        "min_lon": 19.4084,
+        "min_lat": 54.3128,
+        "max_lon": 72.6248,
+        "max_lat": 82.5456
+      }
+    },
+    "siberian": {
+      "full_name": "Russia - Siberian Federal District",
+      "bounding_box": {
+        "min_lon": 70.2748,
+        "min_lat": 49.021,
+        "max_lon": 147.7133,
+        "max_lat": 81.8875
+      }
+    },
+    "southern": {
+      "full_name": "Russia - Southern Federal District",
+      "bounding_box": {
+        "min_lon": 36.5232,
+        "min_lat": 43.1896,
+        "max_lon": 49.9367,
+        "max_lat": 51.2554
+      }
+    },
+    "ural": {
+      "full_name": "Russia - Ural Federal District",
+      "bounding_box": {
+        "min_lon": 57.0426,
+        "min_lat": 51.8264,
+        "max_lon": 86.0952,
+        "max_lat": 75.011
+      }
+    },
+    "volga": {
+      "full_name": "Russia - Volga Federal District",
+      "bounding_box": {
+        "min_lon": 41.7211,
+        "min_lat": 49.751,
+        "max_lon": 61.7337,
+        "max_lat": 61.7197
+      }
+    }
   }
 }

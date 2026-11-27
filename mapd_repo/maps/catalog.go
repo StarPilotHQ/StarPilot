@@ -65,8 +65,9 @@ func BundledManagedRegions() ([]ManagedRegion, error) {
 	if err != nil {
 		return nil, err
 	}
-	result := make([]ManagedRegion, 0, 242)
-	for _, group := range []string{"nation", "us_state", "ca_province"} {
+	result := make([]ManagedRegion, 0, 252)
+	// Russian district rectangles follow Geofabrik extract envelopes, split at ±180°.
+	for _, group := range []string{"nation", "us_state", "ca_province", "ru_district"} {
 		for key, data := range menu[group] {
 			if key == "" || strings.Contains(key, ".") || data.FullName == "" {
 				return nil, errors.New("invalid bundled region")
