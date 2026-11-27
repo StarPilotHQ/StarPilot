@@ -120,7 +120,7 @@ def _tesla_fw_uses_normal_bus0() -> bool:
 # **** for use live only ****
 def fingerprint(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_multiplexing: ObdCallback,
                 cached_params: CarParamsT | None, *, known_gm_bus0: bool = False, known_ford_bus0: bool = False,
-                known_tesla_bus0: bool = False
+                known_tesla_bus0: bool = False, known_honda_accord: bool = False
                 ) -> tuple[str | None, dict, str, list[CarParams.CarFw], CarParams.FingerprintSource, bool]:
   if known_ford_bus0 and (known_gm_bus0 or not ford_normal_bus0_queries()):
     raise ValueError('Ford discovery topology no longer uses normal bus 0')
@@ -218,12 +218,15 @@ def fingerprint(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_mu
         else:
           car_fw = get_fw_versions(can_recv, can_send, set_obd_multiplexing,
                                    query_brand=normal_brand, normal_bus_only=True)
-        if normal_brand == 'honda' and honda_eps_needs_obd(match_fw_to_car(car_fw, vin)[1], car_fw):
-          # Read this car's VIN and EPS through the OBD port, as the generic path below does. Without the VIN
-          # the result is never cached, so every start would repeat the query.
-          set_obd_multiplexing(True)
-          vin_rx_addr, vin_rx_bus, vin = get_vin(can_recv, can_send, (0, 1))
-          car_fw = get_fw_versions(can_recv, can_send, set_obd_multiplexing, query_brand='honda')
+        if normal_brand == 'honda':
+          candidates = ({HONDA.HONDA_ACCORD} if known_honda_accord or fixed_fingerprint == HONDA.HONDA_ACCORD
+                        else match_fw_to_car(car_fw, vin)[1])
+          if honda_eps_needs_obd(candidates, car_fw):
+            # The model can be selected manually even when radar and camera firmware alone don't identify it.
+            # Read the EPS over OBD before deciding which steering protocol to use.
+            set_obd_multiplexing(True)
+            vin_rx_addr, vin_rx_bus, vin = get_vin(can_recv, can_send, (0, 1))
+            car_fw = get_fw_versions(can_recv, can_send, set_obd_multiplexing, query_brand='honda')
         ecu_rx_addrs = {(fw.responseAddress, fw.subAddress or None, fw.bus) for fw in car_fw if fw.responseAddress > 0}
       else:
         full_scan = True
@@ -320,6 +323,9 @@ def get_car(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_multip
   elif known_tesla_bus0:
     candidate, fingerprints, vin, car_fw, source, exact_match = fingerprint(
       can_recv, can_send, set_obd_multiplexing, cached_params, known_tesla_bus0=True)
+  elif forced_candidate == HONDA.HONDA_ACCORD:
+    candidate, fingerprints, vin, car_fw, source, exact_match = fingerprint(
+      can_recv, can_send, set_obd_multiplexing, cached_params, known_honda_accord=True)
   else:
     candidate, fingerprints, vin, car_fw, source, exact_match = fingerprint(can_recv, can_send, set_obd_multiplexing, cached_params)
 

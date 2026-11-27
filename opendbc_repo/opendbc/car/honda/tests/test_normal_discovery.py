@@ -5,8 +5,9 @@ import unittest
 from unittest.mock import patch
 
 from opendbc.car.can_definitions import CanData
-from opendbc.car.car_helpers import fingerprint
-from opendbc.car import fw_versions
+from opendbc.car.car_helpers import fingerprint, get_car
+from opendbc.car import fw_versions, structs
+from opendbc.car.honda.values import CAR, HondaFlags
 from opendbc.car.vin import VIN_UNKNOWN
 
 
@@ -35,7 +36,6 @@ class TestHondaNormalDiscovery(unittest.TestCase):
     self.assertIsNone(actual[0])
 
   def _accord_discovery(self, normal_read, obd_read):
-    from opendbc.car.honda.values import CAR
     switches = []
     with patch('opendbc.car.car_helpers.get_vin', return_value=(-1, -1, VIN_UNKNOWN)) as vin, \
          patch('opendbc.car.car_helpers.get_fw_versions', side_effect=[normal_read, obd_read]) as query, \
@@ -59,6 +59,30 @@ class TestHondaNormalDiscovery(unittest.TestCase):
     switches, vin, query, _ = self._accord_discovery([eps], AssertionError("no second query"))
     self.assertFalse(any(switches))
     query.assert_called_once()
+
+  def test_manually_selected_accord_queries_eps_when_radar_and_camera_cannot_identify_it(self):
+    radar = structs.CarParams.CarFw.new_message(ecu="fwdRadar", address=0x18DAB0F1, fwVersion=b"36802-TVA-A190\x00\x00", brand="honda")
+    camera = structs.CarParams.CarFw.new_message(ecu="fwdCamera", address=0x18DAB5F1, fwVersion=b"36161-TVA-A060\x00\x00", brand="honda")
+    normal_fw = [radar, camera]
+    self.assertNotIn(CAR.HONDA_ACCORD, fw_versions.match_fw_to_car(normal_fw, VIN_UNKNOWN)[1])
+
+    for version, angle in ((b"39990-TVA-A160\x00\x00", False), (b"39990-TVA,A16C\x00\x00", True), (None, False)):
+      with self.subTest(version=version):
+        switches = []
+        obd_fw = normal_fw.copy()
+        if version is not None:
+          obd_fw.append(structs.CarParams.CarFw.new_message(ecu="eps", address=0x18DA30F1, fwVersion=version, brand="honda"))
+        with patch('opendbc.car.car_helpers.get_vin', return_value=(-1, -1, VIN_UNKNOWN)), \
+             patch('opendbc.car.car_helpers.get_fw_versions', side_effect=[normal_fw, obd_fw]) as query, \
+             patch('opendbc.car.car_helpers.can_fingerprint', return_value=(None, {0: {}, 1: {}, 2: {}})):
+          interface = get_car(lambda wait_for_one=False: [recorded_frames()], lambda frames: None, switches.append,
+                              False, False, forced_candidate=CAR.HONDA_ACCORD)
+        self.assertEqual(switches, [False, True, False])
+        self.assertEqual([call.kwargs for call in query.call_args_list],
+                         [{'query_brand': 'honda', 'normal_bus_only': True}, {'query_brand': 'honda'}])
+        self.assertEqual(interface.CP.fingerprintSource, structs.CarParams.FingerprintSource.fixed)
+        self.assertEqual(interface.CP.steerControlType == structs.CarParams.SteerControlType.angle, angle)
+        self.assertEqual(bool(interface.CP.flags & HondaFlags.EPS_FW_UNREAD), version is None)
 
   def test_incomplete_or_invalid_traffic_cannot_select_honda(self):
     from opendbc.car.honda.discovery import normal_bus_topology
