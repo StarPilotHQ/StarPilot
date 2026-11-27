@@ -75,13 +75,17 @@ def expected_stopped_lateral_denial(cp, state, native, *, sm, axis_session_id, n
 
 
 def retain_pending_restriction(feedback, sm, cp, state, axis, stamp, now_ns, *, latched, producer):
-  """Retain intent only while a physical restriction interrupts a pending LAT grant."""
+  """Retain intent across a physical restriction and its pending LAT grant."""
   from openpilot.cereal import log
   from openpilot.starpilot.aol.runtime import AXIS_MAX_AGE_NS, SAFETY_MAX_AGE_NS
   from openpilot.starpilot.aol.transport_pause import _configured_transport_native
 
   prior = feedback.signature
   physical = state.steerFaultTemporary or state.standstill
+  eps_on_previous_grant = bool(state.steerFaultTemporary and axis.lateralActive and
+    axis.desiredLateral and axis.nativeAcknowledged and str(axis.mode) == 'lateralOnly' and
+    prior is not None and prior[9] and prior[11] and prior[13] and not prior[10] and not prior[12] and
+    0 < prior[8] <= prior[2] <= now_ns <= prior[4])
   restricted_ns = getattr(feedback, 'mazda_restriction_ns', 0)
   if (not latched or feedback.failed or feedback.paused or feedback.pending_event or feedback.retention_started_ns or
       not qualified(cp, marked_only=True) or not state.canValid or state.canTimeout or state.steerFaultPermanent or
@@ -92,7 +96,7 @@ def retain_pending_restriction(feedback, sm, cp, state, axis, stamp, now_ns, *, 
       prior is None or not producer or prior[14:16] != (producer, int(axis.intentIntegrityEpoch)) or axis.intentProducerSessionId != producer or
       prior[5] != 'none' or str(axis.faultReason) != 'none' or
       not feedback.session or axis.sessionId != feedback.session or not feedback.healthy_inventory or
-      axis.lateralActive or axis.desiredLongitudinal or axis.longitudinalActive or
+      axis.lateralActive and not eps_on_previous_grant or axis.desiredLongitudinal or axis.longitudinalActive or
       not 0 < prior[8] <= axis.sourceCarStateMonoTime <= stamp <= now_ns or
       now_ns - axis.sourceCarStateMonoTime > AXIS_MAX_AGE_NS):
     return False
@@ -107,6 +111,7 @@ def retain_pending_restriction(feedback, sm, cp, state, axis, stamp, now_ns, *, 
     return False
   native = _configured_transport_native(sm, cp, feedback.session, now_ns, allow_restricted_lateral=True)
   if (native is None or not native.pandaInventory or native.requestedLongitudinal or native.longitudinalAllowed or
+      eps_on_previous_grant and not native.requestedLateral or
       native.observedMonoTime < feedback.healthy_native_ns or
       (native.pandaSerial, tuple(p.hardwareSerial for p in native.pandaInventory)) != feedback.healthy_inventory):
     return False

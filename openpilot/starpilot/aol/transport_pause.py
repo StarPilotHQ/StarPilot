@@ -690,6 +690,10 @@ class TransportPauseFeedback:
 
   def _temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns, *, latched, producer, signature):
     from openpilot.starpilot.aol.temporary_steering import temporary_steering_intent_current
+    if cp.brand == 'mazda' and axis.lateralActive:
+      from openpilot.starpilot.car.mazda.aol import retain_pending_restriction
+      if retain_pending_restriction(self, sm, cp, cs, axis, stamp, now_ns, latched=latched, producer=producer):
+        return True
     return temporary_steering_intent_current(self, sm, cp, cs, axis, stamp, now_ns,
       latched=latched, producer=producer, signature=signature)
 
@@ -1467,15 +1471,15 @@ class TransportPauseFeedback:
       if cp.carFingerprint == 'HONDA_FIT' and current and continuity:
         from openpilot.starpilot.aol.temporary_steering import retain_fit_eps_intent
         fit_eps_retained = retain_fit_eps_intent(self, sm, cp, cs, axis, now_ns, latched=latched, producer=intent_producer_session)
-      if cp.brand == 'mazda' and current and continuity:
-        from openpilot.starpilot.car.mazda.aol import retain_pending_restriction
-        if retain_pending_restriction(self, sm, cp, cs, axis, stamp, now_ns, latched=latched, producer=intent_producer_session):
-          self.sequence, self.signature = int(axis.sequence), signature
-          return False
       if current and continuity and self._temporary_steering_intent_current(sm, cp, cs, axis, stamp, now_ns,
           latched=latched, producer=intent_producer_session, signature=signature):
         self.sequence, self.signature = int(axis.sequence), signature
         return False
+      if cp.brand == 'mazda' and not axis.lateralActive and current and continuity:
+        from openpilot.starpilot.car.mazda.aol import retain_pending_restriction
+        if retain_pending_restriction(self, sm, cp, cs, axis, stamp, now_ns, latched=latched, producer=intent_producer_session):
+          self.sequence, self.signature = int(axis.sequence), signature
+          return False
       if cp.brand == 'honda' and current and continuity:
         from openpilot.starpilot.aol.temporary_steering import honda_eps_recovery_intent_current
         if honda_eps_recovery_intent_current(self, sm, cp, cs, axis, stamp, now_ns, latched=latched, producer=intent_producer_session):
