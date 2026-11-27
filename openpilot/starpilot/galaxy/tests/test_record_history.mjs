@@ -61,7 +61,8 @@ const cards = LocalRecordingsPage.computed.routeCards.call({ query: "", data: { 
 assert.equal(cards[0].routeId, current)
 const app = readFileSync(new URL('../web/js/app.js', import.meta.url), 'utf8')
 assert.match(app, /<LocalRecordingsPage v-else-if="isActive\('\/recordings'\) && authState.localAccess"/)
-assert.match(app, /<div class="gx-nav-section"><div class="gx-nav-section__title">Routes<\/div><button[^>]*@click="goFromMenu\('\/recordings'\)"/)
+// Galaxy menu: Routes sits under Main with Home (the phone bar's Home · Settings · Routes, without Settings).
+assert.match(app, /<div class="gx-nav-section"><div class="gx-nav-section__title">Main<\/div>\s*<button v-for="item in NAV\.filter\(item => item\.path !== '\/settings'\)"[^>]*@click="goFromMenu\(item\.path\)"/)
 assert.match(app, /<div v-else-if="isActive\('\/recordings'\)" class="gx-stack">\s*<GxState[^>]*>Routes are unavailable through the Galaxy tunnel\. Open Galaxy locally to access Routes\.<\/GxState>\s*<LocalAccess :mode="state.monitorMode" :on-unauthorized="sessionExpired" \/>/)
 assert.match(app, /<BottomNav :path="route.path" @navigate="go"/)
 assert.doesNotMatch(BottomNav.template, /disabled|localAccess/)
