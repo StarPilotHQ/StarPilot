@@ -291,6 +291,7 @@ enum class SafetyModel_95551e5b1edaf451: uint16_t {
   BMW,
   MG,
   TESLA_PREAP,
+  LEAPMOTOR,
 };
 CAPNP_DECLARE_ENUM(SafetyModel, 95551e5b1edaf451);
 CAPNP_DECLARE_SCHEMA(d661512be2def77f);
