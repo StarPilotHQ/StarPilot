@@ -32,6 +32,12 @@ const GPS_MODES = [
   { value: "comma", label: "Comma and car only", hint: "Never uses the phone. Choose this if you don't share phone GPS." },
   { value: "phone", label: "Phone first", hint: "Uses the phone whenever it has a recent fix, otherwise the comma or car." }]
 const GPS_NAMES = { comma: "Comma", car: "Car", phone: "Phone" }
+// The Maps menu pages (menu.js): one title and intro per page, so no tab bar is needed.
+export const NAVIGATION_PAGES = Object.freeze({
+  route: { title: "Navigation", intro: "Pick a destination and follow your route on your comma." },
+  maps: { title: "Offline Maps", intro: "Download and manage maps the comma can use without a connection." },
+  setup: { title: "Navigation setup", intro: "Turn navigation on and choose where maps, directions and position come from." },
+})
 const coordinate = (value) => !!value && Number.isFinite(value.latitude) && Math.abs(value.latitude) <= 90 &&
   Number.isFinite(value.longitude) && Math.abs(value.longitude) <= 180
 const text = (value, limit) => typeof value === "string" && value.trim().length > 0 && value.length <= limit
@@ -321,6 +327,8 @@ export const NavigationPage = {
   watch: { initialTab(value) { this.tab = value } },
   computed: {
     routeAvoidances() { return ROUTE_AVOIDANCES },
+    // Each Maps menu page (menu.js) has its own title.
+    pageHeading() { return NAVIGATION_PAGES[this.tab] || NAVIGATION_PAGES.route },
     gpsModes() { return GPS_MODES },
     googleReady() { return !!this.data?.hasGoogleKey },
     mapChoices() {
@@ -548,15 +556,12 @@ export const NavigationPage = {
   },
   template: `
     <div class="gx-view gx-navigation" :inert="busy || searchPending" :aria-busy="busy || searchPending || undefined">
-      <header class="gx-settings__header gx-page-header"><div><h2>Navigation</h2>
-        <p>Pick a destination, save maps for offline use, and choose where maps, directions and position come from.</p></div><WikiHelp /></header>
+      <!-- Galaxy menu: Navigation, Offline Maps and Navigation setup are pages in the Maps menu (menu.js), so no tab bar here. -->
+      <header class="gx-settings__header gx-page-header"><div><h2>{{ pageHeading.title }}</h2>
+        <p>{{ pageHeading.intro }}</p></div><WikiHelp /></header>
       <ul v-if="sources.length" class="gx-navigation__sources" aria-label="Current sources">
         <li v-for="source in sources" :key="source.label"><a class="gx-navigation__chip" href="#/navigation/setup" @click.prevent="selectTab('setup')"><i class="bi" :class="source.icon" aria-hidden="true"></i><span>{{ source.label }}: {{ source.value }}</span></a></li>
       </ul>
-      <div class="gx-tabs gx-actions" role="group" aria-label="Navigation tools">
-        <button v-for="item in tabs" :key="item.tab"
-          type="button" class="gx-btn" :class="tab === item.tab ? '' : 'gx-btn--tonal'" :aria-pressed="tab === item.tab" @click="selectTab(item.tab)">{{ item.name }}</button>
-      </div>
       <div v-if="tab === 'maps'" class="gx-navigation__offline">
         <OfflineRoadMapsPanel :mode="mode" :unauthorized="unauthorized" :has-key="!!data?.hasKey" :metric="data?.isMetric !== false" />
         <MapOperationsPanel :mode="mode" :unauthorized="unauthorized" />
