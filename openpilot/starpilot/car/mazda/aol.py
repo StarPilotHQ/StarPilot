@@ -72,3 +72,45 @@ def expected_stopped_lateral_denial(cp, state, native, *, sm, axis_session_id, n
     native is not None and native.pandaInventory and native.requestedLateral and not native.lateralAllowed and
     not native.requestedLongitudinal and not native.longitudinalAllowed and
     _configured_transport_native(sm, cp, axis_session_id, now_ns, native, allow_restricted_lateral=True) == native)
+
+
+def retain_pending_restriction(feedback, sm, cp, state, axis, stamp, now_ns, *, latched, producer):
+  """Retain intent only while a physical restriction interrupts a pending LAT grant."""
+  from openpilot.cereal import log
+  from openpilot.starpilot.aol.runtime import AXIS_MAX_AGE_NS, SAFETY_MAX_AGE_NS
+  from openpilot.starpilot.aol.transport_pause import _configured_transport_native
+
+  prior = feedback.signature
+  physical = state.steerFaultTemporary or state.standstill
+  restricted_ns = getattr(feedback, 'mazda_restriction_ns', 0)
+  if (not latched or feedback.failed or feedback.paused or feedback.pending_event or feedback.retention_started_ns or
+      not qualified(cp, marked_only=True) or not state.canValid or state.canTimeout or state.steerFaultPermanent or
+      state.gearShifter != structs.CarState.GearShifter.drive or not state.cruiseState.available or
+      state.accFaulted or state.doorOpen or state.seatbeltUnlatched or state.vehicleSensorsInvalid or
+      state.steeringDisengage or state.buttonEvents or state.regenBraking or
+      not (physical or 0 < restricted_ns <= now_ns <= restricted_ns + SAFETY_MAX_AGE_NS) or
+      prior is None or not producer or prior[14:16] != (producer, int(axis.intentIntegrityEpoch)) or axis.intentProducerSessionId != producer or
+      prior[5] != 'none' or str(axis.faultReason) != 'none' or
+      not feedback.session or axis.sessionId != feedback.session or not feedback.healthy_inventory or
+      axis.lateralActive or axis.desiredLongitudinal or axis.longitudinalActive or
+      not 0 < prior[8] <= axis.sourceCarStateMonoTime <= stamp <= now_ns or
+      now_ns - axis.sourceCarStateMonoTime > AXIS_MAX_AGE_NS):
+    return False
+  event_ns = int(sm.logMonoTime['onroadEvents'])
+  names = log.OnroadEvent.EventName
+  if (not sm.seen['onroadEvents'] or not sm.valid['onroadEvents'] or not sm.alive['onroadEvents'] or
+      not 0 < event_ns <= now_ns or now_ns - event_ns > 1_500_000_000 or
+      any(e.immediateDisable or e.softDisable and e.name != names.steerTempUnavailable or
+          e.userDisable and not (e.name == names.pcmDisable and not state.cruiseState.enabled or
+                                e.name == names.pedalPressed and state.brakePressed and not state.gasPressed)
+          for e in sm['onroadEvents'])):
+    return False
+  native = _configured_transport_native(sm, cp, feedback.session, now_ns, allow_restricted_lateral=True)
+  if (native is None or not native.pandaInventory or native.requestedLongitudinal or native.longitudinalAllowed or
+      native.observedMonoTime < feedback.healthy_native_ns or
+      (native.pandaSerial, tuple(p.hardwareSerial for p in native.pandaInventory)) != feedback.healthy_inventory):
+    return False
+  feedback.mazda_restriction_native_ns = int(native.observedMonoTime)
+  if physical:
+    feedback.mazda_restriction_ns = now_ns
+  return True

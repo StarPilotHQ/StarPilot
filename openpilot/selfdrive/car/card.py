@@ -700,8 +700,10 @@ class Car:
       paddle_denial = getattr(getattr(self, 'aol_transport_feedback', None), 'subaru_paddle_denial', None)
       subaru_paddle_pending = bool(paddle_denial and not transport_reset and native is not None and
                                   paddle_denial[0] == int(native.observedMonoTime))
+      mazda_restriction_pending = bool(mazda_aol and not transport_reset and native is not None and
+        getattr(self.aol_transport_feedback, 'mazda_restriction_native_ns', 0) == int(native.observedMonoTime))
       rejected = native_reset or (not angle_arm_pending and not subaru_braked_main_pending and not subaru_paddle_pending and
-        not volkswagen_initial_wait and not volkswagen_reverse_pending and not honda_eps_pending and
+        not volkswagen_initial_wait and not volkswagen_reverse_pending and not honda_eps_pending and not mazda_restriction_pending and
         native_latch_rejected(self.CP, native, state=CS if angle_panda_ready else None))
       rejection_ns = now_ns if native_reset else int(native.observedMonoTime) if rejected else 0
       observe_physical = getattr(self.aol_card_intent, 'observe_physical_samples', None)

@@ -122,6 +122,7 @@ class TransportPauseFeedback:
     self.subaru_main_retained_native_ns = 0
     self.volkswagen_reverse_retained_native_ns = 0
     self.honda_eps_retained_native_ns = 0
+    self.mazda_restriction_native_ns = 0
     self.fit_eps_intent = self.fit_eps_grant = None
     self.subaru_eps_brake_event_ns = 0
     self.hkg_eps_join_until_ns = 0
@@ -1256,6 +1257,7 @@ class TransportPauseFeedback:
         self.volkswagen_brake_event = None
         self.ordinary_warning_pending_baseline = None
         self.temporary_eps_event_ns = 0
+        self.mazda_restriction_ns = 0
         self.hkg_eps_join_until_ns = 0
         self.ccnc_main_off_source_ns = 0
         self.cold_park_waiting = False
@@ -1465,6 +1467,11 @@ class TransportPauseFeedback:
       if cp.carFingerprint == 'HONDA_FIT' and current and continuity:
         from openpilot.starpilot.aol.temporary_steering import retain_fit_eps_intent
         fit_eps_retained = retain_fit_eps_intent(self, sm, cp, cs, axis, now_ns, latched=latched, producer=intent_producer_session)
+      if cp.brand == 'mazda' and current and continuity:
+        from openpilot.starpilot.car.mazda.aol import retain_pending_restriction
+        if retain_pending_restriction(self, sm, cp, cs, axis, stamp, now_ns, latched=latched, producer=intent_producer_session):
+          self.sequence, self.signature = int(axis.sequence), signature
+          return False
       if current and continuity and self._temporary_steering_intent_current(sm, cp, cs, axis, stamp, now_ns,
           latched=latched, producer=intent_producer_session, signature=signature):
         self.sequence, self.signature = int(axis.sequence), signature
@@ -1760,6 +1767,7 @@ class TransportPauseFeedback:
           self.cold_main_sparse_waiting = False
           self.cold_park_waiting = False
           self.temporary_eps_event_ns = 0
+          self.mazda_restriction_ns = 0
           self.lateral_native_ns = int(native.observedMonoTime)
           self.lateral_inventory = (native.pandaSerial, tuple(p.hardwareSerial for p in native.pandaInventory))
         else:
