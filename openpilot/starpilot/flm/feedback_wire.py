@@ -1,5 +1,4 @@
 """Sibling fork-carrier codec; never edits legacy learning evidence helpers."""
-from dataclasses import asdict
 from capnp.lib.capnp import _DynamicStructReader, _DynamicStructBuilder
 from openpilot.cereal import custom
 from openpilot.starpilot.flm.feedback_observation import (
@@ -35,8 +34,11 @@ def _carrier(parent, schema):
 
 
 def _write(row, fields):
-  values = asdict(row)
-  return {wire:bytes.fromhex(values[name]) if name in _DATA else values[name] for wire,name in fields}
+  values = {}
+  for wire, name in fields:
+    value = getattr(row, name)
+    values[wire] = bytes.fromhex(value) if name in _DATA else value
+  return values
 
 
 def _read(row, fields):

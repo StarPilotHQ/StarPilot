@@ -1482,9 +1482,8 @@ class Car:
 
   def _feedback_capture(self, now_ns):
     try:
-      source = self.sm['autoSteeringLearning'].learning.sourceReceipt
       factory = self.learning_feedback_factory
-      if factory is None or not source.enabled or source.manual:
+      if factory is None:
         self.learning_feedback_capture = None
         return None
       return factory(self, now_ns)

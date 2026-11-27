@@ -9,6 +9,7 @@ import re
 import struct
 import uuid
 from types import GetSetDescriptorType
+from capnp.lib.capnp import _DynamicStructReader
 
 PROTOCOL = 'original-consumed-co-feedback-v1'
 MAX_ROWS = 12000
@@ -215,15 +216,25 @@ def card_capture_for(owner, now_ns):
     digest = getattr(owner,'_feedback_cp_sha256',None)
     if digest is None:
       digest = owner._feedback_cp_sha256 = car_params_digest(owner.CP)
-    source = read_source_receipt(SimpleNamespace(valid=bool(sm.valid[service]),autoSteeringLearning=sm[service]),
-      now_ns=now_ns,cp_sha256=digest)
+    packet = sm[service]
+    cached = getattr(owner, '_feedback_source', None)
+    if cached is not None and cached[0] is packet and cached[1].cp_sha256 == digest:
+      source = cached[1]
+      if not source.observed_ns <= now_ns <= source.expires_ns:
+        raise ValueError('feedback settings source expired')
+    else:
+      source = read_source_receipt(SimpleNamespace(valid=True, autoSteeringLearning=packet), now_ns=now_ns, cp_sha256=digest)
+      # SubMaster keeps the same immutable reader until it receives another packet.
+      owner._feedback_source = (packet, source) if source is not None and type(packet) is _DynamicStructReader else None
     if source is None or not source.enabled or source.manual:
-      raise ValueError('feedback settings off/manual')
+      owner.learning_feedback_capture = None
+      return None
     capture = getattr(owner,'learning_feedback_capture',None)
     if type(capture) is not CardFeedbackCapture or (capture.source_epoch,capture.cp_sha256) != (source.source_epoch,digest):
       capture = owner.learning_feedback_capture = CardFeedbackCapture(source.source_epoch,digest)
     return capture
   except (AttributeError,KeyError,TypeError,ValueError,OverflowError):
+    owner._feedback_source = None
     owner.learning_feedback_capture = None
     return None
 
