@@ -13,7 +13,8 @@ from openpilot.starpilot.lateral.parked_clearance import (
 from openpilot.starpilot.saved_source import read_saved
 
 GAIN = 0.45
-MAX_CORRECTION = 0.0012
+MAX_CORRECTION = 0.006
+MAX_LATERAL_ACCEL = 0.5
 DEFAULT_GAP = 1.5
 DEFAULT_LIMIT = MAX_SHIFT
 MAX_RADAR_GAP_S = 0.25
@@ -125,7 +126,7 @@ class ParkedClearanceHost:
         self.reason = self.detector.reason
       elif watch:
         self.detector.shift, self.detector.demand, self.detector.hold, self.reason = 0.0, 0.0, 0.0, 'inactive'
-      self.correction = clip_scalar(-2.0 * self.detector.shift / lookahead ** 2 * GAIN, -MAX_CORRECTION * max(1.0, self.settings.limit / MAX_SHIFT), 0.0)
+      self.correction = clip_scalar(-2.0 * self.detector.shift / lookahead ** 2 * GAIN, -min(MAX_CORRECTION, MAX_LATERAL_ACCEL / speed ** 2), 0.0)
       self.shift = float(self.detector.shift)
       return self.correction
     except (AttributeError, IndexError, TypeError, ValueError, OverflowError):

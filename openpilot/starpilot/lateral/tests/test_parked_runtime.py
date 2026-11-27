@@ -82,7 +82,8 @@ class TestParkedRuntime(unittest.TestCase):
   def test_parked_car_steers_left_within_cap(self):
     subject = host()
     correction = drive(subject, 4.0, PARKED)[0]
-    self.assertEqual(correction, -runtime.MAX_CORRECTION)
+    self.assertAlmostEqual(correction, -2.0 * 0.3 / 11.0 ** 2 * runtime.GAIN, places=9)
+    self.assertLessEqual(-correction, min(runtime.MAX_CORRECTION, runtime.MAX_LATERAL_ACCEL / 11.0 ** 2))
     self.assertEqual(subject.reason, 'parked')
     subject = host(gap=1.4)
     correction = drive(subject, 4.0, [(7, 20.0, -3.1, -11.0)])[0]
@@ -94,8 +95,24 @@ class TestParkedRuntime(unittest.TestCase):
     self.assertAlmostEqual(drive(small, 4.0, PARKED)[0], -2.0 * 0.1 / 11.0 ** 2 * runtime.GAIN, places=7)
     self.assertAlmostEqual(small.shift, 0.1, places=5)
     wide = model_message(line_prob=0.05)
-    self.assertAlmostEqual(drive(large, 6.0, PARKED, model=wide)[0], -runtime.MAX_CORRECTION * 0.5 / 0.3, places=7)
+    correction = drive(large, 6.0, PARKED, model=wide)[0]
+    self.assertAlmostEqual(correction, -2.0 * 0.5 / 11.0 ** 2 * runtime.GAIN, places=9)
+    self.assertLessEqual(-correction, min(runtime.MAX_CORRECTION, runtime.MAX_LATERAL_ACCEL / 11.0 ** 2))
     self.assertLessEqual(large.shift, 0.5)
+
+  def test_city_speed_shift_is_not_clipped(self):
+    subject = host(gap=2.0, limit=0.5)
+    correction = drive(subject, 6.0, [(7, 20.0, -2.6, -9.0)], speed=9.0, model=model_message(line_prob=0.05))[0]
+    self.assertAlmostEqual(subject.shift, 0.5, places=5)
+    self.assertAlmostEqual(correction, -0.9 * 0.5 / 81.0, places=9)
+
+  def test_lateral_accel_stays_bounded_at_speed(self):
+    subject = host(gap=2.0, limit=0.5)
+    start = 1_000_000_000
+    for _ in range(12):
+      correction, _, start = drive(subject, 0.5, [(7, 20.0, -2.6, -17.0)], speed=17.0, model=model_message(line_prob=0.05), start=start)
+      self.assertLessEqual(-correction * 17.0 ** 2, runtime.MAX_LATERAL_ACCEL + 1e-12)
+    self.assertLess(correction, 0.0)
 
   def test_clear_road_and_far_objects_add_nothing(self):
     self.assertEqual(drive(host(), 3.0, [])[0], 0.0)
