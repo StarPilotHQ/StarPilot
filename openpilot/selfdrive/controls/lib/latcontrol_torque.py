@@ -54,6 +54,10 @@ class LatControlTorque(LatControl):
       and not CP.flags & HyundaiFlags.CANFD_ANGLE_STEERING
       and not (CP.notCar or CP.passive or CP.dashcamOnly)
     )
+    self.kona_se_highway_friction = bool(
+      CP.brand == 'hyundai' and CP.carFingerprint == CAR.HYUNDAI_KONA_EV_2023_NON_SCC and
+      CP.steerControlType == structs.CarParams.SteerControlType.torque and
+      not (CP.notCar or CP.passive or CP.dashcamOnly))
     self.controller_mode = default_selection(CP).mode if controller_mode is None else ControllerMode(controller_mode)
     self.accord_center_friction = (self.controller_mode == ControllerMode.STARPILOT and
                                    CP.carFingerprint == HONDA_CAR.HONDA_ACCORD_9G and CP.openpilotLongitudinalControl and
@@ -101,7 +105,7 @@ class LatControlTorque(LatControl):
     self.pid.set_limits(self.lateral_accel_from_torque(self.steer_max, self.torque_params), self.lateral_accel_from_torque(-self.steer_max, self.torque_params))
 
   def friction(self, error, deadzone, threshold, CS, setpoint):
-    if self.hkg_canfd_torque and not CS.steeringPressed:
+    if (self.hkg_canfd_torque or self.kona_se_highway_friction) and not CS.steeringPressed:
       weight = np.interp(CS.vEgo, [50 * CV.MPH_TO_MS, 65 * CV.MPH_TO_MS], [0.0, 1.0])
       weight *= np.interp(abs(setpoint), [0.25, 0.65], [1.0, 0.0])
       threshold += max(np.interp(CS.vEgo, [65 * CV.MPH_TO_MS, 75 * CV.MPH_TO_MS], [0.65, 0.78]) - threshold, 0.0) * weight

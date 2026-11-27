@@ -83,6 +83,16 @@ class HKGHighwayFrictionTests(unittest.TestCase):
       self.assertEqual(controller.friction(sign * 2., 0., .39, cs, 0.),
                        get_friction(sign * 2., 0., .39, controller.torque_params))
 
+  def test_kona_se_uses_highway_friction_with_ordinary_torque_controller(self):
+    cp, controller = controller_for(CAR.HYUNDAI_KONA_EV_2023_NON_SCC, dashcamOnly=False)
+    self.assertEqual(controller.controller_mode, ControllerMode.STANDARD)
+    self.assertFalse(cp.flags & HyundaiFlags.CANFD)
+    cs = SimpleNamespace(vEgo=65 * CV.MPH_TO_MS, steeringPressed=False)
+    self.assertLess(abs(controller.friction(.1, 0., .2, cs, .1)),
+                    abs(get_friction(.1, 0., .2, controller.torque_params)))
+    cs.vEgo = 40 * CV.MPH_TO_MS
+    self.assertEqual(controller.friction(.1, 0., .2, cs, .1), get_friction(.1, 0., .2, controller.torque_params))
+
   def test_symmetry_continuity_and_friction_bound(self):
     _, controller = controller_for()
     cap = controller.torque_params.latAccelFactor * controller.torque_params.friction
