@@ -1300,6 +1300,30 @@ class SettingsGatewayTest(unittest.TestCase):
       self.assertTrue(_onroad_preference("lane", key))
     self.assertFalse(_onroad_preference("torque", "reset_profiles"))
 
+  def test_parked_clearance_needs_radar_and_master_switch(self):
+    def row(label):
+      page = self.page("lane")
+      index = next(i for i, item in enumerate(page["rows"]) if item["label"] == label)
+      return page, index, page["rows"][index]
+    self.assertFalse(row("Parked car clearance")[2]["available"])
+    cp = SimpleNamespace(**vars(self.context.value.cp), radarUnavailable=False)
+    self.context.value = AuthorityContext(True, cp, b"radar")
+    page, index, toggle = row("Parked car clearance")
+    self.assertTrue(toggle["available"])
+    self.assertEqual(toggle["value"], "Off")
+    self.assertFalse(row("Parked car gap")[2]["available"])
+    intent = self.gateway.preview(page["view"], index, 0, self.session, self.generation, value="On")
+    self.assertTrue(self.gateway.confirm(intent["intent"], self.session, self.generation))
+    self.assertEqual(Path(self.params.get_param_path("ParkedClearance")).read_bytes(), b"1")
+    page, index, gap = row("Parked car gap")
+    self.assertTrue(gap["available"])
+    self.assertEqual((gap["value"], gap["minimum"], gap["maximum"], gap["unit"]), ("1.5", 1.0, 2.0, "m"))
+    intent = self.gateway.preview(page["view"], index, 0, self.session, self.generation, value=1.8)
+    self.assertTrue(self.gateway.confirm(intent["intent"], self.session, self.generation))
+    self.assertEqual(Path(self.params.get_param_path("ParkedClearanceGap")).read_bytes(), b"1.8")
+    from openpilot.starpilot.lateral.parked_runtime import ParkedSettings, read_settings
+    self.assertEqual(read_settings(self.params), ParkedSettings(True, 1.8))
+
   def test_live_lane_rejects_unsupported_vehicle_and_master_dependency(self):
     self.params.put_bool("LaneCentering", False, block=True)
     tagged, _ = self._live_lane_context()

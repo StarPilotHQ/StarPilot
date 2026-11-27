@@ -39,7 +39,7 @@ def read_settings(params) -> ParkedSettings:
 
 
 def runtime_supported(CP) -> bool:
-  return bool(lateral_supported(CP) and not CP.radarUnavailable)
+  return bool(lateral_supported(CP) and getattr(CP, 'radarUnavailable', True) is False)
 
 
 def _at(xs, ys, distance: float) -> float:

@@ -73,6 +73,8 @@
   "PIPPreviewInvert",
   "PIPPreviewShowOnBSM",
   "PIPPreviewShowOnBlinker",
+  "ParkedClearance",
+  "ParkedClearanceGap",
   "PauseLateralOnSignal",
   "PauseLateralSpeed",
   "PromptDistractedVolume",

@@ -111,6 +111,7 @@ AOL_LEGACY_THRESHOLD = "PauseAOLOnBrake"
 TORQUE_NUMBERS = LEGACY_KEYS
 LANE_LIVE_KEYS = frozenset(("LaneCentering", "LaneCenteringPauseOnSignal", "LaneCenterOffset",
                             "LaneCenteringE2EAuthority", "LaneCenteringStrength"))
+PARKED_KEYS = frozenset(("ParkedClearance", "ParkedClearanceGap"))
 CURVE_KEYS = frozenset((CURVE_MASTER_KEY, CURVE_NO_LEAD_KEY))
 CURVE_PAGE_KEYS = CURVE_KEYS | {"ShowCSCStatus"}
 CRUISE_KEYS = frozenset(("CustomCruise", "CustomCruiseLong"))
@@ -1233,6 +1234,10 @@ class FeatureSettingsOwner:
                           minimum=33, maximum=round(STRENGTH_MAX / STRENGTH_BASELINE * 100), step=1 if strength_row.step > 0 else 0,
                           reason="100% is normal; lower values reduce centering and higher values strengthen it" if strength_supported else
                           "Not available with this vehicle configuration"))
+      from openpilot.starpilot.lateral.parked_runtime import runtime_supported as parked_supported
+      parked_allowed = bool(configurable and lateral_context and parked_supported(self.vehicle_params()))
+      rows.extend((self._bool_row("ParkedClearance", "Parked car clearance", parked_allowed),
+                   self._number_row("ParkedClearanceGap", "Parked car gap", parked_allowed and self._value("ParkedClearance")[0] == "1")))
     elif page == FeaturePage.LANE_CHANGE:
       title = "Lane Changes"
       rows.extend(self.lane_changes.rows(parked))
@@ -1590,7 +1595,7 @@ class FeatureSettingsOwner:
       elif key in LANE_LIVE_KEYS and not self.authority("lane"):
         group = "lane_live"
       else:
-        group = "lane" if key.startswith("LaneCenter") else "long" if long_key else "slc"
+        group = "lane" if key.startswith("LaneCenter") or key in PARKED_KEYS else "long" if long_key else "slc"
     else:
       return False
     try:
@@ -1626,6 +1631,10 @@ class FeatureSettingsOwner:
       if key in LANE_LIVE_KEYS:
         from openpilot.starpilot.lateral.lane_runtime import runtime_supported
         if not runtime_supported(self.vehicle_params()):
+          return False
+      if key in PARKED_KEYS:
+        from openpilot.starpilot.lateral.parked_runtime import runtime_supported as parked_supported
+        if not parked_supported(self.vehicle_params()) or key == "ParkedClearanceGap" and self._value("ParkedClearance")[0] != "1":
           return False
       if (key == "LaneCenteringPauseOnSignal" and self._value("LaneCentering")[0] != "1" and
           not (reset_default and request.value == ("On" if self._default(key) == "1" else "Off"))):
@@ -1769,6 +1778,10 @@ class FeatureSettingsOwner:
       if key in LANE_LIVE_KEYS:
         from openpilot.starpilot.lateral.lane_runtime import runtime_supported
         if not runtime_supported(self.vehicle_params()):
+          return False
+      if key in PARKED_KEYS:
+        from openpilot.starpilot.lateral.parked_runtime import runtime_supported as parked_supported
+        if not parked_supported(self.vehicle_params()) or key == "ParkedClearanceGap" and self._value("ParkedClearance")[0] != "1":
           return False
       if ((request.vehicle_fingerprint is not None if key in ("ShowSpeedLimits", "AlwaysAllowUploads") else
            self.vehicle_fingerprint() != request.vehicle_fingerprint) or
