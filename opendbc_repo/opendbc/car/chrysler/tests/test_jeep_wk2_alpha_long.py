@@ -54,6 +54,14 @@ class TestJeepWk2AlphaLong(unittest.TestCase):
     self.assertFalse(getattr(cp, 'alphaLongitudinalAvailable', False))
     self.assertFalse(cp.openpilotLongitudinalControl)
 
+  def test_gap_stalk_maps_both_distance_directions(self):
+    # Distance+ and Distance− both feed gapAdjustCruise (OR'd into distance_button).
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / 'carstate.py').read_text()
+    self.assertIn('ACC_Distance_Dec', src)
+    self.assertIn('ACC_Distance_Inc', src)
+    self.assertIn('or buttons["ACC_Distance_Inc"]', src)
+
 
 if __name__ == '__main__':
   unittest.main()

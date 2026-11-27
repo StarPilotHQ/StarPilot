@@ -47,8 +47,10 @@ class CarState(CarStateBase):
 
     ret = structs.CarState()
 
+    # cruise / stalk buttons (gap ± both cycle OP follow distance, Volvo-style)
+    buttons = cp.vl["CRUISE_BUTTONS"]
     prev_distance_button = self.distance_button
-    self.distance_button = cp.vl["CRUISE_BUTTONS"]["ACC_Distance_Dec"]
+    self.distance_button = int(bool(buttons["ACC_Distance_Dec"] or buttons["ACC_Distance_Inc"]))
 
     # lock info
     ret.doorOpen = any([cp.vl["BCM_1"]["DOOR_OPEN_FL"],
@@ -87,7 +89,6 @@ class CarState(CarStateBase):
 
     # cruise state
     cp_cruise = cp_cam if self.CP.carFingerprint in RAM_CARS else cp
-    buttons = cp.vl["CRUISE_BUTTONS"]
 
     ret.cruiseState.available = cp_cruise.vl["DAS_3"]["ACC_AVAILABLE"] == 1
     ret.cruiseState.enabled = cp_cruise.vl["DAS_3"]["ACC_ACTIVE"] == 1

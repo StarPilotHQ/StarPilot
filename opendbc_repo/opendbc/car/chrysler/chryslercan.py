@@ -91,6 +91,8 @@ def create_das_3_long_command(packer, counter_offset, accel, das_3, *, long_acti
     torque = CarControllerParams.TORQUE_MIN
   torque = float(max(CarControllerParams.TORQUE_MIN, min(CarControllerParams.TORQUE_MAX, torque)))
 
+  # Copy preserves OEM bits we do not own (e.g. COLLISION_BRK_PREP / AEB-related).
+  # Only override the longitudinal command surface; never clear collision prep from stock.
   values.update(
     ACC_AVAILABLE=1,
     ACC_ACTIVE=1 if long_active else 0,
@@ -98,7 +100,7 @@ def create_das_3_long_command(packer, counter_offset, accel, das_3, *, long_acti
     ACC_STANDSTILL=1 if (long_active and stopping) else 0,
     ACC_DECEL_REQ=1 if (long_active and accel < -0.1) else 0,
     ACC_DECEL=accel if long_active else 0.0,
-    ACC_BRK_PREP=0,
+    ACC_BRK_PREP=0,  # OP long accel path; ACC_BRK_PREP is not AEB (see COLLISION_BRK_PREP above)
     ENGINE_TORQUE_REQUEST=torque if long_active else CarControllerParams.TORQUE_MIN,
     ENGINE_TORQUE_REQUEST_MAX=1 if (long_active and accel > 0.05) else 0,
     COUNTER=(int(das_3["COUNTER"]) + counter_offset) % 16,

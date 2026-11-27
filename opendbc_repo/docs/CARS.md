@@ -223,7 +223,7 @@
 |Hyundai|Veloster 2019-20|Smart Cruise Control (SCC)|[Upstream](#upstream)|
 |Jeep|Cherokee 2019-23|Adaptive Cruise Control (ACC)|[Dashcam mode](#dashcam)|
 |Jeep|Grand Cherokee 2016-18|Adaptive Cruise Control (ACC)|[Upstream](#upstream)|
-|Jeep|Grand Cherokee 2019-21|Adaptive Cruise Control (ACC)|[Upstream](#upstream) / StarPilot alpha long (DAS_3 cooperative)|
+|Jeep|Grand Cherokee 2019-21|Adaptive Cruise Control (ACC)|[Upstream](#upstream) / StarPilot alpha long WIP (DAS_3 cooperative; ACC-to-stop + DAS_4 HUD pending logs)|
 |Kia|Carnival 2022-24|Smart Cruise Control (SCC)|[Upstream](#upstream)|
 |Kia|Carnival (China only) 2023|Smart Cruise Control (SCC)|[Upstream](#upstream)|
 |Kia|Ceed 2019-21|Smart Cruise Control (SCC)|[Upstream](#upstream)|
