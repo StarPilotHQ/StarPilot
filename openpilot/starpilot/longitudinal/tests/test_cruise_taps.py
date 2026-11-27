@@ -63,3 +63,55 @@ def test_repeated_imperial_cruise_taps_do_not_build_a_sharp_acceleration_peak():
     speed += previous * .05
   assert max(acceleration) <= .36
   assert speed > 28. + 3 * CV.MPH_TO_MS
+
+
+@pytest.mark.parametrize('case', ('settling', 'large deficit', 'above set', 'lead one', 'lead two', 'experimental',
+                                  'stop', 'driver pedal', 'low speed', 'speed ceiling', 'faster disabled', 'other car'))
+def test_elantra_fast_takeoffs_settle_only_during_clear_cruise(case, monkeypatch):
+  from opendbc.car.hyundai.interface import CarInterface as HyundaiInterface
+  from opendbc.car.hyundai.values import CAR as HYUNDAI
+  from openpilot.selfdrive.controls.lib import longitudinal_planner as lp
+  from openpilot.starpilot.longitudinal.cruise_ceiling import CruiseCeiling
+  from openpilot.starpilot.longitudinal.tests.test_conditional_handoff import Frame, NOW, DRIVE
+  from openpilot.starpilot.longitudinal.tests.test_cruise_ceiling import ACTIVE
+
+  identity = HYUNDAI.HYUNDAI_SONATA if case == 'other car' else HYUNDAI.HYUNDAI_ELANTRA_2021
+  cp = HyundaiInterface.get_params(identity, {0: {}, 1: {}, 2: {}}, [], True, False, False)
+  assert cp.openpilotLongitudinalControl and not cp.pcmCruise
+  speed = {'large deficit': 18., 'above set': 20.3, 'low speed': 4.}.get(case, 19.7)
+  candidate, original = (lp.LongitudinalPlanner(cp, init_v=speed) for _ in range(2))
+  cruise_accel = lp.get_cruise_accel
+
+  def previous(*args, **kw):
+    kw['gentle_settle'] = False
+    return cruise_accel(*args, **kw)
+
+  for tick in range(24):
+    now = NOW + tick * 50_000_000
+    sm = Frame()
+    sm.logMonoTime = dict.fromkeys(sm, now - 5_000_000)
+    sm.recv_time = dict.fromkeys(sm, (now - 5_000_000) / 1e9)
+    sm['selfdriveState'].experimentalMode = case == 'experimental'
+    sm['carState'].vEgo = speed
+    sm['carState'].vCruise = 72.
+    sm['carState'].canValid = True
+    sm['carState'].gasPressed = case == 'driver pedal'
+    sm['modelV2'].action.shouldStop = case == 'stop'
+    sm['modelV2'].action.desiredAcceleration = 1.
+    sm['radarState'].leadOne.present = case == 'lead one'
+    sm['radarState'].leadTwo.present = case == 'lead two'
+    kwargs = {'faster_lead_takeoff': case != 'faster disabled', 'now_ns': now, 'drive_id': DRIVE,
+              'cruise_ceiling': CruiseCeiling(19.9, ACTIVE) if case == 'speed ceiling' else None}
+    candidate.update(sm, **kwargs)
+    with monkeypatch.context() as restore:
+      restore.setattr(lp, 'get_cruise_accel', previous)
+      original.update(sm, **kwargs)
+    assert candidate.mpc.solution_status == original.mpc.solution_status == 0
+    assert candidate.output_should_stop == original.output_should_stop
+    if case != 'settling':
+      assert candidate.a_cruise == original.a_cruise
+      assert candidate.output_a_target == original.output_a_target
+  if case == 'settling':
+    error = 20. - sm['carState'].vEgo
+    assert candidate.output_a_target == pytest.approx(error / 2.)
+    assert original.output_a_target == pytest.approx(error)

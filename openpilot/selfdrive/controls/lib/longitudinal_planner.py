@@ -82,7 +82,7 @@ def get_cruise_accel(e2e, v_cruise, v_ego, a_cruise_prev, angle_steers, CP, dt, 
                      profile: AppliedProfile | None = None,
                      base_brake_floor: float = A_CRUISE_MIN, selected_acceleration_max: float | None = None, faster_takeoffs: bool = False,
                      *, a_target_prev: float | None = None, ease_slc_braking: bool = False,
-                     speed_step: bool = False, downhill_error: float | None = None):
+                     speed_step: bool = False, downhill_error: float | None = None, gentle_settle: bool = False):
   ceiling = TAKEOFF_ACCEL_MAX if faster_takeoffs else ACCEL_MAX
   max_accel = ceiling if e2e else get_max_accel(v_ego, faster_takeoffs)
   if selected_acceleration_max is not None and not e2e:
@@ -110,6 +110,9 @@ def get_cruise_accel(e2e, v_cruise, v_ego, a_cruise_prev, angle_steers, CP, dt, 
     max_accel = min(max_accel, 0.)
   if not e2e and not faster_takeoffs and v_ego >= MIN_ALLOW_THROTTLE_SPEED and speed_error > 0.:
     speed_error /= CRUISE_ACCEL_RESPONSE_TIME
+  elif gentle_settle and speed_error > 0.:
+    # The Elantra's delayed response can overshoot when Fast Takeoffs doubles a small speed correction.
+    speed_error /= np.interp(speed_error, [.5, 1.5], [CRUISE_ACCEL_RESPONSE_TIME, 1.0])
   elif ease_slc_braking and speed_error < 0.:
     speed_error /= CRUISE_ACCEL_RESPONSE_TIME  # correct an SLC overshoot as gradually as an approach
   target_accel = np.clip(speed_error, cruise_min, max_accel)
@@ -513,13 +516,26 @@ class LongitudinalPlanner:
       else:
         self.previous_manual_cruise_kph = None
         self.manual_cruise_step_until_ns = 0
+    cs = sm['carState']
+    gentle_settle = (
+      self.CP.carFingerprint == 'HYUNDAI_ELANTRA_2021' and faster_takeoffs and
+      profile_eligible and not reset_state and v_ego >= 10. and self.allow_throttle and
+      cs.canValid and not (cs.canTimeout or cs.gasPressed or cs.brakePressed or cs.standstill) and
+      not sm['selfdriveState'].experimentalMode and not sm['controlsState'].forceDecel and traffic_mode is not True and
+      not any(lead.present for lead in (sm['radarState'].leadOne, sm['radarState'].leadTwo)) and
+      not (self.fcw or self.force_stop_plan.forcing or self.force_stop_plan.should_stop or self.force_stop_plan.approach_distance_m or
+           output_should_stop_mpc or output_should_stop_e2e) and self.mpc.solution_status == 0 and
+      ceiling.effective_mps is None and curve.effective_mps is None and navigation_target is None and downhill_error is None and
+      (coast_plan is None or not (coast_plan.force_decel or coast_plan.pulse_coasting or coast_plan.brake_floor is not None)) and
+      v_cruise == v_cruise_kph * CV.KPH_TO_MS
+    )
     self.a_cruise = get_cruise_accel(sm['selfdriveState'].experimentalMode, v_cruise, v_ego,
                                      cruise_seed, steer_angle_without_offset, self.CP, self.dt,
                                      accel_coast, self.allow_throttle, cruise_profile,
                                      base_brake_floor=global_floor, selected_acceleration_max=selected_acceleration, faster_takeoffs=faster_takeoffs,
                                      a_target_prev=self.output_a_target,
                                      ease_slc_braking=v_cruise == ceiling.effective_mps and not relevant_lead, speed_step=speed_step,
-                                     downhill_error=downhill_error)
+                                     downhill_error=downhill_error, gentle_settle=gentle_settle)
     if self.button_cruise is not None:
       button_target = self.button_cruise.sample(
         sm, now_ns=sample_now_ns, drive_id=drive_id, target_speed=v_cruise,
