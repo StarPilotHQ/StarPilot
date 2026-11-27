@@ -116,8 +116,7 @@ def gauge_data(state: OnroadState, *, lead_stopped: bool = False) -> AetherGauge
   if current == 'cem_stop' or stop_observed(state):
     # The current receipt has no committed distance. Preserve the light/road
     # graphic without claiming a numeric distance from an unrelated model path.
-    return AetherGaugeData('STOP' if stop_active(state) else 'DETECTED', color=COLOR_FORCE_STOP, indicator_type=IndicatorType.STOP_LIGHT,
-                           indicator_extra='red')
+    return AetherGaugeData('STOP' if stop_active(state) else 'DETECTED', color=COLOR_FORCE_STOP, indicator_type=IndicatorType.STOP_LIGHT)
   curve = state.curve
   curve_glow = glowing(state)
   if curve_glow or curve_slowing(state):
@@ -142,7 +141,7 @@ def gauge_data(state: OnroadState, *, lead_stopped: bool = False) -> AetherGauge
     stopped = lead is not None and lead.speed_mps < (1.2 if lead_stopped else 0.8)
     return AetherGaugeData('STOPPED' if stopped else 'SLOW' if lead is not None else 'LEAD',
                            color=COLOR_LEAD_STOPPED if stopped else COLOR_LEAD_SLOWER,
-                           indicator_type=IndicatorType.LEAD, indicator_value=lead.distance_m if lead is not None else 0.0,
+                           indicator_type=IndicatorType.LEAD,
                            indicator_extra='stopped' if stopped else 'slower' if lead is not None else '')
   return None
 
@@ -179,11 +178,8 @@ class AetherGauge:
   def _render_unified_road(self, rect, icx, icy, data):
     bottom = icy + ROAD_HALF_SIZE
 
-    if data.indicator_type == IndicatorType.STOP_LIGHT:
-      # Frozen decorative road anchor, not a reported stop distance.
-      distance = 15.0
-    else:
-      distance = data.indicator_value
+    # Frozen decorative stop-light anchor, not a reported stop distance; the lead car is fixed at 6.5 m.
+    distance = 15.0
 
     points_left = []
     points_right = []
@@ -386,19 +382,17 @@ class AetherGauge:
     rl.draw_rectangle_rounded_lines_ex(rect_housing, 0.25, 4, 1.5, rl.Color(100, 100, 100, 255))
 
     r_bulb = 3.2 * SCALE * scale_light
-    active_light = data.indicator_extra if data.indicator_extra in ("red", "yellow", "green") else "red"
-
     bulbs = [
       (cy_light - 10.0 * SCALE * scale_light, "red", rl.Color(255, 30, 60, 255), rl.Color(50, 10, 15, 255)),
       (cy_light, "yellow", rl.Color(255, 200, 0, 255), rl.Color(50, 40, 0, 255)),
       (cy_light + 10.0 * SCALE * scale_light, "green", rl.Color(0, 255, 100, 255), rl.Color(0, 40, 15, 255)),
     ]
     for y, name, active_c, inactive_c in bulbs:
-      if name == "red" and active_light == "red":
+      if name == "red":
         glow_pulse = _pulse(1.5)
         rl.draw_circle_v(rl.Vector2(cx_light, y), r_bulb + 8.0 * SCALE * glow_pulse, rl.Color(255, 30, 60, 25))
         rl.draw_circle_v(rl.Vector2(cx_light, y), r_bulb + 4.0 * SCALE * glow_pulse, rl.Color(255, 30, 60, 60))
-      rl.draw_circle_v(rl.Vector2(cx_light, y), r_bulb, active_c if active_light == name else inactive_c)
+      rl.draw_circle_v(rl.Vector2(cx_light, y), r_bulb, active_c if name == "red" else inactive_c)
 
   def _draw_mini_cradle(self, cx, bottom, data):
     if not data.text:
