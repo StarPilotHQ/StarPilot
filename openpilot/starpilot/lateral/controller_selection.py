@@ -110,7 +110,7 @@ def torque_choice_cp(cp):
         not cp.safetyConfigs or any(config.safetyModel in unsafe for config in cp.safetyConfigs)):
       return None
     from opendbc.car.interfaces import CarInterfaceBase
-    prepared = cp.as_reader().as_builder()
+    prepared = cp.as_builder() if hasattr(cp, 'as_builder') else cp.as_reader().as_builder()
     CarInterfaceBase.configure_torque_tune(prepared.carFingerprint, prepared.lateralTuning)
     return prepared if generic_torque_supported(prepared) else None
   except (AttributeError, TypeError, ValueError, OverflowError, KeyError, NotImplementedError, OSError):

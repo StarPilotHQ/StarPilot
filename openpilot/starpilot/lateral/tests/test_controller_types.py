@@ -78,6 +78,19 @@ def test_developer_choice_saved_and_startup_snapshot_is_frozen(tmp_path, identit
   assert not owner.apply(replace(request, value='Invented Controller'))
 
 
+@pytest.mark.parametrize('identity', PID_CARS)
+def test_reader_car_params_exposes_steering_controller_in_settings(tmp_path, identity):
+  cp = factory(identity).as_reader()
+  assert torque_choice_cp(cp) is not None
+  params = Params(str(tmp_path))
+  owner = FeatureSettingsOwner(params, lambda _: True, vehicle_fingerprint=lambda: identity, vehicle_params=lambda: cp)
+  for page in ('torque', 'torque/developer'):
+    state = owner.snapshot(page, parked=True, system_long=False, lateral_context=True, metric=False)
+    current = next(r for r in state.rows if r.key == DOCUMENT_KEY)
+    assert current.available and current.value == 'Stock Controller'
+    assert current.choices == ('Stock Controller', 'Torque Controller', 'StarPilot Controller')
+
+
 @pytest.mark.parametrize('field,value', [('steerControlType', 'angle'), ('steerControlType', 'curvature'),
   ('brand', 'toyota'), ('notCar', True), ('passive', True), ('dashcamOnly', True), ('carFingerprint', 'UNKNOWN')])
 def test_forced_choice_refuses_unsupported_configuration(field, value):
