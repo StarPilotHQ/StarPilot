@@ -9,7 +9,7 @@ from openpilot.starpilot.ui.onroad_state import AlertSize, slc_action_occludes
 from openpilot.starpilot.ui.appearance_preferences import CameraViewChoice
 from openpilot.starpilot.ui.presentation import FontRole, Profile
 from openpilot.starpilot.ui.raylib import rl
-from openpilot.starpilot.ui.speed_limit_widget import draw_line, draw_text
+from openpilot.starpilot.ui.speed_limit_widget import draw_line, draw_text, sign_text_scale
 
 
 def stop_sign_bounds(profile: Profile, state):
@@ -49,7 +49,7 @@ def draw_stop_sign(fonts, x: float, y: float, *, scale: float = 1) -> None:
                          center.y + radius * math.sin(math.radians(22.5 + i * 45))) for i in range(8)]
   for i, point in enumerate(vertices):
     draw_line(fonts.profile, point, vertices[(i + 1) % 8], 2 * scale, white)
-  size = 28 * scale * Profile.COMPACT.font_scale / fonts.profile.font_scale
+  size = 28 * sign_text_scale(fonts.profile, scale)
   left, right = fonts.horizontal_ink('STOP', FontRole.BOLD, size)
   top, bottom = fonts.vertical_ink('STOP', FontRole.BOLD, size)
   draw_text(fonts, 'STOP', FontRole.BOLD, size, center.x - (left + right) / 2, center.y - (top + bottom) / 2, white)

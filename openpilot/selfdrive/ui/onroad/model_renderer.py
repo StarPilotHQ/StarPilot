@@ -100,8 +100,7 @@ class ModelGeometry:
 
 class ModelRenderer(PathMarkers, ModelGeometry, Widget):
   LINE_PX = (12, 28)
-  LEAD_INFO_FONT = LEAD_INFO_MIN = 77  # 96 px drawn: digits near 22 arcmin at 70 cm (ISO 15008 recommends 20)
-  UNIT_SCALE = 32 / 77  # 40 px drawn, the HUD's label size
+  LEAD_INFO_FONT = LEAD_INFO_MIN = 66  # a caption, just legible: digits ~51 px, ~16 arcmin at 70 cm on the 6-inch screen
 
   def __init__(self):
     super().__init__()

@@ -243,7 +243,7 @@ class OnroadView:
         lines.append(word)
       else:
         lines[-1] = candidate
-    line_height = size * profile.font_scale * 1.2
+    line_height = self.fonts.measure(lines[0], role, size).height * 1.2
     top = position["y"] + (height - len(lines) * line_height) / 2
     color = rl.Color(*rgba(state.customization, "text", profile, MODE_WIDGET))
     shadow = rl.Color(0, 0, 0, min(color.a, 170))

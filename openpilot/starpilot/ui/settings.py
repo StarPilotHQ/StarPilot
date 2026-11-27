@@ -13,7 +13,8 @@ from openpilot.starpilot.ui.settings_geometry import ACCENT, constellation, draw
 from openpilot.starpilot.ui.settings_state import compact_menu, Destination, RAIL, TILES, SettingsState, tile_rects
 
 ICON_COLOR = rl.Color(246, 242, 254, 255)
-ICON_SCALE = 0.8 * (100 / 60) * 1.6
+ICON_SIZE = 128
+ICON_SCALE = ICON_SIZE / 60  # the tile icons are 60-unit vector art
 
 
 class SettingsView:
@@ -42,10 +43,9 @@ class SettingsView:
       draw_constellation_nodes(nodes, edges, rect, ACCENT, 1)
       text_scale = max(0.82, min(1.12, min(rect.width / 360, rect.height / 205)))
       size = max(44, round(50 * text_scale))
-      icon_height = 128.0
-      top = rect.y + max(0, (rect.height - icon_height - 8 - size) / 2)
-      self.assets.icon(icon, rect.x + (rect.width - icon_height) / 2, top, ICON_SCALE, ICON_COLOR)
-      self._fit_title(title, rect.x + 16, top + icon_height + 8, rect.width - 32, size)
+      top = rect.y + max(0, (rect.height - ICON_SIZE - 8 - size) / 2)
+      self.assets.icon(icon, rect.x + (rect.width - ICON_SIZE) / 2, top, ICON_SCALE, ICON_COLOR)
+      self._fit_title(title, rect.x + 16, top + ICON_SIZE + 8, rect.width - 32, size)
     self.render_rail(state)
 
   def _fit_title(self, text, x, y, width, size):

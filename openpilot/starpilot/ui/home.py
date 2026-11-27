@@ -169,11 +169,10 @@ class HomeView:
       rl.draw_rectangle_rounded(rl.Rectangle(34, y + 4, 100, 118), 0.3, 10, color)
       clip.end_scissor_mode()
       outside_rounded_border(rect, 0.3, 10, 2, rl.Color(255, 255, 255, 85))
-      text_y = y + (63 - 2 * 35 * self.fonts.profile.font_scale)
-      for text in (label, value):
-        measured = self._measure(text, FontRole.SEMI_BOLD, 35)
-        text_y += measured.height
-        self._text(text, FontRole.SEMI_BOLD, 35, 52 + (218 - measured.width) / 2, text_y)
+      line = self._measure(label, FontRole.SEMI_BOLD, 35).height
+      for text, top in ((label, y + 63 - line), (value, y + 63)):  # two lines centered on the 126 px card
+        width = self._measure(text, FontRole.SEMI_BOLD, 35).width
+        self._text(text, FontRole.SEMI_BOLD, 35, 52 + (218 - width) / 2, top)
     if state.recording_audio:
       rl.draw_rectangle_rounded(rl.Rectangle(170, 245, 75, 40), 1, 10, rl.Color(201, 34, 49, 255))
       self._icon("icons/microphone.png", 30, 30, 192.5, 250)
@@ -191,7 +190,8 @@ class HomeView:
     width = self._measure(text, FontRole.NORMAL, size).width
     if width > line_x - rect.x - 50:
       size = max(32, int(size * (line_x - rect.x - 50) / width))
-    self._text(text, FontRole.NORMAL, size, int(rect.x + 25), int(rect.y + rect.height / 2 - size * self.fonts.profile.font_scale // 2), rl.BLACK)
+    height = self._measure(text, FontRole.NORMAL, size).height
+    self._text(text, FontRole.NORMAL, size, int(rect.x + 25), int(rect.y + rect.height / 2 - height // 2), rl.BLACK)
     if state.experimental_enabled:
       self._icon("icons/experimental_grey.png", 80, 80, rect.x + rect.width - 105, rect.y + (rect.height - 80) / 2)
     else:

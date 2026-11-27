@@ -74,9 +74,14 @@ def draw_speed_row(fonts, text, role, size, center, row, color, reference):
   draw_text(fonts, text, role, size, center - (left + right) / 2, row - (top + bottom) / 2, color)
 
 
+def sign_text_scale(profile, scale):
+  """Sign text is sized for the compact screen and grows with the sign, so it keeps the compact font scale."""
+  return scale * Profile.COMPACT.font_scale / profile.font_scale
+
+
 def draw_set_speed(fonts, shown, center, top, color):
   scale = LARGE_SIGN_SCALE if fonts.profile == Profile.LARGE else 1.
-  text_scale = scale * Profile.COMPACT.font_scale / fonts.profile.font_scale
+  text_scale = sign_text_scale(fonts.profile, scale)
   draw_speed_row(fonts, 'SET', FontRole.SEMI_BOLD, HEADING_SIZE * LABEL_SCALE[fonts.profile] * text_scale, center,
                  top + SET_HEADING_ROW * scale, color, 'SET')
   if shown.max_text == '–':
@@ -89,7 +94,7 @@ def draw_set_speed(fonts, shown, center, top, color):
 
 def draw_set_status(fonts, label, center, top, color):
   scale = LARGE_SIGN_SCALE if fonts.profile == Profile.LARGE else 1.
-  size = 22 * LABEL_SCALE[fonts.profile] * scale * Profile.COMPACT.font_scale / fonts.profile.font_scale
+  size = 22 * LABEL_SCALE[fonts.profile] * sign_text_scale(fonts.profile, scale)
   left, right = fonts.horizontal_ink(label, FontRole.MEDIUM, size)
   # Stay inside SET's column, 92 px either side of its center.
   size *= min(1, min(108 * scale, 176) / max(1, right - left))
@@ -121,7 +126,7 @@ class SpeedLimitWidget:
     self.fonts = fonts
     self.profile = profile
     self.scale = LARGE_SIGN_SCALE if profile == Profile.LARGE else 1
-    self.text_scale = self.scale * Profile.COMPACT.font_scale / profile.font_scale
+    self.text_scale = sign_text_scale(profile, self.scale)
     self.pulse = SpeedLimitPulse()
     self.shapes = SpeedLimitShapes(self.scale, headless_context=getattr(fonts, '_headless_context', False))
 
@@ -160,7 +165,7 @@ class SpeedLimitWidget:
     secondary = rl.Color(209, 222, 218, 255)
 
     def text_size(size):
-      return size * scale * Profile.COMPACT.font_scale / self.profile.font_scale
+      return size * sign_text_scale(self.profile, scale)
 
     def ink_width(text, size, role=FontRole.MEDIUM):
       left, right = self.fonts.horizontal_ink(text, role, text_size(size))

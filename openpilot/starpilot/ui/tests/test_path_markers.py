@@ -93,7 +93,7 @@ def test_screen_choices_come_from_one_place():
 
 
 def test_both_renderers_share_the_layer_with_their_own_weight_and_font():
-  assert (large_model.ModelRenderer.LINE_PX, large_model.ModelRenderer.LEAD_INFO_FONT) == ((12, 28), 77)
+  assert (large_model.ModelRenderer.LINE_PX, large_model.ModelRenderer.LEAD_INFO_FONT) == ((12, 28), 66)
   assert large_model.ModelRenderer.LEAD_INFO_MIN == large_model.ModelRenderer.LEAD_INFO_FONT, 'Large never shrinks its text'
   assert (small_model.ModelRenderer.LINE_PX, small_model.ModelRenderer.LEAD_INFO_FONT) == ((2, 4), 32)
   assert large_model.ModelRenderer._update_markers is small_model.ModelRenderer._update_markers
