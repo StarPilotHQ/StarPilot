@@ -273,7 +273,8 @@ def _reader_geometry_key(model):
 
 
 class LaneCenteringController:
-  def __init__(self, *, body: BodyDimensions | None = None, body_required: bool = False) -> None:
+  def __init__(self, *, body: BodyDimensions | None = None, body_required: bool = False,
+               damp_centered_highway: bool = False) -> None:
     self._correction = 0.0
     self._position_trim = 0.0
     self._position_age = 0.0
@@ -283,6 +284,7 @@ class LaneCenteringController:
     self._tracker = SingleLineTracker()
     self._body = body
     self._body_required = body_required
+    self._damp_centered_highway = damp_centered_highway
     self._clearance_observation = None
 
   def reset(self) -> None:
@@ -458,6 +460,10 @@ class LaneCenteringController:
             limit = MAX_CORRECTION * speed * speed
             rate = clip_scalar(error * POSITION_GAIN * weight * strength / STRENGTH_BASELINE, -POSITION_MAX_JERK, POSITION_MAX_JERK)
             self._position_trim = clip_scalar(self._position_trim + rate * dt, -limit, limit)
+          if self._damp_centered_highway and self._tracker.side is None:
+            highway = clip_scalar((speed - 18.0) / 3.0, 0.0, 1.0)
+            centered = clip_scalar((0.32 - abs(position_error)) / 0.14, 0.0, 1.0)
+            target *= 1.0 - 0.75 * highway * centered
           target = clip_scalar(target + self._position_trim / speed / speed, -MAX_CORRECTION, MAX_CORRECTION)
         else:
           self._position_trim = 0.

@@ -1242,3 +1242,33 @@ class TestVehicleClearance(unittest.TestCase):
     for height in (True, 0., math.nan, math.inf, 4.):
       self.assertFalse(BodyDimensions(1.88, 4.855, height).valid)
 
+
+
+class TestCamryHighwayCentering(unittest.TestCase):
+  def test_small_centering_correction_is_damped_at_speed(self):
+    source = observation(model(left=-1.67, right=1.93), base_curvature=0., measured_curvature=0.,
+                         speed_mps=26., lateral_delay_s=.32)
+    baseline = TestCurvePositionFeedback.run_fresh(LaneCenteringController(), source, 300, following=False)
+    damped = TestCurvePositionFeedback.run_fresh(LaneCenteringController(damp_centered_highway=True), source, 300, following=False)
+    self.assertGreater(baseline.correction, 0.)
+    self.assertAlmostEqual(damped.correction / baseline.correction, .25, places=4)
+
+  def test_full_correction_remains_at_lower_speed_or_with_more_displacement(self):
+    for speed, left, right in ((17., -1.67, 1.93), (26., -1.40, 2.20)):
+      with self.subTest(speed=speed):
+        source = observation(model(left=left, right=right), base_curvature=0., measured_curvature=0.,
+                             speed_mps=speed, lateral_delay_s=.32)
+        baseline = TestCurvePositionFeedback.run_fresh(LaneCenteringController(), source, 300, following=False)
+        damped = TestCurvePositionFeedback.run_fresh(LaneCenteringController(damp_centered_highway=True), source, 300, following=False)
+        self.assertGreater(baseline.correction, 0.)
+        self.assertEqual(damped, baseline)
+
+  def test_sustained_position_feedback_stays_active(self):
+    source = observation(model(left=-1.58, right=2.02), base_curvature=0., measured_curvature=0.,
+                         speed_mps=26., lateral_delay_s=.32)
+    baseline = LaneCenteringController()
+    damped = LaneCenteringController(damp_centered_highway=True)
+    for controller in (baseline, damped):
+      TestCurvePositionFeedback.run_fresh(controller, source, 300, following=False)
+    self.assertGreater(baseline._position_trim, 0.)
+    self.assertEqual(damped._position_trim, baseline._position_trim)

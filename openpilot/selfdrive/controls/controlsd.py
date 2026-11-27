@@ -17,6 +17,8 @@ from openpilot.common.swaglog import cloudlog
 
 from opendbc.car.car_helpers import interfaces
 from opendbc.car.honda.values import CAR as HONDA_CAR, accord_angle_steer_ratio
+from opendbc.car.toyota import radar_filter
+from opendbc.car.toyota.values import CAR as TOYOTA_CAR, ToyotaFlags
 from opendbc.car.vehicle_model import VehicleModel
 from openpilot.selfdrive.controls.lib.drive_helpers import clip_curvature
 from openpilot.selfdrive.controls.lib.highway_correction_gain import HighwayCorrectionGain, predicted_lateral_accels, read_gain
@@ -62,7 +64,7 @@ from openpilot.starpilot.lateral.lane_runtime import LaneCenteringHost, runtime_
 from openpilot.starpilot.lateral.live_preferences import LiveSteeringPreferences
 from openpilot.starpilot.lateral.torque_runtime import TorqueHost, runtime_enabled as torque_runtime_enabled
 from openpilot.starpilot.feature_capabilities import lateral_supported
-from openpilot.starpilot.lateral.controller_selection import learning_allowed, read_selection
+from openpilot.starpilot.lateral.controller_selection import ControllerMode, learning_allowed, read_selection
 from openpilot.starpilot.lateral.gain_runtime import create_gain_owner
 from openpilot.starpilot.flm.global_runtime import GlobalRuntime
 from openpilot.starpilot.flm.evidence_hooks import control_message
@@ -172,8 +174,13 @@ class Controls:
     self._prev_lkas_button_pressed = False
     if self.CP.carFingerprint == "SUBARU_LEGACY_2025":
       self._refresh_subaru_aol_setting(0, force=True)
-    self.lane_centering_controller = (
-      LaneCenteringController(body=interface_dimensions(self.CI, self.CP), body_required=True) if predict_lane_clearance else LaneCenteringController()
+    camry_highway_damping = (self.CP.carFingerprint == TOYOTA_CAR.TOYOTA_CAMRY and bool(self.CP.flags & ToyotaFlags.HYBRID) and
+                             self.CP.openpilotLongitudinalControl and radar_filter.configured(self.CP) and
+                             self.lateral_controller_selection.mode == ControllerMode.STARPILOT)
+    self.lane_centering_controller = LaneCenteringController(
+      body=interface_dimensions(self.CI, self.CP) if predict_lane_clearance else None,
+      body_required=predict_lane_clearance,
+      damp_centered_highway=camry_highway_damping,
     )
     self.highway_correction_gain = HighwayCorrectionGain()
     self.highway_smoothing_supported = lateral_supported(self.CP)
