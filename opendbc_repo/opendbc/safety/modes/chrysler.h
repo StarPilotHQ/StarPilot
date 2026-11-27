@@ -17,7 +17,8 @@ static uint8_t chrysler_hold_gear_counter;
 static uint32_t chrysler_hold_gear_timestamp;
 static uint32_t chrysler_hold_stock_timestamp;
 
-// Measured WK2 ACC envelopes (route 00000004): ACC_DECEL [-1.8, +4.0], torque [-52, +268] Nm.
+// JEEP_GRAND_CHEROKEE_2019-only long envelopes (route 00000004). Param LONG_CONTROL=16 is
+// set only for that fingerprint in interface.py — do not reuse for other Chrysler models.
 // Raw ACC_DECEL: phys = raw * 0.004885 - 16. Raw torque: phys = raw * 0.25 - 500.
 static const unsigned int CHRYSLER_LONG_DECEL_MIN = 2907U;   // -1.8 m/s^2
 static const unsigned int CHRYSLER_LONG_DECEL_MAX = 4094U;   // +4.0 m/s^2
@@ -224,7 +225,7 @@ static safety_config chrysler_init(uint16_t param) {
   const uint32_t CHRYSLER_PARAM_LONG_CONTROL = 16U;
   chrysler_jeep_hold = param == 4U;
 #ifdef ALLOW_DEBUG
-  // Alpha long (WK2): gated like other experimental longitudinal ports.
+  // Alpha long for JEEP_GRAND_CHEROKEE_2019 only (interface is the sole setter of bit 16).
   chrysler_long_control = GET_FLAG(param, CHRYSLER_PARAM_LONG_CONTROL);
 #else
   chrysler_long_control = false;

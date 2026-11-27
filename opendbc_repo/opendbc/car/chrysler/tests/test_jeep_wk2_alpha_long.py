@@ -57,13 +57,22 @@ class TestJeepWk2AlphaLong(unittest.TestCase):
     self.assertFalse(getattr(cp, 'alphaLongitudinalAvailable', False))
     self.assertFalse(cp.openpilotLongitudinalControl)
 
-  def test_gap_stalk_maps_both_distance_directions(self):
-    # Distance+ and Distance− both feed gapAdjustCruise (OR'd into distance_button).
+  def test_gap_stalk_distance_plus_is_wk2_2019_only(self):
     from pathlib import Path
     src = (Path(__file__).resolve().parents[1] / 'carstate.py').read_text()
-    self.assertIn('ACC_Distance_Dec', src)
+    self.assertIn('JEEP_GRAND_CHEROKEE_2019', src)
     self.assertIn('ACC_Distance_Inc', src)
-    self.assertIn('or buttons["ACC_Distance_Inc"]', src)
+    # Older Chrysler keeps Distance_Dec-only path.
+    self.assertIn('self.distance_button = buttons["ACC_Distance_Dec"]', src)
+
+  def test_older_jeep_keeps_stock_pid(self):
+    older = CarInterface.get_params(CAR.JEEP_GRAND_CHEROKEE, gen_empty_fingerprint(), [], True, False, False)
+    newer = CarInterface.get_params(CAR.JEEP_GRAND_CHEROKEE_2019, gen_empty_fingerprint(), [], False, False, False)
+    self.assertAlmostEqual(older.lateralTuning.pid.kpV[0], 0.15)
+    self.assertAlmostEqual(older.lateralTuning.pid.kpV[1], 0.30)
+    self.assertAlmostEqual(newer.lateralTuning.pid.kpV[0], 0.12)
+    self.assertAlmostEqual(newer.lateralTuning.pid.kpV[1], 0.22)
+    self.assertFalse(older.flags & ChryslerFlags.ALPHA_LONG_AVAILABLE)
 
 
 if __name__ == '__main__':

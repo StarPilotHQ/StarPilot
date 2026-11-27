@@ -72,11 +72,13 @@ class CarInterface(CarInterfaceBase):
 
       ret.lateralTuning.init('pid')
       ret.lateralTuning.pid.kpBP, ret.lateralTuning.pid.kiBP = [[9., 20.], [9., 20.]]
-      # Slightly softer high-speed P/I than Pacifica to reduce lane ping-pong reports.
-      ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.12, 0.22], [0.02, 0.035]]
+      ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.15, 0.30], [0.03, 0.05]]
       ret.lateralTuning.pid.kf = 0.00006
 
+      # --- JEEP_GRAND_CHEROKEE_2019 (WK2 2019-21) only; do not apply to other Chrysler/Jeep ---
       if candidate == CAR.JEEP_GRAND_CHEROKEE_2019:
+        # Softer high-speed P/I vs stock Jeep PID (ping-pong reports on this fingerprint).
+        ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.12, 0.22], [0.02, 0.035]]
         ret.flags |= ChryslerFlags.ALPHA_LONG_AVAILABLE.value
         # Bus1 track addrs (_CHRYSLER_RADAR_ADDRS) are present on this car, but #26842 means
         # addr presence ≠ safe parse. Leave radarUnavailable=True until WK2 offline validation.
@@ -84,6 +86,7 @@ class CarInterface(CarInterfaceBase):
         ret.alphaLongitudinalAvailable = (not is_release) or docs
         if alpha_long and ret.alphaLongitudinalAvailable:
           ret.openpilotLongitudinalControl = True
+          ret.pcmCruise = False
           ret.safetyConfigs[0].safetyParam |= ChryslerSafetyFlags.LONG_CONTROL.value
           ret.minEnableSpeed = -1.  # advertise auto-resume / SNG capability
           ret.autoResumeSng = True
@@ -108,8 +111,6 @@ class CarInterface(CarInterfaceBase):
     if candidate not in CUSW_CARS and 0x4FF in fingerprint[0]:
       ret.flags |= ChryslerFlags.STEERING_SPEED_BYPASS.value
       ret.minSteerSpeed = 0.
-
-    ret.pcmCruise = not ret.openpilotLongitudinalControl
 
     ret.centerToFront = ret.wheelbase * 0.44
     if (0x62cc033 if candidate in CUSW_CARS else 0x2d0) in fingerprint[0]:

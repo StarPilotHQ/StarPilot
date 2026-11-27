@@ -14,7 +14,7 @@ class ChryslerSafetyFlags(IntFlag):
   RAM_HD = 2
   JEEP_BRAKE_HOLD = 4
   AOL_PACIFICA_HYBRID_SET_GUARD = 8
-  # WK2 openpilot longitudinal (alpha long). Distinct from JEEP_BRAKE_HOLD.
+  # JEEP_GRAND_CHEROKEE_2019 only (alpha long). Distinct from JEEP_BRAKE_HOLD.
   LONG_CONTROL = 16
 
 
@@ -24,7 +24,7 @@ class ChryslerFlags(IntFlag):
   HAS_BSM = 2  # blind spot monitoring
   STEERING_SPEED_BYPASS = 4
   JEEP_BRAKE_HOLD_AVAILABLE = 8
-  # Fingerprint admits alpha longitudinal (DAS_3 OP long) for this platform.
+  # JEEP_GRAND_CHEROKEE_2019 only: fingerprint admits alpha longitudinal (DAS_3 OP long).
   ALPHA_LONG_AVAILABLE = 16
 
 
@@ -107,18 +107,25 @@ class CAR(Platforms):
   )
 
 
-class CarControllerParams:
-  # Measured stock ACC envelopes on JEEP_GRAND_CHEROKEE_2019 route 00000004 segs 3-7.
-  # Standstill hold remains the tighter Jeep brake-hold band until ACC-to-stop logs arrive.
-  ACCEL_MIN = -1.8  # m/s^2
-  ACCEL_MAX = 4.0   # m/s^2
-  TORQUE_MIN = -52.0  # Nm
-  TORQUE_MAX = 268.0  # Nm
-  LONG_STEP = 2  # 50 Hz, matches DAS_3 stock rate class
+# JEEP_GRAND_CHEROKEE_2019-only long envelopes (route 00000004 segs 3-7). Not for other Chrysler.
+WK2_2019_ACCEL_MIN = -1.8  # m/s^2
+WK2_2019_ACCEL_MAX = 4.0   # m/s^2
+WK2_2019_TORQUE_MIN = -52.0  # Nm
+WK2_2019_TORQUE_MAX = 268.0  # Nm
+WK2_2019_LONG_STEP = 2  # 50 Hz, matches DAS_3 stock rate class
 
+
+class CarControllerParams:
   def __init__(self, CP):
     self.STEER_STEP = 2  # 50 Hz
     self.STEER_ERROR_MAX = 80
+    # Longitudinal limits exist only for WK2 2019 alpha-long; other fingerprints leave these unset.
+    if CP.carFingerprint == CAR.JEEP_GRAND_CHEROKEE_2019:
+      self.ACCEL_MIN = WK2_2019_ACCEL_MIN
+      self.ACCEL_MAX = WK2_2019_ACCEL_MAX
+      self.TORQUE_MIN = WK2_2019_TORQUE_MIN
+      self.TORQUE_MAX = WK2_2019_TORQUE_MAX
+      self.LONG_STEP = WK2_2019_LONG_STEP
     if CP.carFingerprint in RAM_HD:
       self.STEER_DELTA_UP = 14
       self.STEER_DELTA_DOWN = 14
@@ -144,6 +151,8 @@ RAM_DT = {CAR.RAM_1500_5TH_GEN, }
 RAM_HD = {CAR.RAM_HD_5TH_GEN, }
 RAM_CARS = RAM_DT | RAM_HD
 CUSW_CARS = {CAR.JEEP_CHEROKEE_5TH_GEN, }
+# Port changes in this PR target this fingerprint only (admin may broaden later).
+WK2_2019 = {CAR.JEEP_GRAND_CHEROKEE_2019, }
 
 
 CHRYSLER_VERSION_REQUEST = bytes([uds.SERVICE_TYPE.READ_DATA_BY_IDENTIFIER]) + \

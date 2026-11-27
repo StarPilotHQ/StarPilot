@@ -7,7 +7,7 @@ from opendbc.car.lateral import apply_meas_steer_torque_limits
 from opendbc.car.chrysler import chryslercan
 from opendbc.car.chrysler.aol_contract import qualified as aol_qualified
 from opendbc.car.chrysler.brake_hold import brake_hold_supported, create_das_3_command
-from opendbc.car.chrysler.values import CUSW_CARS, RAM_CARS, RAM_DT, CarControllerParams, ChryslerFlags
+from opendbc.car.chrysler.values import CAR, CUSW_CARS, RAM_CARS, RAM_DT, CarControllerParams, ChryslerFlags
 from opendbc.car.structs import CarState
 from opendbc.car.interfaces import CarControllerBase
 
@@ -112,11 +112,11 @@ class CarController(CarControllerBase):
       if _projection is not None:
         _projection.emit('chrysler.LKAS_COMMAND', apply_torque, lkas_control_bit, can_sends[-1])
 
-    # Cooperative OP longitudinal (alpha long): replace DAS_3 accel/brake while engaged.
-    # Stock ACC remains the owner when alpha long is off (pcmCruise path + optional brake hold).
-    if self.CP.openpilotLongitudinalControl:
+    # WK2 2019 alpha-long only: replace DAS_3 while engaged. No other Chrysler fingerprint.
+    if (self.CP.carFingerprint == CAR.JEEP_GRAND_CHEROKEE_2019 and
+        self.CP.openpilotLongitudinalControl):
       CS.brake_hold = False
-      self.update_jeep_long(CC, CS, now_nanos, can_sends)
+      self.update_jeep_wk2_2019_long(CC, CS, now_nanos, can_sends)
     elif brake_hold_supported(self.CP) and self.CP.safetyConfigs[0].safetyParam == 4:
       withdraw = bool(aol_qualified(self.CP, marked_only=True) and CS.aol_pause_longitudinal and
                       0 < CS.aol_pause_longitudinal_stamp_ns <= now_nanos and
@@ -136,8 +136,8 @@ class CarController(CarControllerBase):
       _projection.finish(new_actuators.torque)
     return new_actuators, can_sends
 
-  def update_jeep_long(self, CC, CS, now_nanos, can_sends):
-    """Send DAS_3 longitudinal commands from a fresh stock source frame."""
+  def update_jeep_wk2_2019_long(self, CC, CS, now_nanos, can_sends):
+    """JEEP_GRAND_CHEROKEE_2019-only cooperative DAS_3 longitudinal commands."""
     if self.frame % self.params.LONG_STEP != 0:
       return
     now_boot_ns = now_nanos if self.jeep_hold_replay else time.clock_gettime_ns(time.CLOCK_BOOTTIME)
@@ -151,7 +151,6 @@ class CarController(CarControllerBase):
     self.last_das_3_counter = counter
 
     # Cooperative: only replace DAS_3 while OP long is actively engaged.
-    # When disengaged, leave the bus to stock ACC (no dual owners).
     long_active = bool(CC.longActive and CC.enabled)
     if not long_active:
       self.accel_last = 0.0
@@ -161,7 +160,6 @@ class CarController(CarControllerBase):
     stopping = actuators.longControlState == LongCtrlState.stopping
     starting = actuators.longControlState == LongCtrlState.pid and CS.out.standstill
     accel = max(self.params.ACCEL_MIN, min(self.params.ACCEL_MAX, float(actuators.accel)))
-    # Rate-limit accel changes toward stock-like response (~0.1 m/s^2 per 20 ms step).
     max_delta = 0.1 * self.params.LONG_STEP
     accel = max(self.accel_last - max_delta, min(self.accel_last + max_delta, accel))
     self.accel_last = accel

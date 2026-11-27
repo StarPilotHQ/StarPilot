@@ -26,8 +26,14 @@ def qualified(cp, *, marked_only=False):
       cp.alternativeExperience not in ((CHRYSLER_AOL_EXPERIENCE,) if marked_only else (0, CHRYSLER_AOL_EXPERIENCE))):
     return False
   jeep = cp.carFingerprint in (CAR.JEEP_GRAND_CHEROKEE, CAR.JEEP_GRAND_CHEROKEE_2019)
-  # ALPHA_LONG_AVAILABLE may be set on WK2 2019 even while pcmCruise remains True.
-  flags = (_JEEP_FLAGS | ChryslerFlags.ALPHA_LONG_AVAILABLE) if jeep else _BASE_FLAGS
+  wk2_2019 = cp.carFingerprint == CAR.JEEP_GRAND_CHEROKEE_2019
+  # ALPHA_LONG_AVAILABLE is WK2 2019-only; allow it in the flag mask for that fingerprint alone.
+  if wk2_2019:
+    flags = _JEEP_FLAGS | ChryslerFlags.ALPHA_LONG_AVAILABLE
+  elif jeep:
+    flags = _JEEP_FLAGS
+  else:
+    flags = _BASE_FLAGS
   expected = (1 if cp.carFingerprint == CAR.RAM_1500_5TH_GEN else
               8 if cp.carFingerprint == CAR.CHRYSLER_PACIFICA_2019_HYBRID and cp.alternativeExperience == 32 else 0)
   return bool(not int(cp.flags) & ~int(flags) and
