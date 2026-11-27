@@ -1183,7 +1183,7 @@ class FeatureSettingsOwner:
       rows.append(replace(control_row, reason=control_reason) if control_row.choices else control_row)
       if cp is not None and (not cp.pcmCruise or button_cruise):
         rows.append(self._bool_row("SLCOnEngage", "Match Speed Limit on Engage", allowed and control == "1",
-                                   reason="Lower your new SET to the speed limit plus offset when using Redneck Cruise"
+                                   reason="Start SET at the speed limit plus offset on a new Redneck Cruise SET"
                                    if button_cruise else "Start SET at the SLC limit plus offset. RES restores your previous SET"))
       rows.append(self._bool_row("ShowSpeedLimits", "Show speed limit signs", self.authority("preferences"),
                                  reason="Display signs independently of Speed Limit Controller; does not change cruise speed"))

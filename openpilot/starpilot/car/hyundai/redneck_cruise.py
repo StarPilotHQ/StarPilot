@@ -317,7 +317,7 @@ class RedneckCruise:
     if state is not None:
       target = slc_target_kph(state.presentationAdjustedLimit, card.is_metric)
       minimum = get_minimum_set_speed(card.is_metric) * (1. if card.is_metric else CV.MPH_TO_KPH)
-      if minimum <= target < helper.v_cruise_kph:
+      if minimum <= target and target != helper.v_cruise_kph:
         helper.apply_slc_target(state.presentationAdjustedLimit, card.is_metric)
 
   def update(self, card, cs, cc, now_ns):

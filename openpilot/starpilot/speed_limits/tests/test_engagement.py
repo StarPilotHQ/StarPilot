@@ -87,15 +87,17 @@ def engage(instance, *, now=START + 10_000_000):
   ('decelCruise', True, 50., 80_000_000, False, 50.),
   ('decelCruise', False, 50., 80_000_000, False, 60.),
   ('accelCruise', True, 50., 80_000_000, False, 60.),
-  ('decelCruise', True, 70., 80_000_000, False, 60.),
+  ('accelCruise', True, 70., 80_000_000, False, 60.),
+  ('decelCruise', False, 70., 80_000_000, False, 60.),
+  ('decelCruise', True, 70., 80_000_000, False, 70.),
   ('decelCruise', True, 20., 80_000_000, False, 60.),
   ('decelCruise', True, 50., 550_000_000, False, 60.),
   ('decelCruise', True, 50., 100_000_000, True, 50.),
   ('decelCruise', True, 50., 550_000_000, True, 60.),
   ('accelCruise', True, 50., 100_000_000, True, 60.),
-  ('decelCruise', True, 70., 100_000_000, True, 60.),
+  ('decelCruise', True, 70., 100_000_000, True, 70.),
 ])
-def test_redneck_set_matching_preserves_the_stock_ceiling_and_resume(gesture, match, limit, delay, gas_at_set, expected):
+def test_redneck_set_matching_initializes_software_set_and_preserves_resume(gesture, match, limit, delay, gas_at_set, expected):
   from opendbc.car.hyundai.interface import CarInterface
   from opendbc.car.hyundai.software_cruise import prepare
   from opendbc.car.hyundai.values import CAR
