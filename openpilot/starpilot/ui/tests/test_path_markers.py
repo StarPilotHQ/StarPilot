@@ -93,7 +93,8 @@ def test_screen_choices_come_from_one_place():
 
 
 def test_both_renderers_share_the_layer_with_their_own_weight_and_font():
-  assert (large_model.ModelRenderer.LINE_PX, large_model.ModelRenderer.LEAD_INFO_FONT) == ((4, 16), 40)
+  assert (large_model.ModelRenderer.LINE_PX, large_model.ModelRenderer.LEAD_INFO_FONT) == ((12, 28), 77)
+  assert large_model.ModelRenderer.LEAD_INFO_MIN == large_model.ModelRenderer.LEAD_INFO_FONT, 'Large never shrinks its text'
   assert (small_model.ModelRenderer.LINE_PX, small_model.ModelRenderer.LEAD_INFO_FONT) == ((2, 4), 32)
   assert large_model.ModelRenderer._update_markers is small_model.ModelRenderer._update_markers
 
@@ -311,12 +312,18 @@ def draw_text(monkeypatch, line, avoid=None, text='66 ft', alpha=.5):
 
 @pytest.mark.parametrize('line_y,avoid,top', [
   (500., None, 500. + 16 + 16),  # below the line, on the path
-  (H - 40., None, H - 40. - 16 - 64),  # no room below
-  (500., rl.Rectangle(0, 540, W, 16), 500. - 16 - 64),  # would cover the stop line
+  (H - 40., None, H - 40. - 16 - 64 * pm.FONT_SCALE),  # no room below
+  (500., rl.Rectangle(0, 540, W, 16), 500. - 16 - 64 * pm.FONT_SCALE),  # would cover the stop line
 ])
 def test_number_sits_over_a_smaller_unit_below_the_line_unless_it_cannot(monkeypatch, line_y, avoid, top):
   drawn = draw_text(monkeypatch, rl.Rectangle(1000, line_y, 200, 16), avoid)
-  assert drawn == [('66', 1080., top, 40, 255, 127), ('ft', 1100. - 12, top + 40, 24., 255, 127)]
+  assert drawn == [('66', 1080., pytest.approx(top), 40, 255, 127),
+                   ('ft', 1100. - 12, pytest.approx(top + 40 * pm.FONT_SCALE), 24., 255, 127)]
+
+
+def test_text_keeps_its_size_at_the_minimum(monkeypatch):
+  monkeypatch.setattr(Renderer, 'LEAD_INFO_MIN', 40)
+  assert draw_text(monkeypatch, rl.Rectangle(1000, 500, 12, 16), alpha=1.)[0][3] == 40, 'a short line does not shrink it'
 
 
 def test_text_shrinks_to_fit_the_path_and_fades_out_below_the_minimum(monkeypatch):

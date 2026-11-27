@@ -14,7 +14,7 @@ from openpilot.starpilot.ui.onroad_cem_gauge import COLOR_FORCE_STOP
 from openpilot.starpilot.ui.onroad_conditional import stop_active
 from openpilot.starpilot.ui.raylib import rl
 from openpilot.starpilot.ui.road_colors import lead_marker_color
-from openpilot.system.ui.lib.application import FontWeight, gui_app
+from openpilot.system.ui.lib.application import FONT_SCALE, FontWeight, gui_app
 from openpilot.system.ui.lib.shader_polygon import draw_polygon
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 
@@ -29,7 +29,6 @@ LEAD_SNAP = 0.5  # m, a glide locks onto the car once this close instead of cree
 URGENCY_DISTANCE, URGENCY_SPEED = 40.0, 10.0  # m, m/s: the old chevron's closeness and closing-speed scale
 LEAD_OPACITY = {False: (0.7, 1.0), True: (0.35, 0.5)}  # (calm, urgent), keyed by disengaged
 STOP_OPACITY = 0.9  # white while planned; the committed red is drawn at full strength
-UNIT_SCALE = 0.6  # the unit sits under the number at this size, like the HUD's speed unit
 TEXT_MIN = 16  # px; lead text fades out below this size rather than shrink unreadably
 STOP_FADE = (6.0, 10.0)  # m, the stop line fades out over this range as the car closes in
 
@@ -163,6 +162,8 @@ class PathMarkers:
   """Mixed into both model renderers, which supply the path, lane lines, transform and screen rect."""
   LINE_PX = (4, 16)  # on-screen depth range of a painted strip; the max is also the text gap and the screen margin
   LEAD_INFO_FONT = 40  # the HUD's secondary label size
+  LEAD_INFO_MIN = 0  # the text shrinks to fit the path, but not below this
+  UNIT_SCALE = 0.6  # the unit sits under the number at this size, like the HUD's speed unit
   _markers: PathMarkerInput | None = None
   _paint = True
 
@@ -305,30 +306,31 @@ class PathMarkers:
       self._draw_lead_info(lead.box, text, min(1.0, alpha / LEAD_OPACITY[True][0]), stop.box)
 
   def _draw_lead_info(self, line: rl.Rectangle, text: str, alpha: float, avoid: rl.Rectangle | None):
-    """The number over a smaller unit, as large as fits the path under the lead line (up to LEAD_INFO_FONT); centered
+    """The number over a smaller unit, as large as fits the path under the lead line (LEAD_INFO_MIN to LEAD_INFO_FONT); centered
     below the line, or above it when there's no room or it would cover the stop line. Fades out below TEXT_MIN."""
     font, gap, rect = gui_app.font(FontWeight.SEMI_BOLD), self.LINE_PX[1], self._rect
     number, _, unit = text.partition(" ")
     cap = self.LEAD_INFO_FONT
-    widest = max(measure_text_cached(font, number, cap).x, measure_text_cached(font, unit, round(cap * UNIT_SCALE)).x)
-    size = cap * min(1.0, line.width / widest)
+    widest = max(measure_text_cached(font, number, cap).x, measure_text_cached(font, unit, round(cap * self.UNIT_SCALE)).x)
+    size = max(cap * min(1.0, line.width / widest), self.LEAD_INFO_MIN)
     alpha *= min(max((size - TEXT_MIN + 2) / 2, 0.0), 1.0)
     if alpha <= 0:
       return
-    unit_size = size * UNIT_SCALE
+    unit_size = size * self.UNIT_SCALE
     lines = [(number, size, measure_text_cached(font, number, round(size)).x)]
     if unit:
       lines.append((unit, unit_size, measure_text_cached(font, unit, round(unit_size)).x))
-    width, height = max(w for _, _, w in lines), sum(s for _, s, _ in lines)
+    # draw_text_ex draws FONT_SCALE larger than the size it is given, so stack and place by the drawn size
+    width, height = max(w for _, _, w in lines), sum(s for _, s, _ in lines) * FONT_SCALE
     center = min(max(line.x + line.width / 2, rect.x + gap + width / 2), rect.x + rect.width - gap - width / 2)
     y = line.y + line.height + gap
     if y + height > rect.y + rect.height - gap or (avoid is not None and rl.check_collision_recs(
         rl.Rectangle(center - width / 2, y, width, height), avoid)):
       y = line.y - gap - height
-    a = int(255 * alpha)
+    a, o = int(255 * alpha), max(1, round(size / 30))  # outline grows with the text so it holds over bright road
     for label, label_size, label_width in lines:
       x = center - label_width / 2
-      for dx, dy in ((-1, -1), (1, -1), (-1, 1), (1, 1)):
+      for dx, dy in ((-o, -o), (0, -o), (o, -o), (-o, 0), (o, 0), (-o, o), (0, o), (o, o)):
         rl.draw_text_ex(font, label, rl.Vector2(x + dx, y + dy), label_size, 0, rl.Color(0, 0, 0, a))
       rl.draw_text_ex(font, label, rl.Vector2(x, y), label_size, 0, rl.Color(255, 255, 255, a))
-      y += label_size
+      y += label_size * FONT_SCALE
