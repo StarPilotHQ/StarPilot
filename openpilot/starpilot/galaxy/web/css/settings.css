@@ -1092,3 +1092,27 @@ button.gx-chip.gx-uniden__choice[aria-pressed="true"] { background: var(--primar
   .gx-uniden__field:last-child { grid-column: 1 / -1; }
   .gx-uniden__heading, .gx-uniden__rule-footer { flex-wrap: wrap; }
 }
+
+/* Galaxy menu: settings pages opened from the menu, and the breadcrumb trail (trail.js). */
+.gx-settings-shell { display: contents; }
+.gx-settings-shell--path { display: grid; gap: var(--sp-4); width: 100%; min-width: 0; }
+.gx-settings-shell--path > .gx-page-header h2 { overflow-wrap: anywhere; }
+.gx-settings-shell--path > .gx-settings-tabs > .gx-chip { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.gx-settings--path .gx-settings__section .gx-section__header { flex-wrap: nowrap; align-items: flex-start; gap: var(--sp-2); }
+.gx-settings-path { flex: 1; min-width: 0; }
+.gx-settings-path ol { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0; list-style: none; margin: 0; padding: 0; }
+.gx-settings-path li { display: flex; align-items: center; gap: 2px; min-width: 0; max-width: 100%; }
+.gx-settings-path__separator { flex: none; width: 10px; text-align: center; color: var(--on-surface-variant); }
+.gx-settings-path__parent, .gx-settings-path__current { display: inline-flex; align-items: center; min-height: 34px; min-width: 0; padding: 6px 8px; border: 0; border-radius: var(--radius-sm); font: inherit; font-size: var(--fs-sm); line-height: 1.4; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.gx-settings-path__parent { color: var(--on-surface-variant); background: transparent; cursor: pointer; }
+.gx-settings-path__parent:hover:not(:disabled) { color: var(--on-primary-container); background: var(--primary-container); }
+.gx-settings-path__current { color: var(--on-primary-container); background: var(--primary-container); font-weight: var(--fw-medium); }
+.gx-settings-path__parent:focus-visible { outline: 2px solid var(--secondary); outline-offset: -2px; }
+.gx-settings-path__parent:disabled { cursor: default; }
+/* The same tree above pages opened from Tools: its own line, a little air before the page heading. */
+.gx-page-trail { display: block; margin: 0 0 var(--sp-3); }
+@media (pointer: coarse) {
+  .gx-settings-path__parent, .gx-settings-path__current { min-height: 44px; }
+  .gx-settings-path__parent { min-width: 44px; }
+  .gx-settings--path .gx-settings__section .gx-section__header .gx-icon-btn { width: 44px; min-width: 44px; height: 44px; min-height: 44px; }
+}

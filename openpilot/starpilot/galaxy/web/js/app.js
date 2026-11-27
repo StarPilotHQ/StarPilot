@@ -13,6 +13,10 @@ import { createApp, reactive, defineAsyncComponent } from "../vendor/vue/vue.esm
 import { route, navigate, navigateBack, ensureBackEntry, setRouteLeaveGuard, startRouter } from "./router.js"
 import { loadCatalog } from "./startup.js"
 import { Tools } from "./tools.js"
+import { FavoritesPage } from "./favorites.js"
+import { GxTrail, toolTrail } from "./trail.js"
+import { MenuTree, SettingsIndex, MenuGroupPage, menuTrail, menuBack as menuBackLink, menuLocation, menuGroupFromPath, settingsPageFromPath,
+  settingsPagePath, settingsSearchPath } from "./menu.js"
 window.addEventListener("beforeinstallprompt", rememberInstallPrompt)
 installDisclosureMotion()
 
@@ -59,7 +63,6 @@ function page(loader) {
 }
 
 const THEME_KEY = "galaxy-preview-theme"
-const PIN_KEY = "galaxy-preview-nav-pinned"
 const stored = (key) => { try { return localStorage.getItem(key) } catch { return null } }
 const save = (key, value) => { try { localStorage.setItem(key, value) } catch {} }
 
@@ -71,7 +74,6 @@ const state = reactive({
   pageError: "",
   monitorMode: "sample",
   drawerOpen: false,
-  navPinned: stored(PIN_KEY) === "true",
   theme: stored(THEME_KEY) === "light" ? "light" : "dark",
   searchPage: "",
 })
@@ -92,7 +94,7 @@ const auth = new LocalAuth({ publish: (update) => {
 
 
 createApp({
-  components: { AppDownloadReminder, BottomNav, Home, LocalAccess, Tools, Logs, SoftwarePage, NavigationPage, ModelsPage, SettingsPage, SettingsRecoveryPage, ToggleSearch, SaveFeedback, FlmPage, LocalRecordingsPage, CamerasPage, SentryEventsPage, VasmPage, PipPage, DrivingPage, DevicePreferencesPage, BluetoothPage, ControllersPage, StarPortPage, SpotifyPage, LongitudinalCurvesPage, OnroadLayoutPage, GalaxyPage, NetworksPage, DevicePicker, DeviceState, MenuTile },
+  components: { AppDownloadReminder, GxTrail, BottomNav, Home, LocalAccess, Tools, Logs, SoftwarePage, NavigationPage, ModelsPage, SettingsPage, SettingsRecoveryPage, ToggleSearch, SaveFeedback, FlmPage, LocalRecordingsPage, CamerasPage, SentryEventsPage, VasmPage, PipPage, DrivingPage, DevicePreferencesPage, BluetoothPage, ControllersPage, StarPortPage, SpotifyPage, LongitudinalCurvesPage, OnroadLayoutPage, GalaxyPage, NetworksPage, DevicePicker, DeviceState, MenuTile, MenuTree, SettingsIndex, MenuGroupPage, FavoritesPage },
   data: () => ({ state, authState, authForm, route, NAV, routeDirection: 1, updateRestart, deviceRestart, nextLayoutLeavePresentation: "inline" }),
   computed: {
     visibleTools() { return state.tools.filter(tool => tool.visibility !== "authenticated" ||
@@ -101,6 +103,21 @@ createApp({
     currentTool() { return state.tools.find((tool) => this.isActive(tool.path)) },
     drivingSettingsPage() { return drivingPage(route.path) },
     deviceSettingsPage() { return devicePage(route.path) },
+    // Galaxy menu (menu.js): tools this connection cannot open stay out of the menu.
+    // A hidden tool takes its own pages with it (e.g. all four Maps pages when Navigation & Maps is unavailable).
+    hiddenToolPaths() { const shown = new Set(this.visibleTools.map(tool => tool.path)); return state.tools.filter(tool => !shown.has(tool.path)).flatMap(tool => [tool.path, ...(tool.children || []).map(child => child.path)]) },
+    menuGroup() { return menuGroupFromPath(route.path) },
+    menuSettingsPage() { return settingsPageFromPath(route.path) },
+    menuTitle() { const location = menuLocation(route.path); return location ? location.sub || location.node.label : "Settings" },
+    menuMapped() { return menuTrail(route.path).length > 0 },
+    menuBack() { return menuBackLink(route.path) },
+    // Navigation tree: the menu path on phones (Settings › group › page › sub-page); Tools pages outside the menu keep theirs.
+    pageTrail() {
+      if (state.loading || state.error || state.pageError || (state.monitorMode === "local" && authState.status !== "authenticated")) return []
+      const trail = menuTrail(route.path)
+      if (trail.length) return trail
+      return toolTrail(route.path, this.visibleTools)
+    },
     pageName() {
       if (route.path === "/bluetooth/controllers") return "Controllers"
       if (route.path === "/bluetooth/uniden") return "Uniden"
@@ -138,7 +155,9 @@ createApp({
       this.nextLayoutLeavePresentation = "modal"
       this.go(path)
     },
-    openSearchHit(hit) { navigate(hit.path || "/settings", () => { state.drawerOpen = false; state.searchPage = hit.page || "" }) },
+    // A settings hit opens the page that now holds that row (menu.js); a tool hit opens the tool.
+    openSearchHit(hit) { navigate(hit.page ? settingsSearchPath(hit) : hit.path || "/settings", () => { state.drawerOpen = false; state.searchPage = "" }) },
+    openSettingsPage(page) { this.go(settingsPagePath(page)) },
     returnFromSearch() { state.searchPage = "" },
     returnToDriving() { this.go("/driving") },
     returnToDevice() { this.go("/device-preferences") },
@@ -148,11 +167,6 @@ createApp({
       state.theme = this.isLight ? "dark" : "light"
       document.documentElement.dataset.theme = state.theme
       save(THEME_KEY, state.theme)
-    },
-    togglePin() {
-      state.navPinned = !state.navPinned
-      state.drawerOpen = state.navPinned
-      save(PIN_KEY, String(state.navPinned))
     },
     isActive(path) {
       if (path === "/galaxy" && ["/networks", "/bluetooth"].some(child =>
@@ -200,7 +214,7 @@ createApp({
     deviceRestart.stop()
   },
   template: `
-    <div class="gx-app" :class="{'gx-nav-pinned':state.navPinned}" :inert="state.updateRestarting" @change.capture="toggleHaptic">
+    <div class="gx-app gx-nav-pinned" :inert="state.updateRestarting" @change.capture="toggleHaptic">
       <AppDownloadReminder v-if="route.path === '/' && !state.loading && !state.updateRestarting && (state.monitorMode !== 'local' || authState.status === 'authenticated')" />
       <header class="gx-appbar">
         <button type="button" class="gx-icon-btn gx-appbar__back gx-back-btn" aria-label="Back" @click="routeBack"><i class="bi bi-arrow-left"></i></button>
@@ -214,25 +228,22 @@ createApp({
             <button v-if="state.monitorMode === 'local' && authState.status === 'authenticated' && !authState.localAccess && !authState.gatewayAccess" type="button" class="gx-btn gx-btn--tonal" @click="signOut">Sign out</button></div>
         </div>
         <button type="button" class="gx-icon-btn gx-theme-toggle" :aria-label="isLight ? 'Switch to dark mode' : 'Switch to light mode'" @click="toggleTheme"><i class="bi" :class="isLight ? 'bi-moon-stars-fill' : 'bi-sun-fill'"></i></button>
-        <button type="button" class="gx-icon-btn gx-appbar__menu" aria-label="Menu" @click="state.drawerOpen=true"><i class="bi bi-list"></i></button>
       </header>
-      <div v-if="state.drawerOpen && !state.navPinned" class="gx-underlay" @click="state.drawerOpen=false"></div>
-      <aside class="gx-drawer" :class="{open:state.drawerOpen || state.navPinned}" aria-label="Galaxy navigation">
-        <div class="gx-drawer__header"><span class="gx-brand" aria-hidden="true"></span><span class="gx-drawer-title">Galaxy</span><button type="button" class="gx-icon-btn gx-drawer__pin" :aria-pressed="state.navPinned" :aria-label="state.navPinned ? 'Unpin navigation' : 'Pin navigation'" @click="togglePin"><i class="bi" :class="state.navPinned ? 'bi-pin-angle-fill' : 'bi-pin-angle'"></i></button></div>
+      <!-- Galaxy menu: always shown on desktop (no pin), replaced by the Settings tab on phones (menu.js). -->
+      <aside class="gx-drawer gx-drawer--menu" aria-label="Galaxy navigation">
+        <div class="gx-drawer__header"><span class="gx-brand" aria-hidden="true"></span><span class="gx-drawer-title">Galaxy</span></div>
         <div class="gx-nav-section"><div class="gx-nav-section__title">Main</div>
-          <button v-for="item in NAV.slice(0,3)" :key="item.path" type="button" class="gx-nav-item" :class="{active:isActive(item.path)}" @click="goFromMenu(item.path)"><i class="bi" :class="item.icon"></i><span>{{ item.name }}</span></button>
+          <button v-for="item in NAV.filter(item => item.path !== '/settings')" :key="item.path" type="button" class="gx-nav-item" :class="{active:isActive(item.path)}" :aria-current="isActive(item.path) ? 'page' : null" @click="goFromMenu(item.path)"><i class="bi" :class="item.icon"></i><span>{{ item.name }}</span></button>
         </div>
-        <div class="gx-nav-section"><div class="gx-nav-section__title">Routes</div><button type="button" class="gx-nav-item" :class="{active:isActive('/recordings')}" @click="goFromMenu('/recordings')"><i class="bi bi-camera-reels"></i><span>Routes</span></button></div>
-        <div class="gx-nav-section"><div class="gx-nav-section__title">Tools</div>
-          <button v-for="tool in visibleTools.filter(tool => tool.path !== '/galaxy')" :key="tool.path" type="button" class="gx-nav-item" :class="{active:isActive(tool.path)}" @click="goFromMenu(tool.path)"><i class="bi" :class="tool.icon"></i><span>{{ tool.name }}</span></button>
-
+        <div class="gx-nav-section"><div class="gx-nav-section__title">Settings</div>
+          <MenuTree :path="route.path" :go="goFromMenu" :hidden-paths="hiddenToolPaths" />
         </div>
-        <div class="gx-nav-footer"><DevicePicker />
-          <button type="button" class="gx-nav-item" :class="{active:isActive('/galaxy')}" @click="goFromMenu('/galaxy')"><i class="bi bi-globe"></i><span>Galaxy Access &amp; Connections</span></button>
-        </div>
+        <div class="gx-nav-footer"><DevicePicker /></div>
       </aside>
       <main class="gx-content" :style="{'--route-direction': routeDirection}"><div class="gx-route-stage">
         <Transition name="gx-route" @before-enter="setPageActive($event, true)" @before-leave="setPageActive($event, false)"><div class="gx-route" :key="isActive('/recordings') ? '/recordings' : route.path.startsWith('/navigation') ? '/navigation' : route.path">
+        <GxTrail v-if="pageTrail.length" class="gx-page-trail" :class="{ 'gx-menu-trail': menuMapped }" label="Navigation tree" :items="pageTrail" @select="go" />
+        <button v-if="menuBack && pageTrail.length" type="button" class="gx-settings-path__parent gx-menu-back" @click="go(menuBack.path)"><i class="bi bi-chevron-left" aria-hidden="true"></i>{{ menuBack.label }}</button>
         <template v-if="state.loading && !state.error"></template>
         <GxNotice v-else-if="state.error" tone="danger">{{ state.error }}</GxNotice>
         <section v-else-if="state.monitorMode === 'local' && authState.status !== 'authenticated'" class="gx-card gx-auth" aria-label="Galaxy sign in">
@@ -257,7 +268,8 @@ createApp({
         <PipPage v-else-if="route.path === '/cameras/pip'" :mode="state.monitorMode" :unauthorized="sessionExpired" :go="go" />
         <VasmPage v-else-if="route.path === '/cameras/vasm'" :mode="state.monitorMode" :unauthorized="sessionExpired" :go="go" />
         <Tools v-else-if="route.path === '/tools'" :tools="visibleTools" :mode="state.monitorMode" />
-        <SettingsPage @nested="ensureBackEntry" ref="activeSettings" v-else-if="route.path === '/developer/connect'" :mode="state.monitorMode" :unauthorized="sessionExpired" initial-section="developer" />
+        <SettingsPage @nested="ensureBackEntry" ref="activeSettings" v-else-if="route.path === '/developer/connect'" :mode="state.monitorMode" :unauthorized="sessionExpired" initial-section="developer"
+          menu-mode title="Developer" heading="Developer" @open-page="openSettingsPage" />
         <GalaxyPage v-else-if="route.path === '/galaxy'" :mode="state.monitorMode" :tools="currentTool?.children || []" :unauthorized="sessionExpired" :go="go" />
         <NetworksPage v-else-if="route.path === '/networks'" :go="go" :mode="state.monitorMode" :unauthorized="sessionExpired" />
         <OnroadLayoutPage ref="activeLayout" v-else-if="['/theme_maker', '/theme_maker/starport', '/appearance'].includes(route.path)" :key="route.path" :projection="route.path === '/theme_maker/starport'" :initial-panel="route.path === '/appearance' ? 'display' : 'widgets'" :mode="state.monitorMode" :unauthorized="sessionExpired" @target="go($event === 'projection' ? '/theme_maker/starport' : '/theme_maker')" @close="routeBack" />
@@ -272,14 +284,22 @@ createApp({
         <ControllersPage v-else-if="route.path === '/bluetooth/controllers'" :mode="state.monitorMode" :unauthorized="sessionExpired" :go="go" />
         <StarPortPage v-else-if="route.path === '/starport'" :mode="state.monitorMode" :local-access="authState.localAccess" :unauthorized="sessionExpired" />
         <SpotifyPage v-else-if="['/starport/audio', '/spotify'].includes(route.path)" :mode="state.monitorMode" :unauthorized="sessionExpired" />
-        <SettingsPage @nested="ensureBackEntry" ref="activeSettings" v-else-if="route.path === '/settings/vehicle'" :mode="state.monitorMode" :unauthorized="sessionExpired" initial-section="vehicle" />
+        <SettingsPage @nested="ensureBackEntry" ref="activeSettings" v-else-if="route.path === '/settings/vehicle'" :mode="state.monitorMode" :unauthorized="sessionExpired" initial-section="vehicle"
+          menu-mode title="Vehicle Settings" heading="Vehicle Settings" @open-page="openSettingsPage" />
         <DevicePreferencesPage v-else-if="route.path === '/device-preferences'" :mode="state.monitorMode" :go="go" />
         <SettingsPage @nested="ensureBackEntry" ref="activeSettings" v-else-if="deviceSettingsPage" :key="deviceSettingsPage" :mode="state.monitorMode" :unauthorized="sessionExpired" :initial-page="deviceSettingsPage" :title="deviceSettingsPage === 'sounds' ? 'Sounds & Alerts' : 'Display'" :return-to="returnToDevice" />
         <DrivingPage v-else-if="route.path === '/driving'" :mode="state.monitorMode" :go="go" />
         <LongitudinalCurvesPage v-else-if="route.path === '/driving/longitudinal-curves'" :mode="state.monitorMode" :unauthorized="sessionExpired" :go="go" />
-        <SettingsPage @nested="ensureBackEntry" ref="activeSettings" v-else-if="drivingSettingsPage" :key="drivingSettingsPage" :mode="state.monitorMode" :unauthorized="sessionExpired" :initial-page="drivingSettingsPage" :title="'Driving settings · ' + drivingSettingsPage.replaceAll('_', ' ')" :return-to="returnToDriving" />
-        <SettingsPage @nested="ensureBackEntry" ref="activeSettings" v-else-if="route.path === '/settings'" :key="state.searchPage || 'hub'" :mode="state.monitorMode" :unauthorized="sessionExpired"
-          :initial-page="state.searchPage || 'hub'" :return-to="state.searchPage ? returnFromSearch : null" />
+        <SettingsPage @nested="ensureBackEntry" ref="activeSettings" v-else-if="drivingSettingsPage" :key="drivingSettingsPage" :mode="state.monitorMode" :unauthorized="sessionExpired" :initial-page="drivingSettingsPage" :title="'Driving settings · ' + drivingSettingsPage.replaceAll('_', ' ')" :return-to="returnToDriving" trail-root="Driving" />
+        <MenuGroupPage v-else-if="menuGroup" :key="menuGroup.id" :group="menuGroup" :go="go" :hidden-paths="hiddenToolPaths" />
+        <!-- Quick Select opens on its own route from the menu (in Toggles it opens inside the Visual section). -->
+        <FavoritesPage v-else-if="route.path === '/quick-select'" :mode="state.monitorMode" :unauthorized="sessionExpired" @close="routeBack" />
+        <!-- A settings page opened from the menu (menu.js): each page and sub-page has its own route. -->
+        <SettingsPage @nested="ensureBackEntry" ref="activeSettings" v-else-if="menuSettingsPage" :key="menuSettingsPage" menu-mode :mode="state.monitorMode" :unauthorized="sessionExpired"
+          :initial-page="menuSettingsPage" :title="menuTitle" @open-page="openSettingsPage" />
+        <SettingsPage @nested="ensureBackEntry" ref="activeSettings" v-else-if="route.path === '/settings' && state.searchPage" :key="state.searchPage || 'hub'" :mode="state.monitorMode" :unauthorized="sessionExpired"
+          navigation-path :initial-page="state.searchPage || 'hub'" :return-to="state.searchPage ? returnFromSearch : null" />
+        <SettingsIndex v-else-if="route.path === '/settings'" :go="go" :hidden-paths="hiddenToolPaths" />
         <FlmPage v-else-if="['/tuning', '/tuning/flm', '/tuning/plots'].includes(route.path)" :initial-view="route.path === '/tuning/plots' ? 'plots' : 'overview'" :mode="state.monitorMode" :unauthorized="sessionExpired" :go="go" />
         <GxState v-else :title="pageName">This capability is unavailable in this build. No operation was attempted.</GxState>
       </div></Transition></div></main>

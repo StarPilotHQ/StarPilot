@@ -14,6 +14,7 @@ import { SoundPacks } from "./sound-packs.js"
 import { CloudProviderPage } from "./cloud-provider.js"
 import { GxNotice } from "./notice.js"
 import { route } from "./route-state.js"
+import { GxTrail } from "./trail.js"
 
 const VehicleControlsPage = defineAsyncComponent(() => import("./vehicle-controls.js").then(module => module.VehicleControlsPage))
 
@@ -56,6 +57,14 @@ const SECTION_LINKS = {
 }
 
 const activeSettings = new Set()
+
+// Page IDs encode nested settings; personalities are the existing flat-ID exception.
+export function settingsTrailPages(page) {
+  if (!page || page === "hub") return []
+  const parts = page.split("/")
+  const pages = parts.map((_, index) => parts.slice(0, index + 1).join("/"))
+  return ["aggressive", "standard", "relaxed"].includes(parts[0]) ? ["profiles", ...pages] : pages
+}
 
 export const settingsBusy = state => ["updating", "saving"].includes(state.status) || !!state.pending || !!state.reviewing
 
@@ -295,18 +304,25 @@ export class SettingsFeed {
 }
 
 export const SettingsPage = {
-  emits: ["nested"],
-  components: { WikiHelp, GxCollapse, AppReminderSettings, GxDialog, GxState, GalaxySettingRow, OnroadLayoutPage, FavoritesPage, SoundPacks, CloudProviderPage, ReverseProxySettings, GxNotice, VehicleControlsPage },
+  emits: ["nested", "open-page"],
+  components: { WikiHelp, GxCollapse, AppReminderSettings, GxDialog, GxState, GxTrail, GalaxySettingRow, OnroadLayoutPage, FavoritesPage, SoundPacks, CloudProviderPage, ReverseProxySettings, GxNotice, VehicleControlsPage },
   props: {
     mode: { type: String, required: true }, unauthorized: { type: Function, required: true },
     initialPage: { type: String, default: "hub" }, title: { type: String, default: "Toggles" },
-    initialSection: { type: String, default: null }, returnTo: { type: Function, default: null }
+    initialSection: { type: String, default: null }, returnTo: { type: Function, default: null },
+    navigationPath: { type: Boolean, default: false },
+    // Label of the page that opened this one (e.g. "Driving"); shows the navigation tree with that page as its root.
+    trailRoot: { type: String, default: "" },
+    // Opened from the Galaxy menu (menu.js): the page title sits on top, the menu shows where the page lives,
+    // and Manage opens each sub-page as its own route (emits "open-page").
+    menuMode: { type: Boolean, default: false },
+    heading: { type: String, default: "" },
   },
   setup(props) {
     const navigation = route.view
     const navigationKey = `${props.initialPage}:${props.initialSection || ""}`
     const saved = navigation.settings?.key === navigationKey ? navigation.settings : null
-    const state = reactive({ status: "idle", data: null, pending: null, error: "", query: "", searchOpen: false, section: props.initialSection || "lateral", layoutOpen: false, layoutPanel: "widgets", favoritesOpen: false, soundChoicesDirty: false, testingSound: false, openCards: [], parents: [], panelDirection: 1 })
+    const state = reactive({ status: "idle", data: null, pending: null, error: "", query: "", searchOpen: false, section: props.initialSection || "lateral", layoutOpen: false, layoutPanel: "widgets", favoritesOpen: false, soundChoicesDirty: false, testingSound: false, openCards: [], parents: [], pageTitles: {}, panelDirection: 1 })
     if (saved) Object.assign(state, { section: saved.section, query: saved.query, searchOpen: saved.searchOpen, parents: saved.parents.slice() })
     const feed = new SettingsFeed({ publish: (update) => Object.assign(state, update), unauthorized: props.unauthorized })
     return { state, feed, sections: SETTINGS_SECTIONS, navigation, navigationKey, restoredPage: saved?.page }
@@ -314,6 +330,29 @@ export const SettingsPage = {
   computed: {
     sentryStatus() { return sentryMonitorStatus(this.state.data, this.state.error) },
     busy() { return settingsBusy(this.state) || !!this.state.testingSound || !!this.$refs?.vehicleEditor?.busy },
+    pageTitle() { return this.state.data?.page && this.state.data.page !== "hub" ? this.state.data.title : this.title },
+    navigationItems() {
+      if (!this.navigationPath || !this.state.data) return []
+      const page = this.state.data.page
+      const pages = settingsTrailPages(page)
+      const section = this.activeSection
+      const items = []
+      if (page === "hub" || section.pages.length > 1) items.push({ id: "section", label: section.label })
+      return [...items, ...pages.map(id => ({ id, label: id === page ? this.state.data.title :
+        this.state.pageTitles[id] || id.split("/").at(-1).replaceAll("_", " ") }))]
+    },
+    trailEnabled() { return this.navigationPath || (!!this.trailRoot && !!this.returnTo) },
+    // The navigation tree shown in the first card's header (Toggles: section › page › sub-page;
+    // pages opened from elsewhere: that page › page › sub-page).
+    trailItems() {
+      if (this.navigationPath) return this.navigationItems
+      if (!this.trailEnabled || !this.state.data) return []
+      const page = this.state.data.page
+      const pages = settingsTrailPages(page)
+      const start = pages.indexOf(this.initialPage)
+      return [{ id: "root", label: this.trailRoot }, ...(start < 0 ? [page] : pages.slice(start)).map(id => ({ id, label: id === page ? this.state.data.title :
+        this.state.pageTitles[id] || id.split("/").at(-1).replaceAll("_", " ") }))]
+    },
     vehicleSection() { return this.initialPage === "hub" && this.activeSection.id === "vehicle" },
     activeSection() {
       const page = (this.state.data?.page || "hub").split("/")[0]
@@ -327,7 +366,7 @@ export const SettingsPage = {
     visibleRows() {
       const needle = this.state.query.trim().toLocaleLowerCase()
       const rows = this.state.data?.rows || []
-      const inHub = this.initialPage === "hub" && this.state.data?.page === "hub"
+      const inHub = (this.navigationPath || this.initialPage === "hub") && this.state.data?.page === "hub"
       const section = this.activeSection
       const entries = inHub && SECTION_LINKS[section.id]
         ? SECTION_LINKS[section.id].map((row, index) => ({ row: { ...row, available: true, action: false, value: row.value || "Customize " + row.label.toLocaleLowerCase() }, index }))
@@ -335,7 +374,8 @@ export const SettingsPage = {
       if (inHub && section.id === "longitudinal") {
         entries.sort((a, b) => section.pages.indexOf(a.row.page) - section.pages.indexOf(b.row.page))
       }
-      return entries.filter(({ row }) => !isPipCropRow(row)).filter(({ row, index }) => {
+      return entries.filter(({ row }) => !isPipCropRow(row))
+        .filter(({ row, index }) => {
         const previous = rows[index - 1]
         return !(["sounds", "display"].includes(this.state.data?.page) && row.repairValue === "Auto" &&
           previous?.choices?.includes("Auto") && settingControl(previous) === "slider" && row.label === `Use Auto ${previous.label}`)
@@ -356,6 +396,11 @@ export const SettingsPage = {
     },
   },
   watch: {
+    "state.data"(data) {
+      if (!this.trailEnabled || !data) return
+      this.rememberPathPage(data)
+      this.loadPathTitles()
+    },
     "state.pending"() { this.flushSoundChoices() },
     "state.status"(status, previous) {
       if (previous === "saving" && status === "ready") this.state.soundChoicesDirty = false
@@ -374,9 +419,54 @@ export const SettingsPage = {
       key: this.navigationKey, page: data?.page || this.restoredPage || this.initialPage, section, query, searchOpen, parents: parents.slice(),
     }
     this.navigation.searchPage = this.initialPage === "hub" ? "" : this.initialPage
-    this.feed.stop()
+    this.pathRequest?.abort(); this.feed.stop()
   },
   methods: {
+    rememberPathPage(data) {
+      if (typeof data?.page !== "string" || typeof data.title !== "string") return
+      this.state.pageTitles[data.page] = data.title
+      for (const row of data.rows || []) {
+        if (row.page && typeof row.label === "string") this.state.pageTitles[row.page] = row.label
+      }
+    },
+    async loadPathTitles() {
+      if (this.pathRequest || !this.feed.active || !this.state.data) return
+      const missing = settingsTrailPages(this.state.data.page).slice(0, -1).filter(page => !this.state.pageTitles[page])
+      if (!missing.length) return
+      // Search can open a deep page directly. Read only missing ancestor labels;
+      // never replace the settings view or interrupt its save/poll request.
+      const controller = new AbortController()
+      this.pathRequest = controller
+      const timer = setTimeout(() => controller.abort(), 4000)
+      try {
+        await Promise.all(missing.map(async page => {
+          try {
+            const response = await fetch(`./api/settings/pages/${encodeURIComponent(page)}`, {
+              credentials: "same-origin", cache: "no-store", signal: controller.signal,
+            })
+            if (controller.signal.aborted) return
+            if (response.status === 401) { controller.abort(); this.feed.stop(); this.unauthorized(); return }
+            if (!response.ok) return
+            const data = await response.json()
+            if (!controller.signal.aborted && data?.page === page && Array.isArray(data.rows)) this.rememberPathPage(data)
+          } catch { /* The main settings feed owns connection feedback and retry. */ }
+        }))
+      } finally {
+        clearTimeout(timer)
+        if (this.pathRequest === controller) this.pathRequest = null
+      }
+    },
+    jumpToPage(page) {
+      if (this.busy || this.state.status === "loading" || !this.trailItems.some(item => item.id === page)) return
+      if (page === this.state.data?.page) return
+      if (page === "root") { this.returnTo?.(); return }
+      this.state.panelDirection = -1
+      this.state.query = ""
+      if (page === "hub" || page === "section") { this.selectSection(this.activeSection); return }
+      const above = settingsTrailPages(page).slice(0, -1)
+      this.state.parents = this.navigationPath ? ["hub", ...above] : above.slice(Math.max(0, above.indexOf(this.initialPage)))
+      this.feed.load(page)
+    },
     async testAlert(key) {
       if (this.busy) return
       this.state.testingSound = true
@@ -391,6 +481,7 @@ export const SettingsPage = {
     },
     open(page) {
       if (this.busy) return
+      if (this.menuMode) { this.$emit("open-page", page); return }
       this.$emit?.("nested")
       this.state.query = ""
       this.state.panelDirection = 1
@@ -448,12 +539,17 @@ export const SettingsPage = {
       if (this.busy) return true
       if (this.state.layoutOpen) { this.$refs.layoutEditor.requestLeave("back"); return true }
       if (this.state.favoritesOpen) { if (!this.$refs.favoritesEditor?.busy) this.closeFavorites(); return true }
-      const nested = this.initialPage === "hub" ? !this.atSectionRoot : this.state.data?.page !== this.initialPage
+      const nested = this.navigationPath || this.initialPage === "hub" ? !this.atSectionRoot : this.state.data?.page !== this.initialPage
       if (!nested) return false
       this.back()
       return true
     },
     back() {
+      if (this.navigationPath) {
+        const pages = settingsTrailPages(this.state.data?.page)
+        this.jumpToPage(pages.length > 1 ? pages.at(-2) : "section")
+        return
+      }
       this.state.panelDirection = -1
       const page = this.state.data?.page || this.initialPage
       this.state.section = this.activeSection?.id || this.state.section
@@ -476,11 +572,20 @@ export const SettingsPage = {
     },
   },
   template: `
+    <div class="gx-settings-shell" :class="{ 'gx-settings-shell--path': navigationPath }">
+      <template v-if="navigationPath">
+        <div v-if="!state.layoutOpen && !state.favoritesOpen" class="gx-settings__header gx-page-header"><h2>{{ pageTitle }}</h2></div>
+        <!-- Galaxy menu: the side menu (menu.js) replaced the Toggles category bar, so no page shows it. -->
+      </template>
     <OnroadLayoutPage ref="layoutEditor" v-if="state.layoutOpen" :mode="mode" :unauthorized="unauthorized" :initial-panel="state.layoutPanel" @target="openLayoutTarget" @close="closeLayout" />
     <FavoritesPage ref="favoritesEditor" v-else-if="state.favoritesOpen" :mode="mode" :unauthorized="unauthorized" @close="closeFavorites" />
-    <section v-else class="gx-settings" :aria-label="title || state.data?.title || 'Settings'" :inert="busy" :aria-busy="busy || undefined">
-      <div v-if="title && (initialPage !== 'hub' || atSectionRoot)" class="gx-settings__header gx-page-header"><h2>{{ title }}</h2><WikiHelp :page="state.data?.page === 'hub' ? activeSection.id : (state.data?.page || initialPage)" /></div>
-        <div v-if="mode === 'local' && initialPage === 'hub' && atSectionRoot" class="gx-settings-tabs" aria-label="Settings sections">
+    <section v-else class="gx-settings" :class="{ 'gx-settings--path': trailEnabled, 'gx-settings--menu': menuMode }" :aria-label="heading || title || state.data?.title || 'Settings'" :inert="busy" :aria-busy="busy || undefined">
+      <!-- Opened from the Galaxy menu (menu.js): the page title on top, with search within the page. -->
+      <div v-if="menuMode" class="gx-settings__header gx-page-header"><h2>{{ heading || state.data?.title || title }}</h2>
+        <button v-if="state.data && state.data.page !== 'hub' && state.data.rows.length" type="button" class="gx-icon-btn" :aria-label="state.searchOpen ? 'Close page search' : 'Search within this page'" :aria-pressed="state.searchOpen" @click="togglePageSearch"><i class="bi" :class="state.searchOpen ? 'bi-x-lg' : 'bi-search'" aria-hidden="true"></i></button>
+        <WikiHelp :page="state.data?.page === 'hub' ? activeSection.id : (state.data?.page || initialPage)" /></div>
+      <div v-if="!menuMode && !navigationPath && title && (initialPage !== 'hub' || atSectionRoot)" class="gx-settings__header gx-page-header"><h2>{{ title }}</h2><WikiHelp :page="state.data?.page === 'hub' ? activeSection.id : (state.data?.page || initialPage)" /></div>
+        <div v-if="mode === 'local' && initialPage === 'hub' && atSectionRoot && !menuMode && !navigationPath" class="gx-settings-tabs" aria-label="Settings sections">
           <button v-for="section in sections" :key="section.id" type="button" class="gx-chip" :aria-pressed="section.id === activeSection.id" @click="selectSection(section)">{{ section.label }}</button>
         </div>
       <p class="gx-page-description" v-if="state.data?.page === 'data'">Configure cloud services, remote access and data uploads.</p>
@@ -518,9 +623,14 @@ export const SettingsPage = {
               <button type="button" class="gx-btn gx-btn--tonal" @click="openCropEditor"><i class="bi bi-crop" aria-hidden="true"></i> Crop editor</button>
             </div>
             <section v-for="(card, cardIndex) in rowCards" :key="card.key" class="gx-card gx-settings__section">
+              <div v-if="menuMode && !cardIndex && state.data.page === 'sentry'" class="gx-sentry-status" :class="'gx-sentry-status--' + sentryStatus.tone" role="status">
+                <strong class="gx-sentry-status__label"><span class="gx-status-dot" aria-hidden="true"></span>{{ sentryStatus.label }}</strong>
+                <span class="gx-sentry-status__detail">{{ sentryStatus.detail }}</span>
+              </div>
               <button v-if="card.collapsible" type="button" class="gx-section__header gx-section__header--toggle" :aria-expanded="card.open" @click="toggleCard(card.key)"><i class="bi bi-car-front" aria-hidden="true"></i><span class="gx-section__title">{{ card.title }}</span><i class="bi" :class="card.open ? 'bi-chevron-up' : 'bi-chevron-down'" aria-hidden="true"></i></button>
               <div v-else-if="cardIndex" class="gx-section__header"><i class="bi bi-car-front" aria-hidden="true"></i><span class="gx-section__title">{{ card.title }}</span></div>
-              <div v-else class="gx-section__header"><i class="bi" :class="activeSection.icon" aria-hidden="true"></i><span class="gx-section__title">{{ state.data.page === 'hub' ? activeSection.label : state.data.title }}</span>
+              <div v-else-if="!menuMode" class="gx-section__header"><GxTrail v-if="trailItems.length" :items="trailItems" :disabled="busy" label="Toggle hierarchy" @select="jumpToPage" />
+                <template v-else><i class="bi" :class="activeSection.icon" aria-hidden="true"></i><span class="gx-section__title">{{ state.data.page === 'hub' ? activeSection.label : state.data.title }}</span></template>
                 <div v-if="state.data.page === 'sentry'" class="gx-sentry-status" :class="'gx-sentry-status--' + sentryStatus.tone" role="status">
                   <strong class="gx-sentry-status__label"><span class="gx-status-dot" aria-hidden="true"></span>{{ sentryStatus.label }}</strong>
                   <span class="gx-sentry-status__detail">{{ sentryStatus.detail }}</span>
@@ -545,5 +655,6 @@ export const SettingsPage = {
             <div class="gx-settings__controls gx-actions"><button type="button" class="gx-btn gx-btn--tonal" @click="feed.cancel()">Cancel</button>
               <button type="button" class="gx-btn" @click="feed.confirm()">Save</button></div></GxDialog>
       </template>
-    </section>`,
+    </section>
+    </div>`,
 }
