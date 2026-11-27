@@ -7,6 +7,7 @@ from openpilot.selfdrive.controls.lib.highway_correction_gain import read_gain
 from openpilot.starpilot.lateral.lane_runtime import read_settings
 from openpilot.starpilot.lateral.lane_centering import LaneCenteringSettings
 from openpilot.starpilot.lateral.lane_change_preferences import read_saved, SavedLaneChange
+from openpilot.starpilot.lateral.parked_runtime import ParkedSettings, read_settings as read_parked
 
 
 @dataclass(frozen=True)
@@ -14,6 +15,7 @@ class SteeringPreferences:
   highway_gain: float
   lane_centering: LaneCenteringSettings
   lane_change: SavedLaneChange
+  parked: ParkedSettings
 
 
 class LiveSteeringPreferences:
@@ -26,7 +28,7 @@ class LiveSteeringPreferences:
     self._thread: threading.Thread | None = None
 
   def _read(self):
-    return SteeringPreferences(read_gain(self.params), read_settings(self.params), read_saved(self.params))
+    return SteeringPreferences(read_gain(self.params), read_settings(self.params), read_saved(self.params), read_parked(self.params))
 
   def start(self):
     if self._thread is None:

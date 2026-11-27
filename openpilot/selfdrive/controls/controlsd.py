@@ -59,6 +59,7 @@ from openpilot.starpilot.lateral.lane_change_preferences import LiveLaneChangePo
 from openpilot.starpilot.lateral.lane_change_smoothing import LaneChangeSmoother, limit_rate
 from openpilot.starpilot.lateral.auto_lane_change import paired_clocks_ns
 from openpilot.starpilot.lateral.lane_runtime import LaneCenteringHost, runtime_supported as lane_runtime_supported
+from openpilot.starpilot.lateral.parked_runtime import ParkedClearanceHost, runtime_supported as parked_runtime_supported
 from openpilot.starpilot.lateral.live_preferences import LiveSteeringPreferences
 from openpilot.starpilot.lateral.torque_runtime import TorqueHost, runtime_enabled as torque_runtime_enabled
 from openpilot.starpilot.feature_capabilities import lateral_supported
@@ -144,6 +145,7 @@ class Controls:
     optional = list(
       dict.fromkeys(
         self.longitudinal_inputs.optional_services + ['starpilotCarState', 'deviceState', 'autoSteeringLearning', 'starpilotSteeringTracking', 'pandaStates']
+        + (['radarTracks'] if parked_runtime_supported(self.CP) else [])
       )
     )
     if optional:
@@ -190,6 +192,9 @@ class Controls:
     self.lane_centering_host = LaneCenteringHost(
       self.params, settings_reader=(lambda: preferences.current.lane_centering) if preferences is not None else None,
     ) if lane_runtime_supported(self.CP) else None
+    self.parked_clearance_host = ParkedClearanceHost(
+      self.params, settings_reader=(lambda: preferences.current.parked) if preferences is not None else None,
+    ) if parked_runtime_supported(self.CP) else None
     self.torque_host = (
       TorqueHost(self.params, self.CP, allow_learning=(self.torque_learning_allowed if self.lateral_controller_selection.policy is not None else None))
       if torque_runtime_enabled(self.CP, self.params)
@@ -670,6 +675,11 @@ class Controls:
         steering_limited=self.steer_limited_by_safety,
         actuator_delay_s=lat_delay,
       )
+    parked_clearance = getattr(self, 'parked_clearance_host', None)
+    if parked_clearance is not None:
+      new_desired_curvature += parked_clearance.update(
+        self.sm, now_ns=int(self.sm.logMonoTime['carState']) if os.getenv('REPLAY') == '1' else time.monotonic_ns(),
+        lateral_active=bool(CC.latActive), maneuver=bool(self.sm.valid['lateralManeuverPlan']))
     lane_base_curvature = new_desired_curvature
     self.lane_centering_applied = 0.0
     self.lane_centering_inactive_reason = 'inactive'
