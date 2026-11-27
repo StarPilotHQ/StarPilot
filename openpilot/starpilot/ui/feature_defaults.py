@@ -46,6 +46,7 @@ FLOAT_SPECS = {
   "ForceStopDistanceOffset": (-20, 20, 1, "ft"),
   "LaneCenterOffset": (-0.3, 0.3, 0.01, "m"),
   "ParkedClearanceGap": (1.0, 2.0, 0.1, "m"),
+  "ParkedClearanceShift": (0.1, 0.5, 0.05, "m"),
   "LaneCenteringE2EAuthority": (0.0, 1.0, 0.05, "fraction"),
   "LaneCenteringStrength": (0.5, STRENGTH_MAX, 0.015, "fraction"),
   **{f"{name}{suffix}": (0.5, 3.0, 0.05, "s")

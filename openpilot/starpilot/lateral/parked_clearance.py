@@ -24,6 +24,8 @@ EGO_HALF_WIDTH = 0.9
 OBJECT_HALF_WIDTH = 0.9
 MAX_GAP = 2.0
 MAX_SHIFT = 0.3
+MIN_LIMIT = 0.1
+MAX_LIMIT = 0.5
 RISE_RATE = 0.25
 FALL_RATE = 0.15
 MIN_LINE_SPACING = 0.9
@@ -107,12 +109,13 @@ class ParkedClearance:
     self.hold = 0.0
     self.reason = 'inactive'
 
-  def update(self, points, speed: float, dt: float, gap: float, room: float, active: bool) -> float:
-    values = (speed, dt, gap, room)
-    if not active or not all(type(v) in (int, float) and math.isfinite(v) for v in values) or dt <= 0 or gap <= 0:
+  def update(self, points, speed: float, dt: float, gap: float, room: float, active: bool, limit: float = MAX_SHIFT) -> float:
+    values = (speed, dt, gap, room, limit)
+    if not active or not all(type(v) in (int, float) and math.isfinite(v) for v in values) or dt <= 0 or gap <= 0 or limit <= 0:
       self.reset()
       return 0.0
     gap = min(gap, MAX_GAP)
+    limit = min(limit, MAX_LIMIT)
     seen = set()
     for point in points:
       if not all(math.isfinite(v) for v in (point.distance, point.lateral, point.speed)):
@@ -144,8 +147,8 @@ class ParkedClearance:
       self.reason = 'hold'
     else:
       self.demand, self.reason = 0.0, 'clear'
-    target = min(self.demand, MAX_SHIFT, max(0.0, room))
-    if target < self.demand and self.reason == 'parked' and room < min(self.demand, MAX_SHIFT):
+    target = min(self.demand, limit, max(0.0, room))
+    if target < self.demand and self.reason == 'parked' and room < min(self.demand, limit):
       self.reason = 'left_limited'
     step = target - self.shift
     self.shift += min(step, RISE_RATE * dt) if step > 0 else max(step, -FALL_RATE * dt)

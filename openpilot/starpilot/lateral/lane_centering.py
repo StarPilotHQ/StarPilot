@@ -92,6 +92,7 @@ class LaneCenteringInput:
   time_discontinuity: bool = False
   measured_curvature: float | None = None
   lateral_delay_s: float | None = None
+  hold: bool = False
 
 
 @dataclass(frozen=True)
@@ -405,6 +406,9 @@ class LaneCenteringController:
     if settings.pause_on_signal and observation.turn_signal_active:
       self._tracker.reset()
       return self._fade(base, dt, "signal_release")
+    if observation.hold is True:
+      self._tracker.reset()
+      return self._fade(base, dt, "parked_clearance")
     self._position_clock += dt
     # Filtering runs per control tick, including repeated model samples.
     geometry = _reader_geometry_key(observation.model)

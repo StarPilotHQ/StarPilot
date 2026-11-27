@@ -7,12 +7,15 @@ from openpilot.cereal import log
 from openpilot.cereal.services import SERVICE_LIST
 from openpilot.common.scalar_clip import clip_scalar
 from openpilot.starpilot.feature_capabilities import lateral_supported
-from openpilot.starpilot.lateral.parked_clearance import MAX_GAP, ParkedClearance, RadarPoint, left_room, oncoming_ahead, path_lateral
+from openpilot.starpilot.lateral.parked_clearance import (
+  MAX_GAP, MAX_LIMIT, MAX_SHIFT, MIN_LIMIT, ParkedClearance, RadarPoint, left_room, oncoming_ahead, path_lateral,
+)
 from openpilot.starpilot.saved_source import read_saved
 
 GAIN = 0.45
 MAX_CORRECTION = 0.0012
 DEFAULT_GAP = 1.5
+DEFAULT_LIMIT = MAX_SHIFT
 MAX_RADAR_GAP_S = 0.25
 MAX_PATH_SLOPE = 0.1
 MAX_AGE_NS = {'carState': 100_000_000, 'modelV2': 200_000_000, 'radarTracks': 200_000_000}
@@ -22,19 +25,23 @@ MAX_AGE_NS = {'carState': 100_000_000, 'modelV2': 200_000_000, 'radarTracks': 20
 class ParkedSettings:
   enabled: bool = False
   gap: float = DEFAULT_GAP
+  limit: float = DEFAULT_LIMIT
 
 
 def read_settings(params) -> ParkedSettings:
   try:
     enabled, readable = read_saved(params, 'ParkedClearance', 64)
     gap, gap_readable = read_saved(params, 'ParkedClearanceGap', 64)
+    limit, limit_readable = read_saved(params, 'ParkedClearanceShift', 64)
     right_hand_drive, side_readable = read_saved(params, 'IsRhdDetected', 8)
-    if not readable or not gap_readable or enabled not in (None, b'0', b'1') or not side_readable or right_hand_drive not in (None, b'0'):
+    if (not readable or not gap_readable or not limit_readable or enabled not in (None, b'0', b'1') or
+        not side_readable or right_hand_drive not in (None, b'0')):
       return ParkedSettings()
     value = DEFAULT_GAP if gap is None else float(gap)
-    if not math.isfinite(value) or not 0 < value <= MAX_GAP:
+    shift = DEFAULT_LIMIT if limit is None else float(limit)
+    if not math.isfinite(value) or not 0 < value <= MAX_GAP or not math.isfinite(shift) or not MIN_LIMIT <= shift <= MAX_LIMIT:
       return ParkedSettings()
-    return ParkedSettings(enabled == b'1', value)
+    return ParkedSettings(enabled == b'1', value, shift)
   except (OSError, ValueError):
     return ParkedSettings()
 
@@ -113,9 +120,9 @@ class ParkedClearanceHost:
         line, edge = model.laneLines[1], model.roadEdges[0]
         room = left_room(center - _at(list(line.x), list(line.y), lookahead), float(model.laneLineProbs[1]), float(model.laneLineStds[1]),
                          center - _at(list(edge.x), list(edge.y), lookahead), float(model.roadEdgeStds[0]), oncoming=oncoming_ahead(points))
-        self.detector.update(points, speed, dt, self.settings.gap, room, True)
+        self.detector.update(points, speed, dt, self.settings.gap, room, True, self.settings.limit)
         self.reason = self.detector.reason
-      self.correction = clip_scalar(-2.0 * self.detector.shift / lookahead ** 2 * GAIN, -MAX_CORRECTION, 0.0)
+      self.correction = clip_scalar(-2.0 * self.detector.shift / lookahead ** 2 * GAIN, -MAX_CORRECTION * max(1.0, self.settings.limit / MAX_SHIFT), 0.0)
       self.shift = float(self.detector.shift)
       return self.correction
     except (AttributeError, IndexError, TypeError, ValueError, OverflowError):

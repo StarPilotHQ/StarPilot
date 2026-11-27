@@ -14,6 +14,14 @@ def run(detector, points, seconds, *, speed=11.0, gap=1.0, room=0.6, active=True
   return shift
 
 
+def run_limit(points, limit):
+  detector = ParkedClearance()
+  shift = 0.0
+  for _ in range(round(4.0 / DT)):
+    shift = detector.update(points, 11.0, DT, 2.0, 0.6, True, limit)
+  return shift
+
+
 class TestParkedClearance(unittest.TestCase):
   def test_clear_road_adds_nothing(self):
     self.assertEqual(run(ParkedClearance(), [], 5.0), 0.0)
@@ -91,6 +99,14 @@ class TestParkedClearance(unittest.TestCase):
     detector = ParkedClearance()
     run(detector, [RadarPoint(1, 20.0, 3.2, 0.0)], 3.0, gap=5.0)
     self.assertAlmostEqual(detector.demand, pc.MAX_GAP - 1.4)
+
+  def test_limit_setting_caps_shift(self):
+    point = [RadarPoint(1, 20.0, 2.3, 0.0)]
+    self.assertAlmostEqual(run_limit(point, 0.1), 0.1)
+    self.assertAlmostEqual(run_limit(point, 0.5), 0.5)
+    self.assertAlmostEqual(run_limit(point, 9.0), 0.5)
+    for bad in (0.0, -0.2, math.nan):
+      self.assertEqual(run_limit(point, bad), 0.0)
 
   def test_path_lateral(self):
     self.assertAlmostEqual(pc.path_lateral([0.0, 10.0, 20.0], [0.0, 0.5, 1.0], 15.0, -3.0), 2.25)

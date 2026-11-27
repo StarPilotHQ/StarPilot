@@ -1,3 +1,4 @@
+import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -6,7 +7,7 @@ from opendbc.car.structs import car
 from openpilot.cereal import log
 from openpilot.starpilot.lateral import parked_runtime as runtime
 from openpilot.starpilot.lateral.parked_runtime import ParkedClearanceHost, ParkedSettings, read_settings
-from openpilot.starpilot.lateral.lane_centering import LaneCenteringController, LaneCenteringSettings, MAX_CORRECTION
+from openpilot.starpilot.lateral.lane_centering import LaneCenteringController, RELEASE_TAU
 from openpilot.starpilot.lateral.tests.test_lane_centering import model as lane_model, observation as lane_observation, settled
 
 STEP_NS = 50_000_000
@@ -66,8 +67,8 @@ def drive(host, seconds, points, *, speed=11.0, model=None, active=True, maneuve
   return correction, bus, start + round(seconds / 0.05) * STEP_NS
 
 
-def host(enabled=True, gap=1.5):
-  return ParkedClearanceHost(None, settings_reader=lambda: ParkedSettings(enabled, gap))
+def host(enabled=True, gap=1.5, limit=runtime.DEFAULT_LIMIT):
+  return ParkedClearanceHost(None, settings_reader=lambda: ParkedSettings(enabled, gap, limit))
 
 
 PARKED = [(7, 20.0, -2.6, -11.0)]
@@ -87,6 +88,14 @@ class TestParkedRuntime(unittest.TestCase):
     correction = drive(subject, 4.0, [(7, 20.0, -3.1, -11.0)])[0]
     self.assertAlmostEqual(subject.detector.shift, 0.1, places=5)
     self.assertAlmostEqual(correction, -2.0 * 0.1 / 11.0 ** 2 * runtime.GAIN, places=7)
+
+  def test_limit_setting_scales_cap(self):
+    small, large = host(limit=0.1), host(gap=2.0, limit=0.5)
+    self.assertAlmostEqual(drive(small, 4.0, PARKED)[0], -2.0 * 0.1 / 11.0 ** 2 * runtime.GAIN, places=7)
+    self.assertAlmostEqual(small.shift, 0.1, places=5)
+    wide = model_message(line_prob=0.05)
+    self.assertAlmostEqual(drive(large, 6.0, PARKED, model=wide)[0], -runtime.MAX_CORRECTION * 0.5 / 0.3, places=7)
+    self.assertLessEqual(large.shift, 0.5)
 
   def test_clear_road_and_far_objects_add_nothing(self):
     self.assertEqual(drive(host(), 3.0, [])[0], 0.0)
@@ -178,32 +187,33 @@ class TestParkedRuntime(unittest.TestCase):
         (Path(root) / 'IsRhdDetected').write_bytes(side)
         self.assertEqual(read_settings(saved), expected)
       (Path(root) / 'IsRhdDetected').unlink()
+      (Path(root) / 'ParkedClearanceShift').write_bytes(b'0.45')
+      self.assertEqual(read_settings(saved), ParkedSettings(True, 1.2, 0.45))
+      for bad in (b'nan', b'0', b'0.6', b'x'):
+        (Path(root) / 'ParkedClearanceShift').write_bytes(bad)
+        self.assertEqual(read_settings(saved), ParkedSettings())
+      (Path(root) / 'ParkedClearanceShift').unlink()
       (Path(root) / 'ParkedClearance').write_bytes(b'yes')
       self.assertEqual(read_settings(saved), ParkedSettings())
 
 
 class TestParkedLaneCentering(unittest.TestCase):
-  def test_lane_centering_aims_at_the_nudged_position(self):
-    lanes = lane_model(left=-1.8, right=1.8)
-    centred = settled(LaneCenteringController(), lane_observation(lanes, settings=LaneCenteringSettings(True, 0.0, 0.0)))
-    nudged = settled(LaneCenteringController(), lane_observation(lanes, settings=LaneCenteringSettings(True, -0.2, 0.0)))
-    self.assertLess(nudged.correction, centred.correction)
-    self.assertLess(nudged.correction, 0.0)
-    self.assertLessEqual(abs(nudged.correction), MAX_CORRECTION)
-
-  def test_ramped_offset_is_followed_without_resets(self):
-    lanes = lane_model(left=-1.8, right=1.8)
+  def test_hold_fades_lane_centering_and_resumes(self):
+    lanes = lane_model(left=-1.5, right=2.1)
     controller = LaneCenteringController()
-    previous = settled(controller, lane_observation(lanes, settings=LaneCenteringSettings(True, 0.0, 0.0))).correction
-    for tick in range(1, 201):
-      offset = -min(0.3, 0.25 * tick * 0.01)
-      result = controller.update(lane_observation(lanes, settings=LaneCenteringSettings(True, offset, 0.0)))
+    start = previous = settled(controller, lane_observation(lanes)).correction
+    self.assertGreater(start, 0.0)
+    for _ in range(100):
+      result = controller.update(lane_observation(lanes, hold=True))
+      self.assertEqual(result.reason, 'parked_clearance')
       self.assertIsNotNone(result.candidate_curvature)
-      self.assertNotIn(result.reason, ('invalid_input', 'time_discontinuity', 'inactive', 'invalid_model'))
-      self.assertLessEqual(result.correction, previous + 1e-12)
-      self.assertLessEqual(abs(result.correction - previous), 2 * MAX_CORRECTION * 0.01 / 0.4)
+      self.assertLessEqual(result.correction, previous)
+      self.assertGreaterEqual(result.correction, previous * math.exp(-0.01 / RELEASE_TAU) - 1e-15)
       previous = result.correction
-    self.assertLess(previous, 0.0)
+    self.assertLess(previous, 0.01 * start)
+    resumed = settled(controller, lane_observation(lanes))
+    self.assertNotEqual(resumed.reason, 'parked_clearance')
+    self.assertAlmostEqual(resumed.correction, start, delta=0.05 * start)
 
 
 if __name__ == '__main__':

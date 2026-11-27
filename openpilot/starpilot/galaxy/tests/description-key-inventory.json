@@ -75,6 +75,7 @@
   "PIPPreviewShowOnBlinker",
   "ParkedClearance",
   "ParkedClearanceGap",
+  "ParkedClearanceShift",
   "PauseLateralOnSignal",
   "PauseLateralSpeed",
   "PromptDistractedVolume",

@@ -137,6 +137,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"LaneCenterOffset", {PERSISTENT, FLOAT, "0.0"}},
     {"ParkedClearance", {PERSISTENT, BOOL, "0"}},
     {"ParkedClearanceGap", {PERSISTENT, FLOAT, "1.5"}},
+    {"ParkedClearanceShift", {PERSISTENT, FLOAT, "0.3"}},
     {"LaneCenteringE2EAuthority", {PERSISTENT, FLOAT, "0.5"}},
     {"LaneCenteringStrength", {PERSISTENT, FLOAT, "1.5"}},
     {"UnidenConfig", {PERSISTENT | DONT_LOG, JSON}},

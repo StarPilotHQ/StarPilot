@@ -1323,6 +1323,11 @@ class SettingsGatewayTest(unittest.TestCase):
     self.assertEqual(Path(self.params.get_param_path("ParkedClearanceGap")).read_bytes(), b"1.8")
     from openpilot.starpilot.lateral.parked_runtime import ParkedSettings, read_settings
     self.assertEqual(read_settings(self.params), ParkedSettings(True, 1.8))
+    page, index, shift = row("Parked car max shift")
+    self.assertEqual((shift["value"], shift["minimum"], shift["maximum"], shift["unit"]), ("0.3", 0.1, 0.5, "m"))
+    intent = self.gateway.preview(page["view"], index, 0, self.session, self.generation, value=0.45)
+    self.assertTrue(self.gateway.confirm(intent["intent"], self.session, self.generation))
+    self.assertEqual(read_settings(self.params), ParkedSettings(True, 1.8, 0.45))
 
   def test_live_lane_rejects_unsupported_vehicle_and_master_dependency(self):
     self.params.put_bool("LaneCentering", False, block=True)
