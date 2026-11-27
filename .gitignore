@@ -144,3 +144,6 @@ openpilot/selfdrive/modeld/models/*.unchunked
 # Local Google Play resolver build output (source and lockfile are versioned).
 
 openpilot/starpilot/flm/_primitive_walk.cpp
+
+# Local Cursor agent / MCP config (never commit)
+.cursor/
