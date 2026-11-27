@@ -12,9 +12,9 @@ from openpilot.starpilot.lateral.controller_selection import ControllerMode
 
 
 @pytest.mark.parametrize("speed, setpoint, override, expected", [
-  (61., 0.2, False, 0.35),
-  (54., 0.2, False, 0.675),
-  (61., 0.450, False, 0.675),
+  (61., 0.2, False, 0.20),
+  (54., 0.2, False, 0.60),
+  (61., 0.450, False, 0.60),
   (50., 0.2, False, 1.0),
   (61., 0.60, False, 1.0),
   (61., 0.2, True, 1.0),
