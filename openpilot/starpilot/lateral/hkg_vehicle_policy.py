@@ -167,7 +167,11 @@ class HKGVehicleTorquePolicy(HKGShapedTorquePolicy):
     if self.profile == 'tucson_4th_gen' and not (self.steering_pressed or self.previous_pressed):
       speed_weight = np.interp(speed, (4., 7., 18., 22.), (0., 1., 1., 0.))
       shallow_curve = np.interp(abs(setpoint), (.65, 1.15), (1., 0.))
-      return error * (1.0 - .15 * speed_weight * shallow_curve)
+      steady_speed = np.interp(speed, (8., 10., 15., 18.), (0., 1., 1., 0.))
+      steady_curve = np.interp(abs(setpoint), (.5, .85), (1., 0.))
+      steady_demand = np.interp(abs(self.jerk_filter.x), (.5, 1.0), (1., 0.))
+      damping = .15 * speed_weight * shallow_curve + .30 * steady_speed * steady_curve * steady_demand
+      return error * (1.0 - damping)
     return error * (1.0 - shaping.KIA_CARNIVAL_HEV_CENTER_ERROR_REDUCTION * self.hev_center_weight)
 
   def jerk_deadzone(self, setpoint, jerk, measurement, speed):

@@ -172,9 +172,14 @@ def test_tucson_softens_shallow_curve_feedback_in_both_cruise_modes():
                                    openpilotLongitudinalControl=alpha_long, pcmCruise=not alpha_long)
     policy = controller.starpilot_extension.policy
     for direction in (-1., 1.):
-      assert math.isclose(policy.pid_error_context(direction, direction * .5, 13.), direction * .85)
+      assert math.isclose(policy.pid_error_context(direction, direction * .5, 13.), direction * .55)
       for speed, demand in ((4., .5), (22., .5), (13., 1.15)):
         assert policy.pid_error_context(direction, direction * demand, speed) == direction
+    for demand, speed, base_scale in ((.5, 19., .8875), (.9, 13., .925)):
+      assert math.isclose(policy.pid_error_context(1., demand, speed), base_scale)
+    policy.jerk_filter.x = -1.0
+    assert math.isclose(policy.pid_error_context(1., .5, 13.), .85)
+    policy.jerk_filter.x = 0.0
     for field in ('steering_pressed', 'previous_pressed'):
       setattr(policy, field, True)
       assert policy.pid_error_context(1., .5, 13.) == 1.
