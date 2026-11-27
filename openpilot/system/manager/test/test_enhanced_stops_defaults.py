@@ -5,9 +5,18 @@ import tempfile
 import unittest
 
 from openpilot.common.params import Params
+from openpilot.starpilot.ui.feature_defaults import BOOL_DEFAULTS
 
 
 class TestEnhancedStopsDefaults(unittest.TestCase):
+  def test_fresh_install_defaults_match_ui(self):
+    with tempfile.TemporaryDirectory() as root:
+      params = Params(root)
+      for key, expected in (("ForceStops", True), ("LaneCentering", False)):
+        with self.subTest(key=key):
+          self.assertEqual(params.get_default_value(key), expected)
+          self.assertEqual(BOOL_DEFAULTS[key], expected)
+
   def test_typed_enrollment_preserves_existing_choices(self):
     source = Path(__file__).resolve().parents[1] / "manager.py"
     tree = ast.parse(source.read_text())
@@ -25,3 +34,4 @@ class TestEnhancedStopsDefaults(unittest.TestCase):
             path.write_bytes(saved)
           exec(code, {"params": params, "os": os})
           self.assertEqual(path.read_bytes(), saved if saved is not None else b"0" if upgrade else b"1")
+          self.assertFalse(params.get_bool("LaneCentering"))

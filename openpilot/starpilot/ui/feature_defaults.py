@@ -27,7 +27,7 @@ BOOL_DEFAULTS = {
   "SLCOnEngage": False,
   WHEEL_OVERRIDE_KEY: False,
   "PauseLateralOnSignal": False,
-  "LaneCentering": True, "LaneCenteringPauseOnSignal": True,
+  "LaneCentering": False, "LaneCenteringPauseOnSignal": True,
   "CustomPersonalities": False, PLANNER_SELECTION_KEY: True,
   LEAD_APPROACH_KEY: False,
   LEAD_TAKEOFF_KEY: False,
