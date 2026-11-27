@@ -191,3 +191,41 @@ def test_departure_tolerates_only_bounded_model_y_prefix_noise(fingerprint, slot
     results.append(owner.sample(sm, cp, planner, detector, now_ns=now, drive_id=green.MONO-1_000_000_000))
   assert not any(results[:10])
   assert results[10:] == [clear] * 3
+
+
+@pytest.mark.parametrize('case', ('matched-turn', 'duplicate', 'distinct', 'weak-primary', 'prefix-noise', 'large-prefix',
+                                  'opposite-signal', 'no-signal', 'short-path', 'no-lead', 'model-stop', 'native-stop'))
+def test_shorter_turn_path_can_release_only_with_matching_lead_and_no_stop(case):
+  cp = CarParams(openpilotLongitudinalControl=True, carFingerprint='TESLA_MODEL_Y')
+  owner = StoppedLeadRelease()
+  detector = SimpleNamespace(committed=True, standstill_committed=True, standstill_reason='light', commit_distance_m=5.)
+  planner = SimpleNamespace(mpc=SimpleNamespace(solution_status=0), output_should_stop=case == 'native-stop', output_a_target=.5,
+                            force_stop_plan=SimpleNamespace(forcing=False, should_stop=False))
+  results = []
+  for tick in range(13):
+    now = green.MONO + 1_000_000_000 + tick * 50_000_000
+    sm = scene(now, True)
+    car, model = sm['carState'], sm['modelV2']
+    car.leftBlinker, car.rightBlinker = case not in ('no-signal', 'opposite-signal'), case == 'opposite-signal'
+    path = list(model.position.x)
+    forward = 25. if case == 'short-path' else 43.
+    model.position.x = [x * forward / path[-1] for x in path]
+    model.position.y = [-x * 20. / path[-1] for x in path]
+    if case in ('prefix-noise', 'large-prefix'):
+      xs, velocities = list(model.position.x), list(model.velocity.x)
+      xs[4], velocities[4] = -.027, -.085 if case == 'prefix-noise' else -.091
+      model.position.x, model.velocity.x = xs, velocities
+    model.action.shouldStop = case == 'model-stop'
+    for slot, lead in enumerate((sm['radarState'].leadOne, sm['radarState'].leadTwo)):
+      if lead.present:
+        raw = model.leadsV3[slot]
+        offset = .4 if case == 'distinct' and slot == 1 else 0.
+        raw.x = [x - raw.x[0] + 6.02 + offset for x in raw.x]
+        if (case in ('duplicate', 'distinct') and slot == 1) or (case == 'weak-primary' and slot == 0):
+          raw.prob = .92
+        lead.from_dict(get_RadarState_from_vision(raw, car.vEgo, model.velocity.x[0], raw.prob))
+        if case == 'no-lead':
+          lead.present = False
+    results.append(owner.sample(sm, cp, planner, detector, now_ns=now, drive_id=green.MONO-1_000_000_000))
+  assert not any(results[:10])
+  assert results[10:] == [case in ('matched-turn', 'duplicate', 'prefix-noise')] * 3

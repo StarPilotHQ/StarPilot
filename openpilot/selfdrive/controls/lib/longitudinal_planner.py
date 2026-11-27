@@ -202,7 +202,9 @@ class LongitudinalPlanner:
     self.plan_drive_id = drive_id
     model_y_no_lead_takeoff = (faster_lead_takeoff and self.CP.carFingerprint == 'TESLA_MODEL_Y' and
                                not any(lead.present for lead in (sm['radarState'].leadOne, sm['radarState'].leadTwo)))
-    faster_takeoffs = bool(faster_lead_takeoff and not model_y_no_lead_takeoff)
+    model_y_turn_takeoff = self.CP.carFingerprint == 'TESLA_MODEL_Y' and (
+      sm['carState'].leftBlinker or sm['carState'].rightBlinker)
+    faster_takeoffs = bool(faster_lead_takeoff and not model_y_no_lead_takeoff and not model_y_turn_takeoff)
     accel_ceiling = TAKEOFF_ACCEL_MAX if faster_takeoffs else ACCEL_MAX
     if self.max_accel_override is not None:
       accel_ceiling = min(accel_ceiling, self.max_accel_override)

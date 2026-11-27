@@ -11,6 +11,9 @@ from openpilot.starpilot.conditional_mode.stop import FROZEN_RAW_STOP_DISTANCE_M
 SOURCES = ('carState', 'carControl', 'controlsState', 'selfdriveState', 'radarState', 'modelV2')
 MAX_AGE_NS = 150_000_000
 CLEAR_DWELL_NS = 500_000_000
+MIN_TURN_PATH_M = 45.0
+MIN_TURN_FORWARD_M = 36.0
+MIN_TURN_LEAD_GAP_M = 4.0
 
 
 def _supported(cp):
@@ -54,14 +57,23 @@ class StoppedLeadRelease:
         self.reset()
         return False
       extent = _standstill_path_extent(model)
-      if extent is None or extent < max(FROZEN_RAW_STOP_DISTANCE_M, detector.commit_distance_m) + STOP_MODEL_RELEASE_MARGIN_M:
+      turning = False
+      if extent is not None and car.leftBlinker != car.rightBlinker:
+        x, y = tuple(model.position.x), tuple(model.position.y)
+        if len(x) == len(y) and all(math.isfinite(v) for v in y):
+          turn_displacement = y[-1] - y[0]
+          turning = (turn_displacement * (-1 if car.leftBlinker else 1) >= 3. and
+                     sum(math.hypot(b - a, d - c) for a, b, c, d in zip(x, x[1:], y, y[1:], strict=False)) >= MIN_TURN_PATH_M)
+      minimum_extent = MIN_TURN_FORWARD_M if turning else FROZEN_RAW_STOP_DISTANCE_M + STOP_MODEL_RELEASE_MARGIN_M
+      if extent is None or extent < max(minimum_extent, detector.commit_distance_m + STOP_MODEL_RELEASE_MARGIN_M):
         self.reset()
         return False
       velocities, times = tuple(model.velocity.x), tuple(ModelConstants.T_IDXS)
       # A stationary Model Y can predict a few centimeters of reverse motion at launch.
       prefix_noise = cp.carFingerprint == 'TESLA_MODEL_Y' and min(model.position.x) >= -.03
+      prefix_min_velocity = -.09 if turning else -.08
       if (len(velocities) != 33 or len(times) != 33 or
-          not all(math.isfinite(v) and (-.08 if prefix_noise and t < .2 else -.05) <= v <= 100.
+          not all(math.isfinite(v) and (prefix_min_velocity if prefix_noise and t < .2 else -.05) <= v <= 100.
                   for v, t in zip(velocities, times, strict=True))):
         self.reset()
         return False
@@ -70,26 +82,37 @@ class StoppedLeadRelease:
         self.reset()
         return False
       leads = [(slot, lead) for slot, lead in enumerate((sm['radarState'].leadOne, sm['radarState'].leadTwo)) if lead.present]
+      minimum_gap = MIN_TURN_LEAD_GAP_M if turning else 6.3
       if not leads or any(lead.radar and lead.radarTrackId < 0 or not all(math.isfinite(v) for v in
           (lead.dRel, lead.vLead, lead.aLeadK, lead.yRel, lead.modelProb)) or
-          not 6.3 <= lead.dRel <= 18. or lead.vLead < .6 or lead.aLeadK < -.15 or
-          abs(lead.yRel) > 1. or lead.modelProb < .95 for _, lead in leads):
+          not minimum_gap <= lead.dRel <= 18. or lead.vLead < .6 or lead.aLeadK < -.15 or
+          abs(lead.yRel) > 1. for _, lead in leads):
         self.reset()
         return False
+      primary = leads[0][1]
       for slot, lead in leads:
+        # The model can emit the same departing car in both temporal slots.
+        # A weaker duplicate still has to agree with the primary and its own projection.
+        duplicate = (turning and slot == 1 and leads[0][0] == 0 and not (primary.radar or lead.radar) and
+                     all(abs(getattr(primary, field) - getattr(lead, field)) <= .25
+                         for field in ('dRel', 'yRel', 'vLead', 'aLeadK')))
+        minimum_probability = .9 if duplicate else .95
+        if lead.modelProb < minimum_probability:
+          self.reset()
+          return False
         if not lead.radar:
           if lead.radarTrackId != -1:
             self.reset()
             return False
           source = model.leadsV3[slot]
           projected = get_RadarState_from_vision(source, car.vEgo, model.velocity.x[0], source.prob)
-          if (source.prob < .95 or not math.isfinite(source.prob) or
+          if (source.prob < minimum_probability or not math.isfinite(source.prob) or
               any(not math.isfinite(projected[field]) or abs(projected[field] - getattr(lead, field)) > .5
                   for field in ('dRel', 'yRel', 'vLead', 'aLeadK'))):
             self.reset()
             return False
       key = (drive_id, cp.carFingerprint, tuple((str(config.safetyModel), config.safetyParam) for config in cp.safetyConfigs),
-             tuple((slot, bool(lead.radar), lead.radarTrackId if lead.radar else -1) for slot, lead in leads))
+             turning, tuple((slot, bool(lead.radar), lead.radarTrackId if lead.radar else -1) for slot, lead in leads))
       stamp = int(sm.logMonoTime['modelV2'])
       if (key != self.key or not self.last_ns < now_ns <= self.last_ns + MAX_AGE_NS or stamp <= self.model_ns):
         self.reset()
