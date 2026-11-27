@@ -206,7 +206,7 @@ def model_turn_assist_supported(CP) -> bool:
 
 def default_selection(CP) -> ControllerSelection:
   policy = policy_for(CP)
-  use_starpilot = policy is not None and (policy != 'generic' or CP.carFingerprint == 'KIA_NIRO_EV_2ND_GEN')
+  use_starpilot = policy is not None and CP.brand != 'ford'
   mode = ControllerMode.STARPILOT if use_starpilot else ControllerMode.STANDARD
   return ControllerSelection(mode, policy, 'default')
 

@@ -17,7 +17,7 @@ class FordController(IntEnum):
 
 def default_controller(cp):
   tuned = cp is not None and cp.brand == "ford" and cp.carFingerprint in TUNED_CARS
-  return FordController.STARPILOT if tuned else FordController.BLUEPILOT_CURVATURE
+  return FordController.STARPILOT if tuned else FordController.BLUEPILOT_ANGLE
 
 
 def read_controller(cp, params):

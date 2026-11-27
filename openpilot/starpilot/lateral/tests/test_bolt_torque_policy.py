@@ -34,8 +34,9 @@ class TestBoltTorquePolicy(unittest.TestCase):
       self.assertEqual(standard.pid._k_i[1], [0.15])
       self.assertAlmostEqual(standard.torque_from_lateral_accel(1.0, standard.torque_params), 1.0 / cp.lateralTuning.torque.latAccelFactor)
     cp, controller = self.controller(CAR.CHEVROLET_BOLT_EUV)
-    self.assertEqual(default_selection(cp).mode, ControllerMode.STANDARD)
-    self.assertIsNone(selected_policy(controller))
+    self.assertEqual(default_selection(cp).mode, ControllerMode.STARPILOT)
+    self.assertEqual(controller.controller_policy, "generic")
+    self.assertIsNotNone(selected_policy(controller))
     valid, _ = self.controller(CAR.CHEVROLET_BOLT_CC_2017)
     for field, value in (('brand', 'toyota'), ('notCar', True), ('dashcamOnly', True), ('passive', True)):
       bad = valid.as_builder()

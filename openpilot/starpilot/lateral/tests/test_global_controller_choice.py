@@ -63,6 +63,8 @@ def test_every_registered_torque_tune_can_save_both_choices():
     if not generic_torque_supported(cp):
       continue
     assert policy_for(cp) is not None, identity
+    if cp.brand != "ford":
+      assert default_selection(cp).mode == ControllerMode.STARPILOT, identity
     for mode in ControllerMode:
       raw = replace_mode(None, cp, mode)
       assert parse_document(raw)['vehicles'][str(identity)]['brand'] == str(cp.brand)
@@ -110,10 +112,14 @@ def test_generic_refuses_invalid_controller_configuration(failure):
   assert policy_for(cp) is None
 
 
-def test_generic_defaults_and_existing_learning_are_preserved(tmp_path):
+@pytest.mark.parametrize('identity', [CAR.HYUNDAI_KONA_EV_2ND_GEN, 'TOYOTA_CAMRY'])
+def test_generic_defaults_to_starpilot_and_preserves_learning(tmp_path, identity):
   params = Params(str(tmp_path))
-  cp = cp_for(CAR.HYUNDAI_KONA_EV_2ND_GEN)
-  assert default_selection(cp).mode == ControllerMode.STANDARD
+  cp = cp_for(identity)
+  assert default_selection(cp).mode == ControllerMode.STARPILOT
+  assert learning_allowed(params, cp)
+  params.put(DOCUMENT_KEY, json.loads(replace_mode(None, cp, ControllerMode.STANDARD)), block=True)
+  assert read_selection(params, cp).mode == ControllerMode.STANDARD
   assert learning_allowed(params, cp)
   params.put_bool('ForceAutoTuneOff', True, block=True)
   assert not learning_allowed(params, cp)

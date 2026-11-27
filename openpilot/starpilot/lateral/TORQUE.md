@@ -1,10 +1,10 @@
 # Torque controllers and parameter sources
 
-Controller selection and torque parameter selection are separate. `LatControlTorque` uses the standard controller unless the vehicle has an explicit policy, currently Ioniq 6, Genesis G70 2020, Corolla TSS2, the five manual Bolt identities or the five Volt identities. The `AdvancedLateralTune` preference does **not** select a different controller; it enables manual factor/friction adjustments through `TorqueHost`.
+Controller selection and torque parameter selection are separate. `LatControlTorque` defaults to StarPilot for supported non-Ford torque tunes, using the vehicle-specific policy where available and the shared torque policy elsewhere. The `AdvancedLateralTune` preference does **not** select a different controller; it enables manual factor/friction adjustments through `TorqueHost`.
 
 ## Controller choice
 
-Supported vehicles can save either the standard torque controller or their StarPilot vehicle policy. `LateralControllerSelection` is a versioned JSON document with separate choices by vehicle identity. Missing or invalid settings preserve the existing controller: the vehicle policy for the registered supported platforms, and the standard controller elsewhere. An unsupported vehicle cannot select another vehicle's policy.
+Supported vehicles can save either the standard torque controller or their StarPilot vehicle policy. `LateralControllerSelection` is a versioned JSON document with separate choices by vehicle identity. Missing or invalid settings fall back to the vehicle default. Factory PID stays the default for PID-tuned vehicles. Ford has a separate selector and defaults to BluePilot Angle, with the Mach-E and Explorer defaulting to StarPilot. An unsupported vehicle cannot select another vehicle's policy.
 
 `controlsd` resolves the choice once from CarParams before constructing the controller. Later preference changes take effect on the next drive; they cannot change the running controller or carry its integrator into another algorithm. Selecting standard skips vehicle-policy construction, including policy-specific gains and factor multipliers. It retains the vehicle's CarParams, delay estimation and separately configured manual torque values. Automatic learning is a separate preference. It therefore selects a control algorithm, not OEM steering or a complete upstream vehicle tune.
 

@@ -57,7 +57,7 @@ def test_compact_menu_has_three_controllers_and_versioned_options_page(tmp_path)
   primary, options = FordBluePilotFeature(o).rows(True)
   assert primary.key == MODE and primary.label == "Ford Controller"
   assert primary.choices == ("BluePilot Curvature", "BluePilot Angle", "StarPilot Controller")
-  assert primary.value == primary.default_value == CONTROLLERS[0]
+  assert primary.value == primary.default_value == "BluePilot Angle"
   assert options.label == "BluePilot Controller Options" and options.value == BLUEPILOT_VERSION
   assert options.page == FeaturePage.BLUEPILOT and options.available
   assert feature_parent_page(options.page) == FeaturePage.TORQUE
@@ -69,8 +69,8 @@ def test_compact_menu_has_three_controllers_and_versioned_options_page(tmp_path)
 def test_retired_stock_choice_cannot_be_saved(tmp_path):
   o = owner(tmp_path)
   save(o, "disable_BP_lat_UI", b"1")
-  assert rows(o)[MODE].value == "BluePilot Curvature"
-  assert rows(o)["lane_change_factor_high_curv"].available
+  assert rows(o)[MODE].value == "BluePilot Angle"
+  assert rows(o)["lane_change_factor_high_ang"].available
   assert not change(o, MODE, "Stock Ford")
   assert not FordBluePilotFeature(o).apply(FeatureSettingsRequest("disable_BP_lat_UI", b"1", "Stock Ford"))
   assert change(o, MODE, CONTROLLERS[1])
@@ -99,6 +99,7 @@ def test_angle_mode_shows_only_its_remaining_options(tmp_path):
 
 def test_startup_settings_change_only_while_parked_and_tuning_any_time(tmp_path):
   o = owner(tmp_path, parked=False)
+  save(o, MODE, b"2")
   shown = rows(o)
   assert not shown[MODE].available and not shown[PINION].available
   assert shown["lane_change_factor_high_curv"].available
@@ -130,6 +131,7 @@ def test_no_rows_without_bluepilot_lateral(tmp_path, car):
 
 def test_safe_mode_refuses_controller_and_tuning_changes(tmp_path):
   o = owner(tmp_path)
+  save(o, MODE, b"2")
   save(o, "SafeMode", b"1")
   assert not rows(o)[MODE].available
   assert rows(o)[MODE].reason == "Safe Mode must be off"
@@ -139,6 +141,7 @@ def test_safe_mode_refuses_controller_and_tuning_changes(tmp_path):
 
 def test_a_request_from_before_its_dependency_changed_is_refused(tmp_path):
   o = owner(tmp_path)
+  save(o, MODE, b"2")
   stale = rows(o)["lane_change_factor_high_curv"]
   save(o, MODE, b"1")
   assert not change(o, "lane_change_factor_high_curv", "0.9", row=stale)
@@ -147,6 +150,7 @@ def test_a_request_from_before_its_dependency_changed_is_refused(tmp_path):
 
 def test_an_invalid_saved_value_repairs_to_the_default(tmp_path):
   o = owner(tmp_path)
+  save(o, MODE, b"2")
   save(o, "lane_change_factor_high_curv", b"7")
   row = rows(o)["lane_change_factor_high_curv"]
   assert row.value == "Invalid saved value" and row.available and row.repair_value == "0.85"
@@ -166,7 +170,7 @@ def test_real_library_gets_no_secondary_lane_positioning_even_with_legacy_saves(
   o = owner(tmp_path)
   for key, value in HOST_SETTINGS.items():
     save(o, key, b"1" if isinstance(value, bool) else b"0.5")
-  save(o, MODE, b"1" if angle else b"0")
+  save(o, MODE, b"1" if angle else b"2")
   save(o, "LaneCentering", b"1")
   save(o, "LaneCenterOffset", b"0.2")
   originals = {key: saved(o, key) for key in (*HOST_SETTINGS, "LaneCentering", "LaneCenterOffset")}
@@ -200,6 +204,7 @@ def test_real_native_and_galaxy_owners_share_the_options_page(tmp_path):
   from openpilot.starpilot.galaxy.settings import AuthorityContext, ContextSource, SettingsGateway
   from openpilot.starpilot.ui.feature_settings_owner import FeatureSettingsOwner
   o = owner(tmp_path)
+  save(o, MODE, b"2")
   native = FeatureSettingsOwner(o.params, vehicle_params=o.vehicle_params, vehicle_fingerprint=o.vehicle_fingerprint,
                                 authority=o.authority)
   root = native.snapshot('torque', parked=True, system_long=False, lateral_context=True, metric=False)
@@ -224,8 +229,8 @@ def test_real_native_and_galaxy_owners_share_the_options_page(tmp_path):
 @pytest.mark.parametrize('car,default', [
   (CAR.FORD_MUSTANG_MACH_E_MK1, 'StarPilot Controller'),
   (CAR.FORD_EXPLORER_MK6, 'StarPilot Controller'),
-  (CAR.FORD_F_150_MK14, 'BluePilot Curvature'),
-  (CAR.FORD_ESCAPE_MK4, 'BluePilot Curvature'),
+  (CAR.FORD_F_150_MK14, 'BluePilot Angle'),
+  (CAR.FORD_ESCAPE_MK4, 'BluePilot Angle'),
 ])
 def test_vehicle_defaults_and_explicit_controller_choices(tmp_path, car, default):
   from openpilot.starpilot.car.ford.bluepilot import BluePilotInputs, startup_params
@@ -234,6 +239,9 @@ def test_vehicle_defaults_and_explicit_controller_choices(tmp_path, car, default
   assert rows(o)[MODE].value == rows(o)[MODE].default_value == default
   save(o, MODE, b'0')
   assert rows(o)[MODE].value == default
+  with patch('openpilot.starpilot.car.ford.bluepilot.messaging.SubMaster'):
+    reader = BluePilotInputs(o.params, o.cp)
+  assert next(p.value for p in reader.read_settings() if p.key == MODE) == b'1'
   for label, raw, choice, vendor_mode in (
     ('BluePilot Curvature', b'2', FordController.BLUEPILOT_CURVATURE, b'0'),
     ('BluePilot Angle', b'1', FordController.BLUEPILOT_ANGLE, b'1'),
