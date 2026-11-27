@@ -14,9 +14,11 @@ class TestTeslaManualSpeedStep(unittest.TestCase):
     cp.openpilotLongitudinalControl = True
     return LongitudinalPlanner(cp, init_v=V_EGO)
 
-  def update(self, planner, frame, cruise_kph, *, gas=False, lead=False, force=False, accel=0.0, brake=False, off=False):
+  def update(self, planner, frame, cruise_kph, *, gas=False, lead=False, force=False, accel=0.0, brake=False, off=False, faster=False, speed=V_EGO):
     sm, _ = messages(lead=lead, force=force)
     sm['carState'].vCruise = cruise_kph
+    sm['carState'].vEgo = speed
+    sm['carState'].standstill = speed == 0.
     sm['carState'].canValid = True
     sm['carState'].gasPressed = gas
     sm['carState'].brakePressed = brake
@@ -26,7 +28,7 @@ class TestTeslaManualSpeedStep(unittest.TestCase):
       sm['controlsState'].longControlState = 'off'
     sm['carControl'].longActive = not (gas or off)
     idle_coast = Mock(sample=Mock(return_value=CoastPlan()))
-    planner.update(sm, now_ns=1_000_000_000 + frame * 50_000_000, wheel_coast=(idle_coast, None))
+    planner.update(sm, now_ns=1_000_000_000 + frame * 50_000_000, wheel_coast=(idle_coast, None), faster_lead_takeoff=faster)
 
   def test_pedal_handoff_previews_only_eligible_cruise_acceleration(self):
     planner = self.setup_planner()
@@ -101,3 +103,13 @@ class TestTeslaManualSpeedStep(unittest.TestCase):
           for frame in range(22, 32):
             self.update(planner, frame, 79, **{blocker: True})
           self.assertLess(planner.output_a_target, 0.0)
+
+
+  def test_lead_takeoff_preference_does_not_surge_when_empty_road_hold_releases(self):
+    planner = self.setup_planner()
+    planner.a_cruise = 2.5
+    planner.output_a_target = .05
+    self.update(planner, 0, 65, faster=True, speed=0.)
+    self.assertFalse(planner.output_should_stop)
+    self.assertGreaterEqual(planner.output_a_target, .05)
+    self.assertAlmostEqual(planner.output_a_target, .13)

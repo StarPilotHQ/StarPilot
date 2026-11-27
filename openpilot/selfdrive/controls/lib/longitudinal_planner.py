@@ -197,7 +197,9 @@ class LongitudinalPlanner:
       self.manual_cruise_step_until_ns = 0
       self.model_lead_history.clear()
     self.plan_drive_id = drive_id
-    faster_takeoffs = bool(faster_lead_takeoff)
+    model_y_no_lead_takeoff = (faster_lead_takeoff and self.CP.carFingerprint == 'TESLA_MODEL_Y' and
+                               not any(lead.present for lead in (sm['radarState'].leadOne, sm['radarState'].leadTwo)))
+    faster_takeoffs = bool(faster_lead_takeoff and not model_y_no_lead_takeoff)
     accel_ceiling = TAKEOFF_ACCEL_MAX if faster_takeoffs else ACCEL_MAX
     if self.max_accel_override is not None:
       accel_ceiling = min(accel_ceiling, self.max_accel_override)
@@ -611,6 +613,9 @@ class LongitudinalPlanner:
       output_a_target, self.output_should_stop = self.ford_stop_approach.sample(
         sm, now_ns=sample_now_ns, drive_id=drive_id, target=float(output_a_target),
         stopping=self.output_should_stop, accel_min=ACCEL_MIN, active=profile_eligible and not reset_state)
+    if model_y_no_lead_takeoff and not reset_state and not self.output_should_stop and abs(v_ego) <= MIN_ALLOW_THROTTLE_SPEED:
+      # Cruise can be preloaded while CEM holds the brakes. Ramp from the published target when it releases.
+      output_a_target = min(output_a_target, max(0., a_prev) + J_CRUISE_VALS[0] * self.dt)
     self.output_a_target = np.clip(output_a_target, ACCEL_MIN, 0. if downhill_error is not None else accel_ceiling)
 
     self.v_desired_filter.x = self.v_desired_filter.x + self.dt * (self.output_a_target + a_prev) / 2.0
