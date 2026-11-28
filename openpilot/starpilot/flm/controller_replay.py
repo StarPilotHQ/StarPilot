@@ -213,7 +213,7 @@ def restore_snapshot(controller, vm, snapshot):
     setattr(obj, name, _decode(values, path, old))
 
 
-def frame_input(cs, vm, params, *, active, safety_limited, desired_curvature, curvature_limited, lat_delay):
+def frame_input(cs, vm, params, *, active, safety_limited, desired_curvature, curvature_limited, lat_delay, capture_turn_signals=False):
   values = [(name, _numeric(getattr(cs, name))) for name in _CS_FIELDS]
   values += [
     ('gearShifter', float(cs.gearShifter.raw if hasattr(cs.gearShifter, 'raw') else int(cs.gearShifter))),
@@ -226,6 +226,8 @@ def frame_input(cs, vm, params, *, active, safety_limited, desired_curvature, cu
     ('lat_delay', _numeric(lat_delay)),
   ]
   values += [('vm.' + name, _numeric(getattr(vm, name))) for name in _VM_FIELDS]
+  if capture_turn_signals:
+    values.extend((('leftBlinker', bool(cs.leftBlinker)), ('rightBlinker', bool(cs.rightBlinker))))
   if len(values) > MAX_FRAME_VALUES:
     raise ValueError('frame primitive budget')
   return tuple(values)
@@ -436,6 +438,8 @@ def _car_state(values, *, first_segment_words=None):
   for name in _CS_FIELDS:
     setattr(cs, name, bool(values[name]) if name in ('steeringPressed', 'standstill', 'steerFaultTemporary', 'steerFaultPermanent') else values[name])
   cs.gearShifter = int(values['gearShifter'])
+  cs.leftBlinker = bool(values.get('leftBlinker', False))
+  cs.rightBlinker = bool(values.get('rightBlinker', False))
   return cs
 
 

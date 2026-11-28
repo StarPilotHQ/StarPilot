@@ -6,7 +6,7 @@ import numpy as np
 
 from openpilot.starpilot.lateral.torque_extension import apply_turn_assist
 from openpilot.cereal import log
-from openpilot.common.constants import ACCELERATION_DUE_TO_GRAVITY
+from openpilot.common.constants import ACCELERATION_DUE_TO_GRAVITY, CV
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.pid import PIDController
 from opendbc.car import structs
@@ -56,6 +56,24 @@ class HKGShapedTorquePolicy:
     self.previous_measurement = 0.0
     self.previous_setpoint = 0.0
     self.previous_pressed = False
+    if parent.accord_center_friction:
+      self.accord_feedforward = FirstOrderFilter(0.0, 0.08, self.dt, initialized=False)
+
+  def _accord_feedforward(self, future, setpoint, cs, curvature_limited):
+    smoother = getattr(self, "accord_feedforward", None)
+    if smoother is None:
+      return future
+
+    speed_weight = np.interp(cs.vEgo, [50. * CV.MPH_TO_MS, 55. * CV.MPH_TO_MS], [0., 1.])
+    curve_weight = np.interp(max(abs(future), abs(setpoint)), [0.25, 0.55], [1., 0.])
+    if curvature_limited or cs.steeringPressed or cs.leftBlinker or cs.rightBlinker or speed_weight == 0 or curve_weight == 0:
+      smoother.initialized = False
+      return future
+
+    correction = float(np.clip((smoother.update(future) - future) * speed_weight * curve_weight, -0.08, 0.08))
+    # Never carry the old curve's feedforward through a change in steering direction.
+    shaped = future + correction
+    return shaped if future * shaped > 0. else 0.
 
   def feedforward_context(self, value, setpoint, jerk, measurement, speed):
     return self.feedforward(value, setpoint, jerk, speed)
@@ -85,6 +103,8 @@ class HKGShapedTorquePolicy:
       self.measurement_filter.x = self.jerk_filter.x = 0.0
       self.previous_setpoint = future
       self.previous_pressed = cs.steeringPressed
+      if parent.accord_center_friction:
+        self.accord_feedforward.initialized = False
       pid_log.active = False
       return 0.0, 0.0, pid_log
     if self.previous_pressed and not cs.steeringPressed:
@@ -107,7 +127,7 @@ class HKGShapedTorquePolicy:
     lsf = (np.interp(cs.vEgo, LOW_SPEED_X, LOW_SPEED_Y) / max(cs.vEgo, MIN_SPEED)) ** 2
     kp = np.interp(cs.vEgo, parent.pid._k_p[0], parent.pid._k_p[1])
     error = (setpoint - measurement) * (1 + lsf / max(kp, 1e-3))
-    gravity_adjusted = future - roll
+    gravity_adjusted = self._accord_feedforward(future, setpoint, cs, curvature_limited) - roll
     ff = gravity_adjusted - parent.torque_params.latAccelOffset * fade
     ff = self.feedforward_context(ff, setpoint, jerk, measurement, cs.vEgo)
     threshold, friction_scale = self.friction_context(setpoint, jerk, measurement, cs.vEgo)

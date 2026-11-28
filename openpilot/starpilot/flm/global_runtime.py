@@ -671,6 +671,7 @@ class GlobalRuntime:
         desired_curvature=desired_curvature,
         curvature_limited=curvature_limited,
         lat_delay=lat_delay,
+        capture_turn_signals=getattr(self.controller, "accord_center_friction", False),
       ) + (
         ('control_frame', float(self.frame_sequence)),
         ('raw_model_curvature', float(raw_model_curvature)),
