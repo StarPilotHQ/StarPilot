@@ -382,8 +382,8 @@ int safety_fwd_output_hook(const CANPacket_t *msg, CANPacket_t *output, bool *re
   int destination;
   if (current_hooks->fwd_output != NULL) {
     destination = safety_fwd_hook(msg->bus, msg->addr);
-    if ((destination >= 0) && current_hooks->fwd_output(msg, output, replaced)) {
-      destination = -1;
+    if (destination >= 0) {
+      current_hooks->fwd_output(msg, output, replaced);
     }
   } else {
     destination = safety_fwd_packet_hook(msg);

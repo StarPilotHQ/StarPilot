@@ -338,7 +338,7 @@ static void hyundai_rx_hook(const CANPacket_t *msg) {
         }
         cruise_button_prev = cruise_button;
       } else if (hyundai_kona_ev_label_cruise) {
-        hyundai_common_cruise_buttons_check(cruise_button == HYUNDAI_BTN_CANCEL ? HYUNDAI_BTN_NONE : cruise_button,
+        hyundai_common_cruise_buttons_check((cruise_button == HYUNDAI_BTN_CANCEL) ? HYUNDAI_BTN_NONE : cruise_button,
                                            false, false, hyundai_long_main_policy);
         if ((cruise_button == HYUNDAI_BTN_CANCEL) || main_button) {
           controls_allowed = false;

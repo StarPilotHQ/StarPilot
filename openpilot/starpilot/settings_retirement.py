@@ -3,6 +3,7 @@
 import base64
 import json
 import hashlib
+import os
 
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.longitudinal.profile_document import (
@@ -96,8 +97,11 @@ def retire_settings(params):
     if not readable or master not in (None, b"0", b"1"):
       archive("QOLLongitudinal", master, "Invalid cruise switch; inactive cruise features restored to defaults", readable)
     if master != b"1":
-      for key in ("ForceStops", "ReverseCruise"):
-        params.put_bool(key, False, block=True)
+      fresh_install = (readable and master is None and not os.path.lexists(params.get_param_path("Version")) and
+                       not os.path.lexists(params.get_param_path("ForceStops")))
+      if not fresh_install:
+        params.put_bool("ForceStops", False, block=True)
+      params.put_bool("ReverseCruise", False, block=True)
       for key, value in (("CustomCruise", 1.0), ("CustomCruiseLong", 5.0)):
         params.put(key, value, block=True)
     params.remove("QOLLongitudinal")

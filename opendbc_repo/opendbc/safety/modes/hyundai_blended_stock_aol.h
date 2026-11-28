@@ -170,12 +170,12 @@ static void blended_aol_rx(const CANPacket_t *msg) {
     const uint32_t now = microsecond_timer_get();
     const bool stock_hda2 = blended_aol_hda2 && !blended_aol_long;
     if (stock_hda2 && msg_matches(msg, 0x421U, pt, 8U)) {
-      const bool main = GET_BIT(msg, 27U);
-      if (blended_aol_main && !main) {
+      const bool cruise_main = GET_BIT(msg, 27U);
+      if (blended_aol_main && !cruise_main) {
         blended_aol_clear();
       }
       blended_aol_main_seen = true;
-      blended_aol_main = main;
+      blended_aol_main = cruise_main;
       blended_aol_main_ts = now;
     }
     if (stock_hda2 && msg_matches(msg, 0x394U, pt, 8U)) {

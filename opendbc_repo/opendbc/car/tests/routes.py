@@ -21,8 +21,9 @@ from opendbc.car.psa.values import CAR as PSA
 from opendbc.car.mg.values import CAR as MG
 from opendbc.car.leapmotor.values import CAR as LEAPMOTOR
 
-# Configurations with source tests but no matching recorded route.
+# Configurations with source tests but no matching CI recording.
 unrecorded_route_gaps = {
+  HYUNDAI.HYUNDAI_I30_2026: "hyundai/tests/test_hyundai.py",
   SUBARU.SUBARU_CROSSTREK_2018: "subaru/tests/test_supported_firmware.py",
   GM.CHEVROLET_VOLT_CC: "gm/tests/test_volt_cc_gas.py",
   GM.CHEVROLET_MALIBU_HYBRID_CC: "gm/tests/test_ordinary_cc.py",
@@ -156,7 +157,6 @@ class CarTestRoute(NamedTuple):
 
 routes = [
   CarTestRoute("efdf9af95e71cd84/2022-05-13--19-03-31", COMMA.COMMA_BODY),
-  CarTestRoute("8b2271c96337f00d/00000002--e6c1c373c3", HYUNDAI.HYUNDAI_I30_2026, segment=2),
 
   CarTestRoute("c5e3aa51055c8f47/2023-12-06--20-01-44", CHRYSLER.JEEP_CHEROKEE_5TH_GEN),
   CarTestRoute("0c94aa1e1296d7c6/2021-05-05--19-48-37", CHRYSLER.JEEP_GRAND_CHEROKEE),

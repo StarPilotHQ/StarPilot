@@ -48,6 +48,13 @@ class TestHyundaiKonaCcncFeedback(unittest.TestCase):
     self.assertFalse(release.safety_uses_forward_transform(feedback))
     self.assertEqual(release.safety_fwd_packet_hook(feedback), -1)
 
+  def test_output_hook_without_transform_keeps_normal_forwarding_decision(self):
+    self.assertEqual(self.safety.set_safety_hooks(structs.CarParams.SafetyModel.toyota, 0), 0)
+    packet = self.packet(0xEA, 0, bytes(24))
+    self.assertEqual(self.forward(packet)[:2], (2, False))
+    self.safety.set_relay_malfunction(True)
+    self.assertEqual(self.forward(packet)[:2], (-1, False))
+
   def test_eps_feedback_preserves_faults_and_never_changes_vehicle_side_input(self):
     self.debug_mode()
     for warning_byte, toi_byte, modify in ((0, 0, True), (0, 1, True), (0, 3, False),
@@ -99,14 +106,15 @@ class TestHyundaiKonaCcncFeedback(unittest.TestCase):
     self.assertTrue(self.safety.safety_tx_hook(lfa(0, 254, 5, True)))
     for stamp, count, torque in ((1_010_000, 255, 10), (1_020_000, 0, 15)):
       self.safety.set_timer(stamp)
+      self.safety.safety_rx_hook(lfa(2, 82, 0, False))
       self.assertTrue(self.safety.safety_tx_hook(lfa(0, count, torque, True)))
       self.assertFalse(self.safety.safety_tx_hook(lfa(0, count, torque, True)))
     corrupt = lfa(0, 1, 20, True)
     corrupt[0].data[0] ^= 1
     self.assertFalse(self.safety.safety_tx_hook(corrupt))
     self.assertFalse(self.safety.safety_tx_hook(lfa(0, 1, 500, True)))
-    self.safety.set_timer(1_050_001)
-    self.assertFalse(self.safety.safety_tx_hook(lfa(0, 1, 5, True)))
+    self.safety.set_timer(1_060_001)
+    self.assertFalse(self.safety.safety_tx_hook(lfa(0, 1, 15, True)))
     self.safety.safety_rx_hook(lfa(2, 150, 0, False))
     self.safety.set_controls_allowed(False)
     self.safety.aol_set_host_request(0)

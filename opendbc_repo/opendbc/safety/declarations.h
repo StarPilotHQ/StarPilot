@@ -233,7 +233,7 @@ typedef bool (*tx_hook)(const CANPacket_t *msg);  // returns true if the message
 typedef bool (*fwd_hook)(int bus_num, int addr);      // returns true if the message should be blocked from forwarding
 
 typedef bool (*fwd_packet_hook)(const CANPacket_t *msg);
-typedef bool (*fwd_output_hook)(const CANPacket_t *msg, CANPacket_t *output, bool *replaced);
+typedef void (*fwd_output_hook)(const CANPacket_t *msg, CANPacket_t *output, bool *replaced);
 
 typedef struct {
   safety_hook_init init;

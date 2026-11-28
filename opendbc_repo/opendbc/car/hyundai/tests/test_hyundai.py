@@ -392,6 +392,16 @@ class TestHyundaiFingerprint(unittest.TestCase):
         continue
       assert bool(CP.flags & HyundaiFlags.ALT_LIMITS) == bool(CP.safetyConfigs[-1].safetyParam & HyundaiSafetyFlags.ALT_LIMITS)
 
+  def test_i30_2026_remains_dashcam_only(self):
+    for alpha in (False, True):
+      for release in (False, True):
+        with self.subTest(alpha=alpha, release=release):
+          cp = CarInterface.get_params(CAR.HYUNDAI_I30_2026, gen_empty_fingerprint(), [], alpha, release, False)
+          assert cp.dashcamOnly and not cp.openpilotLongitudinalControl
+          assert len(cp.safetyConfigs) == 1 and cp.safetyConfigs[0].safetyModel == CarParams.SafetyModel.noOutput
+          assert cp.lateralTuning.pid.kf == 0
+          assert list(cp.lateralTuning.pid.kpV) == list(cp.lateralTuning.pid.kiV) == [0.0]
+
   def test_can_features(self):
     for car_model in CAR:
       flags = car_model.config.flags
