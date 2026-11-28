@@ -639,7 +639,8 @@ TOYOTA_AUTO_HOLD_AEB_CARS = {CAR.TOYOTA_CAMRY_TSS2}
 
 def uses_toyota_auto_hold_aeb(CP) -> bool:
   return (CP.carFingerprint in TOYOTA_AUTO_HOLD_AEB_CARS or
-          (CP.carFingerprint == CAR.TOYOTA_RAV4_TSS2 and bool(CP.flags & ToyotaFlags.HYBRID)))
+          (CP.carFingerprint in (CAR.TOYOTA_COROLLA_TSS2, CAR.TOYOTA_RAV4_TSS2) and
+           bool(CP.flags & ToyotaFlags.HYBRID)))
 
 
 def stopping_decel_rate(CP):

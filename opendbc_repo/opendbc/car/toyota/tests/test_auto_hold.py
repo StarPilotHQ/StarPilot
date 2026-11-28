@@ -89,7 +89,9 @@ class TestToyotaAutoHold(unittest.TestCase):
           self.assertTrue(owner.brake_hold_active)
 
   def test_detected_early_hybrid_uses_manual_aeb_hold(self):
-    for car, hybrid, aeb in ((CAR.TOYOTA_RAV4_TSS2, True, True),
+    for car, hybrid, aeb in ((CAR.TOYOTA_COROLLA_TSS2, True, True),
+                             (CAR.TOYOTA_COROLLA_TSS2, False, False),
+                             (CAR.TOYOTA_RAV4_TSS2, True, True),
                              (CAR.TOYOTA_RAV4_TSS2, False, False),
                              (CAR.TOYOTA_RAV4_TSS2_2022, True, False),
                              (CAR.TOYOTA_CAMRY_TSS2, False, True)):
@@ -136,6 +138,10 @@ class TestToyotaAutoHold(unittest.TestCase):
         self.assertTrue(owner.brake_hold_active)
         frame = next(frame for frame in frames if frame[0] == 0x344)
         self.assertEqual(decode(cp, frame, 'PRE_COLLISION_2')['DSS1GDRV'], -1.0)
+        state.out.brakePressed = False
+        released = [frame for _ in range(2) for frame in step_hold(owner, command, state) if frame[0] == 0x344]
+        self.assertTrue(owner.brake_hold_active)
+        self.assertEqual(decode(cp, released[0], 'PRE_COLLISION_2')['DSS1GDRV'], -1.0)
         state.out.gasPressed = True
         step_hold(owner, command, state)
         self.assertFalse(owner.brake_hold_active)
