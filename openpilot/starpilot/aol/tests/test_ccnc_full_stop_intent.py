@@ -129,7 +129,6 @@ def test_actual_card_disarming_preserves_intent_then_brake_fallback(identity):
   with OpenpilotPrefix():
     saved = Params()
     saved.put_bool('AlwaysOnLateral', True, block=True)
-    saved.put('LKASButtonControl', 0, block=True)
     saved.put('MainCruiseButtonControl', 0, block=True)
     saved.put('AolBrakePauseSpeedMps', 0.0, block=True)
     settings = read_settings(saved)

@@ -190,9 +190,11 @@ class ToyotaLongIntegrationTests(TestCase):
     radar_event.radarState.leadOne.dRel = 5.0
     radar = messaging.log_from_bytes(radar_event.to_bytes()).radarState
     device = NS(started=True, startedMonoTime=900_000_000)
+    car_state = self.car_state(0.0)
+
     class Messages(NS):
       def __getitem__(self, name):
-        return {'radarState': radar, 'deviceState': device}[name]
+        return {'radarState': radar, 'deviceState': device, 'carState': car_state}[name]
     now = [1_050_000_000, 500_000_000]
     sm = Messages(seen={'radarState': True, 'deviceState': True},
                   alive={'radarState': True, 'deviceState': True},

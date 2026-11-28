@@ -214,6 +214,7 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
         for addr, data, bus in incoming:
           if panda_gear_ahead and addr == 0x48 and bus == 0:
             raw = bytearray(data)
+            assert manual_ratio is not None
             raw[3] = manual_ratio
             raw[0] = (0x48 + sum(raw[1:])) & 255
             data = bytes(raw)

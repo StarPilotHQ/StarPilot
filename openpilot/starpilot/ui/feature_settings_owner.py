@@ -584,8 +584,10 @@ class FeatureSettingsOwner:
     value = 0.0 if source is None else self._finite(source)
     return value, value is not None and 0.0 <= value <= 100.0, canonical, legacy
 
-  def _read_saved(self, key: str, limit: int) -> tuple[bytes | None, bool]:
-    # Cache source reads only within each snapshot.
+  def _read_saved(self, key: str, limit: int | None = None) -> tuple[bytes | None, bool]:
+    if limit is None:
+      limit = 65536 if key == PERSONALITY_PROFILES_PARAM else 16384 if key == DOCUMENT_KEY else (
+        CURVE_DOCUMENT_LIMIT if key in (CURVE_DOCUMENT_KEY, CURVE_LEGACY_KEY) else 128)
     reads = self._snapshot_reads.get()
     def read():
       try:
@@ -600,14 +602,10 @@ class FeatureSettingsOwner:
     return reads[identity]
 
   def _raw(self, key: str) -> bytes | None:
-    limit = 65536 if key == PERSONALITY_PROFILES_PARAM else 16384 if key == DOCUMENT_KEY else \
-      CURVE_DOCUMENT_LIMIT if key in (CURVE_DOCUMENT_KEY, CURVE_LEGACY_KEY) else 128
-    return self._read_saved(key, limit)[0]
+    return self._read_saved(key)[0]
 
   def _readable(self, key: str) -> bool:
-    limit = 65536 if key == PERSONALITY_PROFILES_PARAM else 16384 if key == DOCUMENT_KEY else \
-      CURVE_DOCUMENT_LIMIT if key in (CURVE_DOCUMENT_KEY, CURVE_LEGACY_KEY) else 128
-    return self._read_saved(key, limit)[1]
+    return self._read_saved(key)[1]
 
   def _default(self, key: str) -> str:
     if key == "AlwaysOnLateral":
@@ -1420,7 +1418,6 @@ class FeatureSettingsOwner:
   def apply(self, request: FeatureSettingsRequest, *, reset_default: bool = False) -> bool:
     if reset_default and not self.authority("parked_preferences"):
       return False
-    # Recheck live sources even from snapshot callbacks.
     token = self._snapshot_reads.set(None)
     vehicle_token = self._snapshot_vehicle.set(None)
     try:

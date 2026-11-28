@@ -116,6 +116,10 @@ class TestEv6ConfiguredDesire(unittest.TestCase):
       for action in (0, AOL_TOGGLE, PAUSE_LATERAL, PAUSE_LONGITUDINAL):
         owner = self.owner(**{button: action})
         self.sample(owner, [(0, 0, Buttons.NONE)])
+        if button == 'lkas' and action in (PAUSE_LATERAL, PAUSE_LONGITUDINAL):
+          # A pause action is independent of physical MAIN authorization.
+          assert not owner.physical.authorized
+          self.sample(owner, [(1, 0, Buttons.NONE), (0, 0, Buttons.NONE)])
         pressed = (1, 0, Buttons.NONE) if button == 'main' else (0, 1, Buttons.NONE)
         self.sample(owner, [pressed, (0, 0, Buttons.NONE)])
         self.assertTrue(owner.physical.authorized)

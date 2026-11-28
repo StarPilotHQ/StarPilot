@@ -165,7 +165,7 @@ await revoked.respond(0, { code: "access_unavailable" }, 503)
 assert.equal(revoked.unauthorized, 1)
 assert.equal(revoked.states.at(-1).status, "idle")
 
-assert.match(SettingsPage.template, /SoundPacks v-if="state\.data\.page === 'sounds'"/)
+assert.match(SettingsPage.template, /<div v-if="state\.data\.page === 'sounds'"[^>]*><SoundPacks\b/)
 const settingsRefresh = { state: { data: { page: "sounds" }, pending: { intent: "open" }, soundChoicesDirty: false },
   feed: { saving: false, loadCalls: [], load(page, options) { this.loadCalls.push([page, options]) } },
   flushSoundChoices: SettingsPage.methods.flushSoundChoices }

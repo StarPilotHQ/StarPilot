@@ -1267,11 +1267,17 @@ class Car:
       self.pm.send('radarTracks', tracks_msg)
 
   def publish_traffic_receipt(self, cs_send):
-    traffic_receipt = getattr(self, 'traffic_receipt', None)
-    if getattr(self, 'conditional_replay', False) and traffic_receipt is not None:
-      toggle, gesture, drive_id, fingerprint, map_fingerprint, source_epoch, source_boot_ns, observed_ns = traffic_receipt
+    for kind, enabled_attr, receipt_attr, sequence_attr in (
+      ('trafficMode', 'conditional_replay', 'traffic_receipt', 'traffic_event_sequence'),
+      ('switchbackMode', 'switchback_capable', 'switchback_receipt', 'switchback_event_sequence'),
+    ):
+      receipt = getattr(self, receipt_attr, None)
+      if not getattr(self, enabled_attr, False) or receipt is None:
+        continue
+      toggle, gesture, drive_id, fingerprint, map_fingerprint, source_epoch, source_boot_ns, observed_ns = receipt
       self.slc_cruise_event_id += 1
-      self.traffic_event_sequence += 1
+      sequence = getattr(self, sequence_attr) + 1
+      setattr(self, sequence_attr, sequence)
       event = messaging.new_message('slcCruiseEvent')
       event.logMonoTime = int(cs_send.logMonoTime)
       event.valid = bool(cs_send.valid)
@@ -1279,34 +1285,9 @@ class Car:
       record.eventId = self.slc_cruise_event_id
       record.producerSessionId = self.slc_producer_session
       record.observedMonoTime = observed_ns
-      record.kind = 'trafficMode'
+      record.kind = kind
       record.trafficMode = {
-        'version': 1, 'sessionId': self.slc_producer_session, 'sequence': self.traffic_event_sequence,
-        'observedMonoTime': observed_ns, 'driveStartMonoTime': drive_id,
-        'settingsFingerprint': fingerprint, 'buttonMapFingerprint': map_fingerprint,
-        'sourceEpoch': source_epoch, 'sourceBootTime': source_boot_ns,
-        'sourceCarStateMonoTime': int(cs_send.logMonoTime),
-        'validUntilMonoTime': int(cs_send.logMonoTime) + 100_000_000,
-        'toggle': toggle, 'button': gesture.button.value if gesture is not None else 'unknown',
-        'press': gesture.press.value if gesture is not None else 'unknown',
-      }
-      self.pm.send('slcCruiseEvent', event)
-
-    switchback_receipt = getattr(self, 'switchback_receipt', None)
-    if getattr(self, 'switchback_capable', False) and switchback_receipt is not None:
-      toggle, gesture, drive_id, fingerprint, map_fingerprint, source_epoch, source_boot_ns, observed_ns = switchback_receipt
-      self.slc_cruise_event_id += 1
-      self.switchback_event_sequence += 1
-      event = messaging.new_message('slcCruiseEvent')
-      event.logMonoTime = int(cs_send.logMonoTime)
-      event.valid = bool(cs_send.valid)
-      record = event.slcCruiseEvent
-      record.eventId = self.slc_cruise_event_id
-      record.producerSessionId = self.slc_producer_session
-      record.observedMonoTime = observed_ns
-      record.kind = 'switchbackMode'
-      record.trafficMode = {
-        'version': 1, 'sessionId': self.slc_producer_session, 'sequence': self.switchback_event_sequence,
+        'version': 1, 'sessionId': self.slc_producer_session, 'sequence': sequence,
         'observedMonoTime': observed_ns, 'driveStartMonoTime': drive_id,
         'settingsFingerprint': fingerprint, 'buttonMapFingerprint': map_fingerprint,
         'sourceEpoch': source_epoch, 'sourceBootTime': source_boot_ns,

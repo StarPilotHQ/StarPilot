@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 
 from openpilot.starpilot.vehicle_startup import VehicleStartupOwner
 
-from opendbc.car import gen_empty_fingerprint
+from opendbc.car import gen_empty_fingerprint, structs
 from opendbc.car.can_definitions import CanData
 from opendbc.car.car_helpers import get_car
 from opendbc.car.hyundai.ioniq6_handoff import (HandoffOutcome, HandoffResult, ObservingCanRecv, build_ioniq6_hda2_long_candidate,
@@ -686,7 +686,7 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
 
     card = self.ready_card(ioniq_selected=True)
     cs = SimpleNamespace(canValid=True, canTimeout=False)
-    cc = object()
+    cc = structs.CarControl().as_reader()
     confirmed = HandoffResult(HandoffOutcome.CONFIRMED, 'confirmed')
     with (patch.object(card_module, 'confirm_ioniq6_prepared_takeover', return_value=confirmed) as takeover,
           patch.object(card_module.cloudlog, 'event') as logged):
@@ -737,7 +737,7 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
     card = self.ready_card(ioniq_selected=True)
     card.sm.valid['carControl'] = True
     cs = SimpleNamespace(canValid=True, canTimeout=False)
-    cc = object()
+    cc = structs.CarControl().as_reader()
     failed = HandoffResult(HandoffOutcome.UNAVAILABLE, 'restore unverified')
     with (patch.object(card_module, 'confirm_ioniq6_prepared_takeover', return_value=failed) as takeover,
           patch.object(card_module.cloudlog, 'event') as logged):
@@ -760,7 +760,7 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
     card = self.ready_card(ioniq_selected=True)
     card.sm.valid['carControl'] = True
     cs = SimpleNamespace(canValid=True, canTimeout=False)
-    cc = object()
+    cc = structs.CarControl().as_reader()
     confirmed = HandoffResult(HandoffOutcome.CONFIRMED, 'confirmed')
     with patch.object(card_module, 'confirm_ioniq6_prepared_takeover', return_value=confirmed) as takeover:
       for mutation in (
@@ -883,7 +883,7 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
     card = self.ready_card(ioniq_selected=True)
     card.sm.valid['carControl'] = True
     cs = SimpleNamespace(canValid=True, canTimeout=False)
-    cc = object()
+    cc = structs.CarControl().as_reader()
     clock = [100.0]
     waiting = HandoffResult(HandoffOutcome.NOT_READY, 'preflight_scc_period')
     confirmed = HandoffResult(HandoffOutcome.CONFIRMED, 'confirmed')
@@ -911,7 +911,7 @@ class TestIoniq6PrepublicationHandoff(unittest.TestCase):
   def test_generic_ecu_init_waits_for_valid_can_and_live_control_once(self):
     card = self.ready_card(ioniq_selected=False)
     cs = SimpleNamespace(canValid=True, canTimeout=False)
-    cc = object()
+    cc = structs.CarControl().as_reader()
     for _ in range(20):
       card.controls_update(cs, cc)
     card.CI.init.assert_not_called()

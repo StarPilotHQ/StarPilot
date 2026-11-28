@@ -158,13 +158,15 @@ def retain_paddle_denial(feedback, sm, cp, state, axis, stamp, now_ns, *, latche
       now_ns - axis.sourceCarStateMonoTime > AXIS_MAX_AGE_NS or
       not state.canValid or state.canTimeout or state.steerFaultTemporary or state.steerFaultPermanent or
       state.accFaulted or state.vehicleSensorsInvalid or state.doorOpen or state.seatbeltUnlatched or
-      state.steeringDisengage or state.buttonEvents or not state.cruiseState.available or state.cruiseState.enabled):
+      state.steeringDisengage or state.gasPressed or state.regenBraking or state.buttonEvents or
+      not state.cruiseState.available or state.cruiseState.enabled):
     return False
   names = log.OnroadEvent.EventName
   event_ns = int(sm.logMonoTime['onroadEvents'])
   if (not sm.seen['onroadEvents'] or not sm.valid['onroadEvents'] or not sm.alive['onroadEvents'] or
       not 0 < event_ns <= now_ns or now_ns - event_ns > 1_500_000_000 or
-      any(e.immediateDisable or e.softDisable and e.name != names.wrongGear or
+      any(e.immediateDisable or (e.softDisable or e.noEntry) and e.name != names.wrongGear and
+          not (e.name == names.pedalPressed and state.brakePressed and not e.softDisable) or
           e.userDisable and e.name != names.pcmDisable and not (e.name == names.pedalPressed and state.brakePressed)
           for e in sm['onroadEvents'])):
     return False

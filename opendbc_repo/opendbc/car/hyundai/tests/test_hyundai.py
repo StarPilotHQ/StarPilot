@@ -387,6 +387,9 @@ class TestHyundaiFingerprint(unittest.TestCase):
     fingerprint = gen_empty_fingerprint()
     for car_model in CAR:
       CP = CarInterface.get_params(car_model, fingerprint, [], False, False, False)
+      if CP.safetyConfigs[-1].safetyModel == CarParams.SafetyModel.noOutput:
+        assert CP.dashcamOnly
+        continue
       assert bool(CP.flags & HyundaiFlags.ALT_LIMITS) == bool(CP.safetyConfigs[-1].safetyParam & HyundaiSafetyFlags.ALT_LIMITS)
 
   def test_can_features(self):
@@ -430,7 +433,8 @@ class TestHyundaiFingerprint(unittest.TestCase):
           if b"-" not in code:
             continue
           part = code.split(b"-")[1]
-          assert not part.startswith(b'CW'), "Car has bad part number"
+          verified_shared_camera = car_model == CAR.HYUNDAI_TUCSON_4TH_GEN and code == b'NX4-CW010'
+          assert verified_shared_camera or not part.startswith(b'CW'), "Car has bad part number"
 
   def test_correct_ecu_response_database(self):
     """

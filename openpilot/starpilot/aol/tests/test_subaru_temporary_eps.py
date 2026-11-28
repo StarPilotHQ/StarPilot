@@ -111,8 +111,17 @@ def test_eps_retention_does_not_mask_independent_vetoes(fault, brake):
   elif fault in ('hard_event', 'other_user'):
     change(sm, 'onroadEvents', lambda events: setattr(events[0],
       'immediateDisable' if fault == 'hard_event' else 'name', True if fault == 'hard_event' else 'buttonCancel'))
-  assert feedback.observe(sm, cp, state, now, latched=True,
-                          intent_producer_session='different' if fault == 'wrong_producer' else PRODUCER)
+  if fault == 'no_eps':
+    before = leases(feedback)
+    # Native denial may precede the paddle data. Hold intent briefly while LAT stays denied.
+    assert not feedback.observe(sm, cp, state, now, latched=True, intent_producer_session=PRODUCER)
+    assert feedback.subaru_paddle_denial == (now, PRODUCER, int(sm['aolAxisState'].intentIntegrityEpoch), False)
+    assert not native.lateralAllowed and leases(feedback) == before
+    assert feedback.observe(sm, cp, state, now + 30_000_001, latched=True, intent_producer_session=PRODUCER)
+    assert feedback.subaru_paddle_denial is None
+  else:
+    assert feedback.observe(sm, cp, state, now, latched=True,
+                            intent_producer_session='different' if fault == 'wrong_producer' else PRODUCER)
 
 
 @pytest.mark.parametrize('gas', (False, True))

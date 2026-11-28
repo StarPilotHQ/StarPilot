@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from opendbc.car import gen_empty_fingerprint
+from opendbc.car import gen_empty_fingerprint, structs
 from opendbc.car.can_definitions import CanData
 from opendbc.car.gm.interface import CarInterface as GMInterface
 from opendbc.car.gm.values import CAR as GMCar, GMFlags
@@ -101,7 +101,7 @@ class CardInitLifecycleTest(unittest.TestCase):
     cs = SimpleNamespace(canValid=True, canTimeout=False)
     card.state_update = Mock(return_value=(cs, None))
     self.defer_radar_fixture(card)
-    control = object()
+    control = structs.CarControl().as_reader()
 
     class SubMaster:
       valid = {'carControl': False}

@@ -12,7 +12,7 @@ from opendbc.car.hyundai.ecu_startup import Outcome
 from opendbc.car.hyundai.interface import CarInterface
 from opendbc.car.hyundai.ioniq6_handoff import TimestampedCanPacket
 from opendbc.car.hyundai.ordinary_classic_startup import CARS, OrdinaryClassicStartup
-from opendbc.car.hyundai.values import HyundaiFlags
+from opendbc.car.hyundai.values import CAR, HyundaiFlags
 from opendbc.safety.tests.test_hyundai import checksum
 from opendbc.safety.tests.libsafety import libsafety_py
 from openpilot.cereal import messaging
@@ -115,6 +115,11 @@ def test_actual_factory_rejection_restores_and_warms_exact_stock_before_publicat
     expected.carFw = []
     expected.fingerprintSource = desired.fingerprintSource
     expected.fuzzyFingerprint = False
+    if identity == CAR.HYUNDAI_I30_2026:
+      assert desired.dashcamOnly and expected.dashcamOnly
+      assert not desired.openpilotLongitudinalControl and not expected.openpilotLongitudinalControl
+      assert desired.safetyConfigs[0].safetyModel == expected.safetyConfigs[0].safetyModel == structs.CarParams.SafetyModel.noOutput
+      return
     assert desired.openpilotLongitudinalControl and not expected.openpilotLongitudinalControl
     identified = (identity, fingerprint, '0' * 17, [], desired.fingerprintSource, True)
     native.set_alternative_experience(0)

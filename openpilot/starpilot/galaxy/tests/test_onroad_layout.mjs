@@ -1408,7 +1408,7 @@ for (const invalidOffset of [true, null, "1", NaN, Infinity, -5.1, 5.1]) {
   const document = { ...speedAdjustment.document, speedDisplayOffset: invalidOffset }
   assert.equal(validDocument(document, speedAdjustment.metadata), false)
 }
-assert.ok(SETTINGS_SECTIONS.find(section => section.id === "developer").pages.includes("developer"))
+assert.ok(SETTINGS_SECTIONS.find(section => section.id === "device").pages.includes("developer"))
 
 
 // C4 has one locked camera widget covering the road panel.

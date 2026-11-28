@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from openpilot.starpilot.navigation.google_places import places_budget, suggestions_budget
-from openpilot.starpilot.navigation.owner import NavigationOwner, ValidationError
+from openpilot.starpilot.navigation.owner import NavigationOwner
 
 KEY = 'AIzaSyFixtureKey_0123456789abcdef'
 BELLAGIO = {'displayName': {'text': 'Bellagio'}, 'formattedAddress': '3600 S Las Vegas Blvd, Las Vegas, NV',

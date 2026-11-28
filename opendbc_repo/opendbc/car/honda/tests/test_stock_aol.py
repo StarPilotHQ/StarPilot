@@ -301,8 +301,9 @@ def test_starting_during_active_engagement_requires_a_fresh_disabled_epoch():
   assert intent.allowed_latch
 
 
-def test_actual_card_active_observation_requires_fresh_selfdrive_state(monkeypatch):
+def test_actual_card_active_observation_requires_fresh_selfdrive_state(monkeypatch, tmp_path):
   from openpilot.cereal import log
+  from openpilot.common.params import Params
   from openpilot.selfdrive.car import card as card_module
   from openpilot.selfdrive.car.card import Car
   from openpilot.starpilot.aol.intent import AolCardIntent
@@ -329,6 +330,7 @@ def test_actual_card_active_observation_requires_fresh_selfdrive_state(monkeypat
   host = Car.__new__(Car)
   host.CP, host.aol_card_intent = cp, intent
   host.aol_settings = intent.settings
+  host.params = Params(str(tmp_path))
   host.CI = SimpleNamespace(update=lambda _: cs, CS=SimpleNamespace(),
                             can_parsers=CarInterface.CarState(cp).get_can_parsers(cp))
   host.RI = SimpleNamespace(update=lambda _: None)

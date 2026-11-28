@@ -1776,7 +1776,8 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
           self.json(404, {'error': 'Not found'})
         return
       if path not in ('/api/companion/uplink', '/api/companion/settings', '/api/companion/location',
-                      '/api/connect/proxy', '/api/connect/provider', '/api/auth/login', '/api/auth/logout', '/api/settings/preview', '/api/settings/confirm', '/api/settings/mode',
+                      '/api/connect/proxy', '/api/connect/provider', '/api/auth/login', '/api/auth/logout',
+                      '/api/settings/preview', '/api/settings/confirm', '/api/settings/mode',
                       '/api/settings/recovery/preview', '/api/settings/recovery/confirm',
                       '/api/settings/flm-backup/preview', '/api/settings/flm-backup/confirm',
                       '/api/settings/flm-finding/accept',

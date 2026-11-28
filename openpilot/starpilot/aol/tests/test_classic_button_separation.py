@@ -43,6 +43,12 @@ def update(owner, tick, button=None, pressed=False, **kwargs):
 @pytest.mark.parametrize('identity', sorted(CLASSIC_LONG_IDS, key=str))
 @pytest.mark.parametrize('mapped', [Button.mainCruise, Button.lkas])
 def test_actual_family_factory_keeps_unassigned_physical_button_independent(identity, mapped):
+  if identity == CAR.HYUNDAI_I30_2026:
+    cp = params(identity, lda=True)
+    assert cp.dashcamOnly and not cp.openpilotLongitudinalControl
+    assert cp.safetyConfigs[0].safetyModel == structs.CarParams.SafetyModel.noOutput
+    assert not qualified(cp, marked_only=True)
+    return
   cp = configure(identity)
   before = cp.to_dict()
   settings = saved(mapped)

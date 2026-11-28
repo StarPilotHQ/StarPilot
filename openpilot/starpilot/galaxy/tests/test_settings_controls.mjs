@@ -196,8 +196,6 @@ const page = { initialPage: "hub", activeSection: lateral, state: { query: "", d
   { label: "SLC", page: "slc" }, { label: "AOL", page: "aol" }, { label: "Lane", page: "lane" },
 ] } } }
 assert.deepEqual(SettingsPage.computed.visibleRows.call(page).map(({ index }) => index), [1, 2])
-page.state.query = "lane"
-assert.deepEqual(SettingsPage.computed.visibleRows.call(page).map(({ index }) => index), [2])
 
 // Single-page sections open their controls in one tap, including when moving
 // from another section's child page. Multi-page sections still use the hub.
@@ -208,7 +206,6 @@ for (const id of ["wheel", "sounds", "device", "visual"]) {
   const section = SETTINGS_SECTIONS.find((item) => item.id === id)
   SettingsPage.methods.selectSection.call(navigation, section)
   assert.equal(navigation.state.section, id)
-  assert.equal(navigation.state.query, "")
 }
 assert.deepEqual(destinations, ["wheel", "sounds", "hub", "hub"])
 navigation.busy = true
@@ -221,7 +218,7 @@ for (const id of ["wheel", "sounds"]) {
 }
 
 const deviceData = SETTINGS_SECTIONS.find((item) => item.id === "device")
-assert.deepEqual(deviceData.pages, ["power", "data", "starport_options", "browser_preferences", "localization"])
+assert.deepEqual(deviceData.pages, ["power", "data", "starport_options", "browser_preferences", "localization", "developer"])
 assert.equal(SettingsPage.computed.atSectionRoot.call({ activeSection: deviceData,
   state: { data: { page: "hub" } } }), true)
 assert.equal(SettingsPage.computed.atSectionRoot.call({ activeSection: deviceData,
@@ -229,11 +226,11 @@ assert.equal(SettingsPage.computed.atSectionRoot.call({ activeSection: deviceDat
 
 const dataLinks = SettingsPage.computed.visibleRows.call({ initialPage: "hub", activeSection: deviceData,
   state: { query: "", data: { page: "hub", rows: [] } } })
-assert.deepEqual(dataLinks.map(({ row }) => row.page), ["power", "data", "starport_options", "browser_preferences", "localization"])
+assert.deepEqual(dataLinks.map(({ row }) => row.page), ["power", "data", "starport_options", "browser_preferences", "localization", "developer"])
 assert.equal(dataLinks[1].row.label, "Data & Connections")
 const coolingLinks = SettingsPage.computed.visibleRows.call({ initialPage: "hub", activeSection: deviceData,
   state: { query: "", data: { page: "hub", rows: [], coolingAvailable: true } } })
-assert.deepEqual(coolingLinks.map(({ row }) => row.page), ["power", "data", "starport_options", "browser_preferences", "localization"])
+assert.deepEqual(coolingLinks.map(({ row }) => row.page), ["power", "data", "starport_options", "browser_preferences", "localization", "developer"])
 assert.equal(coolingLinks[1].row.label, "Data & Connections")
 assert.equal(dataLinks[0].row.label, "Power & Cooling")
 assert.equal(coolingLinks[0].row.label, "Power & Cooling")

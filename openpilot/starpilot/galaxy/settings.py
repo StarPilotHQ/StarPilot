@@ -409,7 +409,8 @@ def _session_key(token: str) -> bytes:
 
 
 def _projection(row: FeatureRow, default_level: SettingLevel = SettingLevel.SIMPLE) -> dict:
-  return {"id": row.key, "level": row.level if row.level is not None else default_level, "label": row.label, "value": row.value, "choices": list(row.choices), "step": row.step,
+  return {"id": row.key, "level": row.level if row.level is not None else default_level, "label": row.label,
+          "value": row.value, "choices": list(row.choices), "step": row.step,
           "minimum": row.minimum, "maximum": row.maximum, "unit": row.unit,
           "available": row.available, "reason": description(row), "learnedValue": row.learned_value,
           "page": row.page if row.page in PAGES else "", "action": bool(row.key and row.available and not row.page),

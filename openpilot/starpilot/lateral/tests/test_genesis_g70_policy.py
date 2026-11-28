@@ -17,6 +17,7 @@ from openpilot.selfdrive.controls.lib.latcontrol_torque import LatControlTorque
 from openpilot.starpilot.lateral.controller_selection import ControllerMode
 from openpilot.starpilot.lateral.torque_extension import selected_policy
 from openpilot.starpilot.lateral.torque_shaping import INTERP_SPEEDS, KP_INTERP, KP
+from openpilot.starpilot.lateral.generic_torque_policy import GenericTorquePolicy
 from openpilot.starpilot.lateral.genesis_g70_policy import supported_cp
 from openpilot.starpilot.lateral import genesis_g70_policy
 
@@ -71,8 +72,8 @@ def test_exact_vehicle_admission_and_upstream_gains():
     assert native.pid._k_i[1] == [0.15]
   other_cp, other, _ = controller_for(CAR.GENESIS_G70)
   assert not supported_cp(other_cp)
-  assert selected_policy(other) is None
-  assert other.pid._k_i[1] == [0.15]
+  assert isinstance(selected_policy(other), GenericTorquePolicy)
+  assert other.pid._k_i[1] == [0.35]
   non_torque = cp.as_reader().as_builder()
   non_torque.lateralTuning.init('pid')
   assert not supported_cp(non_torque)

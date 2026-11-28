@@ -85,8 +85,10 @@ class CleanStageRequestTest(unittest.TestCase):
 class LogRelayStagerTest(unittest.TestCase):
   def test_stages_starport_connection_and_controller_bundles(self):
     calls = []
+    allow_response = threading.Event()
 
     def fake_post(url, data, headers, allow_redirects, timeout):
+      assert allow_response.wait(5)
       calls.append({"url": url, "data": data, "headers": headers, "allow_redirects": allow_redirects, "timeout": timeout})
       response = Mock(status_code=200)
       response.json.return_value = {"claimUrl": VALID_CLAIM}
@@ -115,8 +117,12 @@ class LogRelayStagerTest(unittest.TestCase):
     ]
     for payload, expected_zip, expected_kind, expected_platform, expected_note in cases:
       with self.subTest(kind=expected_kind):
-        started = stager.start(payload)
-        self.assertEqual(started["state"], "staging")
+        allow_response.clear()
+        try:
+          started = stager.start(payload)
+          self.assertEqual(started["state"], "staging")
+        finally:
+          allow_response.set()
         ready = wait_until(lambda: stager.status() if stager.status()["state"] == "ready" else None)
         self.assertEqual(ready["claimUrl"], VALID_CLAIM)
         self.assertEqual(ready["kind"], expected_kind)

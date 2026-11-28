@@ -200,7 +200,8 @@ class TestHighlanderAol(unittest.TestCase):
             self.assertTrue(policy.full_axis_runtime_required)
             cp.alternativeExperience |= policy.alternative_experience_addition
             preferences.finalize(cp)
-            expected = 288 if hold and (car == CAR.TOYOTA_CAMRY_TSS2 or hybrid and car == CAR.TOYOTA_RAV4_TSS2) else 160 if hold else 32
+            aeb_hold = car == CAR.TOYOTA_CAMRY_TSS2 or (hybrid and car in (CAR.TOYOTA_RAV4_TSS2, CAR.TOYOTA_COROLLA_TSS2))
+            expected = 288 if hold and aeb_hold else 160 if hold else 32
             self.assertEqual(cp.alternativeExperience, expected)
             self.assertTrue(qualified(cp, marked_only=True))
             for experience in (33, 416, 288 if expected != 288 else 160):
@@ -315,7 +316,7 @@ class TestHighlanderAol(unittest.TestCase):
           with patch('openpilot.selfdrive.car.card.messaging.recv_one_retry', return_value=SimpleNamespace(can=[1])), \
                patch('openpilot.selfdrive.car.card.get_car', side_effect=discover):
             selected = Car()
-          aeb_hold = car == CAR.TOYOTA_CAMRY_TSS2 or hybrid and car == CAR.TOYOTA_RAV4_TSS2
+          aeb_hold = car == CAR.TOYOTA_CAMRY_TSS2 or (hybrid and car in (CAR.TOYOTA_RAV4_TSS2, CAR.TOYOTA_COROLLA_TSS2))
           self.assertEqual(selected.CP.alternativeExperience, 288 if hold and aeb_hold else 160 if hold else 32)
           self.assertEqual(bool(selected.CP.flags & ToyotaFlags.AUTO_BRAKE_HOLD), hold)
           self.assertTrue(qualified(selected.CP, marked_only=True))

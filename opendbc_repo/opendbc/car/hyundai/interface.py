@@ -141,6 +141,9 @@ class CarInterface(CarInterfaceBase):
     ret.brand = "hyundai"
 
     if candidate == CAR.HYUNDAI_I30_2026:
+      # Controls may construct a PID for this profile. Keep it inert with valid gains.
+      ret.lateralTuning.pid.kpBP = ret.lateralTuning.pid.kiBP = [0.0]
+      ret.lateralTuning.pid.kpV = ret.lateralTuning.pid.kiV = [0.0]
       ret.dashcamOnly = True
       ret.radarUnavailable = True
       ret.safetyConfigs = [get_safety_config(structs.CarParams.SafetyModel.noOutput)]

@@ -91,7 +91,8 @@ def _exercise_join(identity, alternate, incidental, withdrawal, monkeypatch, *, 
     saved = Params()
     saved.put_bool('OpenpilotEnabledToggle', True, block=True)
     saved.put_bool('AlwaysOnLateral', True, block=True)
-    saved.put('LKASButtonControl', 0 if unmapped else AOL_TOGGLE, block=True)
+    if not unmapped:
+      saved.put('LKASButtonControl', AOL_TOGGLE, block=True)
     saved.put('MainCruiseButtonControl', main_binding, block=True)
     now = [10_000_000_000]
     holder = None

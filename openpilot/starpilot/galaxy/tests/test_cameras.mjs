@@ -22,11 +22,10 @@ assert.equal(states.at(-1).status, "idle") // Hidden or signed-out page cannot r
 const mounted = { mode: "local", initialPage: "pip", state: { developerOpen: false }, feed: { start(page) { assert.equal(page, "pip") } } }
 SettingsPage.mounted.call(mounted)
 let returned = 0
-const page = { initialPage: "pip", returnTo: () => returned++, state: { query: "anything", data: { page: "pip" } },
+const page = { initialPage: "pip", returnTo: () => returned++, state: { data: { page: "pip" } },
   feed: { load() { throw new Error("Root PiP Back must return to Cameras") } } }
 SettingsPage.methods.back.call(page)
 assert.equal(returned, 1)
-assert.equal(page.state.query, "")
 
 assert.match(CamerasPage.template, /MenuTile v-for="tool in tools"/)
 assert.equal(cameraTools.find(tool => tool.path === "/cameras/pip").description, "Adjust the camera crop with a live cabin preview.")

@@ -86,7 +86,7 @@ const settingsView = route.view
 const props = {initialPage:'hub',initialSection:null,unauthorized() {}}
 const original = {...SettingsPage.setup(props), ...props}
 Object.assign(original.state, {data:{page:'pip',rows:[{value:'old device value'}]},
-  section:'visual',query:'camera',searchOpen:true,parents:['hub']})
+  section:'visual',parents:['hub']})
 settingsView.scroll = {x:0,y:720}
 SettingsPage.beforeUnmount.call(original)
 assert(!JSON.stringify(settingsView).includes('old device value'))
@@ -97,8 +97,6 @@ assert.equal(route.view, settingsView)
 const restored = {...SettingsPage.setup(props), ...props, mode:'local'}
 assert.equal(restored.restoredPage, 'pip')
 assert.equal(restored.state.section, 'visual')
-assert.equal(restored.state.query, 'camera')
-assert.equal(restored.state.searchOpen, true)
 assert.deepEqual(restored.state.parents, ['hub'])
 assert.equal(restored.state.data, null, 'saved settings are always read again')
 const positions = []

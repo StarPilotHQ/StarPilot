@@ -8,6 +8,8 @@ from typing import Any
 import threading
 import unittest
 
+from openpilot.starpilot.ui.feature_settings_state import SettingLevel, is_heading, setting_levels
+
 
 class TestVehicleNavigation(unittest.TestCase):
   def gateway(self, *, supported=True, parked=True, numeric_only=False):
@@ -18,16 +20,21 @@ class TestVehicleNavigation(unittest.TestCase):
     gateway = next(node for node in source.body if isinstance(node, ast.ClassDef) and node.name == 'SettingsGateway')
     page = next(node for node in gateway.body if isinstance(node, ast.FunctionDef) and node.name == 'page')
     namespace: dict[str, Any] = {'hashlib': hashlib, 'secrets': secrets, 'SettingsUnavailable': RuntimeError,
-                 '_session_key': lambda token: token.encode(), '_projection': lambda row: {}, '_View': lambda *args: args}
+                 '_session_key': lambda token: token.encode(), '_projection': lambda row, level: {}, '_View': lambda *args: args,
+                 'is_heading': is_heading, 'setting_levels': setting_levels, 'read_mode': lambda _: {'mode': 'simple'}}
     exec(compile(ast.Module(body=constants + [page], type_ignores=[]), 'settings.py', 'exec'), namespace)
-    control = SimpleNamespace(choices=('Off', 'On'), page='')
-    states = {name: SimpleNamespace(title=name, subtitle='', parked=parked, rows=()) for name in namespace['PAGES']}
+    def row(page='', choices=()):
+      return SimpleNamespace(key='', page=page, choices=choices, level=None)
+
+    control = row(choices=('Off', 'On'))
+    states = {name: SimpleNamespace(page=name, title=name, subtitle='', parked=parked, rows=(), level=SettingLevel.SIMPLE,
+                                    row_level=lambda row: SettingLevel.SIMPLE) for name in namespace['PAGES']}
     pages = ('aol', 'lane_change', 'lane', 'torque', 'torque/developer')
     for name in pages:
       states[name].rows = (control,)
-    states['torque/developer'].rows = (SimpleNamespace(choices=(), page=''),) if numeric_only else (control,) if supported else ()
-    states['hub'].rows = tuple(SimpleNamespace(choices=(), page=name) for name in pages)
-    owner = SimpleNamespace(views={}, lock=threading.Lock(), clock=lambda: 100., _clean=lambda: None,
+    states['torque/developer'].rows = (row(),) if numeric_only else (control,) if supported else ()
+    states['hub'].rows = tuple(row(page=name) for name in pages)
+    owner = SimpleNamespace(params=None, views={}, lock=threading.Lock(), clock=lambda: 100., _clean=lambda: None,
                             _context=lambda page: SimpleNamespace(cp=SimpleNamespace(carFingerprint='TESLA_MODEL_Y'), cp_raw=b'cp'),
                             _state=lambda page, ctx: states[page])
     return lambda: namespace['page'](owner, 'hub', 'session', b'generation')

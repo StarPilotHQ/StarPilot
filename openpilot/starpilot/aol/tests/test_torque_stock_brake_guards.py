@@ -25,7 +25,8 @@ def configured_callers(identity, lka, guard, *, hybrid=False, lkas_action=9):
     with OpenpilotPrefix():
       saved = Params()
       saved.put_bool('AlwaysOnLateral', True, block=True)
-      saved.put('LKASButtonControl', lkas_action, block=True)
+      if lkas_action is not None:
+        saved.put('LKASButtonControl', lkas_action, block=True)
       saved.put('MainCruiseButtonControl', 9 if guard == 'mapped_main' else 0, block=True)
       for key in ('CancelButtonControl', 'LongCancelButtonControl', 'VeryLongCancelButtonControl'):
         saved.put(key, 3 if guard == 'configured_cancel' and key == 'CancelButtonControl' else 0, block=True)
@@ -212,7 +213,7 @@ def test_source_selected_hybrid_stock_brake_continuity(tick, gesture):
 @pytest.mark.parametrize('tick', [3, 7])
 @pytest.mark.parametrize('gesture', ['cancel', 'brake'])
 def test_default_button_mapping_retains_independent_lateral_on_cruise_withdrawal(identity, lka, tick, gesture):
-  with configured_callers(identity, lka, 'baseline', lkas_action=0) as context:
+  with configured_callers(identity, lka, 'baseline', lkas_action=None) as context:
     sd, step, card, receive = context.sd, context.step, context.card, context.receive
     state = car_state(brake=gesture == 'brake')
     state.vEgoRaw = state.vEgo
