@@ -76,6 +76,9 @@ TOYOTA_COROLLA_TSS2_UNWIND_SMOOTH_WN = 12.0
 TOYOTA_COROLLA_TSS2_UNWIND_SMOOTH_BLEND_TAU = 0.15
 TOYOTA_COROLLA_TSS2_UNWIND_SMOOTH_SPEED_ONSET = 1.5
 TOYOTA_COROLLA_TSS2_UNWIND_SMOOTH_SPEED_ONSET_WIDTH = 0.5
+TOYOTA_COROLLA_TSS2_RELEASE_HOLD_SECONDS = 1.5
+TOYOTA_COROLLA_TSS2_RELEASE_HOLD_WN = 2.0
+TOYOTA_COROLLA_TSS2_RELEASE_HOLD_MIN_LAT = 0.3
 
 
 def get_toyota_corolla_tss2_ff_scale(desired_lateral_accel: float, desired_lateral_jerk: float, v_ego: float) -> float:
@@ -150,6 +153,7 @@ class CorollaTSS2TorquePolicy:
     self.unwind_target = 0.0
     self.unwind_target_rate = 0.0
     self.unwind_blend = FirstOrderFilter(0.0, TOYOTA_COROLLA_TSS2_UNWIND_SMOOTH_BLEND_TAU, self.dt)
+    self.release_hold = 0.0
     self.low_speed_reset_threshold = max(CP.minSteerSpeed, 0.3)
 
   def update(self, active, CS, VM, params, steer_limited_by_safety, desired_curvature, curvature_limited, lat_delay):
@@ -168,6 +172,7 @@ class CorollaTSS2TorquePolicy:
       self.unwind_target = future_desired_lateral_accel
       self.unwind_target_rate = 0.0
       self.unwind_blend.x = 0.0
+      self.release_hold = 0.0
       self.prev_desired_lateral_accel = future_desired_lateral_accel
       self.prev_steering_pressed = CS.steeringPressed
       pid_log.active = False
@@ -189,11 +194,19 @@ class CorollaTSS2TorquePolicy:
     desired_lateral_jerk = float(np.clip(self.jerk_filter.update(raw_lateral_jerk), -MAX_LAT_JERK_UP, MAX_LAT_JERK_UP))
     gravity_adjusted_future_lateral_accel = future_desired_lateral_accel - roll_compensation
     setpoint = expected_lateral_accel + desired_lateral_jerk * lat_delay
-    wn = TOYOTA_COROLLA_TSS2_UNWIND_SMOOTH_WN
+    if CS.steeringPressed:
+      self.unwind_target = measurement
+      self.unwind_target_rate = 0.0
+      self.release_hold = 0.0
+    elif self.prev_steering_pressed and abs(measurement) > TOYOTA_COROLLA_TSS2_RELEASE_HOLD_MIN_LAT and CS.vEgo < TOYOTA_COROLLA_TSS2_SPEED_CUTOFF:
+      self.release_hold = 1.0
+    else:
+      self.release_hold = max(self.release_hold - self.dt / TOYOTA_COROLLA_TSS2_RELEASE_HOLD_SECONDS, 0.0)
+    wn = TOYOTA_COROLLA_TSS2_UNWIND_SMOOTH_WN + (TOYOTA_COROLLA_TSS2_RELEASE_HOLD_WN - TOYOTA_COROLLA_TSS2_UNWIND_SMOOTH_WN) * self.release_hold
     self.unwind_target_rate += (wn * wn * (setpoint - self.unwind_target) - 2.0 * wn * self.unwind_target_rate) * self.dt
     self.unwind_target += self.unwind_target_rate * self.dt
     unwind_blend = self.unwind_blend.update(get_toyota_corolla_tss2_unwind_weight(setpoint, desired_lateral_jerk, CS.vEgo))
-    unwind_offset = unwind_blend * (self.unwind_target - setpoint)
+    unwind_offset = 0.0 if CS.steeringPressed else max(unwind_blend, self.release_hold) * (self.unwind_target - setpoint)
     setpoint += unwind_offset
     gravity_adjusted_future_lateral_accel += unwind_offset
     desired_lateral_accel_magnitude_rate = (abs(setpoint) - abs(self.prev_desired_lateral_accel)) / self.dt
