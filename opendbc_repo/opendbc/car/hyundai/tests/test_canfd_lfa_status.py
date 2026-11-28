@@ -1091,3 +1091,37 @@ def test_sportage_recovers_display_after_camera_yields_steering(alpha, case, clo
   expected = case == 'recorded'
   assert output[0x12A][7] >> 4 == (0 if expected else 15)
   assert output[0x1E0][4] & 7 == (0 if expected else 3)
+
+
+@pytest.mark.parametrize('popup', (3, 5, 6, 7))
+@pytest.mark.parametrize('case', ('recorded', 'stock', 'eps_failure', 'camera_failure', 'unknown_warning', 'stale_camera'))
+def test_sportage_legacy_lane_display_is_scoped_and_fault_aware(popup, case, clock):
+  cp = params(CAR.KIA_SPORTAGE_5TH_GEN, alpha=case != 'stock', alternate=True)
+  cp.safetyConfigs[0].safetyParam = 0x828 if case == 'stock' else 0x82C
+  cp.alternativeExperience = 32
+  ci = CarInterface(cp)
+  ci.update([])
+  packer = CANPacker(DBC[cp.carFingerprint][Bus.pt])
+  bus = ci.CC.CAN
+  command = structs.CarControl.new_message()
+  output = {}
+  for tick in range(16):
+    clock[0] = 40_000_000_000 + tick * 10_000_000
+    warning = 9 if case == 'unknown_warning' else 15
+    stock = packer.make_can_msg('LFA', bus.CAM, {
+      'COUNTER': tick, 'LKA_SysIndReq': 4, 'LKA_SysWrn': warning, 'ActToiSta': 1, 'StrTqReqVal': 17,
+      'ToiFltSta': int(case == 'camera_failure'),
+    })
+    frames = [frame for frame in physical_frames(ci, packer, tick, stock) if frame[0] != 0xEA]
+    if case == 'stale_camera' and tick > 3:
+      frames = [frame for frame in frames if frame[0] != 0x12A]
+    frames.append(packer.make_can_msg('MDPS', bus.ECAN, {'COUNTER': tick, 'MDPS_LkaFailSta': int(case == 'eps_failure')}))
+    if tick % 5 == 0:
+      frames.append(packer.make_can_msg('LFAHDA_CLUSTER', bus.CAM, {'COUNTER': tick // 5, 'NEW_SIGNAL_1': popup}))
+    assert ci.update([(clock[0], frames)]).canValid
+    _, packets = ci.apply(command.as_reader(), clock[0])
+    output.update((addr, data) for addr, data, src in packets if src == bus.ECAN and addr in (0x12A, 0x1E0))
+  assert output[0x12A][7] >> 4 == (0 if case == 'recorded' else warning)
+  assert output[0x12A][6] >> 6 == int(case == 'camera_failure')
+  assert (int.from_bytes(output[0x12A], 'little') >> 41) & 0xFFF == 1024
+  assert output[0x1E0][4] & 7 == (0 if case == 'recorded' and popup != 7 else popup)

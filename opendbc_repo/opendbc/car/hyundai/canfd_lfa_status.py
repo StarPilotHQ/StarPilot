@@ -166,6 +166,20 @@ class CANFDLfaStatus:
     return (self.eps_active and self.eps_healthy and
             0 < self.eps_observed_ns <= now_ns <= self.eps_observed_ns + MAX_AGE_NS)
 
+  def sportage_legacy_display(self, cp, now_ns, *, healthy):
+    if not (healthy and cp.carFingerprint == CAR.KIA_SPORTAGE_5TH_GEN and cp.openpilotLongitudinalControl and
+            cp.alternativeExperience == 32 and len(cp.safetyConfigs) == 1 and
+            cp.safetyConfigs[0].safetyModel == structs.CarParams.SafetyModel.hyundaiCanfd and
+            cp.safetyConfigs[0].safetyParam == 0x82C):
+      return False
+    body = self.current(now_ns)
+    if body is None or not self.camera_integrity or not self.eps_healthy:
+      return False
+    indication = (body[4] >> 6) | ((body[5] & 1) << 2)
+    return (0 < self.eps_observed_ns <= now_ns <= self.eps_observed_ns + MAX_AGE_NS and
+            not (body[6] & 0xC0) and
+            ((indication < 4 and body[7] >> 4 == 0) or self._system_fail(body)))
+
   def owns_display_status(self, active, now_ns, *, healthy=False):
     if active and not self.request_active:
       self.request_since_ns = now_ns

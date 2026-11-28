@@ -447,6 +447,7 @@ class CarController(CarControllerBase):
     _projection = self.learning_projection_observer
     can_sends = []
     stock_popup_owned = False
+    sportage_legacy_display = False
     stock_ccnc_owned = False
     kona_handoff = (self.CP.carFingerprint == CAR.HYUNDAI_KONA_2ND_GEN and
                     self.CP.safetyConfigs[-1].safetyParam == KONA_IDLE_AOL_WORD)
@@ -587,6 +588,8 @@ class CarController(CarControllerBase):
         stock_owned_status = stock_source.owns_display_status(apply_steer_req, clock_boot_ns(), healthy=display_healthy)
         stock_popup_owned = stock_source.owns_disengage_popup(apply_steer_req, clock_boot_ns(), healthy=display_healthy,
                                                             qualified_warning=stock_owned_status)
+        if self.CP.carFingerprint == CAR.KIA_SPORTAGE_5TH_GEN:
+          sportage_legacy_display = stock_source.sportage_legacy_display(self.CP, clock_boot_ns(), healthy=display_healthy)
         if ccnc_non_lka:
           stock_ccnc_owned = stock_source.owns_ccnc_fault_status(clock_boot_ns(), display_sample_ns=CS.ccnc_162_ts_ns,
                                                                healthy=display_healthy, qualified_warning=stock_owned_status)
@@ -606,7 +609,8 @@ class CarController(CarControllerBase):
                                                               stock_lfa_owned_status=stock_owned_status,
                                                               stock_lkas_damping=(damping_source.current_damping(clock_boot_ns())
                                                                 if damping_source is not None else None),
-                                                              lfa_counter=lfa_counter))
+                                                              lfa_counter=lfa_counter,
+                                                              legacy_lane_display=sportage_legacy_display))
         if _projection is not None:
           _projection.emit('hyundai.CANFD_TORQUE', apply_torque, apply_steer_req, can_sends[-1])
 
@@ -647,7 +651,8 @@ class CarController(CarControllerBase):
         cluster_source = getattr(CS, "stock_cluster_status", None)
         stock_cluster = cluster_source.current(clock_boot_ns()) if cluster_source is not None else None
         can_sends.append(hyundaicanfd.create_lfahda_cluster(self.packer, self.CAN, CC.enabled, lfa_icon=canfd_lfa_icon,
-                                                         stock_cluster=stock_cluster, owned_lfa_status=stock_popup_owned))
+                                                         stock_cluster=stock_cluster, owned_lfa_status=stock_popup_owned,
+                                                         legacy_lane_display=sportage_legacy_display))
 
     # blinkers
     if lka_steering and self.CP.flags & HyundaiFlags.CANFD_ENABLE_BLINKERS:
