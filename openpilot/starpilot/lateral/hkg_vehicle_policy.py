@@ -211,7 +211,13 @@ class HKGVehicleTorquePolicy(HKGShapedTorquePolicy):
         * shaping.get_kia_carnival_highway_transition_output_scale(setpoint, jerk, speed)
       )
     if self.profile == 'tucson_4th_gen':
-      return value * shaping.get_tucson_4th_gen_center_taper_scale(setpoint, speed)
+      value *= shaping.get_tucson_4th_gen_center_taper_scale(setpoint, speed)
+      if 5.0 < speed < 21.0 and abs(setpoint) < 1.25 and abs(setpoint - measurement) > .16:
+        speed_weight = np.interp(speed, (5., 7., 16., 21.), (0., 1., 1., 0.))
+        turn_weight = np.interp(abs(setpoint), (.75, 1.25), (1., 0.))
+        error_weight = np.interp(abs(setpoint - measurement), (.16, .60), (0., 1.))
+        value *= 1.0 - .35 * speed_weight * turn_weight * error_weight
+      return value
     if self.profile == 'kona_non_scc':
       value *= shaping.get_kona_non_scc_center_taper_scale(setpoint, speed)
       if value * setpoint > 0 or setpoint * jerk < 0:

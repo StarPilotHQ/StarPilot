@@ -206,3 +206,23 @@ def test_tucson_highway_feedback_damps_large_errors_without_touching_steady_trac
     setattr(policy, field, True)
     assert policy.pid_error_context(.5, .8, 25.) == .5
     setattr(policy, field, False)
+
+
+def test_tucson_damps_large_shallow_turn_corrections_at_city_speeds():
+  for alpha_long in (False, True):
+    _, controller = controller_for(CAR.HYUNDAI_TUCSON_4TH_GEN, ControllerMode.STARPILOT,
+                                   openpilotLongitudinalControl=alpha_long, pcmCruise=not alpha_long)
+    policy = controller.starpilot_extension.policy
+    for side in (-1., 1.):
+      request = side * .55
+      speed = 12.
+      nominal = policy.output_context(side, request, 0., request, speed)
+      near = policy.output_context(side, request, 0., request - side * .1, speed)
+      moderate = policy.output_context(side, request, 0., request - side * .38, speed)
+      far = policy.output_context(side, request, 0., request - side * .6, speed)
+      assert near == nominal
+      assert math.isclose(moderate, nominal * .825)
+      assert math.isclose(far, nominal * .65)
+      for unmodified_request, unmodified_speed in ((request, 5.), (request, 21.), (side * 1.25, speed)):
+        assert policy.output_context(side, unmodified_request, 0., unmodified_request - side, unmodified_speed) == \
+          policy.output_context(side, unmodified_request, 0., unmodified_request, unmodified_speed)
