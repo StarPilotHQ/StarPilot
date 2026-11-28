@@ -73,7 +73,7 @@ def test_only_main_adopt_is_marked_as_a_main_wheel_action(lkas, main, main_wheel
   assert settings.main_wheel_action == main_wheel
 
 
-@pytest.mark.parametrize('action,keeps_lateral', [(8, True), (9, False), (0, False)])
+@pytest.mark.parametrize('action,keeps_lateral', [(8, True), (9, False), (0, True)])
 def test_tucson_lkas_bookmark_does_not_double_as_lateral_toggle(action, keeps_lateral):
   from opendbc.car import gen_empty_fingerprint
   from opendbc.car.hyundai.interface import CarInterface
@@ -126,7 +126,7 @@ def test_mixed_palisade_lkas_bookmark_owns_only_the_wheel_action(tmp_path, topol
   publisher = WheelPublisher()
   owner.update(cs, now_ns=now, fault_active=False)
   assert publisher.observe(saved, cp, cs, now_ns=now, drive_id=1_000_000_000) == (('', 0),)
-  if action == 8:
+  if action != 9:
     press(owner, cs, 'lkas', now + 1)
     assert not owner.allowed_latch and owner.physical_arm_ns == 0
   cs.buttonEvents = []
@@ -140,8 +140,67 @@ def test_mixed_palisade_lkas_bookmark_owns_only_the_wheel_action(tmp_path, topol
   owner.update(cs, now_ns=now + 10_000_000, fault_active=False, standard_enabled=True)
   actions = publisher.observe(saved, cp, cs, now_ns=now + 10_000_000, drive_id=1_000_000_000)
   assert actions == ((('LKASButtonControl', 8),) if action == 8 else ())
-  assert lateral(owner) == (action == 8)
-  if action == 8:
+  assert lateral(owner) == (action != 9)
+  if action != 9:
     assert not owner.pause_lateral and owner._last_latch_edge_ns == edge
     owner.update(cs, now_ns=now + 20_000_000, fault_active=True, standard_enabled=True)
     assert not lateral(owner)
+
+
+@pytest.mark.parametrize('action,toggles', [(None, True), (b'0', False), (b'8', False), (b'9', True),
+                                           (b'15', False), (b'invalid', False)])
+@pytest.mark.parametrize('owner_type', ['shared', 'ford', 'tesla'])
+def test_saved_lkas_assignment_beats_physical_aol_fallback(owner_type, action, toggles):
+  from openpilot.starpilot.car.ford.aol import FordCardIntent
+  from openpilot.starpilot.car.tesla.screen_intent import TeslaScreenCardIntent
+
+  settings = read_settings(SavedParams({'AlwaysOnLateral': b'1', 'LKASButtonControl': action}))
+  cp = structs.CarParams(safetyConfigs=[{'safetyParam': 512}])
+  if owner_type == 'shared':
+    owner = AolCardIntent(settings, explicit_latch=True)
+  elif owner_type == 'ford':
+    owner = FordCardIntent(cp, settings)
+  else:
+    owner = TeslaScreenCardIntent(cp, settings)
+  cs = structs.CarState(canValid=True, gearShifter='drive', cruiseState={'available': True, 'enabled': True})
+  owner.update(cs, now_ns=1, fault_active=False)
+  owner.observe_full_engagement(cs, enabled=False, active=False, source_ns=2, observation_valid=True, now_ns=2, fault_active=False)
+  owner.observe_full_engagement(cs, enabled=True, active=True, source_ns=3, observation_valid=True, now_ns=3, fault_active=False)
+  assert lateral(owner)
+  press(owner, cs, 'lkas', 10, engaged=True)
+  assert lateral(owner) is not toggles
+  assert owner.pause_lateral is toggles
+
+
+@pytest.mark.parametrize('action', [3, 4])
+def test_lkas_pause_mapping_only_pauses_the_selected_axis(action):
+  saved = SavedParams({'AlwaysOnLateral': b'1', 'LKASButtonControl': str(action).encode()})
+  owner = AolCardIntent(read_settings(saved), explicit_latch=True)
+  cs = structs.CarState(canValid=True, gearShifter='drive', cruiseState={'available': True})
+  owner.update(cs, now_ns=1, fault_active=False)
+  owner.observe_full_engagement(cs, enabled=False, active=False, source_ns=2, observation_valid=True, now_ns=2, fault_active=False)
+  owner.observe_full_engagement(cs, enabled=True, active=True, source_ns=3, observation_valid=True, now_ns=3, fault_active=False)
+  assert lateral(owner)
+  press(owner, cs, 'lkas', 10, engaged=True)
+  assert owner.allowed_latch and owner.pause_lateral == (action == 3) and owner.pause_longitudinal == (action == 4)
+
+
+@pytest.mark.parametrize('saved_action', [b'0', b'8', b'15'])
+def test_live_lkas_remap_does_not_also_toggle_default_aol(tmp_path, saved_action):
+  from openpilot.starpilot.aol.intent import claim_remapped_lkas
+
+  saved = SavedParams({'AlwaysOnLateral': b'1'})
+  saved.get_param_path = lambda key: str(tmp_path/key)
+  settings = read_settings(saved)
+  owner = AolCardIntent(settings, explicit_latch=True)
+  cs = armed(owner)
+  (tmp_path/'LKASButtonControl').write_bytes(saved_action)
+  cs.buttonEvents = [structs.CarState.ButtonEvent(type='lkas', pressed=True)]
+  claimed = claim_remapped_lkas(saved, settings, cs)
+  assert claimed == frozenset((int(structs.CarState.ButtonEvent.Type.lkas),))
+  owner.update(cs, now_ns=10, consumed_buttons=claimed, fault_active=False, standard_enabled=True)
+  assert lateral(owner)
+  cs.buttonEvents = []
+  assert not claim_remapped_lkas(saved, settings, cs)
+  owner.update(cs, now_ns=11, fault_active=False, standard_enabled=True)
+  assert lateral(owner)

@@ -7,7 +7,7 @@ from opendbc.car import structs
 from openpilot.starpilot.controllers.wheel_actions import DELIVERED_ACTIONS
 
 
-@pytest.mark.parametrize("action", (1, 2, 5, 6, 7, 8, 10, 11, 12, 13, 14))
+@pytest.mark.parametrize("action", (0, 1, 2, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15))
 def test_remapped_lkas_keeps_established_lateral_after_brake(action, tmp_path):
   from openpilot.common.params import Params
   params = Params(str(tmp_path))
@@ -55,7 +55,7 @@ def test_remapped_lkas_never_creates_authority(tmp_path):
 def test_lkas_wheel_action_catalog_matches_publisher(tmp_path):
   from openpilot.common.params import Params
   params = Params(str(tmp_path))
-  for action in range(15):
+  for action in range(16):
     params.put("LKASButtonControl", action, block=True)
     assert read_settings(params).lkas_wheel_action == (action in DELIVERED_ACTIONS)
 

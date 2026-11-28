@@ -1,7 +1,7 @@
 """Modern screen gesture override layered over ordinary cruise availability."""
 from dataclasses import replace
 from opendbc.car import structs
-from openpilot.starpilot.aol.intent import AolCardIntent, ButtonType
+from openpilot.starpilot.aol.intent import AolCardIntent, AOL_TOGGLE, ButtonType
 
 
 class TeslaScreenCardIntent(AolCardIntent):
@@ -45,7 +45,8 @@ class TeslaScreenCardIntent(AolCardIntent):
         continue
       fresh_press = bool(event.pressed and not self.screen_held)
       self.screen_held = bool(event.pressed)
-      if (fresh_press and CS.gearShifter == structs.CarState.GearShifter.drive and not CS.steerFaultTemporary and
+      if (fresh_press and self.screen_toggle_mapped and int(ButtonType.lkas) not in kwargs.get('consumed_buttons', ()) and
+          CS.gearShifter == structs.CarState.GearShifter.drive and not CS.steerFaultTemporary and
           not fault and not cancel and self.settings.enabled and
           not (self.brake_disengage and CS.brakePressed)):
         current = (available if self.screen_override is None else self.screen_override)
@@ -70,4 +71,5 @@ class TeslaScreenCardIntent(AolCardIntent):
 
   @settings.setter
   def settings(self, value):
+    self.screen_toggle_mapped = value.lkas_action == AOL_TOGGLE or value.default_lkas_toggle
     self._settings = replace(value, lkas_action=0)

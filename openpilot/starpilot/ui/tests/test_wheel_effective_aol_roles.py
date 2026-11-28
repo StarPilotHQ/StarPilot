@@ -65,7 +65,13 @@ def test_mach_e_fixed_lkas_role_matches_actual_intent_and_cannot_claim_off(tmp_p
   rows = {row.key: row for row in wheel.rows()}
   lkas = rows['wheel:LKASButtonControl']
   assert lkas.value == 'Toggle AOL' and 'Toggle AOL' in lkas.choices
-  assert lkas.available and 'also toggles AOL' in lkas.reason
+  assert lkas.available
+  for code, label in ((8, 'Bookmark'), (0, 'Off')):
+    params.put('LKASButtonControl', code, block=True)
+    current = next(row for row in wheel.rows() if row.key == 'wheel:LKASButtonControl')
+    assert current.value == label
+    assert 'also toggles AOL' not in current.reason
+  params.remove('LKASButtonControl')
   main = rows['wheel:MainCruiseButtonControl']
   assert main.value == 'Factory cruise / AOL'
   assert not main.available and not main.choices

@@ -9,6 +9,7 @@ from openpilot.cereal import log
 from openpilot.selfdrive.car.cruise import CRUISE_LONG_PRESS
 from openpilot.system.manager.process_health import driving_process_failures
 from openpilot.starpilot.conditional_mode.manual import Button, ButtonTracker, Press
+from openpilot.starpilot.saved_source import read_saved
 
 ButtonType = car.CarState.ButtonEvent.Type
 GearShifter = car.CarState.GearShifter
@@ -32,6 +33,21 @@ class AolSettings:
   default_physical_buttons: bool = True
   main_wheel_action: bool = False
   lkas_wheel_action: bool = False
+  lkas_unassigned: bool = True
+
+  @property
+  def default_lkas_toggle(self) -> bool:
+    return self.lkas_unassigned and self.lkas_action == 0 and not self.lkas_wheel_action
+
+
+_LKAS_CONSUMED = frozenset((int(ButtonType.lkas),))
+
+
+def claim_remapped_lkas(params, settings: AolSettings | None, CS) -> frozenset[int]:
+  if not CS.buttonEvents or settings is None or not settings.default_lkas_toggle or not any(
+      event.type == ButtonType.lkas and event.pressed for event in CS.buttonEvents):
+    return frozenset()
+  return frozenset() if read_saved(params, 'LKASButtonControl', 8) in ((None, True), (b'9', True)) else _LKAS_CONSUMED
 
 
 def _button_value(params, key: str) -> int | None:
@@ -62,14 +78,19 @@ def read_settings(params) -> AolSettings:
       pause_mps = float('nan')
     break
   valid_pause = 0.0 <= pause_mps <= 100.0
-  lkas = _button_value(params, 'LKASButtonControl')
+  saved_lkas = params.get('LKASButtonControl')
+  try:
+    lkas = 0 if saved_lkas is None else int(saved_lkas)
+  except (TypeError, ValueError):
+    lkas = None
   main = _button_value(params, 'MainCruiseButtonControl')
   return AolSettings(
     enabled=params.get_bool('AlwaysOnLateral') and valid_pause, pause_brake_mps=pause_mps if valid_pause else 0.0,
     lkas_action=_axis_action(lkas), main_action=_axis_action(main),
     default_physical_buttons=lkas == 0 and main == 0,
     main_wheel_action=main == ADOPT_SPEED_LIMIT,
-    lkas_wheel_action=lkas in (1, 2, 5, 6, 7, 8, 10, 11, 12, 13, 14),
+    lkas_wheel_action=lkas in (1, 2, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15),
+    lkas_unassigned=saved_lkas is None,
     distance_actions=(_button_action(params, 'DistanceButtonControl'),
                       _button_action(params, 'LongDistanceButtonControl'),
                       _button_action(params, 'VeryLongDistanceButtonControl')),
@@ -148,13 +169,12 @@ def disarming_fault(events, CS, *, temporary_ui_process_failure: bool = False,
 class AolCardIntent:
   def __init__(self, settings: AolSettings, *, explicit_latch: bool = False, lkas_button_supported: bool = True,
                independent_cruise_buttons: bool = False, preserve_unassigned_cancel: bool = False,
-               confirm_main_available: bool = False, respect_lkas_wheel_action: bool = False):
+               confirm_main_available: bool = False):
     self.settings = settings
     self.explicit_latch = explicit_latch
     self.independent_cruise_buttons = independent_cruise_buttons
     self.preserve_unassigned_cancel = preserve_unassigned_cancel
     self.confirm_main_available = confirm_main_available
-    self.respect_lkas_wheel_action = respect_lkas_wheel_action
     self._pending_main_arm_ns = 0
     self.lkas_button_supported = lkas_button_supported
     self.allowed_latch = False
@@ -338,9 +358,8 @@ class AolCardIntent:
       # owners keep their current event and native contracts.
       main_toggle = (not independent_buttons or main_managed) and not (
         self.independent_cruise_buttons and self.settings.main_wheel_action)
-      lkas_toggle = (not independent_buttons or lkas_managed) and not (
-        getattr(self, 'allow_manumatic', False) or
-        ((self.independent_cruise_buttons or self.respect_lkas_wheel_action) and self.settings.lkas_wheel_action))
+      lkas_toggle = (lkas_managed or not independent_buttons and self.settings.default_lkas_toggle) and not getattr(
+        self, 'allow_manumatic', False)
       previously_held = (self._main_held and main_toggle) or (self._lkas_held and lkas_toggle)
       cancel_pressed = False
       for event in CS.buttonEvents:
@@ -351,16 +370,16 @@ class AolCardIntent:
             self._perform(self.main_action if not main_managed else 0)
           self._main_held = bool(event.pressed)
         elif button == int(ButtonType.lkas):
-          if (independent_buttons and event.pressed and not self._lkas_held and
+          if (event.pressed and not self._lkas_held and self.lkas_action in (PAUSE_LATERAL, PAUSE_LONGITUDINAL) and
               button not in consumed_buttons and self.settings.enabled and not CS.accFaulted and not self._fault_inhibit):
-            self._perform(self.lkas_action if not lkas_managed else 0)
+            self._perform(self.lkas_action)
           self._lkas_held = bool(event.pressed)
         elif button == int(ButtonType.cancel) and event.pressed:
           cancel_pressed = True
       gesture_held = ((self._main_held and main_toggle and
                        (not independent_buttons or int(ButtonType.mainCruise) not in consumed_buttons)) or
                       (self._lkas_held and lkas_toggle and
-                       (not independent_buttons or int(ButtonType.lkas) not in consumed_buttons)))
+                       int(ButtonType.lkas) not in consumed_buttons))
       if not previously_held and gesture_held and (not (independent_buttons or self.preserve_unassigned_cancel) or not cancel_pressed):
         self._last_latch_edge_ns = now_ns
       if cancel_pressed:

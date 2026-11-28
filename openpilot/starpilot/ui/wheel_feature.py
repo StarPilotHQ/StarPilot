@@ -126,16 +126,19 @@ class WheelFeature:
         ordinary_actions = (None, *(str(code).encode() for code in ACTIONS.values() if code != 9))
         implicit_toggle = independent_cruise_buttons_supported(cp) and all(ok and value in ordinary_actions
                                                                           for value, ok in sources)
-      ford_role = cp.brand == 'ford' and policy.explicit_latch and policy.runtime_supported and key == KEYS[0]
-      if (ford_role or (implicit_toggle and raw is None)) and selected == "Off":
+      lkas_default = key == KEYS[0] and policy.explicit_latch and policy.runtime_supported and cp.brand in ('ford', 'tesla')
+      if raw is None and key == KEYS[0] and cp.brand == 'hyundai' and policy.explicit_latch:
+        from opendbc.car.hyundai.blended_stock_aol import qualified, qualified_alpha
+        lkas_default |= qualified(cp) or qualified_alpha(cp)
+      if raw is None and (lkas_default or implicit_toggle) and selected == "Off":
         selected = "Toggle AOL"
       rows.append(FeatureRow(PREFIX + key, label, selected or "Invalid saved action", raw, choices,
                              available=readable and self.owner.authority("preferences"),
-                             reason=("LKAS also toggles AOL independently of its saved extra action." if ford_role else
-                                     ("When AOL is enabled, this button can still toggle it by default. Using only the other button " +
-                                      "requires assigning Toggle AOL to it and restarting.") if implicit_toggle and raw == b"0" else
+                             reason=(("When AOL is enabled, this button can still toggle it by default. Using only the other button " +
+                                      "requires assigning Toggle AOL to it and restarting.") if key == KEYS[1] and implicit_toggle and raw == b"0" else
                                      "Bookmark on release. Available while Left Paddle Longitudinal Pause is Off." if key == PADDLE_KEY else
-                                     "Off adds no action to the vehicle's existing button behavior. " +
+                                     ("Off clears the LKAS assignment. " if key == KEYS[0] else
+                                      "Off adds no action to the vehicle's existing button behavior. ") +
                                      "Axis pause and AOL assignments apply after restarting. Other actions can apply this drive. " +
                                      "Long actions fire while held."),
                              capability=capability, repair_value="Off" if selected is None else ""))

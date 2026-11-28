@@ -1,7 +1,7 @@
 """EV6 configured AOL desire gated by actual physical authorization."""
 from opendbc.car.hyundai.values import Buttons
 from opendbc.car.hyundai.ev6_aol import Ev6PhysicalAuthorization
-from openpilot.starpilot.aol.intent import AolCardIntent, AOL_TOGGLE, ButtonType
+from openpilot.starpilot.aol.intent import AolCardIntent, AOL_TOGGLE, ButtonType, PAUSE_LATERAL, PAUSE_LONGITUDINAL
 
 
 class StockEv6CardIntent(AolCardIntent):
@@ -90,6 +90,9 @@ class Ev6CardIntent(AolCardIntent):
       self._full_engagement_release_ns = 0
     lkas_managed = self.settings.enabled and self.settings.lkas_action == AOL_TOGGLE
     main_managed = self.settings.main_action == AOL_TOGGLE
+    lkas_consumed = int(ButtonType.lkas) in consumed_buttons
+    lkas_toggle = not lkas_consumed and (lkas_managed or self.settings.default_lkas_toggle)
+    lkas_axis_action = not lkas_consumed and (lkas_toggle or self.settings.lkas_action in (PAUSE_LATERAL, PAUSE_LONGITUDINAL))
     auto_main = self.settings.enabled and not lkas_managed and not main_managed
     if healthy and not rejected:
       for main, lkas, cruise in self._samples:
@@ -103,11 +106,11 @@ class Ev6CardIntent(AolCardIntent):
           self._raw_neutral_seen = not (main or lkas) and cruise == Buttons.NONE
           continue
         self.physical.observe(main, lkas, cruise, main_available=CS.cruiseState.available,
-                              lkas_toggle=not self.settings.lkas_wheel_action)
+                              lkas_toggle=lkas_toggle)
         main_press = bool(main and not previous_main)
         # A remapped LKAS press belongs to WheelPublisher, not the AOL owner.
         # Keep raw level history but neither grant nor revoke physical authority.
-        lkas_press = bool(lkas and not previous_lkas and not self.settings.lkas_wheel_action)
+        lkas_press = bool(lkas and not previous_lkas and lkas_axis_action)
         self._engagement_manual_withdrawal |= main_press or lkas_press
         engagement_release = (self.physical.lkas_on_engage and cruise != previous_cruise
                               and previous_cruise in (Buttons.SET_DECEL, Buttons.RES_ACCEL))

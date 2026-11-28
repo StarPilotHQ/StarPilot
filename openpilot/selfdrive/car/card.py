@@ -35,7 +35,7 @@ from openpilot.selfdrive.pandad import can_capnp_to_list, can_list_to_can_capnp
 from openpilot.selfdrive.car.can_callbacks import can_comm_callbacks, obd_callback
 from openpilot.selfdrive.car.cruise import LOW_SPEED_CRUISE_ON_SET, SlcWheelContext, VCruiseHelper, slc_target_kph
 from openpilot.starpilot.speed_limits import physical_actions as slc_physical, tesla_set_speed_card
-from openpilot.starpilot.aol.intent import AolProcessFaultContext, independent_axis_requested, read_settings
+from openpilot.starpilot.aol.intent import AolProcessFaultContext, claim_remapped_lkas, independent_axis_requested, read_settings
 from openpilot.starpilot.aol.transport_pause import TransportPauseFeedback, cp_identity
 from opendbc.car.honda.stock_aol import qualified as qualified_honda_stock_aol, native_observation as honda_native_observation
 from opendbc.car.volkswagen.stock_aol import safety_config as volkswagen_aol_safety_config
@@ -715,7 +715,8 @@ class Car:
                           now_ns=now_ns, producer=self.slc_producer_session)
       if hasattr(self.aol_card_intent, 'observe_vehicle_state'):
         self.aol_card_intent.observe_vehicle_state(self.CI.CS)
-      self.aol_card_intent.update(CS, fault_active=fault_active, now_ns=now_ns, native_rejection_ns=rejection_ns,
+      consumed_buttons = claim_remapped_lkas(self.params, self.aol_settings, CS)
+      self.aol_card_intent.update(CS, consumed_buttons=consumed_buttons, fault_active=fault_active, now_ns=now_ns, native_rejection_ns=rejection_ns,
                                   standard_enabled=(host_enabled if getattr(self.aol_card_intent, 'observe_stock_engagement', False)
                                                     else host_control_enabled))
       # Observe ordinary state directly: independent AOL actuator activity is
