@@ -148,12 +148,13 @@ def disarming_fault(events, CS, *, temporary_ui_process_failure: bool = False,
 class AolCardIntent:
   def __init__(self, settings: AolSettings, *, explicit_latch: bool = False, lkas_button_supported: bool = True,
                independent_cruise_buttons: bool = False, preserve_unassigned_cancel: bool = False,
-               confirm_main_available: bool = False):
+               confirm_main_available: bool = False, respect_lkas_wheel_action: bool = False):
     self.settings = settings
     self.explicit_latch = explicit_latch
     self.independent_cruise_buttons = independent_cruise_buttons
     self.preserve_unassigned_cancel = preserve_unassigned_cancel
     self.confirm_main_available = confirm_main_available
+    self.respect_lkas_wheel_action = respect_lkas_wheel_action
     self._pending_main_arm_ns = 0
     self.lkas_button_supported = lkas_button_supported
     self.allowed_latch = False
@@ -339,7 +340,7 @@ class AolCardIntent:
         self.independent_cruise_buttons and self.settings.main_wheel_action)
       lkas_toggle = (not independent_buttons or lkas_managed) and not (
         getattr(self, 'allow_manumatic', False) or
-        (self.independent_cruise_buttons and self.settings.lkas_wheel_action))
+        ((self.independent_cruise_buttons or self.respect_lkas_wheel_action) and self.settings.lkas_wheel_action))
       previously_held = (self._main_held and main_toggle) or (self._lkas_held and lkas_toggle)
       cancel_pressed = False
       for event in CS.buttonEvents:

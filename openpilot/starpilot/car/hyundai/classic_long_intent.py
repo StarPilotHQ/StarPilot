@@ -7,9 +7,10 @@ class ClassicLongCardIntent(AolCardIntent):
   defer_full_engagement_on_gas = True
 
   def __init__(self, cp, settings):
+    blended_alpha = qualified_alpha(cp)
     super().__init__(settings, explicit_latch=True, independent_cruise_buttons=(
       independent_buttons_qualified(cp, marked_only=False)),
-      preserve_unassigned_cancel=qualified_alpha(cp))
+      preserve_unassigned_cancel=blended_alpha, respect_lkas_wheel_action=blended_alpha)
     self.requires_fault_observation = True
     self.observe_stock_engagement = True
 

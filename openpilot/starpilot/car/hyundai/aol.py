@@ -324,7 +324,8 @@ def create_intent(CP, settings):
   mixed_hda2_stock = _mixed_hda2_stock(CP)
   return AolCardIntent(settings, explicit_latch=policy_for(CP).explicit_latch,
                        independent_cruise_buttons=independent_cruise_buttons,
-                       preserve_unassigned_cancel=mixed_hda2_stock, confirm_main_available=mixed_hda2_stock)
+                       preserve_unassigned_cancel=mixed_hda2_stock, confirm_main_available=mixed_hda2_stock,
+                       respect_lkas_wheel_action=qualified_blended_stock(CP))
 
 
 def ordinary_axis_request_allowed(CP, CS) -> bool:

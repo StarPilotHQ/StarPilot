@@ -99,3 +99,49 @@ def test_tucson_lkas_bookmark_does_not_double_as_lateral_toggle(action, keeps_la
   press(owner, cs, 'lkas', 10, engaged=True)
   assert lateral(owner) == keeps_lateral
   assert owner.pause_lateral != keeps_lateral
+
+
+@pytest.mark.parametrize('topology', ['hdai', 'hdaii'])
+@pytest.mark.parametrize('alpha_long', [False, True])
+@pytest.mark.parametrize('action', [0, 8, 9])
+def test_mixed_palisade_lkas_bookmark_owns_only_the_wheel_action(tmp_path, topology, alpha_long, action):
+  from opendbc.car.hyundai.blended_stock_aol import qualified, qualified_alpha
+  from opendbc.car.hyundai.tests.test_palisade_2023 import params as palisade_params
+  from openpilot.starpilot.controllers.wheel_actions import WheelPublisher
+
+  cp = palisade_params(topology)
+  cp.alternativeExperience = 32
+  if alpha_long:
+    cp.openpilotLongitudinalControl = True
+    cp.pcmCruise = False
+    cp.alphaLongitudinalAvailable = True
+    cp.safetyConfigs[0].safetyParam |= 4
+  assert (qualified_alpha if alpha_long else qualified)(cp, marked_only=True)
+  saved = SavedParams({'AlwaysOnLateral': b'1', 'LKASButtonControl': str(action).encode(), 'MainCruiseButtonControl': b'0'})
+  (tmp_path/'LKASButtonControl').write_bytes(saved.get('LKASButtonControl'))
+  saved.get_param_path = lambda key: str(tmp_path/key)
+  owner = create_intent(cp, read_settings(saved))
+  cs = structs.CarState(canValid=True, gearShifter='drive', cruiseState={'available': True, 'enabled': True})
+  now = 3_000_000_000
+  publisher = WheelPublisher()
+  owner.update(cs, now_ns=now, fault_active=False)
+  assert publisher.observe(saved, cp, cs, now_ns=now, drive_id=1_000_000_000) == (('', 0),)
+  if action == 8:
+    press(owner, cs, 'lkas', now + 1)
+    assert not owner.allowed_latch and owner.physical_arm_ns == 0
+  cs.buttonEvents = []
+  owner.observe_full_engagement(cs, enabled=False, active=False, source_ns=now + 3,
+                                observation_valid=True, now_ns=now + 3, fault_active=False)
+  owner.observe_full_engagement(cs, enabled=True, active=True, source_ns=now + 4,
+                                observation_valid=True, now_ns=now + 4, fault_active=False)
+  assert lateral(owner)
+  edge = owner._last_latch_edge_ns
+  cs.buttonEvents = [structs.CarState.ButtonEvent(type='lkas', pressed=True)]
+  owner.update(cs, now_ns=now + 10_000_000, fault_active=False, standard_enabled=True)
+  actions = publisher.observe(saved, cp, cs, now_ns=now + 10_000_000, drive_id=1_000_000_000)
+  assert actions == ((('LKASButtonControl', 8),) if action == 8 else ())
+  assert lateral(owner) == (action == 8)
+  if action == 8:
+    assert not owner.pause_lateral and owner._last_latch_edge_ns == edge
+    owner.update(cs, now_ns=now + 20_000_000, fault_active=True, standard_enabled=True)
+    assert not lateral(owner)
