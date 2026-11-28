@@ -17,6 +17,8 @@ PROFILES.update(dict.fromkeys((CAR.TOYOTA_AVALON_2019, CAR.TOYOTA_CAMRY, CAR.TOY
 EPS5_WORDS = frozenset((0x5249, 0x5349, 0x5358, 0x5364, 0x564D, 0x5749))
 ALT_MAIN_WORDS = frozenset((0x564D, 0x5749))
 WORDS = frozenset(PROFILES.values())
+# Factory cluster radar on bus 1, and a startup copy of the powertrain bus on the camera bus.
+CLUSTER_RADAR_CARS = frozenset((CAR.TOYOTA_CAMRY, CAR.TOYOTA_CHR))
 
 
 def hardware_supported(candidate, fingerprint):
@@ -27,7 +29,7 @@ def hardware_supported(candidate, fingerprint):
   for bus, frames in fingerprint.items():
     if 0x201 in frames or 0x2AA in frames:
       return False
-    if 0x2FF in frames and not (candidate == CAR.TOYOTA_CAMRY and _cluster_radar_bus(candidate, bus, frames)):
+    if 0x2FF in frames and not (candidate in CLUSTER_RADAR_CARS and _cluster_radar_bus(candidate, bus, frames)):
       return False
   from opendbc.car.toyota.dsu_bypass import corolla_startup_mirror
   if corolla_startup_mirror(candidate, fingerprint):
@@ -38,10 +40,10 @@ def hardware_supported(candidate, fingerprint):
   if 0x343 not in camera:
     return True
 
-  # The stock Camry can mirror its powertrain bus at startup, including ACC_CONTROL.
+  # The stock Camry and C-HR can mirror their powertrain bus at startup, including ACC_CONTROL.
   # An independent camera fingerprint is still treated as possible takeover hardware.
   pt = fingerprint.get(0, {})
-  return (candidate == CAR.TOYOTA_CAMRY and pt == camera and
+  return (candidate in CLUSTER_RADAR_CARS and pt == camera and
           all(pt.get(address) == 8 for address in (0xAA, 0x262, 0x343)))
 
 
