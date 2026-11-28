@@ -72,6 +72,33 @@ def create_cruise_buttons(packer, frame, bus, cancel=False, resume=False):
   return packer.make_can_msg("CRUISE_BUTTONS", bus, values)
 
 
+def create_das_3_long_command(packer, counter_offset, das_3, *, braking, accel, torque, stopping=False, starting=False):
+  """JEEP_GRAND_CHEROKEE_2019-only cooperative DAS_3 frame from a fresh stock source.
+
+  Mirrors the two stock WK2 request modes:
+    braking:     ACC_DECEL_REQ=1, ACC_DECEL=accel, torque request at the coast floor
+    not braking: ACC_DECEL_REQ=0, ACC_DECEL at the stock idle value, ENGINE_TORQUE_REQUEST=torque
+  Unowned OEM fields (COLLISION_BRK_PREP, ACC_FAULTED, GR_MAX_REQ, ...) are copied from stock;
+  the caller yields instead of sending while stock signals a collision or fault.
+  """
+  from opendbc.car.chrysler.values import WK2_2019_ACC_DECEL_IDLE, WK2_2019_TORQUE_MIN
+
+  values = das_3.copy()
+  values.update(
+    ACC_AVAILABLE=1,
+    ACC_ACTIVE=1,
+    ACC_GO=1 if starting else 0,
+    ACC_STANDSTILL=1 if stopping else 0,
+    ACC_DECEL_REQ=1 if braking else 0,
+    ACC_DECEL=accel if braking else WK2_2019_ACC_DECEL_IDLE,
+    ACC_BRK_PREP=0,
+    ENGINE_TORQUE_REQUEST=WK2_2019_TORQUE_MIN if braking else torque,
+    ENGINE_TORQUE_REQUEST_MAX=0 if braking else 1,
+    COUNTER=(int(das_3["COUNTER"]) + counter_offset) % 16,
+  )
+  return packer.make_can_msg("DAS_3", 0, values)
+
+
 def chrysler_checksum(address: int, sig, d: bytearray) -> int:
   # standard CRC-8 SAE J1850 (poly 0x1D, init 0xFF, final XOR 0xFF)
   crc = 0xFF

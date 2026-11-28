@@ -1,7 +1,7 @@
 from opendbc.can import CANDefine, CANParser
 from opendbc.car import Bus, create_button_events, structs
 from opendbc.car.chrysler.aol_contract import qualified as aol_qualified
-from opendbc.car.chrysler.values import CUSW_CARS, DBC, STEER_THRESHOLD, RAM_CARS, ChryslerFlags
+from opendbc.car.chrysler.values import CAR, CUSW_CARS, DBC, STEER_THRESHOLD, RAM_CARS, ChryslerFlags
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.interfaces import CarStateBase
 
@@ -26,7 +26,13 @@ class CarState(CarStateBase):
     self.distance_button = 0
     self.aol_pause_longitudinal = False
     self.aol_pause_longitudinal_stamp_ns = 0
-    self.aol_buttons = {ButtonType.mainCruise: 0, ButtonType.cancel: 0}
+    self.aol_buttons = {
+      ButtonType.mainCruise: 0,
+      ButtonType.cancel: 0,
+      ButtonType.accelCruise: 0,
+      ButtonType.decelCruise: 0,
+      ButtonType.resumeCruise: 0,
+    }
     self.brake_hold = False
     self.das_3 = {}
     self.das_3_timestamp = 0
@@ -41,8 +47,13 @@ class CarState(CarStateBase):
 
     ret = structs.CarState()
 
+    buttons = cp.vl["CRUISE_BUTTONS"]
     prev_distance_button = self.distance_button
-    self.distance_button = cp.vl["CRUISE_BUTTONS"]["ACC_Distance_Dec"]
+    # WK2 2019-21 only: Distance+ joins Distance− for gapAdjustCruise. Other Chrysler unchanged.
+    if self.CP.carFingerprint == CAR.JEEP_GRAND_CHEROKEE_2019:
+      self.distance_button = int(bool(buttons["ACC_Distance_Dec"] or buttons["ACC_Distance_Inc"]))
+    else:
+      self.distance_button = buttons["ACC_Distance_Dec"]
 
     # lock info
     ret.doorOpen = any([cp.vl["BCM_1"]["DOOR_OPEN_FL"],
@@ -88,11 +99,26 @@ class CarState(CarStateBase):
     ret.cruiseState.nonAdaptive = cp_cruise.vl["DAS_4"]["ACC_STATE"] in (1, 2)  # 1 NormalCCOn and 2 NormalCCSet
     ret.cruiseState.standstill = cp_cruise.vl["DAS_3"]["ACC_STANDSTILL"] == 1
     ret.accFaulted = cp_cruise.vl["DAS_3"]["ACC_FAULTED"] != 0
-    if self.CP.flags & ChryslerFlags.JEEP_BRAKE_HOLD_AVAILABLE:
+
+    # Jeep brake-hold (both GC gens) and/or WK2-2019 alpha-long need a fresh DAS_3 source.
+    wk2_2019_long = (self.CP.carFingerprint == CAR.JEEP_GRAND_CHEROKEE_2019 and
+                     self.CP.openpilotLongitudinalControl)
+    if self.CP.flags & ChryslerFlags.JEEP_BRAKE_HOLD_AVAILABLE or wk2_2019_long:
       self.das_3 = dict(cp_cruise.vl["DAS_3"])
-      self.jeep_driver_cancel = bool(cp.vl["CRUISE_BUTTONS"]["ACC_Cancel"])
+      self.jeep_driver_cancel = bool(buttons["ACC_Cancel"])
       self.das_3_timestamp = cp_cruise.ts_nanos["DAS_3"]["COUNTER"]
-      ret.brakeHoldActive = self.brake_hold
+      if self.CP.flags & ChryslerFlags.JEEP_BRAKE_HOLD_AVAILABLE and not wk2_2019_long:
+        ret.brakeHoldActive = self.brake_hold
+
+    # WK2 2019 alpha-long only: software cruise from stalk; stock ACC_ACTIVE is not the owner.
+    if wk2_2019_long:
+      ret.cruiseState.available = (cp_cruise.vl["DAS_3"]["ACC_AVAILABLE"] == 1 or
+                                   cp_cruise.vl["DAS_4"]["ACC_STATE"] in (3, 4) or
+                                   bool(buttons["Cruise_OnOff"] or buttons["ACC_OnOff"]))
+      ret.cruiseState.nonAdaptive = False
+      ret.cruiseState.enabled = False
+      # OEM forward collision warning; the alpha-long controller yields DAS_3 to stock while set.
+      ret.stockFcw = cp.vl["DAS_ALERTS"]["FCW_ALERT"] == 1
 
     if self.CP.carFingerprint in RAM_CARS:
       # Auto High Beam isn't Located in this message on chrysler or jeep currently located in 729 message
@@ -108,11 +134,23 @@ class CarState(CarStateBase):
       ret.rightBlindspot = cp.vl["BSM_1"]["RIGHT_STATUS"] == 1
 
     self.lkas_car_model = cp_cam.vl["DAS_6"]["CAR_MODEL"]
-    self.button_counter = cp.vl["CRUISE_BUTTONS"]["COUNTER"]
+    self.button_counter = buttons["COUNTER"]
 
     button_events = create_button_events(self.distance_button, prev_distance_button, {1: ButtonType.gapAdjustCruise})
-    if aol_qualified(self.CP, marked_only=True):
-      buttons = cp.vl["CRUISE_BUTTONS"]
+    if wk2_2019_long:
+      # WK2 2019 only: map OEM ACC stalk to software-cruise button events.
+      long_buttons = {
+        ButtonType.accelCruise: bool(buttons["ACC_Accel"]),
+        ButtonType.decelCruise: bool(buttons["ACC_Decel"]),
+        ButtonType.resumeCruise: bool(buttons["ACC_Resume"]),
+        ButtonType.cancel: bool(buttons["ACC_Cancel"]),
+        ButtonType.mainCruise: bool(buttons["Cruise_OnOff"] or buttons["ACC_OnOff"]),
+      }
+      for button, value in long_buttons.items():
+        prev = self.aol_buttons.get(button, 0)
+        button_events += create_button_events(value, prev, {1: button})
+        self.aol_buttons[button] = value
+    elif aol_qualified(self.CP, marked_only=True):
       values = {ButtonType.mainCruise: bool(buttons["Cruise_OnOff"] or buttons["ACC_OnOff"]),
                 ButtonType.cancel: bool(buttons["ACC_Cancel"])}
       for button, value in values.items():
@@ -171,7 +209,11 @@ class CarState(CarStateBase):
 
   @staticmethod
   def get_can_parsers(CP):
+    pt_messages = []
+    if CP.carFingerprint == CAR.JEEP_GRAND_CHEROKEE_2019 and CP.openpilotLongitudinalControl:
+      # Event-driven 1 Hz alert frame: never let its absence mark CAN invalid.
+      pt_messages.append(("DAS_ALERTS", float('nan')))
     return {
-      Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], [], 0),
+      Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], pt_messages, 0),
       Bus.cam: CANParser(DBC[CP.carFingerprint][Bus.pt], [], 2),
     }

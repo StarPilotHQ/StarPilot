@@ -6,6 +6,11 @@ from opendbc.car.chrysler.radar_interface import RadarInterface
 from opendbc.car.chrysler.values import CAR, CUSW_CARS, RAM_HD, RAM_DT, RAM_CARS, ChryslerFlags, ChryslerSafetyFlags
 from opendbc.car.interfaces import CarInterfaceBase
 
+# Stock radar track addresses used by RadarInterface (bus 1). Presence means the
+# OEM forward radar ECU is talking — not that Pacifica fusion DBC scales/FCW are safe
+# for this platform (see issue 26842). Kept for future WK2 validation / opt-in.
+_CHRYSLER_RADAR_ADDRS = frozenset(range(0x2a2, 0x2b4 + 2, 2)) | frozenset(range(0x2c2, 0x2d4 + 2, 2))
+
 
 class CarInterface(CarInterfaceBase):
   CarState = CarState
@@ -21,8 +26,14 @@ class CarInterface(CarInterfaceBase):
     # TODO: Chrysler CUSW in dashcam pending comma safety validation and a fix for LKAS fault on disengage
     ret.dashcamOnly = candidate in (RAM_HD | CUSW_CARS)
 
-    # radar parsing needs some work, see https://github.com/commaai/openpilot/issues/26842
-    ret.radarUnavailable = True # Bus.radar not in DBC[candidate][Bus.radar]
+    # Radar parsing is forced off for Chrysler until per-platform validation.
+    # History: https://github.com/commaai/openpilot/issues/26842 — false planner FCWs
+    # on Pacifica Hybrid from noisy/incorrect fusion-radar parse (adeeb disabled in #27190;
+    # haraschax noted tracks look wrong: slow non-stationary ghosts + missing true lead).
+    # WK2-2019 has live bus1 track addrs, but that only proves ECU presence — not DBC scale
+    # correctness or safe planner FCW behavior. Do not re-enable until a WK2 route is
+    # offline-checked (vision lead vs radarTracks noise / false FCW). Keep OEM radar ECU up.
+    ret.radarUnavailable = True
     ret.steerActuatorDelay = 0.1
     ret.steerLimitTimer = 0.4
 
@@ -63,6 +74,22 @@ class CarInterface(CarInterfaceBase):
       ret.lateralTuning.pid.kpBP, ret.lateralTuning.pid.kiBP = [[9., 20.], [9., 20.]]
       ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.15, 0.30], [0.03, 0.05]]
       ret.lateralTuning.pid.kf = 0.00006
+
+      # --- JEEP_GRAND_CHEROKEE_2019 (WK2 2019-21) only; do not apply to other Chrysler/Jeep ---
+      if candidate == CAR.JEEP_GRAND_CHEROKEE_2019:
+        # Softer high-speed P/I vs stock Jeep PID (ping-pong reports on this fingerprint).
+        ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.12, 0.22], [0.02, 0.035]]
+        ret.flags |= ChryslerFlags.ALPHA_LONG_AVAILABLE.value
+        # Bus1 track addrs (_CHRYSLER_RADAR_ADDRS) are present on this car, but #26842 means
+        # addr presence ≠ safe parse. Leave radarUnavailable=True until WK2 offline validation.
+        # Alpha long is experimental: available outside release builds (and for docs generation).
+        ret.alphaLongitudinalAvailable = (not is_release) or docs
+        if alpha_long and ret.alphaLongitudinalAvailable:
+          ret.openpilotLongitudinalControl = True
+          ret.pcmCruise = False
+          ret.safetyConfigs[0].safetyParam |= ChryslerSafetyFlags.LONG_CONTROL.value
+          ret.minEnableSpeed = -1.  # advertise auto-resume / SNG capability
+          ret.autoResumeSng = True
 
     # Ram
     elif candidate == CAR.RAM_1500_5TH_GEN:

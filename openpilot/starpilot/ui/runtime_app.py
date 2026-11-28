@@ -737,8 +737,10 @@ class StarShellSession(TeslaSpeedActions):
         from openpilot.starpilot.controllers.toyota_cruise import capability
         return capability(cp) is not None
       if group == "vehicle":
+        # Toyota Auto Hold and Jeep Brake Hold both use the vehicle authority group.
         from opendbc.car.toyota.interface import toyota_auto_hold_supported
-        return toyota_auto_hold_supported(cp)
+        from opendbc.car.chrysler.brake_hold import brake_hold_supported
+        return bool(toyota_auto_hold_supported(cp) or brake_hold_supported(cp))
       if group == "lane_change":
         return not cp.notCar and not cp.passive and not cp.dashcamOnly
       if group == "switchback_wheel":

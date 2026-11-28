@@ -133,7 +133,11 @@ BO_ 324 SPEED_2: 8 XXX
 BO_ 832 UNKNOWN_340: 8 XXX
  SG_ SPEED_DIGITAL : 63|8@0+ (1,0) [0|255] "mph" XXX
 
+BO_ 838 DAS_ALERTS: 2 XXX
+ SG_ FCW_ALERT : 5|1@1+ (1,0) [0|1] "" XXX
+
 CM_ SG_ 653 BRAKE_PRESSURE "max seems to be 148";
+CM_ SG_ 838 FCW_ALERT "Jeep WK2 2019: byte0 0x33 latched 3.0 s on both OEM forward collision warnings; 0x13 (no FCW bit) on stock standstill-hold timeout. 1 Hz plus on change.";
 CM_ SG_ 746 PRNDL "5=L, 4=D, 3=N, 2=R, 1=P";
 CM_ SG_ 320 BRAKE_PRESSED_2 "Value is 5 when brake is pressed by human, 1 when ACC brake";
 CM_ SG_ 320 BRAKE_PRESSED_ACC "set when ACC brakes";
