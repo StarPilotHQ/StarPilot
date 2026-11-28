@@ -52,11 +52,11 @@ def test_selected_place_routes_without_persisting_temporary_coordinates(owner):
   assert len(executor.jobs) == 1
   with pytest.raises(ValidationError):
     choose(owner, result)
-  with pytest.raises(ValidationError, match='cannot be saved'):
-    owner.favorite(status['destination'], status['revision'], True)
+  saved = owner.favorite(status['destination'], status['revision'], True)
+  assert saved['destination']['temporary'] is True and [row['name'] for row in saved['favorites']] == ['Coffee Shop']
   unmarked = {key:value for key,value in status['destination'].items() if key != 'temporary'}
   with pytest.raises(ValidationError, match='cannot be saved'):
-    owner.select(unmarked, status['revision'], True)
+    owner.select(unmarked, saved['revision'], True)
   with patch('openpilot.starpilot.navigation.owner.time.monotonic', return_value=time.monotonic() + 50000):
     assert owner.read_routing()['destination'] is None
   assert not list(owner.transient_root.glob('*.json'))
@@ -101,15 +101,21 @@ def test_favorite_edits_keep_route_and_labels_are_unique(owner):
   assert removed['destination']['name'] == 'Coffee Shop' and [row['name'] for row in removed['favorites']] == ['Coffee Shop']
 
 
-def test_suggestions_cannot_be_saved_but_remain_choosable(owner):
-  result, _, _ = suggest(owner)
+def test_suggestions_can_be_saved_and_remain_choosable(owner):
+  result, session, _ = suggest(owner)
   before = owner.read()
-  with patch('openpilot.starpilot.navigation.owner.response_json') as provider:
-    with pytest.raises(ValidationError, match='cannot be saved'):
-      owner.favorite_place(result['id'], result['searchId'], 'caller', before['revision'], True)
-    provider.assert_not_called()
-  assert owner.read() == before
+  with patch('openpilot.starpilot.navigation.owner.response_json', return_value=FEATURE) as provider:
+    saved = owner.favorite_place(result['id'], result['searchId'], 'caller', before['revision'], True, label='home')
+  assert provider.call_count == 1
+  url, request = provider.call_args.args[1:3]
+  assert url == 'https://api.mapbox.com/search/searchbox/v1/retrieve/poi%2Fid'
+  assert request == {'access_token': 'pk.synthetic', 'session_token': session}
+  assert [(row['name'], row['latitude'], row['longitude'], row.get('label')) for row in saved['favorites']] == [('Coffee Shop', 40., -90., 'home')]
+  assert 'Coffee Shop' in owner.path.read_text()
+  assert saved['destination']['name'] == 'Old address'
   assert choose(owner, result)[0]['destination']['temporary'] is True
+  with pytest.raises(ValidationError, match='Search again'):
+    owner.favorite_place(result['id'], result['searchId'], 'caller', owner.read()['revision'], True)
 
 
 def test_address_search_requests_only_temporary_results(owner):

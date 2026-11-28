@@ -919,12 +919,12 @@ class NavigationOwner:
         results.append({'id':identity, 'name':name.strip(), 'description':description, 'searchId':search_id, 'temporary':True})
     return results
 
-  def _retrieve(self, identity, search_id, caller, expected_revision, authorized) -> dict:
+  def _retrieve(self, identity, search_id, caller, expected_revision, authorized, keep=False) -> dict:
     """Temporary coordinates for the selected route."""
     if not isinstance(identity, str) or not isinstance(search_id, str):
       raise ValidationError('Choose a place from search results')
     with self._lock:
-      entry = self._searches.pop((caller, search_id), None)
+      entry = (self._searches.get if keep else self._searches.pop)((caller, search_id), None)
     current = self.read()
     if (entry is None or entry['expires'] <= time.monotonic() or identity not in entry['ids'] or
         current['revision'] != expected_revision or entry['revision'] != expected_revision or
@@ -958,7 +958,14 @@ class NavigationOwner:
     return self._change(lambda doc: doc.update(destination=None, routeChoice=0), expected_revision, authorized, active_destination=selected)
 
   def favorite_place(self, identity, search_id, caller, expected_revision, authorized, label=None):
-    raise ValidationError('Search suggestions can be used for a route but cannot be saved; search for an address instead')
+    self._validate_favorite_label(label)
+    selected = self._retrieve(identity, search_id, caller, expected_revision, authorized, keep=True)
+    result = self._save_favorite(selected, expected_revision, authorized, label)
+    with self._lock:
+      entry = self._searches.get((caller, search_id))
+      if entry is not None and entry['revision'] == expected_revision:
+        entry['revision'] = result['revision']
+    return result
 
   @staticmethod
   def _navigate(doc, selected):
@@ -994,11 +1001,10 @@ class NavigationOwner:
 
   def favorite(self, value: dict, expected_revision: str, authorized, label=None) -> dict:
     self._validate_favorite_label(label)
-    if isinstance(value, dict) and value.get('temporary'):
-      raise ValidationError('This place can be used for a route but cannot be saved')
-    selected = destination(value)
+    return self._save_favorite(destination(value), expected_revision, authorized, label)
+
+  def _save_favorite(self, selected, expected_revision, authorized, label):
     def update(doc):
-      self._reject_temporary_promotion(doc, selected)
       self._add_favorite(doc, selected)
       if label is not None:
         self._label_favorite(doc, selected['id'], label)

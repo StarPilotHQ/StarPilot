@@ -280,7 +280,9 @@ class NavigationHttpTest(unittest.TestCase):
     self.assertNotIn('Coffee Shop',self.navigation.path.read_text())
     self.assertNotIn('pk.synthetic',json.dumps(result))
     self.assertEqual(self.action('selectPlace',id=identity,searchId=search['searchId'])[0],400)
-    self.assertEqual(self.action('favorite',destination=result['destination'],label='work')[0],400)
+    status, kept, _ = self.action('favorite',destination=result['destination'],label='work')
+    self.assertEqual((status,kept['destination']['temporary'],kept['favorites'][0]['name']),(200,True,'Coffee Shop'))
+    self.assertEqual(self.action('removeFavorite',id=kept['favorites'][0]['id'])[1]['favorites'],[])
     status, saved, _ = self.action('favorite',destination={'name':'Work address','latitude':41.,'longitude':-91.},label='work')
     self.assertEqual(status,200)
     self.assertEqual(saved['favorites'][0]['label'],'work')
@@ -314,17 +316,18 @@ class NavigationHttpTest(unittest.TestCase):
           patch('openpilot.starpilot.navigation.owner.response_json', return_value=suggestion)):
       self.assertEqual(self.request('/api/navigation/search',payload=search(),cookie=self.local_cookie)[1]['provider'], 'mapbox')
 
-  def test_temporary_search_result_cannot_be_saved(self):
+  def test_search_result_can_be_saved(self):
     self.action('configure', patch={'token':'pk.synthetic','enabled':True})
     search = {'query':'coffee', 'searchId':str(uuid.uuid4()), 'clientId':str(uuid.uuid4())}
-    suggestion = {'suggestions':[{'mapbox_id':'poi/id','name':'Coffee Shop','feature_type':'poi'}]}
-    with patch('openpilot.starpilot.navigation.owner.response_json',return_value=suggestion) as provider:
+    poi = {'mapbox_id':'poi/id','name':'Coffee Shop','feature_type':'poi'}
+    feature = {'features':[{'properties':poi, 'geometry':{'coordinates':[-90.,40.]}}]}
+    with patch('openpilot.starpilot.navigation.owner.response_json',side_effect=[{'suggestions':[poi]}, feature]) as provider:
       self.assertEqual(self.request('/api/navigation/search',payload=search,cookie=self.local_cookie)[0],200)
       status, body, _ = self.action('favoritePlace',id='poi/id',searchId=search['searchId'],label='home')
-      self.assertEqual(status,400)
-      self.assertIn('cannot be saved',body['error'])
-      self.assertEqual(provider.call_count,1)
-    self.assertEqual(self.navigation.read()['favorites'],[])
+      self.assertEqual(status,200)
+      self.assertEqual(provider.call_count,2)
+    self.assertEqual([(row['name'], row['label']) for row in body['favorites']], [('Coffee Shop', 'home')])
+    self.assertEqual([row['name'] for row in self.navigation.read()['favorites']], ['Coffee Shop'])
 
   def test_status_poll_with_route_key_omits_unchanged_route(self):
     self.action('configure', patch={'token':'pk.synthetic','enabled':True})

@@ -104,13 +104,18 @@ def test_typing_uses_one_google_session_and_choosing_ends_it_with_location_only_
   tokens = [call[2]['json']['sessionToken'] for call in owner.session.calls]
   assert len(tokens) == 2 and tokens[0] == tokens[1] and 'X-Goog-FieldMask' not in owner.session.calls[0][2]['headers']
   assert suggestions_budget(owner.google_root).snapshot()['monthUsed'] == 2
+  starred = owner.favorite_place('ChIJbellagio', search_id, 'caller', owner.read()['revision'], True)
+  assert [row['name'] for row in starred['favorites']] == ['Bellagio'] and 'Bellagio' in owner.path.read_text()
+  method, url, request = owner.session.calls[-1]
+  assert (method, url) == ('get', 'https://places.googleapis.com/v1/places/ChIJbellagio')
+  assert request['headers']['X-Goog-FieldMask'] == 'location,formattedAddress'
   status = owner.select_place('ChIJbellagio', search_id, 'caller', owner.read()['revision'], True)
   assert status['destination']['name'] == 'Bellagio' and status['destination']['address'] == '3600 S Las Vegas Blvd, Las Vegas, NV 89109'
   method, url, request = owner.session.calls[-1]
   assert (method, url) == ('get', 'https://places.googleapis.com/v1/places/ChIJbellagio')
   assert request['params'] == {'sessionToken': tokens[0]} and request['headers']['X-Goog-FieldMask'] == 'location,formattedAddress'
-  with pytest.raises(ValidationError, match='cannot be saved'):
-    owner.favorite_place('ChIJbellagio', search_id, 'caller', status['revision'], True)
+  saved = owner.favorite(status['destination'], status['revision'], True)
+  assert saved['destination']['name'] == 'Bellagio' and [row['name'] for row in saved['favorites']] == ['Bellagio']
 
 
 def test_typing_continues_on_mapbox_when_google_fails(owner):
