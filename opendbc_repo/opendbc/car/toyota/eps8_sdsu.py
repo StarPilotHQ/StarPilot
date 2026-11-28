@@ -1,7 +1,7 @@
 """Eight-byte EPS smartDSU ownership, separate from EPS5 and radar advertisements."""
 
 from opendbc.car import structs
-from opendbc.car.toyota.values import CAR, ToyotaFlags
+from opendbc.car.toyota.values import ARS510_RADAR_CAR, CAR, ToyotaFlags
 
 CARS = frozenset(
   (
@@ -89,7 +89,7 @@ def configured(cp):
   if CAR(cp.carFingerprint).config.flags & ToyotaFlags.TSS2:
     required |= int(ToyotaFlags.RAISED_ACCEL_LIMIT)
   allowed = required | int(ToyotaFlags.HYBRID | ToyotaFlags.HAS_BSM)
-  if cp.carFingerprint in (CAR.TOYOTA_RAV4_TSS2_2022, CAR.TOYOTA_RAV4_TSS2_2023):
+  if cp.carFingerprint in ARS510_RADAR_CAR:
     allowed |= int(ToyotaFlags.ARS510_RADAR)
   expected_type = structs.CarParams.SteerControlType.angle if cp.carFingerprint == CAR.TOYOTA_RAV4_TSS2_2023 else structs.CarParams.SteerControlType.torque
   return bool(

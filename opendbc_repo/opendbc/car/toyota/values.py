@@ -652,4 +652,5 @@ def stopping_decel_rate(CP):
   from opendbc.car.toyota.dom_defaults import stopping_decel_rate as legacy_stopping_rate
   return legacy_stopping_rate(CP)
 
-ARS510_RADAR_CAR = {CAR.TOYOTA_RAV4_TSS2_2022, CAR.TOYOTA_RAV4_TSS2_2023}
+# radar-ACC cars (RAV4 2022-25, C-HR, Yaris) have a Continental ARS510 radar; its ACC target is the radar lead
+ARS510_RADAR_CAR = {car for car in CAR if car.config.flags & ToyotaFlags.RADAR_ACC}

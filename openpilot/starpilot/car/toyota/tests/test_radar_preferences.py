@@ -21,12 +21,15 @@ class FilesystemParams:
     return str(self.path / key)
 
 
+ARS510_CARS = [CAR.TOYOTA_RAV4_TSS2_2022, CAR.TOYOTA_RAV4_TSS2_2023, CAR.TOYOTA_CHR_TSS2, CAR.TOYOTA_YARIS]
+
+
 def factory(candidate=CAR.TOYOTA_RAV4_TSS2_2022):
   return CarInterface.get_params(candidate, gen_empty_fingerprint(), [], False, False, False)
 
 
 
-@pytest.mark.parametrize('candidate', [CAR.TOYOTA_RAV4_TSS2_2022, CAR.TOYOTA_RAV4_TSS2_2023])
+@pytest.mark.parametrize('candidate', ARS510_CARS)
 @pytest.mark.parametrize('raw', [None, b'0', b'1', b'2', b'garbage'])
 def test_retired_choice_cannot_disable_or_change_automatic_receiver(tmp_path, candidate, raw):
   params = FilesystemParams(tmp_path)
@@ -45,7 +48,8 @@ def test_retired_choice_cannot_disable_or_change_automatic_receiver(tmp_path, ca
   assert cp.openpilotLongitudinalControl == baseline['openpilotLongitudinalControl']
 
 
-@pytest.mark.parametrize('candidate', [CAR.TOYOTA_RAV4_TSS2_2022, CAR.TOYOTA_RAV4_TSS2_2023])
+# the SecOC Yaris needs a key to build Car(); its receiver selection is covered by the factory tests
+@pytest.mark.parametrize('candidate', [car for car in ARS510_CARS if car != CAR.TOYOTA_YARIS])
 def test_automatic_factory_card_and_radard_parse_live_target(candidate):
   from unittest.mock import patch
   from opendbc.can import CANPacker
@@ -91,7 +95,7 @@ def test_automatic_factory_card_and_radard_parse_live_target(candidate):
       host.vehicle_startup.close()
 
 
-@pytest.mark.parametrize('candidate', [CAR.TOYOTA_RAV4_TSS2_2022, CAR.TOYOTA_RAV4_TSS2_2023])
+@pytest.mark.parametrize('candidate', ARS510_CARS)
 def test_disabled_radar_keeps_acc_target_receiver_without_changing_authority(candidate):
   # alpha long's UDS disable stops the radar's car-bus output only; the radar bus keeps sending the ACC target
   from opendbc.car.toyota.ars510_preferences import configure_radar

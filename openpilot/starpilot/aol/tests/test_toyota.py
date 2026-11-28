@@ -139,11 +139,10 @@ class TestHighlanderAol(unittest.TestCase):
       for alpha in (False, True):
         with self.subTest(car=car, alpha=alpha):
           cp = CarInterface.get_params(car, gen_empty_fingerprint(), [], alpha, False, False)
-          cp.flags |= int(ToyotaFlags.ARS510_RADAR)
-          expected = car == CAR.TOYOTA_RAV4_TSS2_2022  # the ACC target receiver also runs under the radar disable
-          self.assertEqual(qualified(cp), expected)
+          cp.flags |= int(ToyotaFlags.ARS510_RADAR)  # the ACC target receiver also runs under the radar disable
+          self.assertTrue(qualified(cp))
           cp.alternativeExperience = 32
-          self.assertEqual(qualified(cp, marked_only=True), expected)
+          self.assertTrue(qualified(cp, marked_only=True))
 
   def test_radar_torque_factory_stock_and_alpha_transport(self):
     from opendbc.car.toyota.carcontroller import CarController
