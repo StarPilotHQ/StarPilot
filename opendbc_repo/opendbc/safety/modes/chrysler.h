@@ -17,13 +17,19 @@ static uint8_t chrysler_hold_gear_counter;
 static uint32_t chrysler_hold_gear_timestamp;
 static uint32_t chrysler_hold_stock_timestamp;
 
-// JEEP_GRAND_CHEROKEE_2019-only long envelopes (route 00000004). Param LONG_CONTROL=16 is
-// set only for that fingerprint in interface.py — do not reuse for other Chrysler models.
-// Raw ACC_DECEL: phys = raw * 0.004885 - 16. Raw torque: phys = raw * 0.25 - 500.
-static const unsigned int CHRYSLER_LONG_DECEL_MIN = 2907U;   // -1.8 m/s^2
-static const unsigned int CHRYSLER_LONG_DECEL_MAX = 4094U;   // +4.0 m/s^2
-static const unsigned int CHRYSLER_LONG_TORQUE_MIN = 1792U;  // -52 Nm
-static const unsigned int CHRYSLER_LONG_TORQUE_MAX = 3072U;  // +268 Nm
+// OEM forward collision warning latch (0x346 byte0 bit5), alpha long only.
+static bool chrysler_oem_fcw;
+
+// JEEP_GRAND_CHEROKEE_2019-only long envelopes, measured from stock WK2 ACC (see values.py).
+// Param LONG_CONTROL=16 is set only for that fingerprint in interface.py — do not reuse for
+// other Chrysler models. Raw ACC_DECEL: phys = raw * 0.004885 - 16. Raw torque: phys = raw * 0.25 - 500.
+static const unsigned int CHRYSLER_DAS_ALERTS = 0x346U;
+static const unsigned int CHRYSLER_LONG_DECEL_MIN = 2558U;        // -3.50 m/s^2 (floor)
+static const unsigned int CHRYSLER_LONG_BRAKE_DECEL_MAX = 3378U;  // +0.50 m/s^2, stock braking reached +0.45
+static const unsigned int CHRYSLER_LONG_DECEL_IDLE = 4094U;       // stock value while not requesting braking
+static const unsigned int CHRYSLER_LONG_TORQUE_MIN = 1792U;       // -52 Nm
+static const unsigned int CHRYSLER_LONG_TORQUE_ZERO = 2000U;      // 0 Nm
+static const unsigned int CHRYSLER_LONG_TORQUE_MAX = 3520U;       // +380 Nm, stock peak 381.5
 
 static bool chrysler_hold_ready(void) {
   const uint32_t now = microsecond_timer_get();
@@ -107,6 +113,10 @@ static void chrysler_long_button_rx(const CANPacket_t *msg) {
     } else if (GET_BIT(msg, 2U) || GET_BIT(msg, 3U) || GET_BIT(msg, 4U)) {
       controls_allowed = true;
     }
+  }
+  // OEM FCW latch: 1 Hz plus on change, so a missing frame keeps the last state (fail closed when set).
+  if (chrysler_long_control && msg_matches(msg, CHRYSLER_DAS_ALERTS, 0U) && (GET_LEN(msg) == 2U)) {
+    chrysler_oem_fcw = GET_BIT(msg, 5U);
   }
 }
 
@@ -200,14 +210,31 @@ static bool chrysler_tx_hook(const CANPacket_t *msg) {
     const bool counter_ok = (counter == ((stock_counter + 2U) & 0xFU)) || (counter == ((stock_counter + 3U) & 0xFU));
     const bool crc_ok = chrysler_get_checksum(msg) == chrysler_compute_checksum(msg);
     if (chrysler_long_control) {
-      // Cooperative OP long: ACC_DECEL / ENGINE_TORQUE within measured WK2 envelopes.
+      // Cooperative OP long, mirroring the two stock WK2 request modes:
+      //   braking:     ACC_DECEL_REQ=1, ACC_DECEL in envelope, no positive torque, torque-max bit clear
+      //   not braking: ACC_DECEL_REQ=0, ACC_DECEL at the stock idle value, torque in envelope
       const unsigned int raw_torque = ((msg->data[0] & 0x1FU) << 8) | msg->data[1];
+      const unsigned int decel_req = (msg->data[4] >> 4) & 0x7U;
+      const bool torque_max_bit = GET_BIT(msg, 7U);
+      const bool braking_ok = (decel_req == 1U) && !torque_max_bit &&
+                              (raw_decel >= CHRYSLER_LONG_DECEL_MIN) && (raw_decel <= CHRYSLER_LONG_BRAKE_DECEL_MAX) &&
+                              (raw_torque >= CHRYSLER_LONG_TORQUE_MIN) && (raw_torque <= CHRYSLER_LONG_TORQUE_ZERO);
+      const bool torque_ok = (decel_req == 0U) && (raw_decel == CHRYSLER_LONG_DECEL_IDLE) &&
+                             (raw_torque >= CHRYSLER_LONG_TORQUE_MIN) && (raw_torque <= CHRYSLER_LONG_TORQUE_MAX);
+
+      // Yield DAS_3 to stock during OEM collision handling, faults, or braking beyond our envelope
+      // (with or without stock ACC_ACTIVE, since AEB need not set it).
+      const unsigned int stock_decel_req = (chrysler_hold_stock[4] >> 4) & 0x7U;
+      const unsigned int stock_raw_decel = ((chrysler_hold_stock[2] & 0xFU) << 8) | chrysler_hold_stock[3];
+      const bool stock_owns = chrysler_oem_fcw || ((chrysler_hold_stock[6] & 1U) != 0U) ||
+                              ((chrysler_hold_stock[5] & 0xC0U) != 0U) || (stock_decel_req > 1U) ||
+                              ((stock_decel_req == 1U) && (stock_raw_decel < CHRYSLER_LONG_DECEL_MIN));
+
       const uint32_t now = microsecond_timer_get();
       const bool stock_fresh = safety_get_ts_elapsed(now, chrysler_hold_stock_timestamp) <= 100000U;
-      tx = controls_allowed && stock_fresh && counter_ok && crc_ok &&
-           (raw_decel >= CHRYSLER_LONG_DECEL_MIN) && (raw_decel <= CHRYSLER_LONG_DECEL_MAX) &&
-           (raw_torque >= CHRYSLER_LONG_TORQUE_MIN) && (raw_torque <= CHRYSLER_LONG_TORQUE_MAX) &&
-           ((msg->data[5] & 0xC0U) == 0U);
+      tx = controls_allowed && stock_fresh && counter_ok && crc_ok && !stock_owns &&
+           (braking_ok || torque_ok) &&
+           ((msg->data[5] & 0xC0U) == 0U) && ((msg->data[6] & 1U) == 0U);
     } else {
       tx &= chrysler_hold_armed && chrysler_hold_ready() && ((chrysler_hold_stock[2] & 0x20U) == 0U) &&
             (raw_decel >= 2661U) && (raw_decel <= 3173U) && counter_ok &&
@@ -231,6 +258,7 @@ static safety_config chrysler_init(uint16_t param) {
   chrysler_long_control = false;
   SAFETY_UNUSED(CHRYSLER_PARAM_LONG_CONTROL);
 #endif
+  chrysler_oem_fcw = false;
   chrysler_hold_armed = false;
   chrysler_hold_cancelled = false;
   chrysler_hold_drive = false;

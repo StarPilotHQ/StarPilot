@@ -5,7 +5,7 @@ import unittest
 from opendbc.can import CANPacker
 from opendbc.car import structs
 from opendbc.car.chrysler.chryslercan import create_das_3_long_command, chrysler_checksum
-from opendbc.car.chrysler.values import ChryslerSafetyFlags
+from opendbc.car.chrysler.values import WK2_2019_TORQUE_MIN, ChryslerSafetyFlags
 from opendbc.safety.tests.libsafety import libsafety_py
 
 
@@ -28,6 +28,8 @@ class TestChryslerLongSafety(unittest.TestCase):
       'ENGINE_TORQUE_REQUEST': -52.0,
       'ENGINE_TORQUE_REQUEST_MAX': 0,
       'ACC_BRK_PREP': 0,
+      'COLLISION_BRK_PREP': 0,
+      'ACC_FAULTED': 0,
       'COUNTER': 0,
     }
 
@@ -62,10 +64,23 @@ class TestChryslerLongSafety(unittest.TestCase):
     self.assertTrue(self.safety.get_controls_allowed())
     return end
 
-  def long_cmd(self, accel, offset=2, *, stopping=False, starting=False):
+  def long_cmd(self, accel, offset=2, *, torque=100.0, stopping=False, starting=False):
+    """Braking frame for accel < 0, torque frame otherwise (as the WK2 controller sends)."""
     return create_das_3_long_command(
-      self.packer, offset, accel, self.stock, long_active=True, stopping=stopping, starting=starting,
+      self.packer, offset, self.stock, braking=accel < 0.0, accel=accel, torque=torque,
+      stopping=stopping, starting=starting,
     )
+
+  def resign(self, frame, edit):
+    addr, data, bus = frame
+    data = bytearray(data)
+    edit(data)
+    data[-1] = chrysler_checksum(addr, None, data)
+    return addr, bytes(data), bus
+
+  def send_fcw(self, active):
+    msg = self.packer.make_can_msg('DAS_ALERTS', 0, {'FCW_ALERT': int(active)})
+    self.safety.safety_rx_hook(self.packet(msg))
 
   def test_button_engage_and_cancel(self):
     self.warm()
@@ -83,12 +98,54 @@ class TestChryslerLongSafety(unittest.TestCase):
     self.feed_stock(20)
     self.assertFalse(self.safety.get_controls_allowed())
 
-  def test_accel_envelope_accepts_measured_range(self):
+  def test_envelope_accepts_stock_measured_modes(self):
     tick = self.engage()
-    for accel in (-1.8, -0.5, 0.0, 1.0, 4.0):
+    requests = [(a, 0.0) for a in (-3.5, -2.0, -0.5, -0.001)]
+    requests += [(0.0, t) for t in (WK2_2019_TORQUE_MIN, 0.0, 175.0, 380.0)]
+    for accel, torque in requests:
       self.feed_stock(tick)
       tick += 1
-      self.assertTrue(self.safety.safety_tx_hook(self.packet(self.long_cmd(accel))), accel)
+      frame = self.long_cmd(accel, torque=torque)
+      self.assertTrue(self.safety.safety_tx_hook(self.packet(frame)), frame[1].hex())
+
+  def test_envelope_denials(self):
+    tick = self.engage()
+    self.feed_stock(tick)
+    denied = {
+      'decel below -3.5': self.long_cmd(-3.6),
+      'torque above 380 Nm': self.long_cmd(0.5, torque=400.0),
+      'torque below -52 Nm': self.long_cmd(0.5, torque=-60.0),
+      # torque-mode ACC_DECEL other than the stock idle value (pre-fix behaviour)
+      'torque mode with real decel': self.resign(self.long_cmd(0.5), lambda d: d.__setitem__(3, d[3] - 1)),
+      'braking with positive torque': self.resign(self.long_cmd(-1.0), lambda d: d.__setitem__(0, (d[0] & 0xE0) | 0x0A)),
+      'braking with torque-max bit': self.resign(self.long_cmd(-1.0), lambda d: d.__setitem__(0, d[0] | 0x80)),
+      'decel request 2': self.resign(self.long_cmd(-1.0), lambda d: d.__setitem__(4, (d[4] & 0x8F) | 0x20)),
+      'collision prep set by OP': self.resign(self.long_cmd(-1.0), lambda d: d.__setitem__(6, d[6] | 1)),
+    }
+    for name, frame in denied.items():
+      self.assertFalse(self.safety.safety_tx_hook(self.packet(frame)), name)
+
+  def test_yields_to_oem_fcw_and_aeb(self):
+    tick = self.engage()
+    self.feed_stock(tick)
+    self.assertTrue(self.safety.safety_tx_hook(self.packet(self.long_cmd(0.5))))
+    self.send_fcw(True)
+    self.assertFalse(self.safety.safety_tx_hook(self.packet(self.long_cmd(-1.0))))
+    self.send_fcw(False)
+    self.assertTrue(self.safety.safety_tx_hook(self.packet(self.long_cmd(-1.0))))
+    for name, stock in (('collision prep', {'COLLISION_BRK_PREP': 1}),
+                        ('acc fault', {'ACC_FAULTED': 1}),
+                        ('stock braking beyond envelope', {'ACC_ACTIVE': 1, 'ACC_DECEL_REQ': 1, 'ACC_DECEL': -4.0}),
+                        ('stock AEB-style braking without ACC_ACTIVE', {'ACC_DECEL_REQ': 1, 'ACC_DECEL': -4.0})):
+      saved = dict(self.stock)
+      self.stock.update(stock)
+      tick += 1
+      self.feed_stock(tick)
+      self.assertFalse(self.safety.safety_tx_hook(self.packet(self.long_cmd(-1.0))), name)
+      self.stock = saved
+    tick += 1
+    self.feed_stock(tick)
+    self.assertTrue(self.safety.safety_tx_hook(self.packet(self.long_cmd(-1.0))))
 
   def test_counter_and_checksum_denials(self):
     tick = self.engage()
@@ -98,17 +155,6 @@ class TestChryslerLongSafety(unittest.TestCase):
     addr, data, bus = self.long_cmd(0.5)
     bad = bytearray(data)
     bad[-1] ^= 1
-    self.assertFalse(self.safety.safety_tx_hook(self.packet((addr, bytes(bad), bus))))
-
-  def test_torque_over_envelope_denied(self):
-    tick = self.engage()
-    self.feed_stock(tick)
-    addr, data, bus = self.long_cmd(0.5)
-    bad = bytearray(data)
-    # Force ENGINE_TORQUE_REQUEST raw above 3072 (+268 Nm): set high 5 bits + 0xFF
-    bad[0] = (bad[0] & 0xE0) | 0x1F
-    bad[1] = 0xFF  # raw 8191 >> max 3072
-    bad[-1] = chrysler_checksum(addr, None, bad)
     self.assertFalse(self.safety.safety_tx_hook(self.packet((addr, bytes(bad), bus))))
 
   def test_requires_controls_allowed_and_fresh_stock(self):

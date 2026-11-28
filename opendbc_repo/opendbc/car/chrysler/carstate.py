@@ -117,6 +117,8 @@ class CarState(CarStateBase):
                                    bool(buttons["Cruise_OnOff"] or buttons["ACC_OnOff"]))
       ret.cruiseState.nonAdaptive = False
       ret.cruiseState.enabled = False
+      # OEM forward collision warning; the alpha-long controller yields DAS_3 to stock while set.
+      ret.stockFcw = cp.vl["DAS_ALERTS"]["FCW_ALERT"] == 1
 
     if self.CP.carFingerprint in RAM_CARS:
       # Auto High Beam isn't Located in this message on chrysler or jeep currently located in 729 message
@@ -207,7 +209,11 @@ class CarState(CarStateBase):
 
   @staticmethod
   def get_can_parsers(CP):
+    pt_messages = []
+    if CP.carFingerprint == CAR.JEEP_GRAND_CHEROKEE_2019 and CP.openpilotLongitudinalControl:
+      # Event-driven 1 Hz alert frame: never let its absence mark CAN invalid.
+      pt_messages.append(("DAS_ALERTS", float('nan')))
     return {
-      Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], [], 0),
+      Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], pt_messages, 0),
       Bus.cam: CANParser(DBC[CP.carFingerprint][Bus.pt], [], 2),
     }

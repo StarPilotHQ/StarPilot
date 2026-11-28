@@ -107,12 +107,29 @@ class CAR(Platforms):
   )
 
 
-# JEEP_GRAND_CHEROKEE_2019-only long envelopes (route 00000004 segs 3-7). Not for other Chrysler.
-WK2_2019_ACCEL_MIN = -1.8  # m/s^2
-WK2_2019_ACCEL_MAX = 4.0   # m/s^2
-WK2_2019_TORQUE_MIN = -52.0  # Nm
-WK2_2019_TORQUE_MAX = 268.0  # Nm
-WK2_2019_LONG_STEP = 2  # 50 Hz, matches DAS_3 stock rate class
+# JEEP_GRAND_CHEROKEE_2019-only long envelopes. Not for other Chrysler.
+# Measured from ~76k stock-ACC-active DAS_3 frames (routes 0000000b / 0000000e):
+#   braking (ACC_DECEL_REQ=1): ACC_DECEL -4.00..+0.45 m/s^2, -2.0 while held at standstill
+#   not braking (ACC_DECEL_REQ=0): ACC_DECEL is always raw 4094 (+4.0), an idle value, not an accel
+#   ENGINE_TORQUE_REQUEST -49..+381 Nm; ENGINE_TORQUE_REQUEST_MAX=1 whenever not braking
+WK2_2019_ACCEL_MIN = -3.5  # m/s^2, openpilot standard; stock ACC/FCW reached -4.0
+WK2_2019_ACCEL_MAX = 2.0   # m/s^2, openpilot standard; stock ACC p99 aEgo 1.8
+WK2_2019_TORQUE_MIN = -52.0  # Nm, coast/brake-phase request
+WK2_2019_TORQUE_MAX = 380.0  # Nm, stock peak 381.5
+WK2_2019_ACC_DECEL_IDLE = 4.0  # ACC_DECEL value stock sends when it is not requesting braking
+WK2_2019_STANDSTILL_DECEL = -2.0  # m/s^2, stock and Jeep brake-hold standstill request
+WK2_2019_LONG_STEP = 1  # 100 Hz, the DAS_3 replacement cadence proven by Jeep brake hold
+# While moving, stock radar ACC braking firmer than this is a floor on the OP request. Gentle stock
+# trims (e.g. stock set speed lagging OP's) are ignored so OP keeps its own speed target.
+WK2_2019_STOCK_BRAKE_FLOOR = -1.0  # m/s^2
+# Braking/torque mode hysteresis; stock keeps ACC_DECEL_REQ up to +0.45 before switching to torque.
+WK2_2019_BRAKE_ENTER = -0.1  # m/s^2
+WK2_2019_BRAKE_EXIT = 0.1  # m/s^2
+# Torque feedforward fitted to stock ENGINE_TORQUE_REQUEST vs. aEgo 0.4 s later, per speed band:
+# torque = base(v) + gain(v) * accel. The longitudinal PID corrects the residual.
+WK2_2019_TORQUE_SPEED_BP = [0., 11., 17.]  # m/s
+WK2_2019_TORQUE_BASE_V = [55., 71., 124.]  # Nm at zero accel (road load)
+WK2_2019_TORQUE_GAIN_V = [100., 130., 165.]  # Nm per m/s^2
 
 
 class CarControllerParams:

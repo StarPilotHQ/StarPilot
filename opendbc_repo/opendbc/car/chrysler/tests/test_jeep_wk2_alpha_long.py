@@ -1,12 +1,20 @@
 """JEEP_GRAND_CHEROKEE_2019 alpha-long + radar admission."""
 
+import math
 import unittest
+from types import SimpleNamespace
 
-from opendbc.car import gen_empty_fingerprint
+from opendbc.can import CANParser
+from opendbc.car import Bus, gen_empty_fingerprint, structs
 from opendbc.car.chrysler.aol_contract import qualified as aol_qualified
 from opendbc.car.chrysler.brake_hold import brake_hold_supported
+from opendbc.car.chrysler.carcontroller import CarController
+from opendbc.car.chrysler.carstate import CarState
 from opendbc.car.chrysler.interface import CarInterface
-from opendbc.car.chrysler.values import CAR, ChryslerFlags, ChryslerSafetyFlags
+from opendbc.car.chrysler.values import CAR, DBC, ChryslerFlags, ChryslerSafetyFlags
+
+LongCtrlState = structs.CarControl.Actuators.LongControlState
+NOW_NS = 100_000_000_000
 
 
 def _fp_with_radar():
@@ -73,6 +81,109 @@ class TestJeepWk2AlphaLong(unittest.TestCase):
     self.assertAlmostEqual(newer.lateralTuning.pid.kpV[0], 0.12)
     self.assertAlmostEqual(newer.lateralTuning.pid.kpV[1], 0.22)
     self.assertFalse(older.flags & ChryslerFlags.ALPHA_LONG_AVAILABLE)
+
+  def test_oem_fcw_frame_is_optional_and_alpha_long_only(self):
+    long_cp = CarInterface.get_params(CAR.JEEP_GRAND_CHEROKEE_2019, gen_empty_fingerprint(), [], True, False, False)
+    parser = CarState.get_can_parsers(long_cp)[Bus.pt]
+    self.assertTrue(parser.message_states[0x346].ignore_alive)
+    stock_cp = CarInterface.get_params(CAR.JEEP_GRAND_CHEROKEE_2019, gen_empty_fingerprint(), [], False, False, False)
+    self.assertNotIn(0x346, CarState.get_can_parsers(stock_cp)[Bus.pt].addresses)
+
+
+class TestJeepWk2LongController(unittest.TestCase):
+  """Decoded DAS_3 output of the WK2 alpha-long controller against stock-measured semantics."""
+
+  def setUp(self):
+    self.CP = CarInterface.get_params(CAR.JEEP_GRAND_CHEROKEE_2019, gen_empty_fingerprint(), [], True, False, False)
+    self.controller = CarController(DBC[self.CP.carFingerprint], self.CP)
+    self.controller.jeep_hold_replay = True  # use the passed clock; CLOCK_BOOTTIME is Linux-only
+    self.parser = CANParser(DBC[self.CP.carFingerprint][Bus.pt], [('DAS_3', math.nan), ('CRUISE_BUTTONS', math.nan)], 0)
+    self.stock = {
+      'ACC_AVAILABLE': 1, 'ACC_ACTIVE': 1, 'ACC_DECEL_REQ': 0, 'ACC_DECEL': 4.0,
+      'ENGINE_TORQUE_REQUEST': 50.0, 'ENGINE_TORQUE_REQUEST_MAX': 1, 'ACC_STANDSTILL': 0, 'ACC_GO': 0,
+      'COLLISION_BRK_PREP': 0, 'ACC_BRK_PREP': 0, 'ACC_FAULTED': 0, 'GR_MAX_REQ': 0, 'COUNTER': 5,
+    }
+
+  def step(self, accel, *, accel_last=None, v_ego=5.0, state=LongCtrlState.pid, stock_fcw=False):
+    if accel_last is not None:
+      self.controller.accel_last = accel_last
+    CS = SimpleNamespace(
+      das_3=dict(self.stock), das_3_timestamp=NOW_NS, button_counter=0,
+      out=structs.CarState(canValid=True, vEgo=v_ego, standstill=v_ego < 1e-3, stockFcw=stock_fcw),
+    )
+    CC = structs.CarControl(enabled=True, longActive=True)
+    CC.actuators.accel = accel
+    CC.actuators.longControlState = state
+    sends = []
+    self.controller.update_jeep_wk2_2019_long(CC, CS, NOW_NS, sends)
+    self.controller.frame += 1
+    das_3 = [s for s in sends if s[0] == 0x1F4]
+    if not das_3:
+      return None, sends
+    self.parser.update([(NOW_NS, das_3)])
+    return dict(self.parser.vl['DAS_3']), sends
+
+  def test_torque_mode_uses_stock_idle_decel_and_fitted_torque(self):
+    out, _ = self.step(1.0, accel_last=1.0, v_ego=5.0)
+    self.assertEqual(out['ACC_DECEL_REQ'], 0)
+    self.assertAlmostEqual(out['ACC_DECEL'], 4.0, delta=0.01)
+    self.assertEqual(out['ENGINE_TORQUE_REQUEST_MAX'], 1)
+    # base 55..71 Nm and gain 100..130 Nm/(m/s^2) interpolated at 5 m/s
+    self.assertAlmostEqual(out['ENGINE_TORQUE_REQUEST'], 62.27 + 113.64, delta=0.5)
+    self.assertEqual(out['COUNTER'], (self.stock['COUNTER'] + 2) % 16)
+
+  def test_torque_is_capped_at_stock_peak(self):
+    out, _ = self.step(2.0, accel_last=2.0, v_ego=20.0)
+    self.assertAlmostEqual(out['ENGINE_TORQUE_REQUEST'], 380.0, delta=0.3)
+
+  def test_braking_mode_and_hysteresis(self):
+    out, _ = self.step(-1.5, accel_last=-1.5)
+    self.assertEqual((out['ACC_DECEL_REQ'], out['ENGINE_TORQUE_REQUEST_MAX']), (1, 0))
+    self.assertAlmostEqual(out['ACC_DECEL'], -1.5, delta=0.01)
+    self.assertAlmostEqual(out['ENGINE_TORQUE_REQUEST'], -52.0, delta=0.3)
+    out, _ = self.step(0.05, accel_last=0.0)
+    self.assertEqual(out['ACC_DECEL_REQ'], 1)  # stays braking until accel exceeds +0.1
+    out, _ = self.step(0.3, accel_last=0.2)
+    self.assertEqual(out['ACC_DECEL_REQ'], 0)
+
+  def test_accel_clamped_to_envelope(self):
+    out, _ = self.step(-5.0, accel_last=-3.5)
+    self.assertAlmostEqual(out['ACC_DECEL'], -3.5, delta=0.01)
+
+  def test_standstill_hold_and_start(self):
+    out, _ = self.step(-0.5, accel_last=-2.0, v_ego=0.0, state=LongCtrlState.stopping)
+    self.assertEqual((out['ACC_STANDSTILL'], out['ACC_DECEL_REQ']), (1, 1))
+    self.assertAlmostEqual(out['ACC_DECEL'], -2.0, delta=0.01)
+    self.controller.frame = 10
+    out, sends = self.step(0.5, accel_last=0.5, v_ego=0.0, state=LongCtrlState.starting)
+    self.assertEqual((out['ACC_GO'], out['ACC_STANDSTILL']), (1, 0))
+    self.assertTrue(any(s[0] == 0x23B for s in sends), "resume pulse while starting")
+
+  def test_runs_at_100hz(self):
+    for _ in range(3):
+      out, _ = self.step(0.5, accel_last=0.5)
+      self.assertIsNotNone(out)
+
+  def test_yields_to_oem_collision_handling(self):
+    self.assertIsNone(self.step(0.5, accel_last=0.5, stock_fcw=True)[0])
+    self.stock['COLLISION_BRK_PREP'] = 1
+    self.assertIsNone(self.step(0.5, accel_last=0.5)[0])
+    self.stock.update(COLLISION_BRK_PREP=0, ACC_FAULTED=1)
+    self.assertIsNone(self.step(0.5, accel_last=0.5)[0])
+    self.stock.update(ACC_FAULTED=0, ACC_DECEL_REQ=1, ACC_DECEL=-4.0)
+    self.assertIsNone(self.step(0.5, accel_last=0.5)[0])
+    self.assertAlmostEqual(self.controller.accel_last, -3.5)
+    self.stock.update(ACC_ACTIVE=0)  # AEB-style braking need not set ACC_ACTIVE
+    self.assertIsNone(self.step(0.5, accel_last=0.5)[0])
+
+  def test_firm_stock_braking_is_a_floor_while_moving(self):
+    self.stock.update(ACC_DECEL_REQ=1, ACC_DECEL=-2.5)
+    out, _ = self.step(0.5, accel_last=0.5, v_ego=10.0)
+    self.assertEqual(out['ACC_DECEL_REQ'], 1)
+    self.assertAlmostEqual(out['ACC_DECEL'], -2.5, delta=0.01)
+    self.stock.update(ACC_DECEL=-0.5)
+    out, _ = self.step(0.5, accel_last=0.5, v_ego=10.0)
+    self.assertEqual(out['ACC_DECEL_REQ'], 0)  # gentle stock trims do not override OP
 
 
 if __name__ == '__main__':

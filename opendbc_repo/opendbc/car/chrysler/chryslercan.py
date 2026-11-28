@@ -72,38 +72,28 @@ def create_cruise_buttons(packer, frame, bus, cancel=False, resume=False):
   return packer.make_can_msg("CRUISE_BUTTONS", bus, values)
 
 
-def create_das_3_long_command(packer, counter_offset, accel, das_3, *, long_active, stopping=False, starting=False):
+def create_das_3_long_command(packer, counter_offset, das_3, *, braking, accel, torque, stopping=False, starting=False):
   """JEEP_GRAND_CHEROKEE_2019-only cooperative DAS_3 frame from a fresh stock source.
 
-  Copies unrelated OEM fields, then applies OP accel within measured WK2-2019 envelopes.
-  Positive accel uses engine torque request; negative uses ACC_DECEL with DECEl_REQ.
+  Mirrors the two stock WK2 request modes:
+    braking:     ACC_DECEL_REQ=1, ACC_DECEL=accel, torque request at the coast floor
+    not braking: ACC_DECEL_REQ=0, ACC_DECEL at the stock idle value, ENGINE_TORQUE_REQUEST=torque
+  Unowned OEM fields (COLLISION_BRK_PREP, ACC_FAULTED, GR_MAX_REQ, ...) are copied from stock;
+  the caller yields instead of sending while stock signals a collision or fault.
   """
-  from opendbc.car.chrysler.values import (
-    WK2_2019_ACCEL_MAX, WK2_2019_ACCEL_MIN, WK2_2019_TORQUE_MAX, WK2_2019_TORQUE_MIN,
-  )
-  values = das_3.copy()
-  accel = float(max(WK2_2019_ACCEL_MIN, min(WK2_2019_ACCEL_MAX, accel)))
-  # Map accel to torque using the observed coast floor and measured peak.
-  if accel >= 0.0:
-    torque_frac = accel / WK2_2019_ACCEL_MAX if WK2_2019_ACCEL_MAX else 0.0
-    torque = WK2_2019_TORQUE_MIN + torque_frac * (WK2_2019_TORQUE_MAX - WK2_2019_TORQUE_MIN)
-    if accel < 0.05:
-      torque = min(torque, 0.0)
-  else:
-    torque = WK2_2019_TORQUE_MIN
-  torque = float(max(WK2_2019_TORQUE_MIN, min(WK2_2019_TORQUE_MAX, torque)))
+  from opendbc.car.chrysler.values import WK2_2019_ACC_DECEL_IDLE, WK2_2019_TORQUE_MIN
 
-  # Copy preserves OEM bits we do not own (e.g. COLLISION_BRK_PREP / AEB-related).
+  values = das_3.copy()
   values.update(
     ACC_AVAILABLE=1,
-    ACC_ACTIVE=1 if long_active else 0,
-    ACC_GO=1 if (long_active and starting) else 0,
-    ACC_STANDSTILL=1 if (long_active and stopping) else 0,
-    ACC_DECEL_REQ=1 if (long_active and accel < -0.1) else 0,
-    ACC_DECEL=accel if long_active else 0.0,
-    ACC_BRK_PREP=0,  # OP long accel path; ACC_BRK_PREP is not AEB (see COLLISION_BRK_PREP above)
-    ENGINE_TORQUE_REQUEST=torque if long_active else WK2_2019_TORQUE_MIN,
-    ENGINE_TORQUE_REQUEST_MAX=1 if (long_active and accel > 0.05) else 0,
+    ACC_ACTIVE=1,
+    ACC_GO=1 if starting else 0,
+    ACC_STANDSTILL=1 if stopping else 0,
+    ACC_DECEL_REQ=1 if braking else 0,
+    ACC_DECEL=accel if braking else WK2_2019_ACC_DECEL_IDLE,
+    ACC_BRK_PREP=0,
+    ENGINE_TORQUE_REQUEST=WK2_2019_TORQUE_MIN if braking else torque,
+    ENGINE_TORQUE_REQUEST_MAX=0 if braking else 1,
     COUNTER=(int(das_3["COUNTER"]) + counter_offset) % 16,
   )
   return packer.make_can_msg("DAS_3", 0, values)
