@@ -191,13 +191,13 @@ def test_hda2_uses_stronger_friction_damping_in_both_longitudinal_modes(alpha):
   controller = LatControlTorque(cp.as_reader(), interfaces[cp.carFingerprint](cp), .01)
   policy = controller.starpilot_extension.policy
   for sign in (-1., 1.):
-    for speed, demand, increment in ((10.5, .3, 0.), (21., .3, .28), (30., 1.1, .14), (30., 1.65, 0.)):
+    for speed, demand, increment in ((10.5, .3, 0.), (24., .3, .28), (30., 1.1, .14), (30., 1.65, 0.)):
       baseline, scale = policy.friction(sign * demand, .4, speed)
       assert policy.friction_context(sign * demand, .4, 0., speed) == pytest.approx((baseline + increment, scale))
 
   vm = VehicleModel(cp)
   parameters = log.VehicleParameters.new_message(angleOffsetDeg=0., roll=0.)
-  state = SimpleNamespace(vEgo=21., steeringAngleDeg=0., steeringPressed=False)
+  state = SimpleNamespace(vEgo=24., steeringAngleDeg=0., steeringPressed=False)
   shaped = policy.friction_context
   increments = []
 
@@ -249,7 +249,8 @@ def test_palisade_ramp_friction_is_limited_to_shallow_mid_speed_corrections(topo
   mid_speed_damping = .28 * (15. - 10.5) / (17. - 10.5) if policy.hda2 else 0.
   highway_damping = .28 if policy.hda2 else 0.
   for demand in (-.1, .1):
-    for speed, increment in ((10.5, 0.), (15., mid_speed_damping + extra), (21., highway_damping), (30., highway_damping)):
+    for speed, increment in ((10.5, 0.), (15., mid_speed_damping + extra), (22., highway_damping + extra * 2. / 3.5),
+                             (24., highway_damping), (30., highway_damping)):
       threshold, scale = policy.friction(demand, .4, speed)
       assert policy.friction_context(demand, .4, 0., speed) == pytest.approx((threshold + increment, scale))
 
