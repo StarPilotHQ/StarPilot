@@ -114,6 +114,14 @@ class TestParkedRuntime(unittest.TestCase):
       self.assertLessEqual(-correction * 12.5 ** 2, runtime.MAX_LATERAL_ACCEL + 1e-12)
     self.assertLess(correction, 0.0)
 
+  def test_oncoming_mid_shift_pulls_back(self):
+    subject = host()
+    narrow = model_message(left_line=-1.3)
+    _, _, now = drive(subject, 4.0, PARKED, model=narrow)
+    self.assertAlmostEqual(subject.shift, 0.3, places=5)
+    drive(subject, 0.3, PARKED + [(9, 90.0, 2.5, -22.0)], model=narrow, start=now)
+    self.assertLessEqual(subject.shift, 0.2 + 1e-6)
+
   def test_roadside_objects_are_ignored(self):
     self.assertEqual(drive(host(), 4.0, PARKED, model=model_message(right_edge=2.2))[0], 0.0)
     self.assertLess(drive(host(), 4.0, PARKED, model=model_message(right_edge=2.2, edge_std=1.4))[0], 0.0)

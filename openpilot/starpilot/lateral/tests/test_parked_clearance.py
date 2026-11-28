@@ -54,6 +54,29 @@ class TestParkedClearance(unittest.TestCase):
     self.assertEqual(run(detector, [RadarPoint(1, 20.0, 2.3, 0.0)], 3.0, speed=13.0), 0.0)
     self.assertEqual(detector.reason, 'speed')
 
+  def test_shift_follows_room_drop_quickly(self):
+    detector = ParkedClearance()
+    point = [RadarPoint(1, 20.0, 2.3, 0.0)]
+    self.assertAlmostEqual(run(detector, point, 3.0, room=0.6), 0.3)
+    run(detector, point, 0.25, room=0.05)
+    self.assertLessEqual(detector.shift, 0.05 + 1e-9)
+
+  def test_release_after_passing_stays_gentle(self):
+    detector = ParkedClearance()
+    run(detector, [RadarPoint(1, 20.0, 2.3, 0.0)], 3.0, room=0.6)
+    run(detector, [], pc.HOLD_SECONDS + pc.TRACK_GAP_SECONDS + DT)
+    before = detector.shift
+    run(detector, [], 1.0)
+    self.assertAlmostEqual(before - detector.shift, pc.FALL_RATE * 1.0, places=6)
+
+  def test_flickering_room_keeps_the_smaller_value(self):
+    detector = ParkedClearance()
+    point = [RadarPoint(1, 20.0, 2.3, 0.0)]
+    for i in range(round(3.0 / DT)):
+      detector.update(point, 11.0, DT, 1.0, 0.6 if i % 2 else 0.1, True)
+      self.assertLessEqual(detector.shift, 0.1 + 1e-9)
+    self.assertAlmostEqual(detector.shift, 0.1)
+
   def test_on_road(self):
     self.assertTrue(pc.on_road(2.6, 3.4, 0.4))
     self.assertFalse(pc.on_road(3.0, 2.5, 0.3))

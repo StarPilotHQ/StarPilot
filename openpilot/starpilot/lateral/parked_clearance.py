@@ -28,6 +28,8 @@ MIN_LIMIT = 0.1
 MAX_LIMIT = 0.5
 RISE_RATE = 0.4
 FALL_RATE = 0.15
+ROOM_FALL_RATE = 1.0
+ROOM_HOLD_SECONDS = 0.5
 MIN_LINE_SPACING = 0.9
 ONCOMING_LINE_SPACING = 1.1
 MIN_EDGE_SPACING = 1.5
@@ -112,6 +114,7 @@ class ParkedClearance:
     self.demand = 0.0
     self.hold = 0.0
     self.reason = 'inactive'
+    self.rooms: list[tuple[float, float]] = []
 
   def reset(self) -> None:
     self.tracks.clear()
@@ -119,6 +122,12 @@ class ParkedClearance:
     self.demand = 0.0
     self.hold = 0.0
     self.reason = 'inactive'
+    self.rooms = []
+
+  def _held_room(self, room: float, dt: float) -> float:
+    self.rooms = [(age + dt, value) for age, value in self.rooms if age + dt <= ROOM_HOLD_SECONDS]
+    self.rooms.append((0.0, room))
+    return min(value for _, value in self.rooms)
 
   def update(self, points, speed: float, dt: float, gap: float, room: float, active: bool, limit: float = MAX_SHIFT, watch: bool = False) -> float:
     values = (speed, dt, gap, room, limit)
@@ -161,9 +170,13 @@ class ParkedClearance:
       self.reason = 'hold'
     else:
       self.demand, self.reason = 0.0, 'clear'
-    target = min(self.demand, limit, max(0.0, room))
+    room = self._held_room(room, dt)
+    cap = min(limit, max(0.0, room))
+    target = min(self.demand, cap)
     if target < self.demand and self.reason == 'parked' and room < min(self.demand, limit):
       self.reason = 'left_limited'
+    if self.shift > cap:
+      self.shift = max(cap, self.shift - ROOM_FALL_RATE * dt)
     step = target - self.shift
     self.shift += min(step, RISE_RATE * dt) if step > 0 else max(step, -FALL_RATE * dt)
     return self.shift
