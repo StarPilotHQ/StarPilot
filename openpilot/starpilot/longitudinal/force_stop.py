@@ -38,6 +38,7 @@ class StopTune:
   reanchor_speed_tolerance: float | None = None
   low_speed_hold_mps: float | None = None
   distance_control: bool = False
+  distance_handoff: bool = False
 
 
 def vehicle_tune(fingerprint: str) -> StopTune:
@@ -402,6 +403,8 @@ class ForceStop:
       obstacle = max(0.0,min(self.distance * .93 + offset + tune.distance_bias_m,
                              (self.distance + offset + tune.distance_bias_m) * .93))
     should_stop = self.stop_requested if tune.distance_control else bool(self.forcing and ceiling is not None and ceiling <= .5)
+    if tune.distance_handoff and should_stop and not frame.standstill:
+      obstacle = max(0.0, self.distance * .93 + offset + tune.distance_bias_m)
     return StopPlan(now, ceiling, obstacle, self.forcing, should_stop,
                     max(0.0,self.distance) if self.forcing else 0.0, approach,
                     tune.jerk_scale if self.forcing or approach > 0 else 1.0, bool(held and self.forcing and not overridden),

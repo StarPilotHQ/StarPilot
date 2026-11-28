@@ -203,7 +203,7 @@ def test_wheel_choices_keep_aol_with_either_longitudinal_owner(car, alternate, a
   assert 'Toggle AOL' in feature.choices('MainCruiseButtonControl')
 
 
-def test_idle_handoff_omits_only_kona_steering_packet():
+def test_kona_steering_has_its_own_continuous_counter():
   reference_cp = kona_params(CARS[0])
   handoff_cp = kona_params(CARS[0])
   for cp, word in ((reference_cp, 0x0C0C), (handoff_cp, 0x1C0C)):
@@ -212,11 +212,11 @@ def test_idle_handoff_omits_only_kona_steering_packet():
   reference, candidate = CarInterface(reference_cp), CarInterface(handoff_cp)
   source = Mock()
   source.owns_display_status.return_value = False
+  source.last_fault.return_value = None
   candidate.CS.stock_lfa_status = source
   states = ((False, False, 10), (True, True, 11), (False, True, 11), (True, False, 12),
             (True, True, None), (False, False, 13), (True, True, 14))
-  expected_counters = (None, 11, None, 12, None, None, 14)
-  for (enabled, lateral, camera_counter), expected in zip(states, expected_counters, strict=True):
+  for expected, (enabled, lateral, camera_counter) in enumerate(states):
     if camera_counter is None:
       source.current.return_value = None
     else:
@@ -226,7 +226,7 @@ def test_idle_handoff_omits_only_kona_steering_packet():
     _, after = candidate.apply(ctrl, 1_000_000_000)
     assert [frame for frame in after if frame[0] != 0x12A] == [frame for frame in before if frame[0] != 0x12A]
     assert any(frame[0] == 0x12A for frame in before)
-    assert [data[2] for addr, data, _ in after if addr == 0x12A] == ([] if expected is None else [expected])
+    assert [data[2] for addr, data, _ in after if addr == 0x12A] == [expected]
 
 @pytest.mark.parametrize('panda_type,faults,expected', [('cuatro', [], 0x1C0C), ('redPanda', [], 0x0C0C), ('cuatro', ['fault'], 0x0C0C)])
 def test_kona_factory_handoff_is_limited_to_healthy_internal_c4(panda_type, faults, expected):

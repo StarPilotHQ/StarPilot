@@ -178,7 +178,6 @@ class CarController(CarControllerBase):
                                   int(CP.safetyConfigs[-1].safetyParam) in (0x0811, 0x0891))
     self.canfd_torque_aol_status = (qualified_canfd_stock_aol(CP) or qualified_canfd_long_aol(CP))
     self.ccnc_fault_ownership_required = preserves_stock_lfa(CP)
-    self.kona_last_lfa_counter = None
     self.canfd_dash_icons = CanFDDashIcons() if ioniq6_status or self.canfd_torque_aol_status else None
     self.classic_dash_icons = CanFDDashIcons() if classic_aol_dash_enabled(CP) else None
     self.classic_lfa_icon = None
@@ -590,29 +589,19 @@ class CarController(CarControllerBase):
                                                             qualified_warning=stock_owned_status)
         if self.CP.carFingerprint == CAR.KIA_SPORTAGE_5TH_GEN:
           sportage_legacy_display = stock_source.sportage_legacy_display(self.CP, clock_boot_ns(), healthy=display_healthy)
-        if ccnc_non_lka:
+        if ccnc_non_lka and not kona_handoff:
           stock_ccnc_owned = stock_source.owns_ccnc_fault_status(clock_boot_ns(), display_sample_ns=CS.ccnc_162_ts_ns,
                                                                healthy=display_healthy, qualified_warning=stock_owned_status)
       damping_source = getattr(CS, "stock_lkas_damping", None)
-      lfa_counter = None
-      if kona_handoff:
-        if (CC.enabled or CC.latActive) and stock_lfa is not None:
-          if stock_lfa[2] != self.kona_last_lfa_counter:
-            lfa_counter = stock_lfa[2]
-            self.kona_last_lfa_counter = lfa_counter
-        else:
-          self.kona_last_lfa_counter = None
-      if not kona_handoff or lfa_counter is not None:
-        can_sends.extend(hyundaicanfd.create_steering_messages(self.packer, self.CP, self.CAN,
-                                                              steering_status_active, apply_steer_req, apply_torque,
-                                                              stock_lfa=stock_lfa, stock_lfa_faults=stock_faults,
-                                                              stock_lfa_owned_status=stock_owned_status,
-                                                              stock_lkas_damping=(damping_source.current_damping(clock_boot_ns())
-                                                                if damping_source is not None else None),
-                                                              lfa_counter=lfa_counter,
-                                                              legacy_lane_display=sportage_legacy_display))
-        if _projection is not None:
-          _projection.emit('hyundai.CANFD_TORQUE', apply_torque, apply_steer_req, can_sends[-1])
+      can_sends.extend(hyundaicanfd.create_steering_messages(self.packer, self.CP, self.CAN,
+                                                            steering_status_active, apply_steer_req, apply_torque,
+                                                            stock_lfa=stock_lfa, stock_lfa_faults=stock_faults,
+                                                            stock_lfa_owned_status=stock_owned_status and not kona_handoff,
+                                                            stock_lkas_damping=(damping_source.current_damping(clock_boot_ns())
+                                                              if damping_source is not None else None),
+                                                            legacy_lane_display=sportage_legacy_display))
+      if _projection is not None:
+        _projection.emit('hyundai.CANFD_TORQUE', apply_torque, apply_steer_req, can_sends[-1])
 
     # prevent LFA from activating on LKA steering cars by sending "no lane lines detected" to ADAS ECU
     if (
@@ -643,7 +632,7 @@ class CarController(CarControllerBase):
                                                     CC.enabled, hud_control, CC.leftBlinker, CC.rightBlinker,
                                                     CS.ccnc_161.copy(), CS.ccnc_162.copy(), CS.ccnc_1b5 if support_current else None,
                                                     CS.is_metric, CS.out, show_cruise, show_ccnc_lateral,
-                                                    owned_lfa_status=(stock_ccnc_owned if self.ccnc_fault_ownership_required else None),
+                                                    owned_lfa_status=stock_ccnc_owned if kona_handoff or self.ccnc_fault_ownership_required else None,
                                                     owned_cruise_status=kona_handoff))
           self.last_ccnc_161_ts_ns = CS.ccnc_161_ts_ns
           self.last_ccnc_162_ts_ns = CS.ccnc_162_ts_ns

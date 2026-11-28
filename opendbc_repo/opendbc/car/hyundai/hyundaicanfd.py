@@ -45,7 +45,7 @@ LFA_FAULT_MASK = bytes.fromhex("00000000c001c0f00000000000000000")
 
 
 def create_steering_messages(packer, CP, CAN, enabled, lat_active, apply_torque, *, stock_lfa=None, stock_lfa_faults=None,
-                             stock_lkas_damping=None, stock_lfa_owned_status=False, lfa_counter=None,
+                             stock_lkas_damping=None, stock_lfa_owned_status=False,
                              legacy_lane_display=False):
   values = {
     "LKA_OptUsmSta": 2,
@@ -74,8 +74,6 @@ def create_steering_messages(packer, CP, CAN, enabled, lat_active, apply_torque,
       lkas_values = {**values, "Damping_Gain": damping}
     ret.append(packer.make_can_msg(lkas_msg, CAN.ACAN, lkas_values))
   else:
-    if lfa_counter is not None:
-      values["COUNTER"] = lfa_counter
     message = packer.make_can_msg("LFA", CAN.ECAN, values)
     source = stock_lfa if stock_lfa is not None else stock_lfa_faults
     if source is not None:

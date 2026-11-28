@@ -190,3 +190,38 @@ class Ioniq5PEDistanceBrakingTests(TestCase):
       normal.long_control_state = LongCtrlState.pid
       normal.last_output_accel = -1.5
       self.assertLess(normal.update(True, state, -.8, True, (-3.5, 2.), context=context), -1.5)
+
+
+class KonaDistanceBrakingTests(TestCase):
+  def test_exact_profile_keeps_the_stop_line_and_uses_delivered_braking(self):
+    from dataclasses import replace
+
+    from opendbc.car.hyundai.tests.test_kona_ccnc_long_aol import CARS, kona_params
+    from openpilot.starpilot.longitudinal.force_stop import ForceStop, vehicle_tune
+    from openpilot.starpilot.longitudinal.force_stop_braking import eligible, kona_eligible
+    from openpilot.starpilot.longitudinal.tests.test_force_stop import frame
+
+    cp = kona_params(CARS[0])
+    cp.alternativeExperience = 32
+    cp.safetyConfigs[0].safetyParam = 0x1C0C
+    self.assertTrue(eligible(cp) and kona_eligible(cp))
+    cp.safetyConfigs[0].safetyParam = 0x0C0C
+    self.assertFalse(eligible(cp))
+    current, new = ForceStop(), ForceStop()
+    tune = vehicle_tune(str(cp.carFingerprint))
+    for force in (current, new):
+      force.forcing = True
+      force.distance = force.distance_cap = 6.2
+    sample = frame(20, speed_mps=3.58, horizon_m=23.1, light=True)
+    legacy = current.step(sample, tune)
+    candidate = new.step(sample, replace(tune, distance_handoff=True))
+    self.assertEqual(legacy.should_stop, candidate.should_stop)
+    self.assertEqual(legacy.tracked_distance_m, candidate.tracked_distance_m)
+    self.assertEqual(legacy.speed_ceiling_mps, candidate.speed_ceiling_mps)
+    self.assertTrue(candidate.should_stop)
+    self.assertIsNotNone(candidate.obstacle_m)
+    delivered, speed = -1.3, 3.58
+    command = distance_target(speed, delivered, candidate.obstacle_m, .55, existing_brake=True)
+    self.assertAlmostEqual(command, -1.2, delta=.15)
+    self.assertLess(distance_target(speed, 0., candidate.obstacle_m, .55, existing_brake=True), -1.8)
+    self.assertEqual(distance_target(speed, 0., .5, .55, existing_brake=True), -3.5)
