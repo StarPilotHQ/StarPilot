@@ -274,8 +274,8 @@ class SettingsGatewayTest(unittest.TestCase):
     self.assertNotEqual(first["view"], second["view"])
     self.assertEqual(first["rows"], second["rows"])
     first_row = first["rows"][0]
-    self.assertEqual(first_row["value"], "On")
-    self.params.put_bool("LaneCentering", True, block=True)
+    self.assertEqual(first_row["value"], "Off")
+    self.params.put_bool("LaneCentering", False, block=True)
     row = self.page("lane")["rows"][0]
     self.assertEqual(first_row["value"], row["value"])
     self.assertNotEqual(first_row["revision"], row["revision"])

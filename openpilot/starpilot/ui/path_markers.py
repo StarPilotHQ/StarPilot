@@ -290,12 +290,12 @@ class PathMarkers:
     if not self._paint:
       return
     stop = self._stop_point
-    if stop.box is not None:
+    if stop.box is not None and stop.strip is not None:
       alpha = stop.fade_filter.x if stop.committed else stop.fade_filter.x * STOP_OPACITY
       base = COLOR_FORCE_STOP if stop.committed else rl.WHITE
       draw_polygon(self._rect, stop.strip, rl.Color(base.r, base.g, base.b, int(255 * alpha)))
     lead = self._lead
-    if lead.box is None:
+    if lead.box is None or lead.strip is None:
       return
     alpha = lead.fade_filter.x
     color = lead_marker_color(self.road_style, alpha)

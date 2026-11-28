@@ -1,5 +1,4 @@
 from dataclasses import replace
-from types import SimpleNamespace
 
 import pytest
 
@@ -11,6 +10,7 @@ from openpilot.selfdrive.selfdrived.events import Events
 from openpilot.selfdrive.selfdrived.selfdrived import EventName, SelfdriveD
 from openpilot.selfdrive.selfdrived.state import StateMachine
 from openpilot.starpilot.aol.intent import AolSettings
+from openpilot.starpilot.aol.intent_companion import IntentCompanion
 from openpilot.starpilot.aol.runtime import AxisDecision, current_native
 from openpilot.starpilot.aol.tests.test_gm_held_native import Peers
 from openpilot.starpilot.aol.wire import IntentState, PandaSlot, SafetyState, encode_safety
@@ -45,7 +45,7 @@ def native_health(cp, stamp, session):
 
 @pytest.mark.parametrize('fault', ('none', 'assigned', 'missing_edge', 'stale', 'native_denial', 'native_fault',
                                    'hard_fault', 'main_off', 'other_user', 'no_prior_lat'))
-def test_mqb_cancel_can_publish_fresh_lateral_after_old_axis_expires(fault):
+def test_mqb_cancel_can_publish_fresh_lateral_after_old_axis_expires(fault, monkeypatch):
   # Route 5e: the prior axis expires during processing, 28 ms after a fresh physical Cancel.
   edge = 10_000_000_000
   now = edge + 28_173_000
@@ -58,7 +58,8 @@ def test_mqb_cancel_can_publish_fresh_lateral_after_old_axis_expires(fault):
   sd.aol_car_state_log_ns = source = edge - (3_000_000 if fault == 'stale' else 0)
   sd.conditional_car_state_valid = True
   sd.aol_last_intent = IntentState('mqb-card', 2, source, source, source + 200_000_000, True, False, False, True, True)
-  sd.aol_intent_companion = SimpleNamespace(integrity_epoch=44)
+  sd.aol_intent_companion = IntentCompanion(None)
+  sd.aol_intent_companion.integrity_epoch = 44
   sd.aol_published_input_proof = (sd.aol_session_id, edge - 11_623_000, edge - 5_618_000,
                                  edge + 24_382_000, 'mqb-card', 44, True, True, fault != 'no_prior_lat', True)
   sd.aol_authority_lost = sd.enabled = sd.active = False
@@ -75,7 +76,8 @@ def test_mqb_cancel_can_publish_fresh_lateral_after_old_axis_expires(fault):
   if fault != 'missing_edge':
     cs.buttonEvents = [structs.CarState.ButtonEvent(type='cancel', pressed=True)]
   slot, native, wire, panda = native_health(cp, edge - 29_808_000, sd.aol_session_id)
-  sd.sm = Peers([wire.as_reader(), panda.as_reader()])
+  peers = Peers([wire.as_reader(), panda.as_reader()])
+  monkeypatch.setattr(sd, "sm", peers, raising=False)
   sd.aol_published_input_native = current_native(sd.sm, cp, now_ns=now, axis_session_id=sd.aol_session_id)
   assert sd.aol_published_input_native is not None
   if fault in ('native_denial', 'native_fault'):
@@ -84,7 +86,7 @@ def test_mqb_cancel_can_publish_fresh_lateral_after_old_axis_expires(fault):
     else:
       native = replace(native, pandaInventory=(replace(slot, safetyRxChecksInvalid=True),))
     wire.aolSafetyWire = encode_safety(native)
-    sd.sm.messages['aolSafetyWire'] = wire.as_reader()
+    peers.messages['aolSafetyWire'] = wire.as_reader()
   result = sd._expire_axis_continuity(cs, now)
   assert result == (fault != 'none')
   assert sd.aol_axis_decision.lateral_active == (fault == 'none')
@@ -94,7 +96,6 @@ def test_mqb_cancel_can_publish_fresh_lateral_after_old_axis_expires(fault):
 
 @pytest.mark.parametrize('fault', ('none', 'unverified', 'mutated', 'session', 'revoked', 'old', 'hard_fault', 'native_denial'))
 def test_mqb_armed_source_gap_handles_split_recovery(fault):
-  from openpilot.starpilot.aol.intent_companion import IntentCompanion
   from openpilot.starpilot.aol.transport_pause import AvailabilityPause, _healthy_transport_native
   from openpilot.starpilot.aol.wire import encode_intent
 

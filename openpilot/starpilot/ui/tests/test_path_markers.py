@@ -2,6 +2,7 @@
 from collections import defaultdict
 from dataclasses import replace
 from types import SimpleNamespace as NS
+from typing import cast
 from unittest.mock import Mock
 
 import numpy as np
@@ -113,10 +114,13 @@ def test_e2e_lead_labels_and_stale_speed():
   sm.valid['radarState'] = False
   sm['modelV2'].leadsV3 = [NS(prob=.9, x=[30.], y=[-.2], v=[12.]), NS(prob=.9, x=[60.], y=[0.], v=[12.])]
   sm['carState'].vEgo = 14.
-  distance, info = renderer._lead_source(sm)
+  result = renderer._lead_source(sm)
+  assert result is not None
+  distance, info = result
   assert distance == 30. and info.dRel == 30. - pm.RADAR_TO_CAMERA and info.vRel == -2.
   sm.valid['carState'] = False
-  assert renderer._lead_source(sm)[1].vRel is None
+  result = renderer._lead_source(sm)
+  assert result is not None and result[1].vRel is None
 
 
 @pytest.mark.parametrize('field,value', [('dRel', float('nan')), ('yRel', float('inf')), ('vRel', 'bad'), ('dRel', -1.)])
@@ -132,6 +136,7 @@ def test_lead_line_is_a_painted_strip_that_stays_thin_on_screen_and_never_spans_
   renderer = Renderer()
   run(renderer, messages(lead(d)))
   strip, box = renderer._lead.strip, renderer._lead.box
+  assert strip is not None and box is not None
   assert 4 - 1e-3 <= box.height <= 16 + 1e-3, 'perspective depth, clamped so it never thins out or becomes a block'
   assert box.width <= 0.3 * W + 1e-3
   assert box.y + box.height <= H - 16 + 1e-3
@@ -144,12 +149,15 @@ def test_strips_wind_like_the_path_ribbon_so_raylib_does_not_cull_them():
   renderer = Renderer(curve=.002)
   renderer._clip_region = rl.Rectangle(-500, -500, W + 1000, H + 1000)
   path = renderer._path.raw_points
-  ribbon = large_model.ModelRenderer._map_lines_to_polygons(renderer, [path], [.9], renderer._path_offset_z, len(path) - 1, 100.)[0]
+  ribbon = large_model.ModelRenderer._map_lines_to_polygons(
+    cast(large_model.ModelRenderer, renderer), [path], [.9], renderer._path_offset_z, len(path) - 1, 100.,
+  )[0]
   run(renderer, messages(lead(25.)))
 
   def winding(points):
     a, b, c = triangulate(points)[:3]
     return np.sign((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]))
+  assert renderer._lead.strip is not None
   assert winding(renderer._lead.strip) == winding(ribbon) != 0
 
 
@@ -190,6 +198,7 @@ def test_line_stays_on_the_path_while_the_lead_drifts_in_its_lane():
   for y in (-.8, 0., .8, -1.5):
     sm['radarState'].leadOne = lead(25., y=y)
     run(renderer, sm)
+    assert renderer._lead.strip is not None
     centers.append(float(renderer._lead.strip[[1, 2], 0].mean()))
   d = 25. + pm.RADAR_TO_CAMERA
   assert len(set(centers)) == 1, 'the car drifting in its lane never moves the line sideways'
@@ -254,6 +263,7 @@ def test_stop_line_shows_for_e2e_plans_and_turns_red_when_committed():
   renderer = Renderer()
   box = stop_box(renderer, messages(source=pm.E2E, stop_m=28.))
   strip = renderer._stop_point.strip
+  assert strip is not None
   assert box is not None and 4 - 1e-3 <= box.height <= 16 + 1e-3 and renderer._stop_point.committed is False
   assert abs(strip[2, 0] - strip[1, 0]) == pytest.approx(3.6 * F / (renderer._stop_point.d + pm.RADAR_TO_CAMERA), rel=1e-2), 'spans the lane'
   stop_box(renderer, messages(source=pm.E2E, stop_m=28.), markers=pm.PathMarkerInput(indicator=True, stop_committed=True), frames=1)
@@ -296,6 +306,7 @@ def test_stop_line_is_centered_on_the_path_on_a_curve():
   stop_box(renderer, messages(source=pm.E2E, stop_m=28.))
   d = renderer._stop_point.d + pm.RADAR_TO_CAMERA
   on_path = renderer.screen_x(d, .004 * d * d)
+  assert renderer._stop_point.strip is not None
   assert float(renderer._stop_point.strip[[1, 2], 0].mean()) == pytest.approx(on_path, abs=2)
   assert abs(on_path - CX) > 100, 'upstream centered it on the straight-ahead line instead'
 

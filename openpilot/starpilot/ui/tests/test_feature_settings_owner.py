@@ -398,17 +398,17 @@ class FeatureSettingsOwnerTests(unittest.TestCase):
     self.assertTrue(self.owner.apply(required_change(self._row("torque", "TurnAssist"))))
     self.assertTrue(VehicleStartupPreferences.read(self.params, enabled=True).turn_assist)
 
-  def test_lane_centering_default_and_saved_off_are_distinct(self):
+  def test_lane_centering_default_and_saved_on_are_distinct(self):
     self.assertIsNone(self.params.get("LaneCentering"))
-    row = self._row("lane", "LaneCentering")
-    self.assertEqual(row.value, "On")
-    self.assertEqual(row.default_value, "On")
-    self.assertIsNone(self.params.get("LaneCentering"))
-    self.params.put_bool("LaneCentering", False, block=True)
     row = self._row("lane", "LaneCentering")
     self.assertEqual(row.value, "Off")
-    self.assertEqual(row.default_value, "On")
-    self.assertFalse(self.params.get_bool("LaneCentering"))
+    self.assertEqual(row.default_value, "Off")
+    self.assertIsNone(self.params.get("LaneCentering"))
+    self.params.put_bool("LaneCentering", True, block=True)
+    row = self._row("lane", "LaneCentering")
+    self.assertEqual(row.value, "On")
+    self.assertEqual(row.default_value, "Off")
+    self.assertTrue(self.params.get_bool("LaneCentering"))
 
   def test_live_lane_owner_maps_only_explicit_keys(self):
     self.params.put_bool("LaneCentering", False, block=True)

@@ -100,12 +100,12 @@ def test_elantra_fast_takeoffs_settle_only_during_clear_cruise(case, monkeypatch
     sm['modelV2'].action.desiredAcceleration = 1.
     sm['radarState'].leadOne.present = case == 'lead one'
     sm['radarState'].leadTwo.present = case == 'lead two'
-    kwargs = {'faster_lead_takeoff': case != 'faster disabled', 'now_ns': now, 'drive_id': DRIVE,
-              'cruise_ceiling': CruiseCeiling(19.9, ACTIVE) if case == 'speed ceiling' else None}
-    candidate.update(sm, **kwargs)
+    faster = case != 'faster disabled'
+    ceiling = CruiseCeiling(19.9, ACTIVE) if case == 'speed ceiling' else None
+    candidate.update(sm, faster_lead_takeoff=faster, now_ns=now, drive_id=DRIVE, cruise_ceiling=ceiling)
     with monkeypatch.context() as restore:
       restore.setattr(lp, 'get_cruise_accel', previous)
-      original.update(sm, **kwargs)
+      original.update(sm, faster_lead_takeoff=faster, now_ns=now, drive_id=DRIVE, cruise_ceiling=ceiling)
     assert candidate.mpc.solution_status == original.mpc.solution_status == 0
     assert candidate.output_should_stop == original.output_should_stop
     if case != 'settling':

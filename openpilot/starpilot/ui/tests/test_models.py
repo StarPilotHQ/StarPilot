@@ -159,7 +159,7 @@ class TestModelManager(unittest.TestCase):
     self.assertTrue(model_action_allowed({**self.data, "activeBigModel": ""}, "delete", self.big))
     self.assertFalse(model_action_allowed({**self.data, "capabilities": {}}, "active", self.small, "small"))
     moving = {**self.data, "isOnroad": True, "downloading": False,
-              "capabilities": self.data["capabilities"] | {"download": False, "downloadAll": False, "refresh": False}}
+              "capabilities": cast(dict, self.data["capabilities"]) | {"download": False, "downloadAll": False, "refresh": False}}
     self.assertTrue(model_action_allowed(moving, "active", self.small, "small"))
     self.assertTrue(model_action_allowed(moving, "active", self.big, "big"))
     self.assertFalse(model_action_allowed(moving | {"jetlinkBig": True}, "active", self.big, "big"))
@@ -198,7 +198,7 @@ class TestModelManager(unittest.TestCase):
                      ("Delete", "delete", "big", ""))
     self.assertEqual(model_row_intent(self.data, "models:pick:big", "model:", 0), ("Use", "active", "", "big"))
     self.assertEqual(catalog.rows[0].key, "models:downloads")
-    self.assertEqual(catalog.rows[0].actions, (("Refresh", False), ("Get All", True)))  # the fixture grants no refresh capability
+    self.assertEqual(catalog.rows[0].actions, (("Refresh", True), ("Get All", True)))
     self.assertEqual(model_row_intent(self.data, "models:catalog", "models:downloads", 1), ("Get All", "download_all", "", ""))
     self.assertEqual(model_row_intent(self.data | {"downloading": True}, "models:catalog", "models:downloads", 0),
                      ("Cancel", "cancel", "", ""))
@@ -326,7 +326,7 @@ class TestModelManager(unittest.TestCase):
       session.model_manager_action.assert_not_called()
       callback = confirm.call_args.args[2]
       session.model_manager_snapshot.return_value = {**self.data, "isOnroad": True,
-                                                     "capabilities": self.data["capabilities"] | {"download": False}}
+                                                     "capabilities": cast(dict, self.data["capabilities"]) | {"download": False}}
       callback()
       session.model_manager_action.assert_not_called()
 

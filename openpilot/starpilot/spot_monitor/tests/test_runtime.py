@@ -1,7 +1,7 @@
 """Synthetic serialized cabin planes and fail-closed observation lifecycle."""
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from openpilot.common.params import Params
 from openpilot.starpilot.spot_monitor.inference import VASMInference
@@ -82,7 +82,7 @@ class Model(VASMInference):
 
 
 def test_diagnostics_share_a_budget_and_summarize_healthy_operation():
-  runtime = VASMRuntime(None, None, Client, lambda _event: None)
+  runtime = VASMRuntime(Mock(spec=Params), None, Client, lambda _event: None)
   with patch("openpilot.starpilot.spot_monitor.runtime.cloudlog.event") as log:
     runtime._diagnostic(1_000_000_000, "unavailable", "model_load", detail="unsupported model")
     for second in range(2, 31):

@@ -23,13 +23,11 @@ class TestBoltVehicleModel(unittest.TestCase):
                   CAR.CHEVROLET_BOLT_ACC_2022_2023_PEDAL, CAR.CHEVROLET_BOLT_EUV)
     for identity in identities:
       for mode in ('starpilot', 'standard'):
-        if identity == CAR.CHEVROLET_BOLT_EUV and mode == 'starpilot':
-          continue
         with self.subTest(identity=identity, mode=mode), OpenpilotPrefix(), patch.dict(os.environ, {'SIMULATION': '1'}):
           cp = params(identity, alpha=True)
           settings = Params()
           settings.put('CarParams', cp.to_bytes(), block=True)
-          if mode == 'standard' and identity != CAR.CHEVROLET_BOLT_EUV:
+          if mode == 'standard':
             document = {'version': 1, 'vehicles': {str(identity): {'brand': 'gm', 'mode': 'standard'}}}
             settings.put('LateralControllerSelection', document, block=True)
           controls = Controls()

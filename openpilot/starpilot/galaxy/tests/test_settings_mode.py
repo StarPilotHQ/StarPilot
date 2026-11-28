@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
@@ -25,7 +26,7 @@ def test_invalid_and_unauthorized_requests_do_not_write(tmp_path):
   params = params_at(tmp_path)
   for mode in ("developer", "", True, None, {}):
     with pytest.raises(ValueError):
-      save_mode(params, mode, authorized=lambda: True)
+      save_mode(params, cast(str, mode), authorized=lambda: True)
   with pytest.raises(RuntimeError):
     save_mode(params, "advanced", authorized=lambda: False)
   assert not (tmp_path / "d" / KEY).exists()

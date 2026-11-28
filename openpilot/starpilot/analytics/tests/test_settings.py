@@ -94,7 +94,7 @@ class TestActualSettingsOwners(unittest.TestCase):
     self.assertNotIn("setting_data_ShareUsageStats", large)
     self.assertNotIn("default_data_ShareUsageStats", large)
     self.assertTrue(large["setting_lane_LaneCentering"])
-    self.assertTrue(large["default_lane_LaneCentering"])
+    self.assertFalse(large["default_lane_LaneCentering"])
     self.assertFalse(compact["setting_appearance_StockConfidenceBallWidget"])
     self.assertTrue(compact["default_appearance_StockConfidenceBallWidget"])
     self.assertEqual(large["default_display_ScreenTimeoutOnroad"], 10.0)

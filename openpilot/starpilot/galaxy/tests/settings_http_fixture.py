@@ -1,7 +1,6 @@
 """Shared declared-context HTTP fixture; no physical vehicle evidence."""
 
 from pathlib import Path
-from types import SimpleNamespace
 import http.client
 import json
 import tempfile
@@ -30,12 +29,10 @@ class SettingsHttpFixture(unittest.TestCase):
     temporary = tempfile.TemporaryDirectory()
     self.addCleanup(temporary.cleanup)
     self.params = Params(temporary.name)
-    native = ToyotaInterface.get_non_essential_params(ToyotaCar.TOYOTA_COROLLA_TSS2)
-    cp = SimpleNamespace(carFingerprint="TOYOTA_COROLLA_TSS2", openpilotLongitudinalControl=True,
-      pcmCruise=False, notCar=False, dashcamOnly=False, passive=False,
-      brand="toyota", steerControlType=native.steerControlType, carVin="",
-      lateralTuning=native.lateralTuning, minSteerSpeed=native.minSteerSpeed, safetyConfigs=native.safetyConfigs,
-      transmissionType=car.CarParams.TransmissionType.automatic)
+    cp = ToyotaInterface.get_non_essential_params(ToyotaCar.TOYOTA_COROLLA_TSS2)
+    cp.openpilotLongitudinalControl = True
+    cp.pcmCruise = False
+    cp.transmissionType = car.CarParams.TransmissionType.automatic
     self.context = MutableContext(cp)
     self.gateway = SettingsGateway(self.params, self.context)
     self.access = GalaxyAccessOwner(Path(temporary.name) / "access")

@@ -1,4 +1,6 @@
 """Cruise MAIN assigned to Adopt speed limit is not also the Hyundai physical lateral toggle."""
+from pathlib import Path
+
 import pytest
 from opendbc.car import structs
 from openpilot.starpilot.aol.intent import AolCardIntent, AolSettings, read_settings
@@ -54,8 +56,9 @@ def test_main_toggle_is_unchanged_without_independent_cruise_buttons():
 
 
 class SavedParams:
-  def __init__(self, values):
+  def __init__(self, values, root=Path("/nonexistent")):
     self.values = values
+    self.root = root
 
   def get(self, key, return_default=False):
     return self.values.get(key)
@@ -64,7 +67,7 @@ class SavedParams:
     return self.values.get(key) == b'1'
 
   def get_param_path(self, key):
-    return f'/nonexistent/{key}'
+    return str(self.root / key)
 
 
 @pytest.mark.parametrize('lkas,main,main_wheel', [(b'0', b'10', True), (b'0', b'9', False), (b'10', b'0', False), (b'0', b'8', False)])
@@ -117,9 +120,8 @@ def test_mixed_palisade_lkas_bookmark_owns_only_the_wheel_action(tmp_path, topol
     cp.alphaLongitudinalAvailable = True
     cp.safetyConfigs[0].safetyParam |= 4
   assert (qualified_alpha if alpha_long else qualified)(cp, marked_only=True)
-  saved = SavedParams({'AlwaysOnLateral': b'1', 'LKASButtonControl': str(action).encode(), 'MainCruiseButtonControl': b'0'})
+  saved = SavedParams({'AlwaysOnLateral': b'1', 'LKASButtonControl': str(action).encode(), 'MainCruiseButtonControl': b'0'}, tmp_path)
   (tmp_path/'LKASButtonControl').write_bytes(saved.get('LKASButtonControl'))
-  saved.get_param_path = lambda key: str(tmp_path/key)
   owner = create_intent(cp, read_settings(saved))
   cs = structs.CarState(canValid=True, gearShifter='drive', cruiseState={'available': True, 'enabled': True})
   now = 3_000_000_000
@@ -189,8 +191,7 @@ def test_lkas_pause_mapping_only_pauses_the_selected_axis(action):
 def test_live_lkas_remap_does_not_also_toggle_default_aol(tmp_path, saved_action):
   from openpilot.starpilot.aol.intent import claim_remapped_lkas
 
-  saved = SavedParams({'AlwaysOnLateral': b'1'})
-  saved.get_param_path = lambda key: str(tmp_path/key)
+  saved = SavedParams({'AlwaysOnLateral': b'1'}, tmp_path)
   settings = read_settings(saved)
   owner = AolCardIntent(settings, explicit_latch=True)
   cs = armed(owner)

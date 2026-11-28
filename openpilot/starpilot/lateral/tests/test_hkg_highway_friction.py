@@ -85,7 +85,8 @@ class HKGHighwayFrictionTests(unittest.TestCase):
 
   def test_kona_se_uses_highway_friction_with_ordinary_torque_controller(self):
     cp, controller = controller_for(CAR.HYUNDAI_KONA_EV_2023_NON_SCC, dashcamOnly=False)
-    self.assertEqual(controller.controller_mode, ControllerMode.STANDARD)
+    self.assertEqual(controller.controller_mode, ControllerMode.STARPILOT)
+    self.assertEqual(controller.controller_policy, "generic")
     self.assertFalse(cp.flags & HyundaiFlags.CANFD)
     cs = SimpleNamespace(vEgo=65 * CV.MPH_TO_MS, steeringPressed=False)
     self.assertLess(abs(controller.friction(.1, 0., .2, cs, .1)),

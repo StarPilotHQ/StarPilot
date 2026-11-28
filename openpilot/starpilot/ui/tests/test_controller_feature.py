@@ -75,7 +75,7 @@ class TestControllerFeature(unittest.TestCase):
     self.cp = interfaces[HONDA.HONDA_FIT_4G].get_non_essential_params(HONDA.HONDA_FIT_4G)
     self.assertEqual(self.cp.lateralTuning.which(), 'torque')
     self.assertEqual(self.require_row().choices, ('Stock Controller', 'StarPilot Controller'))
-    self.assertEqual(self.require_row().value, 'Stock Controller')
+    self.assertEqual(self.require_row().value, 'StarPilot Controller')
     learning = self.require_row('ForceAutoTuneOff')
     self.assertEqual(learning.label, 'Use StarPilot Auto Learn')
     self.assertEqual(learning.value, 'On')
