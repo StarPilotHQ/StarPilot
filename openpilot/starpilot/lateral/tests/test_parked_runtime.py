@@ -122,6 +122,18 @@ class TestParkedRuntime(unittest.TestCase):
     drive(subject, 0.3, PARKED + [(9, 90.0, 2.5, -22.0)], model=narrow, start=now)
     self.assertLessEqual(subject.shift, 0.2 + 1e-6)
 
+  def test_wide_gap_reaches_far_curb_car(self):
+    wide = host(gap=2.5, limit=0.8)
+    self.assertLess(drive(wide, 4.0, [(7, 20.0, -4.0, -11.0)])[0], 0.0)
+    self.assertGreater(wide.shift, 0.25)
+    self.assertEqual(drive(host(gap=1.5), 4.0, [(7, 20.0, -4.0, -11.0)])[0], 0.0)
+
+  def test_large_limit_is_capped_by_lateral_accel(self):
+    subject = host(gap=2.5, limit=0.8)
+    correction = drive(subject, 6.0, [(7, 20.0, -2.6, -11.0)], model=model_message(line_prob=0.05))[0]
+    self.assertAlmostEqual(subject.shift, 0.8, places=5)
+    self.assertAlmostEqual(correction, -min(2.0 * 0.8 / 11.0 ** 2 * runtime.GAIN, runtime.MAX_LATERAL_ACCEL / 11.0 ** 2), places=9)
+
   def test_roadside_objects_are_ignored(self):
     self.assertEqual(drive(host(), 4.0, PARKED, model=model_message(right_edge=2.2))[0], 0.0)
     self.assertLess(drive(host(), 4.0, PARKED, model=model_message(right_edge=2.2, edge_std=1.4))[0], 0.0)
@@ -218,7 +230,7 @@ class TestParkedRuntime(unittest.TestCase):
       self.assertEqual(read_settings(saved), ParkedSettings(True, runtime.DEFAULT_GAP))
       (Path(root) / 'ParkedClearanceGap').write_bytes(b'1.2')
       self.assertEqual(read_settings(saved), ParkedSettings(True, 1.2))
-      for bad in (b'nan', b'0', b'9', b'x'):
+      for bad in (b'nan', b'0', b'2.6', b'9', b'x'):
         (Path(root) / 'ParkedClearanceGap').write_bytes(bad)
         self.assertEqual(read_settings(saved), ParkedSettings())
       (Path(root) / 'ParkedClearanceGap').write_bytes(b'1.2')
@@ -228,9 +240,13 @@ class TestParkedRuntime(unittest.TestCase):
       (Path(root) / 'IsRhdDetected').unlink()
       (Path(root) / 'ParkedClearanceShift').write_bytes(b'0.45')
       self.assertEqual(read_settings(saved), ParkedSettings(True, 1.2, 0.45))
-      for bad in (b'nan', b'0', b'0.6', b'x'):
+      for bad in (b'nan', b'0', b'0.85', b'x'):
         (Path(root) / 'ParkedClearanceShift').write_bytes(bad)
         self.assertEqual(read_settings(saved), ParkedSettings())
+      (Path(root) / 'ParkedClearanceShift').write_bytes(b'0.8')
+      (Path(root) / 'ParkedClearanceGap').write_bytes(b'2.5')
+      self.assertEqual(read_settings(saved), ParkedSettings(True, 2.5, 0.8))
+      (Path(root) / 'ParkedClearanceGap').write_bytes(b'1.2')
       (Path(root) / 'ParkedClearanceShift').unlink()
       (Path(root) / 'ParkedClearance').write_bytes(b'yes')
       self.assertEqual(read_settings(saved), ParkedSettings())

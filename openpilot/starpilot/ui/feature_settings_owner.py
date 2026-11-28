@@ -1238,7 +1238,7 @@ class FeatureSettingsOwner:
       parked_allowed = bool(configurable and lateral_context and parked_supported(self.vehicle_params()))
       parked_on = parked_allowed and self._value("ParkedClearance")[0] == "1"
       rows.extend((self._bool_row("ParkedClearance", "Parked car clearance", parked_allowed),
-                   self._number_row("ParkedClearanceGap", "Parked car gap", parked_on),
+                   self._number_row("ParkedClearanceGap", "Parked car target gap", parked_on),
                    self._number_row("ParkedClearanceShift", "Parked car max shift", parked_on)))
     elif page == FeaturePage.LANE_CHANGE:
       title = "Lane Changes"

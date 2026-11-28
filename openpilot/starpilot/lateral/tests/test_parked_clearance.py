@@ -18,7 +18,7 @@ def run_limit(points, limit):
   detector = ParkedClearance()
   shift = 0.0
   for _ in range(round(4.0 / DT)):
-    shift = detector.update(points, 11.0, DT, 2.0, 0.6, True, limit)
+    shift = detector.update(points, 11.0, DT, 2.0, 1.0, True, limit)
   return shift
 
 
@@ -53,6 +53,14 @@ class TestParkedClearance(unittest.TestCase):
     detector = ParkedClearance()
     self.assertEqual(run(detector, [RadarPoint(1, 20.0, 2.3, 0.0)], 3.0, speed=13.0), 0.0)
     self.assertEqual(detector.reason, 'speed')
+
+  def test_turning_speeds_add_nothing(self):
+    point = [RadarPoint(1, 20.0, 2.3, 0.0)]
+    self.assertEqual(run(ParkedClearance(), point, 3.0, speed=4.0), 0.0)
+    detector = ParkedClearance()
+    self.assertGreater(run(detector, point, 3.0, speed=5.0), 0.0)
+    run(detector, point, 0.35, speed=4.0)
+    self.assertEqual(detector.shift, 0.0)
 
   def test_shift_follows_room_drop_quickly(self):
     detector = ParkedClearance()
@@ -156,7 +164,8 @@ class TestParkedClearance(unittest.TestCase):
     point = [RadarPoint(1, 20.0, 2.3, 0.0)]
     self.assertAlmostEqual(run_limit(point, 0.1), 0.1)
     self.assertAlmostEqual(run_limit(point, 0.5), 0.5)
-    self.assertAlmostEqual(run_limit(point, 9.0), 0.5)
+    self.assertAlmostEqual(run_limit(point, 0.8), 0.8)
+    self.assertAlmostEqual(run_limit(point, 9.0), 0.8)
     for bad in (0.0, -0.2, math.nan):
       self.assertEqual(run_limit(point, bad), 0.0)
 

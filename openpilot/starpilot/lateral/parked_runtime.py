@@ -13,8 +13,8 @@ from openpilot.starpilot.lateral.parked_clearance import (
 from openpilot.starpilot.saved_source import read_saved
 
 GAIN = 0.45
-MAX_CORRECTION = 0.006
-MAX_LATERAL_ACCEL = 0.5
+MAX_CORRECTION = 0.009
+MAX_LATERAL_ACCEL = 0.7
 DEFAULT_GAP = 1.5
 DEFAULT_LIMIT = MAX_SHIFT
 MAX_RADAR_GAP_S = 0.25

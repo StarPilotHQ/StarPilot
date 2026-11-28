@@ -8,13 +8,13 @@ from bisect import bisect_left
 from dataclasses import dataclass
 import math
 
-MIN_SPEED = 3.0
+MIN_SPEED = 4.5
 MAX_SPEED = 12.5
 STATIONARY_SPEED = 1.5
 MIN_DISTANCE = 4.0
 MAX_DISTANCE = 35.0
 MIN_LATERAL = 1.5
-MAX_LATERAL = 3.8
+MAX_LATERAL = 4.3
 TRACK_LATERAL = 6.0
 CONFIRM_SECONDS = 0.4
 TRACK_GAP_SECONDS = 0.2
@@ -22,10 +22,10 @@ HOLD_SECONDS = 0.6
 LATERAL_TAU = 0.15
 EGO_HALF_WIDTH = 0.9
 OBJECT_HALF_WIDTH = 0.9
-MAX_GAP = 2.0
+MAX_GAP = 2.5
 MAX_SHIFT = 0.3
 MIN_LIMIT = 0.1
-MAX_LIMIT = 0.5
+MAX_LIMIT = 0.8
 RISE_RATE = 0.4
 FALL_RATE = 0.15
 ROOM_FALL_RATE = 1.0
@@ -171,7 +171,7 @@ class ParkedClearance:
     else:
       self.demand, self.reason = 0.0, 'clear'
     room = self._held_room(room, dt)
-    cap = min(limit, max(0.0, room))
+    cap = min(limit, max(0.0, room)) if self.reason != 'speed' else 0.0
     target = min(self.demand, cap)
     if target < self.demand and self.reason == 'parked' and room < min(self.demand, limit):
       self.reason = 'left_limited'
