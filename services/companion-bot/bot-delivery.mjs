@@ -39,7 +39,8 @@ export async function botPost(env, channel, payload) {
   const multipart = payload instanceof FormData;
   const fields = multipart ? JSON.parse(payload.get('payload_json')) : payload;
   const {thread_name:name, applied_tags:tags, ...message} = fields;
-  if(message.content && !(message.flags & (1<<15))){
+  const preview=name && channel===supportForum && !multipart && message.content?.length<=2000;
+  if(message.content && !(message.flags & (1<<15)) && !preview){
     const files=[];
     if(multipart){
       for(const [key,file] of payload){

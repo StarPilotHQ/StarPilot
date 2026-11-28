@@ -161,7 +161,8 @@ test('new linked ticket mentions the original reporter and both maintainers once
   }
   for(const [index,ids] of [[0,[reporter,nate,di]],[1,[nate,di]]]){
     assert.deepEqual(posts[index].allowed_mentions,{parse:[],users:ids});
-    const text=posts[index].components[0].components[0].content;
+    const text=posts[index].content;
+    assert.equal(posts[index].flags,undefined);
     for(const id of ids)assert.equal(text.split('<@'+id+'>').length,2);
     assert.ok(!text.includes(firestar));
     assert.ok(text.includes('Audio should continue.'));

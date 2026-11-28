@@ -259,9 +259,9 @@ export async function referralStore(path,request,store,env){
   const mentions=recipients.map(user=>'<@'+user+'>').join(' ');
   const original=record.reportText||record.summary||record.observed;
   const excerpt=original.length>3200?original.slice(0,3199)+'…':original;
-  const card=supportCard('',mentions+'\n\n**'+record.category+' support**\nWe moved your report here from driving feedback so the Companion support team can help. We copied your report below. You can reply in this thread with updates.\n\n'+excerpt+'\n\n[Original driving report]('+urlFor(source)+')',caseButtons(record.reporter,platform));
+  const content=mentions+'\n\n**'+record.category+' support**\nWe moved your report here from driving feedback so the Companion support team can help. We copied your report below. You can reply in this thread with updates.\n\n'+excerpt+'\n\n[Original driving report]('+urlFor(source)+')';
   let receipt;
-  try{receipt=await botPost(env,supportForum,{...card,thread_name:title,applied_tags:tags,allowed_mentions:{parse:[],users:recipients}});}
+  try{receipt=await botPost(env,supportForum,{content,components:caseButtons(record.reporter,platform),thread_name:title,applied_tags:tags,allowed_mentions:{parse:[],users:recipients}});}
   catch{return Response.json({message:'Ticket delivery is uncertain. Choose Move again in a minute to check Discord.'});}
   if(!receipt.ok){
     if(receipt.status>=400&&receipt.status<500)await store.put(key,record);
