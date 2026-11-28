@@ -79,6 +79,12 @@ TOYOTA_COROLLA_TSS2_UNWIND_SMOOTH_SPEED_ONSET_WIDTH = 0.5
 TOYOTA_COROLLA_TSS2_RELEASE_HOLD_SECONDS = 1.5
 TOYOTA_COROLLA_TSS2_RELEASE_HOLD_WN = 2.0
 TOYOTA_COROLLA_TSS2_RELEASE_HOLD_MIN_LAT = 0.3
+TOYOTA_COROLLA_TSS2_CARRY_RISE_SECONDS = 0.4
+TOYOTA_COROLLA_TSS2_CARRY_FALL_SECONDS = 0.2
+TOYOTA_COROLLA_TSS2_CARRY_DRIVER_TORQUE_SCALE = 250.0
+TOYOTA_COROLLA_TSS2_CARRY_ASSIST_RATE = 0.8
+TOYOTA_COROLLA_TSS2_CARRY_ASSIST_MAX = 0.4
+TOYOTA_COROLLA_TSS2_CARRY_ASSIST_RELEASE_SECONDS = 1.0
 
 
 def get_toyota_corolla_tss2_ff_scale(desired_lateral_accel: float, desired_lateral_jerk: float, v_ego: float) -> float:
@@ -154,6 +160,8 @@ class CorollaTSS2TorquePolicy:
     self.unwind_target_rate = 0.0
     self.unwind_blend = FirstOrderFilter(0.0, TOYOTA_COROLLA_TSS2_UNWIND_SMOOTH_BLEND_TAU, self.dt)
     self.release_hold = 0.0
+    self.carry = 0.0
+    self.carry_assist = 0.0
     self.low_speed_reset_threshold = max(CP.minSteerSpeed, 0.3)
 
   def update(self, active, CS, VM, params, steer_limited_by_safety, desired_curvature, curvature_limited, lat_delay):
@@ -173,6 +181,8 @@ class CorollaTSS2TorquePolicy:
       self.unwind_target_rate = 0.0
       self.unwind_blend.x = 0.0
       self.release_hold = 0.0
+      self.carry = 0.0
+      self.carry_assist = 0.0
       self.prev_desired_lateral_accel = future_desired_lateral_accel
       self.prev_steering_pressed = CS.steeringPressed
       pid_log.active = False
@@ -194,6 +204,21 @@ class CorollaTSS2TorquePolicy:
     desired_lateral_jerk = float(np.clip(self.jerk_filter.update(raw_lateral_jerk), -MAX_LAT_JERK_UP, MAX_LAT_JERK_UP))
     gravity_adjusted_future_lateral_accel = future_desired_lateral_accel - roll_compensation
     setpoint = expected_lateral_accel + desired_lateral_jerk * lat_delay
+    in_turn = abs(measurement) > TOYOTA_COROLLA_TSS2_RELEASE_HOLD_MIN_LAT and CS.vEgo < TOYOTA_COROLLA_TSS2_SPEED_CUTOFF
+    if CS.steeringPressed and not self.prev_steering_pressed:
+      self.carry = max(self.carry, self.release_hold)
+    if CS.steeringPressed and in_turn:
+      self.carry = min(self.carry + self.dt / TOYOTA_COROLLA_TSS2_CARRY_RISE_SECONDS, 1.0)
+      driver = float(np.clip(-float(getattr(CS, 'steeringTorque', 0.0)) / TOYOTA_COROLLA_TSS2_CARRY_DRIVER_TORQUE_SCALE, -1.0, 1.0))
+      if driver * measurement > 0.0:
+        self.carry_assist += TOYOTA_COROLLA_TSS2_CARRY_ASSIST_RATE * driver * self.dt
+      else:
+        self.carry_assist *= 1.0 - self.dt / TOYOTA_COROLLA_TSS2_CARRY_FALL_SECONDS
+      self.carry_assist = float(np.clip(self.carry_assist, -TOYOTA_COROLLA_TSS2_CARRY_ASSIST_MAX, TOYOTA_COROLLA_TSS2_CARRY_ASSIST_MAX))
+    else:
+      self.carry = max(self.carry - self.dt / TOYOTA_COROLLA_TSS2_CARRY_FALL_SECONDS, 0.0)
+      fall = TOYOTA_COROLLA_TSS2_CARRY_FALL_SECONDS if CS.steeringPressed else TOYOTA_COROLLA_TSS2_CARRY_ASSIST_RELEASE_SECONDS
+      self.carry_assist *= 1.0 - self.dt / fall
     if CS.steeringPressed:
       self.unwind_target = measurement
       self.unwind_target_rate = 0.0
@@ -206,9 +231,12 @@ class CorollaTSS2TorquePolicy:
     self.unwind_target_rate += (wn * wn * (setpoint - self.unwind_target) - 2.0 * wn * self.unwind_target_rate) * self.dt
     self.unwind_target += self.unwind_target_rate * self.dt
     unwind_blend = self.unwind_blend.update(get_toyota_corolla_tss2_unwind_weight(setpoint, desired_lateral_jerk, CS.vEgo))
-    unwind_offset = 0.0 if CS.steeringPressed else max(unwind_blend, self.release_hold) * (self.unwind_target - setpoint)
+    if CS.steeringPressed:
+      unwind_offset = self.carry * (measurement - setpoint)
+    else:
+      unwind_offset = max(unwind_blend, self.release_hold) * (self.unwind_target - setpoint)
     setpoint += unwind_offset
-    gravity_adjusted_future_lateral_accel += unwind_offset
+    gravity_adjusted_future_lateral_accel += unwind_offset + self.carry_assist
     desired_lateral_accel_magnitude_rate = (abs(setpoint) - abs(self.prev_desired_lateral_accel)) / self.dt
     unwind_detected = desired_lateral_accel_magnitude_rate < UNWIND_D_DES_THRESHOLD and abs(setpoint) < UNWIND_LAT_ACCEL_NEAR_ZERO
     self.prev_desired_lateral_accel = setpoint
