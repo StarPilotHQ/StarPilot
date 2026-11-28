@@ -1046,3 +1046,48 @@ def test_sportage_display_ownership_accepts_one_camera_frame_of_timing_skew(vehi
   assert observed[0x12A][7] >> 4 == (0 if owned else 15)
   assert observed[0x12A][6] >> 6 == int(case == 'camera_fault')
   assert observed[0x1E0][4] & 7 == (0 if owned else 3)
+
+
+@pytest.mark.parametrize('alpha', (False, True))
+@pytest.mark.parametrize('case', ('recorded', 'late', 'no_release', 'nonzero_release', 'eps_fault', 'camera_fault', 'crc_gap'))
+def test_sportage_recovers_display_after_camera_yields_steering(alpha, case, clock):
+  cp = params(CAR.KIA_SPORTAGE_5TH_GEN, alpha=alpha, alternate=True)
+  ci = CarInterface(cp)
+  ci.update([])
+  packer = CANPacker(DBC[cp.carFingerprint][Bus.pt])
+  bus = ci.CC.CAN
+  command = structs.CarControl.new_message()
+  output = {}
+  for tick in range(41):
+    clock[0] = 40_000_000_000 + tick * 10_000_000
+    command.latActive = tick >= 2
+    warning = tick >= 18
+    release = 23 if case not in ('late', 'no_release') else 37 if case == 'late' else 42
+    factory_request = 16 <= tick < release
+    factory_torque = 4 if factory_request or (tick >= release and case == 'nonzero_release') else 0
+    stock = packer.make_can_msg('LFA', bus.CAM, {
+      'COUNTER': tick, 'LKA_SysIndReq': 4 if warning else 1, 'LKA_SysWrn': 15 if warning else 0,
+      'ActToiSta': int(factory_request), 'StrTqReqVal': factory_torque, 'ToiFltSta': int(warning and case == 'camera_fault'),
+    })
+    if case == 'crc_gap' and tick == 20:
+      bad = bytes([stock[1][0] ^ 1]) + stock[1][1:]
+      stock = stock[0], bad, stock[2]
+    frames = [frame for frame in physical_frames(ci, packer, tick, stock) if frame[0] != 0xEA]
+    frames.append(packer.make_can_msg('MDPS', bus.ECAN, {'COUNTER': tick, 'MDPS_LkaToiActvSta': int(tick >= 4),
+                                                        'MDPS_LkaFailSta': int(warning and case == 'eps_fault')}))
+    if tick % 5 == 0:
+      frames.append(packer.make_can_msg('LFAHDA_CLUSTER', bus.CAM, {'COUNTER': tick // 5, 'NEW_SIGNAL_1': 3 if warning else 0}))
+    assert ci.update([(clock[0], frames)]).canValid
+    _, packets = ci.apply(command.as_reader(), clock[0])
+    for addr, data, src in packets:
+      if src != bus.ECAN:
+        continue
+      if addr == 0x12A:
+        assert data[6] >> 4 & 3 == int(command.latActive)
+        if warning and tick < release:
+          assert data[7] >> 4 == 15
+      if addr in (0x12A, 0x1E0):
+        output[addr] = data
+  expected = case == 'recorded'
+  assert output[0x12A][7] >> 4 == (0 if expected else 15)
+  assert output[0x1E0][4] & 7 == (0 if expected else 3)

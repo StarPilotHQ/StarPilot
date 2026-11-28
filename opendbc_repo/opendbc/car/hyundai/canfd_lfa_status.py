@@ -46,9 +46,10 @@ class CANFDLfaStatus:
   LENGTH = 16
   MAX_AGE_NS = MAX_AGE_NS
 
-  def __init__(self, bus, *, eps_response_margin_ns=0):
+  def __init__(self, bus, *, eps_response_margin_ns=0, track_camera_release=False):
     self.bus = bus
     self.eps_response_margin_ns = eps_response_margin_ns
+    self.track_camera_release = track_camera_release
     self.last_packet_ns = 0
     self.counter = None
     self.body = None
@@ -62,6 +63,7 @@ class CANFDLfaStatus:
     self.camera_integrity = False
     self.camera_healthy_ns = 0
     self.camera_fault_since_ns = 0
+    self.camera_release_ns = 0
     self.camera_fault_same_batch_healthy = False
     self.request_active = False
     self.request_since_ns = 0
@@ -104,30 +106,46 @@ class CANFDLfaStatus:
           continue
         if address == self.ADDRESS and bus == self.bus and len(data) != self.LENGTH:
           self.camera_integrity = False
+          if self.track_camera_release:
+            self.camera_healthy_ns = 0
         if address != self.ADDRESS or bus != self.bus or len(data) != self.LENGTH:
           continue
         self.last_packet_ns = stamp
         if int.from_bytes(data[:2], 'little') != hkg_can_fd_checksum(address, None, bytearray(data)):
           self.camera_integrity = False
+          if self.track_camera_release:
+            self.camera_healthy_ns = 0
           continue
         counter = data[2]
         advancing = self.counter is None or counter == (self.counter + 1) % 256
         self.counter = counter
         if not advancing:
           self.camera_integrity = False
+          if self.track_camera_release:
+            self.camera_healthy_ns = 0
           continue
         self.camera_integrity = True
         body = bytes(data)
-        if self._ownership_warning(body):
+        camera_request = (body[6] >> 4) & 3
+        camera_warning = self._system_fail(body)
+        if self._ownership_warning(body) or (self.track_camera_release and camera_warning and camera_request == 1):
           if not self.camera_fault_since_ns:
             self.camera_fault_same_batch_healthy = (self.camera_healthy_ns == stamp and self.observed_ns == stamp and
                                                     self.body is not None and self.body[2] == (counter - 1) % 256)
             self.camera_fault_since_ns = stamp
+          if camera_request:
+            self.camera_release_ns = 0
+          elif not self.camera_release_ns:
+            self.camera_release_ns = stamp
         else:
-          self.camera_fault_since_ns = 0
+          self.camera_fault_since_ns = self.camera_release_ns = 0
           self.camera_fault_same_batch_healthy = False
           indication = (body[4] >> 6) | ((body[5] & 1) << 2)
-          self.camera_healthy_ns = stamp if indication < 4 and not (body[6] & 0xF0 or body[7] >> 4 == 15) else 0
+          normal = indication < 4 and not (body[6] & 0xC0 or body[7] >> 4 == 15)
+          if normal and camera_request == 0:
+            self.camera_healthy_ns = stamp
+          elif not (self.track_camera_release and normal and camera_request == 1):
+            self.camera_healthy_ns = 0
         self.body, self.observed_ns = body, stamp
 
   def current(self, now_ns):
@@ -137,9 +155,12 @@ class CANFDLfaStatus:
 
 
   @staticmethod
+  def _system_fail(body):
+    return (((body[4] >> 6) | ((body[5] & 1) << 2)) == 4 and body[7] >> 4 == 15 and not body[6] & 0xC0)
+
+  @staticmethod
   def _ownership_warning(body):
-    return (((body[4] >> 6) | ((body[5] & 1) << 2)) == 4 and body[7] >> 4 == 15 and
-            not body[6] & 0xF0)
+    return CANFDLfaStatus._system_fail(body) and not body[6] & 0x30
 
   def steering_active_current(self, now_ns):
     return (self.eps_active and self.eps_healthy and
@@ -154,7 +175,12 @@ class CANFDLfaStatus:
     if not healthy or body is None or not self.camera_integrity or not eps_fresh or not self.eps_healthy:
       self.request_since_ns = self.display_fault_since_ns = self.display_last_active_ns = 0
       return False
-    if not self._ownership_warning(body):
+    release_delay = self.camera_release_ns - self.camera_fault_since_ns
+    # A short competing camera request can delay handover evidence until its release.
+    camera_released = (not self.track_camera_release or release_delay == 0 or
+                       (0 < release_delay <= MAX_AGE_NS + self.eps_response_margin_ns and
+                        not body[5] & 0xFE and body[6] & 0x0F == 8))
+    if not self._ownership_warning(body) or not camera_released:
       self.display_fault_since_ns = self.display_last_active_ns = 0
       return False
     established = self.display_fault_since_ns == self.camera_fault_since_ns and self.display_fault_since_ns > 0
