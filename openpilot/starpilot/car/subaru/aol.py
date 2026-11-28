@@ -16,6 +16,60 @@ def known_paddle_pause(cp, state, samples=()):
               for sample in states) and qualified(cp, marked_only=True))
 
 
+# Subaru's gear byte passes through an unmapped value for ~50-80 ms at the
+# Drive<->manual handoff (the ratio field reads 0 mid-shift), so carState
+# reports unknown for a handful of frames on an otherwise healthy exit.
+UNKNOWN_GEAR_TOLERANCE_NS = 150_000_000
+
+
+def unknown_gear_flicker(feedback, state, now_ns):
+  """Whether the current unknown-gear sample is a brief shift transient.
+
+  Maintains the run tracker on the card's transport feedback, where the other
+  Subaru retention state lives. A continuous unknown run counts as a transient
+  only while it is brief and it began from a drivable gear (drive or
+  manumatic) on valid CAN. A run from any other gear, a run on invalid CAN,
+  and a run that persists past the tolerance keep the generic classification,
+  so a genuine gear loss still disarms.
+  """
+  gears = structs.CarState.GearShifter
+  if not state.canValid or state.canTimeout or now_ns <= 0:
+    feedback.subaru_unknown_since_ns = 0
+    feedback.subaru_unknown_from_drivable = False
+    return False
+  if state.gearShifter != gears.unknown:
+    feedback.subaru_unknown_since_ns = 0
+    feedback.subaru_unknown_from_drivable = state.gearShifter in (gears.drive, gears.manumatic)
+    return False
+  if not feedback.subaru_unknown_since_ns:
+    feedback.subaru_unknown_since_ns = now_ns
+  return (feedback.subaru_unknown_from_drivable and
+          now_ns - feedback.subaru_unknown_since_ns <= UNKNOWN_GEAR_TOLERANCE_NS)
+
+
+def intent_disarming_fault(cp, events, state, **context):
+  """Brief unknown-gear flicker at the paddle-exit handoff is not a gear loss.
+
+  The generic classifier disarms on soft wrongGear with gear unknown. On the
+  Impreza the gear signal itself flickers to unknown for ~50-80 ms just after
+  a paddle episode exits to Drive, after the latch has already resumed, and
+  the stateless rule revokes intent the driver never withdrew. Filter the
+  soft wrongGear event while the flicker tracker reports a brief transient
+  out of a drivable gear; every other event, and an unknown that persists,
+  keeps the generic classification.
+  """
+  from openpilot.cereal import log
+  from openpilot.starpilot.aol.intent import disarming_fault
+  context.pop('startup_calibration_pending', False)
+  now_ns = context.pop('now_ns', 0)
+  feedback = context.pop('feedback', None)
+  if (feedback is not None and cp.carFingerprint == CAR.SUBARU_IMPREZA_2020 and qualified(cp, marked_only=True) and
+      unknown_gear_flicker(feedback, state, now_ns)):
+    events = [event for event in events if not (
+      event.name == log.OnroadEvent.EventName.wrongGear and event.softDisable and not event.immediateDisable)]
+  return disarming_fault(events, state, **context)
+
+
 def _drive_gear(cp, state):
   if cp is not None and cp.carFingerprint == CAR.SUBARU_LEGACY_2025:
     return state.gearShifter in (structs.CarState.GearShifter.drive, structs.CarState.GearShifter.manumatic)
