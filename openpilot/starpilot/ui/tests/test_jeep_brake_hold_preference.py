@@ -87,3 +87,30 @@ class TestJeepBrakeHoldPreference(unittest.TestCase):
       saved.put_bool('JeepBrakeHold', False, block=True)
       _, second = configuration.configuration_context(saved, cp, b'physical')
       self.assertNotEqual(first, second)
+
+
+  def test_runtime_authority_for_2021_grand_cherokee(self):
+    from openpilot.starpilot.ui import runtime_app
+    from openpilot.starpilot.feature_capabilities import vehicle_preferences_supported
+
+    cp = CarInterface.get_params(CAR.JEEP_GRAND_CHEROKEE_2019, gen_empty_fingerprint(), [], False, False, False)
+    session = runtime_app.StarShellSession.__new__(runtime_app.StarShellSession)
+    session._mode = runtime_app.ShellMode.SETTINGS
+    with tempfile.TemporaryDirectory() as directory, patch.object(runtime_app.ui_state, 'CP', cp):
+      owner = FeatureSettingsOwner(Params(directory), session._feature_authority,
+                                   vehicle_fingerprint=lambda: cp.carFingerprint, vehicle_params=lambda: cp)
+      with patch.object(session, 'configuration_allowed', return_value=True):
+        row = next(row for row in owner.snapshot('vehicle', parked=True, system_long=False,
+                                                 lateral_context=True, metric=False).rows if row.key == 'JeepBrakeHold')
+        self.assertTrue(row.available)
+        change = row_change(row)
+        assert change is not None
+        self.assertTrue(owner.apply(replace(change, confirmation=True)))
+      with patch.object(session, 'configuration_allowed', return_value=False):
+        self.assertFalse(owner.apply(replace(change, confirmation=True)))
+      cp.passive = True
+      self.assertFalse(session._feature_authority('vehicle'))
+    cp.passive = False
+    cp.carFingerprint = CAR.DODGE_DURANGO
+    self.assertFalse(vehicle_preferences_supported(cp))
+    self.assertFalse(vehicle_preferences_supported(None))
