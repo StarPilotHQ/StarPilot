@@ -23,6 +23,7 @@ class OrdinaryCcTorquePolicy(GMOrdinaryTorquePolicy):
     if not supported_cp(cp):
       raise ValueError('Unsupported conventional-cruise GM torque profile')
     self.yukon = cp.carFingerprint == CAR.GMC_YUKON_CC
+    self.yukon_xl = self.yukon and cp.wheelbase > 3.3
     super().__init__(parent, cp)
 
   def feedforward(self, value, setpoint, jerk, speed):
@@ -34,4 +35,9 @@ class OrdinaryCcTorquePolicy(GMOrdinaryTorquePolicy):
     z = math.exp(-x) if x >= 0.0 else math.exp(x)
     lat_weight = 1.0 / (1.0 + z) if x >= 0.0 else z / (1.0 + z)
     scale = 1.0 + ((.08 * max(phase, 0.0) - .12 * max(-phase, 0.0)) * speed_weight * lat_weight)
+    # Build torque earlier entering a curve at the XL's usual driving speeds.
+    if self.yukon_xl and phase > 0.0 and setpoint * value > 0.0:
+      entry_weight = float(np.interp(abs(setpoint), [.35, .75], [0.0, 1.0]))
+      entry_speed = float(np.interp(speed, [10.0, 14.0], [0.0, 1.0]))
+      scale += .05 * phase * entry_weight * entry_speed
     return value * scale
