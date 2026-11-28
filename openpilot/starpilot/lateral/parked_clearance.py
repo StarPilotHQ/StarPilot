@@ -9,11 +9,11 @@ from dataclasses import dataclass
 import math
 
 MIN_SPEED = 3.0
-MAX_SPEED = 17.0
+MAX_SPEED = 12.5
 STATIONARY_SPEED = 1.5
 MIN_DISTANCE = 4.0
 MAX_DISTANCE = 35.0
-MIN_LATERAL = 1.0
+MIN_LATERAL = 1.5
 MAX_LATERAL = 3.8
 TRACK_LATERAL = 6.0
 CONFIRM_SECONDS = 0.4
@@ -39,6 +39,8 @@ MAX_EDGE_STD = 1.5
 ONCOMING_SPEED = -2.0
 ONCOMING_LATERAL = 4.5
 ONCOMING_DISTANCE = 120.0
+ROADSIDE_LATERAL = 2.0
+MAX_ROADSIDE_EDGE_STD = 1.0
 
 
 @dataclass(frozen=True)
@@ -67,6 +69,15 @@ def path_lateral(path_x, path_y, distance: float, y_rel: float) -> float | None:
   ratio = (distance - path_x[index - 1]) / span
   value = -y_rel - (path_y[index - 1] + ratio * (path_y[index] - path_y[index - 1]))
   return value if math.isfinite(value) else None
+
+
+def on_road(lateral: float, edge: float | None, edge_std: float) -> bool:
+  """Far targets at or beyond a confident right road edge are roadside objects."""
+  if lateral <= ROADSIDE_LATERAL:
+    return True
+  if edge is None or not all(math.isfinite(v) for v in (lateral, edge, edge_std)):
+    return False
+  return edge_std > MAX_ROADSIDE_EDGE_STD or lateral < edge
 
 
 def oncoming_ahead(points) -> bool:

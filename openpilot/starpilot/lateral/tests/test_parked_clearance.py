@@ -48,6 +48,20 @@ class TestParkedClearance(unittest.TestCase):
       detector.update([RadarPoint(1, 20.0, 2.8 if index % 4 == 0 else 4.4, 0.0)], 11.0, DT, 1.5, 0.6, True)
       self.assertEqual(detector.shift, 0.0)
 
+  def test_close_roadside_target_and_high_speed_ignored(self):
+    self.assertEqual(run(ParkedClearance(), [RadarPoint(1, 20.0, 1.3, 0.0)], 3.0), 0.0)
+    detector = ParkedClearance()
+    self.assertEqual(run(detector, [RadarPoint(1, 20.0, 2.3, 0.0)], 3.0, speed=13.0), 0.0)
+    self.assertEqual(detector.reason, 'speed')
+
+  def test_on_road(self):
+    self.assertTrue(pc.on_road(2.6, 3.4, 0.4))
+    self.assertFalse(pc.on_road(3.0, 2.5, 0.3))
+    self.assertTrue(pc.on_road(1.8, 1.0, 0.3))
+    self.assertTrue(pc.on_road(3.0, 2.5, 1.4))
+    self.assertFalse(pc.on_road(3.0, None, 0.3))
+    self.assertFalse(pc.on_road(3.0, math.nan, 0.3))
+
   def test_far_lateral_and_moving_ignored(self):
     points = [RadarPoint(1, 20.0, 4.0, 0.0), RadarPoint(2, 20.0, 2.3, 8.0), RadarPoint(3, 20.0, -2.3, 0.0), RadarPoint(4, 40.0, 2.3, 0.0)]
     self.assertEqual(run(ParkedClearance(), points, 3.0), 0.0)

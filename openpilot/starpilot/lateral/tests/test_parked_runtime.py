@@ -26,7 +26,7 @@ class Bus:
     self.data[name], self.logMonoTime[name], self.valid[name] = message, stamp, valid
 
 
-def model_message(left_line=-1.7, line_prob=0.9):
+def model_message(left_line=-1.7, line_prob=0.9, right_edge=6.0, edge_std=0.3):
   model = log.ModelDataV2.new_message()
   xs = [float(x) for x in range(0, 100, 3)]
   model.position.x, model.position.y = xs, [0.0] * len(xs)
@@ -35,9 +35,9 @@ def model_message(left_line=-1.7, line_prob=0.9):
     line.x, line.y = xs, [y] * len(xs)
   model.laneLineProbs, model.laneLineStds = [0.9, line_prob, 0.9, 0.9], [0.1] * 4
   edges = model.init('roadEdges', 2)
-  for edge, y in zip(edges, (-6.0, 6.0), strict=True):
+  for edge, y in zip(edges, (-6.0, right_edge), strict=True):
     edge.x, edge.y = xs, [y] * len(xs)
-  model.roadEdgeStds = [0.3, 0.3]
+  model.roadEdgeStds = [0.3, edge_std]
   return model.as_reader()
 
 
@@ -110,9 +110,16 @@ class TestParkedRuntime(unittest.TestCase):
     subject = host(gap=2.0, limit=0.5)
     start = 1_000_000_000
     for _ in range(12):
-      correction, _, start = drive(subject, 0.5, [(7, 20.0, -2.6, -17.0)], speed=17.0, model=model_message(line_prob=0.05), start=start)
-      self.assertLessEqual(-correction * 17.0 ** 2, runtime.MAX_LATERAL_ACCEL + 1e-12)
+      correction, _, start = drive(subject, 0.5, [(7, 20.0, -2.6, -12.5)], speed=12.5, model=model_message(line_prob=0.05), start=start)
+      self.assertLessEqual(-correction * 12.5 ** 2, runtime.MAX_LATERAL_ACCEL + 1e-12)
     self.assertLess(correction, 0.0)
+
+  def test_roadside_objects_are_ignored(self):
+    self.assertEqual(drive(host(), 4.0, PARKED, model=model_message(right_edge=2.2))[0], 0.0)
+    self.assertLess(drive(host(), 4.0, PARKED, model=model_message(right_edge=2.2, edge_std=1.4))[0], 0.0)
+    self.assertLess(drive(host(), 4.0, [(7, 20.0, -1.8, -11.0)], model=model_message(right_edge=1.0))[0], 0.0)
+    self.assertEqual(drive(host(), 4.0, [(7, 20.0, -1.3, -11.0)])[0], 0.0)
+    self.assertEqual(drive(host(), 4.0, [(7, 20.0, -2.6, -13.0)], speed=13.0)[0], 0.0)
 
   def test_clear_road_and_far_objects_add_nothing(self):
     self.assertEqual(drive(host(), 3.0, [])[0], 0.0)

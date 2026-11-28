@@ -8,7 +8,7 @@ from openpilot.cereal.services import SERVICE_LIST
 from openpilot.common.scalar_clip import clip_scalar
 from openpilot.starpilot.feature_capabilities import lateral_supported
 from openpilot.starpilot.lateral.parked_clearance import (
-  MAX_GAP, MAX_LIMIT, MAX_SHIFT, MIN_LIMIT, ParkedClearance, RadarPoint, left_room, oncoming_ahead, path_lateral,
+  MAX_GAP, MAX_LIMIT, MAX_SHIFT, MIN_LIMIT, ParkedClearance, RadarPoint, left_room, on_road, oncoming_ahead, path_lateral,
 )
 from openpilot.starpilot.saved_source import read_saved
 
@@ -111,18 +111,25 @@ class ParkedClearanceHost:
           dt = 1.0 / SERVICE_LIST['radarTracks'].frequency
         self.last_radar_ns = radar_ns
         xs, ys = list(model.position.x), list(model.position.y)
-        points = []
+        right_edge, right_edge_std = model.roadEdges[1], float(model.roadEdgeStds[1])
+        ex, ey = list(right_edge.x), list(right_edge.y)
+        points, candidates = [], []
         for point in radar.points:
           lateral = path_lateral(xs, ys, float(point.dRel), float(point.yRel))
           if lateral is not None:
-            points.append(RadarPoint(int(point.trackId), float(point.dRel), lateral, float(point.vRel) + speed))
+            target = RadarPoint(int(point.trackId), float(point.dRel), lateral, float(point.vRel) + speed)
+            points.append(target)
+            edge = path_lateral(xs, ys, target.distance, 0.0)
+            edge_y = path_lateral(ex, ey, target.distance, 0.0)
+            if on_road(lateral, None if edge is None or edge_y is None else edge - edge_y, right_edge_std):
+              candidates.append(target)
         center = _at(xs, ys, lookahead)
         if abs(center) > MAX_PATH_SLOPE * lookahead:
           return self._stop('curve')
         line, edge = model.laneLines[1], model.roadEdges[0]
         room = left_room(center - _at(list(line.x), list(line.y), lookahead), float(model.laneLineProbs[1]), float(model.laneLineStds[1]),
                          center - _at(list(edge.x), list(edge.y), lookahead), float(model.roadEdgeStds[0]), oncoming=oncoming_ahead(points))
-        self.detector.update(points, speed, dt, self.settings.gap, room, True, self.settings.limit, watch)
+        self.detector.update(candidates, speed, dt, self.settings.gap, room, True, self.settings.limit, watch)
         self.reason = self.detector.reason
       elif watch:
         self.detector.shift, self.detector.demand, self.detector.hold, self.reason = 0.0, 0.0, 0.0, 'inactive'
